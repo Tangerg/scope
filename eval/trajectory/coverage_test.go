@@ -1,6 +1,8 @@
 package trajectory_test
 
 import (
+	startrand "crypto/rand"
+
 	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
@@ -11,19 +13,19 @@ import (
 	"testing"
 	"testing/synctest"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
 // The parent dispatches models and its children dispatch tools. Persistence
 // checkpoints are Framework progress and add no external operation to coverage.
-func interactionCoverage(events []agent.Event) *trajectory.Coverage {
+func interactionCoverage(events []run.Event) *trajectory.Coverage {
 	coverage := &trajectory.Coverage{}
 	seen := make(map[trajectory.EffectReference]bool)
 	for _, event := range events {
 		fact, started := event.EffectStarted()
-		if !started || fact.Target() != agent.EffectTargetDispatcher {
+		if !started || fact.Target() != run.EffectTargetDispatcher {
 			continue
 		}
 		id, _ := event.EffectID()
@@ -70,17 +72,17 @@ func TestCoverageClassifiesEffectsWithinOneDeployment(t *testing.T) {
 		change func(*trajectory.Coverage)
 		want   error
 	}{
-		{"invalid identity", func(c *trajectory.Coverage) { c.Models[0].ProcessID = agent.ProcessID{} }, trajectory.ErrInvalidTrajectory},
+		{"invalid identity", func(c *trajectory.Coverage) { c.Models[0].ProcessID = run.ProcessID{} }, trajectory.ErrInvalidTrajectory},
 		{"duplicate classification", func(c *trajectory.Coverage) { c.Other = append(c.Other, c.Models[0]) }, trajectory.ErrInvalidTrajectory},
 		{"missing classification", func(c *trajectory.Coverage) { c.Tools = nil }, trajectory.ErrIncompleteRecording},
-		{"wrong incarnation", func(c *trajectory.Coverage) { c.Tools[0].TreeIncarnationID = agent.TreeIncarnationID{} }, trajectory.ErrIncompleteRecording},
+		{"wrong incarnation", func(c *trajectory.Coverage) { c.Tools[0].TreeIncarnationID = run.TreeIncarnationID{} }, trajectory.ErrIncompleteRecording},
 		{"tool declared as model", func(c *trajectory.Coverage) { c.Models = append(c.Models, c.Tools...); c.Tools = nil }, trajectory.ErrIncompleteRecording},
 		{"extra classification", func(c *trajectory.Coverage) {
 			unexpected := c.Tools[0]
-			unexpected.EffectID, _ = agent.ParseEffectID("effect:unobserved")
+			unexpected.EffectID, _ = run.ParseEffectID("effect:unobserved")
 			c.Other = append(c.Other, unexpected)
 		}, trajectory.ErrIncompleteRecording},
-		{"unobserved effect", func(c *trajectory.Coverage) { c.Models[0].EffectID, _ = agent.ParseEffectID("effect:unobserved") }, trajectory.ErrIncompleteRecording},
+		{"unobserved effect", func(c *trajectory.Coverage) { c.Models[0].EffectID, _ = run.ParseEffectID("effect:unobserved") }, trajectory.ErrIncompleteRecording},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			config := trajectoryConfig(recorded)
@@ -147,26 +149,26 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+				descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 					Name: "test.coverage_replay", Description: "Classify one logical Effect across explicit replays.",
 					InputSchema: inputSchema, OutputSchema: outputSchema,
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
-				requests := make(chan agent.EffectRequest, unknownAttempts+1)
+				requests := make(chan run.EffectRequest, unknownAttempts+1)
 				dispatcher := &coverageReplayDispatcher{unknownAttempts: unknownAttempts, requests: requests}
-				deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+				deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 					Definition: coverageReplayDefinition{descriptor: descriptor}, Dispatcher: dispatcher,
-					ImplementationDigest: agent.ComputeDigest([]byte("coverage-replay-implementation")),
-					ConfigurationDigest:  agent.ComputeDigest([]byte("coverage-replay-configuration")),
+					ImplementationDigest: run.ComputeDigest([]byte("coverage-replay-implementation")),
+					ConfigurationDigest:  run.ComputeDigest([]byte("coverage-replay-configuration")),
 				})
 				if err != nil {
 					t.Fatal(err)
 				}
 				recorder := &trajectory.Recorder{}
-				engine, err := agent.NewEngine(agent.EngineConfig{
-					TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder},
+				engine, err := run.New(t.Context(), run.Config{
+					Store: run.NewMemoryStore(), EventListeners: []run.EventListener{recorder},
 				})
 				if err != nil {
 					t.Fatal(err)
@@ -176,17 +178,17 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 						t.Error(closeErr)
 					}
 				}()
-				input, err := agent.EncodePayload(fixtureInput{Value: "original"})
+				input, err := run.EncodePayload(fixtureInput{Value: "original"})
 				if err != nil {
 					t.Fatal(err)
 				}
-				process, err := engine.Start(t.Context(), deployment, input)
+				process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer func() {
 					ctx := context.WithoutCancel(t.Context())
-					if killErr := process.Kill(ctx, "release replay recording"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
+					if killErr := process.Kill(ctx, "release replay recording"); killErr != nil && !errors.Is(killErr, run.ErrProcessFinished) {
 						t.Error(killErr)
 					}
 					if joinErr := process.Join(ctx); joinErr != nil {
@@ -205,7 +207,7 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 				for attempt := uint32(1); attempt <= unknownAttempts; attempt++ {
 					replayErr := process.ReplayUnknownEffect(t.Context(), original.ID())
 					if attempt < unknownAttempts {
-						if !errors.Is(replayErr, agent.ErrEffectOutcomeUnknown) {
+						if !errors.Is(replayErr, run.ErrEffectOutcomeUnknown) {
 							t.Fatalf("uncertain replay = %v", replayErr)
 						}
 					} else if replayErr != nil {
@@ -221,13 +223,13 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 				if err != nil {
 					t.Fatalf("one classification for the replayed Effect: %v", err)
 				}
-				if recorded.Termination().Status() != agent.StatusCompleted || recorded.RootUsage().PreparedEffects != 1 {
+				if recorded.Termination().Status() != run.StatusCompleted || recorded.RootUsage().PreparedEffects != 1 {
 					t.Fatalf("replay outcome = %s, usage = %+v", recorded.Termination().Status(), recorded.RootUsage())
 				}
-				attempts := make(map[agent.EffectAttemptID]bool)
+				attempts := make(map[run.EffectAttemptID]bool)
 				for _, event := range recorded.Events() {
 					fact, started := event.EffectStarted()
-					if !started || fact.Target() != agent.EffectTargetDispatcher {
+					if !started || fact.Target() != run.EffectTargetDispatcher {
 						continue
 					}
 					id, _ := event.EffectID()
@@ -277,13 +279,15 @@ func TestRecorderCoverageClassifiesSameIdentityReplaysOnce(t *testing.T) {
 	}
 }
 
-type coverageReplayDefinition struct{ descriptor agent.Descriptor }
+type coverageReplayDefinition struct{ descriptor run.Descriptor }
 
-func (c coverageReplayDefinition) Descriptor() agent.Descriptor { return c.descriptor }
+func (c coverageReplayDefinition) Descriptor() run.Descriptor { return c.descriptor }
 
-func (coverageReplayDefinition) ChildDeployments() []agent.Deployment { return nil }
+func (coverageReplayDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+	return nil
+}
 
-func (coverageReplayDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (coverageReplayDefinition) Start(input run.Payload) (run.Execution, error) {
 	value, err := input.Decode[fixtureInput]()
 	if err != nil {
 		return nil, err
@@ -291,7 +295,7 @@ func (coverageReplayDefinition) Start(input agent.Payload) (agent.Execution, err
 	return &coverageReplayExecution{Value: value.Value}, nil
 }
 
-func (coverageReplayDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (coverageReplayDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -307,47 +311,47 @@ type coverageReplayExecution struct {
 	Issued bool   `json:"issued"`
 }
 
-func (c *coverageReplayExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (c *coverageReplayExecution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
 	if !c.Issued {
-		payload, err := agent.EncodePayload(fixtureInput{Value: c.Value})
+		payload, err := run.EncodePayload(fixtureInput{Value: c.Value})
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
-		effect, err := agent.NewDispatcherEffect(payload.JSON())
+		effect, err := run.NewDispatcherEffect(payload.JSON())
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
 		c.Issued = true
-		return agent.Continue(0, effect)
+		return run.Continue(0, effect)
 	}
 	if len(signals) != 1 || !signals[0].EngineOwned() {
-		return agent.Transition{}, agent.ErrInvalidExecutionState
+		return run.Transition{}, run.ErrInvalidExecutionState
 	}
-	output, err := agent.ParsePayload(signals[0].Payload())
+	output, err := run.ParsePayload(signals[0].Payload())
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
-	return agent.Complete(1, output)
+	return run.Complete(1, output)
 }
 
-func (c *coverageReplayExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.EncodeExecutionState("test.coverage_replay", c)
+func (c *coverageReplayExecution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState("test.coverage_replay", c)
 }
 
 type coverageReplayDispatcher struct {
 	unknownAttempts uint32
 	calls           atomic.Uint32
-	requests        chan<- agent.EffectRequest
+	requests        chan<- run.EffectRequest
 }
 
-func (c *coverageReplayDispatcher) Dispatch(_ context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
+func (c *coverageReplayDispatcher) Dispatch(_ context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	c.requests <- request
 	if c.calls.Add(1) <= c.unknownAttempts {
-		return agent.Settlement{}, errors.New("fixture outcome is uncertain")
+		return run.Settlement{}, errors.New("fixture outcome is uncertain")
 	}
-	return agent.NewSettlement(agent.SettlementStatusSucceeded, []byte(`{"value":"confirmed"}`))
+	return run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{"value":"confirmed"}`))
 }
 
-func (*coverageReplayDispatcher) Policy(agent.Effect) agent.EffectPolicy {
-	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
+func (*coverageReplayDispatcher) Policy(run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }

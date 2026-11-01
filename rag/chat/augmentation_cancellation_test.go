@@ -23,7 +23,7 @@ func TestContextualAugmenterDoesNotPublishAfterFormattingIsCanceled(t *testing.T
 		t.Fatal(err)
 	}
 	result, err := augmenter.Augment(ctx, mustQuery(t, "question"), rag.Candidates{candidate(&document.Document{Text: "evidence"})})
-	if !errors.Is(err, context.Canceled) || result.Text() != "" || len(result.Citations()) != 0 {
+	if !errors.Is(err, context.Canceled) || result.Text() != "" || result.Citations().Len() != 0 {
 		t.Fatalf("Augment = %q, %v", result.Text(), err)
 	}
 }

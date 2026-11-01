@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors/types"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -60,32 +60,28 @@ func TestConstructorBindsNativeSchemaAndSearchValidatesReturnedRecords(t *testin
 			case "bad Core JSON":
 				fixture.records[1].Metadata = json.RawMessage(`{"scope_id":"late","scope_content":"text","scope_metadata":"{]"}`)
 			}
-			calls := 0
 			config := fixture.config()
-			config.EmbeddingModel = embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return constantEmbeddingModel().Call(ctx, request)
-			})
 			store, err := NewStore(t.Context(), config)
 			switch test {
 			case "legacy record", "key projection", "vector width", "bad Core JSON":
-				if err != nil || calls != 0 || !slices.Equal(fixture.paths, []string{"/GetIndex"}) {
+				if err != nil || !slices.Equal(fixture.paths, []string{"/GetIndex"}) {
 					t.Fatalf("construction read stored vectors: %v", err)
 				}
 				options := vectorstore.SearchOptions{}
 				if test == "vector width" {
-					// QueryVectors returns no vector data. A predicate's ListVectors
-					// source read is the boundary that receives this malformed width.
-					options.Filter = filter.IsNull("absent")
+					if docs, scanErr := store.Scan(t.Context(), nil, scanBudget()); scanErr == nil || docs != nil {
+						t.Fatal("invalid vector width accepted")
+					}
+					return
 				}
-				response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+				response, searchErr := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 				if searchErr == nil || response != nil {
 					t.Fatalf("invalid returned vector accepted: %v, %v", response, searchErr)
 				}
 				return
 			}
-			if err == nil || store != nil || calls != 0 {
-				t.Fatalf("unbound store = %v, %v, model calls=%d", store, err, calls)
+			if err == nil || store != nil {
+				t.Fatalf("unbound store = %v, %v", store, err)
 			}
 		})
 	}
@@ -95,12 +91,7 @@ func TestSearchPreflightRunsBeforeModelAndNativeTopK(t *testing.T) {
 	for _, test := range []string{"predicate", "malformed late record", "duplicate key", "invalid width", "list token loop"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t, &document.Document{ID: "one", Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`42`)}})
-			calls := 0
 			config := fixture.config()
-			config.EmbeddingModel = embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return constantEmbeddingModel().Call(ctx, request)
-			})
 			store, err := NewStore(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
@@ -121,8 +112,8 @@ func TestSearchPreflightRunsBeforeModelAndNativeTopK(t *testing.T) {
 			case "list token loop":
 				fixture.listScript = []string{`{"vectors":[],"nextToken":"one"}`, `{"vectors":[],"nextToken":"two"}`, `{"vectors":[],"nextToken":"one"}`}
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: predicate}})
-			if err == nil || response != nil || calls != 0 || len(fixture.queries) != 0 {
+			response, err := store.Scan(t.Context(), predicate, scanBudget())
+			if err == nil || response != nil || len(fixture.queries) != 0 {
 				t.Fatalf("bad stored facts reached model or ANN: %v, %v", response, err)
 			}
 		})
@@ -133,13 +124,13 @@ func TestNativeQueryPagesValidateToCompletionAndOwnRank(t *testing.T) {
 	row := func(key string, distance string) string {
 		return fmt.Sprintf(`{"key":%q,"distance":%s,"metadata":{"scope_id":%q,"scope_content":"text","scope_metadata":"{}"}}`, key, distance, key)
 	}
-	for _, test := range []string{"rank", "empty advancing page", "bad late metadata", "token loop", "metric changed", "nonfinite distance", "duplicate key", "outside membership"} {
+	for _, test := range []string{"rank", "empty advancing page", "bad late metadata", "token loop", "metric changed", "nonfinite distance", "duplicate key"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t, &document.Document{ID: "a", Text: "text"}, &document.Document{ID: "b", Text: "text"})
 			store := fixture.store()
 			first := fmt.Sprintf(`{"distanceMetric":"cosine","vectors":[%s],"nextToken":"more"}`, row("a", "1"))
 			second := fmt.Sprintf(`{"distanceMetric":"cosine","vectors":[%s]}`, row("b", "0"))
-			predicate := filter.IsNull("missing")
+
 			switch test {
 			case "empty advancing page":
 				first = `{"distanceMetric":"cosine","vectors":[],"nextToken":"more"}`
@@ -153,11 +144,9 @@ func TestNativeQueryPagesValidateToCompletionAndOwnRank(t *testing.T) {
 				second = fmt.Sprintf(`{"distanceMetric":"cosine","vectors":[%s]}`, row("b", `"NaN"`))
 			case "duplicate key":
 				second = fmt.Sprintf(`{"distanceMetric":"cosine","vectors":[%s]}`, row("a", "0"))
-			case "outside membership":
-				second = fmt.Sprintf(`{"distanceMetric":"cosine","vectors":[%s]}`, row("other", "0"))
 			}
 			fixture.queryScript = []string{first, second}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: predicate}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1}})
 			if test == "rank" || test == "empty advancing page" {
 				if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "b" || len(fixture.queries) != 2 {
 					t.Fatalf("native rank or paging changed: %v, %v", response, err)
@@ -171,11 +160,14 @@ func TestNativeQueryPagesValidateToCompletionAndOwnRank(t *testing.T) {
 
 func TestNativeResultCountAndKeyGroups(t *testing.T) {
 	fixture := newProtocolFixture(t)
+	// This test verifies continuation tokens across independent requests. Each page
+	// must remain correct when the peer closes its connection after the response.
+	fixture.server.Config.SetKeepAlivesEnabled(false)
 	fixture.pageSize = 1000
 	for i := range 1201 {
 		fixture.records = append(fixture.records, fixture.record(&document.Document{ID: fmt.Sprintf("id-%04d", i), Text: "text"}, .5))
 	}
-	response, err := fixture.store().Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1201, Filter: filter.IsNull("missing")}})
+	response, err := fixture.store().Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1201}})
 	if err != nil || len(response.Results) != 1201 || len(fixture.queries) != 13 {
 		t.Fatalf("native key selection groups = %v, %v, %d queries", response, err, len(fixture.queries))
 	}
@@ -195,17 +187,6 @@ func TestNativeWriteCountAndByteBudgets(t *testing.T) {
 			if large {
 				count, text = 300, strings.Repeat("x", 35_000)
 				fixture.index["dimension"] = 4096
-				config.EmbeddingModel = embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-					outputs := make([]*embedding.Output, len(request.Texts))
-					for i := range outputs {
-						vector := make([]float64, 4096)
-						for j := range vector {
-							vector[j] = math.MaxFloat32
-						}
-						outputs[i] = &embedding.Output{Embedding: vector}
-					}
-					return embedding.NewResponse(outputs, nil)
-				})
 			}
 			store, err := NewStore(t.Context(), config)
 			if err != nil {
@@ -215,7 +196,17 @@ func TestNativeWriteCountAndByteBudgets(t *testing.T) {
 			for i := range docs {
 				docs[i] = &document.Document{ID: strconv.Itoa(i), Text: text}
 			}
-			if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			batch := fixtureBatch(docs)
+			if large {
+				for i := range batch.Records {
+					coords := make([]float64, 4096)
+					for j := range coords {
+						coords[j] = math.MaxFloat32
+					}
+					batch.Records[i].Values = coords
+				}
+			}
+			if err = store.Upsert(t.Context(), batch); err != nil {
 				t.Fatal(err)
 			}
 			if len(fixture.putCounts) != 2 {
@@ -256,7 +247,7 @@ func TestInvalidOptionsAndNativeFailuresReturnNoResponse(t *testing.T) {
 	store := fixture.store()
 	before := len(fixture.paths)
 	for _, options := range []vectorstore.SearchOptions{{TopK: MaxTopK + 1}, {Mode: vectorstore.SearchModeHybrid}} {
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 		if err == nil || response != nil || len(fixture.paths) != before {
 			t.Fatal("invalid options reached native I/O")
 		}
@@ -265,9 +256,13 @@ func TestInvalidOptionsAndNativeFailuresReturnNoResponse(t *testing.T) {
 		fixture.status[path] = 403
 		options := vectorstore.SearchOptions{}
 		if path == "/ListVectors" {
-			options.Filter = filter.IsNull("absent")
+			if docs, err := store.Scan(t.Context(), nil, scanBudget()); err == nil || docs != nil {
+				t.Fatal("list failure became success")
+			}
+			delete(fixture.status, path)
+			continue
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 		if err == nil || response != nil {
 			t.Fatal("native failure became success")
 		}
@@ -275,7 +270,7 @@ func TestInvalidOptionsAndNativeFailuresReturnNoResponse(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query"}); response != nil || !errors.Is(err, context.Canceled) {
+	if response, err := store.Query(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}); response != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation lost its cause: %v, %v", response, err)
 	}
 }

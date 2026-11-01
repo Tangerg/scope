@@ -18,9 +18,9 @@
 // Signals cannot prove external delivery; matching identity and payload alone
 // are insufficient. A missing receipt in an old snapshot proves nothing.
 // Pending Effects may replay under the same identity. Settled Unknown results
-// require explicit adjudication through Process.ResolveUnknownEffect.
+// require explicit adjudication through Handle.ResolveUnknownEffect.
 //
-// Strategies controlling their own direct children use agent.NewChildSignalEffect for
+// Strategies controlling their own direct children use run.NewChildSignalEffect for
 // one tree acknowledgment. This adapter serves Host-authorized delivery across
 // other ownership boundaries, including independent root trees.
 package messaging

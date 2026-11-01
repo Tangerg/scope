@@ -1,0 +1,222 @@
+package run
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	"sync"
+	"testing"
+	"testing/synctest"
+)
+
+func TestProcessCancellationPropagatesThroughSubtreeAndResumesParentStrategy(t *testing.T) {
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, target, descendant := startWaitingSubtreeInEngine(t, engine, newChildTestDeployment(t))
+	if err := target.Cancel(t.Context(), "discard waiting branch"); err != nil {
+		t.Fatal(err)
+	}
+	assertCanceledSubtree(t, target, descendant)
+	output := childTestResult(t, mustAwait(t, root))
+	if len(output.CompletedKeys) != 1 || output.CompletedKeys[0] != "target" {
+		t.Fatalf("parent received child outcomes %v", output.CompletedKeys)
+	}
+	if joinErr := root.Join(t.Context()); joinErr != nil {
+		t.Fatal(joinErr)
+	}
+	mustCloseEngine(t, engine)
+}
+
+func TestProcessCancellationPreservesUnsatisfiedSiblingWait(t *testing.T) {
+	deployment := newChildTestDeployment(t)
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(childTestInput{Mode: "wait:subtree_all"})
+	root, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, root, StatusWaiting)
+	children := processesByChildKey(t, engine, root.Relation().ProcessID())
+	target, sibling := children["target"], children["sibling"]
+	if target == nil || sibling == nil {
+		t.Fatal("waiting tree is missing target or sibling")
+	}
+	waitForStatus(t, target, StatusWaiting)
+	waitForStatus(t, sibling, StatusPaused)
+	if cancelErr := target.Cancel(t.Context(), "discard one branch"); cancelErr != nil {
+		t.Fatal(cancelErr)
+	}
+	if result := mustAwait(t, target); result.Termination().Status() != StatusCanceled {
+		t.Fatalf("target status=%s", result.Termination().Status())
+	}
+	tree, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspectProcessSnapshot(t, root).Status() != StatusWaiting || inspectProcessSnapshot(t, sibling).Status() != StatusPaused {
+		t.Fatalf("unsatisfied parent=%s, sibling=%s", inspectProcessSnapshot(t, root).Status(), inspectProcessSnapshot(t, sibling).Status())
+	}
+	restoredEngine, err := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredRoot, err := restoredEngine.Recover(t.Context(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredSibling, found := restoredEngine.Process(sibling.Relation().ProcessID())
+	if !found || inspectProcessSnapshot(t, restoredRoot).Status() != StatusWaiting || inspectProcessSnapshot(t, restoredSibling).Status() != StatusPaused {
+		t.Fatal("restoration changed the surviving wait")
+	}
+	for _, pair := range [][2]*Handle[Payload]{{root, sibling}, {restoredRoot, restoredSibling}} {
+		if err := pair[1].Resume(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		output := childTestResult(t, mustAwait(t, pair[0]))
+		if len(output.CompletedKeys) != 2 || output.CompletedKeys[0] != "target" || output.CompletedKeys[1] != "sibling" {
+			t.Fatalf("completed child keys=%v", output.CompletedKeys)
+		}
+		if joinErr := pair[0].Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
+	}
+	mustCloseEngine(t, restoredEngine)
+	mustCloseEngine(t, engine)
+}
+
+func TestSubtreeCancellationPublishesOnlyAfterCheckpointAcknowledgment(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		committer := &blockingCancellationCheckpointDurability{
+			recordingTreeCommitter: &recordingTreeCommitter{},
+			entered:                make(chan struct{}), release: make(chan struct{}),
+		}
+		release := sync.OnceFunc(func() { close(committer.release) })
+		t.Cleanup(release)
+		engine, err := New(t.Context(), Config{Store: committer})
+		if err != nil {
+			t.Fatal(err)
+		}
+		root, target, descendant := startWaitingSubtreeInEngine(t, engine, newChildTestDeployment(t))
+		if err := target.Cancel(t.Context(), "cancel through the committer port"); err != nil {
+			t.Fatal(err)
+		}
+		<-committer.entered
+		for _, process := range []*Handle[Payload]{root, target, descendant} {
+			if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
+				t.Fatalf("Process %s published %s before acknowledgment", process.Relation().ProcessID(), inspectProcessSnapshot(t, process).Status())
+			}
+		}
+		release()
+		assertCanceledSubtree(t, target, descendant)
+		_ = childTestResult(t, mustAwait(t, root))
+		if joinErr := root.Join(t.Context()); joinErr != nil {
+			t.Fatal(joinErr)
+		}
+		checkpoints := committer.treeCheckpoints()
+		last := checkpoints[len(checkpoints)-1]
+		if last.Kind() != TreeCheckpointKindTerminal {
+			t.Fatalf("cancellation checkpoint=%s", last.Kind())
+		}
+		for _, snapshot := range last.TreeSnapshot().ProcessSnapshots() {
+			if !snapshot.Status().Terminal() {
+				t.Fatalf("terminal checkpoint retained Process %s as %s", snapshot.Relation().ProcessID(), snapshot.Status())
+			}
+		}
+		mustCloseEngine(t, engine)
+	})
+}
+
+type blockingCancellationCheckpointDurability struct {
+	*recordingTreeCommitter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	err     error
+}
+
+func (b *blockingCancellationCheckpointDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
+	for _, process := range checkpoint.TreeSnapshot().ProcessSnapshots() {
+		if process.Status() == StatusCanceled {
+			b.once.Do(func() {
+				close(b.entered)
+				<-b.release
+			})
+			if b.err != nil {
+				return b.err
+			}
+			break
+		}
+	}
+	return b.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint)
+}
+
+func assertCanceledSubtree(t *testing.T, target, descendant *Handle[Payload]) {
+	t.Helper()
+	for _, expected := range []struct {
+		process *Handle[Payload]
+		cause   TerminationCause
+	}{
+		{process: target, cause: TerminationCauseHostCancellation},
+		{process: descendant, cause: TerminationCauseParentCancellation},
+	} {
+		result := mustAwait(t, expected.process)
+		if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != expected.cause {
+			t.Fatalf("Process %s termination=%+v", expected.process.Relation().ProcessID(), result.Termination())
+		}
+	}
+}
+
+func startWaitingSubtreeInEngine(
+	t *testing.T,
+	engine *Runtime,
+	deployment Program[Payload, Payload],
+) (*Handle[Payload], *Handle[Payload], *Handle[Payload]) {
+	t.Helper()
+	input, _ := EncodePayload(childTestInput{Mode: "wait:subtree"})
+	root, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, root, StatusWaiting)
+	targets := directChildIDs(t, engine, root.Relation().ProcessID())
+	if len(targets) != 1 {
+		t.Fatalf("target count = %d, want 1", len(targets))
+	}
+	targetID, _ := ParseProcessID(targets[0])
+	target, _ := engine.Process(targetID)
+	waitForStatus(t, target, StatusWaiting)
+	descendants := directChildIDs(t, engine, target.Relation().ProcessID())
+	if len(descendants) != 1 {
+		t.Fatalf("descendant count = %d, want 1", len(descendants))
+	}
+	descendantID, _ := ParseProcessID(descendants[0])
+	descendant, _ := engine.Process(descendantID)
+	waitForStatus(t, descendant, StatusWaiting)
+	return root, target, descendant
+}
+
+func processesByChildKey(t *testing.T, engine *Runtime, parentID ProcessID) map[string]*Handle[Payload] {
+	t.Helper()
+	processes := make(map[string]*Handle[Payload])
+	for _, encoded := range directChildIDs(t, engine, parentID) {
+		processID, err := ParseProcessID(encoded)
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, found := engine.Process(processID)
+		if !found {
+			t.Fatalf("child Process %s is missing", processID)
+		}
+		key, child := process.Relation().ChildKey()
+		if !child {
+			t.Fatalf("Process %s has no child key", processID)
+		}
+		processes[key.String()] = process
+	}
+	return processes
+}

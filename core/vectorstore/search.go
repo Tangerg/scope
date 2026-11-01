@@ -1,13 +1,10 @@
 package vectorstore
 
 import (
-	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -143,62 +140,6 @@ func (s *SearchOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type SearchRequest struct {
-	Query   string        `json:"query,omitempty"`
-	Options SearchOptions `json:"options"`
-}
-
-func NewSearchRequest(query string) (*SearchRequest, error) {
-	request := &SearchRequest{Query: query}
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("vectorstore: create search request: %w", err)
-	}
-	return request, nil
-}
-
-func (s *SearchRequest) Validate() error {
-	if s == nil {
-		return fmt.Errorf("%w: search request is nil", ErrInvalidRequest)
-	}
-	if !utf8.ValidString(s.Query) {
-		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidRequest)
-	}
-	if strings.TrimSpace(s.Query) == "" {
-		return fmt.Errorf("%w: query must not be empty", ErrInvalidRequest)
-	}
-	if err := s.Options.Validate(); err != nil {
-		return fmt.Errorf("%w: options: %w", ErrInvalidRequest, err)
-	}
-	return nil
-}
-
-func (s SearchRequest) MarshalJSON() ([]byte, error) {
-	if err := (&s).Validate(); err != nil {
-		return nil, err
-	}
-	type wireSearchRequest SearchRequest
-	return jsonv2.Marshal(wireSearchRequest(s))
-}
-
-func (s *SearchRequest) UnmarshalJSON(data []byte) error {
-	if s == nil {
-		return fmt.Errorf("%w: search request receiver is nil", ErrInvalidRequest)
-	}
-	type wireSearchRequest SearchRequest
-	var decoded wireSearchRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return fmt.Errorf("%w: decode search request: %w", ErrInvalidRequest, err)
-	}
-	candidate := SearchRequest(decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*s = candidate
-	return nil
-}
-
-// SearchResult keeps query-relative relevance separate from the indexed document.
-// JSON requires an explicit numeric score, including zero.
 type SearchResult struct {
 	Document *document.Document `json:"document"`
 	Score    Score              `json:"score"`
@@ -216,13 +157,11 @@ func (s *SearchResult) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: result is nil", ErrInvalidResponse)
 	}
-	// The required Document pointer owns its own presence at this wire boundary.
+	// Reads and writes use the same document and identity contract.
 	if s.Document == nil {
-		return fmt.Errorf("%w: result document is nil", ErrInvalidResponse)
+		return fmt.Errorf("%w: missing document", ErrInvalidResponse)
 	}
-	// A successful result returns a document the store accepted at index time, so
-	// it must satisfy the same completeness rule, including non-empty text.
-	if err := validateIndexedDocument(s.Document); err != nil {
+	if err := validatePresentDocument(s.Document); err != nil {
 		return fmt.Errorf("%w: result: %w", ErrInvalidResponse, err)
 	}
 	if err := s.Score.Validate(); err != nil {
@@ -336,26 +275,20 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ValidateFor checks the response against the complete request contract. A
-// provider returning metadata outside the requested filter is a protocol breach;
-// silently dropping that result could hide a truncated search.
-func (s *SearchResponse) ValidateFor(request *SearchRequest) error {
-	if err := request.Validate(); err != nil {
-		return err
-	}
+func (s *SearchResponse) validateOptions(options SearchOptions) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	limit := request.Options.ResultLimit()
+	limit := options.ResultLimit()
 	if len(s.Results) > limit {
 		return fmt.Errorf("%w: got %d results, top K is %d", ErrInvalidResponse, len(s.Results), limit)
 	}
 	for index, result := range s.Results {
-		if result.Score < request.Options.MinScore {
+		if result.Score < options.MinScore {
 			return fmt.Errorf("%w: results[%d] score %v is below minimum score %v",
-				ErrInvalidResponse, index, result.Score, request.Options.MinScore)
+				ErrInvalidResponse, index, result.Score, options.MinScore)
 		}
-		if err := result.validateFilter(request.Options.Filter); err != nil {
+		if err := result.validateFilter(options.Filter); err != nil {
 			return fmt.Errorf("%w: results[%d]: %w", ErrInvalidResponse, index, err)
 		}
 	}
@@ -380,15 +313,4 @@ func (s *SearchResponse) Documents() []*document.Document {
 		}
 	}
 	return documents
-}
-
-// Searcher retrieves documents ranked by query relevance in descending order.
-type Searcher interface {
-	// Search returns a response honoring the mode, semantic score threshold,
-	// metadata filter, and result cap owned by [SearchRequest.Options]. It
-	// validates the request, the records it reads to compute the result, and the
-	// response; it is not a full-source integrity audit and must not fail because
-	// of a stored record that no result or predicate requires it to read. Keeping
-	// every record valid belongs to the write boundary and to explicit maintenance.
-	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 }

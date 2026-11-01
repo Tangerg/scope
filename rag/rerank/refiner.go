@@ -116,7 +116,7 @@ func (r *Refiner) formatDocuments(ctx context.Context, candidates rag.Candidates
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		content, err := r.formatter.Format(candidate.Document)
+		content, err := r.formatter.Format(candidate.Document.Clone())
 		if err != nil {
 			return nil, fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
 		}

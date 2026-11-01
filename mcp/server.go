@@ -11,7 +11,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 )
@@ -55,12 +54,15 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 
 	var rawArgs string
 	if req != nil && req.Params != nil {
+		if req.Params.InputResponses != nil || req.Params.RequestState != "" {
+			// This direct binding never issued a server-side continuation. Treating
+			// a retry as a fresh call could repeat an external write.
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "no continuation was issued for this tool binding"}
+		}
 		rawArgs = string(req.Params.Arguments)
 	}
 
-	invocation, err := s.executable.Contract().Prepare(corechat.ToolCall{
-		ID: "mcp/" + toolName, Name: toolName, Arguments: rawArgs,
-	}, nil)
+	invocation, err := s.executable.Contract().Prepare(toolcontract.Request{Name: toolName, Arguments: rawArgs}, nil)
 	if err != nil {
 		return s.prepareError(span, err)
 	}
@@ -71,7 +73,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 	if output.InputRequest != nil {
 		return s.callError(span, errors.New("mcp: Tool requested external input; the server call has no continuation binding"))
 	}
-	result, err := mapServerToolOutput(output.Output)
+	result, err := EncodeToolResult(output.Output)
 	if err != nil {
 		return s.callError(span, err)
 	}
@@ -99,7 +101,7 @@ func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResul
 	if !found {
 		return nil, protocolError
 	}
-	result, err := mapServerToolOutput(failure.Output())
+	result, err := EncodeToolResult(failure.Output())
 	if err != nil {
 		errortelemetry.Record(span, errortelemetry.Classify(err))
 		return nil, protocolError
@@ -108,7 +110,8 @@ func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResul
 	return result, nil
 }
 
-func mapServerToolOutput(output corechat.ToolOutput) (*sdkmcp.CallToolResult, error) {
+// EncodeToolResult projects a validated Scope tool output onto its MCP wire response.
+func EncodeToolResult(output toolcontract.Output) (*sdkmcp.CallToolResult, error) {
 	if err := output.Validate(); err != nil {
 		return nil, fmt.Errorf("mcp: invalid Tool output: %w", err)
 	}

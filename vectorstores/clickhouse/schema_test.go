@@ -29,7 +29,7 @@ func TestCurrentRecordSchemaIsRequired(t *testing.T) {
 			if sample.valid {
 				expectColumns(mock, "String", "")
 			}
-			err := store.validateTable(t.Context())
+			_, err := store.tableDimensions(t.Context())
 			if (err == nil) != sample.valid {
 				t.Fatalf("schema validation = %v; valid=%t", err, sample.valid)
 			}
@@ -53,7 +53,7 @@ func TestStrictMetadataColumnAndProducerConstraints(t *testing.T) {
 			if sample.ddl == currentDDL {
 				expectColumns(mock, sample.metadataType, sample.defaultKind)
 			}
-			if err := store.validateTable(t.Context()); err == nil {
+			if _, err := store.tableDimensions(t.Context()); err == nil {
 				t.Fatal("accepted a competing or incomplete storage representation")
 			}
 		})

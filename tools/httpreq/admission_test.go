@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/httpreq"
 )
@@ -42,7 +41,7 @@ func callHTTPTool(t *testing.T, transport countingTransport, arguments string) e
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "http_request", Arguments: arguments}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: arguments}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,19 +2,17 @@ package opensearch
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
-
-	"github.com/Tangerg/scope/core/embedding"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -25,8 +23,8 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 	for _, fault := range []string{"timeout", "missing shards", "failed shard", "missing total", "missing hits", "missing source", "missing metadata", "shadow metadata", "missing vector", "missing tokens", "routing", "wrong index", "wrong membership", "repeated ID", "missing score", "bad score", "terminated early", "late corrupt hit"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 1)
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+			store := fixture.store()
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 				t.Fatal(err)
 			}
 			hit := fixture.hit("one")
@@ -94,7 +92,7 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 			if fault == "wrong membership" {
 				options.Filter = filter.IsNull("unused")
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 			if err == nil || response != nil {
 				t.Fatalf("damaged output succeeded: %#v, %v", response, err)
 			}
@@ -162,17 +160,17 @@ func TestNativeBodyOwnershipAndBounds(t *testing.T) {
 func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	fixture.settings.Settings["index.max_result_window"] = "1"
-	store := fixture.store(constantModel(), 1)
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 2}}); !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil {
+	store := fixture.store()
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 2}}); !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil {
 		t.Fatalf("native window ignored: %#v, %v", response, err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
 	record := fixture.rows["one"]
 	record.MetadataJSON = ""
 	fixture.rows["one"] = record
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
 		t.Fatalf("malformed record reached native ranking: %#v, %v", response, err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {
@@ -228,13 +226,13 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 				}
 				fixture.scanReply = page
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{size: 1}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
 			switch fault {
 			case "missing metadata", "missing content", "shadow source", "missing cursor", "wrong total", "scroll shard missing":
 				if err != nil {
 					t.Fatalf("construction enumerated source records: %v", err)
 				}
-				response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
+				response, searchErr := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 				if searchErr == nil || response != nil {
 					t.Fatalf("invalid predicate source accepted: %#v, %v", response, searchErr)
 				}
@@ -252,14 +250,9 @@ func TestNMSLibFilteredSearchRejectsBeforeModelOrNativeIO(t *testing.T) {
 	field := fixture.mapping.Properties[embeddingField]
 	field.Method.Engine = "nmslib"
 	fixture.mapping.Properties[embeddingField] = field
-	calls := 0
-	model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		calls++
-		return nil, errors.New("unexpected model call")
-	})
-	store := fixture.store(model, 1)
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); !errors.Is(err, errors.ErrUnsupported) || response != nil || calls != 0 || len(fixture.groups) != 0 {
-		t.Fatalf("unsupported operation reached model or native query: %#v, %v, calls=%d", response, err, calls)
+	store := fixture.store()
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); !errors.Is(err, errors.ErrUnsupported) || response != nil || len(fixture.groups) != 0 {
+		t.Fatalf("unsupported operation reached model or native query: %#v, %v", response, err)
 	}
 }
 
@@ -306,5 +299,23 @@ func TestNativeStreamingTransportEnforcesBoundBeforeBuffering(t *testing.T) {
 	store := &Store{client: client, maxResponseBytes: 16}
 	if raw, requestErr := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); requestErr == nil || raw != nil || body.read != 17 || !body.closed {
 		t.Fatalf("native transport buffered past boundary: read=%d closed=%v raw=%s error=%v", body.read, body.closed, raw, requestErr)
+	}
+}
+
+func TestWriteFailureRetainsOnlyAttributableItemAcknowledgments(t *testing.T) {
+	ids := []string{"accepted", "denied", "unknown"}
+	resp := bulkResponse{Errors: new(true), Items: []map[bulkOperation]bulkItemResult{
+		{bulkOperationIndex: {ID: "accepted", Index: "docs", Status: new(201)}},
+		{bulkOperationIndex: {ID: "denied", Index: "docs", Status: new(409), Error: []byte(`{"type":"conflict"}`)}},
+	}}
+	cause := errors.New("partial bulk response")
+	w := resp.writeFailure("docs", ids, cause)
+	if !errors.Is(w, cause) || !slices.Equal(w.Acknowledged, ids[:1]) || !slices.Equal(w.Rejected, ids[1:2]) || !slices.Equal(w.Unconfirmed, ids[2:]) {
+		t.Fatalf("incorrect write evidence: %+v", *w)
+	}
+	resp.Errors = new(false)
+	w = resp.writeFailure("docs", ids, cause)
+	if len(w.Acknowledged) != 0 || len(w.Rejected) != 0 || !slices.Equal(w.Unconfirmed, ids) {
+		t.Fatalf("contradictory bulk reply invented success: %+v", *w)
 	}
 }

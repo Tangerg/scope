@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"iter"
 	"strings"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -53,6 +54,31 @@ func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 	}
 	r.merge(delta)
 	return nil
+}
+
+// Collect drains one stream to its terminal response. A downstream failure after
+// completion retains that generation and its usage without reporting success.
+func Collect(sequence iter.Seq2[*ResponseDelta, error]) (*Response, error) {
+	if sequence == nil {
+		return nil, fmt.Errorf("%w: nil stream", ErrInvalidResponse)
+	}
+	var accumulator ResponseAccumulator
+	for delta, err := range sequence {
+		if err != nil {
+			if accumulator.finishReason != "" {
+				response, admission := accumulator.Response()
+				if admission != nil {
+					return nil, errors.Join(err, admission)
+				}
+				return response, err
+			}
+			return nil, err
+		}
+		if err := accumulator.Add(delta); err != nil {
+			return nil, err
+		}
+	}
+	return accumulator.Response()
 }
 
 // HasDeltas reports admitted stream evidence without promoting an incomplete

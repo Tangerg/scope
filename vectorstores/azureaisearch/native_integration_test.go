@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -72,18 +71,7 @@ func newNativeFixture(t *testing.T, metric string) *nativeFixture {
 			t.Errorf("remove owned native index %s: %v", index, err)
 		}
 	})
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i, text := range request.Texts {
-			vector := []float64{1, 0}
-			if text == "opposite" {
-				vector = []float64{-1, 0}
-			}
-			outputs[i] = &embedding.Output{Embedding: vector}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := NewStore(t.Context(), StoreConfig{Endpoint: endpoint, IndexName: index, HTTPClient: client, EmbeddingModel: model, DocumentBatcher: writeTestBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Endpoint: endpoint, IndexName: index, HTTPClient: client, Space: testSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +86,7 @@ func (n *nativeFixture) wait(ctx context.Context, want []string) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		got, err := n.store.selectIDs(waitCtx, nil)
+		got, err := scanIDs(waitCtx, n.store, nil)
 		if err != nil {
 			return err
 		}
@@ -121,7 +109,7 @@ func (n *nativeFixture) replace(ctx context.Context, docs []*document.Document) 
 	if err := n.wait(ctx, nil); err != nil {
 		return err
 	}
-	if err := n.store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := n.store.Upsert(ctx, testBatch(docs)); err != nil {
 		return err
 	}
 	n.ids = make([]string, len(docs))
@@ -137,15 +125,7 @@ func TestNativeCoreFilterConformance(t *testing.T) {
 		if err := fixture.replace(ctx, docs); err != nil {
 			return nil, err
 		}
-		response, err := fixture.store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]string, len(response.Results))
-		for i, row := range response.Results {
-			ids[i] = row.Document.ID
-		}
-		return ids, nil
+		return scanIDs(ctx, fixture.store, predicate)
 	}})
 }
 
@@ -160,7 +140,7 @@ func TestNativeSchemaMetricsAndCoreMetadata(t *testing.T) {
 			if err := fixture.replace(t.Context(), docs); err != nil {
 				t.Fatal(err)
 			}
-			response, err := fixture.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 3}})
+			response, err := fixture.store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 3}})
 			if err != nil || len(response.Results) != 3 {
 				t.Fatalf("native response = %v, %v", response, err)
 			}
@@ -185,7 +165,7 @@ func TestNativeSchemaMetricsAndCoreMetadata(t *testing.T) {
 			if err = fixture.wait(t.Context(), []string{"two", "three"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = fixture.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "same", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 2}}); err != nil {
+			if _, err = fixture.store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, LexicalText: "same", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 2}}); err != nil {
 				t.Fatal(err)
 			}
 		})

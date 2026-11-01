@@ -93,7 +93,7 @@ When both streaming and aggregate calls are justified, make one consume the othe
 
 ## Shape interfaces at consumption boundaries
 
-Define an interface in the consuming package and include only the methods that consumer invokes. Do not accept a whole `*Engine`, `*Client`, or `*Store` to use one or two operations.
+Define an interface in the consuming package and include only the methods that consumer invokes. Do not accept a whole `*Runtime`, `*Client`, or `*Store` to use one or two operations.
 
 Use a concrete type inside one cohesive subsystem when there is one implementation and no substitution, test, or module boundary. Extracting an internal interface for tidiness adds indirection without decoupling anything.
 

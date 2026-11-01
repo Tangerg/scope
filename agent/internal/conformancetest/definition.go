@@ -1,7 +1,9 @@
-// Package conformancetest captures real Engine boundaries for built-in Strategy tests.
+// Package conformancetest captures real Runtime boundaries for built-in Strategy tests.
 package conformancetest
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"fmt"
@@ -9,30 +11,30 @@ import (
 	"sync"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 )
 
 // Run records a completed execution and verifies every captured Step through
-// the public conformance suite. Signals come from the Engine, so framework
+// the public conformance suite. Signals come from the Runtime, so framework
 // identities and Strategy protocol samples cannot drift from their producers.
 func Run(
 	t *testing.T,
-	deploymentConfig agent.DeploymentConfig,
-	engineConfig agent.EngineConfig,
-	input agent.Payload,
-) agent.Result {
+	deploymentConfig run.BindingConfig,
+	engineConfig run.Config,
+	input run.Payload,
+) run.Result[run.Payload] {
 	t.Helper()
 	definition := deploymentConfig.Definition
 	recorder := &recordingDefinition{definition: definition, frameReady: make(chan struct{}), releaseFrame: make(chan struct{})}
 	release := sync.OnceFunc(func() { close(recorder.releaseFrame) })
 	defer release()
 	deploymentConfig.Definition = recorder
-	deployment, err := agent.NewDeployment(deploymentConfig)
+	deployment, err := run.Bind[run.Payload, run.Payload](deploymentConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(engineConfig)
+	engine, err := run.New(context.Background(), engineConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func Run(
 			t.Error(closeErr)
 		}
 	})
-	process, err := engine.Start(t.Context(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func Run(
 		t.Fatal(joinErr)
 	}
 	result, err := process.Await(t.Context())
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+	if err != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("capture result status=%s termination=%+v error=%v", result.Termination().Status(), result.Termination(), err)
 	}
 	cases := recorder.recordedCases()
@@ -64,23 +66,23 @@ func Run(
 	for _, sample := range cases {
 		CheckRestoreCancellation(t, definition, sample.State)
 	}
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+	runtest.RunDefinitionConformance(t, runtest.DefinitionConformanceConfig{
 		Definition: definition, Input: input, RestoredCases: cases,
 	})
 	return result
 }
 
-func assertUnsupportedSignalRejected(t *testing.T, engine *agent.Engine, process *agent.Process) {
+func assertUnsupportedSignalRejected(t *testing.T, engine *run.Runtime, process *run.Handle[run.Payload]) {
 	t.Helper()
-	id, err := agent.ParseSignalID("signal:conformance-unsupported")
+	id, err := run.ParseSignalID("signal:conformance-unsupported")
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := agent.NewSignalRequest(id, agent.WaitID{}, []byte(`{"unsupported":true}`))
+	request, err := run.NewSignalRequest(id, run.WaitID{}, []byte(`{"unsupported":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); accepted || !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+	if accepted, deliveryErr := process.DeliverSignals(t.Context(), request); accepted || !errors.Is(deliveryErr, run.ErrSignalRejected) {
 		t.Fatalf("unsupported Signal admission=%t %v", accepted, deliveryErr)
 	}
 	after, err := engine.InspectTree(t.Context(), process.Relation().ProcessID())
@@ -99,21 +101,21 @@ func assertUnsupportedSignalRejected(t *testing.T, engine *agent.Engine, process
 }
 
 type recordingDefinition struct {
-	definition   agent.Definition
+	definition   run.Definition
 	mu           sync.Mutex
-	cases        []agenttest.ExecutionConformanceCase
+	cases        []runtest.ExecutionConformanceCase
 	frameReady   chan struct{}
 	releaseFrame chan struct{}
 	frameOnce    sync.Once
 }
 
-func (r *recordingDefinition) Descriptor() agent.Descriptor { return r.definition.Descriptor() }
+func (r *recordingDefinition) Descriptor() run.Descriptor { return r.definition.Descriptor() }
 
-func (r *recordingDefinition) ChildDeployments() []agent.Deployment {
+func (r *recordingDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
 	return r.definition.ChildDeployments()
 }
 
-func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (r *recordingDefinition) Start(input run.Payload) (run.Execution, error) {
 	execution, err := r.definition.Start(input)
 	if err != nil {
 		return nil, err
@@ -121,7 +123,7 @@ func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error
 	return &recordingExecution{execution: execution, recorder: r}, nil
 }
 
-func (r *recordingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (r *recordingDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	execution, err := r.definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
@@ -152,43 +154,43 @@ func (r *recordingDefinition) awaitFrame(t *testing.T, finished <-chan error) {
 	}
 }
 
-func (r *recordingDefinition) record(state agent.ExecutionState, signals []agent.Signal) {
+func (r *recordingDefinition) record(state run.ExecutionState, signals []run.Signal) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.cases = append(r.cases, agenttest.ExecutionConformanceCase{
+	r.cases = append(r.cases, runtest.ExecutionConformanceCase{
 		Name: fmt.Sprintf("step_%02d", len(r.cases)+1), State: state, Signals: slices.Clone(signals),
 	})
 }
 
-func (r *recordingDefinition) recordedCases() []agenttest.ExecutionConformanceCase {
+func (r *recordingDefinition) recordedCases() []runtest.ExecutionConformanceCase {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.cases)
 }
 
 type recordingExecution struct {
-	execution agent.Execution
+	execution run.Execution
 	recorder  *recordingDefinition
 }
 
-func (r *recordingExecution) Snapshot() (agent.ExecutionState, error) {
+func (r *recordingExecution) Snapshot() (run.ExecutionState, error) {
 	return r.execution.Snapshot()
 }
 
-func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (r *recordingExecution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
 	if len(signals) > 0 {
 		r.recorder.holdFirstFrame(ctx)
 	}
 	state, err := r.execution.Snapshot()
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	transition, err := r.execution.Step(ctx, signals)
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	r.recorder.record(state, signals)
 	return transition, nil
 }
 
-var _ agent.Definition = (*recordingDefinition)(nil)
+var _ run.Definition = (*recordingDefinition)(nil)

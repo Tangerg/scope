@@ -12,11 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
 )
 
@@ -49,13 +46,13 @@ func (i IndexType) Valid() bool {
 func (i IndexType) String() string { return string(i) }
 
 type StoreConfig struct {
-	Pool            *pgxpool.Pool
-	SchemaName      string
-	TableName       string
-	IndexName       string
-	MetadataColumn  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Pool           *pgxpool.Pool
+	SchemaName     string
+	TableName      string
+	IndexName      string
+	MetadataColumn string
+	// Space is the Host-owned immutable binding for this physical collection.
+	Space vectorstore.SpaceID
 	// Dimensions seeds only a newly created native column; existing native width is authoritative.
 	Dimensions       int
 	DistanceMetric   postgres.DistanceMetric
@@ -68,12 +65,10 @@ func (s StoreConfig) Validate() error {
 	if s.Pool == nil {
 		return errors.New("pgvector: Pool is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("pgvector: EmbeddingModel is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("pgvector: DocumentBatcher is required")
-	}
+
 	if s.Dimensions < 0 {
 		return errors.New("pgvector: Dimensions must be >= 0")
 	}
@@ -115,10 +110,9 @@ func (s *StoreConfig) applyDefaults() {
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
@@ -135,14 +129,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 
 	engine, err := pgstore.New(ctx, pgstore.Config{
-		Provider:        "pgvector",
-		Pool:            config.Pool,
-		SchemaName:      config.SchemaName,
-		TableName:       config.TableName,
-		MetadataColumn:  config.MetadataColumn,
-		EmbeddingModel:  config.EmbeddingModel,
-		DocumentBatcher: config.DocumentBatcher,
-		DistanceMetric:  config.DistanceMetric,
+		Provider:       "pgvector",
+		Pool:           config.Pool,
+		SchemaName:     config.SchemaName,
+		TableName:      config.TableName,
+		MetadataColumn: config.MetadataColumn,
+		Space:          config.Space,
+		DistanceMetric: config.DistanceMetric,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pgvector.NewStore: %w", err)
@@ -167,8 +160,9 @@ func initialize(ctx context.Context, config StoreConfig) error {
 			id bytea PRIMARY KEY,
 			content text NOT NULL,
 			%s bytea NOT NULL,
-			embedding vector(%d) NOT NULL
-		)`, pgx.Identifier{config.SchemaName}.Sanitize(), pgx.Identifier{config.TableName}.Sanitize(), pgx.Identifier{config.MetadataColumn}.Sanitize(), dimensions),
+			embedding vector(%d) NOT NULL,
+CONSTRAINT %s CHECK (true)
+		)`, pgx.Identifier{config.SchemaName}.Sanitize(), pgx.Identifier{config.TableName}.Sanitize(), pgx.Identifier{config.MetadataColumn}.Sanitize(), dimensions, pgx.Identifier{config.Space.StorageKey()}.Sanitize()),
 	}
 	if config.IndexType != IndexNone {
 		statements = append(statements, fmt.Sprintf(
@@ -187,18 +181,23 @@ func initialize(ctx context.Context, config StoreConfig) error {
 	return nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	return s.engine.Index(ctx, request)
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	return s.engine.CheckDocuments(ctx, space, docs)
 }
-
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
-	return s.engine.Search(ctx, request)
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
+	return s.engine.CheckQuery(ctx, space, options)
 }
-
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
-	return s.engine.DeleteWhere(ctx, predicate)
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	return s.engine.Upsert(ctx, batch)
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return s.engine.Query(ctx, request)
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return s.engine.DeleteIDs(ctx, ids)
+}
+
+func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) ([]*document.Document, error) {
+	return s.engine.Scan(ctx, config)
 }

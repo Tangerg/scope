@@ -1,6 +1,6 @@
 // Package anthropic binds the official Anthropic endpoints. [NewMessages]
 // targets the Messages API, [NewChatCompletions] targets the
-// OpenAI-compatible endpoint, and [NewTextCounter] serves isolated text-token
+// OpenAI-compatible endpoint, and the Messages text-counter binding serves isolated text-token
 // estimation.
 //
 // Constructors return the shared protocol models from

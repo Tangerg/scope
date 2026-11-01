@@ -1,4 +1,4 @@
-// Command composition demonstrates that direct Engine embedding and a
+// Command composition demonstrates that direct Runtime embedding and a
 // cross-Strategy Agent composed from Workflow and Role atoms use the same
 // Definition/Execution/Process contracts. It requires no network.
 package main
@@ -12,10 +12,9 @@ import (
 	"os"
 	"strings"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
-	"github.com/Tangerg/scope/agent/strategy/role"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -60,7 +59,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
@@ -70,7 +69,14 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	embeddedResult, err := engine.Run(ctx, localDeployment, embeddedInput)
+	embeddedResultHandle, err := engine.Start(ctx, localDeployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "embeddedResult"}, Input: embeddedInput})
+	if err != nil {
+		return err
+	}
+	if err = embeddedResultHandle.Join(ctx); err != nil {
+		return err
+	}
+	embeddedResult, err := embeddedResultHandle.Await(ctx)
 	if err != nil {
 		return err
 	}
@@ -83,7 +89,14 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	compositionResult, err := engine.Run(ctx, compositionDeployment, composedInput)
+	compositionResultHandle, err := engine.Start(ctx, compositionDeployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "compositionResult"}, Input: composedInput})
+	if err != nil {
+		return err
+	}
+	if err = compositionResultHandle.Join(ctx); err != nil {
+		return err
+	}
+	compositionResult, err := compositionResultHandle.Await(ctx)
 	if err != nil {
 		return err
 	}
@@ -106,36 +119,38 @@ type textOutput struct {
 	Text string `json:"text"`
 }
 
-type uppercaseDefinition struct{ descriptor agent.Descriptor }
+type uppercaseDefinition struct{ descriptor agentrun.Descriptor }
 
-func newUppercaseDeployment() (agent.Deployment, error) {
+func newUppercaseDeployment() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	inputSchema, err := jsonschema.For[textInput]()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	outputSchema, err := jsonschema.For[textOutput]()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+	descriptor, err := agentrun.NewDescriptor(agentrun.DescriptorConfig{
 		Name: uppercaseStateKind, Description: "Return input text in uppercase.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           &uppercaseDefinition{descriptor: descriptor},
-		ImplementationDigest: agent.ComputeDigest([]byte("example-uppercase-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-uppercase-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example-uppercase-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("example-uppercase-configuration")),
 	})
 }
 
-func (u *uppercaseDefinition) Descriptor() agent.Descriptor { return u.descriptor }
+func (u *uppercaseDefinition) Descriptor() agentrun.Descriptor { return u.descriptor }
 
-func (*uppercaseDefinition) ChildDeployments() []agent.Deployment { return nil }
+func (*uppercaseDefinition) ChildDeployments() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+	return nil
+}
 
-func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (u *uppercaseDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {
 	if err := u.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -146,7 +161,7 @@ func (u *uppercaseDefinition) Start(input agent.Payload) (agent.Execution, error
 	return &uppercaseExecution{Text: decoded.Text}, nil
 }
 
-func (*uppercaseDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (*uppercaseDefinition) Restore(ctx context.Context, state agentrun.ExecutionState) (agentrun.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -162,50 +177,35 @@ type uppercaseExecution struct {
 	Done bool   `json:"done"`
 }
 
-func (u *uppercaseExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (u *uppercaseExecution) Step(_ context.Context, signals []agentrun.Signal) (agentrun.Transition, error) {
 	if len(signals) != 0 {
-		return agent.Transition{}, agent.ErrInvalidSignal
+		return agentrun.Transition{}, agentrun.ErrInvalidSignal
 	}
 	if u.Done {
-		return agent.Transition{}, errors.New("uppercase execution already completed")
+		return agentrun.Transition{}, errors.New("uppercase execution already completed")
 	}
 	u.Done = true
-	value, err := agent.EncodePayload(textOutput{Text: strings.ToUpper(u.Text)})
+	value, err := agentrun.EncodePayload(textOutput{Text: strings.ToUpper(u.Text)})
 	if err != nil {
-		return agent.Transition{}, err
+		return agentrun.Transition{}, err
 	}
-	return agent.Complete(0, value)
+	return agentrun.Complete(0, value)
 }
 
-func (u *uppercaseExecution) Snapshot() (agent.ExecutionState, error) {
+func (u *uppercaseExecution) Snapshot() (agentrun.ExecutionState, error) {
 	payload, err := jsonv2.Marshal(u)
 	if err != nil {
-		return agent.ExecutionState{}, err
+		return agentrun.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState(uppercaseStateKind, payload)
+	return agentrun.ParseExecutionState(uppercaseStateKind, payload)
 }
 
-func newModelDeployment() (agent.Deployment, error) {
+func newModelDeployment() (agentrun.Program[agent.Input, agent.Output], error) {
 	client, err := chatclient.New(compositionModel{}, chatclient.Config{})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agent.Input, agent.Output]{}, err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "example.composition_model", Description: "Return one deterministic composition response.",
-		MaxModelCalls: agent.NewQuota(1),
-	})
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
-	if err != nil {
-		return agent.Deployment{}, err
-	}
-	return agent.NewDeployment(agent.DeploymentConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-model-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-composition-model-configuration")),
-	})
+	return agent.Compile(context.Background(), agent.Config{Name: "example.composition_model", Description: "Return one deterministic composition response.", MaxModelCalls: agentrun.NewQuota(1), Model: client, BuildIdentity: agentrun.ComputeDigest([]byte("example composition build")), ModelIdentity: agentrun.ComputeDigest([]byte("example composition model"))})
 }
 
 type compositionInput struct {
@@ -217,46 +217,46 @@ type compositionOutput struct {
 	Model string `json:"model"`
 }
 
-func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, error) {
+func newCompositionDeployment(local agentrun.Program[agentrun.Payload, agentrun.Payload], model agentrun.Program[agent.Input, agent.Output]) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	if !local.Valid() || !model.Valid() {
-		return agent.Deployment{}, agent.ErrInvalidDeployment
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agentrun.ErrInvalidProgram
 	}
-	leafBudget := agent.Budget{
-		Steps: agent.NewQuota(compositionChildBudgetSteps), Effects: agent.NewQuota(compositionChildBudgetEffects),
-		Signals: agent.NewQuota(compositionChildBudgetSignals),
+	leafBudget := agentrun.Budget{
+		Steps: agentrun.NewQuota(compositionChildBudgetSteps), Effects: agentrun.NewQuota(compositionChildBudgetEffects),
+		Signals: agentrun.NewQuota(compositionChildBudgetSignals),
 	}
 	localBranch, err := newLocalBranch(local, leafBudget)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	configuration, err := jsonv2.Marshal(leafBudget)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	modelBranch, err := role.New(role.Config[compositionInput, string]{
+	modelBranch, err := agent.Adapt(context.Background(), agent.AdapterConfig[compositionInput, string]{
 		Name: "example.composition.model", Description: "Adapt the model child to the composition's input and text output.",
 		Interaction: model, Budget: leafBudget,
-		BuildInput: func(_ context.Context, input compositionInput) (interaction.Input, error) {
-			return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
+		BuildInput: func(_ context.Context, input compositionInput) (agent.Input, error) {
+			return agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
 		},
-		DecodeOutput: func(_ context.Context, output interaction.Output) (string, error) {
+		DecodeOutput: func(_ context.Context, output agent.Output) (string, error) {
 			return chatclient.Text().Decode(output.ModelResponse)
 		},
-		ImplementationDigest: agent.ComputeDigest([]byte("example-composition-model-role")),
-		ConfigurationDigest:  agent.ComputeDigest(configuration),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example-composition-model-role")),
+		ConfigurationDigest:  agentrun.ComputeDigest(configuration),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	// Each branch budget includes the leaf's permanent allocation and the
 	// adapter's own Steps, Effects, and Signals.
-	branchBudget := agent.Budget{
-		Steps: agent.NewQuota(compositionBranchBudgetSteps), Effects: agent.NewQuota(compositionBranchBudgetEffects),
-		Signals: agent.NewQuota(compositionBranchBudgetSignals),
+	branchBudget := agentrun.Budget{
+		Steps: agentrun.NewQuota(compositionBranchBudgetSteps), Effects: agentrun.NewQuota(compositionBranchBudgetEffects),
+		Signals: agentrun.NewQuota(compositionBranchBudgetSignals),
 	}
 	branches := []workflow.ForkBranch{
 		compositionLocalIndex: {ID: "local", Deployment: localBranch, Budget: branchBudget},
-		compositionModelIndex: {ID: "model", Deployment: modelBranch, Budget: branchBudget},
+		compositionModelIndex: {ID: "model", Deployment: modelBranch.Erase(), Budget: branchBudget},
 	}
 	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
 		ID: "compose", WindowSize: uint32(len(branches)), Branches: branches,
@@ -265,12 +265,12 @@ func newCompositionDeployment(local, model agent.Deployment) (agent.Deployment, 
 		},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return bindCompositionWorkflow(compositionName, "Compose local and model children under one managed Workflow.", []workflow.Stage{fork})
 }
 
-func newLocalBranch(local agent.Deployment, budget agent.Budget) (agent.Deployment, error) {
+func newLocalBranch(local agentrun.Program[agentrun.Payload, agentrun.Payload], budget agentrun.Budget) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	input, inputErr := workflow.Transform("build_input", func(_ context.Context, input compositionInput) (textInput, error) {
 		return textInput{Text: input.Prompt}, nil
 	})
@@ -279,26 +279,26 @@ func newLocalBranch(local agent.Deployment, budget agent.Budget) (agent.Deployme
 		return output.Text, nil
 	})
 	if err := errors.Join(inputErr, callErr, outputErr); err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return bindCompositionWorkflow("example.composition.local", "Adapt a pure Definition to the composition's input and text output.", []workflow.Stage{input, call, output})
 }
 
-func bindCompositionWorkflow(name, description string, stages []workflow.Stage) (agent.Deployment, error) {
+func bindCompositionWorkflow(name, description string, stages []workflow.Stage) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{Name: name, Description: description, Stages: stages})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	configuration, err := jsonv2.Marshal(definition.Topology(), jsonv2.Deterministic(true))
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	// The topology identifies the fixed wiring and grants; the implementation
 	// label identifies the pure adapters in this checked example.
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest(configuration),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest(configuration),
 	})
 }
 
@@ -314,7 +314,7 @@ func (compositionModel) Call(_ context.Context, request *chat.Request) (*chat.Re
 	}}, nil
 }
 
-func decodeCompleted[T any](result agent.Result) (T, error) {
+func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
 	var zero T
 	erased, ok := result.Termination().Output()
 	if !ok {
@@ -323,4 +323,4 @@ func decodeCompleted[T any](result agent.Result) (T, error) {
 	return erased.Decode[T]()
 }
 
-var _ agent.Definition = (*uppercaseDefinition)(nil)
+var _ agentrun.Definition = (*uppercaseDefinition)(nil)

@@ -6,16 +6,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
-	"github.com/samber/lo"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 const Provider = "ClickHouse"
@@ -84,8 +84,7 @@ type StoreConfig struct {
 	MetadataColumn  string
 	EmbeddingColumn string
 
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Space vectorstore.SpaceID
 
 	Dimensions       int
 	DistanceMetric   DistanceMetric
@@ -94,14 +93,11 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	if lo.IsNil(s.DB) {
+	if s.DB == nil {
 		return errors.New("clickhouse: DB is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("clickhouse: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("clickhouse: DocumentBatcher is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
 	if s.Dimensions < 0 || (s.InitializeSchema && s.Dimensions == 0) {
 		return errors.New("clickhouse: Dimensions must be non-negative and positive for schema creation")
@@ -152,10 +148,9 @@ func (s *StoreConfig) applyDefaults() {
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
@@ -167,8 +162,8 @@ type Store struct {
 	contentColumn   string
 	metadataColumn  string
 	embeddingColumn string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
+	space           vectorstore.SpaceID
+	dimensions      int
 	distanceMetric  DistanceMetric
 }
 
@@ -179,37 +174,39 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse: create embedding client: %w", err)
-	}
 	transaction, err := newNativeTransaction(ctx, config.DB)
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: native transactions are required: %w", err)
 	}
-	if err := transaction.Close(); err != nil {
+	if err = transaction.Close(); err != nil {
 		return nil, err
 	}
 	if config.DatabaseName == "" {
-		if err := config.DB.QueryRowContext(nativeStatementContext(ctx, false), "SELECT currentDatabase()").Scan(&config.DatabaseName); err != nil {
+		if err = config.DB.QueryRowContext(nativeStatementContext(ctx, false), "SELECT currentDatabase()").Scan(&config.DatabaseName); err != nil {
 			return nil, fmt.Errorf("clickhouse: resolve database: %w", err)
 		}
-		if err := identifier(config.DatabaseName).validate("DatabaseName"); err != nil {
+		if err = identifier(config.DatabaseName).validate("DatabaseName"); err != nil {
 			return nil, err
 		}
 	}
+	physical := config.Space.StorageKey() + "_" + config.TableName
 	store := &Store{
-		db: config.DB, databaseName: config.DatabaseName, tableName: config.TableName, fullTable: config.DatabaseName + "." + config.TableName,
+		db: config.DB, databaseName: config.DatabaseName, tableName: physical, fullTable: config.DatabaseName + "." + physical,
 		idColumn: config.IDColumn, contentColumn: config.ContentColumn, metadataColumn: config.MetadataColumn, embeddingColumn: config.EmbeddingColumn,
-		embeddingClient: embeddingClient, documentBatcher: config.DocumentBatcher, distanceMetric: config.DistanceMetric,
+		space: config.Space, distanceMetric: config.DistanceMetric,
 	}
 	if config.InitializeSchema {
-		if err := store.initialize(ctx, config.Dimensions); err != nil {
+		if err = store.initialize(ctx, config.Dimensions); err != nil {
 			return nil, err
 		}
 	}
-	if err := store.validateTable(ctx); err != nil {
+	width, err := store.tableDimensions(ctx)
+	if err != nil {
 		return nil, err
+	}
+	store.dimensions = width
+	if config.Dimensions > 0 && config.Dimensions != width {
+		return nil, fmt.Errorf("%w: requested %d dimensions, table declares %d", vectorstore.ErrIncompatibleSpace, config.Dimensions, width)
 	}
 	return store, nil
 }
@@ -226,39 +223,88 @@ func (s *Store) initialize(ctx context.Context, dimensions int) error {
 	return nil
 }
 
-// Index embeds and sends each batch through the driver's typed insertion API.
-// implicit_transaction gives its native INSERT one publication owner; the
-// database/sql transaction only flushes the driver's buffered batch.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("clickhouse.Store.Index: %w", err)
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	for index, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("clickhouse.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, index)
-		}
+	if err := space.Require(s.space); err != nil {
+		return err
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return fmt.Errorf("clickhouse: batch documents: %w", err)
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
 	}
-	for _, batch := range batches {
-		texts, err := batch.Texts()
-		if err != nil {
-			return err
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("clickhouse: embed documents: %w", err)
-		}
-		if err := s.insertBatch(ctx, batch.Documents, texts, vectors); err != nil {
-			return err
+	for _, d := range docs {
+		if d.Media != nil {
+			return vectorstore.ErrInvalidDocument
 		}
 	}
 	return nil
 }
+func (s *Store) narrow(values []float64) ([]float32, error) {
+	if len(values) != s.dimensions {
+		return nil, fmt.Errorf("%w: %d coordinates for ClickHouse width %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
+	}
+	v := make([]float32, len(values))
+	nonzero := false
+	for i, x := range values {
+		v[i] = float32(x)
+		if math.IsInf(float64(v[i]), 0) || math.IsNaN(float64(v[i])) {
+			return nil, fmt.Errorf("%w: nonfinite float32", vectorstore.ErrInvalidRequest)
+		}
+		nonzero = nonzero || v[i] != 0
+	}
+	if !nonzero && s.distanceMetric == DistanceCosine {
+		return nil, fmt.Errorf("%w: cosine requires a nonzero vector", vectorstore.ErrInvalidRequest)
+	}
+	return v, nil
+}
 
-func (s *Store) insertBatch(ctx context.Context, docs []*document.Document, texts []string, vectors [][]float64) (err error) {
+type insertRecord struct {
+	id, text, facts string
+	vector          []float32
+}
+
+// Upsert prepares every row before opening a driver buffer. Only Commit sends
+// that single native INSERT. A lost response cannot identify individual rows.
+func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) (err error) {
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = request.ValidateFor(s.space); err != nil {
+		return err
+	}
+	rows := make([]insertRecord, len(request.Records))
+	ids := make([]string, len(rows))
+	for i, r := range request.Records {
+		if r.Document.Media != nil {
+			return vectorstore.ErrInvalidDocument
+		}
+		v, narrowErr := s.narrow(r.Values)
+		if narrowErr != nil {
+			return narrowErr
+		}
+		facts, encodeErr := document.MarshalStoredMetadata(r.Document)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		rows[i] = insertRecord{id: r.Document.ID, text: r.Document.Text, facts: string(facts), vector: v}
+		ids[i] = r.Document.ID
+	}
+	attempted, acknowledged := false, false
+	defer func() {
+		if err != nil {
+			failure := &vectorstore.WriteError{Err: err}
+			switch {
+			case acknowledged:
+				failure.Acknowledged = ids
+			case attempted:
+				failure.Unconfirmed = ids
+			default:
+				failure.Unattempted = ids
+			}
+			err = failure
+		}
+	}()
 	ctx = nativeStatementContext(ctx, true)
 	batch, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -278,81 +324,62 @@ func (s *Store) insertBatch(ctx context.Context, docs []*document.Document, text
 			err = errors.Join(err, fmt.Errorf("clickhouse: close insert batch: %w", closeErr))
 		}
 	}()
-	for index, doc := range docs {
-		encoded, err := doc.Metadata.MarshalJSON()
-		if err != nil {
-			return fmt.Errorf("clickhouse: encode metadata for %q: %w", doc.ID, err)
-		}
-		if _, err := statement.ExecContext(ctx, doc.ID, texts[index], string(encoded), embedding.Float32Vector(vectors[index])); err != nil {
-			return fmt.Errorf("clickhouse: append %q: %w", doc.ID, err)
+	for _, r := range rows {
+		if _, err := statement.ExecContext(ctx, r.id, r.text, r.facts, r.vector); err != nil {
+			return fmt.Errorf("clickhouse: append %q: %w", r.id, err)
 		}
 	}
+	attempted = true
 	if err := batch.Commit(); err != nil {
 		return fmt.Errorf("clickhouse: send insert batch: %w", err)
 	}
+	acknowledged = true
 	return nil
 }
 
-// Search uses native distances and exact ID ordering. Core evaluates all filters.
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = request.Validate(); err != nil {
-		return nil, fmt.Errorf("clickhouse.Store.Search: %w", err)
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return nil
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err = request.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
+	if err = s.CheckQuery(ctx, request.Space, request.Options); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	if request.Options.Filter == nil {
-		return s.search(ctx, request, nil)
-	}
-	transaction, err := newNativeTransaction(ctx, s.db)
+	vector, err := s.narrow(request.Values)
 	if err != nil {
 		return nil, err
-	}
-	defer func() { err = errors.Join(err, transaction.Close()) }()
-	matches, err := s.preflightFilter(transaction, request.Options.Filter)
-	if err != nil {
-		return nil, err
-	}
-	if !matches {
-		response = &vectorstore.SearchResponse{}
-	}
-	if matches {
-		response, err = s.search(ctx, request, transaction)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := transaction.Commit(); err != nil {
-		return nil, err
-	}
-	return response, nil
-}
-
-func (s *Store) search(ctx context.Context, request *vectorstore.SearchRequest, transaction *nativeTransaction) (response *vectorstore.SearchResponse, err error) {
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse: embed query: %w", err)
 	}
 	statement := fmt.Sprintf("SELECT %s, %s, %s, toFloat64(%s(%s, {scope_vector:Array(Float32)})) AS distance FROM %s FINAL ORDER BY distance, %s", s.idColumn, s.contentColumn, s.metadataColumn, s.distanceMetric.function(), s.embeddingColumn, s.fullTable, s.idColumn)
-	args := []any{sql.Named("scope_vector", embedding.Float32Vector(vector))}
-	if request.Options.Filter == nil {
-		statement += " LIMIT {scope_limit:UInt64}"
-		args = append(args, sql.Named("scope_limit", request.Options.ResultLimit()))
-	}
-	var rows *sql.Rows
-	if transaction == nil {
-		rows, err = s.db.QueryContext(nativeStatementContext(ctx, true), statement, args...)
-	} else {
-		rows, err = transaction.Query(statement, args...)
-	}
+	statement += " LIMIT {scope_limit:UInt64}"
+	rows, err := s.db.QueryContext(nativeStatementContext(ctx, true), statement, sql.Named("scope_vector", vector), sql.Named("scope_limit", request.Options.ResultLimit()))
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: query %s: %w", s.fullTable, err)
 	}
@@ -365,6 +392,7 @@ func (s *Store) search(ctx context.Context, request *vectorstore.SearchRequest, 
 		}
 	}()
 	results := make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	seen := make(map[string]bool)
 	for rows.Next() {
 		doc := &document.Document{}
 		var encoded string
@@ -372,22 +400,16 @@ func (s *Store) search(ctx context.Context, request *vectorstore.SearchRequest, 
 		if err := rows.Scan(&doc.ID, &doc.Text, &encoded, &distance); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan search row: %w", err)
 		}
-		if err := doc.Metadata.UnmarshalJSON([]byte(encoded)); err != nil {
+		if err := document.UnmarshalStoredMetadata([]byte(encoded), doc); err != nil {
 			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
 		}
-		if request.Options.Filter != nil {
-			values, err := doc.Metadata.Values()
-			if err != nil {
-				return nil, err
-			}
-			matches, err := filter.Match(request.Options.Filter, values)
-			if err != nil {
-				return nil, fmt.Errorf("clickhouse: evaluate metadata for %q: %w", doc.ID, err)
-			}
-			if !matches {
-				continue
-			}
+		if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 || s.distanceMetric == DistanceCosine && distance > 2 {
+			return nil, fmt.Errorf("clickhouse: %w: invalid native distance", vectorstore.ErrInvalidScore)
 		}
+		if seen[doc.ID] || len(seen) >= request.Options.ResultLimit() {
+			return nil, fmt.Errorf("clickhouse: %w: duplicate or excess rows", vectorstore.ErrInvalidResponse)
+		}
+		seen[doc.ID] = true
 		result, err := vectorstore.NewSearchResult(doc, s.distanceMetric.score(distance))
 		if err != nil {
 			return nil, err
@@ -402,48 +424,6 @@ func (s *Store) search(ctx context.Context, request *vectorstore.SearchRequest, 
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-// DeleteWhere validates the complete current-record snapshot before any delete.
-// Every page is applied and published by the same native transaction.
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err = predicate.Validate(); err != nil {
-		return fmt.Errorf("clickhouse.Store.DeleteWhere: %w", err)
-	}
-	transaction, err := newNativeTransaction(ctx, s.db)
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, transaction.Close()) }()
-	matches, err := s.preflightFilter(transaction, predicate)
-	if err != nil {
-		return err
-	}
-	if matches {
-		var after *string
-		for {
-			docs, err := s.metadataPage(transaction, after)
-			if err != nil {
-				return err
-			}
-			if len(docs) == 0 {
-				break
-			}
-			lastID := docs[len(docs)-1].ID
-			after = &lastID
-			ids, err := s.matchingIDs(docs, predicate)
-			if err != nil {
-				return err
-			}
-			if err := s.deleteIDs(transaction, ids); err != nil {
-				return err
-			}
-		}
-	}
-	return transaction.Commit()
-}
-
 // DeleteIDs removes the IDs visible in one native snapshot. Empty input is a no-op.
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if len(ids) == 0 {
@@ -454,14 +434,20 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, transaction.Close()) }()
-	for start := 0; start < len(ids); start += metadataPageSize {
-		if err := s.deleteIDs(transaction, ids[start:min(start+metadataPageSize, len(ids))]); err != nil {
+	return s.deleteSelected(transaction, ids)
+}
+
+func (s *Store) deleteSelected(transaction *nativeTransaction, ids []string) error {
+	for chunk := range slices.Chunk(ids, metadataPageSize) {
+		if err := s.deleteIDs(transaction, chunk); err != nil {
 			return err
 		}
 	}
-	return transaction.Commit()
+	if err := transaction.Commit(); err != nil {
+		return &vectorstore.WriteError{Err: err, Unconfirmed: slices.Clone(ids)}
+	}
+	return nil
 }
-
 func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
 	if len(ids) == 0 {
 		return nil
@@ -475,117 +461,44 @@ func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
 
 const metadataPageSize = 512
 
-func (s *Store) metadataPage(transaction *nativeTransaction, after *string) (docs []*document.Document, err error) {
-	statement := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
-	var args []any
-	if after != nil {
-		statement += fmt.Sprintf(" WHERE %s > {scope_cursor:String}", s.idColumn)
-		args = append(args, sql.Named("scope_cursor", *after))
-	}
-	statement += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
-	rows, err := transaction.Query(statement, args...)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse: read metadata: %w", err)
-	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("clickhouse: close metadata rows: %w", closeErr))
-		}
-		if err != nil {
-			docs = nil
-		}
-	}()
-	for rows.Next() {
-		doc := &document.Document{}
-		var encoded string
-		if err := rows.Scan(&doc.ID, &doc.Text, &encoded); err != nil {
-			return nil, err
-		}
-		if err := doc.Metadata.UnmarshalJSON([]byte(encoded)); err != nil {
-			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
-		}
-		docs = append(docs, doc)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if len(docs) > 0 {
-		if err := (&vectorstore.IndexRequest{Documents: docs}).Validate(); err != nil {
-			return nil, fmt.Errorf("clickhouse: invalid stored documents: %w", err)
-		}
-	}
-	return docs, nil
-}
-
-func (s *Store) matchingIDs(docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-	var ids []string
-	for _, doc := range docs {
-		values, err := doc.Metadata.Values()
-		if err != nil {
-			return nil, err
-		}
-		matches, err := filter.Match(predicate, values)
-		if err != nil {
-			return nil, fmt.Errorf("clickhouse: evaluate metadata for %q: %w", doc.ID, err)
-		}
-		if matches {
-			ids = append(ids, doc.ID)
-		}
-	}
-	return ids, nil
-}
-
-func (s *Store) preflightFilter(transaction *nativeTransaction, predicate filter.Predicate) (bool, error) {
-	var after *string
-	matches := false
-	for {
-		docs, err := s.metadataPage(transaction, after)
-		if err != nil {
-			return false, err
-		}
-		if len(docs) == 0 {
-			return matches, nil
-		}
-		ids, err := s.matchingIDs(docs, predicate)
-		if err != nil {
-			return false, err
-		}
-		matches = matches || len(ids) > 0
-		lastID := docs[len(docs)-1].ID
-		after = &lastID
-	}
-}
-
-func (s *Store) validateTable(ctx context.Context) (err error) {
+func (s *Store) tableDimensions(ctx context.Context) (width int, err error) {
 	ctx = nativeStatementContext(ctx, false)
 	var engine, sortingKey, partitionKey, createStatement string
 	if err = s.db.QueryRowContext(ctx, "SELECT engine_full, sorting_key, partition_key, formatQuery(create_table_query) FROM system.tables WHERE database = ? AND name = ?", s.databaseName, s.tableName).Scan(&engine, &sortingKey, &partitionKey, &createStatement); err != nil {
-		return fmt.Errorf("clickhouse: inspect table %s: %w", s.fullTable, err)
+		return 0, fmt.Errorf("clickhouse: inspect table %s: %w", s.fullTable, err)
 	}
 	engineName, _, _ := strings.Cut(engine, " ORDER BY ")
 	for strings.HasPrefix(sortingKey, "(") && strings.HasSuffix(sortingKey, ")") {
 		sortingKey = sortingKey[1 : len(sortingKey)-1]
 	}
 	if (engineName != "ReplacingMergeTree" && engineName != "ReplacingMergeTree()") || sortingKey != s.idColumn || partitionKey != "" {
-		return fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
+		return 0, fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
 	}
-	widthPattern := `(?m)^[\t ]*CONSTRAINT vec_len CHECK length\(` + regexp.QuoteMeta(s.embeddingColumn) + `\) = [1-9][0-9]*[,\n]`
-	validWidth, err := regexp.MatchString(widthPattern, createStatement)
+	widthPattern := `(?m)^[\t ]*CONSTRAINT vec_len CHECK length\(` + regexp.QuoteMeta(s.embeddingColumn) + `\) = ([1-9][0-9]*)[,\n]`
+	widthRE, err := regexp.Compile(widthPattern)
 	if err != nil {
-		return err
+		return 0, err
+	}
+	matches := widthRE.FindStringSubmatch(createStatement)
+	if len(matches) != 2 {
+		return 0, fmt.Errorf("%w: missing native width constraint", vectorstore.ErrIncompatibleSpace)
+	}
+	width, err = strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, err
 	}
 	finitePattern := `(?m)^[\t ]*CONSTRAINT vec_finite CHECK arrayAll\(x -> isFinite\(x\), ` + regexp.QuoteMeta(s.embeddingColumn) + `\)[,\n]`
 	validFinite, err := regexp.MatchString(finitePattern, createStatement)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if !validWidth || !validFinite {
-		return fmt.Errorf("clickhouse: table %s must have current vec_len and vec_finite constraints", s.fullTable)
+	if !validFinite {
+		return 0, fmt.Errorf("clickhouse: table %s must have current vec_len and vec_finite constraints", s.fullTable)
 	}
 	expected := map[string]string{s.idColumn: "String", s.contentColumn: "String", s.metadataColumn: "String", s.embeddingColumn: "Array(Float32)"}
-	rows, err := s.db.QueryContext(ctx, "SELECT name, type, default_kind FROM system.columns WHERE database = ? AND table = ? AND name IN (?, ?, ?, ?)", s.databaseName, s.tableName, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn)
+	rows, err := s.db.QueryContext(ctx, "SELECT name, type, default_kind FROM system.columns WHERE database = ? AND table = ?", s.databaseName, s.tableName)
 	if err != nil {
-		return fmt.Errorf("clickhouse: inspect columns: %w", err)
+		return 0, fmt.Errorf("clickhouse: inspect columns: %w", err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -595,18 +508,147 @@ func (s *Store) validateTable(ctx context.Context) (err error) {
 	for rows.Next() {
 		var name, dataType, defaultKind string
 		if err := rows.Scan(&name, &dataType, &defaultKind); err != nil {
-			return err
+			return 0, err
 		}
 		if expected[name] != dataType || defaultKind != "" {
-			return fmt.Errorf("clickhouse: column %q must use %s without generated values, got %s %s", name, expected[name], dataType, defaultKind)
+			return 0, fmt.Errorf("clickhouse: column %q must use %s without generated values, got %s %s", name, expected[name], dataType, defaultKind)
 		}
 		delete(expected, name)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	if len(expected) != 0 {
-		return fmt.Errorf("clickhouse: table %s is missing required columns", s.fullTable)
+		return 0, fmt.Errorf("clickhouse: table %s is missing required columns", s.fullTable)
 	}
-	return nil
+	return width, nil
+}
+
+// scan visits FINAL records in one native transaction. It charges every
+// selected ID, content and raw metadata byte before decoding the predicate.
+func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filter.Predicate) ([]*document.Document, error) {
+	var after string
+	var docs []*document.Document
+	for {
+		query := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
+		var args []any
+		if after != "" {
+			query += fmt.Sprintf(" WHERE %s > {scope_cursor:String}", s.idColumn)
+			args = append(args, sql.Named("scope_cursor", after))
+		}
+		query += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
+		rows, err := tx.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		err = func() (err error) {
+			defer func() { err = errors.Join(err, rows.Close()) }()
+			for rows.Next() {
+				count++
+				if count > metadataPageSize {
+					return errors.New("clickhouse: source exceeded scan page")
+				}
+				d := new(document.Document)
+				var raw string
+				if err := rows.Scan(&d.ID, &d.Text, &raw); err != nil {
+					return err
+				}
+				if err := meter.Charge(int64(len(d.ID)) + int64(len(d.Text)) + int64(len(raw))); err != nil {
+					return err
+				}
+				if d.ID <= after {
+					return errors.New("clickhouse: scan key failed to advance")
+				}
+				after = d.ID
+				if err := document.UnmarshalStoredMetadata([]byte(raw), d); err != nil {
+					return err
+				}
+				if err := vectorstore.ValidateDocument(d); err != nil {
+					return err
+				}
+				if p != nil {
+					m, err := d.Metadata.Values()
+					if err != nil {
+						return err
+					}
+					ok, err := filter.Match(p, m)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						continue
+					}
+				}
+				docs = append(docs, d)
+			}
+			return rows.Err()
+		}()
+		if err != nil {
+			return nil, err
+		}
+		if count == 0 {
+			return docs, meter.Context().Err()
+		}
+	}
+}
+
+// Scan returns no partial records. Its grant covers a single native snapshot.
+func (s *Store) Scan(ctx context.Context, cfg ScanConfig) (found []*document.Document, err error) {
+	if err = cfg.Validate(); err != nil {
+		return nil, err
+	}
+	m, err := cfg.Budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer m.Close()
+	tx, err := newNativeTransaction(m.Context(), s.db)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		err = errors.Join(err, tx.Close())
+		if err != nil {
+			found = nil
+		}
+	}()
+	found, err = s.scan(tx, m, cfg.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return found, nil
+}
+
+// DeleteMatching proves membership over the complete bounded snapshot before
+// buffering deletes on the same session. Only native COMMIT publishes them.
+func (s *Store) DeleteMatching(ctx context.Context, cfg ScanConfig) (err error) {
+	if cfg.Filter == nil {
+		return vectorstore.ErrMissingFilter
+	}
+	if err = cfg.Validate(); err != nil {
+		return err
+	}
+	m, err := cfg.Budget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+	tx, err := newNativeTransaction(m.Context(), s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, tx.Close()) }()
+	docs, err := s.scan(tx, m, cfg.Filter)
+	if err != nil {
+		return err
+	}
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.ID
+	}
+	return s.deleteSelected(tx, ids)
 }

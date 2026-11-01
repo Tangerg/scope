@@ -9,12 +9,12 @@ import (
 	"testing"
 
 	"github.com/Tangerg/go-sdk/jsonrpc"
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	sdkmcp "github.com/Tangerg/go-sdk/mcp"
-
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
@@ -25,40 +25,40 @@ type echoInput struct {
 
 func newEchoTool() tool.Tool {
 	return testTool{
-		definition: corechat.ToolDefinition{
+		definition: tool.Definition{
 			Name:        "echo",
 			Description: "echo the input",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`),
 		},
-		call: func(_ context.Context, invocation tool.Invocation) (corechat.ToolOutput, error) {
+		call: func(_ context.Context, invocation tool.Invocation) (tool.Output, error) {
 			var input echoInput
 			if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
-				return corechat.ToolOutput{}, err
+				return tool.Output{}, err
 			}
-			return corechat.NewTextToolOutput(input.Text), nil
+			return tool.NewTextOutput(input.Text), nil
 		},
 	}
 }
 
 func newConstantTool(name string) tool.Tool {
 	return testTool{
-		definition: corechat.ToolDefinition{
+		definition: tool.Definition{
 			Name:        name,
 			Description: "return " + name,
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		},
-		call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-			return corechat.NewTextToolOutput(name), nil
+		call: func(context.Context, tool.Invocation) (tool.Output, error) {
+			return tool.NewTextOutput(name), nil
 		},
 	}
 }
 
 type testTool struct {
-	definition corechat.ToolDefinition
-	call       func(context.Context, tool.Invocation) (corechat.ToolOutput, error)
+	definition tool.Definition
+	call       func(context.Context, tool.Invocation) (tool.Output, error)
 }
 
-func (t testTool) Definition() corechat.ToolDefinition { return t.definition.Clone() }
+func (t testTool) Definition() tool.Definition { return t.definition.Clone() }
 
 func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
 	output, err := t.call(ctx, invocation)
@@ -120,13 +120,13 @@ func TestRegisterUnknownOutcomeRemainsProtocolError(t *testing.T) {
 	ctx := t.Context()
 
 	failing := testTool{
-		definition: corechat.ToolDefinition{
+		definition: tool.Definition{
 			Name:        "boom",
 			Description: "always fails",
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		},
-		call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-			return corechat.ToolOutput{}, errors.New("kaboom from scope tool")
+		call: func(context.Context, tool.Invocation) (tool.Output, error) {
+			return tool.Output{}, errors.New("kaboom from scope tool")
 		},
 	}
 
@@ -147,13 +147,13 @@ func TestRegisterInputValidatorDefectStaysInternal(t *testing.T) {
 	var calls atomic.Int32
 	defect := validatingTool{
 		testTool: testTool{
-			definition: corechat.ToolDefinition{
+			definition: tool.Definition{
 				Name: "defective", Description: "validator panics",
 				InputSchema: json.RawMessage(`{"type":"object"}`),
 			},
-			call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
+			call: func(context.Context, tool.Invocation) (tool.Output, error) {
 				calls.Add(1)
-				return corechat.NewTextToolOutput("unreachable"), nil
+				return tool.NewTextOutput("unreachable"), nil
 			},
 		},
 		validator: func([]byte) error { panic("validator defect secret diagnostic") },
@@ -176,13 +176,13 @@ func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
 	var calls atomic.Int32
 	picky := validatingTool{
 		testTool: testTool{
-			definition: corechat.ToolDefinition{
+			definition: tool.Definition{
 				Name: "picky", Description: "rejects some input",
 				InputSchema: json.RawMessage(`{"type":"object"}`),
 			},
-			call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
+			call: func(context.Context, tool.Invocation) (tool.Output, error) {
 				calls.Add(1)
-				return corechat.NewTextToolOutput("unreachable"), nil
+				return tool.NewTextOutput("unreachable"), nil
 			},
 		},
 		validator: func([]byte) error { return errors.New("argument is out of range") },
@@ -198,16 +198,16 @@ func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
 }
 
 func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
-	want := corechat.ToolOutput{
-		Content: []corechat.ToolContent{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
+	want := tool.Output{
+		Content: []corecontent.Block{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
 		Details: json.RawMessage(`{"files":["one"],"complete":false}`),
 	}
 	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("partial execution"), Output: want})
 	require.NoError(t, err)
 	executable := testTool{
-		definition: corechat.ToolDefinition{Name: "partial", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		call: func(context.Context, tool.Invocation) (corechat.ToolOutput, error) {
-			return corechat.ToolOutput{}, failure
+		definition: tool.Definition{Name: "partial", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		call: func(context.Context, tool.Invocation) (tool.Output, error) {
+			return tool.Output{}, failure
 		},
 	}
 	session, cleanup := connectPair(t, t.Context(), executable)
@@ -265,12 +265,12 @@ func TestRegister_RefusesEverySchemaShapeTheServerCannotHold(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
-			err := scopemcp.Register(srv, testTool{definition: corechat.ToolDefinition{
+			err := scopemcp.Register(srv, testTool{definition: tool.Definition{
 				Name:        "shape",
 				InputSchema: json.RawMessage(test.schema),
 			}})
 
-			require.ErrorIs(t, err, corechat.ErrInvalidToolDefinition)
+			require.ErrorIs(t, err, tool.ErrInvalidDefinition)
 		})
 	}
 }
@@ -314,8 +314,8 @@ func (v validatingTool) InputValidator() func([]byte) error { return v.validator
 
 type badSchemaTool struct{}
 
-func (badSchemaTool) Definition() corechat.ToolDefinition {
-	return corechat.ToolDefinition{Name: "bad", InputSchema: json.RawMessage("{not-json")}
+func (badSchemaTool) Definition() tool.Definition {
+	return tool.Definition{Name: "bad", InputSchema: json.RawMessage("{not-json")}
 }
 
 func (badSchemaTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
@@ -324,8 +324,8 @@ func (badSchemaTool) Call(context.Context, tool.Invocation) (tool.Result, error)
 
 type missingSchemaTypeTool struct{}
 
-func (missingSchemaTypeTool) Definition() corechat.ToolDefinition {
-	return corechat.ToolDefinition{Name: "missing-schema-type", InputSchema: json.RawMessage(`{}`)}
+func (missingSchemaTypeTool) Definition() tool.Definition {
+	return tool.Definition{Name: "missing-schema-type", InputSchema: json.RawMessage(`{}`)}
 }
 
 func (missingSchemaTypeTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
@@ -336,11 +336,11 @@ type definitionOnceTool struct {
 	definitionCalls atomic.Int32
 }
 
-func (d *definitionOnceTool) Definition() corechat.ToolDefinition {
+func (d *definitionOnceTool) Definition() tool.Definition {
 	if d.definitionCalls.Add(1) != 1 {
 		panic("tool definition was read after registration")
 	}
-	return corechat.ToolDefinition{
+	return tool.Definition{
 		Name:        "stable",
 		Description: "stable definition",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
@@ -348,5 +348,19 @@ func (d *definitionOnceTool) Definition() corechat.ToolDefinition {
 }
 
 func (*definitionOnceTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
-	return tool.Result{Output: corechat.NewTextToolOutput("ok")}, nil
+	return tool.Result{Output: tool.NewTextOutput("ok")}, nil
+}
+
+func TestDirectRegistrationCannotReplayAContinuationAsANewWrite(t *testing.T) {
+	var calls atomic.Int32
+	native := testTool{definition: tool.Definition{Name: "write", InputSchema: json.RawMessage(`{"type":"object"}`)}, call: func(context.Context, tool.Invocation) (tool.Output, error) {
+		calls.Add(1)
+		return tool.NewTextOutput("saved"), nil
+	}}
+	cs, done := connectPair(t, t.Context(), native)
+	defer done()
+	out, err := cs.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "write", Arguments: map[string]any{}, RequestState: "unknown-opaque-state"})
+	if err == nil || out != nil || calls.Load() != 0 {
+		t.Fatalf("unexpected fresh write: %v %v calls=%d", out, err, calls.Load())
+	}
 }

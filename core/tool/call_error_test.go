@@ -9,14 +9,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestCallErrorPreservesEvidenceWithoutEstablishingFailure(t *testing.T) {
 	cause := fmt.Errorf("lost acknowledgement: %w", context.DeadlineExceeded)
-	evidence := chat.ToolOutput{
-		Content: []chat.ToolContent{{Kind: chat.PartText, Text: "write acknowledged"}},
+	evidence := tool.Output{
+		Content: []corecontent.Block{{Kind: corecontent.Text, Text: "write acknowledged"}},
 		Details: json.RawMessage(`{"written":["first"]}`),
 	}
 	want := evidence.Clone()
@@ -49,7 +49,7 @@ func TestCallErrorRequiresValidCauseAndEvidence(t *testing.T) {
 	for _, config := range []tool.CallErrorConfig{
 		{},
 		{Cause: (*os.PathError)(nil)},
-		{Cause: errors.New("lost result"), Evidence: chat.ToolOutput{Details: json.RawMessage(`{`)}},
+		{Cause: errors.New("lost result"), Evidence: tool.Output{Details: json.RawMessage(`{`)}},
 	} {
 		callErr, err := tool.NewCallError(config)
 		if callErr != nil || !errors.Is(err, tool.ErrInvalidCallError) {
@@ -60,14 +60,14 @@ func TestCallErrorRequiresValidCauseAndEvidence(t *testing.T) {
 		if invalid.Error() != tool.ErrInvalidCallError.Error() || !errors.Is(invalid.Validate(), tool.ErrInvalidCallError) {
 			t.Fatalf("invalid CallError = %+v", invalid)
 		}
-		if invalid.Unwrap() != nil || !reflect.DeepEqual(invalid.Evidence(), chat.ToolOutput{}) {
+		if invalid.Unwrap() != nil || !reflect.DeepEqual(invalid.Evidence(), tool.Output{}) {
 			t.Fatalf("invalid CallError retained observations: %+v", invalid)
 		}
 	}
 }
 
 func TestFuncPreservesNonfinalExecutionEvidence(t *testing.T) {
-	want := chat.NewTextToolOutput("first file changed; second response missing")
+	want := tool.NewTextOutput("first file changed; second response missing")
 	callErr, err := tool.NewCallError(tool.CallErrorConfig{Cause: context.DeadlineExceeded, Evidence: want})
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestFuncPreservesNonfinalExecutionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "write-1", Name: "write", Arguments: "{}"}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "write", Arguments: "{}"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

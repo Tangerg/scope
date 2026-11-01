@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/content"
 )
@@ -29,7 +28,7 @@ func TestToolPreservesUnknownExecutionEvidence(t *testing.T) {
 	cause := fmt.Errorf("collection failed: %w", context.DeadlineExceeded)
 	executable := mustTool(t, outputExecutor{output: Output{
 		Stdout: []byte("file written"), Stderr: []byte("partial stderr"), ExitCode: -1,
-		Duration: time.Second, CancellationObserved: true, StdoutTruncated: true,
+		Duration: time.Second, CancellationObserved: true, StdoutDroppedBytes: 1,
 	}, err: cause})
 	_, err := invokeTestTool(t.Context(), executable, `{"command":"write"}`)
 	callErr, ok := errors.AsType[*tool.CallError](err)
@@ -43,7 +42,7 @@ func TestToolPreservesUnknownExecutionEvidence(t *testing.T) {
 	if err := jsonv2.Unmarshal(callErr.Evidence().Details, &response); err != nil {
 		t.Fatal(err)
 	}
-	want := Response{Stdout: content.New([]byte("file written")), Stderr: content.New([]byte("partial stderr")), ExitCode: -1, Duration: "1s", CancellationObserved: true, StdoutTruncated: true}
+	want := Response{Stdout: content.New([]byte("file written")), Stderr: content.New([]byte("partial stderr")), ExitCode: -1, Duration: "1s", CancellationObserved: true, StdoutDroppedBytes: 1}
 	if !reflect.DeepEqual(response, want) {
 		t.Fatalf("response = %#v, want %#v", response, want)
 	}
@@ -53,7 +52,7 @@ func TestToolPreservesBackendDefiniteOutcome(t *testing.T) {
 	for _, kind := range []tool.FailureKind{tool.FailureKindFailed, tool.FailureKindRejected} {
 		failure, err := tool.NewFailure(tool.FailureConfig{
 			Kind: kind, Cause: context.DeadlineExceeded,
-			Output: chat.NewTextToolOutput("backend's complete outcome"),
+			Output: tool.NewTextOutput("backend's complete outcome"),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -64,14 +63,14 @@ func TestToolPreservesBackendDefiniteOutcome(t *testing.T) {
 		if !found || got != failure || got.Kind() != kind || !reflect.DeepEqual(got.Output(), failure.Output()) {
 			t.Fatalf("definite outcome changed: %v", err)
 		}
-		if errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, chat.ToolOutput{}) {
+		if errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, tool.Output{}) {
 			t.Fatalf("diagnostic cause or redundant output crossed complete outcome boundary: %+v, %v", output, err)
 		}
 	}
 }
 
 func TestToolDoesNotPromoteAJoinedFailureToTheWholeOutcome(t *testing.T) {
-	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("one operation rejected")})
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("one operation rejected")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +96,7 @@ func TestToolDoesNotPromoteAJoinedFailureToTheWholeOutcome(t *testing.T) {
 }
 
 func TestToolPreservesBackendEvidenceOwner(t *testing.T) {
-	want := chat.NewTextToolOutput("remote job 17 acknowledged, exit unobserved")
+	want := tool.NewTextOutput("remote job 17 acknowledged, exit unobserved")
 	callErr, err := tool.NewCallError(tool.CallErrorConfig{Cause: errors.Join(ErrInvalidInput, context.Canceled), Evidence: want})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +151,7 @@ func TestLocalExecutorReportsActualStreamTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !output.StdoutTruncated || output.StderrTruncated || string(output.Stderr) != "xy" {
+	if output.StdoutDroppedBytes != 1 || output.StderrDroppedBytes != 0 || string(output.Stdout) != "abcd" || string(output.Stderr) != "xy" {
 		t.Fatalf("truncation observations = %+v", output)
 	}
 	executor = mustLocalExecutor(t, LocalExecutorConfig{Directory: t.TempDir(), MaxBytesPerStream: 100})
@@ -160,7 +159,7 @@ func TestLocalExecutorReportsActualStreamTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.StdoutTruncated || output.StderrTruncated {
+	if output.StdoutDroppedBytes != 0 || output.StderrDroppedBytes != 0 {
 		t.Fatalf("command text was mistaken for truncation: %+v", output)
 	}
 }
@@ -169,7 +168,7 @@ func TestToolPreservesNonUTF8Evidence(t *testing.T) {
 	for _, cause := range []error{nil, context.DeadlineExceeded} {
 		executable := mustTool(t, outputExecutor{output: Output{
 			Stdout: []byte{0xe4, 0xbd}, Stderr: []byte{0xff}, ExitCode: -1,
-			StdoutTruncated: true, CancellationObserved: true,
+			StdoutDroppedBytes: 1, CancellationObserved: true,
 		}, err: cause})
 		output, err := invokeTestTool(t.Context(), executable, `{"command":"binary"}`)
 		if cause != nil {
@@ -185,7 +184,7 @@ func TestToolPreservesNonUTF8Evidence(t *testing.T) {
 		if err := jsonv2.Unmarshal(output.Details, &response); err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(response.Stdout.Bytes(), []byte{0xe4, 0xbd}) || !bytes.Equal(response.Stderr.Bytes(), []byte{0xff}) || response.ExitCode != -1 || !response.StdoutTruncated || !response.CancellationObserved {
+		if !bytes.Equal(response.Stdout.Bytes(), []byte{0xe4, 0xbd}) || !bytes.Equal(response.Stderr.Bytes(), []byte{0xff}) || response.ExitCode != -1 || response.StdoutDroppedBytes != 1 || !response.CancellationObserved {
 			t.Fatalf("binary execution observations changed: %+v", response)
 		}
 	}
@@ -202,8 +201,8 @@ func TestToolKeepsBytesWhenLocalCaptureSplitsUTF8(t *testing.T) {
 	if err := jsonv2.Unmarshal(output.Details, &response); err != nil {
 		t.Fatal(err)
 	}
-	want := append([]byte{0xe4, 0xbd}, []byte("... [1 bytes truncated] ...\n")...)
-	if !response.StdoutTruncated || !bytes.Equal(response.Stdout.Bytes(), want) {
+	want := []byte{0xe4, 0xbd}
+	if response.StdoutDroppedBytes != 1 || !bytes.Equal(response.Stdout.Bytes(), want) {
 		t.Fatalf("truncated UTF8 output = %x, want %x", response.Stdout.Bytes(), want)
 	}
 }

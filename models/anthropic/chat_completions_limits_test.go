@@ -10,7 +10,6 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/models/anthropic"
-	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
 // Anthropic publishes a field-by-field support table for its OpenAI-compatible
@@ -91,7 +90,7 @@ func TestChatCompletionsSendsATemperatureAnthropicHonors(t *testing.T) {
 	}
 }
 
-func newCompatModel(t *testing.T) (*openaiprotocol.ChatCompletions, func() int) {
+func newCompatModel(t *testing.T) (*corechat.StreamModel, func() int) {
 	t.Helper()
 
 	calls := 0

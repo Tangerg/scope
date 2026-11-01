@@ -13,14 +13,15 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
+	_ vectorstore.Upserter      = (*Store)(nil)
+	_ vectorstore.Querier       = (*Store)(nil)
 	_ vectorstore.FilterDeleter = (*Store)(nil)
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
@@ -28,8 +29,7 @@ var (
 type Store struct {
 	collection      DocumentCollection
 	vectorIndexName string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
+	space           vectorstore.SpaceID
 	schema          nativeSchema
 	numCandidates   int
 }
@@ -39,92 +39,143 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	config.applyDefaults()
-	model, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{collection: config.Collection, vectorIndexName: config.VectorIndexName, embeddingClient: model, documentBatcher: config.DocumentBatcher, numCandidates: config.NumCandidates}
-	if err = store.bind(ctx); err != nil {
+	var err error
+	store := &Store{collection: config.Collection, vectorIndexName: config.VectorIndexName, space: config.Space, numCandidates: config.NumCandidates}
+	if store.schema, err = store.readSchema(ctx); err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) bind(ctx context.Context) (err error) {
+func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error) {
 	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{{{Key: "$listSearchIndexes", Value: bson.M{"name": s.vectorIndexName}}}})
 	if err != nil {
-		return err
+		return schema, err
 	}
 	if cursor == nil {
-		return errors.New("mongodb: native index listing returned no cursor")
+		return schema, errors.New("mongodb: native index listing returned no cursor")
 	}
 	defer func() { err = errors.Join(err, cursor.Close(ctx)) }()
 	found := false
 	for cursor.Next(ctx) {
 		if found {
-			return errors.New("mongodb: native index listing repeated the named index")
+			return schema, errors.New("mongodb: native index listing repeated the named index")
 		}
-		if err = s.schema.read(cursor.Current, s.vectorIndexName); err != nil {
-			return err
+		if err = schema.read(cursor.Current, s.vectorIndexName, s.space); err != nil {
+			return schema, err
 		}
 		found = true
 	}
 	if err = cursor.Err(); err != nil {
-		return err
+		return schema, err
 	}
 	if !found {
-		return errors.New("mongodb: native vector index is missing")
+		return schema, errors.New("mongodb: native vector index is missing")
+	}
+	return schema, nil
+}
+
+func (s *Store) verify(ctx context.Context) error {
+	schema, err := s.readSchema(ctx)
+	if err != nil {
+		return err
+	}
+	if schema != s.schema {
+		return fmt.Errorf("%w: native index shape changed", vectorstore.ErrIncompatibleSpace)
 	}
 	return nil
 }
-
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	records := make(map[string]bson.M, len(request.Documents))
-	for _, doc := range request.Documents {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, d := range docs {
+		if _, err := encodeRecord(d); err != nil {
+			return err
+		}
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	writes := make([]mongo.WriteModel, len(batch.Records))
+	ids := make([]string, len(writes))
+	for i, r := range batch.Records {
+		doc := r.Document
 		record, err := encodeRecord(doc)
 		if err != nil {
 			return err
 		}
-		records[doc.ID] = record
+		v, err := s.schema.vector(r.Values)
+		if err != nil {
+			return err
+		}
+		record[s.schema.vectorPath] = v
+		raw, err := bson.Marshal(record)
+		if err != nil {
+			return err
+		}
+		ids[i] = doc.ID
+		writes[i] = mongo.NewReplaceOneModel().SetFilter(bson.M{idField: doc.ID, s.schema.vectorPath: bson.M{"$exists": true}}).SetReplacement(bson.Raw(raw)).SetUpsert(true).SetCollation(&options.Collation{Locale: "simple"})
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
+	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	var writes []mongo.WriteModel
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
-		}
-		vectors, modelErr := s.embeddingClient.EmbedTexts(ctx, texts)
-		if modelErr != nil {
-			return modelErr
-		}
-		for i, doc := range batch.Documents {
-			vector, vectorErr := s.schema.vector(vectors[i])
-			if vectorErr != nil {
-				return vectorErr
-			}
-			record := records[doc.ID]
-			record[embeddingField] = vector
-			raw, encodingErr := bson.Marshal(record)
-			if encodingErr != nil {
-				return encodingErr
-			}
-			writes = append(writes, mongo.NewReplaceOneModel().SetFilter(bson.M{idField: doc.ID}).SetReplacement(bson.Raw(raw)).SetUpsert(true).SetCollation(&options.Collation{Locale: "simple"}))
-		}
+	result, err := s.collection.BulkWrite(ctx, writes, options.BulkWrite().SetOrdered(true))
+	if err == nil {
+		err = checkBulkAcknowledgment(result, len(writes))
 	}
-	result, err := s.collection.BulkWrite(ctx, writes)
-	if err != nil {
-		return err
+	if err == nil {
+		return nil
 	}
-	return checkBulkAcknowledgment(result, len(writes))
+	return writeEvidence(ids, result, err)
 }
-
+func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) *vectorstore.WriteError {
+	w := &vectorstore.WriteError{Err: cause}
+	// Ordered writes stop at the first write error. A write concern or transport
+	// failure on its own proves neither rejection nor lack of delivery.
+	var failure mongo.BulkWriteException
+	stop := len(ids)
+	if errors.As(cause, &failure) && len(failure.WriteErrors) == 1 {
+		i := failure.WriteErrors[0].Index
+		if i >= 0 && i < len(ids) {
+			stop = i
+			w.Rejected = []string{ids[i]}
+			w.Unattempted = slices.Clone(ids[i+1:])
+		}
+	}
+	if result == nil || failure.WriteConcernError != nil || !result.Acknowledged && stop == len(ids) {
+		w.Unconfirmed = slices.Clone(ids[:stop])
+		return w
+	}
+	for i, id := range ids[:stop] {
+		if got, ok := result.UpsertedIDs[int64(i)].(string); ok && got == id {
+			w.Acknowledged = append(w.Acknowledged, id)
+		} else {
+			w.Unconfirmed = append(w.Unconfirmed, id)
+		}
+	}
+	// The driver finalizes aggregate counts on successful command completion;
+	// ordered error returns can expose pre-normalization counts.
+	if result.Acknowledged && stop == len(ids) {
+		total := result.MatchedCount + result.UpsertedCount
+		if result.MatchedCount >= 0 && result.UpsertedCount >= int64(len(w.Acknowledged)) && total >= int64(len(w.Acknowledged)) && total <= int64(len(ids)) {
+			w.AcknowledgedCount = new(int(total) - len(w.Acknowledged))
+		}
+	}
+	return w
+}
 func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 	if result == nil {
 		return errors.New("mongodb: bulk write returned no result")
@@ -138,11 +189,51 @@ func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) nativeTerm(p filter.Predicate) (string, error) {
+	if !s.schema.indexedTerms {
+		return "", vectorstore.ErrUnsupportedFilter
+	}
+	return keyword.EqualString(p)
+}
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if _, err := s.searchCandidates(opts.ResultLimit()); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		if _, err := s.nativeTerm(opts.Filter); err != nil {
+			return err
+		}
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return s.rank(ctx, q, nil)
+}
+func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := q.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
+	if q.Options.Filter == nil {
+		return nil, vectorstore.ErrMissingFilter
+	}
+	if err := budget.Validate(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
+	return s.rank(ctx, q, &budget)
+}
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -150,7 +241,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
@@ -160,9 +251,24 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err != nil {
 		return nil, err
 	}
+	query, err := s.schema.vector(request.Values)
+	if err != nil {
+		return nil, err
+	}
+	var nativeWhere bson.M
+	if budget == nil && request.Options.Filter != nil {
+		term, termErr := s.nativeTerm(request.Options.Filter)
+		if termErr != nil {
+			return nil, termErr
+		}
+		nativeWhere = bson.M{termsField: bson.M{"$in": []string{term}}}
+	}
+	if verifyErr := s.verify(ctx); verifyErr != nil {
+		return nil, verifyErr
+	}
 	var selected []selectedDocument
-	if request.Options.Filter != nil {
-		selected, err = s.selectDocuments(ctx, request.Options.Filter)
+	if budget != nil {
+		selected, err = s.selectDocuments(ctx, request.Options.Filter, *budget)
 		if err != nil {
 			return nil, err
 		}
@@ -170,26 +276,21 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			return &vectorstore.SearchResponse{}, nil
 		}
 	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	query, err := s.schema.vector(vector)
-	if err != nil {
-		return nil, err
-	}
 	var ids []string
 	for _, record := range selected {
 		ids = append(ids, record.id)
 	}
 	groups := [][]string{nil}
-	if request.Options.Filter != nil {
+	if budget != nil {
 		groups = slices.Collect(slices.Chunk(ids, filterPageSize))
 	}
 	var matches []*vectorstore.SearchResult
 	seen := make(map[string]struct{})
 	for _, group := range groups {
-		native := bson.M{"index": s.vectorIndexName, "path": embeddingField, "queryVector": query, "numCandidates": candidates, "limit": request.Options.ResultLimit()}
+		native := bson.M{"index": s.vectorIndexName, "path": s.schema.vectorPath, "queryVector": query, "numCandidates": candidates, "limit": request.Options.ResultLimit()}
+		if nativeWhere != nil {
+			native["filter"] = nativeWhere
+		}
 		if group != nil {
 			native["filter"] = bson.M{idField: bson.M{"$in": group}}
 		}
@@ -274,8 +375,8 @@ func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matc
 	return matches, cursor.Err()
 }
 
-func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) (selected []selectedDocument, err error) {
-	cursor, err := s.collection.Aggregate(ctx, mongo.Pipeline{}, options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
+func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (selected []selectedDocument, err error) {
+	cursor, err := s.collection.Aggregate(ctx, scanPipeline(s.schema.vectorPath, budget), options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +391,18 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate)
 	}()
 	seen := make(map[string]struct{})
 	for cursor.Next(ctx) {
-		doc, facts, decodeErr := s.schema.decode(cursor.Current, false)
+		within, ok := cursor.Current.Lookup("within").BooleanOK()
+		if !ok {
+			return nil, errors.New("mongodb: malformed scan budget evidence")
+		}
+		if !within {
+			return nil, vectorstore.ErrScanBudget
+		}
+		source, ok := cursor.Current.Lookup("document").DocumentOK()
+		if !ok {
+			return nil, errors.New("mongodb: missing scan document")
+		}
+		doc, facts, decodeErr := s.schema.decode(source, false)
 		if decodeErr != nil {
 			return nil, decodeErr
 		}
@@ -323,12 +435,43 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	records, err := s.selectDocuments(ctx, predicate)
+	term, err := s.nativeTerm(predicate)
+	if err != nil {
+		return err
+	}
+	if verifyErr := s.verify(ctx); verifyErr != nil {
+		return verifyErr
+	}
+	result, err := s.collection.DeleteMany(ctx, bson.M{s.schema.vectorPath: bson.M{"$exists": true}, termsField: term}, options.DeleteMany().SetHint(bson.D{{Key: termsField, Value: 1}}).SetCollation(&options.Collation{Locale: "simple"}))
+	if err != nil {
+		return err
+	}
+	if result == nil || !result.Acknowledged || result.DeletedCount < 0 {
+		return errors.New("mongodb: unconfirmed predicate deletion")
+	}
+	return nil
+}
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
+	if err := budget.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
+	if predicate == nil {
+		return vectorstore.ErrMissingFilter
+	}
+	if err := predicate.Validate(); err != nil {
+		return err
+	}
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	records, err := s.selectDocuments(ctx, predicate, budget)
 	if err != nil {
 		return err
 	}
 	for _, record := range records {
-		constraint := bson.M{idField: record.id, "$expr": bson.M{"$eq": bson.A{"$" + metadataField, bson.M{"$literal": record.metadataJSON}}}}
+		constraint := bson.M{s.schema.vectorPath: bson.M{"$exists": true}, idField: record.id, "$expr": bson.M{"$eq": bson.A{"$" + metadataField, bson.M{"$literal": record.metadataJSON}}}}
 		result, deleteErr := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
 		if deleteErr != nil {
 			return deleteErr
@@ -355,7 +498,10 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(selected) == 0 {
 		return nil
 	}
-	result, err := s.collection.DeleteMany(ctx, bson.M{idField: bson.M{"$in": selected}}, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	result, err := s.collection.DeleteMany(ctx, bson.M{idField: bson.M{"$in": selected}, s.schema.vectorPath: bson.M{"$exists": true}}, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
 	if err != nil {
 		return err
 	}
@@ -367,7 +513,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 
 func (s *Store) searchCandidates(limit int) (int, error) {
 	if limit > MaxNumCandidates {
-		return 0, fmt.Errorf("mongodb.Store.Search: TopK %d exceeds the %d candidates $vectorSearch can consider", limit, MaxNumCandidates)
+		return 0, fmt.Errorf("mongodb.Store.Query: TopK %d exceeds the %d candidates $vectorSearch can consider", limit, MaxNumCandidates)
 	}
 	return max(s.numCandidates, limit), nil
 }

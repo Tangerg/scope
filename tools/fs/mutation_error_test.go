@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -55,7 +54,7 @@ func TestMutationErrorsPreserveAcknowledgementsWithoutInventingOutcome(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := invokeTestTool(t.Context(), test.tool, test.arguments)
-			if !errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, chat.ToolOutput{}) {
+			if !errors.Is(err, context.DeadlineExceeded) || !reflect.DeepEqual(output, tool.Output{}) {
 				t.Fatalf("interrupted call = %+v, %v", output, err)
 			}
 			if failure, found := tool.ClassifyFailure(err); found {
@@ -71,7 +70,7 @@ func TestMutationErrorsPreserveAcknowledgementsWithoutInventingOutcome(t *testin
 
 func TestMutationToolsPreserveBackendOutcomeAuthority(t *testing.T) {
 	failure, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("permission denied"), Cause: context.Canceled,
+		Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("permission denied"), Cause: context.Canceled,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -109,7 +108,7 @@ func TestMutationToolsPreserveBackendOutcomeAuthority(t *testing.T) {
 }
 
 func TestMutationToolPreservesExplicitEvidenceBeforeRejectionClassification(t *testing.T) {
-	want := chat.NewTextToolOutput("backend response observed before rejection")
+	want := tool.NewTextOutput("backend response observed before rejection")
 	callErr, err := tool.NewCallError(tool.CallErrorConfig{Cause: ErrMutationRejected, Evidence: want})
 	if err != nil {
 		t.Fatal(err)

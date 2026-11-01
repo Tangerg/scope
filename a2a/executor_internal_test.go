@@ -66,7 +66,7 @@ func TestHTTPFailureDoesNotPublishInternalDiagnostics(t *testing.T) {
 	if result.Result.Task == nil || result.Result.Task.Status.State != sdka2a.TaskStateFailed || continued {
 		t.Fatalf("failure result=%+v iteration continued=%t body=%s", result.Result.Task, continued, response.Body.String())
 	}
-	if detail := (textProjection{}).parts(result.Result.Task.Status.Message.Parts); detail != "agent execution failed" {
+	if detail := requireText(t, result.Result.Task.Status.Message.Parts); detail != "agent execution failed" {
 		t.Fatalf("public failure message=%q", detail)
 	}
 }
@@ -88,7 +88,7 @@ func (c chunkedAgent) Run(context.Context, string) iter.Seq2[string, error] {
 }
 
 func TestExecutorTurnsNilAgentSequenceIntoFailedTask(t *testing.T) {
-	projection := textProjection{}
+
 	exec, err := newExecutor(nilSequenceAgent{})
 	if err != nil {
 		t.Fatal(err)
@@ -111,13 +111,13 @@ func TestExecutorTurnsNilAgentSequenceIntoFailedTask(t *testing.T) {
 	if final == nil || final.Status.State != sdka2a.TaskStateFailed || final.Status.Message == nil {
 		t.Fatalf("final event = %#v, want failed status with message", final)
 	}
-	if detail := projection.parts(final.Status.Message.Parts); detail != "agent execution failed" {
+	if detail := requireText(t, final.Status.Message.Parts); detail != "agent execution failed" {
 		t.Fatalf("failure detail = %q", detail)
 	}
 }
 
 func TestExecutorStreamsOneArtifact(t *testing.T) {
-	projection := textProjection{}
+
 	exec, err := newExecutor(chunkedAgent{"hello", " ", "world"})
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestExecutorStreamsOneArtifact(t *testing.T) {
 		if i > 0 && !update.Append {
 			t.Fatalf("artifact update %d Append = false, want true", i)
 		}
-		text.WriteString(projection.parts(update.Artifact.Parts))
+		text.WriteString(requireText(t, update.Artifact.Parts))
 	}
 	if got := text.String(); got != "hello world" {
 		t.Fatalf("artifact text = %q, want %q", got, "hello world")

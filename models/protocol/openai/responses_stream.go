@@ -7,6 +7,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 )
 
 type responsesStreamState struct {
@@ -178,30 +179,30 @@ func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat
 	return response, nil
 }
 
-func responsesStreamCitation(annotation responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion) (corechat.Citation, bool, error) {
+func responsesStreamCitation(annotation responses.ResponseOutputTextAnnotationAddedEventAnnotationUnion) (corecontent.Citation, bool, error) {
 	switch typed := annotation.AsAny().(type) {
 	case responses.ResponseOutputTextAnnotationAddedEventAnnotationURLCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: typed.URL},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: typed.URL},
 			Title:  typed.Title,
 		}, true, nil
 	case responses.ResponseOutputTextAnnotationAddedEventAnnotationFileCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: typed.FileID},
 			Title:  typed.Filename,
 		}, true, nil
 	case responses.ResponseOutputTextAnnotationAddedEventAnnotationContainerFileCitation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: typed.FileID},
 			Title:  typed.Filename,
 		}, true, nil
 	case responses.ResponseOutputTextAnnotationAddedEventAnnotationFilePath:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: typed.FileID},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: typed.FileID},
 		}, true, nil
 	case nil:
-		return corechat.Citation{}, false, nil
+		return corecontent.Citation{}, false, nil
 	default:
-		return corechat.Citation{}, false, fmt.Errorf("openai responses: unsupported stream annotation %T", typed)
+		return corecontent.Citation{}, false, fmt.Errorf("openai responses: unsupported stream annotation %T", typed)
 	}
 }

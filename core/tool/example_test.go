@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
@@ -56,7 +55,7 @@ func Example() {
 	if !ok {
 		panic("missing add")
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call-1", Name: "add", Arguments: `{"a":2,"b":3}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "add", Arguments: `{"a":2,"b":3}`}, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -74,7 +73,7 @@ func Example() {
 func ExampleNewFailure() {
 	failure, err := tool.NewFailure(tool.FailureConfig{
 		Kind: tool.FailureKindRejected, Cause: errors.New("internal authorization diagnostic"),
-		Output: chat.NewTextToolOutput("this operation is not permitted"),
+		Output: tool.NewTextOutput("this operation is not permitted"),
 	})
 	if err != nil {
 		panic(err)
@@ -112,7 +111,7 @@ func ExampleNewGuard() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "inspect", Arguments: `{}`}, nil)
 	if err != nil {
 		panic(err)
 	}

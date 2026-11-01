@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestNativeChatRetainsExactToolAndSchemaNumbers(t *testing.T) {
@@ -27,12 +28,12 @@ func TestNativeChatRetainsExactToolAndSchemaNumbers(t *testing.T) {
 			}))
 			defer server.Close()
 			model := newNativeChat(t, provider, server)
-			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("lookup")), chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993}`})), chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: chat.ToolOutput{Details: json.RawMessage(`{"id":9007199254740993}`)}}))
+			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("lookup")), chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993}`})), chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.Output{Details: json.RawMessage(`{"id":9007199254740993}`)}}))
 			if err != nil {
 				t.Fatal(err)
 			}
 			const schema = `{"type":"object","properties":{"id":{"const":9007199254740993}},"required":["id"]}`
-			request.Tools = []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
+			request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
 			format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "answer", Schema: json.RawMessage(schema)})
 			if err != nil {
 				t.Fatal(err)

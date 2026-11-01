@@ -19,29 +19,20 @@
 // Existing text-ID/JSONB tables are rejected. Recreate the table and reindex from
 // authoritative documents; there are no compatibility reads or migrations.
 //
-// Core filter.Match is the only metadata decision owner. Search and DeleteWhere
-// read and validate the complete source in a serializable transaction, evaluate
-// every predicate before embedding or mutation, and send only selected binary
-// IDs to native SQL. No JSONB compiler, native error predicate, metadata index
-// projection, or SQL-versus-Core arbitration participates. Core's exact numeric,
-// nested path, Unicode LIKE, short-circuit, and type-error semantics apply,
-// including array indices beyond native SQL int4 and NUL-bearing filter data.
+// Ordinary Query ranks the supplied vector with native distance and TopK,
+// without enumerating source rows. Opaque binary metadata has no equivalent
+// native predicate here: filters return vectorstore.ErrUnsupportedFilter and
+// FilterDeleter is deliberately not implemented. DeleteIDs is explicit.
+// Host-authorized Scan accepts explicit record, payload-byte, and time budgets.
+// It checks completeness in one read-only transaction before loading records;
+// a budget failure returns no partial matches or invented empty result.
 //
-// Search performs native distance ordering and TopK within the same snapshot;
-// every returned document, vector, and finite distance is validated before
-// MinScore. DistanceMetric selects a native query operator, rather than claiming
-// an immutable resource metric. Native ANN indexes may approximate neighbors.
-//
-// DeleteWhere locks source rows until native removal and commit, so an observed
-// metadata decision cannot delete an unlocked replacement. Predicate failure
-// leaves all rows intact. DeleteIDs expresses direct identity intent separately.
-// Index validates and prepares all batches and float32 vectors before its first
-// upsert, then commits the entire request atomically. Serialization, native,
-// embedding, and commit failures return errors; this engine adds no retry policy.
-// The host owns the pgx pool and connection lifetime.
-//
-// These full-source reads favor exact Core semantics over SQL metadata indexes.
-// Native integration tests create and remove isolated schemas. Run with
-// -tags=integration and SCOPE_PGVECTOR_DSN or SCOPE_COCKROACHDB_DSN, selecting the
-// corresponding subtest under TestLiveMetadataFilters and TestLiveCurrentOwners.
+// The table carries a named CHECK constraint derived from the bound space ID.
+// Opening an existing table with a different ID is rejected; a missing marker
+// requires rebuilding the table, not labeling its unknown vectors. Reusing
+// an ID for different preprocessing or a different model violates that contract.
+// Validate width and float32 conversion against the current native schema before
+// publication. Upsert batches use one transaction and no model I/O. Loss of a
+// commit acknowledgment leaves all submitted IDs unconfirmed. The Host owns
+// provisioning, the pgx pool, and any decision to reconcile an unknown outcome.
 package postgres

@@ -94,7 +94,9 @@ func TestEncryptedDocumentsRequireTheCorrectPassword(t *testing.T) {
 						}
 						assertMetadata(t, doc.Metadata, pdf.MetadataPagesTotal, 2)
 						if perPage {
-							assertMetadata(t, doc.Metadata, pdf.MetadataPageIndex, index+1)
+							if p := doc.Provenance; p == nil || p.Page != index+1 {
+								t.Fatalf("page=%+v; want %d", p, index+1)
+							}
 						}
 					}
 				}

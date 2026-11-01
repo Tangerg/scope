@@ -1,6 +1,8 @@
 package main
 
 import (
+	startrand "crypto/rand"
+
 	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
@@ -9,10 +11,10 @@ import (
 	"sync"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
-	"github.com/Tangerg/scope/agent/strategy/planning"
-	"github.com/Tangerg/scope/agent/strategy/planning/goap"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/planning"
+	"github.com/Tangerg/scope/agent/planning/goap"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -36,7 +38,7 @@ func TestInteractionCanDelegateExactPlanningWorkers(t *testing.T) {
 	planningWorker, taskState := newPlanningWorker(t)
 	model := &planningDelegateModel{}
 	root := newPlanningDelegateRoot(t, planningWorker, model)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(t.Context(), agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,17 +49,17 @@ func TestInteractionCanDelegateExactPlanningWorkers(t *testing.T) {
 	})
 	result := runPlanningDelegate(t, engine, root)
 	assertPlanningDelegateResult(t, result, model, taskState)
-	assertPlanningDelegateTree(t, engine, result.ProcessID(), planningWorker.DeploymentRef())
+	assertPlanningDelegateTree(t, engine, result.ProcessID(), planningWorker.ProgramRef())
 }
 
 func newPlanningDelegateRoot(
 	t *testing.T,
-	planningWorker agent.Deployment,
+	planningWorker agentrun.Program[agentrun.Payload, agentrun.Payload],
 	model *planningDelegateModel,
-) agent.Deployment {
+) agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	t.Helper()
-	budget := agent.Budget{Steps: agent.NewQuota(32), Effects: agent.NewQuota(32), Signals: agent.NewQuota(64)}
-	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
+	budget := agentrun.Budget{Steps: agentrun.NewQuota(32), Effects: agentrun.NewQuota(32), Signals: agentrun.NewQuota(64)}
+	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name:        "review_with_planning",
 		Description: "Use goal-directed planning to complete one review task.",
 		Deployment:  planningWorker,
@@ -70,23 +72,23 @@ func newPlanningDelegateRoot(
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name:          "example.orchestrator_workers.planning_delegate",
 		Description:   "Delegate model-selected tasks to exact Planning workers.",
-		MaxModelCalls: agent.NewQuota(2),
-		Delegates:     []interaction.Delegate{delegate}, CompletionValidator: validatePlanningCompletion,
+		MaxModelCalls: agentrun.NewQuota(2),
+		Delegates:     []agent.Delegate{delegate}, CompletionValidator: validatePlanningCompletion,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: client})
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := agent.NewDeployment(agent.DeploymentConfig{
+	root, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("planning-delegate-root-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("planning-delegate-root-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("planning-delegate-root-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("planning-delegate-root-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -94,32 +96,32 @@ func newPlanningDelegateRoot(
 	return root
 }
 
-func validatePlanningCompletion(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
+func validatePlanningCompletion(_ context.Context, candidate agent.CompletionCandidate) (agent.CompletionDecision, error) {
 	artifacts := candidate.Artifacts()
 	if len(artifacts) != 2 {
-		return interaction.CompletionDecision{Feedback: "Complete both planned review tasks."}, nil
+		return agent.CompletionDecision{Feedback: "Complete both planned review tasks."}, nil
 	}
 	for index, artifact := range artifacts {
 		output, err := artifact.Output().Decode[planning.Output]()
 		if err != nil {
-			return interaction.CompletionDecision{}, err
+			return agent.CompletionDecision{}, err
 		}
 		if artifact.DelegateName() != "review_with_planning" || output.Outcome != planning.OutcomeAchieved {
-			return interaction.CompletionDecision{}, fmt.Errorf("planning artifact %d was not achieved", index)
+			return agent.CompletionDecision{}, fmt.Errorf("planning artifact %d was not achieved", index)
 		}
 	}
-	return interaction.CompletionDecision{Accepted: true}, nil
+	return agent.CompletionDecision{Accepted: true}, nil
 }
 
-func runPlanningDelegate(t *testing.T, engine *agent.Engine, root agent.Deployment) agent.Result {
+func runPlanningDelegate(t *testing.T, engine *agentrun.Runtime, root agentrun.Program[agentrun.Payload, agentrun.Payload]) agentrun.Result[agentrun.Payload] {
 	t.Helper()
-	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
+	input, err := agentrun.EncodePayload(agent.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("plan both reviews, then synthesize")),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(context.Background(), root, input)
+	process, err := engine.Start(context.Background(), root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,12 +134,12 @@ func runPlanningDelegate(t *testing.T, engine *agent.Engine, root agent.Deployme
 
 func assertPlanningDelegateResult(
 	t *testing.T,
-	result agent.Result,
+	result agentrun.Result[agentrun.Payload],
 	model *planningDelegateModel,
 	taskState *planningTaskState,
 ) {
 	t.Helper()
-	output, err := decodeCompleted[interaction.Output](result)
+	output, err := decodeCompleted[agent.Output](result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,9 +151,9 @@ func assertPlanningDelegateResult(
 
 func assertPlanningDelegateTree(
 	t *testing.T,
-	engine *agent.Engine,
-	processID agent.ProcessID,
-	planningRef agent.DeploymentRef,
+	engine *agentrun.Runtime,
+	processID agentrun.ProcessID,
+	planningRef agentrun.ProgramRef,
 ) {
 	t.Helper()
 	tree, err := engine.CaptureTree(context.Background(), processID)
@@ -164,7 +166,7 @@ func assertPlanningDelegateTree(
 	}
 	planningChildren := 0
 	for _, snapshot := range snapshots {
-		if snapshot.DeploymentRef() == planningRef {
+		if snapshot.ProgramRef() == planningRef {
 			planningChildren++
 		}
 	}
@@ -215,7 +217,7 @@ func (p *planningTaskState) review(_ context.Context, request planning.ActionReq
 	return planning.ActionSucceeded(), nil
 }
 
-func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
+func newPlanningWorker(t *testing.T) (agentrun.Program[agentrun.Payload, agentrun.Payload], *planningTaskState) {
 	t.Helper()
 	inputSchema, err := jsonschema.For[workerTask]()
 	if err != nil {
@@ -252,7 +254,7 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 		Description: "Use GOAP to complete one model-selected review task.",
 		InputSchema: inputSchema, Goal: goal,
 		Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}),
-		MaxActionAttempts: agent.NewQuota(1),
+		MaxActionAttempts: agentrun.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -265,10 +267,10 @@ func newPlanningWorker(t *testing.T) (agent.Deployment, *planningTaskState) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("planning-worker-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("planning-worker-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("planning-worker-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("planning-worker-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -354,4 +356,65 @@ func TestMainEntryPointRunsToCompletion(t *testing.T) {
 	// command entry point covered. run uses only in-process fakes, so it cannot
 	// reach the os.Exit failure branch.
 	main()
+}
+
+func TestOrchestrationRefusesAnUnusablePlanAndPartialWorkerEvidence(t *testing.T) {
+	ctx := t.Context()
+	for _, mode := range []string{"no model reply", "empty tasks", "malformed plan"} {
+		t.Run(mode, func(t *testing.T) {
+			var out agent.Output
+			switch mode {
+			case "empty tasks":
+				r, e := jsonResponse(workPlan{Tasks: []workerTask{}})
+				if e != nil {
+					t.Fatal(e)
+				}
+				out.ModelResponse = r
+			case "malformed plan":
+				msg := chat.NewAssistantMessage(chat.NewTextPart("this is not JSON"))
+				r, e := chat.NewResponse(&chat.Output{Message: &msg, FinishReason: chat.FinishReasonStop}, nil)
+				if e != nil {
+					t.Fatal(e)
+				}
+				out.ModelResponse = r
+			}
+			if tasks, err := parseWorkPlan(ctx, out); len(tasks) != 0 || err == nil {
+				t.Fatalf("published tasks=%v err=%v", tasks, err)
+			}
+		})
+	}
+	for _, wire := range []string{`[]`, `[{"finding":"first"},{"finding":""}]`, `invalid`} {
+		r, e := (synthesisModel{}).Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(wire))}})
+		if r != nil || e == nil {
+			t.Fatalf("produced report for %s: %v %v", wire, r, e)
+		}
+	}
+	r, err := (decompositionModel{}).Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(`{"objective":""}`))}})
+	if r != nil || err == nil {
+		t.Fatal("empty objective acquired a work plan", err)
+	}
+	if result, err := executeWorkerTask(ctx, workerTask{ID: "facts"}); result.Finding != "" || err == nil {
+		t.Fatal("published an incomplete task finding", result, err)
+	}
+}
+func TestMissingStageBindingsNeverPublishPartialOrchestration(t *testing.T) {
+	c, err := newOrchestratorChildren()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"decomposer", "worker", "synthesizer"} {
+		bad := c
+		var zero agentrun.Program[agentrun.Payload, agentrun.Payload]
+		switch role {
+		case "decomposer":
+			bad.decomposer = zero
+		case "worker":
+			bad.worker = zero
+		case "synthesizer":
+			bad.synthesizer = zero
+		}
+		if stages, err := bad.stages(); len(stages) != 0 || err == nil {
+			t.Fatalf("partial stages with missing %s: %v %v", role, stages, err)
+		}
+	}
 }

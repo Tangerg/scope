@@ -17,7 +17,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -75,7 +74,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executable.Definition().Name, Arguments: `{"message":"hello"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: executable.Definition().Name, Arguments: `{"message":"hello"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

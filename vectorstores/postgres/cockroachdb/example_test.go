@@ -7,16 +7,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/postgres/cockroachdb"
 )
-
-type documentBatcher struct{}
-
-func (d documentBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
 
 func ExampleNewStore() {
 	ctx := context.Background()
@@ -25,21 +18,14 @@ func ExampleNewStore() {
 		panic(err)
 	}
 	defer pool.Close()
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for index := range outputs {
-			outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := cockroachdb.NewStore(ctx, cockroachdb.StoreConfig{Pool: pool, SchemaName: "scope", TableName: "documents", EmbeddingModel: model, DocumentBatcher: documentBatcher{}, Dimensions: 2, InitializeSchema: true})
+	store, err := cockroachdb.NewStore(ctx, cockroachdb.StoreConfig{Pool: pool, SchemaName: "scope", TableName: "documents", Space: "release-notes-v1", Dimensions: 2, InitializeSchema: true})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "current record"}}}); err != nil {
+	if err = store.Upsert(ctx, &vectorstore.Batch{Space: "release-notes-v1", Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "current record"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "current"}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: "release-notes-v1", Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
 	if err = store.DeleteIDs(ctx, []string{"one"}); err != nil {

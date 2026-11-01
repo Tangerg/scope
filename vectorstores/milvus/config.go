@@ -5,9 +5,7 @@ import (
 	"regexp"
 
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
-	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -27,10 +25,9 @@ var collectionNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,254}$`)
 
 type StoreConfig struct {
 	// Client owns authentication, transport, retries and lifetime.
-	Client          *milvusclient.Client
-	CollectionName  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Client         *milvusclient.Client
+	CollectionName string
+	Space          vectorstore.SpaceID
 }
 
 func (s StoreConfig) Validate() error {
@@ -43,11 +40,5 @@ func (s StoreConfig) Validate() error {
 	if !collectionNamePattern.MatchString(s.CollectionName) {
 		return errors.New("milvus: invalid CollectionName")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return ErrMissingEmbeddingModel
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return ErrMissingDocumentBatcher
-	}
-	return nil
+	return s.Space.Validate()
 }

@@ -1,63 +1,35 @@
-// Package azurecosmos implements Core indexing, semantic search and conditional
-// filter deletion within one Azure Cosmos DB for NoSQL logical partition. The
-// host owns the native SDK client, credentials, retries, transport lifecycle,
-// account, database and container provisioning.
+// Package azurecosmos stores precomputed float32 vectors in one native Cosmos
+// logical partition. The host supplies the SDK client and container. StoreConfig
+// Space and PartitionKey map to the physical routing key Space.StorageKey() +
+// ":" + PartitionKey: the same document ID in two equal-width vector spaces
+// therefore names two distinct Cosmos items. The prefix counts toward the
+// container's 101- or 2048-byte partition-key limit. Reindex old unprefixed
+// partitions explicitly. This routing boundary does not restrict other native
+// writers who can access the same physical partition.
 //
-// NewStore reads the container's identity, Hash partition-key path
-// /partition_key and /embedding vector policy. Float32 dimensions in [1,4096]
-// and cosine, dotproduct or euclidean come exclusively from that native policy.
-// Queries use VectorDistance without distance or data-type overrides. Native
-// vector policy and container lifecycle must remain stable while the store is
-// used. Native Hash partition versions determine the partition-key byte budget.
+// Construction and each data operation read the native container policy. The
+// /embedding path owns float32 widths (1..4096) and native metric; /partition_key
+// must be a single Hash partition key. Input and readback reject nonfinite
+// coordinates and cosine vectors that are zero after narrowing. The strict
+// record carries a single Core metadata JSON string to preserve exact numbers.
+// The container is host-owned and must not be administratively replaced while
+// operations are running.
 //
-// Scope items have exactly id, partition_key, content, metadata and embedding,
-// plus Cosmos system properties. Metadata is one string containing the complete
-// Core JSON object or null. Nil, empty objects, nested values and arbitrary JSON
-// numbers survive native numeric limits without a second filterable projection.
-// Replacing an item replaces its complete text, metadata and vector. Media is
-// unsupported. Current reads are closed: legacy object metadata, extra user
-// properties, absent fields, invalid vectors or absent native ETags fail.
+// Query issues a parameterized native VectorDistance TOP query and orders by
+// raw score, including when different native scores have the same projected
+// value. Filtered queries fail with ErrUnsupportedFilter, without enumerating
+// the partition. Scan explicitly grants a record, raw item-byte and time budget
+// and charges every item, including nonmatches; errors return no partial
+// results. Consistency follows the SDK/session and separate continuation pages
+// do not form an atomic snapshot. SDK transport buffers one native page before
+// individual items can be charged.
 //
-// Index validates all documents and native item budgets before embedding, then
-// prepares every batch, narrows vectors and verifies native dimensions before
-// the first upsert. Each actual encoded item must fit the native 2 MiB limit.
-// A later model or local validation failure publishes no items. Native failures
-// can leave earlier upserts committed; this capability is not a transaction over
-// the complete request and adds no retry or compensating deletion.
-//
-// Construction validates the native container policy without reading its items.
-// Unfiltered Search issues native VectorDistance ranking directly. A filtered
-// Search evaluates Core predicates before embedding or TopK, retains selected IDs
-// and ETags, and projects IDs into parameterized IN clauses in groups of at most
-// 100. No provider predicate compiler or local distance algorithm exists. Every
-// ranked page is validated before MinScore or TopK is applied. Raw native
-// similarity orders cosine and dot product; raw distance orders Euclidean results.
-// Bytewise ID resolves ties before Core score projection.
-//
-// Repeated IDs or continuation tokens, corrupt later items, invalid scores,
-// changed predicate membership and native errors return no partial response.
-// Empty pages with advancing continuation tokens are supported. Scanning reads
-// the whole partition and consumes native RUs. Scan and ranking calls do not
-// share a snapshot; callers requiring stable membership must coordinate writes.
-//
-// DeleteWhere scans and validates the complete partition before its first
-// deletion. Each selected item is deleted with its observed native ETag in
-// If-Match. A changed or removed item fails explicitly; no unconditional delete,
-// retry, silent skip or metadata arbitration follows. Multiple deletions are
-// not atomic: a later native conflict can leave earlier deletions committed.
-//
-// Migration removes DistanceFunction, its public enum and all field-name
-// settings. Provision /partition_key and the native /embedding float32 policy,
-// then rebuild source documents into the current JSON-string metadata schema.
-// Legacy records are rejected; there is no dual read, schema version, migration
-// registry or compatibility adapter. SDK and store construction are shown in the
-// checked ExampleNewStore.
-//
-// Native integration requires SCOPE_COSMOS_ENDPOINT, SCOPE_COSMOS_KEY and
-// SCOPE_COSMOS_DATABASE. It creates unique test containers in that database and
-// deletes only those containers. Missing setup fails. The account must support
-// vector search and container creation with dedicated throughput.
-//
-// See https://learn.microsoft.com/en-us/azure/cosmos-db/vector-search and
-// https://learn.microsoft.com/en-us/azure/cosmos-db/database-transactions-optimistic-concurrency.
+// Upsert prepares all items (each at most 2 MiB) before the first write.
+// DeleteIDs expresses unconditional key intent and ignores missing keys;
+// DeleteMatching requires a predicate, completes a bounded Scan, then uses each
+// observed ETag as If-Match. A replacement cannot be deleted by a stale scan.
+// Individual requests are independent: WriteError records acknowledged,
+// rejected, unknown and unattempted IDs; retries and client lifetime belong to
+// the host. Live tests require an isolated vector-capable Azure Cosmos database;
+// see store_integration_test.go for the explicit service configuration.
 package azurecosmos

@@ -35,7 +35,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -43,9 +43,9 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err != nil {
 		return nil, fmt.Errorf("alibaba: configure reasoning dialect: %w", err)
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLChina), HTTPClient: config.HTTPClient}, dialect)
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLChina), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("alibaba: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

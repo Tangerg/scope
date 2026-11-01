@@ -12,7 +12,7 @@ func TestUnfilteredSearchDoesNotEnumerateSource(t *testing.T) {
 	store, fixture := indexedNativeStore(t, []*document.Document{{ID: id, Text: "text"}})
 	scans := fixture.scans
 	fixture.sourceError = true
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != id {
 		t.Fatalf("native query = %v, %v", response, err)
 	}

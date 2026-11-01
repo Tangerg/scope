@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/Tangerg/scope/core/chat"
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -49,7 +48,7 @@ func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) 
 		return zero, fmt.Errorf("%w: %w", ErrInvalidTool, err)
 	}
 	schema := input.JSON()
-	definition := chat.ToolDefinition{
+	definition := Definition{
 		Name:        config.Name,
 		Description: config.Description,
 		InputSchema: schema,
@@ -74,11 +73,11 @@ func validateFuncInputType(input reflect.Type) error {
 	return nil
 }
 
-func (f Func[In, Out]) Definition() chat.ToolDefinition {
+func (f Func[In, Out]) Definition() Definition {
 	if f.function == nil {
-		return chat.ToolDefinition{}
+		return Definition{}
 	}
-	return chat.ToolDefinition{
+	return Definition{
 		Name:        f.config.Name,
 		Description: f.config.Description,
 		InputSchema: bytes.Clone(f.inputSchema),
@@ -131,18 +130,18 @@ func decodeFuncInput[In any](arguments []byte) (In, error) {
 	return input, nil
 }
 
-func (Func[In, Out]) encodeResult(output Out) (chat.ToolOutput, error) {
+func (Func[In, Out]) encodeResult(output Out) (Output, error) {
 	value := reflect.ValueOf(output)
 	if value.IsValid() && value.Kind() == reflect.String {
-		result := chat.NewTextToolOutput(value.String())
+		result := NewTextOutput(value.String())
 		if err := result.Validate(); err != nil {
-			return chat.ToolOutput{}, err
+			return Output{}, err
 		}
 		return result, nil
 	}
 	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return Output{}, err
 	}
-	return chat.NewJSONToolOutput(encoded)
+	return NewJSONOutput(encoded)
 }

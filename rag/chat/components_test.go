@@ -112,7 +112,7 @@ func TestContextualAugmenterCitesOnlyEvidenceInThePrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	citations := augmentation.Citations()
+	citations := augmentation.Citations().Candidates()
 	if len(citations) != len(candidates) {
 		t.Fatalf("citations=%d, want %d", len(citations), len(candidates))
 	}
@@ -216,7 +216,7 @@ func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 	if strings.Contains(augmentation.Text(), "third evidence") {
 		t.Fatalf("over-budget evidence was included: %q", augmentation.Text())
 	}
-	citations := augmentation.Citations()
+	citations := augmentation.Citations().Candidates()
 	if len(citations) != 2 || citations[0].Document.ID != first.ID || citations[1].Document.ID != second.ID {
 		t.Fatalf("citations = %#v", citations)
 	}
@@ -251,7 +251,7 @@ func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		citations := augmentation.Citations()
+		citations := augmentation.Citations().Candidates()
 		if len(citations) != len(contents)-1 || citations[0].Document.Text != "tiny" {
 			t.Fatalf("citations = %#v", citations)
 		}

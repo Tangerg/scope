@@ -35,7 +35,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -44,9 +44,9 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 		return nil, fmt.Errorf("xai: configure reasoning dialect: %w", err)
 	}
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("xai: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

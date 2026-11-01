@@ -70,6 +70,22 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 		name, _ := attribute["attribute"].(string)
 		identifier, _ := attribute["identifier"].(string)
 		kind, _ := attribute["type"].(string)
+		if name == termsField && kind == "TAG" {
+			sep, ok := attribute["SEPARATOR"].(string)
+			if !ok {
+				sep, ok = attribute["separator"].(string)
+			}
+			if !ok || sep != "," {
+				return info, fmt.Errorf("redis: metadata_terms requires the comma TAG separator")
+			}
+			if flags, ok := attribute["flags"].([]any); ok {
+				for _, f := range flags {
+					if strings.EqualFold(fmt.Sprint(f), "NOINDEX") {
+						return info, fmt.Errorf("redis: metadata_terms must be indexed")
+					}
+				}
+			}
+		}
 		if kind != "VECTOR" {
 			info.attributes = append(info.attributes, goredis.FTAttribute{Identifier: identifier, Attribute: name, Type: kind})
 			continue

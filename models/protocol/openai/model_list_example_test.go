@@ -27,7 +27,8 @@ func ExampleResponses_ListModels() {
 	defer server.Close()
 	model, err := openai.NewResponses(context.Background(), openai.ResponsesConfig{
 		APIKey: "test-key", BaseURL: server.URL + "/v1", HTTPClient: server.Client(),
-	})
+	}, testResponsesDialect(),
+	)
 	if err != nil {
 		fmt.Println(err)
 		return

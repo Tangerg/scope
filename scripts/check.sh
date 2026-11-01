@@ -80,7 +80,12 @@ run_in_module() {
       ;;
     vet)   (cd "$mod" && go vet "${MODULE_PACKAGES[@]}") ;;
     integration-compile) (cd "$mod" && go test -tags=integration -run '^$' ./...) ;;
-    test)  (cd "$mod" && go test -count=1 "${MODULE_PACKAGES[@]}") ;;
+    test)
+      if [[ "$mod" == "dev/repoarch" ]]; then
+        go run scripts/vectorstore-matrix.go -check || return 1
+      fi
+      (cd "$mod" && go test -count=1 "${MODULE_PACKAGES[@]}")
+      ;;
     bench) (cd "$mod" && go test -run '^$' -bench . -benchtime=1x "${MODULE_PACKAGES[@]}") ;;
     race)  (cd "$mod" && go test -race -count=1 "${MODULE_PACKAGES[@]}") ;;
     tidy)  (cd "$mod" && go mod tidy -diff) ;;

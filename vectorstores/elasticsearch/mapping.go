@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type mappedIndex struct {
@@ -14,6 +17,9 @@ type mappedIndex struct {
 }
 
 type nativeMapping struct {
+	Meta struct {
+		Space string `json:"scope_vector_space"`
+	} `json:"_meta"`
 	Dynamic    string                 `json:"dynamic"`
 	Properties map[string]mappedField `json:"properties"`
 	Source     mappedSource           `json:"_source"`
@@ -193,6 +199,43 @@ func (b bulkResponse) validate(operation bulkOperation, index string, ids []stri
 		return errors.New("elasticsearch: native bulk reported an unexplained failure")
 	}
 	return nil
+}
+
+// Only individually attributable item acknowledgments can advance per-ID
+// knowledge. A contradictory complete summary is not an alternative authority.
+func (b bulkResponse) writeFailure(index string, ids []string, cause error) *vectorstore.WriteError {
+	w := &vectorstore.WriteError{Err: cause}
+	if b.Errors == nil || len(b.Items) > len(ids) {
+		w.Unconfirmed = slices.Clone(ids)
+		return w
+	}
+	bad := false
+	for i, id := range ids {
+		if i >= len(b.Items) {
+			w.Unconfirmed = append(w.Unconfirmed, id)
+			continue
+		}
+		item := b.Items[i]
+		r, ok := item[bulkOperationIndex]
+		if !ok || len(item) != 1 || r.ID != id || r.Index != index || r.Status == nil {
+			w.Unconfirmed = append(w.Unconfirmed, id)
+			continue
+		}
+		switch {
+		case *r.Status >= 200 && *r.Status < 300 && r.Error == nil:
+			w.Acknowledged = append(w.Acknowledged, id)
+		case *r.Status >= 400 && *r.Status < 500 && r.Error != nil:
+			w.Rejected = append(w.Rejected, id)
+			bad = true
+		default:
+			w.Unconfirmed = append(w.Unconfirmed, id)
+			bad = true
+		}
+	}
+	if !*b.Errors && bad || *b.Errors && len(w.Acknowledged) == len(ids) {
+		return &vectorstore.WriteError{Err: cause, Unconfirmed: slices.Clone(ids)}
+	}
+	return w
 }
 
 type bulkItemResult struct {

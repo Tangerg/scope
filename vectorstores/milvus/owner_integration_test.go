@@ -74,7 +74,7 @@ func liveStore(t *testing.T, metric entity.MetricType, vectorFor func(string) []
 	if err = loaded.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: fixtureModel(vectorFor), DocumentBatcher: testBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,10 +94,10 @@ func TestLiveFilterConformance(t *testing.T) {
 				for _, doc := range docs {
 					previous = append(previous, doc.ID)
 				}
-				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
-				response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
+				response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
 				if err != nil {
 					return nil, err
 				}
@@ -112,7 +112,12 @@ func TestLiveFilterConformance(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				remaining, err := store.selectDocuments(ctx, policy, nil)
+				meter, meterErr := fixtureBudget().Begin(ctx)
+				if meterErr != nil {
+					return nil, meterErr
+				}
+				defer meter.Close()
+				remaining, err := store.selectDocuments(ctx, policy, nil, meter)
 				if err != nil {
 					return nil, err
 				}
@@ -137,10 +142,10 @@ func TestLiveExactMetadataAndLiteralCursor(t *testing.T) {
 	for position := range 35 {
 		docs = append(docs, &document.Document{ID: fmt.Sprintf("id_%02d_\"\\🙂", position), Text: "native🙂", Metadata: facts[position%len(facts)]})
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "native", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("native"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
 	if err != nil || len(response.Results) != len(docs) {
 		t.Fatalf("response=%v error=%v", response, err)
 	}
@@ -154,7 +159,7 @@ func TestLiveExactMetadataAndLiteralCursor(t *testing.T) {
 	if deleteErr := store.DeleteIDs(t.Context(), []string{docs[2].ID}); deleteErr != nil {
 		t.Fatal(deleteErr)
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "native", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+	response, err = store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("native"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
 	if err != nil || len(response.Results) != len(docs)-1 {
 		t.Fatalf("literal deletion response=%v error=%v", response, err)
 	}
@@ -176,12 +181,13 @@ func (l *liveInterceptor) intercept(ctx context.Context, method string, request,
 
 func TestLiveGroupsKeepNativeRawRank(t *testing.T) {
 	interceptor := &liveInterceptor{}
-	store, _ := liveStore(t, entity.IP, func(text string) []float64 {
+	coords := func(text string) []float64 {
 		if text == "last" {
 			return []float64{1e20, 0}
 		}
 		return []float64{1e10, 0}
-	}, interceptor.intercept)
+	}
+	store, _ := liveStore(t, entity.IP, nil, interceptor.intercept)
 	var docs []*document.Document
 	for position := range 129 {
 		text := "first"
@@ -190,10 +196,10 @@ func TestLiveGroupsKeepNativeRawRank(t *testing.T) {
 		}
 		docs = append(docs, &document.Document{ID: fmt.Sprintf("id_%03d", position), Text: text})
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatchWith(docs, coords)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
+	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}}, fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "id_128" {
 		t.Fatalf("native raw rank changed: %v %v", response, err)
 	}

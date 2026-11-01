@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -57,7 +58,7 @@ func TestResponsesToolsPreserveNonStrictSchema(t *testing.T) {
 			}))
 			defer server.Close()
 			model := newResponsesModel(t, server.URL, "test-model")
-			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))}, Tools: []chat.ToolDefinition{{Name: "weather", InputSchema: json.RawMessage(schema)}}}
+			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))}, Tools: []toolcontract.Definition{{Name: "weather", InputSchema: json.RawMessage(schema)}}}
 			if _, err := model.Call(t.Context(), request); err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +127,7 @@ func TestResponsesRejectsCoreOwnedExtensions(t *testing.T) {
 				} else {
 					request.Options = options
 				}
-				model, err := openai.NewResponses(t.Context(), config)
+				model, err := openai.NewResponses(t.Context(), config, testResponsesDialect())
 				if err != nil {
 					t.Fatal(err)
 				}

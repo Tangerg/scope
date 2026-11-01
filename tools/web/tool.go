@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -14,7 +13,7 @@ import (
 func inputFailure(cause error) error {
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
 		Kind:   toolcontract.FailureKindFailed,
-		Output: chat.NewTextToolOutput(cause.Error()),
+		Output: toolcontract.NewTextOutput(cause.Error()),
 		Cause:  cause,
 	})
 	if err != nil {
@@ -27,7 +26,7 @@ type readOnlyTool struct {
 	inner toolcontract.Tool
 }
 
-func (r readOnlyTool) Definition() chat.ToolDefinition { return r.inner.Definition() }
+func (r readOnlyTool) Definition() toolcontract.Definition { return r.inner.Definition() }
 
 func (r readOnlyTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	return r.inner.Call(ctx, invocation)

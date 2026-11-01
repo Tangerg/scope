@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
 
@@ -116,7 +117,7 @@ data: {"type":"message_stop"}
 				if err != nil {
 					t.Fatal(err)
 				}
-				_, err = model.Call(t.Context(), &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+				_, err = model.Call(t.Context(), &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
 				if test.wantErr != "" {
 					if err == nil || !strings.Contains(err.Error(), test.wantErr) || calls != 0 {
 						t.Fatalf("err=%v calls=%d", err, calls)

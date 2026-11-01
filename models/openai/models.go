@@ -38,7 +38,11 @@ func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
-	return openaiprotocol.NewChatCompletions(ctx, config.protocol())
+	return openaiprotocol.NewChatCompletions(ctx, config.protocol(), openaiprotocol.Dialect{
+		Provider:        protocolProvider,
+		TokenLimitField: openaiprotocol.TokenLimitMaxCompletionTokens,
+		PrepareRequest:  openaiprotocol.RequestStreamUsage,
+	})
 }
 
 // Responses is configured independently from Chat Completions because their
@@ -62,7 +66,7 @@ func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
 }
 
 func NewResponses(ctx context.Context, config ResponsesConfig) (*openaiprotocol.Responses, error) {
-	return openaiprotocol.NewResponses(ctx, config.protocol())
+	return openaiprotocol.NewResponses(ctx, config.protocol(), openaiprotocol.ResponsesDialect{Provider: protocolProvider})
 }
 
 type EmbeddingModelConfig struct {

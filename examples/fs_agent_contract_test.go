@@ -1,6 +1,8 @@
 package examples_test
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"fmt"
@@ -12,8 +14,8 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/fs"
@@ -52,12 +54,12 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				editor = uncertainEditor{}
 			}
 			executable := contractValue(fs.NewEditTool(editor))
-			tools := contractValue(interaction.NewToolSet(interaction.ToolSetConfig{
+			tools := contractValue(agent.NewToolSet(agent.ToolSetConfig{
 				Name: "contract.tools", Description: "Exercise the filesystem tool boundary.", Tools: []tool.Tool{executable},
-				ImplementationDigest: agent.ComputeDigest([]byte("edit-tool")), ConfigurationDigest: agent.ComputeDigest([]byte("edit-config")),
+				ImplementationDigest: run.ComputeDigest([]byte("edit-tool")), ConfigurationDigest: run.ComputeDigest([]byte("edit-config")),
 			}))
 			var calls atomic.Int32
-			root := contractInteraction(interaction.DefinitionConfig{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: agent.NewQuota(2), Tools: tools, ToolBudget: agent.Budget{Steps: agent.NewQuota(16), Effects: agent.NewQuota(8), Signals: agent.NewQuota(16)}}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+			root := contractInteraction(agent.DefinitionConfig{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: run.NewQuota(2), Tools: tools, ToolBudget: run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Signals: run.NewQuota(16)}}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 				if calls.Add(1) == 1 {
 					return contractToolCall("edit", `{"path":"file","old_string":"missing","new_string":"new"}`), nil
 				}
@@ -71,20 +73,20 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				}
 				return contractText("repair the arguments"), nil
 			}))
-			events := &agenttest.ObservationRecorder{}
-			engine := contractValue(agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{events}}))
+			events := &runtest.ObservationRecorder{}
+			engine := contractValue(run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{events}}))
 			defer engine.Close(context.WithoutCancel(ctx))
-			input := contractValue(agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
-			process := contractValue(engine.Start(ctx, root, input))
+			input := contractValue(run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
+			process := contractValue(engine.Start(ctx, root, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input}))
 			defer process.Kill(context.WithoutCancel(ctx), "test cleanup")
 			if unknown {
-				if _, err := events.AwaitEvent(ctx, func(event agent.Event) bool {
+				if _, err := events.AwaitEvent(ctx, func(event run.Event) bool {
 					fact, ok := event.EffectFinished()
-					return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown
+					return ok && fact.SettlementStatus() == run.SettlementStatusUnknown
 				}); err != nil {
 					t.Fatal(err)
 				}
-				if err := process.RequestCancellation(ctx, "retain unknown result"); err != nil {
+				if err := process.Cancel(ctx, "retain unknown result"); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -92,9 +94,9 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			if err := process.Join(ctx); err != nil {
 				t.Fatal(err)
 			}
-			wantStatus, wantCalls, wantUnknown := agent.StatusCompleted, int32(2), 0
+			wantStatus, wantCalls, wantUnknown := run.StatusCompleted, int32(2), 0
 			if unknown {
-				wantStatus, wantCalls, wantUnknown = agent.StatusCanceled, 1, 1
+				wantStatus, wantCalls, wantUnknown = run.StatusCanceled, 1, 1
 			}
 			if result.Termination().Status() != wantStatus || calls.Load() != wantCalls {
 				t.Fatalf("status=%s calls=%d", result.Termination().Status(), calls.Load())

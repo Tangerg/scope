@@ -8,13 +8,13 @@ import (
 	"testing"
 	"testing/synctest"
 
-	agent "github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/messaging"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		store := agent.NewMemoryTreeCommitter()
+		store := run.NewMemoryStore()
 		receiverEngine := newEngine(t, store)
 		receiver := start(t, receiverEngine, bind(t, newGate(t), nil), input(t, "review this plan"))
 		synctest.Wait()
@@ -30,7 +30,7 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 		sender := start(t, senderEngine, deployment, input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), WaitID: &waitID, Payload: input(t, "approved")}))
 		<-port.firstAdmission
 		received := finish(t, receiver)
-		if received.Termination().Status() != agent.StatusCompleted || received.Usage() != (agent.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
+		if received.Termination().Status() != run.StatusCompleted || received.Usage() != (run.Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}) {
 			t.Fatalf("receiver=%+v", received)
 		}
 		checkpoint, present, loadErr := store.LoadTree(t.Context(), sender.Relation().ProcessID())
@@ -38,22 +38,22 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 			t.Fatalf("sender checkpoint=%t %v", present, loadErr)
 		}
 		restoredEngine := newEngine(t, store)
-		restored, err := restoredEngine.RestoreTree(t.Context(), deployment, checkpoint)
+		restored, err := restoredEngine.Recover(t.Context(), deployment, checkpoint)
 		if err != nil {
 			t.Fatal(err)
 		}
 		replayed := finish(t, restored)
-		if replayed.Termination().Status() != agent.StatusCompleted || replayed.Usage() != (agent.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
+		if replayed.Termination().Status() != run.StatusCompleted || replayed.Usage() != (run.Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedSignals: 1}) {
 			t.Fatalf("sender replay=%+v", replayed)
 		}
 		original := assertReplayKeptDelivery(t, port.recordedCalls(), waitID)
 		assertConsumedReceipt(t, inspect(t, receiverEngine, receiver).SignalReceipts(), original)
 		assertPortKeepsOriginalAddress(t, port, receiverEngine, restored.Relation().ProcessID(), original)
 		release()
-		if _, staleErr := sender.Await(t.Context()); !errors.Is(staleErr, agent.ErrTreeIncarnationConflict) {
+		if _, staleErr := sender.Await(t.Context()); !errors.Is(staleErr, run.ErrTreeIncarnationConflict) {
 			t.Fatalf("retired writer=%v", staleErr)
 		}
-		if joinErr := sender.Join(t.Context()); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+		if joinErr := sender.Join(t.Context()); !errors.Is(joinErr, run.ErrTreeIncarnationConflict) {
 			t.Fatalf("retired drain=%v", joinErr)
 		}
 		closeEngine(t, senderEngine)
@@ -62,13 +62,13 @@ func TestReplayReconcilesConsumedMessageAtOriginalRecipient(t *testing.T) {
 	})
 }
 
-func assertReplayKeptDelivery(t *testing.T, calls []agent.SignalRequest, waitID agent.WaitID) agent.SignalRequest {
+func assertReplayKeptDelivery(t *testing.T, calls []run.SignalRequest, waitID run.WaitID) run.SignalRequest {
 	t.Helper()
 	if len(calls) != 2 || calls[0].ID() != calls[1].ID() {
 		t.Fatalf("replay changed delivery identity: %v", calls)
 	}
 	derived, ok := strings.CutPrefix(calls[0].ID().String(), "signal:message:")
-	if _, parseErr := agent.ParseDigest(derived); !ok || parseErr != nil {
+	if _, parseErr := run.ParseDigest(derived); !ok || parseErr != nil {
 		t.Fatalf("invalid message identity=%s", calls[0].ID())
 	}
 	for _, call := range calls {
@@ -79,7 +79,7 @@ func assertReplayKeptDelivery(t *testing.T, calls []agent.SignalRequest, waitID 
 	return calls[0]
 }
 
-func assertConsumedReceipt(t *testing.T, receipts []agent.SignalReceipt, delivered agent.SignalRequest) {
+func assertConsumedReceipt(t *testing.T, receipts []run.SignalReceipt, delivered run.SignalRequest) {
 	t.Helper()
 	if len(receipts) != 2 || !receipts[1].Consumed() || !receipts[1].Matches(delivered) || receipts[1].ArrivalSequence() != 2 {
 		t.Fatalf("receipt=%+v", receipts)
@@ -92,24 +92,24 @@ func assertConsumedReceipt(t *testing.T, receipts []agent.SignalReceipt, deliver
 func assertPortKeepsOriginalAddress(
 	t *testing.T,
 	port *recipientPort,
-	engine *agent.Engine,
-	sender agent.ProcessID,
-	original agent.SignalRequest,
+	engine *run.Runtime,
+	sender run.ProcessID,
+	original run.SignalRequest,
 ) {
 	t.Helper()
 	waitID, _ := original.WaitID()
-	conflict, err := agent.NewSignalRequest(original.ID(), waitID, []byte(`"different"`))
+	conflict, err := run.NewSignalRequest(original.ID(), waitID, []byte(`"different"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deliveryErr := port.Deliver(t.Context(), sender, port.recipient.Relation().ProcessID(), conflict); !errors.Is(deliveryErr, agent.ErrSignalConflict) {
+	if deliveryErr := port.Deliver(t.Context(), sender, port.recipient.Relation().ProcessID(), conflict); !errors.Is(deliveryErr, run.ErrSignalConflict) {
 		t.Fatalf("conflict=%v", deliveryErr)
 	}
 	replacement := start(t, engine, bind(t, newGate(t), nil), input(t, "next review"))
-	if deliveryErr := port.Deliver(t.Context(), sender, replacement.Relation().ProcessID(), original); !errors.Is(deliveryErr, agent.ErrSignalRejected) {
+	if deliveryErr := port.Deliver(t.Context(), sender, replacement.Relation().ProcessID(), original); !errors.Is(deliveryErr, run.ErrSignalRejected) {
 		t.Fatalf("retarget=%v", deliveryErr)
 	}
-	if cancelErr := replacement.RequestCancellation(t.Context(), "test complete"); cancelErr != nil {
+	if cancelErr := replacement.Cancel(t.Context(), "test complete"); cancelErr != nil {
 		t.Fatal(cancelErr)
 	}
 	finish(t, replacement)
@@ -117,7 +117,7 @@ func assertPortKeepsOriginalAddress(
 
 func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine := newEngine(t, agent.NewMemoryTreeCommitter())
+		engine := newEngine(t, run.NewMemoryStore())
 		receiver := start(t, engine, bind(t, newGate(t), nil), input(t, "review"))
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, receiver).WaitID()
@@ -135,14 +135,14 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 			t.Fatal("adjudication lacks admission evidence")
 		}
 		proof := input(t, messaging.Receipt{SignalID: calls[0].ID()})
-		settlement, err := agent.NewSettlement(agent.SettlementStatusSucceeded, proof.JSON())
+		settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, proof.JSON())
 		if err != nil {
 			t.Fatal(err)
 		}
 		if resolveErr := sender.ResolveUnknownEffect(t.Context(), unknown[0], settlement); resolveErr != nil {
 			t.Fatal(resolveErr)
 		}
-		if result := finish(t, sender); result.Termination().Status() != agent.StatusCompleted {
+		if result := finish(t, sender); result.Termination().Status() != run.StatusCompleted {
 			t.Fatalf("resolved=%s", result.Termination().Status())
 		}
 		closeEngine(t, engine)
@@ -151,9 +151,9 @@ func TestLostDeliveryAcknowledgmentRemainsUnknownUntilAdjudicated(t *testing.T) 
 
 func TestTerminalRecipientWithoutAdmissionEvidenceRemainsUnknown(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine := newEngine(t, agent.NewMemoryTreeCommitter())
+		engine := newEngine(t, run.NewMemoryStore())
 		receiver := start(t, engine, bind(t, newGate(t), nil), input(t, "closed review"))
-		if cancelErr := receiver.RequestCancellation(t.Context(), "recipient closed"); cancelErr != nil {
+		if cancelErr := receiver.Cancel(t.Context(), "recipient closed"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
 		finish(t, receiver)
@@ -163,10 +163,10 @@ func TestTerminalRecipientWithoutAdmissionEvidenceRemainsUnknown(t *testing.T) {
 		if unknown := inspect(t, engine, sender).UnknownEffectIDs(); len(unknown) != 1 {
 			t.Fatalf("terminal delivery=%v", unknown)
 		}
-		if cancelErr := sender.RequestCancellation(context.Background(), "retain unresolved delivery"); cancelErr != nil {
+		if cancelErr := sender.Cancel(context.Background(), "retain unresolved delivery"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
-		if result := finish(t, sender); result.Termination().Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
+		if result := finish(t, sender); result.Termination().Status() != run.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 {
 			t.Fatalf("terminated=%+v", result)
 		}
 		closeEngine(t, engine)

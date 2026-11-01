@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/token"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -31,6 +33,29 @@ func TestVectorStoreProviderCompilersStayPrivate(t *testing.T) {
 					value.Name.IsExported() && value.Name.Name != "Visit" {
 					t.Errorf("vectorstores/%s:%d exports provider compiler method %s", path, fset.Position(value.Pos()).Line, value.Name.Name)
 				}
+			}
+		}
+	})
+}
+
+// A native precomputed-vector provider may not quietly reintroduce the
+// model calls or text entry points that its caller already owns.
+func TestNativeVectorStoreHasNoEmbeddingDriver(t *testing.T) {
+	root := filepath.Join(repositoryRoot(t), "vectorstores")
+	walkProductionGoFiles(t, root, func(path string, _ *token.FileSet, file *ast.File) {
+		for _, im := range file.Imports {
+			v, err := strconv.Unquote(im.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasSuffix(v, "/core/embeddingclient") || strings.HasPrefix(v, "github.com/Tangerg/scope/models/") {
+				t.Errorf("%s: native store imports encoding service %s", path, v)
+			}
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv != nil && receiverTypeName(fn.Recv.List[0].Type) == "Store" && (fn.Name.Name == "Search" || fn.Name.Name == "Index") {
+				t.Errorf("%s: native Store retains semantic operation %s", path, fn.Name.Name)
 			}
 		}
 	})

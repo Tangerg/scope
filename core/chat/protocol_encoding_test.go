@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 )
 
 type validatedProtocolValue interface {
@@ -37,18 +38,18 @@ func TestProtocolValidationRejectsUnencodableStrings(t *testing.T) {
 			return chat.Options{ReasoningEffort: chat.ReasoningEffort(text)}
 		}, chat.ErrInvalidOptions},
 		{"chat.Stop", func(text string) validatedProtocolValue { return chat.Options{Stop: []string{text}} }, chat.ErrInvalidOptions},
-		{"chat.Citation.URI", func(text string) validatedProtocolValue {
-			return chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.test/" + text}
-		}, chat.ErrInvalidCitation},
-		{"chat.Citation.Reference", func(text string) validatedProtocolValue {
-			return chat.CitationSource{Kind: chat.CitationSourceReference, Value: text}
-		}, chat.ErrInvalidCitation},
-		{"chat.Citation.Title", func(text string) validatedProtocolValue {
-			return chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "source"}, Title: text}
-		}, chat.ErrInvalidCitation},
-		{"chat.Citation.Quote", func(text string) validatedProtocolValue {
-			return chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "source"}, Quote: text}
-		}, chat.ErrInvalidCitation},
+		{"corecontent.Citation.URI", func(text string) validatedProtocolValue {
+			return corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.test/" + text}
+		}, corecontent.ErrInvalidCitation},
+		{"corecontent.Citation.Reference", func(text string) validatedProtocolValue {
+			return corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: text}
+		}, corecontent.ErrInvalidCitation},
+		{"corecontent.Citation.Title", func(text string) validatedProtocolValue {
+			return corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "source"}, Title: text}
+		}, corecontent.ErrInvalidCitation},
+		{"corecontent.Citation.Quote", func(text string) validatedProtocolValue {
+			return corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "source"}, Quote: text}
+		}, corecontent.ErrInvalidCitation},
 		{"chat.OutputFormat.Name", func(text string) validatedProtocolValue {
 			return chat.OutputFormat{Type: chat.OutputFormatJSONSchema, Name: text, Schema: []byte(`{"type":"object"}`)}
 		}, chat.ErrInvalidOutputFormat},

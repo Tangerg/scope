@@ -14,8 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -26,13 +24,13 @@ func TestLiveExactMetadataAndNativeScores(t *testing.T) {
 		t.Run(metric, func(t *testing.T) {
 			store, collection := liveMongoStore(t, metric)
 			docs := []*document.Document{{ID: "nil", Text: "text"}, {ID: "empty", Text: "text", Metadata: metadata.Map{}}, {ID: "exact", Text: "text🙂", Metadata: metadata.Map{"huge": json.RawMessage(`1e1000`), "long": json.RawMessage(`1.00000000000000001`), "$business.key": json.RawMessage(`{"array":[null,{},9007199254740993]}`)}}}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
 			if err := awaitVisibleDocuments(t.Context(), store, docs); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 3}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 3}})
 			if err != nil || len(response.Results) != 3 {
 				t.Fatalf("response=%v err=%v", response, err)
 			}
@@ -47,7 +45,7 @@ func TestLiveExactMetadataAndNativeScores(t *testing.T) {
 					t.Fatalf("native metadata changed: %v", hit.Document)
 				}
 			}
-			cursor, err := collection.Aggregate(t.Context(), mongo.Pipeline{{{Key: "$vectorSearch", Value: bson.M{"index": DefaultVectorIndexName, "path": embeddingField, "queryVector": []float32{1, 0}, "numCandidates": 200, "limit": 3}}}, {{Key: "$addFields", Value: bson.M{scoreField: bson.M{"$meta": "vectorSearchScore"}}}}})
+			cursor, err := collection.Aggregate(t.Context(), mongo.Pipeline{{{Key: "$vectorSearch", Value: bson.M{"index": DefaultVectorIndexName, "path": fixtureSpace.StorageKey(), "queryVector": []float32{1, 0}, "numCandidates": 200, "limit": 3}}}, {{Key: "$addFields", Value: bson.M{scoreField: bson.M{"$meta": "vectorSearchScore"}}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +87,7 @@ func (c *changedMongoCollection) DeleteMany(ctx context.Context, constraint any,
 func TestLiveConditionalDeletionAndBinaryIdentity(t *testing.T) {
 	store, collection := liveMongoStore(t, "cosine")
 	docs := []*document.Document{{ID: "changed", Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`"a"`)}}, {ID: "unchanged", Text: "text", Metadata: metadata.Map{"value": json.RawMessage(`"a"`)}}, {ID: "A", Text: "text"}}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"a"}); err != nil {
@@ -99,7 +97,7 @@ func TestLiveConditionalDeletionAndBinaryIdentity(t *testing.T) {
 		t.Fatalf("case variant lost identity: %d %v", count, err)
 	}
 	store.collection = &changedMongoCollection{Collection: collection}
-	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "a")); err != nil {
+	if err := store.DeleteMatching(t.Context(), filter.EQ("value", "a"), fixtureBudget()); err != nil {
 		t.Fatal(err)
 	}
 	cursor, err := collection.Find(t.Context(), bson.M{})
@@ -121,7 +119,7 @@ func TestLiveConditionalDeletionAndBinaryIdentity(t *testing.T) {
 	if _, err = collection.UpdateOne(t.Context(), bson.M{idField: "changed"}, bson.M{"$set": bson.M{"legacy": true}}); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "outside"), MinScore: 1}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "outside"), MinScore: 1}})
 	if err == nil || response != nil {
 		t.Fatalf("corrupt native source became success: %v %v", response, err)
 	}
@@ -145,21 +143,6 @@ func (g *groupedMongoCollection) Aggregate(ctx context.Context, pipeline any, bu
 
 func TestLiveNativeRankingAcrossIdentityGroups(t *testing.T) {
 	store, collection := liveMongoStore(t, "cosine")
-	model, err := embeddingclient.New(embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i, text := range request.Texts {
-			vector := []float64{0, 1}
-			if text == "best" || text == "q" {
-				vector = []float64{1, 0}
-			}
-			outputs[i] = &embedding.Output{Embedding: vector}
-		}
-		return embedding.NewResponse(outputs, nil)
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store.embeddingClient = model
 	var docs []*document.Document
 	for i := range filterPageSize + 1 {
 		text := "other"
@@ -168,15 +151,21 @@ func TestLiveNativeRankingAcrossIdentityGroups(t *testing.T) {
 		}
 		docs = append(docs, &document.Document{ID: fmt.Sprintf("%03d", i), Text: text, Metadata: metadata.Map{"value": json.RawMessage(`"x"`)}})
 	}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	batch := fixtureBatch(docs)
+	for i, r := range batch.Records {
+		if r.Document.Text != "best" {
+			batch.Records[i].Values = []float64{0, 1}
+		}
+	}
+	if err := store.Upsert(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	if err = awaitVisibleDocuments(t.Context(), store, docs); err != nil {
+	if err := awaitVisibleDocuments(t.Context(), store, docs); err != nil {
 		t.Fatal(err)
 	}
 	native := &groupedMongoCollection{Collection: collection}
 	store.collection = native
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[filterPageSize].ID || response.Results[0].Score != 1 || !slices.Equal(native.groups, []int{filterPageSize, 1}) {
 		t.Fatalf("groups=%v response=%v error=%v", native.groups, response, err)
 	}

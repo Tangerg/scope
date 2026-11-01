@@ -17,7 +17,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 const (
@@ -86,7 +86,7 @@ type ObserverConfig struct {
 }
 
 // Observer projects immutable Framework Event facts into OpenTelemetry spans
-// and metrics. It implements agent.EventListener and is safe for concurrent
+// and metrics. It implements run.EventListener and is safe for concurrent
 // calls. Observer never receives Process behavior or application state.
 // Observer values must be constructed with NewObserver and must not be copied
 // after first use.
@@ -111,8 +111,8 @@ type processSpanRecord struct {
 }
 
 type processKey struct {
-	processID     agent.ProcessID
-	incarnationID agent.TreeIncarnationID
+	processID     run.ProcessID
+	incarnationID run.TreeIncarnationID
 }
 
 type stepKey struct {
@@ -122,10 +122,10 @@ type stepKey struct {
 
 type effectKey struct {
 	process  processKey
-	effectID agent.EffectID
+	effectID run.EffectID
 }
 
-func processKeyFor(event agent.Event) processKey {
+func processKeyFor(event run.Event) processKey {
 	incarnationID, _ := event.TreeIncarnationID()
 	return processKey{processID: event.Relation().ProcessID(), incarnationID: incarnationID}
 }
@@ -287,7 +287,7 @@ func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
 	}, nil
 }
 
-func (o *Observer) OnEvent(ctx context.Context, event agent.Event) {
+func (o *Observer) OnEvent(ctx context.Context, event run.Event) {
 	if o == nil || !event.Valid() {
 		return
 	}
@@ -299,21 +299,21 @@ func (o *Observer) OnEvent(ctx context.Context, event agent.Event) {
 		panic(errNilContext)
 	}
 	switch event.Name() {
-	case agent.EventProcessStarted, agent.EventProcessRestored:
+	case run.EventProcessStarted, run.EventProcessRestored:
 		o.startProcess(ctx, event)
-	case agent.EventProcessFinished:
+	case run.EventProcessFinished:
 		o.finishProcess(ctx, event)
-	case agent.EventRuntimeStopped:
+	case run.EventRuntimeStopped:
 		o.stopRuntime(ctx, event)
-	case agent.EventStepStarted:
+	case run.EventStepStarted:
 		o.startStep(ctx, event)
-	case agent.EventStepFinished:
+	case run.EventStepFinished:
 		o.finishStep(ctx, event)
-	case agent.EventEffectStarted:
+	case run.EventEffectStarted:
 		o.startEffect(ctx, event)
-	case agent.EventEffectFinished:
+	case run.EventEffectFinished:
 		o.finishEffect(ctx, event)
-	case agent.EventDeltaDropped:
+	case run.EventDeltaDropped:
 		o.recordDeltaDrop(ctx, event)
 	default:
 		o.addProcessEvent(event)
@@ -332,7 +332,7 @@ func (o *Observer) beginObservation() bool {
 
 // Close prevents new observation, waits for callbacks already in flight, and
 // then ends any incomplete spans. It is safe to call concurrently and is
-// idempotent; normally Engine.Close leaves no incomplete Process spans.
+// idempotent; normally Runtime.Close leaves no incomplete Process spans.
 func (o *Observer) Close() {
 	if o == nil {
 		return
@@ -370,7 +370,7 @@ func (o *Observer) Close() {
 	}
 }
 
-func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
+func (o *Observer) startProcess(ctx context.Context, event run.Event) {
 	relation := event.Relation()
 	parentContext := ctx
 	if parentID, child := relation.ParentID(); child {
@@ -385,17 +385,17 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 	spanAttributes := append(
 		processAttributes(event),
 		semconv.GenAIOperationNameInvokeAgent,
-		semconv.GenAIAgentName(event.DeploymentRef().Name()),
+		semconv.GenAIAgentName(event.ProgramRef().Name()),
 		processActivationAttribute.String(string(activation)),
 	)
 	_, span := o.tracer.Start(
-		parentContext, invokeAgentOperationName+" "+event.DeploymentRef().Name(),
+		parentContext, invokeAgentOperationName+" "+event.ProgramRef().Name(),
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithTimestamp(event.OccurredAt()),
 		trace.WithAttributes(spanAttributes...),
 	)
 	record := processSpanRecord{
-		span: span, startedAt: time.Now(), activation: activation,
+		span: span, startedAt: event.OccurredAt(), activation: activation,
 	}
 	o.stateMu.Lock()
 	if _, exists := o.processes[processKeyFor(event)]; exists {
@@ -412,7 +412,7 @@ func (o *Observer) startProcess(ctx context.Context, event agent.Event) {
 	o.instruments.processActivations.Add(ctx, 1, metric.WithAttributes(attributes...))
 }
 
-func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
+func (o *Observer) finishProcess(ctx context.Context, event run.Event) {
 	fact, ok := event.ProcessFinished()
 	if !ok {
 		return
@@ -454,7 +454,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 		return
 	}
 	durationAttributes := []attribute.KeyValue{
-		semconv.GenAIAgentName(event.DeploymentRef().Name()),
+		semconv.GenAIAgentName(event.ProgramRef().Name()),
 		processActivationAttribute.String(string(record.activation)),
 	}
 	observedError := processError{status: fact.Status(), cause: fact.Cause()}
@@ -464,10 +464,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 	if processStatusIsError(fact.Status()) {
 		durationAttributes = append(durationAttributes, semconv.ErrorType(observedError))
 	}
-	o.instruments.processActivationDuration.Record(
-		trace.ContextWithSpan(ctx, record.span), time.Since(record.startedAt).Seconds(),
-		metric.WithAttributes(durationAttributes...),
-	)
+	o.recordActivationDuration(ctx, record, event.OccurredAt(), durationAttributes)
 	spanAttributes := []attribute.KeyValue{
 		processStatusAttribute.String(fact.Status().String()),
 		processCauseAttribute.String(fact.Cause().String()),
@@ -485,7 +482,7 @@ func (o *Observer) finishProcess(ctx context.Context, event agent.Event) {
 	record.span.End(trace.WithTimestamp(event.OccurredAt()))
 }
 
-func (o *Observer) startStep(ctx context.Context, event agent.Event) {
+func (o *Observer) startStep(ctx context.Context, event run.Event) {
 	sequence, ok := event.StepSequence()
 	if !ok {
 		return
@@ -522,7 +519,7 @@ func (o *Observer) startStep(ctx context.Context, event agent.Event) {
 	o.stateMu.Unlock()
 }
 
-func (o *Observer) finishStep(ctx context.Context, event agent.Event) {
+func (o *Observer) finishStep(ctx context.Context, event run.Event) {
 	sequence, ok := event.StepSequence()
 	if !ok {
 		return
@@ -550,13 +547,13 @@ func (o *Observer) finishStep(ctx context.Context, event agent.Event) {
 		return
 	}
 	record.SetAttributes(stepStatusAttribute.String(fact.Status().String()))
-	if fact.Status() == agent.StepStatusFailed {
+	if fact.Status() == run.StepStatusFailed {
 		recordSpanFailure(record, stepError{}, event.OccurredAt())
 	}
 	record.End(trace.WithTimestamp(event.OccurredAt()))
 }
 
-func (o *Observer) startEffect(ctx context.Context, event agent.Event) {
+func (o *Observer) startEffect(ctx context.Context, event run.Event) {
 	effectID, ok := event.EffectID()
 	if !ok {
 		return
@@ -598,7 +595,7 @@ func (o *Observer) startEffect(ctx context.Context, event agent.Event) {
 	o.stateMu.Unlock()
 }
 
-func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
+func (o *Observer) finishEffect(ctx context.Context, event run.Event) {
 	effectID, ok := event.EffectID()
 	if !ok {
 		return
@@ -632,7 +629,7 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 	}
 	record.SetAttributes(metricAttributes...)
 	record.SetAttributes(effectAttemptIDAttribute.String(fact.AttemptID().String()))
-	if fact.SettlementStatus() != agent.SettlementStatusSucceeded {
+	if fact.SettlementStatus() != run.SettlementStatusSucceeded {
 		recordSpanFailure(record, effectError{
 			target: fact.Target(), settlement: fact.SettlementStatus(),
 		}, event.OccurredAt())
@@ -640,7 +637,7 @@ func (o *Observer) finishEffect(ctx context.Context, event agent.Event) {
 	record.End(trace.WithTimestamp(event.OccurredAt()))
 }
 
-func (o *Observer) recordDeltaDrop(ctx context.Context, event agent.Event) {
+func (o *Observer) recordDeltaDrop(ctx context.Context, event run.Event) {
 	fact, ok := event.DeltaDropped()
 	if ok {
 		o.instruments.deltaDrops.Add(
@@ -651,7 +648,7 @@ func (o *Observer) recordDeltaDrop(ctx context.Context, event agent.Event) {
 	o.addProcessEvent(event)
 }
 
-func (o *Observer) addProcessEvent(event agent.Event) {
+func (o *Observer) addProcessEvent(event run.Event) {
 	o.stateMu.Lock()
 	record, found := o.processes[processKeyFor(event)]
 	o.stateMu.Unlock()
@@ -682,12 +679,10 @@ func (o *Observer) addProcessEvent(event agent.Event) {
 	)
 }
 
-// WrapDispatcher propagates the observed Effect span into downstream calls.
-// Register this same Observer as an Engine EventListener: the Engine publishes
-// EffectStarted before dispatch and EffectFinished after dispatch returns.
-// Without an active observed Effect, the caller's context passes through.
-// The returned decorator preserves replay policy, settlement, and Delta delivery.
-func (o *Observer) WrapDispatcher(next agent.Dispatcher) (agent.Dispatcher, error) {
+// WrapDispatcher traces the external call at its actual execution boundary.
+// Downstream spans inherit agent.dispatch; attempt and incarnation identity
+// correlate it with the independently delivered agent.effect lifecycle facts.
+func (o *Observer) WrapDispatcher(next run.Dispatcher) (run.Dispatcher, error) {
 	if o == nil || lo.IsNil(o.tracer) {
 		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
 	}
@@ -703,7 +698,7 @@ func (o *Observer) WrapDispatcher(next agent.Dispatcher) (agent.Dispatcher, erro
 // are excluded because they can contain credentials or payloads. An error other
 // than an explicit conflict remains unresolved because a lost response cannot
 // prove whether storage committed.
-func (o *Observer) WrapTreeCommitter(next agent.TreeCommitter) (agent.TreeCommitter, error) {
+func (o *Observer) WrapTreeCommitter(next run.Store) (run.Store, error) {
 	if o == nil || lo.IsNil(o.tracer) {
 		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
 	}
@@ -713,7 +708,7 @@ func (o *Observer) WrapTreeCommitter(next agent.TreeCommitter) (agent.TreeCommit
 	return &observedTreeCommitter{observer: o, next: next}, nil
 }
 
-func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot agent.TreeSnapshot, invoke func(context.Context) error) (err error) {
+func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot run.TreeSnapshot, invoke func(context.Context) error) (err error) {
 	if !o.beginObservation() {
 		return invoke(ctx)
 	}
@@ -759,7 +754,7 @@ func (o *Observer) observeDurability(ctx context.Context, operation, boundary st
 	return invoke(ctx)
 }
 
-func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
+func (o *Observer) stopRuntime(ctx context.Context, event run.Event) {
 	fact, ok := event.RuntimeStopped()
 	if !ok {
 		return
@@ -774,14 +769,11 @@ func (o *Observer) stopRuntime(ctx context.Context, event agent.Event) {
 	if found {
 		spans = append(spans, record.span)
 		attributes := []attribute.KeyValue{
-			semconv.GenAIAgentName(event.DeploymentRef().Name()),
+			semconv.GenAIAgentName(event.ProgramRef().Name()),
 			processActivationAttribute.String(string(record.activation)),
 			semconv.ErrorType(observedError),
 		}
-		o.instruments.processActivationDuration.Record(
-			trace.ContextWithSpan(ctx, record.span), time.Since(record.startedAt).Seconds(),
-			metric.WithAttributes(attributes...),
-		)
+		o.recordActivationDuration(ctx, record, event.OccurredAt(), attributes)
 	}
 	for _, span := range spans {
 		span.SetAttributes(
@@ -804,8 +796,8 @@ func saturatingInt64(value uint64) int64 {
 	return int64(value)
 }
 
-func processAttributes(event agent.Event) []attribute.KeyValue {
-	reference := event.DeploymentRef()
+func processAttributes(event run.Event) []attribute.KeyValue {
+	reference := event.ProgramRef()
 	relation := event.Relation()
 	values := []attribute.KeyValue{
 		processIDAttribute.String(event.Relation().ProcessID().String()),
@@ -823,17 +815,17 @@ func processAttributes(event agent.Event) []attribute.KeyValue {
 	return values
 }
 
-func deploymentMetricAttributes(event agent.Event) []attribute.KeyValue {
-	reference := event.DeploymentRef()
+func deploymentMetricAttributes(event run.Event) []attribute.KeyValue {
+	reference := event.ProgramRef()
 	return []attribute.KeyValue{
 		deploymentNameAttribute.String(reference.Name()),
 	}
 }
 
 type processError struct {
-	status  agent.Status
-	cause   agent.TerminationCause
-	failure agent.FailureClassification
+	status  run.Status
+	cause   run.TerminationCause
+	failure run.FailureClassification
 }
 
 func (p processError) Error() string {
@@ -858,8 +850,8 @@ func (stepError) Error() string { return "agent Execution Step failed" }
 func (stepError) ErrorType() string { return "agent.step.failed" }
 
 type effectError struct {
-	target     agent.EffectTarget
-	settlement agent.SettlementStatus
+	target     run.EffectTarget
+	settlement run.SettlementStatus
 }
 
 func (e effectError) Error() string {
@@ -874,23 +866,23 @@ func recordSpanFailure(span trace.Span, observedError error, occurredAt time.Tim
 	span.SetStatus(codes.Error, observedError.Error())
 }
 
-func activationForEvent(event agent.Event) processActivation {
-	if event.Name() == agent.EventProcessRestored {
+func activationForEvent(event run.Event) processActivation {
+	if event.Name() == run.EventProcessRestored {
 		return processActivationRestored
 	}
 	return processActivationStarted
 }
 
-func processStatusIsError(status agent.Status) bool {
+func processStatusIsError(status run.Status) bool {
 	switch status {
-	case agent.StatusFailed, agent.StatusTimedOut, agent.StatusKilled:
+	case run.StatusFailed, run.StatusTimedOut, run.StatusKilled:
 		return true
 	default:
 		return false
 	}
 }
 
-var _ agent.EventListener = (*Observer)(nil)
+var _ run.EventListener = (*Observer)(nil)
 
 // takeChildSpans transfers active children while stateMu is held.
 func (o *Observer) takeChildSpans(key processKey) []trace.Span {
@@ -908,4 +900,12 @@ func (o *Observer) takeChildSpans(key processKey) []trace.Span {
 		}
 	}
 	return spans
+}
+
+// Delivery time measures listener backlog, not work. A backward wall-clock
+// interval cannot establish an execution duration; omit that sample.
+func (o *Observer) recordActivationDuration(ctx context.Context, record processSpanRecord, ended time.Time, attributes []attribute.KeyValue) {
+	if d := ended.Sub(record.startedAt); d >= 0 {
+		o.instruments.processActivationDuration.Record(trace.ContextWithSpan(ctx, record.span), d.Seconds(), metric.WithAttributes(attributes...))
+	}
 }

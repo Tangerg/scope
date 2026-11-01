@@ -7,16 +7,10 @@ import (
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/milvus"
 )
-
-type documentBatcher struct{}
-
-func (d documentBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
 
 func ExampleNewStore() {
 	ctx := context.Background()
@@ -25,24 +19,19 @@ func ExampleNewStore() {
 		panic(err)
 	}
 	defer client.Close(ctx)
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := milvus.NewStore(ctx, milvus.StoreConfig{Client: client, CollectionName: "documents", EmbeddingModel: model, DocumentBatcher: documentBatcher{}})
+	const space vectorstore.SpaceID = "encoder-v1"
+	store, err := milvus.NewStore(ctx, milvus.StoreConfig{Client: client, CollectionName: "documents", Space: space})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "current record"}}}); err != nil {
+	batch := &vectorstore.Batch{Space: space, Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "example"}, Values: []float64{1, 0}}}}
+	if err = store.Upsert(ctx, batch); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "current"}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
-	if err = store.DeleteIDs(ctx, []string{"one"}); err != nil {
+	if err := store.DeleteIDs(ctx, []string{"one"}); err != nil {
 		panic(err)
 	}
 }

@@ -91,17 +91,20 @@ func (f *FusionRetriever) Retrieve(ctx context.Context, query Query) (Candidates
 }
 
 func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) (Candidates, error) {
-	positions := make(map[string]int)
+	positions := make(map[documentKey]int)
 	var fused Candidates
 
 	for _, ranking := range rankings {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		seen := make(map[string]struct{}, len(ranking))
+		seen := make(map[documentKey]struct{}, len(ranking))
 		for index, candidate := range ranking {
-			identity := candidate.Document.ID
-			if identity != "" {
+			identity, err := candidate.documentKey()
+			if err != nil {
+				return nil, err
+			}
+			if identity.id != "" {
 				if _, duplicate := seen[identity]; duplicate {
 					continue
 				}
@@ -109,7 +112,7 @@ func fuseRankings(ctx context.Context, rankings []Candidates, rankConstant int) 
 			}
 
 			contribution := Score(1 / (float64(rankConstant) + float64(index) + 1))
-			if identity == "" {
+			if identity.id == "" {
 				candidate.Score = contribution
 				fused = append(fused, candidate)
 				continue

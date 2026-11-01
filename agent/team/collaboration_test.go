@@ -1,0 +1,261 @@
+package team
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"testing"
+	"testing/synctest"
+
+	"github.com/Tangerg/scope/agent/coordination"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
+	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+func require[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return value
+}
+
+func binding(definition agentrun.Definition) agentrun.Program[agentrun.Payload, agentrun.Payload] {
+	return require(agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{Definition: definition,
+		ImplementationDigest: agentrun.ComputeDigest([]byte("collaboration-test-code")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte(definition.Descriptor().Name()))}))
+}
+
+func transformed[I, O any](name string, transform func(context.Context, I) (O, error)) agentrun.Program[agentrun.Payload, agentrun.Payload] {
+	stage := require(workflow.Transform(name+".transform", transform))
+	return binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: name, Description: name, Stages: []workflow.Stage{stage}})))
+}
+
+func workerConfig(deployment agentrun.Program[agentrun.Payload, agentrun.Payload]) WorkerConfig {
+	return WorkerConfig{Deployment: deployment, Budget: agentrun.Budget{Steps: agentrun.NewQuota(32), Effects: agentrun.NewQuota(16), Signals: agentrun.NewQuota(32)}}
+}
+
+func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agentrun.Program[agentrun.Payload, agentrun.Payload]) *Definition {
+	return require(NewDefinition(fixtureConfig(coordinator, workers...)))
+}
+
+func fixtureConfig(coordinator func(context.Context, Turn) (Decision, error), workers ...agentrun.Program[agentrun.Payload, agentrun.Payload]) DefinitionConfig {
+	decision := transformed("test.coordinator", coordinator)
+	config := DefinitionConfig{Name: "test.collaboration", Description: "Coordinate tasks.", Coordinator: workerConfig(decision),
+		StateSchema: require(jsonschema.For[string]()), OutputSchema: require(jsonschema.For[string]()),
+		MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
+	for _, worker := range workers {
+		config.Workers = append(config.Workers, workerConfig(worker))
+	}
+	return config
+}
+
+func input(value string) agentrun.Payload { return require(agentrun.EncodePayload(value)) }
+func request(key, worker, value string) TaskRequest {
+	return TaskRequest{Key: require(agentrun.ParseChildKey(key)), Worker: worker, Input: input(value)}
+}
+func finish(turn Turn, text string) Decision {
+	output := require(agentrun.EncodePayload(text))
+	return Decision{State: turn.State, Output: output}
+}
+func echo() agentrun.Program[agentrun.Payload, agentrun.Payload] {
+	return transformed("test.echo", func(_ context.Context, text string) (string, error) { return "echo: " + text, nil })
+}
+func gate() agentrun.Program[agentrun.Payload, agentrun.Payload] {
+	schema := require(jsonschema.For[string]())
+	return binding(require(coordination.NewInputGate(coordination.InputGateConfig{Name: "test.gate", Description: "Receive input.", RequestSchema: schema, AnswerSchema: schema})))
+}
+func run(t *testing.T, definition *Definition, committer agentrun.Store) (*agentrun.Runtime, *agentrun.Handle[agentrun.Payload]) {
+	t.Helper()
+	return runWith(t, definition, agentrun.Config{Store: committer})
+}
+
+// refuseChildren rejects the admission of every child running a Program
+// named name, the way a Host refuses a start it cannot serve.
+func refuseChildren(name string) agentrun.ProcessAdmitter {
+	return agentrun.ProcessAdmitterFunc(func(_ context.Context, admission agentrun.ProcessAdmission) error {
+		if !admission.Relation().IsRoot() && admission.ProgramRef().Name() == name {
+			return errors.New(name + " refused")
+		}
+		return nil
+	})
+}
+
+func runWith(t *testing.T, definition *Definition, config agentrun.Config) (*agentrun.Runtime, *agentrun.Handle[agentrun.Payload]) {
+	t.Helper()
+	engine := require(agentrun.New(t.Context(), config))
+	t.Cleanup(func() {
+		if err := engine.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	process := require(engine.Start(t.Context(), binding(definition), agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input("initial")}))
+	return engine, process
+}
+func completed(t *testing.T, process *agentrun.Handle[agentrun.Payload]) string {
+	t.Helper()
+	result := require(process.Await(t.Context()))
+	if result.Termination().Status() != agentrun.StatusCompleted {
+		t.Fatalf("status=%s termination=%+v", result.Termination().Status(), result.Termination())
+	}
+	if err := process.Join(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	output, _ := result.Termination().Output()
+	return require(output.Decode[string]())
+}
+
+func TestBackgroundContinueControlAndDrain(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+			switch turn.Number {
+			case 1:
+				return Decision{Mode: ModeContinue, State: input("working"), Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
+			case 2:
+				if len(turn.Tasks) != 1 || turn.Tasks[0].Start == nil || turn.Tasks[0].Outcome != nil || require(turn.State.Decode[string]()) != "working" {
+					return Decision{}, errors.New("coordinator did not continue beside the active task")
+				}
+				signal := require(agentrun.NewSignalRequest(require(agentrun.ParseSignalID("signal:steer")), agentrun.WaitID{}, []byte(`"new direction"`)))
+				reason := "No longer needed."
+				return Decision{Mode: ModeWait, State: turn.State, Controls: []Control{
+					{Task: turn.Tasks[0].Request.Key, Signal: &signal}, {Task: turn.Tasks[0].Request.Key, CancelReason: &reason},
+				}}, nil
+			case 3:
+				if len(turn.Controls) != 2 || turn.Controls[0].Result == nil || turn.Controls[1].Result == nil ||
+					turn.Tasks[0].Outcome == nil || turn.Tasks[0].Outcome.Result().Termination().Status() != agentrun.StatusCanceled {
+					return Decision{}, errors.New("control receipts or drained cancellation missing")
+				}
+				if _, failed := turn.Controls[1].Result.Failure(); failed {
+					return Decision{}, errors.New("cancel rejected")
+				}
+				return finish(turn, "continued, controlled, drained"), nil
+			default:
+				return Decision{}, errors.New("unexpected turn")
+			}
+		}, gate())
+		var committer agentrun.Store = agentrun.NewMemoryStore()
+		_, process := run(t, definition, committer)
+		if got := completed(t, process); got != "continued, controlled, drained" {
+			t.Fatal(got)
+		}
+	})
+}
+
+func TestCompletedTaskFollowUp(t *testing.T) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+		switch turn.Number {
+		case 1:
+			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("draft", "test.echo", "draft")}}, nil
+		case 2:
+			if turn.Tasks[0].Outcome == nil {
+				return Decision{}, errors.New("missing draft")
+			}
+			output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
+			return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("revision", "test.echo", require(output.Decode[string]())+" revised")}}, nil
+		case 3:
+			output, _ := turn.Tasks[1].Outcome.Result().Termination().Output()
+			return finish(turn, require(output.Decode[string]())), nil
+		default:
+			return Decision{}, errors.New("unexpected turn")
+		}
+	}, echo())
+	_, process := run(t, definition, agentrun.NewMemoryStore())
+	if got := completed(t, process); got != "echo: echo: draft revised" {
+		t.Fatal(got)
+	}
+}
+
+func TestAddressedInputWakesWaitingCollaboration(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		definition := fixture(func(_ context.Context, turn Turn) (Decision, error) {
+			if turn.Number == 1 {
+				return Decision{Mode: ModeWait, State: turn.State, Tasks: []TaskRequest{request("input", "test.gate", "instruction")}}, nil
+			}
+			if turn.Number != 2 || turn.Tasks[0].Outcome == nil {
+				return Decision{}, errors.New("missing input outcome")
+			}
+			output, _ := turn.Tasks[0].Outcome.Result().Termination().Output()
+			signal := require(output.Decode[agentrun.Signal]())
+			return finish(turn, signal.ID().String()+":"+string(signal.Payload())), nil
+		}, gate())
+		store := agentrun.NewMemoryStore()
+		engine, process := run(t, definition, store)
+		synctest.Wait()
+		tree := require(engine.InspectTree(t.Context(), process.Relation().ProcessID()))
+		var recipient agentrun.ProcessID
+		var wait agentrun.WaitID
+		for _, fact := range tree.Processes {
+			if fact.Snapshot.ProgramRef().Name() == "test.gate" {
+				recipient = fact.Snapshot.Relation().ProcessID()
+				wait, _ = fact.Snapshot.WaitID()
+			}
+		}
+		if !recipient.Valid() || !wait.Valid() {
+			t.Fatal("input gate did not wait")
+		}
+		child, found := engine.Process(recipient)
+		if !found {
+			t.Fatal("input process absent")
+		}
+		signal := require(agentrun.NewSignalRequest(require(agentrun.ParseSignalID("signal:answer")), wait, []byte(`"proceed"`)))
+		if accepted, err := child.DeliverSignals(t.Context(), signal); err != nil || !accepted {
+			t.Fatalf("delivery=%t %v", accepted, err)
+		}
+		if got := completed(t, process); got != `signal:answer:"proceed"` {
+			t.Fatal(got)
+		}
+	})
+}
+
+func TestDefinitionConformance(t *testing.T) {
+	definition := fixture(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "done"), nil }, echo())
+	initial := input("initial")
+	state := require(require(definition.Start(initial)).Snapshot())
+	var unsolicited agentrun.Signal
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:unsolicited","payload":"x"}`), &unsolicited); err != nil {
+		t.Fatal(err)
+	}
+	runtest.RunDefinitionConformance(t, runtest.DefinitionConformanceConfig{
+		Definition: definition, Input: initial,
+		RejectedCases: []runtest.RejectedStepConformanceCase{{
+			Name:        "unsolicited Signal before the first turn",
+			State:       state,
+			Signals:     []agentrun.Signal{unsolicited},
+			FailureKind: agentrun.FailureKindContract,
+			FailureCode: "collaboration.protocol.invalid",
+		}},
+	})
+}
+
+func TestNullCompletionSurvivesTreeRecovery(t *testing.T) {
+	config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) {
+		return Decision{State: turn.State, Output: require(agentrun.ParsePayload([]byte(`null`)))}, nil
+	}, echo())
+	config.OutputSchema = require(jsonschema.Parse([]byte(`{"type":"null"}`)))
+	definition := require(NewDefinition(config))
+	store := agentrun.NewMemoryStore()
+	engine, process := run(t, definition, store)
+	result := require(process.Await(t.Context()))
+	if result.Termination().Status() != agentrun.StatusCompleted {
+		t.Fatalf("termination = %+v", result.Termination())
+	}
+	tree := require(engine.CaptureTree(t.Context(), process.Relation().ProcessID()))
+	parsed := require(agentrun.ParseTreeSnapshot(tree.JSON()))
+	if err := engine.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine := require(agentrun.New(t.Context(), agentrun.Config{Store: store}))
+	defer func() {
+		if err := restoredEngine.Close(t.Context()); err != nil {
+			t.Error(err)
+		}
+	}()
+	restored := require(restoredEngine.Recover(t.Context(), binding(definition), parsed))
+	output, present := require(restored.Await(t.Context())).Termination().Output()
+	if !present || string(output.JSON()) != `null` {
+		t.Fatalf("output = %s", output.JSON())
+	}
+}

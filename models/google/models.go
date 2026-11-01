@@ -120,14 +120,18 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return openaiprotocol.NewCompatibleChatCompletions(ctx,
+	protocol, err := openaiprotocol.NewChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
 		openaiprotocol.Dialect{Provider: protocolProvider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)
+	if err != nil {
+		return nil, err
+	}
+	return corechat.NewStreamModel(protocol)
 }
 
 type EmbeddingModelConfig struct {

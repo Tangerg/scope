@@ -1,27 +1,33 @@
 package oracle
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	go_ora "github.com/sijms/go-ora/v3"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-type offlineBatcher struct{}
+const fixtureSpace vectorstore.SpaceID = "native-test-space"
 
-func (o offlineBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{docs}, nil
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: fixtureVector(doc.Text)})
+	}
+	return b
 }
-
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 32 << 20, Timeout: time.Minute}
+}
 func closedDatabase(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	connector := go_ora.NewConnector("oracle://unused:unused@invalid.invalid:1/unused")
@@ -36,111 +42,49 @@ func closedDatabase(t *testing.T) (*sql.DB, error) {
 	return db, closedErr
 }
 
-func offlineStore(t *testing.T, db *sql.DB, model embedding.Model) *Store {
+func offlineStore(t *testing.T, db *sql.DB) *Store {
 	t.Helper()
-	client, err := embeddingclient.New(model)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &Store{db: db, fullTable: "documents", tableName: "documents", idColumn: "id", contentColumn: "content", metadataColumn: "facts", embeddingColumn: "embedding", embeddingClient: client, documentBatcher: offlineBatcher{}, distanceMetric: DistanceCosine}
+	return &Store{db: db, fullTable: "documents", tableName: "documents", idColumn: "id", contentColumn: "content", metadataColumn: "facts", embeddingColumn: "embedding", space: fixtureSpace, distanceMetric: DistanceCosine}
 }
 
 func TestClosedDatabaseFailuresPreserveEffectsAndCause(t *testing.T) {
 	db, closedErr := closedDatabase(t)
-	for _, test := range []struct {
-		source string
-		calls  int
-	}{
-		{`value == 7`, 0}, {`value > 7`, 0}, {`value like 'a%'`, 0},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			calls := 0
-			store := offlineStore(t, db, embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
-			}))
-			predicate, err := filter.Parse(test.source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate}})
-			if !errors.Is(err, closedErr) || response != nil || calls != test.calls {
-				t.Fatalf("Search = %#v, %v; calls %d, want %d", response, err, calls, test.calls)
-			}
-			if err := store.DeleteWhere(t.Context(), predicate); !errors.Is(err, closedErr) {
-				t.Fatalf("DeleteWhere = %v, want closed database", err)
-			}
-			if err := store.DeleteIDs(t.Context(), []string{"a", "A", "a "}); !errors.Is(err, closedErr) {
-				t.Fatalf("DeleteIDs = %v, want closed database", err)
-			}
-		})
+	s := offlineStore(t, db)
+	q := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "alpha")}}
+	if r, err := s.Query(t.Context(), q); r != nil || !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
+		t.Fatalf("filtered native query: %v, %v", r, err)
+	}
+	if r, err := s.Scan(t.Context(), q, fixtureBudget()); r != nil || !errors.Is(err, closedErr) {
+		t.Fatalf("scan: %v, %v", r, err)
+	}
+	if err := s.DeleteMatching(t.Context(), q.Options.Filter, fixtureBudget()); !errors.Is(err, closedErr) {
+		t.Fatalf("delete matching: %v", err)
+	}
+	if err := s.DeleteIDs(t.Context(), []string{"a", "A", "a "}); !errors.Is(err, closedErr) {
+		t.Fatal(err)
+	}
+	if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "x", Text: "text"}})); !errors.Is(err, closedErr) {
+		t.Fatal(err)
 	}
 }
-
-func TestEmbeddingFailurePreventsQueriesAndWrites(t *testing.T) {
-	failure := errors.New("embedding unavailable")
-	store := offlineStore(t, nil, embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) { return nil, failure }))
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
-	if !errors.Is(err, failure) || response != nil {
-		t.Fatalf("Search = %#v, %v", response, err)
+func TestInvalidLaterRecordOrSpaceDoesNotReachDatabase(t *testing.T) {
+	s := offlineStore(t, nil)
+	b := fixtureBatch([]*document.Document{{ID: "valid", Text: "text"}, {ID: strings.Repeat("a", documentIDBytes+1), Text: "last"}})
+	if err := s.Upsert(t.Context(), b); !errors.Is(err, vectorstore.ErrInvalidDocument) {
+		t.Fatal(err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "doc", Text: "text"}}}); !errors.Is(err, failure) {
-		t.Fatalf("Index = %v", err)
+	q := &vectorstore.Query{Space: "another-space", Values: []float64{1, 0}}
+	if res, err := s.Query(t.Context(), q); res != nil || !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("%v %v", res, err)
 	}
 }
-
-func TestUnfilteredSearchPropagatesQueryFailure(t *testing.T) {
+func TestConstructionPreservesNativeErrors(t *testing.T) {
 	db, closedErr := closedDatabase(t)
-	store := offlineStore(t, db, embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
-	}))
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
-	if !errors.Is(err, closedErr) || response != nil {
-		t.Fatalf("Search = %#v, %v; want closed database", response, err)
-	}
-}
-
-func TestIndexRejectsWholeInputBeforeEmbedding(t *testing.T) {
-	calls := 0
-	store := offlineStore(t, nil, embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		calls++
-		return nil, errors.New("unexpected embedding")
-	}))
-	request := &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "valid", Text: "text"}, {ID: strings.Repeat("é", 1001), Text: "text"}}}
-	if err := store.Index(t.Context(), request); !errors.Is(err, vectorstore.ErrInvalidDocument) || calls != 0 {
-		t.Fatalf("Index = %v, embedding calls %d", err, calls)
-	}
-}
-
-func TestIndexPropagatesPrepareFailure(t *testing.T) {
-	db, closedErr := closedDatabase(t)
-	store := offlineStore(t, db, embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
-	}))
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "doc", Text: "text"}}}); !errors.Is(err, closedErr) {
-		t.Fatalf("Index = %v, want closed database", err)
-	}
-}
-
-func TestConstructionVerifiesSchemaBeforeEmbedding(t *testing.T) {
-	db, closedErr := closedDatabase(t)
-	calls := 0
-	model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		calls++
-		return nil, errors.New("unexpected embedding")
-	})
 	for _, initialize := range []bool{false, true} {
-		config := StoreConfig{DB: db, EmbeddingModel: model, DocumentBatcher: offlineBatcher{}, Dimensions: 2, InitializeSchema: initialize}
+		config := StoreConfig{DB: db, Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
 		store, err := NewStore(t.Context(), config)
-		if !errors.Is(err, closedErr) || store != nil || calls != 0 {
-			t.Fatalf("NewStore initialize %t = %#v, %v; calls %d", initialize, store, err, calls)
+		if !errors.Is(err, closedErr) || store != nil {
+			t.Fatalf("construct: %v, %v", store, err)
 		}
-		config.SchemaName = "ISOLATED"
-		if _, err := NewStore(t.Context(), config); !errors.Is(err, closedErr) {
-			t.Fatalf("schema construction error = %v", err)
-		}
-	}
-	if _, err := NewStore(t.Context(), StoreConfig{DB: db, EmbeddingModel: model, DocumentBatcher: offlineBatcher{}, InitializeSchema: true}); err == nil || !strings.Contains(err.Error(), "Dimensions must be > 0") {
-		t.Fatalf("missing dimensions = %v", err)
 	}
 }

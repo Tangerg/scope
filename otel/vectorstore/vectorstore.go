@@ -36,8 +36,8 @@ const (
 type operationName string
 
 const (
-	operationIndex       operationName = "index"
-	operationSearch      operationName = "search"
+	operationUpsert      operationName = "upsert"
+	operationQuery       operationName = "query"
 	operationDeleteIDs   operationName = "delete_ids"
 	operationDeleteWhere operationName = "delete_where"
 )
@@ -116,24 +116,24 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Index(next corevectorstore.Indexer) corevectorstore.Indexer {
+func (m Middleware) Upsert(next corevectorstore.Upserter) corevectorstore.Upserter {
 	if lo.IsNil(next) {
 		return nil
 	}
 	if err := m.validate(); err != nil {
-		return invalidIndexer{err: err}
+		return invalidUpserter{err: err}
 	}
-	return indexer{middleware: m, next: next}
+	return upserter{middleware: m, next: next}
 }
 
-func (m Middleware) Search(next corevectorstore.Searcher) corevectorstore.Searcher {
+func (m Middleware) Query(next corevectorstore.Querier) corevectorstore.Querier {
 	if lo.IsNil(next) {
 		return nil
 	}
 	if err := m.validate(); err != nil {
-		return invalidSearcher{err: err}
+		return invalidQuerier{err: err}
 	}
-	return searcher{middleware: m, next: next}
+	return querier{middleware: m, next: next}
 }
 
 func (m Middleware) DeleteIDs(next corevectorstore.IDDeleter) corevectorstore.IDDeleter {
@@ -239,49 +239,49 @@ func (v vectorStoreObservation) recordReturnedRows(count int) {
 	)
 }
 
-type indexer struct {
+type upserter struct {
 	middleware Middleware
-	next       corevectorstore.Indexer
+	next       corevectorstore.Upserter
 }
 
-type invalidIndexer struct{ err error }
+type invalidUpserter struct{ err error }
 
-func (i invalidIndexer) Index(context.Context, *corevectorstore.IndexRequest) error { return i.err }
+func (i invalidUpserter) Upsert(context.Context, *corevectorstore.Batch) error { return i.err }
 
-func (i indexer) Index(ctx context.Context, request *corevectorstore.IndexRequest) (err error) {
+func (u upserter) Upsert(ctx context.Context, request *corevectorstore.Batch) (err error) {
 	var extra []attribute.KeyValue
-	if request != nil && len(request.Documents) > 1 {
-		extra = append(extra, semconv.DBOperationBatchSizeKey.Int(len(request.Documents)))
+	if request != nil && len(request.Records) > 1 {
+		extra = append(extra, semconv.DBOperationBatchSizeKey.Int(len(request.Records)))
 	}
-	ctx, observation := i.middleware.start(ctx, operationIndex, extra...)
+	ctx, observation := u.middleware.start(ctx, operationUpsert, extra...)
 	defer errortelemetry.Finish(&err, observation.finish)
-	return i.next.Index(ctx, request)
+	return u.next.Upsert(ctx, request)
 }
 
-type searcher struct {
+type querier struct {
 	middleware Middleware
-	next       corevectorstore.Searcher
+	next       corevectorstore.Querier
 }
 
-type invalidSearcher struct{ err error }
+type invalidQuerier struct{ err error }
 
-func (i invalidSearcher) Search(context.Context, *corevectorstore.SearchRequest) (*corevectorstore.SearchResponse, error) {
+func (i invalidQuerier) Query(context.Context, *corevectorstore.Query) (*corevectorstore.SearchResponse, error) {
 	return nil, i.err
 }
 
-func (s searcher) Search(ctx context.Context, request *corevectorstore.SearchRequest) (response *corevectorstore.SearchResponse, err error) {
+func (q querier) Query(ctx context.Context, request *corevectorstore.Query) (response *corevectorstore.SearchResponse, err error) {
 	var topK int
 	var minScore float64
 	if request != nil {
 		topK = request.Options.ResultLimit()
 		minScore = request.Options.MinScore.Float64()
 	}
-	ctx, observation := s.middleware.start(ctx, operationSearch,
+	ctx, observation := q.middleware.start(ctx, operationQuery,
 		queryTopKKey.Int(topK),
 		queryMinScoreKey.Float64(minScore),
 	)
 	defer errortelemetry.Finish(&err, observation.finish)
-	response, err = s.next.Search(ctx, request)
+	response, err = q.next.Query(ctx, request)
 	if err == nil && response != nil {
 		observation.span.SetAttributes(semconv.DBResponseReturnedRowsKey.Int(len(response.Results)))
 		observation.recordReturnedRows(len(response.Results))

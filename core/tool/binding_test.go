@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -18,9 +17,9 @@ type countingTool struct {
 	calls      atomic.Int64
 }
 
-func (c *countingTool) Definition() chat.ToolDefinition {
+func (c *countingTool) Definition() tool.Definition {
 	c.definition.Add(1)
-	return chat.ToolDefinition{
+	return tool.Definition{
 		Name: c.name,
 		InputSchema: json.RawMessage(
 			`{"type":"object","properties":{"query":{"type":"string","minLength":2}},"required":["query"],"additionalProperties":false}`,
@@ -30,7 +29,7 @@ func (c *countingTool) Definition() chat.ToolDefinition {
 
 func (c *countingTool) Call(_ context.Context, invocation tool.Invocation) (tool.Result, error) {
 	c.calls.Add(1)
-	return tool.Result{Output: chat.NewTextToolOutput(string(invocation.Arguments()))}, nil
+	return tool.Result{Output: tool.NewTextOutput(string(invocation.Arguments()))}, nil
 }
 
 func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
@@ -51,12 +50,12 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 		t.Fatalf("Contract retained a caller's definition mutation: %+v", definition)
 	}
 
-	for _, call := range []chat.ToolCall{
-		{ID: "", Name: "search", Arguments: `{"query":"ok"}`},
-		{ID: "call", Name: "other", Arguments: `{"query":"ok"}`},
-		{ID: "call", Name: "search", Arguments: `{`},
-		{ID: "call", Name: "search", Arguments: `{"query":"x"}`},
-		{ID: "call", Name: "search", Arguments: `{"query":"ok","extra":true}`},
+	for _, call := range []tool.Request{
+		{Name: "", Arguments: `{"query":"ok"}`},
+		{Name: "other", Arguments: `{"query":"ok"}`},
+		{Name: "search", Arguments: `{`},
+		{Name: "search", Arguments: `{"query":"x"}`},
+		{Name: "search", Arguments: `{"query":"ok","extra":true}`},
 	} {
 		if _, prepareErr := contract.Prepare(call, nil); !errors.Is(prepareErr, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%+v) error = %v, want ErrInvalidInvocation", call, prepareErr)
@@ -66,7 +65,7 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 		t.Fatalf("invalid promotion executed Tool %d times", executable.calls.Load())
 	}
 
-	invocation, err := contract.Prepare(chat.ToolCall{ID: "call", Name: "search", Arguments: `{"query":"scope"}`}, nil)
+	invocation, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +85,12 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 
 func TestContractNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
 	executableSchema := json.RawMessage(`{"type":"object","additionalProperties":false}`)
-	wrapped := definitionTool{definition: chat.ToolDefinition{Name: "empty", InputSchema: executableSchema}}
+	wrapped := definitionTool{definition: tool.Definition{Name: "empty", InputSchema: executableSchema}}
 	binding, err := tool.Bind(wrapped)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "empty"}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "empty"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,27 +99,27 @@ func TestContractNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
 	}
 }
 
-type definitionTool struct{ definition chat.ToolDefinition }
+type definitionTool struct{ definition tool.Definition }
 
-func (d definitionTool) Definition() chat.ToolDefinition { return d.definition }
+func (d definitionTool) Definition() tool.Definition { return d.definition }
 func (definitionTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{}, nil
 }
 
 func TestBindingRejectsForeignInvocation(t *testing.T) {
-	first, err := tool.Bind(definitionTool{definition: chat.ToolDefinition{
+	first, err := tool.Bind(definitionTool{definition: tool.Definition{
 		Name: "same", InputSchema: json.RawMessage(`{"type":"object"}`),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := tool.Bind(definitionTool{definition: chat.ToolDefinition{
+	second, err := tool.Bind(definitionTool{definition: tool.Definition{
 		Name: "same", InputSchema: json.RawMessage(`{"type":"object"}`),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := first.Contract().Prepare(chat.ToolCall{ID: "call", Name: "same", Arguments: `{}`}, nil)
+	invocation, err := first.Contract().Prepare(tool.Request{Name: "same", Arguments: `{}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +130,7 @@ func TestBindingRejectsForeignInvocation(t *testing.T) {
 
 func TestZeroContractCannotPrepareInvocation(t *testing.T) {
 	var contract tool.Contract
-	if _, err := contract.Prepare(chat.ToolCall{ID: "call", Name: "search", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+	if _, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("Prepare error = %v, want ErrInvalidInvocation", err)
 	}
 }

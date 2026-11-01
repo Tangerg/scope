@@ -149,7 +149,7 @@ func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 	}
 	for _, entry := range []string{
 		"examples/chat/main.go", "examples/agent/direct_vs_managed/main.go",
-		"examples/agent/reconciliation/doc.go", "dev/treecommitterconformance/doc.go",
+		"examples/agent/reconciliation/doc.go", "runstores/postgres/doc.go",
 		"examples/go.mod", "go.work",
 	} {
 		if !strings.Contains(content, "]("+entry+")") {

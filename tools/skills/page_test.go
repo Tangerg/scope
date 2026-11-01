@@ -188,7 +188,7 @@ func TestSkillPageFailuresAreExplicit(t *testing.T) {
 
 func TestPageAtExactEncodedLimitIsComplete(t *testing.T) {
 	content := strings.Repeat("text\"", 40)
-	encoded, err := jsonv2.Marshal(TextPage{Content: content})
+	encoded, err := jsonv2.Marshal(TextPage{Content: content, Snapshot: strings.Repeat("a", 64)})
 	if err != nil {
 		t.Fatal(err)
 	}

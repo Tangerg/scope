@@ -11,7 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -21,7 +21,7 @@ const referenceMaximumTokens int64 = 20
 
 type referenceFixture struct {
 	Case        eval.Case[referenceInput]
-	Status      agent.Status
+	Status      run.Status
 	ToolOutcome trajectory.ToolOutcome
 	Answer      string
 	Writes      int
@@ -35,35 +35,35 @@ func referenceFixtures() []referenceFixture {
 	return []referenceFixture{
 		{
 			Case:   eval.Case[referenceInput]{ID: "approved", Subject: referenceInput{Note: "release note", Approved: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "rejected", Subject: referenceInput{Note: "release note"}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeError, Answer: "rejected", Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeError, Answer: "rejected", Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "repeated-input", Subject: referenceInput{Note: "release note", Approved: true, RepeatInput: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "reconciled-write", Subject: referenceInput{Note: "release note", Approved: true, LoseResponse: true, Reconcile: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeUnknown, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeUnknown, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(20)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "unresolved-write", Subject: referenceInput{Note: "release note", Approved: true, LoseResponse: true}},
-			Status: agent.StatusKilled, ToolOutcome: trajectory.ToolOutcomeUnknown, Answer: "stored:release note", Writes: 1, Unknown: 1, Quality: eval.VerdictFail, Tokens: new(int64(10)),
+			Status: run.StatusKilled, ToolOutcome: trajectory.ToolOutcomeUnknown, Answer: "stored:release note", Writes: 1, Unknown: 1, Quality: eval.VerdictFail, Tokens: new(int64(10)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "incorrect-answer", Subject: referenceInput{Note: "release note", Approved: true, WrongAnswer: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictFail, Tokens: new(int64(20)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictFail, Tokens: new(int64(20)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "over-budget", Subject: referenceInput{Note: "release note", Approved: true, Expensive: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(60)),
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass, Tokens: new(int64(60)),
 		},
 		{
 			Case:   eval.Case[referenceInput]{ID: "missing-usage", Subject: referenceInput{Note: "release note", Approved: true, MissingUsage: true}},
-			Status: agent.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass,
+			Status: run.StatusCompleted, ToolOutcome: trajectory.ToolOutcomeSucceeded, Answer: "stored:release note", Writes: 1, Consumed: 1, Quality: eval.VerdictPass,
 		},
 	}
 }
@@ -77,7 +77,7 @@ func referenceDataset(fixtures []referenceFixture) (eval.Dataset[referenceInput]
 	for index, fixture := range fixtures {
 		cases[index] = fixture.Case
 	}
-	return eval.NewDataset(agent.ComputeDigest(encoded).String(), cases...)
+	return eval.NewDataset(run.ComputeDigest(encoded).String(), cases...)
 }
 
 func referenceDecision(name eval.MetricName, passed bool, expected any) (eval.Report, error) {
@@ -127,7 +127,7 @@ func referenceSuite(fixtures []referenceFixture, maximumTokens int64) (*eval.Sui
 				}
 				return (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{
 					Actual: evidence.Trajectory, Expected: trajectory.Expectation{
-						Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
+						Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
 							{Name: "record_note", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: trajectory.ToolOutcomeInputRequired},
 							{Name: "record_note", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: fixture.ToolOutcome},
 						}},
@@ -142,7 +142,7 @@ func referenceSuite(fixtures []referenceFixture, maximumTokens int64) (*eval.Sui
 				if !completed {
 					return referenceDecision("answer", false, fixture.Answer)
 				}
-				output, err := payload.Decode[interaction.Output]()
+				output, err := payload.Decode[agent.Output]()
 				if err != nil {
 					return eval.Report{}, err
 				}
@@ -271,7 +271,7 @@ func TestReferenceBaseline(t *testing.T) {
 		regraded = append(regraded, eval.CaseResult{ID: caseValue.ID, Result: reassessment})
 		t.Run(caseValue.ID.String(), func(t *testing.T) {
 			expectedStatus := eval.ExecutionCompleted
-			if fixtures[index].Status == agent.StatusKilled {
+			if fixtures[index].Status == run.StatusKilled {
 				expectedStatus = eval.ExecutionCanceled
 			}
 			if result.Execution.Status != expectedStatus {
@@ -288,7 +288,7 @@ func TestReferenceBaseline(t *testing.T) {
 				if assessment.ID == "quality" {
 					want = fixtures[index].Quality
 				}
-				if assessment.ID == "execution" && fixtures[index].Status != agent.StatusCompleted {
+				if assessment.ID == "execution" && fixtures[index].Status != run.StatusCompleted {
 					want = eval.VerdictFail
 				}
 				if assessment.ID == "cost" && *fixtures[index].Tokens > referenceMaximumTokens {
@@ -311,7 +311,7 @@ func TestReferenceBaseline(t *testing.T) {
 			complete, verdict := true, eval.VerdictPass
 			if fixtures[index].Tokens == nil {
 				complete, verdict = false, eval.VerdictUnspecified
-			} else if fixtures[index].Quality == eval.VerdictFail || fixtures[index].Status != agent.StatusCompleted || *fixtures[index].Tokens > referenceMaximumTokens {
+			} else if fixtures[index].Quality == eval.VerdictFail || fixtures[index].Status != run.StatusCompleted || *fixtures[index].Tokens > referenceMaximumTokens {
 				verdict = eval.VerdictFail
 			}
 			if result.Case.Result.Complete() != complete || result.Case.Result.Verdict() != verdict {

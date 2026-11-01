@@ -1,0 +1,2361 @@
+package run
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"slices"
+	"sync/atomic"
+	"time"
+)
+
+// treeRuntime serializes authoritative changes because sibling jobs must not
+// publish incompatible tree cuts. Fenced completions let computation and dispatch
+// run concurrently without sharing commit authority.
+type treeRuntime struct {
+	// The shared cell is separately allocated so retained handles do not keep
+	// this runtime alive through a pointer into its allocation after release.
+	binding    *atomic.Pointer[treeRuntime]
+	engine     *Runtime
+	rootID     ProcessID
+	treeLimits TreeLimits
+	writer     *headWriter
+	events     eventRecorder
+
+	// Callers and jobs never touch owner-line state. They send requests on
+	// these lanes, and the owner applies each one in its own order.
+	context         context.Context
+	controlCommands chan processTreeCommand
+	signalCommands  chan processTreeCommand
+	freezeCommands  chan freezeCommand
+	completions     chan treeJobCompletion
+	inspections     chan chan TreeInspection
+
+	// Everything below is owner-line state. Keeping it lock-free makes commit,
+	// scheduling, freeze, and checkpoint order a single explicit state machine.
+	members         treeMembers
+	joinCandidates  map[ProcessID]*processState
+	runQueue        runQueue
+	jobs            *jobTable
+	nextWork        treeWorkLane
+	fault           error
+	publications    publicationLedger
+	freeze          freezeBarrier
+	done            chan struct{}
+	finalInspection TreeInspection
+}
+
+// processTreeCommand routes one Process control request to its tree owner.
+type processTreeCommand struct {
+	processID ProcessID
+	request   processRequest
+	reply     processReply
+}
+
+type treeWorkLane uint8
+
+const (
+	treeWorkSignals treeWorkLane = iota
+	treeWorkCompletions
+	treeWorkExecution
+	treeWorkLaneCount
+)
+
+// freezeCommand is sealed: only acquisition and release of the snapshot
+// barrier travel on the freeze lane.
+type freezeCommand interface{ freezeCommand() }
+
+type acquireFreezeCommand struct{ acquisition *treeFreezeAcquisition }
+
+func (acquireFreezeCommand) freezeCommand() {}
+
+type releaseFreezeCommand struct {
+	freeze   *treeFreeze
+	response chan error
+}
+
+func (releaseFreezeCommand) freezeCommand() {}
+
+type treeCommitKind uint8
+
+const (
+	treeCommitInvalid treeCommitKind = iota
+	treeCommitEffectPending
+	treeCommitEffectSettled
+	treeCommitEffectResolved
+	treeCommitCheckpoint
+	treeCommitSignals
+	treeCommitControl
+)
+
+type treeCommit struct {
+	kind      treeCommitKind
+	processID ProcessID
+	effectID  EffectID
+	snapshot  TreeSnapshot
+	reply     processReply
+	events    []eventDraft
+	// child is present exactly when the settled Effect started a child this
+	// commit publishes.
+	child *pendingChildStartPublication
+}
+
+// pendingChildStartPublication carries a finished child start to its
+// commit. The plan owns the parent and child identities.
+type pendingChildStartPublication struct {
+	plan   *childStartPlan
+	result childStartJobResult
+}
+
+type stepJobResult struct {
+	finishedAt       time.Time
+	workDuration     time.Duration
+	transition       Transition
+	deliveredSignals uint64
+	candidate        Execution
+	candidateState   ExecutionState
+	stage            stepJobStage
+	err              error
+}
+
+func (stepJobResult) jobKind() processJobKind { return processJobStep }
+
+type restoreJobResult struct {
+	execution Execution
+	err       error
+}
+
+func (restoreJobResult) jobKind() processJobKind { return processJobRestore }
+
+type stepJobStage uint8
+
+const (
+	stepJobStageInvalid stepJobStage = iota
+	stepJobStageExecution
+	stepJobStageSnapshot
+	stepJobStageRestore
+)
+
+// dispatchJobResult answers the job it completes; that job owns the EffectID.
+type dispatchJobResult struct {
+	settlement Settlement
+	dropped    uint64
+	err        error
+}
+
+func (dispatchJobResult) jobKind() processJobKind { return processJobDispatch }
+
+func newTreeRuntime(
+	engine *Runtime,
+	rootID ProcessID,
+	treeLimits TreeLimits,
+	ctx context.Context,
+	processes ...*processState,
+) *treeRuntime {
+	writer := newHeadWriter(engine.committer)
+	detached := context.WithoutCancel(RequireContext(ctx))
+	runtime := &treeRuntime{
+		binding:         new(atomic.Pointer[treeRuntime]),
+		engine:          engine,
+		rootID:          rootID,
+		treeLimits:      treeLimits,
+		writer:          writer,
+		events:          eventRecorder{observation: engine.observation, writer: writer, context: detached},
+		context:         detached,
+		controlCommands: make(chan processTreeCommand, treeCommandBufferCapacity),
+		signalCommands:  make(chan processTreeCommand, treeCommandBufferCapacity),
+		freezeCommands:  make(chan freezeCommand, treeCommandBufferCapacity),
+		completions:     make(chan treeJobCompletion),
+		inspections:     make(chan chan TreeInspection, treeCommandBufferCapacity),
+		members:         newTreeMembers(len(processes)),
+		joinCandidates:  make(map[ProcessID]*processState),
+		runQueue:        newRunQueue(len(processes)),
+		jobs:            newJobTable(len(processes)),
+		publications:    publicationLedger{},
+		done:            make(chan struct{}),
+	}
+	runtime.binding.Store(runtime)
+	for _, process := range processes {
+		runtime.addProcess(process)
+	}
+	return runtime
+}
+
+func (t *treeRuntime) run(rootContext context.Context) {
+	defer t.finishRun()
+	t.publishInitialProcessEvents()
+	stopHostWatch := t.watchHostTermination(rootContext)
+	defer stopHostWatch()
+
+	for {
+		advanced := t.advanceReadyWork()
+		if t.canStop() {
+			return
+		}
+		if advanced {
+			t.tryInspection()
+		} else {
+			t.waitForWork()
+		}
+	}
+}
+
+func (t *treeRuntime) finishRun() {
+	t.finalInspection = t.buildInspection()
+	t.finalInspection.Stopped = true
+	t.writer.stream.finish()
+	close(t.done)
+}
+
+func (t *treeRuntime) publishInitialProcessEvents() {
+	for _, process := range t.members.ordered() {
+		if process.status().Terminal() {
+			continue
+		}
+		if process.restored {
+			t.events.emit(process, EventProcessRestored, 0, EffectID{}, emptyEventPayload())
+		} else {
+			t.events.emit(process, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
+		}
+	}
+}
+
+func (t *treeRuntime) watchHostTermination(rootContext context.Context) func() bool {
+	return context.AfterFunc(rootContext, func() {
+		select {
+		case t.controlCommands <- processTreeCommand{
+			processID: t.rootID,
+			request:   hostTerminationRequest{cause: rootContext.Err()},
+		}:
+		case <-t.done:
+		}
+	})
+}
+
+func (t *treeRuntime) advanceReadyWork() bool {
+	advanced := t.tryCommitCompletion()
+	advanced = t.tryFreezeCancellation() || advanced
+	advanced = t.tryFreezeCommand() || advanced
+	advanced = t.tryControlCommand() || advanced
+	// A commit suspends the round rather than restarting it at input admission.
+	// Control remains ahead of ordinary work, including after acknowledgment.
+	for range treeWorkLaneCount {
+		if t.mutationsBlocked() {
+			break
+		}
+		lane := t.nextWork
+		t.nextWork = (lane + 1) % treeWorkLaneCount
+		switch lane {
+		case treeWorkSignals:
+			advanced = t.trySignalCommand() || advanced
+		case treeWorkCompletions:
+			advanced = t.tryCompletion() || advanced
+		case treeWorkExecution:
+			advanced = t.advanceOne() || advanced
+		}
+	}
+	advanced = t.publishJoins() || advanced
+	return t.tryStartCheckpoint() || advanced
+}
+
+func (t *treeRuntime) waitForWork() {
+	// Nil channels disable blocked lanes without duplicating event dispatch.
+	// These are local selections; only the owner changes the actual barriers.
+	commitDone := t.writer.done
+	freezeCommands := t.freezeCommands
+	controlCommands := t.controlCommands
+	signalCommands := t.signalCommands
+	completions := t.completions
+	freezeCancellation := t.freeze.cancellation()
+	if t.mutationsBlocked() {
+		controlCommands = nil
+		signalCommands = nil
+		completions = nil
+	}
+	if t.writer.committing() {
+		freezeCommands = nil
+		freezeCancellation = nil
+	} else {
+		commitDone = nil
+	}
+	// Read-only queries cannot make checkpoint or scheduling work ready.
+	for {
+		select {
+		case completion := <-commitDone:
+			t.applyTreeCommitCompletion(completion)
+		case command := <-freezeCommands:
+			t.applyFreezeCommand(command)
+		case response := <-t.inspections:
+			t.replyInspection(response)
+			continue
+		case command := <-controlCommands:
+			t.routeProcessCommand(command)
+		case command := <-signalCommands:
+			t.nextWork = treeWorkCompletions
+			t.routeProcessCommand(command)
+		case completion := <-completions:
+			t.nextWork = treeWorkExecution
+			t.applyCompletion(completion)
+		case <-freezeCancellation:
+			t.releaseCurrentFreeze()
+		}
+		return
+	}
+}
+
+func (t *treeRuntime) tryCommitCompletion() bool {
+	if !t.writer.committing() {
+		return false
+	}
+	select {
+	case completion := <-t.writer.done:
+		t.applyTreeCommitCompletion(completion)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryFreezeCancellation() bool {
+	canceled := t.freeze.cancellation()
+	if canceled == nil {
+		return false
+	}
+	select {
+	case <-canceled:
+		t.releaseCurrentFreeze()
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryFreezeCommand() bool {
+	if t.writer.committing() {
+		return false
+	}
+	select {
+	case command := <-t.freezeCommands:
+		t.applyFreezeCommand(command)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryControlCommand() bool {
+	if t.mutationsBlocked() {
+		return false
+	}
+	select {
+	case command := <-t.controlCommands:
+		t.routeProcessCommand(command)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) trySignalCommand() bool {
+	if t.mutationsBlocked() {
+		return false
+	}
+	select {
+	case command := <-t.signalCommands:
+		t.routeProcessCommand(command)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) tryCompletion() bool {
+	if t.mutationsBlocked() {
+		return false
+	}
+	select {
+	case completion := <-t.completions:
+		t.applyCompletion(completion)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) mutationsBlocked() bool {
+	// Freeze acquisition stops new jobs, but active jobs may need a cancellation
+	// command to drain. Only the completed snapshot barrier blocks both lanes.
+	return t.writer.committing() || t.freeze.held()
+}
+
+func (t *treeRuntime) enqueueProcess(processID ProcessID) {
+	process := t.members.get(processID)
+	if t.fault != nil || process == nil || process.status().Terminal() || t.jobs.get(processID) != nil {
+		return
+	}
+	t.runQueue.push(processID)
+}
+
+func (t *treeRuntime) dequeueProcess() *processState {
+	for {
+		processID, queued := t.runQueue.pop()
+		if !queued {
+			return nil
+		}
+		process := t.members.get(processID)
+		if process != nil && !process.status().Terminal() && t.jobs.get(processID) == nil {
+			return process
+		}
+	}
+}
+
+func (t *treeRuntime) advanceOne() bool {
+	if t.writer.committing() || t.fault != nil || t.freeze.engaged() {
+		return false
+	}
+	process := t.dequeueProcess()
+	if process == nil {
+		return false
+	}
+	if process.prepared != nil {
+		t.advancePrepared(process)
+		return true
+	}
+	if t.applyPendingControl(process) {
+		t.finishIfTerminal(process)
+		return true
+	}
+	if process.status() == StatusRunning {
+		t.startStep(process)
+	}
+	return true
+}
+
+func (t *treeRuntime) advancePrepared(process *processState) {
+	index, record, err := process.prepared.nextEffect()
+	if err != nil {
+		t.failProcessContract(process, failureCodeEngineEffectPhaseInvalid, err)
+		return
+	}
+	if process.pendingControl.hasTerminalIntent() {
+		t.stopProcessTree(process)
+		t.terminatePreparedProcess(process)
+		t.finishIfTerminal(process)
+		return
+	}
+	if process.pendingControl.pause.valid() && process.prepared.Intent.Kind() == TransitionKindWait {
+		process.discardPreparedStep()
+		t.startRestore(process)
+		t.applyPendingControl(process)
+		return
+	}
+	if record != nil {
+		if record.unknown() {
+			return
+		}
+		t.startPreparedEffect(process, index, record)
+		return
+	}
+	checkpoint := process.prepared.Intent.Kind() == TransitionKindCheckpoint
+	if failure := t.finalizePrepared(process); failure != nil {
+		process.recordFailure(failure.kind, failure.code, failure.cause)
+		t.terminatePreparedProcess(process)
+	}
+	t.finishIfTerminal(process)
+	if !process.status().Terminal() {
+		t.enqueueProcess(process.handle.processID())
+		if checkpoint {
+			snapshot, err := t.captureTree()
+			if err == nil {
+				err = t.startCheckpointCommit(snapshot)
+			}
+			if err != nil {
+				t.failRuntime(err, process.handle.processID(), EffectID{})
+			}
+		}
+	}
+}
+
+func (t *treeRuntime) allocateAttempt(process *processState) (processAttempt, bool) {
+	if process.attemptSequence == math.MaxUint64 {
+		t.failProcess(process,
+			FailureKindContract,
+			failureCodeEngineProcessAttemptExhausted,
+			errors.New("process attempt sequence is exhausted"),
+		)
+		t.finishIfTerminal(process)
+		return 0, false
+	}
+	process.attemptSequence++
+	return processAttempt(process.attemptSequence), true
+}
+
+func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
+	if t.members.get(processID) == nil {
+		panic("agent: owned work requires a tree member")
+	}
+	t.jobs.start(processID, job)
+}
+
+// ownsActiveWork is the lock-free view Runtime.Close uses: jobs, the in-flight
+// commit, and a held freeze each keep the tree busy.
+func (t *treeRuntime) ownsActiveWork() bool {
+	return t.jobs.active.Load() != 0 || t.writer.committing() || t.freeze.engaged()
+}
+
+func (t *treeRuntime) canStop() bool {
+	if t.freeze.engaged() || t.writer.committing() || !t.jobs.empty() ||
+		len(t.publications) != 0 {
+		return false
+	}
+	for _, process := range t.members.all() {
+		if !process.handle.joinDone() {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *treeRuntime) prepareChildStart(
+	process *processState,
+	effectID EffectID,
+	spec ChildSpec,
+) childStartPreparation {
+	if !spec.Valid() || !process.handle.relation.Valid() {
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildRequestInvalid, ErrInvalidChildStart)}
+	}
+	relation := childProcessRelation(effectID.childProcessID(), process.handle.relation, spec.Key)
+	if !process.handle.capabilities.Allows(spec.Capabilities) {
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildCapabilityEscalation, ErrInvalidCapability)}
+	}
+	if !t.canStartChild(process) {
+		return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, ErrResourceLimitExceeded)}
+	}
+	if !process.canReserveChildBudget(spec.Budget, t.childDebits(process)) {
+		return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildBudgetExhausted, ErrResourceLimitExceeded)}
+	}
+	if reserveProcessStartErr := t.engine.reserveProcessStart(relation); reserveProcessStartErr != nil {
+		if errors.Is(reserveProcessStartErr, ErrResourceLimitExceeded) {
+			return childStartPreparation{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, reserveProcessStartErr)}
+		}
+		if errors.Is(reserveProcessStartErr, ErrClosed) {
+			return childStartPreparation{failure: newEngineFailure(FailureKindExternal, failureCodeEngineChildStartUnavailable, reserveProcessStartErr)}
+		}
+		return childStartPreparation{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildIdentityConflict, reserveProcessStartErr)}
+	}
+	return childStartPreparation{plan: &childStartPlan{
+		admitter: t.engine.admitter, acknowledger: t.engine.initializationAcknowledger,
+		resolver: t.engine.resolver, parentDeployment: process.deployment,
+		spec: spec, relation: relation, incarnation: t.writer.incarnation(),
+	}}
+}
+
+// childDebits is what process's budget has granted: its member children's
+// debits and, while its child-start job has not installed the child, that
+// start's requested budget. The job owns the reservation; membership takes it
+// over when the child joins.
+func (t *treeRuntime) childDebits(process *processState) resourceAmounts {
+	allocated := t.members.childAllocation(process.handle.processID())
+	start := t.uninstalledStart(t.jobs.get(process.handle.processID()))
+	if start == nil {
+		return allocated
+	}
+	// Preparation admitted the start's grant beside these debits.
+	debit, _ := process.handle.budget.allocation(start.spec.Budget)
+	allocated, _ = allocated.add(debit)
+	return allocated
+}
+
+// uninstalledStart returns the child start job holds until its child joins
+// the tree; membership owns the child's resources from then on.
+func (t *treeRuntime) uninstalledStart(job *processJob) *childStartPlan {
+	if job == nil || job.childStart == nil || t.members.get(job.childStart.childID()) != nil {
+		return nil
+	}
+	return job.childStart
+}
+
+// Membership and in-flight child jobs are the resource facts. A completed job
+// installs its child before scheduling resumes; durable publication blocks that
+// scheduling lane until acknowledgment. No parallel reservation counter exists.
+func (t *treeRuntime) canStartChild(parent *processState) bool {
+	limits := t.treeLimits
+	if !limits.admitsDepth(parent.handle.relation.Depth() + 1) {
+		return false
+	}
+	children := t.members.childrenOf(parent.handle.processID())
+	childCount, treeCount := uint64(len(children)), uint64(t.members.len())
+	var active uint64
+	for _, childID := range children {
+		if !t.members.get(childID).status().Terminal() {
+			active++
+		}
+	}
+	for _, job := range t.jobs.all() {
+		start := t.uninstalledStart(job)
+		if start == nil {
+			continue
+		}
+		treeCount++
+		if parentID, _ := start.relation.ParentID(); parentID == parent.handle.processID() {
+			childCount++
+			active++
+		}
+	}
+	return limits.admitsChildren(childCount+1, active+1) && limits.admitsTreeSize(treeCount+1)
+}
+
+// A tree-local control and its receipt change one authoritative cut. The target
+// cannot consume the new input before that cut is acknowledged.
+func (t *treeRuntime) controlChild(
+	parent *processState,
+	record *preparedEffect,
+	request childControlEffectWire,
+	observation effectAttempt,
+) {
+	var result ChildControlResult
+	child := t.members.get(request.ChildID)
+	if child == nil || child.handle.relation.parentID != parent.handle.processID() {
+		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildControlNotOwned,
+			errors.New("control recipient is not a direct child"))
+	} else {
+		result = t.applyChildControl(child, request)
+	}
+	if settlementErr := record.settleOperation(childControlOperation{request: request}, result.failure); settlementErr != nil {
+		t.failProcessContract(parent, failureCodeEngineChildControlSettlementInvalid, settlementErr)
+		return
+	}
+	t.events.publishSettlement(parent, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
+	t.enqueueProcess(parent.handle.processID())
+	t.commitSettledEffect(parent, record.ID)
+}
+
+func (t *treeRuntime) applyChildControl(child *processState, request childControlEffectWire) ChildControlResult {
+	var result ChildControlResult
+	if request.Operation == frameworkOperationCancelChild {
+		if !child.status().Terminal() {
+			// The request decoder has already validated this exact reason.
+			child.requestCancellation(cancellationIntent{owner: cancellationOwnerParent, reason: request.Reason})
+			t.stopProcessTree(child)
+		}
+		return result
+	}
+	signal, err := request.Signal.signal()
+	if err != nil {
+		result.failure = newEngineFailure(FailureKindContract, failureCodeEngineChildSignalRejected, err)
+		return result
+	}
+	events, err := t.admitSignals(child, []Signal{signal}, signalSourceExternal)
+	if err != nil {
+		result.failure = newEngineFailure(FailureKindExecution, failureCodeEngineChildSignalRejected, err)
+		return result
+	}
+	if len(events) > 0 {
+		for _, event := range events {
+			t.stageCommittedEvent(event)
+		}
+		t.enqueueProcess(child.handle.processID())
+	}
+	return result
+}
+
+func (t *treeRuntime) effectRequestFor(
+	process *processState,
+	batchIndex uint32,
+	record preparedEffect,
+) EffectRequest {
+	return newEffectRequest(
+		t.writer.incarnation(),
+		process.handle.programRef,
+		process.handle.relation,
+		process.preparedStepSequence(),
+		batchIndex,
+		record.Effect,
+	)
+}
+
+// commitSettledEffect makes record's adopted settlement durable. A settlement
+// that cannot be committed stops the writer with record left unresolved.
+func (t *treeRuntime) commitSettledEffect(process *processState, effectID EffectID) {
+	err := t.commitEffect(process, treeCommitEffectSettled, effectID, nil)
+	if err != nil {
+		t.failRuntime(err, process.handle.processID(), effectID)
+	}
+}
+
+// commitEffect captures the prospective tree and starts the Effect boundary
+// of kind for effectID; reply, when present, answers the requesting caller.
+func (t *treeRuntime) commitEffect(
+	process *processState,
+	commitKind treeCommitKind,
+	effectID EffectID,
+	reply processReply,
+) error {
+	snapshot, err := t.captureTree()
+	if err != nil {
+		return err
+	}
+	commit := &treeCommit{
+		kind: commitKind, processID: process.handle.processID(),
+		effectID: effectID, snapshot: snapshot, reply: reply,
+	}
+	return t.writer.commitEffect(t.context, commit)
+}
+
+func (t *treeRuntime) startCheckpointCommit(snapshot TreeSnapshot) error {
+	return t.startCheckpoint(&treeCommit{kind: treeCommitCheckpoint, snapshot: snapshot}, checkpointCauseCut)
+}
+
+func (t *treeRuntime) startSignalCommit(process *processState, reply processReply, events []eventDraft) error {
+	snapshot, err := t.captureTree()
+	if err != nil {
+		return err
+	}
+	return t.startCheckpoint(&treeCommit{
+		kind: treeCommitSignals, processID: process.handle.processID(),
+		snapshot: snapshot, reply: reply, events: events,
+	}, checkpointCauseSignals)
+}
+
+func (t *treeRuntime) startCheckpoint(commit *treeCommit, cause checkpointCause) error {
+	return t.writer.commitCheckpoint(t.context, commit, cause)
+}
+
+func (t *treeRuntime) applyTreeCommitCompletion(completion treeCommitCompletion) {
+	commit, current := t.writer.settle(completion)
+	if !current {
+		return
+	}
+	if completion.err != nil {
+		t.applyFailedTreeCommit(commit, completion.err)
+		return
+	}
+	t.applySuccessfulTreeCommit(commit)
+}
+
+func (t *treeRuntime) applyFailedTreeCommit(commit *treeCommit, commitErr error) {
+	commit.reply.send(processResponse{err: commitErr})
+	unresolvedEffectID := commit.effectID
+	if commit.kind == treeCommitEffectPending {
+		unresolvedEffectID = EffectID{}
+	}
+	if commit.child != nil {
+		t.discardChildStart(commit.child.plan)
+	}
+	t.failRuntime(commitErr, commit.processID, unresolvedEffectID)
+}
+
+func (t *treeRuntime) applySuccessfulTreeCommit(commit *treeCommit) {
+	defer t.completeFreeze()
+	t.publishAcknowledgedChanges()
+	process := t.members.get(commit.processID)
+	for _, event := range commit.events {
+		t.events.publish(process, event)
+	}
+	switch commit.kind {
+	case treeCommitEffectPending, treeCommitEffectSettled:
+		if commit.child != nil {
+			if err := t.publishChildStart(commit.child); err != nil {
+				t.discardChildStart(commit.child.plan)
+				t.failRuntime(err, commit.processID, commit.effectID)
+				return
+			}
+		}
+		t.enqueueProcess(commit.processID)
+	case treeCommitEffectResolved:
+		commit.reply.send(processResponse{})
+		t.enqueueProcess(commit.processID)
+	case treeCommitControl:
+		commit.reply.send(processResponse{})
+		t.enqueueProcess(commit.processID)
+	case treeCommitCheckpoint:
+	case treeCommitSignals:
+		commit.reply.send(processResponse{accepted: true})
+		t.enqueueProcess(commit.processID)
+	}
+}
+
+// The runtime releases what the start still holds: the child's membership
+// once installed; before that, the finished job held the provisional grant.
+// Published children never use this path.
+func (t *treeRuntime) discardChildStart(plan *childStartPlan) {
+	if plan == nil {
+		return
+	}
+	childID := plan.childID()
+	if t.members.get(childID) != nil {
+		t.removeProcess(childID)
+	}
+	t.runQueue.remove(childID)
+	delete(t.publications, childID)
+	t.engine.discardProcessStart(plan.relation)
+}
+
+func (t *treeRuntime) publishChildStart(pending *pendingChildStartPublication) error {
+	if pending == nil || pending.plan == nil {
+		return errors.New("child start publication is incomplete")
+	}
+	if pending.result.started() {
+		child := t.members.get(pending.plan.childID())
+		if child == nil {
+			return errors.New("started child is missing from prospective tree")
+		}
+		t.engine.publishProcessStart(child.handle)
+		t.events.emit(child, EventProcessStarted, 0, EffectID{}, emptyEventPayload())
+	}
+	return nil
+}
+
+func (t *treeRuntime) tryStartCheckpoint() bool {
+	if t.fault != nil || t.writer.committing() || t.freeze.engaged() || !t.readyForCheckpoint() {
+		return false
+	}
+	snapshot, err := t.captureTree()
+	if err != nil {
+		t.failRuntime(err, ProcessID{}, EffectID{})
+		return true
+	}
+	if snapshot.Digest() == t.writer.head().Digest() {
+		// Control changes can return to the acknowledged state without changing
+		// its recovery cut. Publishing those facts must not require another write.
+		published := len(t.publications) != 0
+		t.publishAcknowledgedChanges()
+		return published
+	}
+	if err := t.startCheckpointCommit(snapshot); err != nil {
+		t.failRuntime(err, ProcessID{}, EffectID{})
+	}
+	return true
+}
+
+// An idle tree checkpoints at once. Busy trees still publish a staged fact of
+// a Process that will not advance on its own: terminal, waiting, or paused.
+func (t *treeRuntime) readyForCheckpoint() bool {
+	if t.jobs.empty() && t.runQueue.empty() {
+		return true
+	}
+	for processID := range t.publications {
+		status := t.members.get(processID).status()
+		if status.Terminal() || status.parked() {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *treeRuntime) stageTerminal(process *processState) {
+	if process == nil || !process.status().Terminal() {
+		return
+	}
+	select {
+	case <-process.handle.outcomePublished:
+		return
+	default:
+	}
+	if t.publications.owesTerminal(process.handle.processID()) {
+		return
+	}
+	event := t.events.prepare(process,
+		EventProcessFinished, 0, EffectID{}, process.terminalEventPayload(),
+	)
+	t.propagateProcessTermination(process)
+	t.stageCommittedEvent(event)
+}
+
+func (t *treeRuntime) stageCommittedEvent(event eventDraft) {
+	if event.phase() != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
+		t.members.get(event.processID()) == nil {
+		panic("agent: invalid committed Event")
+	}
+	t.publications.stage(event)
+}
+
+// The acknowledged head supplies publication order and outcomes;
+// publications owns what is still owed. Every staged fact belongs to a
+// Process the same cut captured, so draining the head must leave nothing owed.
+// A leftover entry would silently make scheduling ready forever, so it stops the
+// writer instead.
+func (t *treeRuntime) publishAcknowledgedChanges() {
+	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
+		processID := snapshot.Relation().ProcessID()
+		publication, pending := t.publications.take(processID)
+		if !pending {
+			continue
+		}
+		process := t.members.get(processID)
+		for _, event := range publication {
+			t.events.publish(process, event)
+		}
+		if !publication.hasTerminal() {
+			continue
+		}
+		result, terminal := snapshot.Result()
+		if !terminal {
+			panic("agent: terminal publication requires an acknowledged outcome")
+		}
+		process.handle.publishResult(result)
+		t.finishProcessBookkeeping(process)
+	}
+	if len(t.publications) != 0 {
+		panic("agent: staged facts outlived the acknowledged tree cut")
+	}
+}
+
+func (t *treeRuntime) failRuntime(
+	cause error,
+	processID ProcessID,
+	effectID EffectID,
+) {
+	if t.fault != nil {
+		return
+	}
+	if !t.writer.head().Valid() {
+		panic("agent: committer failure requires an acknowledged tree")
+	}
+	t.fault = cause
+	unresolvedByProcess := t.unresolvedEffectsAtFailure(processID, effectID)
+	t.abandonJobs()
+	clear(t.publications)
+	t.runQueue.clear()
+	acknowledged := make(map[ProcessID]struct{}, len(t.writer.head().state.ProcessSnapshots))
+	for _, snapshot := range t.writer.head().state.ProcessSnapshots {
+		acknowledged[snapshot.Relation().ProcessID()] = struct{}{}
+	}
+	for _, process := range t.members.ordered() {
+		memberID := process.handle.processID()
+		if _, published := acknowledged[memberID]; !published {
+			// A prospective child that never entered an acknowledged head has
+			// no published lifecycle to stop.
+			t.engine.discardProcessStart(process.handle.relation)
+			t.removeProcess(memberID)
+			continue
+		}
+		t.stopProcessRuntime(process, unresolvedByProcess[memberID])
+	}
+	if t.freeze.engaged() {
+		// An answered acquisition needs no second reply; releaseFreeze reports
+		// the fault to its holder.
+		t.releaseCurrentFreeze().answer(treeFreezeAcquisitionResult{err: cause})
+	}
+}
+
+// A started dispatch or child start may have external effects this instance
+// can no longer adopt, so its identity joins the retained Unknown settlements.
+func (t *treeRuntime) unresolvedEffectsAtFailure(processID ProcessID, effectID EffectID) map[ProcessID][]EffectID {
+	unresolved := make(map[ProcessID][]EffectID, t.members.len())
+	for candidateID, process := range t.members.all() {
+		unresolved[candidateID] = process.unknownEffectIDs()
+	}
+	if processID.Valid() && effectID.Valid() {
+		unresolved[processID] = append(unresolved[processID], effectID)
+	}
+	for candidateID, job := range t.jobs.all() {
+		if effectID, uncertain := job.uncertainEffect(); uncertain {
+			unresolved[candidateID] = append(unresolved[candidateID], effectID)
+		}
+	}
+	return unresolved
+}
+
+func (t *treeRuntime) abandonJobs() {
+	for _, job := range t.jobs.all() {
+		job.abandon()
+		if job.kind == processJobChildStart {
+			t.abandonChildStartJob(job)
+		}
+	}
+}
+
+func (t *treeRuntime) stopProcessRuntime(process *processState, unresolved []EffectID) {
+	if !process.handle.publishRuntimeFailure(t.runtimeError(process.handle.processID(), unresolved)) {
+		return
+	}
+	failure := newTreeRuntimeFailure(t.fault)
+	payload := marshalEventPayload(runtimeStoppedEventPayload{
+		FailureKind: failure.Kind(), FailureCode: failure.Code(),
+	})
+	t.events.emit(process, EventRuntimeStopped, 0, EffectID{}, payload)
+	t.finishProcessBookkeeping(process)
+}
+
+// runtimeError reports this instance's fault for one Process against the last
+// head the writer acknowledged.
+func (t *treeRuntime) runtimeError(processID ProcessID, unresolved []EffectID) *RuntimeError {
+	return &RuntimeError{
+		processID: processID, incarnationID: t.writer.incarnation(), headDigest: t.writer.head().Digest(),
+		unresolvedEffectIDs: canonicalEffectIDs(unresolved), cause: t.fault,
+	}
+}
+
+func (t *treeRuntime) abandonChildStartJob(job *processJob) {
+	if job == nil || job.childStart == nil {
+		return
+	}
+	plan := job.childStart
+	// A runtime fault prevents completion adoption; only job collection remains.
+	job.childStart = nil
+	t.discardChildStart(plan)
+}
+
+func (t *treeRuntime) applyFreezeCommand(command freezeCommand) {
+	switch command := command.(type) {
+	case acquireFreezeCommand:
+		t.acquireFreeze(command.acquisition)
+	case releaseFreezeCommand:
+		command.response <- t.releaseFreeze(command.freeze)
+	}
+}
+
+func (t *treeRuntime) routeProcessCommand(command processTreeCommand) {
+	process := t.members.get(command.processID)
+	if process == nil {
+		command.reply.send(processResponse{err: fmt.Errorf("%w: Process %q is not owned by this tree", ErrInvalidProcessControl, command.processID)})
+		return
+	}
+	t.applyProcessCommand(process, command.request, command.reply)
+}
+
+func (t *treeRuntime) applyProcessCommand(process *processState, request processRequest, reply processReply) {
+	if t.fault != nil {
+		reply.send(processResponse{err: process.handle.closedRequestError()})
+		return
+	}
+	if termination, ok := request.(hostTerminationRequest); ok {
+		if !process.status().Terminal() {
+			process.recordHostTermination(termination.cause)
+			t.stopProcessTree(process)
+		}
+		return
+	}
+	if process.status().Terminal() {
+		reply.send(processResponse{err: ErrProcessFinished})
+		return
+	}
+	switch request := request.(type) {
+	case deliverSignalsRequest:
+		t.deliverSignals(process, request.requests, reply)
+	case pauseRequest:
+		reply.send(processResponse{err: process.requestPause(request.reason)})
+	case resumeRequest:
+		err := process.resume()
+		if err == nil {
+			t.stageEvent(process, EventProcessResumed, 0, EffectID{}, emptyEventPayload())
+		}
+		reply.send(processResponse{err: err})
+	case cancelRequest:
+		candidate := process.candidate()
+		candidate.requestCancellation(request.intent)
+		if err := t.validateSnapshotCapacity(candidate); err != nil {
+			reply.send(processResponse{err: err})
+			return
+		}
+		process.requestCancellation(request.intent)
+		t.scheduleControl(process)
+		snapshot, err := t.captureTree()
+		if err == nil && snapshot.Digest() == t.writer.head().Digest() {
+			reply.send(processResponse{})
+			return
+		}
+		if err == nil {
+			err = t.startCheckpoint(&treeCommit{kind: treeCommitControl, processID: process.handle.processID(), snapshot: snapshot, reply: reply}, checkpointCauseCut)
+		}
+		if err != nil {
+			reply.send(processResponse{err: err})
+			t.failRuntime(err, process.handle.processID(), EffectID{})
+		}
+		return
+	case killRequest:
+		reply.send(processResponse{err: process.requestKill(request.reason)})
+	case resolveUnknownEffectRequest:
+		t.resolveUnknownEffect(process, request.effectID, request.settlement, reply)
+		return
+	case replayUnknownEffectRequest:
+		t.replayUnknownEffect(process, request.effectID, reply)
+		return
+	default:
+		panic("agent: unhandled Process request")
+	}
+	t.scheduleControl(process)
+}
+
+// A recorded control intent stops or pauses owned work before the Process is
+// scheduled again.
+func (t *treeRuntime) scheduleControl(process *processState) {
+	if process.pendingControl.hasTerminalIntent() {
+		t.stopProcessTree(process)
+	} else if process.pendingControl.pause.valid() {
+		t.invalidateStep(process)
+	}
+	t.finishIfTerminal(process)
+	if !process.status().Terminal() {
+		t.enqueueProcess(process.handle.processID())
+	}
+}
+
+func (t *treeRuntime) resolveUnknownEffect(process *processState, effectID EffectID, settlement Settlement, reply processReply) {
+	if process.status().Terminal() || process.pendingControl.hasTerminalIntent() {
+		reply.send(processResponse{err: ErrProcessFinished})
+		return
+	}
+	if t.jobs.get(process.handle.processID()) != nil {
+		reply.send(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	if err := t.commitResolution(process, effectID, settlement, reply); err != nil {
+		reply.send(processResponse{err: err})
+	}
+}
+
+func (t *treeRuntime) commitResolution(process *processState, effectID EffectID, settlement Settlement, reply processReply) error {
+	candidate, index, err := process.prepareResolution(effectID, settlement)
+	if err == nil {
+		err = t.validateSnapshotCapacity(candidate)
+	}
+	if err != nil {
+		return err
+	}
+	process.adoptCandidate(candidate)
+	record := process.prepared.Effects[index]
+	payload := marshalEventPayload(effectResolvedEventPayload{
+		EffectTarget: record.Effect.Target(), SettlementStatus: settlement.Status(),
+	})
+	t.stageEvent(process, EventEffectResolved,
+		process.preparedStepSequence(), record.ID, payload)
+
+	if err := t.commitEffect(process, treeCommitEffectResolved, effectID, reply); err != nil {
+		reply.send(processResponse{err: err})
+		t.failRuntime(err, process.handle.processID(), effectID)
+	}
+	return nil
+}
+
+func (t *treeRuntime) replayUnknownEffect(process *processState, effectID EffectID, reply processReply) {
+	if process.pendingControl.hasTerminalIntent() {
+		reply.send(processResponse{err: ErrProcessFinished})
+		return
+	}
+	if process.prepared == nil || t.jobs.get(process.handle.processID()) != nil {
+		reply.send(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	index, record, err := process.prepared.nextEffect()
+	if err != nil || record == nil || record.ID != effectID || !record.unknown() {
+		reply.send(processResponse{err: ErrEffectNotPending})
+		return
+	}
+	policy, failure := process.authorizeDispatch(record.Effect, failureCodeEngineEffectRecoveryInvalid)
+	if failure != nil {
+		reply.send(processResponse{err: errors.Join(ErrEffectReplayForbidden, failure.cause)})
+		return
+	}
+	if record.Effect.Target() != EffectTargetDispatcher || policy.Replay != ReplayPolicySameIdentity {
+		reply.send(processResponse{err: ErrEffectReplayForbidden})
+		return
+	}
+	// The committed Unknown already retains the exact uncertain operation.
+	// Keep it intact while the same logical operation is reconciled: revoking
+	// an unused new attempt must never erase evidence of an earlier attempt.
+	t.startDispatch(process, uint32(index), *record, reply)
+}
+
+func (t *treeRuntime) acquireFreeze(acquisition *treeFreezeAcquisition) {
+	if acquisition == nil || acquisition.response == nil || acquisition.canceled == nil || t.freeze.engaged() {
+		if acquisition != nil && acquisition.response != nil {
+			acquisition.response <- treeFreezeAcquisitionResult{err: ErrQuiescenceUnavailable}
+		}
+		return
+	}
+	if t.fault != nil {
+		acquisition.response <- treeFreezeAcquisitionResult{err: t.fault}
+		return
+	}
+	t.freeze.begin(acquisition, &treeFreeze{runtime: t})
+	t.completeFreeze()
+}
+
+func (t *treeRuntime) completeFreeze() {
+	if !t.freeze.engaged() || t.freeze.held() || t.writer.committing() || t.freezeBlockedByJob() {
+		return
+	}
+	snapshot, err := t.captureTree()
+	if err != nil {
+		t.releaseCurrentFreeze().answer(treeFreezeAcquisitionResult{err: err})
+		return
+	}
+	if snapshot.Digest() != t.writer.head().Digest() {
+		if err := t.startCheckpointCommit(snapshot); err != nil {
+			t.failRuntime(err, ProcessID{}, EffectID{})
+		}
+		return
+	}
+	t.freeze.grant(snapshot)
+}
+
+// Computation can be discarded under a freeze, but external work must settle;
+// once every Process is terminal, no job may remain.
+func (t *treeRuntime) freezeBlockedByJob() bool {
+	if !t.freeze.engaged() {
+		return false
+	}
+	if t.members.allTerminal() {
+		return !t.jobs.empty()
+	}
+	return t.jobs.hasExternal()
+}
+
+func (t *treeRuntime) captureTree() (TreeSnapshot, error) {
+	wire := t.treeSnapshotBase()
+	for _, process := range t.members.all() {
+		snapshot, err := process.capture()
+		if err != nil {
+			return TreeSnapshot{}, err
+		}
+		wire.ProcessSnapshots = append(wire.ProcessSnapshots, snapshot)
+	}
+	return treeSnapshotFromWire(wire)
+}
+
+func (t *treeRuntime) treeSnapshotBase() treeSnapshotWire {
+	wire := treeSnapshotWire{TreeLimits: t.treeLimits, ProcessSnapshots: make([]ProcessSnapshot, 0, t.members.len())}
+	wire.IncarnationID = t.writer.incarnation()
+	return wire
+}
+
+func (t *treeRuntime) releaseFreeze(freeze *treeFreeze) error {
+	if !t.freeze.owns(freeze) {
+		if t.fault != nil {
+			// A runtime failure already released this barrier. Its holder needs
+			// the cause, not the absence it produced.
+			return t.fault
+		}
+		return ErrQuiescenceUnavailable
+	}
+	t.releaseCurrentFreeze()
+	return nil
+}
+
+// releaseCurrentFreeze is used only by the tree owner after it has selected
+// the active freeze. External capabilities still pass through releaseFreeze so
+// stale or foreign authority is rejected rather than silently accepted.
+func (t *treeRuntime) releaseCurrentFreeze() *activeTreeFreeze {
+	ended := t.freeze.end()
+	for _, process := range t.members.all() {
+		if !process.status().Terminal() {
+			t.enqueueProcess(process.handle.processID())
+		}
+	}
+	return ended
+}
+
+func (t *treeRuntime) invalidateStep(process *processState) {
+	job := t.jobs.get(process.handle.processID())
+	if job == nil || job.kind != processJobStep || job.stale {
+		return
+	}
+	job.interrupt()
+}
+
+// Stopping owned work cannot wait for an ancestor's external call to return.
+// Terminal intermediate Processes still own descendants that may be draining.
+func (t *treeRuntime) stopProcessTree(process *processState) {
+	termination := process.effectiveTermination()
+	if !process.status().Terminal() {
+		if job := t.jobs.get(process.handle.processID()); job != nil {
+			job.interrupt()
+		}
+		t.enqueueProcess(process.handle.processID())
+	}
+	for _, childID := range t.members.childrenOf(process.handle.processID()) {
+		child := t.members.get(childID)
+		if !child.status().Terminal() {
+			child.recordParentTermination(termination)
+		}
+		t.stopProcessTree(child)
+	}
+}
+
+func (t *treeRuntime) applyPendingControl(process *processState) bool {
+	if process.pendingControl.hasTerminalIntent() {
+		t.installTermination(process, stepOutcome{})
+		return true
+	}
+	if !process.applyPendingPause() {
+		return false
+	}
+
+	t.stageEvent(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
+	return true
+}
+
+func (t *treeRuntime) deliverChildWaitSatisfied(process *processState, signal Signal) bool {
+	events, err := t.admitSignals(process, []Signal{signal}, signalSourceChildWait)
+	if err != nil {
+		if errors.Is(err, ErrResourceLimitExceeded) {
+			process.recordFailure(FailureKindExecution, failureCodeEngineLimitChildWaitSignal, err)
+		} else {
+			process.recordFailure(FailureKindContract, failureCodeEngineChildWaitSatisfactionInvalid, err)
+		}
+		return false
+	}
+	for _, event := range events {
+		t.stageCommittedEvent(event)
+	}
+	return len(events) > 0 || process.mailbox.contains(signal.ID())
+}
+
+func (t *treeRuntime) deliverSignals(process *processState, requests []SignalRequest, reply processReply) {
+	signals := make([]Signal, 0, len(requests))
+	for _, request := range requests {
+		signal, err := request.signal()
+		if err != nil {
+			reply.send(processResponse{err: err})
+			return
+		}
+		signals = append(signals, signal)
+	}
+	events, err := t.admitSignals(process, signals, signalSourceExternal)
+	if err != nil || len(events) == 0 {
+		reply.send(processResponse{err: err})
+		return
+	}
+
+	if err := t.startSignalCommit(process, reply, events); err != nil {
+		reply.send(processResponse{err: err})
+		t.failRuntime(err, process.handle.processID(), EffectID{})
+	}
+}
+
+func (t *treeRuntime) stageEvent(
+	process *processState,
+	name string,
+	step uint64,
+	effectID EffectID,
+	payload json.RawMessage,
+) {
+	event := t.events.prepare(process, name, step, effectID, payload)
+	t.stageCommittedEvent(event)
+}
+
+func (t *treeRuntime) checkEventListenerReentrancy(ctx context.Context, operation string) error {
+	return t.engine.observation.checkEventListenerReentrancy(ctx, t.rootID, operation)
+}
+
+func (t *treeRuntime) inspect(ctx context.Context) (TreeInspection, error) {
+	select {
+	case <-t.done:
+		return t.finalInspection.clone(), nil
+	default:
+	}
+	response := make(chan TreeInspection, 1)
+	select {
+	case t.inspections <- response:
+	case <-t.done:
+		return t.finalInspection.clone(), nil
+	case <-ctx.Done():
+		return TreeInspection{}, ctx.Err()
+	}
+	select {
+	case inspection := <-response:
+		return inspection, nil
+	case <-t.done:
+		return t.finalInspection.clone(), nil
+	case <-ctx.Done():
+		return TreeInspection{}, ctx.Err()
+	}
+}
+
+func (t *treeRuntime) tryInspection() bool {
+	select {
+	case response := <-t.inspections:
+		t.replyInspection(response)
+		return true
+	default:
+		return false
+	}
+}
+
+func (t *treeRuntime) replyInspection(response chan TreeInspection) {
+	response <- t.buildInspection()
+}
+
+func (t *treeRuntime) buildInspection() TreeInspection {
+	inspection := TreeInspection{
+		RootID: t.rootID, IncarnationID: t.writer.incarnation(), HeadDigest: t.writer.head().Digest(),
+		CommitPending: t.writer.committing(), Freeze: t.freeze.phase(),
+	}
+	snapshots := t.writer.head().ProcessSnapshots()
+	for _, snapshot := range snapshots {
+		processID := snapshot.Relation().ProcessID()
+		process := t.members.get(processID)
+		if process == nil {
+			continue
+		}
+		report := ProcessInspection{Snapshot: snapshot, Work: ProcessWorkIdle}
+		_, runtimeErr := process.handle.outcome()
+		report.RuntimeError, _ = errors.AsType[*RuntimeError](runtimeErr)
+		if job := t.jobs.get(processID); job != nil {
+			report.Work, report.Stale, report.EffectID = job.kind.work(), job.stale, job.effectID
+		} else if t.runQueue.contains(processID) && !process.status().Terminal() {
+			report.Work = ProcessWorkQueued
+		}
+		inspection.Processes = append(inspection.Processes, report)
+	}
+	return inspection
+}
+
+func (t *treeRuntime) startStep(process *processState) {
+	processID := process.handle.processID()
+	definition := process.deployment.Definition()
+
+	if failure := process.stepSchedulingFailure(t.childDebits(process)); failure != nil {
+		t.failProcess(process, failure.kind, failure.code, failure.cause)
+		t.finishIfTerminal(process)
+		return
+	}
+	attempt, ok := t.allocateAttempt(process)
+	if !ok {
+		return
+	}
+	sequence := process.preparedStepSequence()
+	t.events.emit(process, EventStepStarted, sequence, EffectID{}, emptyEventPayload())
+	execution := process.execution
+	process.execution = nil
+	signals := process.mailbox.pending()
+	// Host context values must not become unrecorded inputs to a pure Step.
+	stepCtx, cancel := context.WithCancel(context.Background())
+	t.setProcessJob(processID, &processJob{
+		kind: processJobStep, attempt: attempt, cancel: cancel,
+	})
+	go func() {
+		startedAt := time.Now()
+		transition, err := stepExecution(stepCtx, execution, signals)
+		result := stepJobResult{
+			transition: transition, deliveredSignals: uint64(len(signals)),
+			stage: stepJobStageExecution, err: err,
+		}
+		if err == nil {
+			result.stage = stepJobStageSnapshot
+			result.candidateState, result.err = captureExecution(execution)
+		}
+		if result.err == nil {
+			result.stage = stepJobStageRestore
+			result.candidate, result.err = restoreExecution(stepCtx,
+				definition, result.candidateState,
+			)
+		}
+		if result.err == nil {
+			result.stage = stepJobStageInvalid
+		}
+		result.finishedAt = time.Now()
+		result.workDuration = result.finishedAt.Sub(startedAt)
+		t.completions <- treeJobCompletion{
+			processID: processID, attempt: attempt, result: result,
+		}
+	}()
+}
+
+func (t *treeRuntime) startRestore(process *processState) {
+	attempt, ok := t.allocateAttempt(process)
+	if !ok {
+		return
+	}
+	processID := process.handle.processID()
+	definition := process.deployment.Definition()
+	state := process.committedExecutionState
+	restoreCtx, cancel := context.WithCancel(context.Background())
+	t.setProcessJob(processID, &processJob{
+		kind: processJobRestore, attempt: attempt, cancel: cancel,
+	})
+	go func() {
+		execution, err := restoreExecution(restoreCtx, definition, state)
+		t.completions <- treeJobCompletion{
+			processID: processID, attempt: attempt,
+			result: restoreJobResult{execution: execution, err: err},
+		}
+	}()
+}
+
+func (t *treeRuntime) startPreparedEffect(process *processState, index int, record *preparedEffect) {
+	if record.phase() == effectPhasePlanned {
+		candidate := process.candidate()
+		if err := candidate.prepared.Effects[index].begin(); err != nil {
+			t.failProcessContract(process, failureCodeEngineEffectPhaseInvalid, err)
+			return
+		}
+		if err := t.validateSnapshotCapacity(candidate); err != nil {
+			t.failProcess(process, FailureKindExecution, failureCodeEngineLimitSnapshot, err)
+			t.finishIfTerminal(process)
+			return
+		}
+		process.adoptCandidate(candidate)
+		record = &process.prepared.Effects[index]
+		requiresPermission := record.Effect.Target() == EffectTargetDispatcher
+		if record.Effect.Target() == EffectTargetFramework {
+			operation, err := decodeFrameworkOperation(record.Effect.Payload())
+			if err != nil {
+				t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+				return
+			}
+			_, requiresPermission = operation.(childStartOperation)
+		}
+		// Host admission may already reserve external resources. Its exact child
+		// proposal and Step input frontier must survive before that call begins.
+		if requiresPermission {
+			if err := t.commitEffect(process, treeCommitEffectPending, record.ID, nil); err != nil {
+				t.failRuntime(err, process.handle.processID(), EffectID{})
+			}
+			return
+		}
+	}
+	if record.phase() == effectPhasePending &&
+		record.Effect.Target() == EffectTargetDispatcher &&
+		process.recoveryOwed {
+		t.recoverPendingEffect(process, uint32(index), record)
+		return
+	}
+	if record.Effect.Target() == EffectTargetFramework {
+		process.recoveryOwed = false
+		observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetFramework)
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
+		if err != nil {
+			t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+			return
+		}
+		switch operation := operation.(type) {
+		case waitOperation, childWaitOperation:
+			t.settleLocally(process, record, operation, observation)
+		case childStartOperation:
+			t.startChild(process, record, operation.spec, observation)
+		case childControlOperation:
+			t.controlChild(process, record, operation.request, observation)
+		default:
+			panic("agent: unhandled framework operation")
+		}
+		return
+	}
+	t.startDispatch(process, uint32(index), *record, nil)
+}
+
+func (t *treeRuntime) recoverPendingEffect(
+	process *processState,
+	batchIndex uint32,
+	record *preparedEffect,
+) {
+	process.recoveryOwed = false
+	if record.Effect.Target() == EffectTargetFramework {
+		// The authoritative cut contains no published child. Admission may have
+		// run, so retain a failed start instead of claiming it never began.
+		spec, err := decodeChildStartEffect(record.Effect.Payload())
+		if err == nil {
+			failure := newEngineFailure(FailureKindExecution, failureCodeEngineChildStartInterrupted,
+				errors.New("child publication interrupted by parent termination"))
+			err = record.settleOperation(childStartOperation{spec: spec}, failure)
+		}
+		if err != nil {
+			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
+			return
+		}
+		t.enqueueProcess(process.handle.processID())
+		return
+	}
+	replayPolicy := ReplayPolicyNever
+	if !process.pendingControl.hasTerminalIntent() {
+		policy, failure := process.authorizeDispatch(record.Effect, failureCodeEngineEffectRecoveryInvalid)
+		if failure != nil {
+			t.failProcess(process, failure.kind, failure.code, failure.cause)
+			t.finishIfTerminal(process)
+			return
+		}
+		replayPolicy = policy.Replay
+	}
+	if replayPolicy == ReplayPolicySameIdentity {
+		t.startDispatch(process, batchIndex, *record, nil)
+		return
+	}
+	if err := record.settleUnknown(); err != nil {
+		t.failProcessContract(process, failureCodeEngineEffectRecoveryInvalid, err)
+		return
+	}
+	t.commitSettledEffect(process, record.ID)
+}
+
+func (t *treeRuntime) startChild(
+	process *processState,
+	record *preparedEffect,
+	spec ChildSpec,
+	observation effectAttempt,
+) {
+	processID := process.handle.processID()
+	attempt, ok := t.allocateAttempt(process)
+	if !ok {
+		return
+	}
+	preparation := t.prepareChildStart(process, record.ID, spec)
+	if preparation.plan == nil {
+		if err := t.settleChildStart(process, record.ID, preparation.failure, observation); err != nil {
+			t.failProcessContract(process, failureCodeEngineChildSettlementInvalid, err)
+			return
+		}
+		t.enqueueProcess(processID)
+		return
+	}
+	startCtx, cancel := context.WithCancel(t.context)
+	job := &processJob{
+		kind: processJobChildStart, attempt: attempt, effectID: record.ID,
+		childStart: preparation.plan, effectAttempt: observation, cancel: cancel,
+	}
+	t.setProcessJob(processID, job)
+	go func() {
+		result := preparation.plan.execute(startCtx)
+		t.completions <- treeJobCompletion{
+			processID: processID, attempt: attempt, result: result,
+		}
+	}()
+}
+
+func (t *treeRuntime) startDispatch(
+	process *processState,
+	batchIndex uint32,
+	record preparedEffect,
+	reply processReply,
+) {
+	processID := process.handle.processID()
+	dispatcher := process.deployment.dispatcher
+
+	attempt, ok := t.allocateAttempt(process)
+	if !ok {
+		return
+	}
+	request := t.effectRequestFor(process, batchIndex, record)
+	observation := t.events.beginEffectAttempt(process, process.preparedStepSequence(), record.ID, EffectTargetDispatcher)
+	request.attemptID = observation.id
+	dispatchCtx, cancel := context.WithCancel(t.context)
+	job := &processJob{
+		kind:          processJobDispatch,
+		attempt:       attempt,
+		cancel:        cancel,
+		effectID:      record.ID,
+		effectAttempt: observation,
+		reply:         reply,
+	}
+	t.setProcessJob(processID, job)
+	deltas := t.events.deltas(process, record.ID, observation)
+
+	go func() {
+		settlement, err := dispatchEffect(dispatchCtx, dispatcher, request, deltas.emitter())
+		dropped := deltas.close()
+		if err == nil && !settlement.Valid() {
+			err = ErrInvalidSettlement
+		}
+		if err != nil {
+			var settlementErr error
+			settlement, settlementErr = NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON))
+			err = errors.Join(err, settlementErr)
+		}
+		t.completions <- treeJobCompletion{
+			processID: processID,
+			attempt:   attempt,
+			result: dispatchJobResult{
+				err:        err,
+				settlement: settlement,
+				dropped:    dropped,
+			},
+		}
+	}()
+}
+
+func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
+	process := t.members.get(completion.processID)
+	if process == nil && t.jobs.get(completion.processID) != nil {
+		panic("agent: owned work requires a tree member")
+	}
+	job, current := t.jobs.matching(completion)
+	if !current {
+		return
+	}
+	// A failed runtime may have already published every outcome. The job still
+	// owns its synchronous completion events, so Close must see it until they return.
+	t.completeJobAttempt(process, job, completion)
+	t.jobs.finish(completion)
+	t.queueJoin(process)
+	if t.fault != nil {
+		return
+	}
+	defer t.completeFreeze()
+	if job.stale {
+		t.retireStaleJob(process, completion.result.jobKind())
+		return
+	}
+	if job.kind != processJobChildStart {
+		t.adoptJobResult(process, job, completion)
+	}
+	if t.writer.committing() {
+		return
+	}
+	t.finishIfTerminal(process)
+	if !process.status().Terminal() {
+		t.enqueueProcess(completion.processID)
+	}
+}
+
+// Attempt facts close even when the candidate is stale, cannot be committed,
+// or a sibling has already stopped the runtime.
+func (t *treeRuntime) completeJobAttempt(process *processState, job *processJob, completion treeJobCompletion) {
+	switch result := completion.result.(type) {
+	case stepJobResult:
+		t.events.stepFinished(process, result, job.stale || t.fault != nil)
+	case dispatchJobResult:
+		t.publishDispatchFinished(process, job, result)
+	case childStartJobResult:
+		// Owner-side capacity admission is part of the local start attempt.
+		// Keep the job owned until its synchronous completion fact returns.
+		t.applyChildStartCompletion(process, job, result)
+	}
+}
+
+func (t *treeRuntime) retireStaleJob(process *processState, kind processJobKind) {
+	// Resumption requires the committed state to be executable. Terminal
+	// intent needs only its saved evidence, so reconstruction is unnecessary.
+	if kind == processJobStep && !process.pendingControl.hasTerminalIntent() {
+		t.startRestore(process)
+	}
+	if !t.freeze.engaged() {
+		t.enqueueProcess(process.handle.processID())
+	}
+}
+
+func (t *treeRuntime) adoptJobResult(process *processState, job *processJob, completion treeJobCompletion) {
+	switch result := completion.result.(type) {
+	case stepJobResult:
+		t.applyStepCompletion(process, result)
+	case restoreJobResult:
+		if result.err != nil {
+			t.failProcess(process, failureKindForError(result.err, FailureKindExecution), failureCodeExecutionSnapshotUnrestorable, result.err)
+			return
+		}
+		process.execution = result.execution
+	case dispatchJobResult:
+		t.applyDispatchCompletion(process, job, result)
+	}
+}
+
+func (t *treeRuntime) applyChildStartCompletion(
+	parent *processState,
+	job *processJob,
+	result childStartJobResult,
+) {
+	plan := job.childStart
+	pending := &pendingChildStartPublication{plan: plan, result: result}
+	defer func() {
+		t.events.publishSettlement(parent, job.effectID, EffectTargetFramework,
+			ChildStartResult{failure: pending.result.failure}.settlementStatus(), job.effectAttempt, nil)
+	}()
+	if t.fault != nil || job.stale {
+		return
+	}
+	transferred := false
+	var publicationErr, checkpointErr error
+	defer func() {
+		if !transferred {
+			t.discardChildStart(plan)
+		}
+		if publicationErr != nil {
+			t.failProcessContract(parent, failureCodeEngineChildSettlementInvalid, publicationErr)
+		} else if checkpointErr != nil {
+			t.failRuntime(checkpointErr, parent.handle.processID(), job.effectID)
+		}
+	}()
+	if publicationErr = t.applyChildStart(job.effectID, pending); publicationErr != nil {
+		return
+	}
+
+	snapshot, err := t.captureTree()
+	if err == nil {
+		commit := &treeCommit{
+			kind: treeCommitEffectSettled, processID: parent.handle.processID(),
+			effectID: job.effectID, snapshot: snapshot,
+		}
+		if pending.result.started() {
+			commit.child = pending
+		}
+		err = t.startCheckpoint(commit, checkpointCauseChildStart)
+	}
+	checkpointErr = err
+	transferred = err == nil && pending.result.started()
+}
+
+func (t *treeRuntime) applyChildStart(effectID EffectID, pending *pendingChildStartPublication) error {
+	if pending == nil || pending.plan == nil {
+		return errors.New("child start publication is incomplete")
+	}
+	parent := t.members.get(pending.plan.parentID())
+	if parent == nil {
+		return errors.New("child start parent is missing")
+	}
+	if pending.result.started() {
+		candidate := parent.candidate()
+		if candidate.prepared == nil {
+			return errors.New("child start parent has no prepared Step")
+		}
+		handle := newProcessHandle(
+			pending.plan.relation,
+			pending.result.deployment,
+			pending.plan.spec.Budget,
+			pending.plan.spec.Capabilities,
+			// The start time is stamped here, at publication, and persisted with the
+			// child in the same checkpoint. A recovery replay of this unpublished
+			// start restamps it, so the one persisted value is never a second owner.
+			canonicalTime(time.Now()))
+		child := newProcessState(handle, pending.result.deployment, pending.result.execution, pending.result.state)
+		if _, err := t.applyChildStartSettlement(candidate, effectID, pending.result.failure); err != nil {
+			return err
+		}
+		if err := t.validateSnapshotCapacity(candidate, child); err != nil {
+			if !errors.Is(err, ErrResourceLimitExceeded) {
+				return err
+			}
+			pending.result = childStartJobResult{failure: newEngineFailure(FailureKindExecution, failureCodeEngineChildTreeLimit, err)}
+			_, err = t.applyChildStartSettlement(parent, effectID, pending.result.failure)
+			return err
+		}
+		parent.adoptCandidate(candidate)
+		t.addProcess(child)
+		if parent.pendingControl.hasTerminalIntent() || parent.status().Terminal() {
+			child.recordParentTermination(parent.effectiveTermination())
+			t.stopProcessTree(child)
+		}
+		return nil
+	}
+	_, err := t.applyChildStartSettlement(parent, effectID, pending.result.failure)
+	return err
+}
+
+func (t *treeRuntime) settleChildStart(
+	parent *processState,
+	effectID EffectID,
+	failure Failure,
+	observation effectAttempt,
+) error {
+	status, err := t.applyChildStartSettlement(parent, effectID, failure)
+	if err != nil {
+		return err
+	}
+	t.events.publishSettlement(parent, effectID, EffectTargetFramework, status, observation, nil)
+	return nil
+}
+
+func (t *treeRuntime) applyChildStartSettlement(
+	parent *processState,
+	effectID EffectID,
+	failure Failure,
+) (SettlementStatus, error) {
+	_, record := parent.prepared.pendingEffect(effectID)
+	if record == nil {
+		return SettlementStatusInvalid, errors.New("pending child-start Effect is missing")
+	}
+	operation, err := decodeFrameworkOperation(record.Effect.Payload())
+	if err != nil {
+		return SettlementStatusInvalid, err
+	}
+	if err := record.settleOperation(operation, failure); err != nil {
+		return SettlementStatusInvalid, err
+	}
+	return record.settlement().Status(), nil
+}
+
+func (t *treeRuntime) failProcessContract(process *processState, code string, err error) {
+	t.failProcess(process, FailureKindContract, code, err)
+	t.finishIfTerminal(process)
+}
+
+func (t *treeRuntime) applyStepCompletion(
+	process *processState,
+	result stepJobResult,
+) {
+	sequence := process.preparedStepSequence()
+	if result.err != nil {
+		t.failStep(process, result)
+		return
+	}
+	candidate, failure := process.prepareStep(result, t.treeLimits, t.childDebits(process))
+	if failure != nil {
+		t.failProcess(process, failure.kind, failure.code, failure.cause)
+		return
+	}
+	if err := t.validateChildWaitRelations(candidate); err != nil {
+		t.failProcessContract(process, failureCodeExecutionEffectInvalid, err)
+		return
+	}
+	if err := t.validateSnapshotCapacity(candidate); err != nil {
+		t.failProcess(process, FailureKindExecution, failureCodeEngineLimitSnapshot, err)
+		return
+	}
+	process.adoptCandidate(candidate)
+
+	t.events.emit(process, EventStepPrepared, sequence, EffectID{}, emptyEventPayload())
+}
+
+// A Strategy's classification applies only when Step itself returned it;
+// snapshot, restore, and contained panics keep Runtime codes.
+func (t *treeRuntime) failStep(process *processState, result stepJobResult) {
+	code := failureCodeExecutionStepFailed
+	switch result.stage {
+	case stepJobStageSnapshot:
+		code = failureCodeExecutionSnapshotFailed
+	case stepJobStageRestore:
+		code = failureCodeExecutionSnapshotUnrestorable
+	}
+	sealed, ok := errors.AsType[*callbackError](result.err)
+	if !ok || sealed == nil || result.stage != stepJobStageExecution || !sealed.step.Valid() {
+		t.failProcess(process, failureKindForError(result.err, FailureKindExecution), code, result.err)
+		return
+	}
+	t.failProcess(process, sealed.step.Kind(), sealed.step.Code(), errors.New(sealed.step.Message()))
+}
+
+// Relations are a tree fact, so prepareStep cannot check them on the Process.
+func (t *treeRuntime) validateChildWaitRelations(candidate *processState) error {
+	for _, record := range candidate.prepared.Effects {
+		if record.Effect.Target() != EffectTargetFramework {
+			continue
+		}
+		operation, err := decodeFrameworkOperation(record.Effect.Payload())
+		if err != nil {
+			return err
+		}
+		if wait, ok := operation.(childWaitOperation); ok {
+			if err := wait.spec.validateRelations(candidate.handle.processID(), t.members.relation); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (t *treeRuntime) publishDispatchFinished(process *processState, job *processJob, result dispatchJobResult) {
+	// A terminal Process's usage is final once its Result is published; the
+	// late attempt's drops stay on its own EffectFinished fact.
+	if !process.status().Terminal() {
+		process.droppedDeltas = saturatingCountAdd(process.droppedDeltas, result.dropped)
+	}
+	t.events.dispatchFinished(process, job.effectID, job.effectAttempt, result)
+}
+
+func (t *treeRuntime) applyDispatchCompletion(
+	process *processState,
+	job *processJob,
+	result dispatchJobResult,
+) {
+	// A current dispatch job owns the Effect frontier: nothing else may settle,
+	// revoke, or resolve that Effect while the job runs.
+	index, record, nextErr := process.prepared.nextEffect()
+	if nextErr != nil || record == nil || record.ID != job.effectID {
+		panic("agent: dispatch completion does not answer the Effect frontier")
+	}
+	settlement := result.settlement
+	if record.unknown() {
+		if result.err != nil || settlement.Status() == SettlementStatusUnknown {
+			job.reply.send(processResponse{err: errors.Join(ErrEffectOutcomeUnknown, result.err)})
+			return
+		}
+		if err := t.commitResolution(process, record.ID, settlement, job.reply); err != nil {
+			job.reply.send(processResponse{err: err})
+			t.failRuntime(err, process.handle.processID(), record.ID)
+		}
+		return
+	}
+
+	candidate := process.candidate()
+	if err := candidate.prepared.Effects[index].settle(settlement, result.err); err != nil {
+		t.failProcessContract(process, failureCodeEngineEffectSettlementInvalid, err)
+		return
+	}
+	if err := t.validateSnapshotCapacity(candidate); err != nil {
+		t.failRuntime(err, process.handle.processID(), record.ID)
+		return
+	}
+	process.adoptCandidate(candidate)
+	t.commitSettledEffect(process, process.prepared.Effects[index].ID)
+}
+
+// A result can precede descendant cleanup. Publish each join once, from leaves
+// upward, only after acknowledged outcomes and the owned calls have returned.
+func (t *treeRuntime) publishJoins() bool {
+	if t.writer.committing() || t.freeze.engaged() {
+		return false
+	}
+	changed := false
+	for len(t.joinCandidates) != 0 {
+		processes := orderedProcesses(t.joinCandidates)
+		for index := len(processes) - 1; index >= 0; index-- {
+			process := processes[index]
+			delete(t.joinCandidates, process.handle.processID())
+			changed = t.publishJoin(process) || changed
+		}
+	}
+	return changed
+}
+
+func (t *treeRuntime) publishJoin(process *processState) bool {
+	if process.handle.joinDone() {
+		return false
+	}
+	if t.jobs.get(process.handle.processID()) != nil {
+		return false
+	}
+	select {
+	case <-process.handle.bookkeepingDone:
+	default:
+		return false
+	}
+	_, outcomeErr := process.handle.outcome()
+	failure, failed := errors.AsType[*RuntimeError](outcomeErr)
+	var unresolved []EffectID
+	if failed {
+		unresolved = append(unresolved, failure.UnresolvedEffectIDs()...)
+	}
+	ready := true
+	for _, childID := range t.members.childrenOf(process.handle.processID()) {
+		child := t.members.get(childID)
+		select {
+		case <-child.handle.joined:
+			if childFailure, ok := errors.AsType[*RuntimeError](child.handle.joinError()); ok {
+				failed = true
+				unresolved = append(unresolved, childFailure.UnresolvedEffectIDs()...)
+			}
+		default:
+			ready = false
+		}
+	}
+	if !ready {
+		return false
+	}
+	var joinErr *RuntimeError
+	if failed {
+		joinErr = t.runtimeError(process.handle.processID(), unresolved)
+	}
+	process.handle.finishJoin(joinErr)
+	if joinErr == nil {
+		t.notifyChildWaits(process.handle.processID(), ChildWaitBoundaryDrained)
+	}
+	if parentID, child := process.handle.relation.ParentID(); child {
+		t.queueJoin(t.members.get(parentID))
+	}
+	return true
+}
+
+// Only changes to result publication, owned calls, or child joins can make a
+// Process joinable. A failed check sleeps until one of those facts changes.
+func (t *treeRuntime) queueJoin(process *processState) {
+	if process == nil || process.handle.joinDone() {
+		return
+	}
+	select {
+	case <-process.handle.bookkeepingDone:
+		t.joinCandidates[process.handle.processID()] = process
+	default:
+	}
+}
+
+func (t *treeRuntime) finishProcessBookkeeping(process *processState) {
+	process.handle.finishBookkeeping()
+	t.queueJoin(process)
+}
+
+func (t *treeRuntime) finishIfTerminal(process *processState) {
+	if t.fault != nil || process == nil || !process.status().Terminal() {
+		return
+	}
+
+	t.stageTerminal(process)
+}
+
+func (t *treeRuntime) propagateProcessTermination(process *processState) {
+	processID := process.handle.processID()
+	t.stopProcessTree(process)
+	t.notifyChildWaits(processID, ChildWaitBoundaryResult)
+}
+
+func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBoundary) {
+	if t.fault != nil {
+		return
+	}
+	child := t.members.get(processID)
+	if child == nil {
+		return
+	}
+	parentID, hasParent := child.handle.relation.ParentID()
+	if !hasParent {
+		return
+	}
+	parent := t.members.get(parentID)
+	if parent == nil {
+		return
+	}
+	for _, opened := range parent.mailbox.awaitingChild(processID, boundary) {
+		if parent.status().Terminal() || parent.pendingControl.hasTerminalIntent() {
+			continue
+		}
+		signal, satisfied, err := t.members.childWaitAnswer(opened)
+		if err != nil {
+			parent.recordFailure(FailureKindExecution, failureCodeEngineChildWaitSatisfactionEncodingFailed, err)
+			t.stopProcessTree(parent)
+			continue
+		}
+		if !satisfied {
+			continue
+		}
+		if t.deliverChildWaitSatisfied(parent, signal) {
+			t.enqueueProcess(parent.handle.processID())
+		} else if parent.pendingControl.hasTerminalIntent() {
+			t.stopProcessTree(parent)
+		}
+	}
+}
+
+func (t *treeRuntime) addProcess(process *processState) {
+	if t == nil || process == nil || process.handle == nil ||
+		process.handle.relation.RootID() != t.rootID {
+		panic("agent: invalid tree Process")
+	}
+	t.members.add(process)
+	process.handle.incarnationID = t.writer.incarnation()
+	process.handle.tree = t.binding
+	t.queueJoin(process)
+	if !process.status().Terminal() {
+		t.enqueueProcess(process.handle.processID())
+	}
+}
+
+// Only unpublished children can be removed while the owner is running.
+func (t *treeRuntime) removeProcess(processID ProcessID) {
+	if t.jobs.get(processID) != nil {
+		panic("agent: cannot remove a Process with owned work")
+	}
+	t.members.remove(processID)
+	delete(t.joinCandidates, processID)
+}
+
+func (t *treeRuntime) acquireTreeFreeze(
+	ctx context.Context,
+) (*treeFreeze, TreeSnapshot, error) {
+	ctx = RequireContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, TreeSnapshot{}, err
+	}
+	if snapshot, stopped, err := t.captureStoppedTree(); stopped {
+		return nil, snapshot, err
+	}
+	acquisition := &treeFreezeAcquisition{
+		response: make(chan treeFreezeAcquisitionResult, 1),
+		canceled: make(chan struct{}),
+	}
+	select {
+	case t.freezeCommands <- acquireFreezeCommand{acquisition: acquisition}:
+	case <-t.done:
+		snapshot, _, err := t.captureStoppedTree()
+		return nil, snapshot, err
+	case <-ctx.Done():
+		return nil, TreeSnapshot{}, ctx.Err()
+	}
+	select {
+	case result := <-acquisition.response:
+		return result.freeze, result.snapshot, result.err
+	case <-t.done:
+		snapshot, _, err := t.captureStoppedTree()
+		return nil, snapshot, err
+	case <-ctx.Done():
+		close(acquisition.canceled)
+		return nil, TreeSnapshot{}, ctx.Err()
+	}
+}
+
+func (t *treeRuntime) captureStoppedTree() (TreeSnapshot, bool, error) {
+	select {
+	case <-t.done:
+		if t.fault != nil {
+			return TreeSnapshot{}, true, t.fault
+		}
+		return t.writer.head(), true, nil
+	default:
+		return TreeSnapshot{}, false, nil
+	}
+}
+
+// Child waits the Step opens live only in the candidate mailbox, so a rejected
+// local transition leaves no wait behind. Only immediate child-wait answers and the resulting snapshot can exceed a
+// bound here, so each failure is classified where it arises.
+func (t *treeRuntime) finalizePrepared(process *processState) *stepFailure {
+	processID := process.handle.processID()
+	finalization, err := newPreparedStepFinalization(process, process.prepared)
+	if err == nil {
+		err = finalization.prepareSettlements()
+	}
+	if err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
+	}
+	opened, err := finalization.openedChildWaits()
+	if err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
+	}
+	immediate, err := t.childWaitAnswers(processID, opened)
+	if err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
+	}
+	if err = finalization.prepareTransition(canonicalTime(time.Now())); err != nil {
+		return newFinalizationFailure(failureCodeEngineLimitSnapshot, err)
+	}
+	limitCode := failureCodeEngineLimitSnapshot
+	candidate := process.candidate()
+	candidate.adopt(finalization)
+	if len(immediate) != 0 {
+		limitCode = failureCodeEngineLimitChildWaitSignal
+		if candidate, err = candidate.prepareSignals(immediate, signalSourceChildWait, t.treeLimits, t.childDebits(candidate)); err != nil {
+			return newFinalizationFailure(limitCode, err)
+		}
+	}
+	if err = t.validateSnapshotCapacity(candidate); err != nil {
+		return newFinalizationFailure(limitCode, err)
+	}
+	process.adoptCandidate(candidate)
+	payload := marshalEventPayload(stepCommittedEventPayload{ProcessStatus: process.status()})
+	t.stageEvent(process, EventStepCommitted, process.committedSteps, EffectID{}, payload)
+	if process.status() == StatusPaused {
+		t.stageEvent(process, EventProcessPaused, 0, EffectID{}, emptyEventPayload())
+	}
+	return nil
+}
+
+// childWaitAnswers checks the child waits a prepared Step opens against tree
+// membership and returns the answers the current tree already satisfies.
+func (t *treeRuntime) childWaitAnswers(processID ProcessID, opened []openedChildWait) ([]Signal, error) {
+	var immediate []Signal
+	for _, wait := range opened {
+		if err := wait.spec.validateRelations(processID, t.members.relation); err != nil {
+			return nil, err
+		}
+		signal, satisfied, err := t.members.childWaitAnswer(wait)
+		if err != nil {
+			return nil, err
+		}
+		if satisfied {
+			immediate = append(immediate, signal)
+		}
+	}
+	return immediate, nil
+}
+
+func (t *treeRuntime) terminatePreparedProcess(process *processState) {
+	if t.jobs.get(process.handle.processID()) != nil {
+		t.stopProcessTree(process)
+		return
+	}
+	for index := range process.prepared.Effects {
+		record := &process.prepared.Effects[index]
+		if record.phase() != effectPhasePending {
+			continue
+		}
+		if process.recoveryOwed {
+			// Recovery owns the next completion. Termination resumes here after it
+			// settles, retaining any permissions already revoked in this pass.
+			t.recoverPendingEffect(process, uint32(index), record)
+			return
+		}
+		// Completed attempts install their settlement before termination. Without
+		// a job or recovered uncertainty, this incarnation owns unused permission.
+		if err := record.revokeDispatch(); err != nil {
+			process.recordFailure(FailureKindContract, failureCodeEngineEffectPhaseInvalid, err)
+			break
+		}
+	}
+	process.preparedExecution = nil
+	process.execution = nil
+	t.installTermination(process, stepOutcome{})
+}
+
+func (t *treeRuntime) failProcess(process *processState, kind FailureKind, code string, err error) {
+	process.recordFailure(kind, code, err)
+	if process.prepared != nil {
+		t.terminatePreparedProcess(process)
+	} else {
+		t.installTermination(process, stepOutcome{})
+	}
+}
+
+func (t *treeRuntime) installTermination(process *processState, outcome stepOutcome) {
+	process.installTermination(process.resolveStepTermination(outcome), canonicalTime(time.Now()))
+}
+
+func emptyEventPayload() json.RawMessage { return json.RawMessage("{}") }
+
+func (t *treeRuntime) admitSignals(process *processState, signals []Signal, source signalSource) ([]eventDraft, error) {
+	candidate, err := process.prepareSignals(signals, source, t.treeLimits, t.childDebits(process))
+	if err != nil || candidate == nil {
+		return nil, err
+	}
+	if err := t.validateSnapshotCapacity(candidate); err != nil {
+		return nil, err
+	}
+	records := candidate.mailbox.records[len(process.mailbox.records):]
+	process.adoptCandidate(candidate)
+	return t.events.signalsAccepted(process, records), nil
+}
+
+func (t *treeRuntime) validateSnapshotCapacity(candidates ...*processState) error {
+	quota := t.treeLimits.MaxSnapshotBytes
+	if !quota.limited {
+		// Without an aggregate quota, existing members already passed their own
+		// admission and only candidates can change a Process quota. Start and
+		// Restore pass no candidates and admit every member before publishing.
+		checked := slices.Values(candidates)
+		if len(candidates) == 0 {
+			checked = t.members.substituted(nil)
+		}
+		for member := range checked {
+			if _, err := member.snapshotAdmissionSize(t.treeLimits); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	header, err := t.treeSnapshotBase().encode()
+	if err != nil {
+		return err
+	}
+	// The header is the tree encoding with an empty Process array. Adding raw
+	// object encodings and separators also reserves known wait settlements
+	// without validating a half-installed child-control or child-wait transition.
+	size := uint64(len(header))
+	index := 0
+	for member := range t.members.substituted(candidates) {
+		memberSize, err := member.snapshotAdmissionSize(t.treeLimits)
+		if err != nil {
+			return err
+		}
+		var separator uint64
+		if index > 0 {
+			separator = 1
+		}
+		if !resourceQuantitiesFit(math.MaxUint64, size, memberSize, separator) {
+			return ErrCounterExhausted
+		}
+		size += memberSize + separator
+		if !quota.Allows(size) {
+			return ErrResourceLimitExceeded
+		}
+		index++
+	}
+	return nil
+}
+
+func (t *treeRuntime) settleLocally(process *processState, record *preparedEffect, operation frameworkOperation, observation effectAttempt) {
+	if err := record.settleLocally(operation); err != nil {
+		t.failProcessContract(process, failureCodeEngineFrameworkEffectSettlementInvalid, err)
+		return
+	}
+	t.events.publishSettlement(process, record.ID, EffectTargetFramework, record.settlement().Status(), observation, nil)
+	t.enqueueProcess(process.handle.processID())
+}

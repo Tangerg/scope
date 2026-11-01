@@ -7,18 +7,21 @@ import (
 	"math"
 	"slices"
 	"testing"
+	"time"
 
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
 	ce "github.com/amikos-tech/chroma-go/pkg/embeddings"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 type boundaryCollection struct {
+	identity                               v2.CollectionMetadata
+	dimension                              int
+	read                                   func(context.Context, int, int) (v2.GetResult, error)
 	schema                                 *v2.Schema
 	rows                                   *v2.GetResultImpl
 	query                                  *v2.QueryResultImpl
@@ -29,8 +32,10 @@ type boundaryCollection struct {
 	addOp                                  *v2.CollectionAddOp
 }
 
-func (b *boundaryCollection) Schema() *v2.Schema { return b.schema }
-func (b *boundaryCollection) Get(_ context.Context, options ...v2.GetOption) (v2.GetResult, error) {
+func (b *boundaryCollection) Metadata() v2.CollectionMetadata { return b.identity }
+func (b *boundaryCollection) Dimension() int                  { return b.dimension }
+func (b *boundaryCollection) Schema() *v2.Schema              { return b.schema }
+func (b *boundaryCollection) Get(ctx context.Context, options ...v2.GetOption) (v2.GetResult, error) {
 	b.gets++
 	if b.getErr != nil {
 		return nil, b.getErr
@@ -38,6 +43,9 @@ func (b *boundaryCollection) Get(_ context.Context, options ...v2.GetOption) (v2
 	op, err := v2.NewCollectionGetOp(options...)
 	if err != nil {
 		return nil, err
+	}
+	if b.read != nil {
+		return b.read(ctx, op.Offset, op.Limit)
 	}
 	if op.Offset > 0 {
 		return &v2.GetResultImpl{}, nil
@@ -72,29 +80,25 @@ func (b *boundaryCollection) Delete(_ context.Context, options ...v2.DeleteOptio
 	return b.deleteErr
 }
 
-type oneBatcher struct{}
+const testSpace vectorstore.SpaceID = "test-encoder-v1"
 
-func (oneBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{docs}, nil
-}
-
-func boundaryConfig(t *testing.T, space v2.Space) (StoreConfig, *boundaryCollection, *int) {
+func boundaryConfig(t *testing.T, metric v2.Space) (StoreConfig, *boundaryCollection) {
 	t.Helper()
-	schema, err := v2.NewSchema(v2.WithVectorIndex(v2.EmbeddingKey, v2.NewVectorIndexConfig(v2.WithSpace(space))))
+	schema, err := v2.NewSchema(v2.WithVectorIndex(v2.EmbeddingKey, v2.NewVectorIndexConfig(v2.WithSpace(metric))))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := &boundaryCollection{schema: schema, rows: &v2.GetResultImpl{}}
-	calls := new(int)
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		*calls++
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	return StoreConfig{Collection: b, EmbeddingModel: model, DocumentBatcher: oneBatcher{}}, b, calls
+	b := &boundaryCollection{schema: schema, identity: v2.NewMetadata(v2.NewStringAttribute(SpaceMetadataKey, string(testSpace))), dimension: 2, rows: &v2.GetResultImpl{}}
+	return StoreConfig{Collection: b, Space: testSpace}, b
+}
+func query(options vectorstore.SearchOptions) *vectorstore.Query {
+	return &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: options}
+}
+func record(doc *document.Document, coords ...float64) *vectorstore.Batch {
+	return &vectorstore.Batch{Space: testSpace, Records: []vectorstore.Record{{Document: doc, Values: coords}}}
+}
+func budget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 16, MaxBytes: 4096, Timeout: time.Second}
 }
 func oneRecord(raw string) *v2.GetResultImpl {
 	return &v2.GetResultImpl{Ids: v2.DocumentIDs{"id"}, Documents: v2.Documents{v2.NewTextDocument("text")}, Metadatas: v2.DocumentMetadatas{v2.NewDocumentMetadata(v2.NewStringAttribute(metadataField, raw))}, Embeddings: ce.Embeddings{ce.NewEmbeddingFromFloat32([]float32{1, 0})}}
@@ -112,50 +116,46 @@ func parseBoundaryPredicate(t *testing.T, source string) filter.Predicate {
 }
 
 func TestPublicConstructionOwnsNoNativeLifecycle(t *testing.T) {
-	for _, space := range []v2.Space{v2.SpaceCosine, v2.SpaceL2, v2.SpaceIP} {
-		config, b, calls := boundaryConfig(t, space)
-		store, err := NewStore(t.Context(), config)
+	for _, metric := range []v2.Space{v2.SpaceCosine, v2.SpaceIP, v2.SpaceL2} {
+		cfg, b := boundaryConfig(t, metric)
+		store, err := NewStore(t.Context(), cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, owns := any(store).(vectorstore.Closer); owns {
-			t.Fatal("store owns host collection")
+		if _, ok := any(store).(vectorstore.Closer); ok {
+			t.Fatal("borrowed collection closed by adapter")
 		}
-		if _, unsupported := any(store).(vectorstore.FilterDeleter); unsupported {
-			t.Fatal("store advertises non-atomic filter deletion")
+		if _, ok := any(store).(vectorstore.FilterDeleter); ok {
+			t.Fatal("non-atomic filter deletion exposed")
 		}
-		if *calls != 0 || b.gets != 0 {
-			t.Fatalf("model=%d native reads=%d", *calls, b.gets)
-		}
-	}
-	config, b, _ := boundaryConfig(t, v2.SpaceCosine)
-	var typedNil *boundaryCollection
-	for _, invalid := range []StoreConfig{{}, {Collection: typedNil}, {Collection: b}, {Collection: b, EmbeddingModel: config.EmbeddingModel}} {
-		if store, err := NewStore(t.Context(), invalid); store != nil || err == nil {
-			t.Fatalf("invalid store=%v err=%v", store, err)
+		if b.gets+b.queries+b.upserts+b.deletes != 0 {
+			t.Fatal("construction scanned or changed collection")
 		}
 	}
-	b.schema = nil
-	if _, err := NewStore(t.Context(), config); err == nil {
-		t.Fatal("accepted missing native schema")
+	_, b := boundaryConfig(t, v2.SpaceCosine)
+	var missing *boundaryCollection
+	for _, config := range []StoreConfig{{}, {Collection: missing, Space: testSpace}, {Collection: b}} {
+		if got, err := NewStore(t.Context(), config); err == nil || got != nil {
+			t.Fatalf("invalid config accepted: %+v", config)
+		}
 	}
-	config, _, _ = boundaryConfig(t, "unknown")
-	if _, err := NewStore(t.Context(), config); err == nil {
-		t.Fatal("accepted unknown native space")
+	for _, change := range []func(*boundaryCollection){
+		func(c *boundaryCollection) { c.schema = nil }, func(c *boundaryCollection) { c.dimension = 0 }, func(c *boundaryCollection) { c.identity = nil },
+		func(c *boundaryCollection) {
+			c.identity = v2.NewMetadata(v2.NewStringAttribute(SpaceMetadataKey, "another-space"))
+		},
+	} {
+		cfg, collection := boundaryConfig(t, v2.SpaceCosine)
+		change(collection)
+		if _, err := NewStore(t.Context(), cfg); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+			t.Fatal(err)
+		}
 	}
-	config, b, _ = boundaryConfig(t, v2.SpaceL2)
-	b.rows = oneRecord(`null`)
-	b.rows.Metadatas[0] = v2.NewDocumentMetadata(v2.NewStringAttribute("old", "value"))
-	store, err := NewStore(t.Context(), config)
-	if err != nil || b.gets != 0 {
-		t.Fatalf("construction read source records: %v", err)
-	}
-	b.query = queryRecords(b.rows, 0)
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); err == nil || response != nil {
-		t.Fatal("accepted old metadata schema in a returned record")
+	cfg, _ := boundaryConfig(t, "bad")
+	if _, err := NewStore(t.Context(), cfg); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
 	}
 }
-
 func TestCoreJSONRoundtripAndStrictRecords(t *testing.T) {
 	for _, raw := range []string{`null`, `{}`, `{"nested":{"array":[null,1e1000]},"precise":1.00000000000000001,"value":9007199254740993}`} {
 		rows := oneRecord(raw)
@@ -191,82 +191,60 @@ func TestCoreJSONRoundtripAndStrictRecords(t *testing.T) {
 	}
 }
 
-func TestPublicSearchUsesCoreSelection(t *testing.T) {
-	config, b, calls := boundaryConfig(t, v2.SpaceCosine)
-	store, err := NewStore(t.Context(), config)
+func TestQueryRejectsNonNativePredicateWithoutReadingSource(t *testing.T) {
+	cfg, b := boundaryConfig(t, v2.SpaceCosine)
+	s, err := NewStore(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if got, queryErr := s.Query(t.Context(), query(vectorstore.SearchOptions{Filter: parseBoundaryPredicate(t, "value == 9007199254740993")})); got != nil || !errors.Is(queryErr, vectorstore.ErrUnsupportedFilter) {
+		t.Fatal(got, queryErr)
+	}
+	if b.gets+b.queries != 0 {
+		t.Fatal("unsupported filter triggered backend traffic")
 	}
 	b.rows = oneRecord(`{"value":9007199254740993}`)
-	b.query = queryRecords(b.rows, 2)
-	predicate := parseBoundaryPredicate(t, "value == 9007199254740993")
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate}})
-	if err != nil || response.First() == nil || response.First().Score != 0 {
-		t.Fatalf("response=%v err=%v", response, err)
+	docs, err := s.Scan(t.Context(), ScanConfig{Budget: budget(), Filter: parseBoundaryPredicate(t, "value == 9007199254740993")})
+	if err != nil || len(docs) != 1 || docs[0].ID != "id" {
+		t.Fatal(docs, err)
 	}
-	if *calls != 1 || !slices.Equal(b.queryOp.Ids, v2.DocumentIDs{"id"}) || b.queryOp.NResults != vectorstore.DefaultTopK || b.queryOp.Where != nil || len(b.queryOp.QueryTexts) != 0 {
-		t.Fatalf("query=%+v model=%d", b.queryOp, *calls)
+	if b.queries != 0 {
+		t.Fatal("source scan was replaced with approximate ranking")
 	}
-	before := *calls
-	queries := b.queries
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: parseBoundaryPredicate(t, "value == 2")}})
-	if err != nil || len(response.Results) != 0 || *calls != before || b.queries != queries {
-		t.Fatalf("empty response=%v err=%v", response, err)
-	}
-
 }
-
-func TestFailuresProduceNoResponseOrDeletion(t *testing.T) {
-	config, b, calls := boundaryConfig(t, v2.SpaceIP)
-	store, err := NewStore(t.Context(), config)
+func TestMalformedNativeResponseReturnsNoPartialResults(t *testing.T) {
+	cfg, b := boundaryConfig(t, v2.SpaceCosine)
+	s, err := NewStore(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.rows = oneRecord(`{"value":"wrong"}`)
-	predicate := parseBoundaryPredicate(t, "value < 2")
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: predicate}})
-	if response != nil || err == nil || *calls != 0 {
-		t.Fatalf("response=%v err=%v model=%d", response, err, *calls)
-	}
-	b.rows = oneRecord(`null`)
-	for _, change := range []func(*v2.QueryResultImpl){
-		func(r *v2.QueryResultImpl) { r.IDLists = nil }, func(r *v2.QueryResultImpl) { r.DocumentsLists[0] = nil }, func(r *v2.QueryResultImpl) { r.IDLists[0][0] = "unexpected" },
-		func(r *v2.QueryResultImpl) { r.DistancesLists[0][0] = ce.Distance(math.Inf(1)) }, func(r *v2.QueryResultImpl) {
-			r.MetadatasLists[0][0] = v2.NewDocumentMetadata(v2.NewStringAttribute(metadataField, "bad"))
+	for _, mutate := range []func(*v2.QueryResultImpl){
+		func(q *v2.QueryResultImpl) { q.IDLists = nil }, func(q *v2.QueryResultImpl) { q.DocumentsLists[0] = nil }, func(q *v2.QueryResultImpl) { q.IDLists[0] = append(q.IDLists[0], "id") }, func(q *v2.QueryResultImpl) {
+			q.MetadatasLists[0][0] = v2.NewDocumentMetadata(v2.NewStringAttribute(metadataField, `[]`))
 		},
+		func(q *v2.QueryResultImpl) { q.EmbeddingsLists[0][0] = ce.NewEmbeddingFromFloat32([]float32{1}) }, func(q *v2.QueryResultImpl) { q.DistancesLists[0][0] = ce.Distance(math.Inf(1)) },
 	} {
-		b.rows = oneRecord(`null`)
-		b.query = queryRecords(b.rows, 1)
-		change(b.query)
-		response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.IsNull("absent")}})
-		if response != nil || err == nil {
-			t.Fatalf("invalid response=%v err=%v", response, err)
+		b.query = queryRecords(oneRecord("null"), 2)
+		mutate(b.query)
+		if got, e := s.Query(t.Context(), query(vectorstore.SearchOptions{MinScore: 1})); got != nil || e == nil {
+			t.Fatal("invalid low-score row accepted", got, e)
 		}
 	}
-	b.rows = oneRecord(`null`)
-	b.query = queryRecords(b.rows, 1)
-	failure := errors.New("transport failed")
+	failure := errors.New("query failed")
 	b.queryErr = failure
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
-	if response != nil || !errors.Is(err, failure) {
-		t.Fatal(response, err)
-	}
-	b.getErr = failure
-	b.queryErr = nil
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
-	if response != nil || !errors.Is(err, failure) {
-		t.Fatal(response, err)
+	if got, e := s.Query(t.Context(), query(vectorstore.SearchOptions{})); got != nil || !errors.Is(e, failure) {
+		t.Fatal(got, e)
 	}
 }
-
-func TestIndexPublishesOnlyCoreJSONAndNativeVectors(t *testing.T) {
-	config, b, _ := boundaryConfig(t, v2.SpaceL2)
-	store, err := NewStore(t.Context(), config)
+func TestUpsertPreflightsWholeBatchAndClassifiesUnknownRPC(t *testing.T) {
+	cfg, b := boundaryConfig(t, v2.SpaceL2)
+	s, err := NewStore(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	facts := metadata.Map{"value": json.RawMessage(`1e1000`), "null": json.RawMessage(`null`)}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "original/路径", Text: "text", Metadata: facts}}}); err != nil {
+	batch := record(&document.Document{ID: "original/路径", Text: "text", Metadata: facts}, 1, 0)
+	if err = s.Upsert(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
 	if b.upserts != 1 || !slices.Equal(b.addOp.Ids, v2.DocumentIDs{"original/路径"}) || !slices.Equal(b.addOp.Embeddings[0].(ce.Embedding).ContentAsFloat32(), []float32{1, 0}) {
@@ -280,26 +258,98 @@ func TestIndexPublishesOnlyCoreJSONAndNativeVectors(t *testing.T) {
 	if err = restored.UnmarshalJSON([]byte(raw)); err != nil || !restored.Equal(facts) {
 		t.Fatal(raw, err)
 	}
-	failure := errors.New("write failed")
-	b.upsertErr = failure
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "next", Text: "text"}}}); !errors.Is(err, failure) {
+	for _, invalid := range [][]float64{{1}, {math.MaxFloat64, 0}, {math.NaN(), 0}} {
+		bad := *batch
+		bad.Records = append(slices.Clone(batch.Records), vectorstore.Record{Document: &document.Document{ID: "bad", Text: "bad"}, Values: invalid})
+		if err = s.Upsert(t.Context(), &bad); err == nil || b.upserts != 1 {
+			t.Fatal("published before validating all coordinates")
+		}
+	}
+	b.upsertErr = errors.New("lost acknowledgment")
+	err = s.Upsert(t.Context(), batch)
+	failure, ok := errors.AsType[*vectorstore.WriteError](err)
+	if !ok || !errors.Is(err, b.upsertErr) || !slices.Equal(failure.Unconfirmed, []string{"original/路径"}) || len(failure.Acknowledged)+len(failure.Rejected)+len(failure.Unattempted) != 0 {
 		t.Fatal(err)
 	}
-	config.EmbeddingModel = embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{math.MaxFloat64, 0}}}, nil)
-	})
-	store, err = NewStore(t.Context(), config)
+	batch.Space = "other"
+	if err = s.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrIncompatibleSpace) || b.upserts != 2 {
+		t.Fatal(err)
+	}
+}
+func TestBoundedScanRefusesPartialSubset(t *testing.T) {
+	cfg, b := boundaryConfig(t, v2.SpaceCosine)
+	s, err := NewStore(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := b.upserts
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "bad", Text: "text"}}}); err == nil || b.upserts != before {
-		t.Fatal("published narrowing overflow")
+	b.rows = oneRecord(`{"v":1}`)
+	for _, limit := range []vectorstore.ScanBudget{{}, {MaxRecords: 1, MaxBytes: 1, Timeout: time.Second}} {
+		out, e := s.Scan(t.Context(), ScanConfig{Budget: limit})
+		if e == nil || out != nil {
+			t.Fatal("invalid or exhausted budget gave rows")
+		}
+	}
+	b.read = func(_ context.Context, offset, _ int) (v2.GetResult, error) {
+		if offset >= 2 {
+			return &v2.GetResultImpl{}, nil
+		}
+		out := oneRecord("null")
+		out.Ids[0] = v2.DocumentID(string(rune('a' + offset)))
+		return out, nil
+	}
+	limit := budget()
+	limit.MaxRecords = 1
+	out, e := s.Scan(t.Context(), ScanConfig{Budget: limit, Filter: parseBoundaryPredicate(t, "v == 9")})
+	if !errors.Is(e, vectorstore.ErrScanBudget) || out != nil {
+		t.Fatalf("nonmatching rejected scan: %v %v", out, e)
+	}
+	limit.MaxRecords = 2
+	out, e = s.Scan(t.Context(), ScanConfig{Budget: limit})
+	if e != nil || len(out) != 2 {
+		t.Fatal(out, e)
+	}
+	b.read = func(_ context.Context, offset, _ int) (v2.GetResult, error) { return oneRecord("null"), nil }
+	if out, e = s.Scan(t.Context(), ScanConfig{Budget: budget()}); e == nil || out != nil {
+		t.Fatal("duplicate across pages accepted")
+	}
+	b.read = func(ctx context.Context, _, _ int) (v2.GetResult, error) { <-ctx.Done(); return nil, ctx.Err() }
+	limit.Timeout = time.Millisecond
+	if out, e = s.Scan(t.Context(), ScanConfig{Budget: limit}); !errors.Is(e, vectorstore.ErrScanBudget) || out != nil {
+		t.Fatal(out, e)
 	}
 }
-
+func TestSpaceAndDimensionGuardEveryDataPath(t *testing.T) {
+	cfg, b := boundaryConfig(t, v2.SpaceCosine)
+	s, err := NewStore(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := query(vectorstore.SearchOptions{})
+	q.Values = []float64{1}
+	if out, e := s.Query(t.Context(), q); !errors.Is(e, vectorstore.ErrIncompatibleSpace) || out != nil {
+		t.Fatal(out, e)
+	}
+	q.Values = []float64{1, 0}
+	q.Space = "different"
+	if out, e := s.Query(t.Context(), q); !errors.Is(e, vectorstore.ErrIncompatibleSpace) || out != nil {
+		t.Fatal(out, e)
+	}
+	b.dimension = 3
+	if err = s.CheckDocuments(t.Context(), testSpace, []*document.Document{{ID: "a", Text: "x"}}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if _, err = s.Scan(t.Context(), ScanConfig{Budget: budget()}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if err = s.DeleteIDs(t.Context(), []string{"a"}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if b.gets+b.queries+b.deletes+b.upserts != 0 {
+		t.Fatal("incompatible request reached native data")
+	}
+}
 func TestDeleteIDsAndNativeDistanceProjection(t *testing.T) {
-	config, b, _ := boundaryConfig(t, v2.SpaceIP)
+	config, b := boundaryConfig(t, v2.SpaceIP)
 	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)

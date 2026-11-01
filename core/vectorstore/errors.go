@@ -23,5 +23,3 @@ var (
 
 	ErrUnsupportedSearchMode = errors.New("vectorstore: unsupported search mode")
 )
-
-var ErrInvalidBatcherOutput = errors.New("vectorstore: invalid batcher output")

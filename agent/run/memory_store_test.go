@@ -1,0 +1,144 @@
+package run
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) {
+	runtime, process := newChildCompletionTestProcess(t)
+	store := runtime.engine.committer.(*MemoryStore)
+	initial := runtime.writer.head()
+	process.pause = pause{reason: "review"}
+	paused := controlValue(runtime.captureTree())
+	checkpoint := controlValue(newTreeCheckpoint(2, checkpointCauseCut, initial.Digest(), paused))
+	if checkpoint.Kind() != TreeCheckpointKindParked {
+		t.Fatalf("paused cut kind = %s, want parked", checkpoint.Kind())
+	}
+	skipped := checkpoint
+	skipped.sequence = 3
+	if err := store.CommitCheckpoint(t.Context(), skipped); !errors.Is(err, ErrTreeIncarnationConflict) {
+		t.Fatalf("skipped sequence: %v", err)
+	}
+	for range 2 {
+		if err := store.CommitCheckpoint(t.Context(), checkpoint); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mutation := range []struct {
+		name   string
+		change func(*TreeCheckpoint)
+	}{
+		{"kind", func(c *TreeCheckpoint) { c.cause = checkpointCauseSignals }},
+		{"predecessor", func(c *TreeCheckpoint) { c.previousTreeDigest = ComputeDigest([]byte("different predecessor")) }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			conflict := checkpoint
+			mutation.change(&conflict)
+			if !conflict.Valid() {
+				t.Fatal("conflict fixture is invalid")
+			}
+			if err := store.CommitCheckpoint(t.Context(), conflict); !errors.Is(err, ErrCommitConflict) {
+				t.Fatalf("changed commit content: %v", err)
+			}
+		})
+	}
+	// Returning to the initial content must not make the old creation current.
+	running := controlValue(newTreeCheckpoint(3, checkpointCauseCut, paused.Digest(), initial))
+	if running.Kind() != TreeCheckpointKindProgress {
+		t.Fatalf("running cut kind = %s, want progress", running.Kind())
+	}
+	if err := store.CommitCheckpoint(t.Context(), running); err != nil {
+		t.Fatal(err)
+	}
+	start := controlValue(fixtureStart(initial))
+	if err := store.CommitCheckpoint(t.Context(), start); !errors.Is(err, ErrCommitConflict) {
+		t.Fatalf("historical creation: %v", err)
+	}
+	if err := store.CommitCheckpoint(t.Context(), checkpoint); !errors.Is(err, ErrCommitConflict) {
+		t.Fatalf("historical checkpoint: %v", err)
+	}
+	head, exists, err := store.LoadTree(t.Context(), process.handle.processID())
+	if err != nil || !exists || head.Digest() != initial.Digest() {
+		t.Fatalf("rejected commits changed head: %v", err)
+	}
+}
+
+func TestCommitSequenceValidation(t *testing.T) {
+	runtime, _ := newChildCompletionTestProcess(t)
+	for _, sequence := range []uint64{0, 2} {
+		if _, err := newTreeCheckpoint(sequence, checkpointCauseCut, Digest{}, runtime.writer.head()); err == nil {
+			t.Fatalf("start accepted sequence %d", sequence)
+		}
+	}
+}
+
+func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
+	runtime, _ := newChildCompletionTestProcess(t)
+	store := runtime.engine.committer.(*MemoryStore)
+	wire := controlValue(runtime.writer.head().wire())
+	wire.IncarnationID = newTreeIncarnationID()
+	prospective := controlValue(newTreeSnapshot(wire))
+	activation := controlValue(newTreeActivation(runtime.writer.head().IncarnationID(), runtime.writer.head().Digest(), prospective))
+	for range 2 {
+		if err := store.ActivateTree(t.Context(), activation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, mutation := range []struct {
+		name   string
+		change func(*TreeActivation)
+	}{
+		{"previous writer", func(a *TreeActivation) { a.previousIncarnationID = newTreeIncarnationID() }},
+		{"previous head", func(a *TreeActivation) { a.previousTreeDigest = ComputeDigest([]byte("another predecessor")) }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := activation
+			mutation.change(&changed)
+			if !changed.Valid() || changed.Identity() != activation.Identity() {
+				t.Fatal("fixture did not retain a valid activation identity")
+			}
+			if err := store.ActivateTree(t.Context(), changed); !errors.Is(err, ErrCommitConflict) {
+				t.Fatalf("changed activation precondition: %v", err)
+			}
+			actual, exists, err := store.LoadTree(t.Context(), prospective.RootID())
+			if err != nil || !exists || actual.Digest() != prospective.Digest() {
+				t.Fatalf("activation conflict changed head: %v", err)
+			}
+		})
+	}
+}
+
+func TestMemoryCommitterRejectsAbsentFactsWithoutMovingItsHead(t *testing.T) {
+	runtime, _ := newChildCompletionTestProcess(t)
+	store := runtime.engine.committer.(*MemoryStore)
+	head := runtime.writer.head()
+	var missing *MemoryStore
+	for _, committer := range []*MemoryStore{missing, store} {
+		for _, commit := range []func() error{
+			func() error { return committer.ActivateTree(t.Context(), TreeActivation{}) },
+			func() error { return committer.CommitEffect(t.Context(), EffectBoundary{}) },
+			func() error { return committer.CommitCheckpoint(t.Context(), TreeCheckpoint{}) },
+		} {
+			if err := commit(); err == nil {
+				t.Fatal("absent fact was acknowledged")
+			}
+		}
+		if snapshot, found, err := committer.LoadTree(t.Context(), ProcessID{}); snapshot.Valid() || found || !errors.Is(err, ErrInvalidTreeSnapshot) {
+			t.Fatalf("missing root identity = %v, %t, %v", snapshot, found, err)
+		}
+	}
+	if snapshot, found, err := missing.LoadTree(t.Context(), head.RootID()); snapshot.Valid() || found || !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("missing store = %v, %t, %v", snapshot, found, err)
+	}
+	competing := controlValue(head.wire())
+	competing.IncarnationID = newTreeIncarnationID()
+	start := controlValue(fixtureStart(controlValue(newTreeSnapshot(competing))))
+	if err := store.CommitCheckpoint(t.Context(), start); !errors.Is(err, ErrTreeIncarnationConflict) {
+		t.Fatalf("another writer replaced the existing root: %v", err)
+	}
+	after, found, err := store.LoadTree(t.Context(), head.RootID())
+	if err != nil || !found || after.Digest() != head.Digest() || after.IncarnationID() != head.IncarnationID() {
+		t.Fatalf("rejected commit changed the acknowledged head: %v", err)
+	}
+}

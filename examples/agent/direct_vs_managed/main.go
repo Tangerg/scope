@@ -3,20 +3,22 @@
 // Run go run ./examples/agent/direct_vs_managed from the repository root, or
 // GOWORK=off go run ./agent/direct_vs_managed from examples to consume the
 // published Agent and Core versions selected by its go.mod.
-// MemoryTreeCommitter retains facts only for that instance's lifetime; this
+// MemoryStore retains facts only for that instance's lifetime; this
 // example does not demonstrate durable or cross-process recovery. See the
-// reconciliation example and dev/treecommitterconformance for those boundaries.
+// reconciliation example and runstores/postgres for those boundaries.
 package main
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 )
@@ -45,16 +47,16 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	input, err := deployment.Descriptor().EncodeInput(interaction.Input{Messages: request.Messages})
+	input, err := deployment.Descriptor().EncodeInput(agent.Input{Messages: request.Messages})
 	if err != nil {
 		return err
 	}
-	process, err := engine.Start(ctx, deployment, input)
+	process, err := engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		return err
 	}
@@ -69,7 +71,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if !ok {
 		return fmt.Errorf("managed Process ended with %s", result.Termination().Status())
 	}
-	managed, err := deployment.Descriptor().DecodeOutput[interaction.Output](erased)
+	managed, err := deployment.Descriptor().DecodeOutput[agent.Output](erased)
 	if err != nil {
 		return err
 	}
@@ -77,28 +79,28 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	return err
 }
 
-func newManagedEchoDeployment() (agent.Deployment, error) {
+func newManagedEchoDeployment() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	client, err := chatclient.New(echoModel{prefix: "managed"}, chatclient.Config{})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name:          "example.managed_echo",
 		Description:   "Return one deterministic model response through an Engine Process.",
-		MaxModelCalls: agent.NewQuota(1),
+		MaxModelCalls: agentrun.NewQuota(1),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: client})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
 		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-managed-echo-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-managed-echo-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example-managed-echo-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("example-managed-echo-configuration")),
 	})
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -49,8 +48,8 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
+	invocation, err := binding.Contract().Prepare(tool.Request{
+		Name: "search", Arguments: `{"query":"scope"}`,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,8 +86,8 @@ func TestGuardDenialSkipsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
+	invocation, err := binding.Contract().Prepare(tool.Request{
+		Name: "search", Arguments: `{"query":"scope"}`,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -120,8 +119,8 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
+	invocation, err := binding.Contract().Prepare(tool.Request{
+		Name: "search", Arguments: `{"query":"scope"}`,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -151,8 +150,8 @@ func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: "search", Arguments: `{"query":"scope"}`,
+	invocation, err := binding.Contract().Prepare(tool.Request{
+		Name: "search", Arguments: `{"query":"scope"}`,
 	}, nil)
 	if err != nil {
 		t.Fatal(err)

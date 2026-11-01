@@ -4,12 +4,12 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/couchbase/gocb/v2"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -47,8 +47,8 @@ type rankedResult struct {
 	distance float64
 }
 
-func encodeStoredDocument(text string, facts metadata.Map, vector []float64) ([]byte, error) {
-	encoded, err := facts.MarshalJSON()
+func encodeStoredDocument(doc *document.Document, vector []float64) ([]byte, error) {
+	encoded, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func encodeStoredDocument(text string, facts metadata.Map, vector []float64) ([]
 	for i := range vector {
 		values[i] = &vector[i]
 	}
-	return jsonv2.Marshal(storedDocument{Content: text, Metadata: string(encoded), Embedding: values})
+	return jsonv2.Marshal(storedDocument{Content: doc.Text, Metadata: string(encoded), Embedding: values})
 }
 
 func decodeStoredRow(raw []byte) (storedCandidate, error) {
@@ -67,12 +67,15 @@ func decodeStoredRow(raw []byte) (storedCandidate, error) {
 	if row.CAS == 0 {
 		return storedCandidate{}, errors.New("couchbase: stored record has no CAS")
 	}
-	var facts metadata.Map
-	if err := facts.UnmarshalJSON([]byte(row.Record.Metadata)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(row.Record.Metadata), doc); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: decode metadata of %s: %w", row.ID, err)
 	}
-	doc := &document.Document{ID: row.ID, Text: row.Record.Content, Metadata: facts}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = row.ID, row.Record.Content
+	if strings.TrimSpace(doc.ID) == "" {
+		return storedCandidate{}, vectorstore.ErrMissingDocumentID
+	}
+	if err := doc.Validate(); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored document: %w", err)
 	}
 	vector := make([]float64, len(row.Record.Embedding))
@@ -82,8 +85,20 @@ func decodeStoredRow(raw []byte) (storedCandidate, error) {
 		}
 		vector[i] = *value
 	}
-	if err := (&embedding.Output{Embedding: vector}).Validate(); err != nil {
+	if err := validCoordinates(vector); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored embedding: %w", err)
 	}
 	return storedCandidate{document: doc, embedding: vector, cas: gocb.Cas(row.CAS)}, nil
+}
+
+func validCoordinates(v []float64) error {
+	if len(v) == 0 {
+		return vectorstore.ErrInvalidRequest
+	}
+	for _, x := range v {
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return vectorstore.ErrInvalidRequest
+		}
+	}
+	return nil
 }

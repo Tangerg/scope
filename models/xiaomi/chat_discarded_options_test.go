@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/models/protocol/openai"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
 
@@ -83,7 +82,7 @@ func TestChatSendsSamplingWhenThinkingIsDisabled(t *testing.T) {
 	}
 }
 
-func newDiscardTestModel(t *testing.T) (*openai.ChatCompletions, func() int) {
+func newDiscardTestModel(t *testing.T) (*corechat.StreamModel, func() int) {
 	t.Helper()
 
 	calls := 0

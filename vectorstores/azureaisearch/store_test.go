@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -24,18 +23,10 @@ func TestCoreFilterConformanceOverHTTP(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture := newProtocolFixture(t)
 		store := fixture.store()
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, testBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]string, len(response.Results))
-		for i, row := range response.Results {
-			ids[i] = row.Document.ID
-		}
-		return ids, nil
+		return scanIDs(ctx, store, predicate)
 	}})
 }
 
@@ -46,10 +37,10 @@ func TestIndexReplacesOneCoreMetadataDocument(t *testing.T) {
 		rawMetadata(`{"old":1,"nested":{"large":9007199254740993},"precise":1.0000000000000000001,"null":null,"id":"metadata","@search.action":"delete"}`),
 		rawMetadata(`{"new":1e1000}`), {}, nil,
 	} {
-		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "new text", Metadata: facts}}}); err != nil {
+		if err := store.Upsert(t.Context(), testBatch([]*document.Document{{ID: "one", Text: "new text", Metadata: facts}})); err != nil {
 			t.Fatal(err)
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,9 +62,9 @@ func TestSearchPreflightsEveryRecordBeforeEmbedding(t *testing.T) {
 	fixture.pageSize = 1
 	store := fixture.store()
 	fixture.put(&document.Document{ID: "a", Text: "good", Metadata: rawMetadata(`{"n":1}`)}, &document.Document{ID: "z", Text: "bad", Metadata: rawMetadata(`{"n":"wrong"}`)})
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.LT("n", 2), TopK: 1, MinScore: 1}})
-	if err == nil || response != nil || fixture.modelCalls.Load() != 0 {
-		t.Fatalf("bad late record bypassed preflight: %v, %v, calls=%d", response, err, fixture.modelCalls.Load())
+	response, err := store.Scan(t.Context(), testScan(filter.LT("n", 2)))
+	if err == nil || response != nil {
+		t.Fatalf("bad late record bypassed preflight: %v, %v", response, err)
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
@@ -99,7 +90,7 @@ func TestSearchKeepsNativeHybridAndCandidateScope(t *testing.T) {
 	fixture.put(&document.Document{ID: "one", Text: "Paris", Metadata: rawMetadata(`{"category":"keep"}`)}, &document.Document{ID: "two", Text: "other", Metadata: rawMetadata(`{"category":"omit"}`)})
 	fixture.mu.Lock()
 	fixture.query = func(writer http.ResponseWriter, body metadata.Map) {
-		if string(body["search"]) != `"capital of France"` || string(body["searchFields"]) != `"content"` || string(body["vectorFilterMode"]) != `"preFilter"` || string(body["filter"]) != `"search.in(id, 'one', ',')"` {
+		if string(body["search"]) != `"capital of France"` || string(body["searchFields"]) != `"content"` || body["filter"] != nil || body["vectorFilterMode"] != nil {
 			t.Errorf("hybrid evidence = %v", body)
 		}
 		row := fixture.rows["one"].Clone()
@@ -107,14 +98,14 @@ func TestSearchKeepsNativeHybridAndCandidateScope(t *testing.T) {
 		_ = jsonv2.MarshalWrite(writer, map[string]any{"value": []metadata.Map{row}})
 	}
 	fixture.mu.Unlock()
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "capital of France", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 1, Filter: filter.EQ("category", "keep")}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, LexicalText: "capital of France", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Score != .03 {
 		t.Fatalf("hybrid response = %v, %v", response, err)
 	}
 }
 
 func TestSearchCurrentRecordsAndRawRanking(t *testing.T) {
-	for _, test := range []string{"replacement", "changed predicate", "wrong type", "unexpected ID", "duplicate ID", "excess rows", "invalid score", "raw score ranking"} {
+	for _, test := range []string{"replacement", "duplicate ID", "excess rows", "invalid score", "raw score ranking"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fixture.schema = nativeSchema("dotProduct")
@@ -127,12 +118,6 @@ func TestSearchCurrentRecordsAndRawRanking(t *testing.T) {
 				switch test {
 				case "replacement":
 					_ = a.Set("content", "replacement")
-				case "changed predicate":
-					_ = a.Set("scope_metadata", `{"n":9}`)
-				case "wrong type":
-					_ = a.Set("scope_metadata", `{"n":"wrong"}`)
-				case "unexpected ID":
-					_ = a.Set("id", "outside")
 				case "duplicate ID":
 					rows = append(rows, a)
 				case "excess rows":
@@ -147,15 +132,11 @@ func TestSearchCurrentRecordsAndRawRanking(t *testing.T) {
 				_ = jsonv2.MarshalWrite(writer, map[string]any{"value": rows})
 			}
 			fixture.mu.Unlock()
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 2, Filter: filter.LT("n", 2)}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}})
 			switch test {
 			case "replacement":
 				if err != nil || response.Results[0].Document.Text != "replacement" {
 					t.Fatalf("current record = %v, %v", response, err)
-				}
-			case "changed predicate":
-				if err != nil || len(response.Results) != 0 {
-					t.Fatalf("changed predicate = %v, %v", response, err)
 				}
 			case "raw score ranking":
 				if err != nil || len(response.Results) != 2 || response.Results[0].Document.ID != "z" || response.Results[0].Score != 1 || response.Results[1].Score != 1 {
@@ -171,30 +152,10 @@ func TestSearchCurrentRecordsAndRawRanking(t *testing.T) {
 }
 
 func TestIndexPreparesEveryBatchBeforeFirstWrite(t *testing.T) {
-	for _, test := range []string{"model error", "wrong width", "narrowing overflow", "invalid ID", "media"} {
+	for _, test := range []string{"wrong width", "narrowing overflow", "invalid ID", "media"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			fixture.model = embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-				fixture.modelCalls.Add(1)
-				vector := []float64{1, 0}
-				if request.Texts[0] == "bad" {
-					switch test {
-					case "model error":
-						return nil, errors.New("model failed")
-					case "wrong width":
-						vector = []float64{1}
-					case "narrowing overflow":
-						vector = []float64{math.MaxFloat64, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			})
-			config := fixture.config()
-			config.DocumentBatcher = writeTestBatcher{single: true}
-			store, err := NewStore(t.Context(), config)
-			if err != nil {
-				t.Fatal(err)
-			}
+			store := fixture.store()
 			docs := []*document.Document{{ID: "one", Text: "good"}, {ID: "two", Text: "bad"}}
 			if test == "invalid ID" {
 				docs[1].ID = "two' injected"
@@ -202,16 +163,20 @@ func TestIndexPreparesEveryBatchBeforeFirstWrite(t *testing.T) {
 			if test == "media" {
 				docs[1].Media = &media.Media{MIME: "text/plain", Source: media.Source{Kind: media.SourceBytes, Bytes: []byte("media")}}
 			}
-			if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err == nil {
+			batch := testBatch(docs)
+			switch test {
+			case "wrong width":
+				batch.Records[1].Values = []float64{1}
+			case "narrowing overflow":
+				batch.Records[1].Values = []float64{math.MaxFloat64, 0}
+			}
+			if err := store.Upsert(t.Context(), batch); err == nil {
 				t.Fatal("invalid late batch succeeded")
 			}
 			fixture.mu.Lock()
 			defer fixture.mu.Unlock()
 			if len(fixture.writes) != 0 {
 				t.Fatal("preflight failure published an earlier batch")
-			}
-			if (test == "invalid ID" || test == "media") && fixture.modelCalls.Load() != 0 {
-				t.Fatal("invalid source reached model")
 			}
 		})
 	}
@@ -224,7 +189,7 @@ func TestExplicitDeleteIDsAndServiceWriteLimits(t *testing.T) {
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprint(i), Text: "document"}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"0", "0", "unknown"}); err != nil {
@@ -270,7 +235,7 @@ func TestWritesRequireCompleteAcknowledgments(t *testing.T) {
 				fixture.mu.Unlock()
 				var err error
 				if operation == "index" {
-					err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}, {ID: "two", Text: "two"}}})
+					err = store.Upsert(t.Context(), testBatch([]*document.Document{{ID: "one", Text: "one"}, {ID: "two", Text: "two"}}))
 				} else {
 					err = store.DeleteIDs(t.Context(), []string{"one", "two"})
 				}
@@ -310,7 +275,7 @@ func TestSearchContinuationAndCredentialOrigin(t *testing.T) {
 				_ = jsonv2.MarshalWrite(writer, map[string]any{"value": []metadata.Map{fixture.rows["two"]}})
 			}
 			fixture.mu.Unlock()
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 2}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}})
 			if test == "two pages" {
 				if err != nil || len(response.Results) != 2 || calls != 2 {
 					t.Fatalf("paged query = %v, %v, calls=%d", response, err, calls)
@@ -338,7 +303,7 @@ func TestSearchRejectsMalformedReturnedFacts(t *testing.T) {
 			case "invalid JSON":
 				_ = row.Set("scope_metadata", `{"n":`)
 			case "wrong vector width":
-				_ = row.Set("contentVector", []float32{1})
+				_ = row.Set(testSpace.StorageKey(), []float32{1})
 			case "missing text":
 				delete(row, "content")
 			case "unknown field":
@@ -348,10 +313,10 @@ func TestSearchRejectsMalformedReturnedFacts(t *testing.T) {
 			}
 			fixture.mu.Unlock()
 			store, err := NewStore(t.Context(), fixture.config())
-			if err != nil || fixture.modelCalls.Load() != 0 || len(fixture.bodies) != 0 {
+			if err != nil || len(fixture.bodies) != 0 {
 				t.Fatalf("construction read stored records: %v, %v", store, err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 			if err == nil || response != nil {
 				t.Fatalf("invalid returned record accepted: %v, %v", response, err)
 			}
@@ -365,7 +330,7 @@ func TestSchemaIsSoleMetricAndDimensionOwner(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fixture.schema = nativeSchema(metric)
 			store := fixture.store()
-			if store.metric != nativeMetric(metric) || store.dimensions != 2 || fixture.modelCalls.Load() != 0 {
+			if store.metric != nativeMetric(metric) || store.dimensions != 2 {
 				t.Fatalf("native schema projection = %v", store)
 			}
 		})
@@ -438,8 +403,8 @@ func TestScanRejectsRepeatedKeysAndTransportFailures(t *testing.T) {
 				}
 			}
 			fixture.mu.Unlock()
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
-			if err == nil || response != nil || fixture.modelCalls.Load() != 0 {
+			response, err := store.Scan(t.Context(), testScan(filter.IsNull("absent")))
+			if err == nil || response != nil {
 				t.Fatalf("invalid scan bypassed boundary = %v, %v", response, err)
 			}
 		})
@@ -452,18 +417,18 @@ func TestCancellationAndInvalidRequestsAvoidPublication(t *testing.T) {
 	fixture.put(&document.Document{ID: "one", Text: "one"})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query"}); !errors.Is(err, context.Canceled) || response != nil {
+	if response, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}}); !errors.Is(err, context.Canceled) || response != nil {
 		t.Fatalf("cancellation lost = %v, %v", response, err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", "unsupported/key"}); err == nil {
 		t.Fatal("invalid later key accepted")
 	}
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1001}}); err == nil || response != nil {
+	if response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1001}}); err == nil || response != nil {
 		t.Fatal("native top K limit ignored")
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()
-	if len(fixture.writes) != 0 || fixture.modelCalls.Load() != 0 {
+	if len(fixture.writes) != 0 {
 		t.Fatal("invalid request mutated records or called model")
 	}
 }
@@ -476,7 +441,7 @@ func TestIndexWireBudgetPreflightCoversEveryNativeChunk(t *testing.T) {
 		docs[i] = &document.Document{ID: fmt.Sprint(i), Text: "document"}
 	}
 	docs[1000].Text = strings.Repeat("x", maximumRequestBytes)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err == nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err == nil {
 		t.Fatal("oversized late chunk accepted")
 	}
 	fixture.mu.Lock()
@@ -489,7 +454,7 @@ func TestIndexWireBudgetPreflightCoversEveryNativeChunk(t *testing.T) {
 func TestConfigRejectsInvalidNativeBindings(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	for _, change := range []func(*StoreConfig){
-		func(config *StoreConfig) { config.HTTPClient = nil }, func(config *StoreConfig) { config.MetadataField = config.IDField },
+		func(config *StoreConfig) { config.Space = "" }, func(config *StoreConfig) { config.HTTPClient = nil }, func(config *StoreConfig) { config.MetadataField = config.IDField },
 		func(config *StoreConfig) { config.IDField = "id' injected" }, func(config *StoreConfig) { config.IDField = "azureSearchReserved" },
 		func(config *StoreConfig) { config.Endpoint = "https://service.invalid/path" }, func(config *StoreConfig) { config.MaxResponseBytes = math.MaxInt64 },
 	} {
@@ -563,8 +528,8 @@ func TestSearchRejectsBadRecordBeyondNativePageLimit(t *testing.T) {
 	}
 	docs[1000].Metadata = rawMetadata(`{"n":"bad"}`)
 	fixture.put(docs...)
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.LT("n", 2)}})
-	if err == nil || response != nil || fixture.modelCalls.Load() != 0 {
+	response, err := store.Scan(t.Context(), testScan(filter.LT("n", 2)))
+	if err == nil || response != nil {
 		t.Fatalf("late bad record hidden: %v, %v", response, err)
 	}
 }

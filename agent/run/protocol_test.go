@@ -1,0 +1,249 @@
+package run
+
+import (
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"testing"
+)
+
+func TestSignalKeepsDeliveryAndWaitIdentitySeparate(t *testing.T) {
+	signalID, err := ParseSignalID("signal:42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, err := ParseWaitID("wait:7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := json.RawMessage(` { "answer": true } `)
+	signal, err := NewSignal(signalID, waitID, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload[3] = 'x'
+	if signal.ID() != signalID {
+		t.Fatalf("Signal.ID() = %v, want %v", signal.ID(), signalID)
+	}
+	if got, ok := signal.WaitID(); !ok || got != waitID {
+		t.Fatalf("Signal.WaitID() = %v, %t, want %v, true", got, ok, waitID)
+	}
+	if got := string(signal.Payload()); got != `{"answer":true}` {
+		t.Fatalf("Signal.Payload() = %s", got)
+	}
+}
+
+func TestSignalStrictJSONRoundTrip(t *testing.T) {
+	signalID, _ := ParseSignalID("signal:1")
+	signal, err := NewSignal(signalID, WaitID{}, json.RawMessage(`{"kind":"steer"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := jsonv2.Marshal(signal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Signal
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded.WaitID(); ok {
+		t.Fatal("decoded Signal unexpectedly has a WaitID")
+	}
+	if decoded.ID() != signal.ID() || string(decoded.Payload()) != string(signal.Payload()) {
+		t.Fatalf("decoded Signal = %+v, want %+v", decoded, signal)
+	}
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","payload":{},"unknown":true}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
+		t.Fatalf("unknown field error = %v, want ErrInvalidSignal", err)
+	}
+	if err := jsonv2.Unmarshal([]byte(`{"id":"signal:1","received_at":"2026-08-06T00:00:00Z","payload":{}}`), &decoded); !errors.Is(err, ErrInvalidSignal) {
+		t.Fatalf("retired received_at error = %v, want ErrInvalidSignal", err)
+	}
+}
+
+func TestSignalRequestProducesByteEquivalentStrategyInput(t *testing.T) {
+	id, _ := ParseSignalID("signal:stable-redelivery")
+	waitID, _ := ParseWaitID("wait:stable-redelivery")
+	request, err := NewSignalRequest(id, waitID, json.RawMessage(` { "answer": true } `))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := request.signal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := request.signal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstJSON, err := jsonv2.Marshal(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondJSON, err := jsonv2.Marshal(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(firstJSON) != string(secondJSON) {
+		t.Fatalf("repeated SignalRequest changed Strategy input: %s != %s", firstJSON, secondJSON)
+	}
+}
+
+func TestDispatcherEffectIsOpaqueAndImmutable(t *testing.T) {
+	payload := json.RawMessage(` { "operation": "model" } `)
+	effect, err := NewDispatcherEffect(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload[3] = 'x'
+	copyOfPayload := effect.Payload()
+	copyOfPayload[0] = '['
+	if effect.Target() != EffectTargetDispatcher || string(effect.Payload()) != `{"operation":"model"}` {
+		t.Fatalf("Effect = target %s payload %s", effect.Target(), effect.Payload())
+	}
+
+	data, err := jsonv2.Marshal(effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Effect
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Target() != EffectTargetDispatcher || string(decoded.Payload()) != string(effect.Payload()) {
+		t.Fatalf("decoded Effect = %+v, want %+v", decoded, effect)
+	}
+}
+
+func TestSettlementPreservesUnknownWithoutImplyingRetry(t *testing.T) {
+	settlement, err := NewSettlement(SettlementStatusUnknown, json.RawMessage(`{"reason":"connection_lost"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settlement.Status() != SettlementStatusUnknown {
+		t.Fatalf("Settlement = status %s", settlement.Status())
+	}
+	data, err := jsonv2.Marshal(settlement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded Settlement
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Status() != SettlementStatusUnknown || string(decoded.Payload()) != `{"reason":"connection_lost"}` {
+		t.Fatalf("decoded Settlement = %+v", decoded)
+	}
+}
+
+func TestWaitRequestKeepsEngineKeySeparateFromStrategySignalPayload(t *testing.T) {
+	key, _ := ParseWaitKey("approval:tool:1")
+	effect, err := NewWaitEffect(externalWaitSpecFor(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if effect.Target() != EffectTargetFramework {
+		t.Fatalf("NewWaitEffect target = %s, want framework", effect.Target())
+	}
+	operation, err := decodeFrameworkOperation(effect.Payload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wait, isWait := operation.(waitOperation)
+	if !isWait || wait.spec.key != key {
+		t.Fatalf("decoded wait request = %#v", operation)
+	}
+
+	data, err := jsonv2.Marshal(effect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Effect
+	if err := jsonv2.Unmarshal(data, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFrameworkOperation(restored.Payload()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFrameworkEffectRejectsUnknownOperations(t *testing.T) {
+	data := []byte(`{"target":"framework","payload":{"operation":"tool","key":"approval","signal_payload":{}}}`)
+	var effect Effect
+	if err := jsonv2.Unmarshal(data, &effect); !errors.Is(err, ErrInvalidEffect) {
+		t.Fatalf("unknown Framework Effect error = %v, want ErrInvalidEffect", err)
+	}
+}
+
+func TestEffectEqualityUsesTheCompleteCanonicalRequest(t *testing.T) {
+	decode := func(raw string) Effect {
+		t.Helper()
+		var value Effect
+		if raw != "" {
+			if err := jsonv2.Unmarshal([]byte(raw), &value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return value
+	}
+	left := decode(`{"target":"dispatcher","payload":{"b":2,"a":1}}`)
+	for _, test := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"canonical content", `{"target":"dispatcher","payload":{ "a":1,"b":2 }}`, true},
+		{"different payload", `{"target":"dispatcher","payload":{"a":2,"b":2}}`, false},
+		{"invalid request", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			right := decode(test.raw)
+			if left.equal(right) != test.want || right.equal(left) != test.want {
+				t.Fatalf("request equality must be %t in both directions", test.want)
+			}
+		})
+	}
+	framework := decode(`{"target":"framework","payload":{"operation":"wait","spec":{"key":"approval","max_answer_bytes":67108864}}}`)
+	dispatcher, err := NewDispatcherEffect(framework.Payload())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if framework.equal(dispatcher) || (Effect{}).equal(Effect{}) {
+		t.Fatal("different targets or invalid requests must not match")
+	}
+}
+
+func TestSettlementEqualityKeepsIdentityStatusAndPayload(t *testing.T) {
+	decode := func(raw string) Settlement {
+		t.Helper()
+		var value Settlement
+		if raw != "" {
+			if err := jsonv2.Unmarshal([]byte(raw), &value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return value
+	}
+	left := decode(`{"status":"unknown","payload":{"b":2,"a":1}}`)
+	for _, test := range []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"canonical content", `{"status":"unknown","payload":{ "a":1,"b":2 }}`, true},
+		{"definite success", `{"status":"succeeded","payload":{"a":1,"b":2}}`, false},
+		{"definite failure", `{"status":"failed","payload":{"a":1,"b":2}}`, false},
+		{"different payload", `{"status":"unknown","payload":{"a":2,"b":2}}`, false},
+		{"invalid settlement", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			right := decode(test.raw)
+			if left.equal(right) != test.want || right.equal(left) != test.want {
+				t.Fatalf("settlement equality must be %t in both directions", test.want)
+			}
+		})
+	}
+	if (Settlement{}).equal(Settlement{}) {
+		t.Fatal("invalid settlements must not match")
+	}
+}

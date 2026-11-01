@@ -13,6 +13,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -164,7 +165,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 			return nil, fmt.Errorf("annotations: %w", decodeErr)
 		}
 		for _, annotation := range annotations {
-			parts = append(parts, corechat.NewCitationDelta(corechat.Citation{Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}))
+			parts = append(parts, corechat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}))
 		}
 	}
 	for i := range choice.Delta.ToolCalls {

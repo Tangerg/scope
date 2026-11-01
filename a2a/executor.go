@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 	"iter"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -15,7 +16,7 @@ import (
 
 // Agent is the text-only boundary served by [NewHTTPHandler].
 type Agent interface {
-	// Run handles one inbound A2A message, already flattened to text, and
+	// Run handles one inbound A2A message, containing only plain text, and
 	// yields the reply as a sequence of text chunks. A single-shot agent
 	// yields once; a streaming agent yields deltas. A yielded error ends the
 	// task as failed and stops iteration. Errors are internal diagnostics; the
@@ -68,7 +69,12 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 
 		input := ""
 		if execCtx.Message != nil {
-			input = projection.parts(execCtx.Message.Parts)
+			var err error
+			input, err = projection.parts(execCtx.Message.Parts)
+			if err != nil {
+				yield(nil, fmt.Errorf("%w: %w", sdka2a.ErrUnsupportedContentType, err))
+				return
+			}
 		}
 
 		// The SDK already owns an existing task and its appended input history.

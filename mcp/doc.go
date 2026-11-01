@@ -12,9 +12,10 @@
 // began. [Register] projects the same Failure back into an IsError result.
 // Invalid arguments stay model-visible error results, while input-validation
 // defects, unknown local outcomes, and authorization errors become generic
-// protocol errors, never definite results or internal diagnostics. Results that require further
-// input return [ErrIncompleteResult]; hosts that need multi-round-trip input
-// must complete that exchange through the SDK. Successful structured results
+// protocol errors, never definite results or internal diagnostics. With SDK automatic multi-round-trip disabled, a negotiated single form
+// elicitation becomes a tool.InputRequest. The validated answer carries the remote
+// state back through the same discovered binding; other input kinds return
+// [ErrIncompleteResult]. Reconnecting requires explicit remote reconciliation. Successful structured results
 // are validated against the output schema frozen at discovery.
 //
 // Scope tools receive business input explicitly through tool.Invocation and

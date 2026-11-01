@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolSchemaNumbersRemainExactOnTheWire(t *testing.T) {
@@ -30,7 +31,7 @@ func TestToolSchemaNumbersRemainExactOnTheWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Tools = []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}
+	request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}
 	_, err = model.Call(t.Context(), request)
 	if err == nil || requests != 1 || !strings.Contains(string(body), `"const":9007199254740993`) {
 		t.Fatalf("requests=%d error=%v body=%s", requests, err, body)

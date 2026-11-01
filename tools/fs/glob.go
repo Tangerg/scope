@@ -6,7 +6,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
@@ -66,7 +65,7 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 	return t, nil
 }
 
-func (g *GlobTool) Definition() chat.ToolDefinition {
+func (g *GlobTool) Definition() toolcontract.Definition {
 	return g.typed.Definition()
 }
 

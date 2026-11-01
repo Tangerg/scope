@@ -1,0 +1,1494 @@
+package run
+
+import (
+	"context"
+	startrand "crypto/rand"
+	"encoding/json"
+
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nilContext context.Context
+	recovered := func() (recovered any) {
+		defer func() { recovered = recover() }()
+		_, _ = engine.Start(nilContext, newChildTestDeployment(t), StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+		return nil
+	}()
+	recoveredErr, isError := recovered.(error)
+	if !isError || !errors.Is(recoveredErr, ErrNilContext) {
+		t.Fatalf("Start nil-context panic = %v, want %v", recovered, ErrNilContext)
+	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if len(engine.processes) != 0 || len(engine.startReservations) != 0 {
+		t.Fatalf("nil-context Start published state: processes=%d reservations=%d", len(engine.processes), len(engine.startReservations))
+	}
+}
+
+func TestProcessRejectsNilContextBeforeControl(t *testing.T) {
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mustCloseEngine(t, engine) })
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := engine.Start(t.Context(), newChildTestDeployment(t), StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nilContext context.Context
+	for name, call := range map[string]func(){
+		"DeliverSignals":       func() { _, _ = process.DeliverSignals(nilContext) },
+		"Pause":                func() { _ = process.Pause(nilContext, "pause") },
+		"Resume":               func() { _ = process.Resume(nilContext) },
+		"Cancel":               func() { _ = process.Cancel(nilContext, "cancel") },
+		"Kill":                 func() { _ = process.Kill(nilContext, "kill") },
+		"ResolveUnknownEffect": func() { _ = process.ResolveUnknownEffect(nilContext, EffectID{}, Settlement{}) },
+		"ReplayUnknownEffect":  func() { _ = process.ReplayUnknownEffect(nilContext, EffectID{}) },
+		"Await":                func() { _, _ = process.Await(nilContext) },
+		"Join":                 func() { _ = process.Join(nilContext) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				cause, ok := recover().(error)
+				if !ok || !errors.Is(cause, ErrNilContext) {
+					t.Fatalf("nil-context panic = %v, want %v", cause, ErrNilContext)
+				}
+			}()
+			call()
+		})
+	}
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("invalid context changed Process outcome to %s", result.Termination().Status())
+	}
+}
+
+func TestResumeRunningProcessReportsInvalidControl(t *testing.T) {
+	definition := &signalWindowDefinition{
+		engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
+		entered:              make(chan int, 1), release: make(chan struct{}),
+	}
+	release := sync.OnceFunc(func() { close(definition.release) })
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		release()
+		mustCloseEngine(t, engine)
+	})
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	input, _ := EncodePayload(engineTestInput{Value: "running"})
+	process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiveTreeRuntimeProbe(t, definition.entered)
+	if err := process.Resume(t.Context()); !errors.Is(err, ErrInvalidProcessControl) {
+		t.Errorf("Resume Running Process error=%v, want ErrInvalidProcessControl", err)
+	}
+	if status := inspectProcessSnapshot(t, process).Status(); status != StatusRunning {
+		t.Errorf("rejected Resume changed status to %s", status)
+	}
+	release()
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("execution after rejected Resume status=%s", result.Termination().Status())
+	}
+}
+
+func TestStepCannotConsumeSignalsThatArriveDuringItsExecution(t *testing.T) {
+	for _, consumed := range []uint32{0, 1} {
+		name := "preserve later input"
+		if consumed == 1 {
+			name = "reject unseen consumption"
+		}
+		t.Run(name, func(t *testing.T) {
+			definition := &signalWindowDefinition{
+				engineTestDefinition: newEngineTestDefinition(t, "engine.effect", "effect"),
+				entered:              make(chan int, 1), release: make(chan struct{}), consumed: consumed,
+			}
+			engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { mustCloseEngine(t, engine) })
+			release := sync.OnceFunc(func() { close(definition.release) })
+			t.Cleanup(release)
+			deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+			input, _ := EncodePayload(engineTestInput{Value: "original"})
+			process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if received := <-definition.entered; received != 0 {
+				t.Fatalf("first Step received %d Signals, want 0", received)
+			}
+			id, _ := ParseSignalID("signal:arrived-during-step")
+			request, _ := NewSignalRequest(id, WaitID{}, []byte(`{}`))
+			if accepted, deliverErr := process.DeliverSignals(t.Context(), request); deliverErr != nil || !accepted {
+				t.Fatalf("concurrent input accepted = %t, error = %v", accepted, deliverErr)
+			}
+			release()
+			result := awaitResult(t, process)
+			wantStatus := StatusCompleted
+			if consumed == 1 {
+				wantStatus = StatusFailed
+				failure, _ := result.Termination().Failure()
+				if failure.Code() != "execution.transition.invalid" {
+					t.Fatalf("invalid consumption failure = %+v", failure)
+				}
+			}
+			if result.Termination().Status() != wantStatus {
+				t.Fatalf("status = %s, want %s", result.Termination().Status(), wantStatus)
+			}
+			snapshot := inspectProcessSnapshot(t, process)
+			wire, err := snapshot.wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wire.Mailbox.SignalCursor != 0 || len(wire.Mailbox.Signals) != 1 || wire.Mailbox.Signals[0].ID != id {
+				t.Fatalf("later input was consumed: %+v", wire.Mailbox)
+			}
+			if consumed == 1 && wire.CommittedSteps != 0 {
+				t.Fatalf("invalid Step committed %d times", wire.CommittedSteps)
+			}
+		})
+	}
+}
+
+type signalWindowDefinition struct {
+	*engineTestDefinition
+	entered  chan int
+	release  chan struct{}
+	consumed uint32
+}
+
+func (s *signalWindowDefinition) Start(input Payload) (Execution, error) {
+	execution, err := s.engineTestDefinition.Start(input)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+func (s *signalWindowDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	execution, err := s.engineTestDefinition.Restore(ctx, state)
+	if err != nil {
+		return nil, err
+	}
+	return &signalWindowExecution{engineTestExecution: execution.(*engineTestExecution), definition: s}, nil
+}
+
+type signalWindowExecution struct {
+	*engineTestExecution
+	definition *signalWindowDefinition
+}
+
+func (s *signalWindowExecution) Step(ctx context.Context, signals []Signal) (Transition, error) {
+	s.definition.entered <- len(signals)
+	select {
+	case <-s.definition.release:
+	case <-ctx.Done():
+		return Transition{}, ctx.Err()
+	}
+	s.state.Phase = "done"
+	output, err := EncodePayload(engineTestOutput{Value: s.state.Value})
+	if err != nil {
+		return Transition{}, err
+	}
+	return Complete(s.definition.consumed, output)
+}
+
+type engineTestInput struct {
+	Value string `json:"value"`
+}
+
+type engineTestOutput struct {
+	Value string `json:"value"`
+}
+
+type engineTestState struct {
+	Phase  string `json:"phase"`
+	Value  string `json:"value"`
+	WaitID string `json:"wait_id,omitempty"`
+}
+
+type engineTestMessage struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value,omitempty"`
+}
+
+type engineTestDefinition struct {
+	descriptor Descriptor
+	mode       string
+}
+
+func TestStartCanceledBeforeSubmissionHasNoAdmissionSideEffects(t *testing.T) {
+	calls := 0
+	engine := controlValue(New(t.Context(), Config{Store: NewMemoryStore(), ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
+		calls++
+		return nil
+	})}))
+	defer mustCloseEngine(t, engine)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	definition := newEngineTestDefinition(t, "test.canceled_start", "complete")
+	process, err := engine.Start(ctx, engineTestDeployment(t, definition, nil), StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: controlValue(EncodePayload(engineTestInput{}))})
+	if process != nil || !errors.Is(err, context.Canceled) || calls != 0 {
+		t.Fatalf("canceled Start process=%v error=%v admission calls=%d", process, err, calls)
+	}
+}
+
+func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinition {
+	t.Helper()
+	inputSchema, err := jsonschema.For[engineTestInput]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputSchema, err := jsonschema.For[engineTestOutput]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signalSchema, err := jsonschema.Parse([]byte("true"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := NewDescriptor(DescriptorConfig{
+		SignalSchema: signalSchema,
+		Name:         name, Description: "Exercises the Engine lifecycle contract.",
+		InputSchema: inputSchema, OutputSchema: outputSchema,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &engineTestDefinition{descriptor: descriptor, mode: mode}
+}
+
+func (e *engineTestDefinition) Descriptor() Descriptor { return e.descriptor }
+
+func (*engineTestDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+
+func (e *engineTestDefinition) Start(input Payload) (Execution, error) {
+	value, err := input.Decode[engineTestInput]()
+	if err != nil {
+		return nil, err
+	}
+	return &engineTestExecution{mode: e.mode, state: engineTestState{Phase: "ready", Value: value.Value}}, nil
+}
+
+func (e *engineTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	value, err := state.Decode[engineTestState](e.descriptor.Name())
+	if err != nil {
+		return nil, err
+	}
+	return &engineTestExecution{mode: e.mode, state: value}, nil
+}
+
+type engineTestExecution struct {
+	mode  string
+	state engineTestState
+}
+
+func (e *engineTestExecution) Step(_ context.Context, signals []Signal) (Transition, error) {
+	switch e.mode {
+	case "effect":
+		return e.stepEffect(signals)
+	case "wait":
+		return e.stepWait(signals)
+	case "batch":
+		return e.stepBatch(signals)
+	case "fail":
+		e.state.Phase = "corrupted"
+		return Transition{}, errors.New("injected Step failure")
+	default:
+		return Transition{}, errors.New("unknown test mode")
+	}
+}
+
+func (e *engineTestExecution) stepBatch(signals []Signal) (Transition, error) {
+	switch e.state.Phase {
+	case "ready":
+		e.state.Phase = "batch"
+		var effects []Effect
+		for _, value := range []string{"first", "second"} {
+			payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "request", Value: value})
+			effect, err := NewDispatcherEffect(payload)
+			if err != nil {
+				return Transition{}, err
+			}
+			effects = append(effects, effect)
+		}
+		return Continue(0, effects...)
+	case "batch":
+		if len(signals) != 2 {
+			return Transition{}, errors.New("batch phase requires two settlement Signals")
+		}
+		first, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
+		if err != nil {
+			return Transition{}, err
+		}
+		second, err := jsonwire.Decode[engineTestMessage](signals[1].Payload())
+		if err != nil {
+			return Transition{}, err
+		}
+		e.state.Phase = "done"
+		output, _ := EncodePayload(engineTestOutput{Value: first.Value + "+" + second.Value})
+		return Complete(2, output)
+	default:
+		return Transition{}, errors.New("batch execution cannot advance")
+	}
+}
+
+func (e *engineTestExecution) stepEffect(signals []Signal) (Transition, error) {
+	switch e.state.Phase {
+	case "ready":
+		if len(signals) != 0 {
+			return Transition{}, errors.New("ready phase expected no Signal")
+		}
+		e.state.Phase = "effect"
+		payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "request", Value: e.state.Value})
+		effect, err := NewDispatcherEffect(payload)
+		if err != nil {
+			return Transition{}, err
+		}
+		return Continue(0, effect)
+	case "effect":
+		if len(signals) == 0 {
+			return Transition{}, errors.New("effect phase requires settlement Signal")
+		}
+		message, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
+		if err != nil {
+			return Transition{}, err
+		}
+		e.state.Phase = "done"
+		output, _ := EncodePayload(engineTestOutput{Value: message.Value})
+		return Complete(1, output)
+	default:
+		return Transition{}, errors.New("effect execution cannot advance")
+	}
+}
+
+func (e *engineTestExecution) stepWait(signals []Signal) (Transition, error) {
+	switch e.state.Phase {
+	case "ready":
+		e.state.Phase = "wait_id"
+		key, _ := ParseWaitKey("approval")
+		effect, err := NewWaitEffect(externalWaitSpecFor(key))
+		if err != nil {
+			return Transition{}, err
+		}
+		return Continue(0, effect)
+	case "wait_id":
+		if len(signals) == 0 {
+			return Transition{}, errors.New("wait identity Signal is required")
+		}
+		waitID, ok := signals[0].WaitID()
+		if !ok {
+			return Transition{}, errors.New("wait identity Signal has no WaitID")
+		}
+		e.state.Phase = "answer"
+		e.state.WaitID = waitID.String()
+		return Wait(1, waitID)
+	case "answer":
+		if len(signals) == 0 {
+			return Transition{}, errors.New("answer Signal is required")
+		}
+		waitID, _ := signals[0].WaitID()
+		if waitID.String() != e.state.WaitID {
+			return Transition{}, errors.New("answer addressed another wait")
+		}
+		message, err := jsonwire.Decode[engineTestMessage](signals[0].Payload())
+		if err != nil {
+			return Transition{}, err
+		}
+		e.state.Phase = "done"
+		output, _ := EncodePayload(engineTestOutput{Value: message.Value})
+		return Complete(1, output)
+	default:
+		return Transition{}, errors.New("wait execution cannot advance")
+	}
+}
+
+func (e *engineTestExecution) Snapshot() (ExecutionState, error) {
+	payload, err := jsonv2.Marshal(e.state)
+	if err != nil {
+		return ExecutionState{}, err
+	}
+	name := "engine.effect"
+	switch e.mode {
+	case "wait":
+		name = "engine.wait"
+	case "fail":
+		name = "engine.fail"
+	case "batch":
+		name = "engine.batch"
+	}
+	return ParseExecutionState(name, payload)
+}
+
+type engineTestDispatcher struct {
+	policy   ReplayPolicy
+	required CapabilitySet
+	calls    atomic.Int32
+	started  chan struct{}
+	block    <-chan struct{}
+	check    func() error
+	deltas   int
+}
+
+func (e *engineTestDispatcher) Dispatch(
+	_ context.Context,
+	request EffectRequest,
+	emit DeltaEmitter,
+) (Settlement, error) {
+	e.calls.Add(1)
+	if e.started != nil {
+		e.started <- struct{}{}
+	}
+	if e.check != nil {
+		if err := e.check(); err != nil {
+			return Settlement{}, err
+		}
+	}
+	if e.block != nil {
+		<-e.block
+	}
+	message, err := jsonwire.Decode[engineTestMessage](request.Effect().Payload())
+	if err != nil {
+		return Settlement{}, err
+	}
+	delta, _ := jsonv2.Marshal(engineTestMessage{Kind: "delta", Value: message.Value})
+	count := e.deltas
+	if count == 0 {
+		count = 1
+	}
+	for range count {
+		if emit != nil {
+			emit(delta)
+		}
+	}
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value + ":done"})
+	return NewSettlement(SettlementStatusSucceeded, payload)
+}
+
+func (e *engineTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: e.policy, RequiredCapabilities: e.required}
+}
+
+type failingEngineTestDispatcher struct {
+	calls atomic.Int32
+}
+
+type partialBatchDispatcher struct {
+	calls atomic.Int32
+}
+
+func (p *partialBatchDispatcher) Dispatch(
+	_ context.Context,
+	request EffectRequest,
+	_ DeltaEmitter,
+) (Settlement, error) {
+	p.calls.Add(1)
+	message, err := jsonwire.Decode[engineTestMessage](request.Effect().Payload())
+	if err != nil {
+		return Settlement{}, err
+	}
+	if request.BatchIndex() == 1 {
+		return Settlement{}, errors.New("second Effect result is unknown")
+	}
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: message.Value})
+	return NewSettlement(SettlementStatusSucceeded, payload)
+}
+
+func (*partialBatchDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
+
+func (f *failingEngineTestDispatcher) Dispatch(
+	context.Context,
+	EffectRequest,
+	DeltaEmitter,
+) (Settlement, error) {
+	f.calls.Add(1)
+	return Settlement{}, errors.New("external result is unknown")
+}
+
+func (*failingEngineTestDispatcher) Policy(Effect) EffectPolicy {
+	return EffectPolicy{Replay: ReplayPolicyNever}
+}
+
+func TestEngineRunsEffectToValidatedOutput(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "hello"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Valid() || result.Termination().Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
+		t.Fatalf("result=%+v calls=%d", result, dispatcher.calls.Load())
+	}
+	output, ok := result.Termination().Output()
+	if !ok {
+		t.Fatal("completed result has no Output")
+	}
+	value, err := output.Decode[engineTestOutput]()
+	if err != nil || value.Value != "hello:done" {
+		t.Fatalf("output=%+v err=%v", value, err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEngineMintsWaitIDAndRequiresAddressedAnswer(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "question"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, process, StatusWaiting)
+	waitID, ok := inspectProcessSnapshot(t, process).WaitID()
+	if !ok {
+		t.Fatal("Waiting Process did not expose Engine-minted WaitID")
+	}
+	plainID, _ := ParseSignalID("signal:plain")
+	plain, _ := NewSignalRequest(plainID, WaitID{}, json.RawMessage(`{"kind":"answer","value":"wrong"}`))
+	if _, deliverSignalErr := process.DeliverSignals(context.Background(), plain); !errors.Is(deliverSignalErr, ErrSignalRejected) {
+		t.Fatalf("unaddressed answer error=%v", deliverSignalErr)
+	}
+	answerID, _ := ParseSignalID("signal:answer")
+	answer, _ := NewSignalRequest(answerID, waitID, json.RawMessage(`{"kind":"answer","value":"approved"}`))
+	accepted, err := process.DeliverSignals(context.Background(), answer)
+	if err != nil || !accepted {
+		t.Fatalf("answer accepted=%t err=%v", accepted, err)
+	}
+	result := awaitResult(t, process)
+	output, _ := result.Termination().Output()
+	value, _ := output.Decode[engineTestOutput]()
+	if value.Value != "approved" {
+		t.Fatalf("output=%q", value.Value)
+	}
+}
+
+func TestEngineCommitsPendingTreeBeforeDispatch(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	committer := &recordingTreeCommitter{}
+	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
+	dispatcher.check = func() error {
+		if !committer.pending.Load() {
+			return errors.New("dispatch happened before pending tree commit")
+		}
+		return nil
+	}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, err := New(t.Context(), Config{Store: committer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "durable"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	boundaries := committer.effectBoundaries()
+	if len(boundaries) < 2 || boundaries[0].Kind() != EffectBoundaryKindPending ||
+		boundaries[1].Kind() != EffectBoundaryKindSettled {
+		t.Fatalf("Effect boundaries = %#v", boundaries)
+	}
+	processSnapshots := boundaries[0].TreeSnapshot().ProcessSnapshots()
+	wire, err := processSnapshots[0].wire()
+	if err != nil || wire.Prepared == nil ||
+		wire.Prepared.Effects[0].phase() != effectPhasePending {
+		t.Fatalf("pending boundary does not contain pending Effect: %v", err)
+	}
+}
+
+func TestUnknownSettlementRequiresExplicitResolutionAndSurvivesRestore(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	dispatcher := &failingEngineTestDispatcher{}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "uncertain"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitForUnknownSettlement(t, process)
+	wire, _ := snapshot.wire()
+	effectID := wire.Prepared.Effects[0].ID
+	diagnostic, present := snapshot.EffectDiagnostic(effectID)
+	if !present || diagnostic.Code() != "engine.dispatch.failed" {
+		t.Fatalf("diagnostic without listener = %+v, %t", diagnostic, present)
+	}
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	restoredEngine, _ := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+	restored, err := restoredEngine.Recover(context.Background(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredSnapshot := inspectProcessSnapshot(t, restored)
+	restoredDiagnostic, present := restoredSnapshot.EffectDiagnostic(effectID)
+	if !present || restoredDiagnostic != diagnostic {
+		t.Fatal("tree restoration lost dispatch diagnostic")
+	}
+	unknown := restoredSnapshot.UnknownEffectIDs()
+	if len(unknown) != 1 || unknown[0] != effectID {
+		t.Fatalf("unknown Effects=%v", unknown)
+	}
+	if dispatcher.calls.Load() != 1 {
+		t.Fatalf("ReplayPolicyNever dispatcher calls=%d, want 1", dispatcher.calls.Load())
+	}
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "resolved"})
+	settlement, _ := NewSettlement(SettlementStatusSucceeded, payload)
+	if err := restored.ResolveUnknownEffect(context.Background(), unknown[0], settlement); err != nil {
+		t.Fatal(err)
+	}
+	result := awaitResult(t, restored)
+	output, _ := result.Termination().Output()
+	value, _ := output.Decode[engineTestOutput]()
+	if value.Value != "resolved" {
+		t.Fatalf("resolved output=%q", value.Value)
+	}
+	_ = process.Kill(context.Background(), "test cleanup")
+	_ = awaitResult(t, process)
+}
+
+func TestPartialEffectBatchPreservesSettlementsAndDeclarationOrder(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.batch", "batch")
+	dispatcher := &partialBatchDispatcher{}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "batch"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := waitForUnknownSettlement(t, process)
+	wire, _ := snapshot.wire()
+	if len(wire.Prepared.Effects) != 2 || wire.Prepared.Effects[0].settlement() == nil ||
+		wire.Prepared.Effects[0].settlement().Status() != SettlementStatusSucceeded ||
+		wire.Prepared.Effects[1].settlement() == nil ||
+		wire.Prepared.Effects[1].settlement().Status() != SettlementStatusUnknown {
+		t.Fatalf("prepared batch=%+v", wire.Prepared.Effects)
+	}
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine, _ := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+	restored, err := restoredEngine.Recover(context.Background(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := inspectProcessSnapshot(t, restored).UnknownEffectIDs()
+	if len(unknown) != 1 || unknown[0] != wire.Prepared.Effects[1].ID {
+		t.Fatalf("unknown Effects=%v", unknown)
+	}
+	if dispatcher.calls.Load() != 2 {
+		t.Fatalf("dispatcher calls=%d, want 2", dispatcher.calls.Load())
+	}
+	payload, _ := jsonv2.Marshal(engineTestMessage{Kind: "result", Value: "second"})
+	settlement, _ := NewSettlement(SettlementStatusSucceeded, payload)
+	if err := restored.ResolveUnknownEffect(context.Background(), unknown[0], settlement); err != nil {
+		t.Fatal(err)
+	}
+	result := awaitResult(t, restored)
+	output, _ := result.Termination().Output()
+	value, _ := output.Decode[engineTestOutput]()
+	if value.Value != "first+second" {
+		t.Fatalf("ordered batch output=%q", value.Value)
+	}
+	_ = process.Kill(context.Background(), "test cleanup")
+	_ = awaitResult(t, process)
+}
+
+func TestPausedProcessCapturesRestoresAndResumesAtSafeBoundary(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	release := make(chan struct{})
+	dispatcher := &engineTestDispatcher{
+		policy:  ReplayPolicySameIdentity,
+		started: make(chan struct{}, 1),
+		block:   release,
+	}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "paused"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-dispatcher.started
+	if pauseErr := process.Pause(context.Background(), "operator inspection"); pauseErr != nil {
+		t.Fatal(pauseErr)
+	}
+	if inspectProcessSnapshot(t, process).Status() == StatusPaused {
+		t.Fatal("Pause became visible before the in-flight Effect settled")
+	}
+	close(release)
+	waitForStatus(t, process, StatusPaused)
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredEngine, _ := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+	restored, err := restoredEngine.Recover(context.Background(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspectProcessSnapshot(t, restored).Status() != StatusPaused {
+		t.Fatalf("restored status=%s", inspectProcessSnapshot(t, restored).Status())
+	}
+	if err := restored.Resume(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	result := awaitResult(t, restored)
+	if result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
+	}
+	_ = process.Kill(context.Background(), "test cleanup")
+	_ = awaitResult(t, process)
+}
+
+func TestWaitingProcessRestoresWithSameWaitIdentity(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	budget := Budget{Steps: NewQuota(3), Effects: NewQuota(1), Signals: NewQuota(2)}
+	treeLimits := TreeLimits{MaxPendingSignals: 2}
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore(), Budget: budget, TreeLimits: treeLimits})
+	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
+	input, _ := EncodePayload(engineTestInput{Value: "question"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, process, StatusWaiting)
+	waitID, _ := inspectProcessSnapshot(t, process).WaitID()
+	tree, err := engine.CaptureTree(context.Background(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := &recordingEventListener{}
+	restoredEngine, _ := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree),
+		Budget:         budget,
+		TreeLimits:     treeLimits,
+		EventListeners: []EventListener{listener},
+	})
+	t.Cleanup(func() { _ = restoredEngine.Close(context.WithoutCancel(t.Context())) })
+	restored, err := restoredEngine.Recover(context.Background(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredWaitID, ok := inspectProcessSnapshot(t, restored).WaitID()
+	if !ok || restoredWaitID != waitID {
+		t.Fatalf("restored WaitID=%s want=%s", restoredWaitID, waitID)
+	}
+	answerID, _ := ParseSignalID("signal:restored-answer")
+	answer, _ := NewSignalRequest(answerID, restoredWaitID, json.RawMessage(`{"kind":"answer","value":"restored"}`))
+	for _, continued := range []*Handle[Payload]{process, restored} {
+		before := inspectProcessSnapshot(t, continued).Usage()
+		if accepted, err := continued.DeliverSignals(t.Context(), answer, answer); !errors.Is(err, ErrSignalConflict) || accepted {
+			t.Fatalf("duplicate batch accepted=%t error=%v", accepted, err)
+		}
+		if currentWait, ok := inspectProcessSnapshot(t, continued).WaitID(); !ok || currentWait != waitID || inspectProcessSnapshot(t, continued).Usage() != before {
+			t.Fatalf("rejected batch changed wait or usage: wait=%s usage=%+v", currentWait, inspectProcessSnapshot(t, continued).Usage())
+		}
+		if accepted, err := continued.DeliverSignals(t.Context(), answer); err != nil || !accepted {
+			t.Fatalf("accepted=%t err=%v", accepted, err)
+		}
+		result := awaitResult(t, continued)
+		wantUsage := Usage{CommittedSteps: 3, PreparedEffects: 1, AcceptedSignals: 2}
+		output, present := result.Termination().Output()
+		if result.Termination().Status() != StatusCompleted || result.Usage() != wantUsage ||
+			!present || string(output.JSON()) != `{"value":"restored"}` {
+			t.Fatalf("continued result status=%s usage=%+v output=%s", result.Termination().Status(), result.Usage(), output.JSON())
+		}
+		if _, waiting := inspectProcessSnapshot(t, continued).WaitID(); waiting {
+			t.Fatal("completed Process retained its current wait")
+		}
+	}
+	var accepted SignalAccepted
+	if err := restoredEngine.FlushObservations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range listener.snapshot() {
+		if fact, ok := event.SignalAccepted(); ok {
+			accepted = fact
+		}
+	}
+	acceptedWaitID, addressed := accepted.WaitID()
+	if !accepted.Valid() || accepted.SignalID() != answerID ||
+		!addressed || acceptedWaitID != restoredWaitID {
+		t.Fatalf(
+			"accepted Signal fact: id=%s wait=%s addressed=%t",
+			accepted.SignalID(), acceptedWaitID, addressed,
+		)
+	}
+}
+
+func TestRestoredPreparedEffectReplaysOnlyWithSameIdentityPolicy(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	committer := &recordingTreeCommitter{}
+	dispatcher := &engineTestDispatcher{policy: ReplayPolicySameIdentity}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: committer})
+	input, _ := EncodePayload(engineTestInput{Value: "replay"})
+	if _, err := observeOutcome(context.Background(), engine, deployment, input); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := committer.effectBoundaries()[0].TreeSnapshot().ProcessSnapshots()[0]
+	tree := singleProcessTreeSnapshot(t, snapshot)
+	restoredEngine, _ := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+	restored, err := restoredEngine.Recover(context.Background(), deployment, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := awaitResult(t, restored); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result status=%s", result.Termination().Status())
+	}
+	if dispatcher.calls.Load() != 2 {
+		t.Fatalf("same-identity dispatcher calls=%d, want 2", dispatcher.calls.Load())
+	}
+}
+
+func TestRestoreDistinguishesPlannedFromPendingEffect(t *testing.T) {
+	prepared := preparedEngineTestSnapshot(t)
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+
+	t.Run("planned dispatches even under never-replay policy", func(t *testing.T) {
+		dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
+		deployment := engineTestDeployment(t, definition, dispatcher)
+		tree := singleProcessTreeSnapshot(t, prepared)
+		engine, err := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := engine.Recover(
+			context.Background(), deployment, tree,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result := awaitResult(t, restored); result.Termination().Status() != StatusCompleted {
+			t.Fatalf("result status = %s", result.Termination().Status())
+		}
+		if calls := dispatcher.calls.Load(); calls != 1 {
+			t.Fatalf("planned Effect dispatch calls = %d, want 1", calls)
+		}
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("pending becomes unknown under never-replay policy", func(t *testing.T) {
+		wire, err := prepared.wire()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if beginErr := wire.Prepared.Effects[0].begin(); beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		pending, err := newProcessSnapshot(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever}
+		deployment := engineTestDeployment(t, definition, dispatcher)
+		tree := singleProcessTreeSnapshot(t, pending)
+		engine, err := New(t.Context(), Config{Store: newSnapshotTestCommitter(tree)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := engine.Recover(
+			context.Background(), deployment, tree,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unknown := waitForUnknownSettlement(t, restored).UnknownEffectIDs()
+		if len(unknown) != 1 {
+			t.Fatalf("unknown Effects = %v", unknown)
+		}
+		if calls := dispatcher.calls.Load(); calls != 0 {
+			t.Fatalf("pending never-replay dispatch calls = %d, want 0", calls)
+		}
+		if err := restored.Kill(context.Background(), "test cleanup"); err != nil {
+			t.Fatal(err)
+		}
+		_ = awaitResult(t, restored)
+		if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestStartContextCancellationMapsToHostCancellation(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	ctx, cancel := context.WithCancel(context.Background())
+	input, _ := EncodePayload(engineTestInput{Value: "cancel"})
+	process, err := engine.startTree(ctx, ctx, deployment, input, StartID{Scope: "test", Key: startrand.Text()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, process, StatusWaiting)
+	cancel()
+	result := awaitResult(t, process)
+	if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
+		t.Fatalf("termination=%+v", result.Termination())
+	}
+}
+
+func TestRequestCancellationReturnsAfterSubmissionAndSurvivesContextCancellation(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	release := make(chan struct{})
+	dispatcher := &engineTestDispatcher{
+		policy:  ReplayPolicyNever,
+		started: make(chan struct{}, 1),
+		block:   release,
+	}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "cancel after submission"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-dispatcher.started
+
+	requestCtx, cancelRequest := context.WithTimeout(context.Background(), time.Second)
+	if err := process.Cancel(requestCtx, "operator canceled the Process"); err != nil {
+		t.Fatal(err)
+	}
+	cancelRequest()
+	if inspectProcessSnapshot(t, process).Status().Terminal() {
+		t.Fatal("cancellation became terminal before the in-flight Effect settled")
+	}
+
+	close(release)
+	result := awaitResult(t, process)
+	if result.Termination().Status() != StatusCanceled || result.Termination().Cause() != TerminationCauseHostCancellation {
+		t.Fatalf("termination=%+v", result.Termination())
+	}
+}
+
+func TestRequestCancellationRejectsAnAlreadyCanceledSubmissionContext(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "remain waiting"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, process, StatusWaiting)
+
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	cancelRequest()
+	if err := process.Cancel(requestCtx, "must not enter the queue"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RequestCancellation error=%v, want context.Canceled", err)
+	}
+	if inspectProcessSnapshot(t, process).Status() != StatusWaiting {
+		t.Fatalf("status=%s, want waiting", inspectProcessSnapshot(t, process).Status())
+	}
+
+	if err := process.Kill(context.Background(), "test cleanup"); err != nil {
+		t.Fatal(err)
+	}
+	_ = awaitResult(t, process)
+}
+
+func TestKillWaitsForInflightEffectSettlement(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	release := make(chan struct{})
+	dispatcher := &engineTestDispatcher{
+		policy:  ReplayPolicyNever,
+		started: make(chan struct{}, 1),
+		block:   release,
+	}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "slow"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-dispatcher.started
+	if err := process.Kill(context.Background(), "operator requested stop"); err != nil {
+		t.Fatal(err)
+	}
+	if inspectProcessSnapshot(t, process).Status().Terminal() {
+		t.Fatal("Kill abandoned an in-flight Effect")
+	}
+	close(release)
+	result := awaitResult(t, process)
+	if result.Termination().Status() != StatusKilled || result.Termination().Cause() != TerminationCauseEngineKill {
+		t.Fatalf("termination=%+v", result.Termination())
+	}
+}
+
+func TestStepFailureDiscardsMutatedExecutionAndPreservesCursor(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.fail", "fail")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	listener := &recordingEventListener{}
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore(), EventListeners: []EventListener{listener}})
+	input, _ := EncodePayload(engineTestInput{Value: "stable"})
+	process, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := awaitResult(t, process)
+	if result.Termination().Status() != StatusFailed || result.Termination().Cause() != TerminationCauseExecutionFailure {
+		t.Fatalf("termination=%+v", result.Termination())
+	}
+	snapshot := inspectProcessSnapshot(t, process)
+	wire, _ := snapshot.wire()
+	state, _ := jsonwire.Decode[engineTestState](wire.CommittedExecutionState.Payload())
+	if state.Phase != "ready" || wire.Mailbox.SignalCursor != 0 || wire.Prepared != nil {
+		t.Fatalf("committed execution state=%+v cursor=%d prepared=%v", state, wire.Mailbox.SignalCursor, wire.Prepared)
+	}
+	var finished ProcessFinished
+	if err := engine.FlushObservations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range listener.snapshot() {
+		if event.Name() == EventProcessFinished {
+			var ok bool
+			finished, ok = event.ProcessFinished()
+			if !ok {
+				t.Fatalf("finished event payload = %s", event.Payload())
+			}
+		}
+	}
+	classification, failed := finished.Failure()
+	if !failed || classification.Kind() != FailureKindExecution || classification.Code() != "execution.step.failed" {
+		t.Fatalf("finished failure = %+v present=%t", classification, failed)
+	}
+	if finished.Usage() != result.Usage() {
+		t.Fatalf("finished usage = %+v, result usage = %+v", finished.Usage(), result.Usage())
+	}
+}
+
+func TestEngineEnforcesStepLimitAndReportsMonotonicUsage(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(), Budget: Budget{Steps: NewQuota(1), Effects: NewQuota(1), Signals: NewQuota(1)}, TreeLimits: TreeLimits{MaxPendingSignals: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "bounded"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Termination().Status() != StatusFailed {
+		t.Fatalf("status=%s", result.Termination().Status())
+	}
+	failure, ok := result.Termination().Failure()
+	if !ok || failure.Code() != "engine.limit.steps" {
+		t.Fatalf("failure=%+v", failure)
+	}
+	usage := result.Usage()
+	if usage.CommittedSteps != 1 || usage.PreparedEffects != 1 || usage.AcceptedSignals != 1 {
+		t.Fatalf("usage=%+v", usage)
+	}
+}
+
+func TestEngineSeparatesCapacityFromCumulativeQuota(t *testing.T) {
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		Budget:     Budget{Signals: NewQuota(1)},
+		TreeLimits: TreeLimits{MaxChildren: NewQuota(1), MaxActiveChildren: 2, MaxPendingSignals: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustCloseEngine(t, engine)
+}
+
+type recordingEventListener struct {
+	mu     sync.Mutex
+	events []Event
+	panic  bool
+}
+
+func (r *recordingEventListener) snapshot() []Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]Event(nil), r.events...)
+}
+
+func (r *recordingEventListener) OnEvent(_ context.Context, event Event) {
+	r.mu.Lock()
+	r.events = append(r.events, event)
+	shouldPanic := r.panic
+	r.mu.Unlock()
+	if shouldPanic {
+		panic("observer failure")
+	}
+}
+
+type blockingDeltaListener struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingDeltaListener) OnDelta(context.Context, Delta) {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+}
+
+func TestDeltaBufferDropsAreObservableAndListenerPanicIsIsolated(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, deltas: 100}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	events := &recordingEventListener{panic: true}
+	deltas := &blockingDeltaListener{entered: make(chan struct{}), release: make(chan struct{})}
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		EventListeners: []EventListener{events}, DeltaListeners: []DeltaListener{deltas}, DeltaBufferCapacity: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "stream"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	close(deltas.release)
+	if err := engine.FlushObservations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var dropped DeltaDropped
+	for _, event := range events.snapshot() {
+		if fact, ok := event.DeltaDropped(); ok {
+			dropped = fact
+		}
+	}
+	if result.Usage().DroppedDeltas == 0 || !dropped.Valid() ||
+		dropped.Count() != result.Usage().DroppedDeltas {
+		t.Fatalf("usage=%+v dropped fact=%d", result.Usage(), dropped.Count())
+	}
+	loss := engine.ObservationFailures()
+	if n, registered := loss.DeltaListenerDrops(0); !registered || n != result.Usage().DroppedDeltas {
+		t.Fatalf("registered listener loss=%d exists=%v, host usage=%d", n, registered, result.Usage().DroppedDeltas)
+	}
+	if _, registered := loss.DeltaListenerDrops(1); registered {
+		t.Fatal("fabricated loss for a nonexistent consumer")
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFlushObservationsWaitsForAcceptedListenerDelivery(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	dispatcher := &engineTestDispatcher{policy: ReplayPolicyNever, deltas: 2}
+	deployment := engineTestDeployment(t, definition, dispatcher)
+	deltas := &blockingDeltaListener{entered: make(chan struct{}), release: make(chan struct{})}
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		DeltaListeners: []DeltaListener{deltas}, DeltaBufferCapacity: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "stream"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	<-deltas.entered
+	flushed := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		flushed <- engine.FlushObservations(ctx)
+	}()
+	select {
+	case err := <-flushed:
+		t.Fatalf("FlushObservations returned before the listener: %v", err)
+	default:
+	}
+	close(deltas.release)
+	if err := <-flushed; err != nil {
+		t.Fatalf("FlushObservations: %v", err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEventLifecycleCarriesExactBindingAndAttemptDurations(t *testing.T) {
+	definition := newEngineTestDefinition(t, "engine.effect", "effect")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	listener := &recordingEventListener{}
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(), EventListeners: []EventListener{listener}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(engineTestInput{Value: "events"})
+	result, err := observeOutcome(context.Background(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	events := listener.snapshot()
+	wantNames := []string{
+		EventProcessStarted,
+		EventStepStarted, EventStepFinished, EventStepPrepared,
+		EventEffectStarted, EventEffectFinished,
+		EventStepStarted, EventStepFinished, EventStepPrepared, EventStepCommitted, EventStepCommitted,
+		EventProcessFinished,
+	}
+	assertEventSequence(t, events, wantNames)
+	assertEventEnvelopes(t, events, result, deployment)
+	assertEventPayloads(t, events, result)
+}
+
+func assertEventSequence(t *testing.T, events []Event, wantNames []string) {
+	t.Helper()
+	if len(events) != len(wantNames) {
+		t.Fatalf("events = %d, want %d: %#v", len(events), len(wantNames), eventNames(events))
+	}
+	for index, event := range events {
+		if event.Name() != wantNames[index] {
+			t.Fatalf("event[%d] = %q, want %q", index, event.Name(), wantNames[index])
+		}
+	}
+}
+
+func assertEventEnvelopes(t *testing.T, events []Event, result Result[Payload], deployment Program[Payload, Payload]) {
+	t.Helper()
+	for index, event := range events {
+		if event.ProcessSequence() != uint64(index+1) || event.Relation().ProcessID() != result.ProcessID() ||
+			event.ProgramRef() != deployment.ProgramRef() ||
+			event.Relation().ProcessID() != result.ProcessID() || !event.Relation().IsRoot() {
+			t.Fatalf("event[%d] envelope = %+v", index, event)
+		}
+	}
+}
+
+func assertEventPayloads(t *testing.T, events []Event, result Result[Payload]) {
+	t.Helper()
+	for _, event := range events {
+		if !validEventPayload(event, result) {
+			t.Fatalf("event %q payload = %s", event.Name(), event.Payload())
+		}
+	}
+}
+
+func validEventPayload(event Event, result Result[Payload]) bool {
+	switch event.Name() {
+	case EventEffectStarted:
+		fact, ok := event.EffectStarted()
+		return ok && fact.Target() == EffectTargetDispatcher
+	case EventStepFinished:
+		fact, ok := event.StepFinished()
+		return ok && fact.WorkDuration() >= 0 && fact.AdoptionDelay() >= 0 && fact.Status() == StepStatusSucceeded
+	case EventEffectFinished:
+		fact, ok := event.EffectFinished()
+		return ok && fact.Duration() >= 0 && fact.SettlementStatus() == SettlementStatusSucceeded &&
+			fact.Target() == EffectTargetDispatcher
+	case EventStepCommitted:
+		fact, ok := event.StepCommitted()
+		return ok && fact.Valid()
+	case EventProcessFinished:
+		fact, ok := event.ProcessFinished()
+		return ok && fact.Status() == StatusCompleted &&
+			fact.Cause() == TerminationCauseCompletion && fact.Usage() == result.Usage()
+	default:
+		return true
+	}
+}
+
+func TestFrameworkEffectPublishesTheSameLifecycleContract(t *testing.T) {
+	deployment := newChildTestDeployment(t)
+	listener := &recordingEventListener{}
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(), EventListeners: []EventListener{listener}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(childTestInput{Mode: "parent"})
+	root, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := childTestResult(t, mustAwait(t, root))
+	if len(output.ChildIDs) != 1 {
+		t.Fatalf("root output = %#v", output)
+	}
+	childID, _ := ParseProcessID(output.ChildIDs[0])
+	child, _ := engine.Process(childID)
+	_ = mustAwait(t, child)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+	var started, finished bool
+	for _, event := range listener.snapshot() {
+		if event.Relation().ProcessID() != root.Relation().ProcessID() ||
+			(event.Name() != EventEffectStarted && event.Name() != EventEffectFinished) {
+			continue
+		}
+		switch event.Name() {
+		case EventEffectStarted:
+			fact, ok := event.EffectStarted()
+			started = ok && fact.Target() == EffectTargetFramework
+		case EventEffectFinished:
+			fact, ok := event.EffectFinished()
+			finished = ok && fact.Target() == EffectTargetFramework
+		}
+	}
+	if !started || !finished {
+		t.Fatalf("Framework Effect lifecycle started=%t finished=%t", started, finished)
+	}
+}
+
+func eventNames(events []Event) []string {
+	names := make([]string, len(events))
+	for index, event := range events {
+		names[index] = event.Name()
+	}
+	return names
+}
+
+func engineTestDeployment(t testing.TB, definition Definition, dispatcher Dispatcher) Program[Payload, Payload] {
+	t.Helper()
+	deployment, err := Bind[Payload, Payload](BindingConfig{
+		Definition: definition, Dispatcher: dispatcher,
+		ImplementationDigest: ComputeDigest([]byte(definition.Descriptor().Name() + ":implementation")),
+		ConfigurationDigest:  ComputeDigest([]byte(definition.Descriptor().Name() + ":configuration")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deployment
+}
+
+func awaitResult(t *testing.T, process *Handle[Payload]) Result[Payload] {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := process.Await(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func waitForStatus(t testing.TB, process *Handle[Payload], want Status) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	for {
+		snapshot := inspectProcessSnapshot(t, process)
+		if snapshot.Status() == want {
+			return
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("Process status=%s, want %s: %v", snapshot.Status(), want, err)
+		}
+		runtime.Gosched()
+	}
+}
+
+func waitForUnknownSettlement(t testing.TB, process *Handle[Payload]) ProcessSnapshot {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	return waitForUnknownSettlementContext(ctx, t, process)
+}
+
+func waitForUnknownSettlementContext(ctx context.Context, t testing.TB, process *Handle[Payload]) ProcessSnapshot {
+	t.Helper()
+	for {
+		snapshot, err := inspectProcessSnapshotContext(ctx, process)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(snapshot.UnknownEffectIDs()) != 0 {
+			return snapshot
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("Process did not expose an Unknown settlement: %v", err)
+		}
+		runtime.Gosched()
+	}
+}
+
+func singleProcessTreeSnapshot(t *testing.T, snapshot ProcessSnapshot) TreeSnapshot {
+	t.Helper()
+	tree, err := newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: newTreeIncarnationID(),
+		ProcessSnapshots: []ProcessSnapshot{snapshot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tree
+}
+
+func TestCanceledControlDoesNotEnterTheRuntime(t *testing.T) {
+	release := make(chan struct{})
+	dispatcher := &engineTestDispatcher{
+		policy: ReplayPolicyNever, started: make(chan struct{}, 1), block: release,
+	}
+	deployment := engineTestDeployment(t, newEngineTestDefinition(t, "engine.effect", "effect"), dispatcher)
+	engine, _ := New(t.Context(), Config{Store: NewMemoryStore()})
+	input, _ := EncodePayload(engineTestInput{Value: "complete normally"})
+	process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-dispatcher.started
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for range 64 {
+		if err := process.Kill(ctx, "must not be admitted"); !errors.Is(err, context.Canceled) {
+			t.Errorf("Kill error=%v, want context.Canceled", err)
+		}
+	}
+	close(release)
+	result := awaitResult(t, process)
+	if result.Termination().Status() != StatusCompleted {
+		t.Errorf("already canceled control changed result to %s", result.Termination().Status())
+	}
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}

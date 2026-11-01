@@ -36,7 +36,7 @@ func TestConfigMetadataAppliedToEveryDocument(t *testing.T) {
 }
 
 func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
-	for _, key := range []string{markdown.MetadataHeading, markdown.MetadataHeadingLevel, markdown.MetadataHeadingPath, markdown.MetadataSourceName} {
+	for _, key := range []string{markdown.MetadataHeading, markdown.MetadataHeadingLevel, markdown.MetadataHeadingPath} {
 		for _, level := range []int{0, 1} {
 			reader, err := markdown.NewReader(strings.NewReader("Content without a heading"), markdown.ReaderConfig{
 				HeadingSplitLevel: level, Metadata: mustMetadata(t, map[string]any{key: "forged"}),

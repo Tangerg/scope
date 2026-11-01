@@ -4,6 +4,7 @@ import (
 	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -132,12 +133,14 @@ func TestLocalExecutor_OutputCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(out.Stdout) > 200 {
-		t.Errorf("Stdout length %d, expected ~100 + small marker", len(out.Stdout))
+	var written bytes.Buffer
+	for i := 1; i <= 1000; i++ {
+		fmt.Fprintf(&written, "line %d\n", i)
 	}
-	if !bytes.Contains(out.Stdout, []byte("truncated")) {
-		t.Errorf("Stdout missing truncation marker: %q", out.Stdout)
+	if !bytes.Equal(out.Stdout, written.Bytes()[:100]) || out.StdoutDroppedBytes != uint64(written.Len()-100) {
+		t.Fatalf("stdout prefix %q, dropped %d bytes", out.Stdout, out.StdoutDroppedBytes)
 	}
+
 }
 
 func TestTool_Definition(t *testing.T) {
@@ -216,12 +219,8 @@ func TestBoundedBuffer_Truncates(t *testing.T) {
 	if n != len(payload) {
 		t.Errorf("Write returned %d, want %d (must pretend full write to keep pipe alive)", n, len(payload))
 	}
-	out := b.finalize()
-	if !bytes.Contains(out, []byte("truncated")) {
-		t.Errorf("finalize() missing marker: %q", out)
-	}
-	if b.dropped == 0 {
-		t.Error("dropped = 0, want > 0")
+	if !bytes.Equal(b.buf.Bytes(), payload[:10]) || b.dropped != uint64(len(payload)-10) {
+		t.Fatalf("captured %q; omitted %d bytes", b.buf.Bytes(), b.dropped)
 	}
 }
 
@@ -230,11 +229,7 @@ func TestBoundedBuffer_NoTruncation(t *testing.T) {
 	if _, err := b.Write([]byte("short")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	out := b.finalize()
-	if string(out) != "short" {
-		t.Errorf("finalize() = %q, want %q", out, "short")
-	}
-	if bytes.Contains(out, []byte("truncated")) {
-		t.Error("finalize() unexpectedly contains truncation marker")
+	if b.buf.String() != "short" || b.dropped != 0 {
+		t.Fatalf("captured %q; omitted %d bytes", b.buf.Bytes(), b.dropped)
 	}
 }

@@ -4,12 +4,12 @@ import (
 	"reflect"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 // AssertNoProcessAuthority checks that a Strategy's retained types and ports
 // cannot own or control managed Processes. Names and source files do not confer
-// authority; Engine, Process, committer, and resolution capabilities do.
+// authority; Runtime, Process, committer, and resolution capabilities do.
 func AssertNoProcessAuthority(t *testing.T, value reflect.Type) {
 	t.Helper()
 	if path := processAuthorityPath(value, make(map[reflect.Type]bool)); path != "" {
@@ -18,10 +18,10 @@ func AssertNoProcessAuthority(t *testing.T, value reflect.Type) {
 }
 
 var processAuthorityTypes = map[reflect.Type]bool{
-	reflect.TypeFor[agent.Engine]():             true,
-	reflect.TypeFor[agent.Process]():            true,
-	reflect.TypeFor[agent.TreeCommitter]():      true,
-	reflect.TypeFor[agent.DeploymentResolver](): true,
+	reflect.TypeFor[run.Runtime]():             true,
+	reflect.TypeFor[run.Handle[run.Payload]](): true,
+	reflect.TypeFor[run.Store]():               true,
+	reflect.TypeFor[run.ProgramResolver]():     true,
 }
 
 func processAuthorityPath(value reflect.Type, seen map[reflect.Type]bool) string {

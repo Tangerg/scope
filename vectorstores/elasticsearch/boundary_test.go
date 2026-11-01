@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,8 +19,8 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 	for _, fault := range []string{"timeout", "missing shards", "failed shard", "missing total", "missing hits", "missing source", "missing metadata", "shadow metadata", "missing vector", "missing tokens", "routing", "wrong index", "wrong membership", "repeated ID", "missing score", "bad score", "late corrupt hit"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 1)
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+			store := fixture.store()
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 				t.Fatal(err)
 			}
 			hit := fixture.hit("one")
@@ -85,7 +86,7 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 			if fault == "wrong membership" {
 				options.Filter = filter.IsNull("unused")
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 			if err == nil || response != nil {
 				t.Fatalf("damaged output succeeded: %#v, %v", response, err)
 			}
@@ -153,20 +154,38 @@ func TestNativeBodyOwnershipAndBounds(t *testing.T) {
 func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	fixture.settings.Settings["index.max_result_window"] = "1"
-	store := fixture.store(constantModel(), 1)
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 2}}); !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil {
+	store := fixture.store()
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 2}}); !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil {
 		t.Fatalf("native window ignored: %#v, %v", response, err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
 	record := fixture.rows["one"]
 	record.MetadataJSON = ""
 	fixture.rows["one"] = record
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
 		t.Fatalf("malformed record reached native ranking: %#v, %v", response, err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {
 		t.Fatal("invalid explicit deletion partially published")
+	}
+}
+
+func TestWriteFailureRetainsOnlyAttributableItemAcknowledgments(t *testing.T) {
+	ids := []string{"accepted", "denied", "unknown"}
+	resp := bulkResponse{Errors: new(true), Items: []map[bulkOperation]bulkItemResult{
+		{bulkOperationIndex: {ID: "accepted", Index: "docs", Status: new(201)}},
+		{bulkOperationIndex: {ID: "denied", Index: "docs", Status: new(409), Error: []byte(`{"type":"conflict"}`)}},
+	}}
+	cause := errors.New("partial bulk response")
+	w := resp.writeFailure("docs", ids, cause)
+	if !errors.Is(w, cause) || !slices.Equal(w.Acknowledged, ids[:1]) || !slices.Equal(w.Rejected, ids[1:2]) || !slices.Equal(w.Unconfirmed, ids[2:]) {
+		t.Fatalf("incorrect write evidence: %+v", *w)
+	}
+	resp.Errors = new(false)
+	w = resp.writeFailure("docs", ids, cause)
+	if len(w.Acknowledged) != 0 || len(w.Rejected) != 0 || !slices.Equal(w.Unconfirmed, ids) {
+		t.Fatalf("contradictory bulk reply invented success: %+v", *w)
 	}
 }

@@ -3,7 +3,8 @@
 //
 // The reader emits one document with the text of every page, or with
 // [ReaderConfig.PerPage] one document per page carrying the 1-based
-// [MetadataPageIndex]. Extraction is text-only: tables, columns, and unusual
+// Provenance.Page. Named inputs are parsed from the same bounded snapshot
+// whose digest identifies their original revision. Extraction is text-only: tables, columns, and unusual
 // font encodings may come out in imperfect order, and scanned PDFs need OCR
 // upstream.
 //

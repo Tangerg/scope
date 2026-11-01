@@ -38,13 +38,13 @@ func (r repositoryModule) isCapabilityModule() bool {
 // so a core-only consumer never inherits agent, eval, or rag; each decorates a
 // capability from outside and therefore may import OpenTelemetry.
 func (r repositoryModule) inIntegrationFamily() bool {
-	return r.dir == "a2a" || r.dir == "mcp" || r.dir == "otel" || strings.HasPrefix(r.dir, "otel/")
+	return r.dir == "a2a" || r.dir == "a2a/managed" || r.dir == "mcp" || r.dir == "mcp/managed" || r.dir == "otel" || strings.HasPrefix(r.dir, "otel/")
 }
 
 // inProviderFamily owns the provider and dev family list shared by the capability
 // and usage-example classifications.
 func (r repositoryModule) inProviderFamily() bool {
-	for _, family := range []string{"models/", "vectorstores/", "historystores/", "tokenizers/", "dev/"} {
+	for _, family := range []string{"models/", "vectorstores/", "retrievers/", "historystores/", "tokenizers/", "dev/"} {
 		if strings.HasPrefix(r.dir, family) {
 			return true
 		}
@@ -254,6 +254,7 @@ func TestNewModulesDefaultToCapabilityClassification(t *testing.T) {
 		{dir: "tools/skills", capability: true},
 		{dir: "models/newprovider"},
 		{dir: "vectorstores/newprovider"},
+		{dir: "retrievers/newprovider"},
 		{dir: "historystores/newprovider"},
 		{dir: "tokenizers/newprovider"},
 		{dir: "examples"},
@@ -359,7 +360,7 @@ func TestRAGRootDoesNotImportAdapters(t *testing.T) {
 func TestProviderFamiliesUseLeafModules(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
-	for _, family := range []string{"historystores", "models", "tokenizers", "vectorstores"} {
+	for _, family := range []string{"historystores", "models", "retrievers", "tokenizers", "vectorstores"} {
 		assertImmediateProviderModules(t, root, family, map[string]struct{}{"internal": {}, "protocol": {}}, true)
 	}
 	assertImmediateProviderModules(t, root, "etl", map[string]struct{}{
@@ -405,8 +406,9 @@ func TestVectorAndHistoryStoreProvidersAreIndependentAndConformant(t *testing.T)
 func TestIntegrationFamiliesDoNotImportSiblingProviders(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
+	assertFamilySiblingBoundary(t, root, "retrievers", nil)
 	assertFamilySiblingBoundary(t, root, "models", map[string]struct{}{"catalog": {}, "protocol": {}})
-	assertFamilySiblingBoundary(t, root, "tools/web", map[string]struct{}{"internal": {}})
+	assertFamilySiblingBoundary(t, root, "tools/web", nil)
 	assertFamilySiblingBoundary(t, root, "etl", map[string]struct{}{
 		"json": {}, "markdown": {}, "text": {},
 	})
@@ -526,13 +528,13 @@ func moduleLayer(dir string) int {
 		return 0
 	case "agent", "etl", "eval", "otel", "rag", "tools":
 		return 1
-	case "a2a", "mcp", "otel/agent":
+	case "a2a", "mcp", "otel/agent", "runstores/postgres":
 		return 2
-	case "otel/eval", "otel/rag":
+	case "a2a/managed", "mcp/managed", "otel/eval", "otel/rag":
 		return 3
 	case "examples":
 		return 3
-	case "dev/providerconformance", "dev/repoarch", "dev/treecommitterconformance":
+	case "dev/providerconformance", "dev/repoarch":
 		return 4
 	}
 	if strings.HasPrefix(dir, "models/protocol/") {
@@ -543,6 +545,7 @@ func moduleLayer(dir string) int {
 		"etl/",
 		"historystores/",
 		"models/",
+		"retrievers/",
 		"tokenizers/",
 		"tools/",
 		"vectorstores/",
@@ -560,7 +563,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 		return false
 	case "examples":
 		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
-	case "dev/providerconformance", "dev/treecommitterconformance":
+	case "dev/providerconformance":
 		return target.layer < source.layer && target.dir != "examples"
 	}
 	if target.dir == "core" {
@@ -569,8 +572,17 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	if strings.HasPrefix(source.dir, "models/") && !strings.HasPrefix(source.dir, "models/protocol/") {
 		return strings.HasPrefix(target.dir, "models/protocol/")
 	}
+	if source.dir == "mcp/managed" {
+		return target.dir == "mcp" || target.dir == "agent" || target.dir == "otel"
+	}
+	if source.dir == "runstores/postgres" {
+		return target.dir == "agent"
+	}
 	if source.dir == "tools/skills" {
 		return target.dir == "skills"
+	}
+	if strings.HasPrefix(source.dir, "retrievers/") {
+		return target.dir == "rag"
 	}
 	if strings.HasPrefix(source.dir, "etl/") {
 		return target.dir == "etl"
@@ -580,6 +592,9 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	}
 	if source.dir == "otel" {
 		return false
+	}
+	if source.dir == "a2a/managed" {
+		return target.dir == "a2a" || target.dir == "agent" || target.dir == "otel"
 	}
 	if source.dir == "a2a" || source.dir == "mcp" {
 		return target.dir == "otel"
@@ -844,7 +859,9 @@ func assertFamilySiblingBoundary(t *testing.T, root, family string, shared map[s
 				continue
 			}
 			target := firstPathSegment(strings.TrimPrefix(importPath, prefix))
-			if target == source {
+			// A family-level internal package is shared implementation, never a
+			// sibling provider. Its own imports are still checked in this walk.
+			if target == source || target == "internal" {
 				continue
 			}
 			if _, isShared := shared[target]; isShared {
@@ -1011,4 +1028,21 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal("resolve architecture test path")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
+}
+
+// A managed retriever delegates indexing and scoring to the remote service.
+// It may not manufacture a vector space or emulate a raw vector-store driver.
+func TestManagedRetrieverLeavesDoNotDependOnVectorEncodingOrStorage(t *testing.T) {
+	t.Parallel()
+	walkProductionGoFiles(t, filepath.Join(repositoryRoot(t), "retrievers"), func(path string, _ *token.FileSet, file *ast.File) {
+		for _, spec := range file.Imports {
+			imported := importPathOf(t, path, spec)
+			for _, suffix := range []string{"core/embedding", "core/embeddingclient", "core/vectorstore", "rag/index", "rag/vector"} {
+				target := repositoryModulePrefix + "/" + suffix
+				if imported == target || strings.HasPrefix(imported, target+"/") {
+					t.Errorf("retrievers/%s imports %s; managed retrieval does not own vector encoding or storage", path, imported)
+				}
+			}
+		}
+	})
 }

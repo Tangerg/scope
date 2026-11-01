@@ -5,6 +5,8 @@ import (
 	"net"
 	"testing"
 
+	"github.com/Tangerg/scope/core/vectorstore/filter"
+
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -17,7 +19,10 @@ func TestNativeSDKConditionalDeleteWire(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selection := metadataSelection([]string{`null`, `{}`, `{"large":9007199254740993,"nested":[null]}`})
+	selection, err := nativeFilter(filter.EQ("value", "alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	received := make(chan bool, 1)
 	server := grpc.NewServer(grpc.UnknownServiceHandler(func(_ any, stream grpc.ServerStream) error {
 		request := dynamicpb.NewMessage(file.Messages().ByName("DeleteRequest"))

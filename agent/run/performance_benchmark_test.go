@@ -1,0 +1,310 @@
+package run
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	jsonv2 "encoding/json/v2"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+var (
+	benchmarkTreeSnapshotSink TreeSnapshot
+	benchmarkExecutionSink    Execution
+	benchmarkStateSink        ExecutionState
+	benchmarkTransitionSink   Transition
+)
+
+type treeSnapshotBenchmarkCase struct {
+	mode         string
+	processCount uint32
+	maxDepth     uint32
+}
+
+func BenchmarkTreeSnapshotBoundary(b *testing.B) {
+	cases := []treeSnapshotBenchmarkCase{
+		{mode: "leaf", processCount: 1, maxDepth: 1},
+		{mode: "binary:3", processCount: 15, maxDepth: 3},
+		{mode: "binary:5", processCount: 63, maxDepth: 5},
+		{mode: "binary:7", processCount: 255, maxDepth: 7},
+	}
+	for _, sample := range cases {
+		name := fmt.Sprintf("processes_%03d", sample.processCount)
+		snapshot := benchmarkCompletedTree(b, sample)
+		data := snapshot.JSON()
+		wire, err := snapshot.wire()
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		b.Run(name+"/build", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				benchmarkTreeSnapshotSink, err = newTreeSnapshot(wire)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(len(data)), "snapshot_bytes")
+		})
+		b.Run(name+"/parse", func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				benchmarkTreeSnapshotSink, err = ParseTreeSnapshot(data)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(len(data)), "snapshot_bytes")
+		})
+	}
+}
+
+func benchmarkCompletedTree(b *testing.B, sample treeSnapshotBenchmarkCase) TreeSnapshot {
+	b.Helper()
+	deployment := newChildTestDeployment(b)
+	engine, err := New(context.Background(), Config{Store: NewMemoryStore(),
+		Budget: Budget{Steps: NewQuota(100_000), Effects: NewQuota(100_000), Signals: NewQuota(100_000)},
+		TreeLimits: TreeLimits{
+			MaxPendingSignals: 100_000,
+			MaxDepth:          sample.maxDepth,
+			MaxChildren:       NewQuota(2),
+			MaxActiveChildren: 2,
+			MaxTreeProcesses:  NewQuota(uint64(sample.processCount)),
+		},
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	input, err := EncodePayload(childTestInput{Mode: sample.mode})
+	if err != nil {
+		b.Fatal(err)
+	}
+	root, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		b.Fatal(err)
+	}
+	result, err := root.Await(context.Background())
+	if err != nil || result.Termination().Status() != StatusCompleted {
+		b.Fatalf("tree result status=%s error=%v", result.Termination().Status(), err)
+	}
+	snapshot, err := engine.CaptureTree(context.Background(), root.Relation().ProcessID())
+	if err != nil {
+		b.Fatal(err)
+	}
+	if got := uint32(len(snapshot.ProcessSnapshots())); got != sample.processCount {
+		b.Fatalf("tree Process count=%d, want %d", got, sample.processCount)
+	}
+	if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
+		b.Fatal(err)
+	}
+	return snapshot
+}
+
+type executionReplayBenchmarkState struct {
+	Sequence uint64 `json:"sequence"`
+	Payload  string `json:"payload"`
+}
+
+type executionReplayBenchmarkDefinition struct {
+	descriptor Descriptor
+}
+
+func newExecutionReplayBenchmarkDefinition(b *testing.B) executionReplayBenchmarkDefinition {
+	b.Helper()
+	schema, err := jsonschema.For[executionReplayBenchmarkState]()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, err := NewDescriptor(DescriptorConfig{
+		Name:         "benchmark.execution_replay",
+		Description:  "Measure the pure Execution replay boundary.",
+		InputSchema:  schema,
+		OutputSchema: schema,
+	})
+	if err != nil {
+		b.Fatal(err)
+	}
+	return executionReplayBenchmarkDefinition{descriptor: descriptor}
+}
+
+func (e executionReplayBenchmarkDefinition) Descriptor() Descriptor { return e.descriptor }
+
+func (executionReplayBenchmarkDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+
+func (executionReplayBenchmarkDefinition) Start(input Payload) (Execution, error) {
+	state, err := input.Decode[executionReplayBenchmarkState]()
+	if err != nil {
+		return nil, err
+	}
+	return &executionReplayBenchmarkExecution{state: state}, nil
+}
+
+func (executionReplayBenchmarkDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	if state.Kind() != "benchmark.execution_replay" {
+		return nil, ErrInvalidExecutionState
+	}
+	var decoded executionReplayBenchmarkState
+	if err := jsonv2.Unmarshal(state.Payload(), &decoded); err != nil {
+		return nil, err
+	}
+	return &executionReplayBenchmarkExecution{state: decoded}, nil
+}
+
+type executionReplayBenchmarkExecution struct {
+	state executionReplayBenchmarkState
+}
+
+func (e *executionReplayBenchmarkExecution) Step(context.Context, []Signal) (Transition, error) {
+	e.state.Sequence++
+	return Continue(0)
+}
+
+func (e *executionReplayBenchmarkExecution) Snapshot() (ExecutionState, error) {
+	payload, err := jsonv2.Marshal(e.state)
+	if err != nil {
+		return ExecutionState{}, err
+	}
+	return ParseExecutionState("benchmark.execution_replay", payload)
+}
+
+func BenchmarkExecutionReplayBoundary(b *testing.B) {
+	for _, payloadBytes := range []int{1 << 10, 64 << 10} {
+		b.Run(fmt.Sprintf("state_bytes_%d", payloadBytes), func(b *testing.B) {
+			payload, err := jsonv2.Marshal(executionReplayBenchmarkState{
+				Payload: strings.Repeat("x", payloadBytes),
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			state, err := ParseExecutionState("benchmark.execution_replay", payload)
+			if err != nil {
+				b.Fatal(err)
+			}
+			definition := newExecutionReplayBenchmarkDefinition(b)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				execution, restoreErr := restoreExecution(b.Context(), definition, state)
+				if restoreErr != nil {
+					b.Fatal(restoreErr)
+				}
+				ctx, cancel := context.WithCancel(context.Background())
+				transition, stepErr := stepExecution(ctx, execution, nil)
+				cancel()
+				if stepErr != nil {
+					b.Fatal(stepErr)
+				}
+				candidate, captureErr := captureExecution(execution)
+				if captureErr != nil {
+					b.Fatal(captureErr)
+				}
+				restored, restoreErr := restoreExecution(b.Context(), definition, candidate)
+				if restoreErr != nil {
+					b.Fatal(restoreErr)
+				}
+				benchmarkExecutionSink = restored
+				benchmarkStateSink = candidate
+				benchmarkTransitionSink = transition
+			}
+			b.ReportMetric(float64(len(state.Payload())), "state_bytes")
+		})
+	}
+}
+
+func BenchmarkTreeRuntimeFastSiblingLatency(b *testing.B) {
+	for range b.N {
+		b.StopTimer()
+		deployment, probe := newTreeRuntimeTestDeployment(b)
+		probe.fastStepRelease = make(chan struct{})
+		engine, err := New(context.Background(), Config{Store: NewMemoryStore()})
+		if err != nil {
+			b.Fatal(err)
+		}
+		input, err := EncodePayload(treeRuntimeTestInput{Role: treeRuntimeRoleRoot})
+		if err != nil {
+			b.Fatal(err)
+		}
+		root, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchmarkReceive(b, probe.blockedStepStarted)
+		benchmarkReceive(b, probe.fastStepReady)
+		fastID := root.Relation().ProcessID().effectID(1, 1).childProcessID()
+		fast, exists := engine.Process(fastID)
+		if !exists {
+			b.Fatal("fast sibling was not published")
+		}
+
+		b.StartTimer()
+		close(probe.fastStepRelease)
+		result, err := fast.Await(context.Background())
+		b.StopTimer()
+		if err != nil || result.Termination().Status() != StatusCompleted {
+			b.Fatalf("fast sibling status=%s error=%v", result.Termination().Status(), err)
+		}
+
+		blockedID := root.Relation().ProcessID().effectID(1, 0).childProcessID()
+		blocked, exists := engine.Process(blockedID)
+		if !exists {
+			b.Fatal("blocked sibling was not published")
+		}
+		if err := blocked.Kill(context.Background(), "benchmark cleanup"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := blocked.Await(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		if err := root.Kill(context.Background(), "benchmark cleanup"); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := root.Await(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		if err := root.Join(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		if err := engine.Close(context.WithoutCancel(b.Context())); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+	}
+}
+
+func benchmarkReceive[T any](b *testing.B, values <-chan T) T {
+	b.Helper()
+	select {
+	case value := <-values:
+		return value
+	case <-b.Context().Done():
+		b.Fatal(b.Context().Err())
+		var zero T
+		return zero
+	}
+}
+
+func BenchmarkTreeSnapshotDigest(b *testing.B) {
+	for _, sample := range []treeSnapshotBenchmarkCase{
+		{mode: "leaf", processCount: 1, maxDepth: 1},
+		{mode: "binary:7", processCount: 255, maxDepth: 7},
+	} {
+		snapshot := benchmarkCompletedTree(b, sample)
+		b.Run(fmt.Sprintf("processes_%d/carried", sample.processCount), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = snapshot.Digest()
+			}
+		})
+		b.Run(fmt.Sprintf("processes_%d/recomputed", sample.processCount), func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				_ = ComputeDigest(snapshot.JSON())
+			}
+		})
+	}
+}

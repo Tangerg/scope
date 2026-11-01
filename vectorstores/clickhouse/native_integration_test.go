@@ -20,7 +20,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -29,11 +28,9 @@ import (
 )
 
 type nativeFixture struct {
-	db              *sql.DB
-	schema          string
-	model           embedding.Model
-	options         *clickhouse.Options
-	beforeEmbedding func(context.Context) error
+	db      *sql.DB
+	schema  string
+	options *clickhouse.Options
 }
 
 func newNativeFixture(t *testing.T) *nativeFixture {
@@ -65,41 +62,32 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 			t.Errorf("drop isolated fixture: %v", err)
 		}
 	})
-	f.model = embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-		if f.beforeEmbedding != nil {
-			if err := f.beforeEmbedding(ctx); err != nil {
-				return nil, err
-			}
-		}
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for index, text := range request.Texts {
-			vector := []float64{1, 0}
-			if text == "far" {
-				vector = []float64{0, 1}
-			}
-			outputs[index] = &embedding.Output{Embedding: vector}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
 	return f
 }
 
 func (n *nativeFixture) config(metric storeclickhouse.DistanceMetric, initialize bool) storeclickhouse.StoreConfig {
 	return storeclickhouse.StoreConfig{
-		DB: n.db, DatabaseName: n.schema, EmbeddingModel: n.model,
-		DocumentBatcher: nativeBatcher{}, Dimensions: 2, DistanceMetric: metric, InitializeSchema: initialize,
+		DB: n.db, DatabaseName: n.schema, Space: testSpace,
+		Dimensions: 2, DistanceMetric: metric, InitializeSchema: initialize,
 	}
 }
 
-type nativeBatcher struct{}
+const testSpace vectorstore.SpaceID = "native-test-space"
 
-func (n nativeBatcher) Batch(ctx context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+func testBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: testSpace}
+	for _, d := range docs {
+		v := []float64{1, 0}
+		if d.Text == "far" {
+			v = []float64{0, 1}
+		}
+		b.Records = append(b.Records, vectorstore.Record{Document: d, Values: v})
 	}
-	return [][]*document.Document{docs}, nil
+	return b
 }
-
+func testScan(p filter.Predicate) storeclickhouse.ScanConfig {
+	return storeclickhouse.ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}}
+}
 func TestNativeStoreSchemaAndDistances(t *testing.T) {
 	for _, metric := range []storeclickhouse.DistanceMetric{storeclickhouse.DistanceCosine, storeclickhouse.DistanceL2} {
 		t.Run(metric.String(), func(t *testing.T) {
@@ -124,11 +112,11 @@ func TestNativeStoreSchemaAndDistances(t *testing.T) {
 				{ID: "near", Text: "near", Metadata: nearMetadata},
 				{ID: "far", Text: "far", Metadata: farMetadata},
 			}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
-			request := &vectorstore.SearchRequest{Query: "near", Options: vectorstore.SearchOptions{TopK: 2}}
-			response, err := store.Search(t.Context(), request)
+			request := &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}}
+			response, err := store.Query(t.Context(), request)
 			if err != nil {
 				t.Fatalf("read native distance and metadata: %v", err)
 			}
@@ -148,14 +136,14 @@ func TestNativeStoreSchemaAndDistances(t *testing.T) {
 			if err := store.DeleteIDs(t.Context(), []string{"near"}); err != nil {
 				t.Fatal(err)
 			}
-			response, err = store.Search(t.Context(), request)
+			response, err = store.Query(t.Context(), request)
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "far" {
 				t.Fatalf("native results after ID deletion = %+v, %v", response, err)
 			}
-			if err := store.DeleteWhere(t.Context(), filter.EQ("name", "far")); err != nil {
+			if err := store.DeleteMatching(t.Context(), testScan(filter.EQ("name", "far"))); err != nil {
 				t.Fatal(err)
 			}
-			response, err = store.Search(t.Context(), request)
+			response, err = store.Query(t.Context(), request)
 			if err != nil || len(response.Results) != 0 {
 				t.Fatalf("native results after filtered deletion = %+v, %v", response, err)
 			}
@@ -173,10 +161,10 @@ func (n *nativeFixture) newStore(t *testing.T) *storeclickhouse.Store {
 }
 
 func (n *nativeFixture) install(ctx context.Context, store *storeclickhouse.Store, docs []*document.Document) error {
-	if _, err := n.db.ExecContext(ctx, "TRUNCATE TABLE "+n.schema+".vector_store"); err != nil {
+	if _, err := n.db.ExecContext(ctx, "TRUNCATE TABLE "+n.schema+"."+testSpace.StorageKey()+"_vector_store"); err != nil {
 		return err
 	}
-	return store.Index(ctx, &vectorstore.IndexRequest{Documents: docs})
+	return store.Upsert(ctx, testBatch(docs))
 }
 
 func TestNativeCoreFilterConformance(t *testing.T) {
@@ -186,13 +174,13 @@ func TestNativeCoreFilterConformance(t *testing.T) {
 		if err := f.install(ctx, store, docs); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
+		response, err := store.Scan(ctx, testScan(predicate))
 		if err != nil {
 			return nil, err
 		}
 		var ids []string
-		for _, result := range response.Results {
-			ids = append(ids, result.Document.ID)
+		for _, result := range response {
+			ids = append(ids, result.ID)
 		}
 		return ids, nil
 	}})
@@ -205,10 +193,10 @@ func TestNativeCoreDeleteConformance(t *testing.T) {
 		if err := f.install(ctx, store, docs); err != nil {
 			return nil, err
 		}
-		if err := store.DeleteWhere(ctx, predicate); err != nil {
+		if err := store.DeleteMatching(ctx, testScan(predicate)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+		response, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})
 		if err != nil {
 			return nil, err
 		}
@@ -242,11 +230,11 @@ func TestNativeEncodedFactsAndExactIdentities(t *testing.T) {
 		}
 		docs[i] = &document.Document{ID: id, Text: "text", Metadata: m}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs)}}
-	response, err := store.Search(t.Context(), request)
+	request := &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}}
+	response, err := store.Query(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,18 +269,18 @@ func TestNativeEncodedFactsAndExactIdentities(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
+		response, err := store.Scan(t.Context(), testScan(predicate))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(response.Results) != len(docs)-2 {
-			t.Fatalf("%s selected %d documents", src, len(response.Results))
+		if len(response) != len(docs)-2 {
+			t.Fatalf("%s selected %d documents", src, len(response))
 		}
 	}
 	if err := store.DeleteIDs(t.Context(), []string{ids[2], ids[6]}); err != nil {
 		t.Fatal(err)
 	}
-	response, err = store.Search(t.Context(), request)
+	response, err = store.Query(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,23 +308,18 @@ func TestNativeFilterPreflightRejectsLateFailure(t *testing.T) {
 	if err := docs[len(docs)-1].Metadata.Set("n", "wrong"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	f.beforeEmbedding = func(context.Context) error {
-		t.Error("metadata failure reached embedding")
-		return errors.New("unexpected embedding")
-	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.GT("n", 1), TopK: 1}})
+	response, err := store.Scan(t.Context(), testScan(filter.GT("n", 1)))
 	if err == nil || response != nil {
 		t.Fatal("late type mismatch became a successful limited search")
 	}
-	if err := store.DeleteWhere(t.Context(), filter.GT("n", 1)); err == nil {
+	if err := store.DeleteMatching(t.Context(), testScan(filter.GT("n", 1))); err == nil {
 		t.Fatal("late type mismatch became a successful deletion")
 	}
-	f.beforeEmbedding = nil
 	var count uint64
-	if err := f.db.QueryRowContext(t.Context(), "SELECT count() FROM "+f.schema+".vector_store FINAL").Scan(&count); err != nil {
+	if err := f.db.QueryRowContext(t.Context(), "SELECT count() FROM "+f.schema+"."+testSpace.StorageKey()+"_vector_store FINAL").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != uint64(len(docs)) {
@@ -348,11 +331,11 @@ func TestNativeCallerOptionsCannotAdvanceRequestFacts(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.newStore(t)
 	docs := []*document.Document{{ID: "near", Text: "near"}, {ID: "far", Text: "far"}}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	ctx := clickhouse.Context(t.Context(), clickhouse.WithParameters(clickhouse.Parameters{"scope_vector": "[0,1]", "scope_limit": "1", "scope_ids": "['far']"}), clickhouse.WithAsync(false), clickhouse.WithSettings(clickhouse.Settings{"implicit_transaction": false, "result_overflow_mode": "break", "max_result_rows": 1}))
-	response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "near", Options: vectorstore.SearchOptions{TopK: 2}})
+	response, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +345,7 @@ func TestNativeCallerOptionsCannotAdvanceRequestFacts(t *testing.T) {
 	if err := store.DeleteIDs(ctx, []string{"near"}); err != nil {
 		t.Fatal(err)
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "near", Options: vectorstore.SearchOptions{TopK: 2}})
+	response, err = store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,37 +354,31 @@ func TestNativeCallerOptionsCannotAdvanceRequestFacts(t *testing.T) {
 	}
 }
 
-func TestNativeFilteredSearchKeepsItsSnapshotDuringEmbedding(t *testing.T) {
+func TestNativeScanKeepsSnapshotAcrossPages(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.newStore(t)
-	old, err := metadata.FromValues(map[string]any{"active": true})
-	if err != nil {
+	docs := make([]*document.Document, 513)
+	for i := range docs {
+		docs[i] = &document.Document{ID: fmt.Sprintf("%05d", i), Text: "old"}
+	}
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "target", Text: "before", Metadata: old}}}); err != nil {
-		t.Fatal(err)
-	}
-	f.beforeEmbedding = func(ctx context.Context) error {
-		f.beforeEmbedding = nil
-		updated, err := metadata.FromValues(map[string]any{"active": false})
-		if err != nil {
-			return err
+	changed := false
+	reader := f.faultStore(t, func(ctx context.Context, stmt string) error {
+		if changed || !strings.Contains(stmt, "WHERE id > {scope_cursor:String}") {
+			return nil
 		}
-		return store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "target", Text: "after", Metadata: updated}}})
+		changed = true
+		return store.Upsert(ctx, testBatch([]*document.Document{{ID: docs[512].ID, Text: "new"}}))
+	})
+	snap, err := reader.Scan(t.Context(), testScan(nil))
+	if err != nil || !changed || len(snap) != 513 || snap[512].Text != "old" {
+		t.Fatalf("snapshot: count=%d changed=%v err=%v", len(snap), changed, err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.EQ("active", true)}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(response.Results) != 1 || response.Results[0].Document.Text != "before" {
-		t.Fatal("embedding-time replacement escaped the validated snapshot")
-	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(response.Results) != 1 || response.Results[0].Document.Text != "after" {
-		t.Fatal("concurrent native replacement was not published")
+	now, err := store.Scan(t.Context(), testScan(nil))
+	if err != nil || len(now) != 513 || now[512].Text != "new" {
+		t.Fatalf("fresh snapshot: count=%d err=%v", len(now), err)
 	}
 }
 
@@ -431,6 +408,9 @@ func (f *faultConnection) ExecContext(ctx context.Context, query string, args []
 	return f.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
 }
 func (f *faultConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if err := f.beforeExec(ctx, query); err != nil {
+		return nil, err
+	}
 	return f.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
 }
 func (f *faultConnection) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
@@ -471,7 +451,7 @@ func TestNativeDeleteFailureCannotPublishEarlierPages(t *testing.T) {
 		}
 		docs[i] = &document.Document{ID: fmt.Sprintf("%08d", i), Text: "text", Metadata: m}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	injected := errors.New("native transport failure before later deletion")
@@ -484,7 +464,7 @@ func TestNativeDeleteFailureCannotPublishEarlierPages(t *testing.T) {
 		if deletes != 2 {
 			return nil
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+		response, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})
 		if err != nil {
 			return err
 		}
@@ -493,11 +473,11 @@ func TestNativeDeleteFailureCannotPublishEarlierPages(t *testing.T) {
 		}
 		return injected
 	})
-	if err := broken.DeleteWhere(t.Context(), filter.EQ("active", true)); !errors.Is(err, injected) {
+	if err := broken.DeleteMatching(t.Context(), testScan(filter.EQ("active", true))); !errors.Is(err, injected) {
 		t.Fatal(err)
 	}
 	var count uint64
-	if err := f.db.QueryRowContext(t.Context(), "SELECT count() FROM "+f.schema+".vector_store FINAL").Scan(&count); err != nil {
+	if err := f.db.QueryRowContext(t.Context(), "SELECT count() FROM "+f.schema+"."+testSpace.StorageKey()+"_vector_store FINAL").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != uint64(len(docs)) {
@@ -516,7 +496,7 @@ func TestNativeDeletionPreservesConcurrentReplacement(t *testing.T) {
 		}
 		docs[i] = &document.Document{ID: fmt.Sprintf("%08d", i), Text: "before", Metadata: m}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	replaced := false
@@ -529,12 +509,12 @@ func TestNativeDeletionPreservesConcurrentReplacement(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: docs[0].ID, Text: "after", Metadata: updated}}})
+		return store.Upsert(ctx, testBatch([]*document.Document{{ID: docs[0].ID, Text: "after", Metadata: updated}}))
 	})
-	if err := deleter.DeleteWhere(t.Context(), filter.EQ("active", true)); err != nil {
+	if err := deleter.DeleteMatching(t.Context(), testScan(filter.EQ("active", true))); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +526,7 @@ func TestNativeDeletionPreservesConcurrentReplacement(t *testing.T) {
 func TestNativeHostSettingsCannotResurrectDeletedDocuments(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.newStore(t)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "near", Text: "near"}, {ID: "far", Text: "far"}}}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch([]*document.Document{{ID: "near", Text: "near"}, {ID: "far", Text: "far"}})); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"near"}); err != nil {
@@ -566,7 +546,7 @@ func TestNativeHostSettingsCannotResurrectDeletedDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := reader.Search(t.Context(), &vectorstore.SearchRequest{Query: "near", Options: vectorstore.SearchOptions{TopK: 2}})
+	response, err := reader.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -79,8 +79,7 @@ func TestModelConstructorsTakeAContext(t *testing.T) {
 
 	clients := map[string]struct{}{
 		"NewChat": {}, "NewMessages": {}, "NewResponses": {},
-		"NewChatCompletions": {}, "NewCompatibleChatCompletions": {},
-		"NewCompatibleMessages": {}, "NewCompatibleResponses": {}, "NewTextCounter": {},
+		"NewChatCompletions": {}, "NewTextCounter": {},
 	}
 
 	found := 0

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
+
 	"fmt"
 	"io"
 	"math"
@@ -15,12 +15,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3vectors"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -59,7 +60,7 @@ func newProtocolFixture(t *testing.T, docs ...*document.Document) *protocolFixtu
 	t.Helper()
 	fixture := &protocolFixture{t: t, pageSize: 2, status: make(map[string]int), index: map[string]any{
 		"indexName": "documents", "vectorBucketName": "bucket", "dimension": 2, "dataType": "float32", "distanceMetric": "cosine",
-		"metadataConfiguration": map[string]any{"nonFilterableMetadataKeys": []string{"scope_content", "scope_metadata"}},
+		"metadataConfiguration": map[string]any{"nonFilterableMetadataKeys": NonFilterableKeys(fixtureSpace)},
 	}}
 	for _, doc := range docs {
 		fixture.records = append(fixture.records, fixture.record(doc, .5))
@@ -248,7 +249,7 @@ func (p *protocolFixture) serveHTTP(writer http.ResponseWriter, request *http.Re
 }
 
 func (p *protocolFixture) config() StoreConfig {
-	return StoreConfig{Client: p.client, VectorBucketName: "bucket", IndexName: "documents", EmbeddingModel: constantEmbeddingModel(), DocumentBatcher: testBatcher{size: 1000}}
+	return StoreConfig{Client: p.client, VectorBucketName: "bucket", IndexName: "documents", Space: fixtureSpace}
 }
 
 func (p *protocolFixture) store() *Store {
@@ -260,32 +261,29 @@ func (p *protocolFixture) store() *Store {
 	return store
 }
 
-type testBatcher struct{ size int }
+const fixtureSpace vectorstore.SpaceID = "test-v1"
 
-func (t testBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, t.size)), nil
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	records := make([]vectorstore.Record, len(docs))
+	for i, d := range docs {
+		records[i] = vectorstore.Record{Document: d, Values: fixtureVector("")}
+	}
+	return &vectorstore.Batch{Space: fixtureSpace, Records: records}
 }
-
-func constantEmbeddingModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func scanBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
-
 func TestFilterConformanceAtNativeSDKBoundary(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture := newProtocolFixture(t, docs...)
-		response, err := fixture.store().Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := fixture.store().Scan(ctx, predicate, scanBudget())
 		if err != nil {
 			return nil, err
 		}
 		var ids []string
-		for _, result := range response.Results {
-			ids = append(ids, result.Document.ID)
+		for _, result := range response {
+			ids = append(ids, result.ID)
 		}
 		return ids, nil
 	}})
@@ -299,10 +297,10 @@ func TestIndexRoundTripsOnlyCoreMetadataAndReplacesRecords(t *testing.T) {
 	for i, facts := range sources {
 		docs = append(docs, &document.Document{ID: strconv.Itoa(i), Text: "text", Metadata: facts})
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 3}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,56 +309,36 @@ func TestIndexRoundTripsOnlyCoreMetadataAndReplacesRecords(t *testing.T) {
 			t.Fatalf("metadata %d changed: %v", i, result.Document.Metadata)
 		}
 	}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "2", Text: "replacement", Metadata: metadata.Map{}}}}); err != nil {
+	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "2", Text: "replacement", Metadata: metadata.Map{}}})); err != nil {
 		t.Fatal(err)
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 3}})
+	response, err = store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 3}})
 	if err != nil || response.Results[2].Document.Text != "replacement" || response.Results[2].Document.Metadata == nil || len(response.Results[2].Document.Metadata) != 0 {
 		t.Fatalf("replacement retained old facts: %v, %v", response, err)
 	}
 }
 
-func TestIndexPreflightsAllBatchesBeforePublishing(t *testing.T) {
-	for _, test := range []string{"embedding", "dimension", "overflow", "underflow", "metadata", "media"} {
+func TestUpsertPreflightsEveryRecordBeforeAnyWrite(t *testing.T) {
+	for _, test := range []string{"dimension", "overflow", "underflow", "metadata", "media"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			config := fixture.config()
-			config.DocumentBatcher = testBatcher{size: 1}
-			failure := errors.New("later embedding failure")
-			calls := 0
-			config.EmbeddingModel = embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 {
-					switch test {
-					case "embedding":
-						return nil, failure
-					case "dimension":
-						return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1}}}, nil)
-					case "overflow":
-						return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{math.MaxFloat64, 0}}}, nil)
-					case "underflow":
-						return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1e-100, 0}}}, nil)
-					}
-				}
-				return constantEmbeddingModel().Call(ctx, request)
-			})
-			store, err := NewStore(t.Context(), config)
-			if err != nil {
-				t.Fatal(err)
+			store := fixture.store()
+			b := fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}})
+			rec := &b.Records[1]
+			switch test {
+			case "dimension":
+				rec.Values = []float64{1}
+			case "overflow":
+				rec.Values = []float64{math.MaxFloat64, 0}
+			case "underflow":
+				rec.Values = []float64{1e-100, 0}
+			case "metadata":
+				rec.Document.Text = strings.Repeat("x", maxMetadataBytes)
+			case "media":
+				rec.Document.Media = &media.Media{MIME: "image/png", Source: media.Source{Kind: media.SourceBytes, Bytes: []byte{1}}}
 			}
-			docs := []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}}
-			if test == "metadata" {
-				docs[1].Text = strings.Repeat("x", maxMetadataBytes)
-			}
-			if test == "media" {
-				docs[1].Media = &media.Media{MIME: "image/png", Source: media.Source{Kind: media.SourceBytes, Bytes: []byte{1}}}
-			}
-			err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs})
-			if err == nil || len(fixture.putCounts) != 0 || (test == "embedding" && !errors.Is(err, failure)) {
-				t.Fatalf("partial publication: %v, %v", fixture.putCounts, err)
-			}
-			if (test == "metadata" || test == "media") && calls != 0 {
-				t.Fatal("invalid document reached embedding")
+			if err := store.Upsert(t.Context(), b); err == nil || len(fixture.putCounts) != 0 {
+				t.Fatalf("late invalid record published: %v %v", err, fixture.putCounts)
 			}
 		})
 	}

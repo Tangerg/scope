@@ -35,13 +35,13 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, DefaultBaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "huggingface", TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, DefaultBaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "huggingface", TokenLimitField: openai.TokenLimitMaxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("huggingface: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

@@ -30,6 +30,9 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) Validate() error {
+	if err := requireBindingEndpoint(s.Provider, s.BaseURL); err != nil {
+		return err
+	}
 	if err := validateProvider(s.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}

@@ -5,25 +5,24 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestClassifyFailureRespectsInvocationBoundaries(t *testing.T) {
 	unknown := errors.New("outcome unknown")
 	definite, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: unknown, Output: chat.NewTextToolOutput("operation failed"),
+		Kind: tool.FailureKindFailed, Cause: unknown, Output: tool.NewTextOutput("operation failed"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	outer, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: errors.Join(definite, unknown), Output: chat.NewTextToolOutput("complete outer outcome"),
+		Kind: tool.FailureKindFailed, Cause: errors.Join(definite, unknown), Output: tool.NewTextOutput("complete outer outcome"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := tool.NewCallError(tool.CallErrorConfig{Cause: definite, Evidence: chat.NewTextToolOutput("observed work")})
+	evidence, err := tool.NewCallError(tool.CallErrorConfig{Cause: definite, Evidence: tool.NewTextOutput("observed work")})
 	if err != nil {
 		t.Fatal(err)
 	}

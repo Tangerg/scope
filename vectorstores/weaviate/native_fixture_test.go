@@ -16,34 +16,33 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	weaviateclient "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 
-	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type nativeFixture struct {
-	t            *testing.T
-	mu           sync.Mutex
-	class        *models.Class
-	objects      map[string]*models.Object
-	batches      atomic.Int64
-	deletes      atomic.Int64
-	acknowledge  func([]models.ObjectsGetResponse) []models.ObjectsGetResponse
-	queryID      *string
-	sourceID     *string
+	t           *testing.T
+	mu          sync.Mutex
+	class       *models.Class
+	objects     map[string]*models.Object
+	batches     atomic.Int64
+	deletes     atomic.Int64
+	acknowledge func([]models.ObjectsGetResponse) []models.ObjectsGetResponse
+	queryID     *string
+
 	distances    map[string]float64
 	hybridScores map[string]float64
 	beforeQuery  func()
 	queryChange  func([]map[string]any) []map[string]any
-	sourceChange func([]*models.Object) []*models.Object
-	shortPages   bool
-	groups       []int
-	hybrids      []int
-	scans        int
-	queryError   bool
-	sourceError  bool
+
+	groups      []int
+	hybrids     []int
+	scans       int
+	queryError  bool
+	sourceError bool
 }
 
 func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -58,39 +57,8 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		response = n.class
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/objects":
 		n.scans++
-		if n.sourceError {
-			http.Error(writer, "native source unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if request.URL.Query().Get("class") != "Documents" || request.URL.Query().Get("include") != "vector" {
-			n.t.Error("enumeration lost class or dense vector")
-		}
-		limit, err := strconv.Atoi(request.URL.Query().Get("limit"))
-		if err != nil {
-			n.t.Error(err)
-			return
-		}
-		if n.shortPages {
-			limit = 1
-		}
-		var objects []*models.Object
-		for _, id := range slices.Sorted(maps.Keys(n.objects)) {
-			if id <= request.URL.Query().Get("after") {
-				continue
-			}
-			object := *n.objects[id]
-			if n.sourceID != nil {
-				object.ID = strfmt.UUID(*n.sourceID)
-			}
-			objects = append(objects, &object)
-			if len(objects) == limit {
-				break
-			}
-		}
-		if n.sourceChange != nil {
-			objects = n.sourceChange(objects)
-		}
-		response = map[string]any{"objects": objects}
+		http.Error(writer, "source enumeration not granted", http.StatusForbidden)
+		return
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/batch/objects":
 		n.batches.Add(1)
 		var body struct {
@@ -125,17 +93,19 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		if strings.Contains(body.Query, "certainty:") {
 			n.t.Error("native threshold hid strict result validation")
 		}
-		var ids []string
+		var terms []string
 		if found := regexp.MustCompile(`valueText:\s*(\[[^\]]*\])`).FindStringSubmatch(body.Query); found != nil {
-			if err := jsonv2.Unmarshal([]byte(found[1]), &ids); err != nil {
-				n.t.Error(err)
-				return
+			if !strings.Contains(body.Query, fieldTerms) || !strings.Contains(body.Query, "ContainsAny") {
+				n.t.Error("filter must select exact precomputed terms")
 			}
-			n.groups = append(n.groups, len(ids))
+			if err := jsonv2.Unmarshal([]byte(found[1]), &terms); err != nil {
+				n.t.Fatal(err)
+			}
+			n.groups = append(n.groups, len(terms))
 		}
 		hybrid := strings.Contains(body.Query, "hybrid:")
 		if hybrid {
-			n.hybrids = append(n.hybrids, len(ids))
+			n.hybrids = append(n.hybrids, len(terms))
 		}
 		if n.beforeQuery != nil {
 			n.beforeQuery()
@@ -143,11 +113,14 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		}
 		var items []map[string]any
 		for _, id := range slices.Sorted(maps.Keys(n.objects)) {
-			if ids != nil && !slices.Contains(ids, id) {
-				continue
-			}
 			object := n.objects[id]
 			properties := object.Properties.(map[string]any)
+			if len(terms) != 0 {
+				got, _ := properties[fieldTerms].([]any)
+				if !slices.Contains(got, any(terms[0])) {
+					continue
+				}
+			}
 			nativeID := id
 			if n.queryID != nil {
 				nativeID = *n.queryID
@@ -162,7 +135,7 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			} else {
 				additional[additionalDistance] = n.distances[id]
 			}
-			items = append(items, map[string]any{fieldContent: properties[fieldContent], fieldMetadata: properties[fieldMetadata], "_additional": additional})
+			items = append(items, map[string]any{fieldContent: properties[fieldContent], fieldMetadata: properties[fieldMetadata], fieldTerms: properties[fieldTerms], "_additional": additional})
 		}
 		if !hybrid {
 			slices.SortFunc(items, func(left, right map[string]any) int {
@@ -216,10 +189,10 @@ func (n *nativeFixture) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 }
 
 func nativeClass(name, metric string) *models.Class {
-	return &models.Class{Class: name, Vectorizer: "none", VectorIndexType: "hnsw", VectorIndexConfig: map[string]any{"distance": metric}, Properties: []*models.Property{{Name: fieldContent, DataType: []string{"text"}, Tokenization: "word"}, {Name: fieldMetadata, DataType: []string{"text"}, Tokenization: "field"}}}
+	return &models.Class{Class: name, Description: fixtureSpace.StorageKey(), Vectorizer: "none", VectorIndexType: "hnsw", VectorIndexConfig: map[string]any{"distance": metric}, Properties: []*models.Property{{Name: fieldContent, DataType: []string{"text"}, Tokenization: "word"}, {Name: fieldMetadata, DataType: []string{"text"}, Tokenization: "field"}, {Name: fieldTerms, DataType: []string{"text[]"}, Tokenization: "field", IndexFilterable: new(true), IndexSearchable: new(false)}}}
 }
 
-func newNativeStore(t *testing.T, fixture *nativeFixture) (*Store, *atomic.Int64) {
+func newNativeStore(t *testing.T, fixture *nativeFixture) *Store {
 	t.Helper()
 	fixture.t, fixture.objects = t, make(map[string]*models.Object)
 	if fixture.class == nil {
@@ -231,18 +204,26 @@ func newNativeStore(t *testing.T, fixture *nativeFixture) (*Store, *atomic.Int64
 	if err != nil {
 		t.Fatal(err)
 	}
-	var calls atomic.Int64
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		calls.Add(1)
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, ClassName: "Documents", EmbeddingModel: model, DocumentBatcher: testBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, ClassName: "Documents", Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(fmt.Errorf("construct native store: %w", err))
 	}
-	return store, &calls
+	return store
+}
+
+const fixtureSpace vectorstore.SpaceID = "paired-v1"
+
+func fixtureVector(text string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: fixtureVector(doc.Text)})
+	}
+	return b
+}
+func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if q.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+		q.LexicalText = "native text"
+	}
+	return store.Query(ctx, q)
 }

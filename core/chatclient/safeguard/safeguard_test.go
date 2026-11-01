@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient/safeguard"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestScopeContract(t *testing.T) {
@@ -217,7 +218,7 @@ func TestCallInputIgnoresPriorAssistantAndToolMessages(t *testing.T) {
 	middleware := mustMiddleware(t, mustSubstring(t, "secret"), safeguard.MiddlewareConfig{Scope: safeguard.ScopeInput})
 	request := mustRequest(t,
 		chat.NewAssistantMessage(chat.NewTextPart("secret")),
-		chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "lookup", Output: chat.NewTextToolOutput("secret")}),
+		chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "lookup", Output: toolcontract.NewTextOutput("secret")}),
 		chat.NewUserMessage(chat.NewTextPart("clean")),
 	)
 	if got, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {

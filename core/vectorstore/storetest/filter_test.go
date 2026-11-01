@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
@@ -99,29 +99,7 @@ func TestFilterConformanceRejectsIncorrectBackends(t *testing.T) {
 }
 
 func queryFilterStore(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{
-		EmbeddingModel: embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-			outputs := make([]*embedding.Output, len(request.Texts))
-			for index := range outputs {
-				output, outputErr := embedding.NewOutput([]float64{1, 0}, nil)
-				if outputErr != nil {
-					return nil, outputErr
-				}
-				outputs[index] = output
-			}
-			return embedding.NewResponse(outputs, &embedding.ResponseMetadata{Model: "filter-test"})
-		}),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if indexErr := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); indexErr != nil {
-		return nil, indexErr
-	}
-	response, err := store.Search(ctx, &vectorstore.SearchRequest{
-		Query:   docs[0].Text,
-		Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate},
-	})
+	response, err := queryMemoryDocuments(ctx, docs, predicate)
 	if err != nil {
 		return nil, err
 	}
@@ -130,4 +108,26 @@ func queryFilterStore(ctx context.Context, docs []*document.Document, predicate 
 		ids = append(ids, result.Document.ID)
 	}
 	return ids, nil
+}
+
+func TestInMemoryProvenanceConformance(t *testing.T) {
+	storetest.ProvenanceConformance(t, func(t *testing.T, doc *document.Document, predicate filter.Predicate) (*vectorstore.SearchResponse, error) {
+		return queryMemoryDocuments(t.Context(), []*document.Document{doc}, predicate)
+	})
+}
+
+func queryMemoryDocuments(ctx context.Context, docs []*document.Document, predicate filter.Predicate) (*vectorstore.SearchResponse, error) {
+	const space vectorstore.SpaceID = "fixture"
+	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{Space: space, Dimensions: 2})
+	if err != nil {
+		return nil, err
+	}
+	records := make([]vectorstore.Record, len(docs))
+	for i, doc := range docs {
+		records[i] = vectorstore.Record{Document: doc, Values: []float64{1, 0}}
+	}
+	if upsertErr := store.Upsert(ctx, &vectorstore.Batch{Space: space, Records: records}); upsertErr != nil {
+		return nil, upsertErr
+	}
+	return store.Query(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 }

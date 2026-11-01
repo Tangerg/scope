@@ -23,3 +23,14 @@ func Example() {
 	fmt.Println(count)
 	// Output: 3
 }
+
+// A zero token limit permits batching solely by item count.
+func ExampleBatchConfig_Batches() {
+	config := tokenizer.BatchConfig{MaxItems: 2}
+	groups, err := config.Batches(context.Background(), []string{"alpha", "beta", "gamma"})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(groups)
+	// Output: [[alpha beta] [gamma]]
+}

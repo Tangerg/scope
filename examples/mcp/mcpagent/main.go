@@ -12,7 +12,7 @@ import (
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -80,11 +80,11 @@ func run(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	deployment, err := newBriefingDeployment(ctx, briefingConfig{Session: clientSession, ExpertDigest: agent.ComputeDigest([]byte("example.in_memory_research_server")), AllowSearch: true, Query: briefingQuery})
+	deployment, err := newBriefingDeployment(ctx, briefingConfig{Session: clientSession, ExpertDigest: agentrun.ComputeDigest([]byte("example.in_memory_research_server")), AllowSearch: true, Query: briefingQuery})
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,7 @@ func fetchSystemPrompt(ctx context.Context, session *sdkmcp.ClientSession, topic
 
 type briefingConfig struct {
 	Session      *sdkmcp.ClientSession
-	ExpertDigest agent.Digest
+	ExpertDigest agentrun.Digest
 	AllowSearch  bool
 	Query        string
 }
@@ -136,22 +136,22 @@ type remoteToolIdentity interface {
 	MCPToolIdentity() (sourceName, remoteName string)
 }
 
-func newBriefingDeployment(ctx context.Context, config briefingConfig) (agent.Deployment, error) {
+func newBriefingDeployment(ctx context.Context, config briefingConfig) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	available, err := scopemcp.DiscoverTools(ctx,
 		[]scopemcp.ToolSource{{Name: researchToolSource, Session: config.Session}},
 		scopemcp.ToolDiscoveryConfig{RequestMeta: scopemcp.RequestMetaFromContext},
 	)
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("discover MCP tools: %w", err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("discover MCP tools: %w", err)
 	}
 	var selected []tool.Tool
 	for _, candidate := range available {
 		identity, found, identityErr := tool.Capability[remoteToolIdentity](candidate)
 		if identityErr != nil {
-			return agent.Deployment{}, identityErr
+			return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, identityErr
 		}
 		if !found {
-			return agent.Deployment{}, errors.New("MCP tool has no remote identity")
+			return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, errors.New("MCP tool has no remote identity")
 		}
 		source, remote := identity.MCPToolIdentity()
 		if source == researchToolSource && remote == researchToolName {
@@ -159,72 +159,72 @@ func newBriefingDeployment(ctx context.Context, config briefingConfig) (agent.De
 		}
 	}
 	if len(selected) != 1 || config.Query == "" || !config.ExpertDigest.Valid() {
-		return agent.Deployment{}, errors.New("briefing requires the selected search tool, expert identity, and an explicit query")
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, errors.New("briefing requires the selected search tool, expert identity, and an explicit query")
 	}
 	permit := config.AllowSearch
 	guard, err := tool.NewGuard(tool.GuardConfig{Tool: selected[0],
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) { return permit, nil }),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	binding, err := tool.Bind(guard)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	// Contract owns canonical schema bytes; SDK map iteration is not identity.
 	toolBinding, err := jsonv2.Marshal(struct {
-		Definition  chat.ToolDefinition `json:"definition"`
-		Expert      agent.Digest        `json:"expert"`
-		AllowSearch bool                `json:"allow_search"`
+		Definition  tool.Definition `json:"definition"`
+		Expert      agentrun.Digest `json:"expert"`
+		AllowSearch bool            `json:"allow_search"`
 	}{Definition: binding.Contract().Definition(), Expert: config.ExpertDigest, AllowSearch: permit}, jsonv2.Deterministic(true))
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
+	toolSet, err := agent.NewToolSet(agent.ToolSetConfig{
 		Name: "example.mcp_tools", Description: "Execute each requested Tool through its own child Process.", Tools: []tool.Tool{guard},
-		ImplementationDigest: agent.ComputeDigest([]byte("example.mcp_tools.implementation")),
-		ConfigurationDigest:  agent.ComputeDigest(toolBinding),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example.mcp_tools.implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest(toolBinding),
 	})
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("create MCP tool set: %w", err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}
-	interactionConfig := interaction.DefinitionConfig{
+	interactionConfig := agent.DefinitionConfig{
 		Name: "example.mcp_briefing", Description: "Ask the model for a topic brief using a remote MCP search tool.",
-		MaxModelCalls: agent.NewQuota(briefingModelCallLimit),
-		Tools:         toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
+		MaxModelCalls: agentrun.NewQuota(briefingModelCallLimit),
+		Tools:         toolSet, ToolBudget: agentrun.Budget{Steps: agentrun.NewQuota(8), Effects: agentrun.NewQuota(4), Signals: agentrun.NewQuota(8)},
 	}
-	definition, err := interaction.NewDefinition(interactionConfig)
+	definition, err := agent.NewDefinition(interactionConfig)
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("create interaction definition: %w", err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("create interaction definition: %w", err)
 	}
 	chatClient, err := chatclient.New(&stubModel{query: config.Query}, chatclient.Config{})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: chatClient})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: chatClient})
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("create interaction dispatcher: %w", err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("create interaction dispatcher: %w", err)
 	}
 	rootBinding, err := jsonv2.Marshal(struct {
-		Query         string       `json:"query"`
-		MaxModelCalls agent.Quota  `json:"max_model_calls"`
-		ToolBudget    agent.Budget `json:"tool_budget"`
+		Query         string          `json:"query"`
+		MaxModelCalls agentrun.Quota  `json:"max_model_calls"`
+		ToolBudget    agentrun.Budget `json:"tool_budget"`
 	}{Query: config.Query, MaxModelCalls: interactionConfig.MaxModelCalls, ToolBudget: interactionConfig.ToolBudget}, jsonv2.Deterministic(true))
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-mcp-briefing-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest(rootBinding),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example-mcp-briefing-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest(rootBinding),
 	})
 }
 
 func runBriefing(
 	ctx context.Context,
-	engine *agent.Engine,
-	deployment agent.Deployment,
+	engine *agentrun.Runtime,
+	deployment agentrun.Program[agentrun.Payload, agentrun.Payload],
 	systemPrompt, topic string,
 ) (briefOutput, error) {
 	input, err := briefingInput(systemPrompt, topic)
@@ -232,31 +232,38 @@ func runBriefing(
 		return briefOutput{}, err
 	}
 	ctx = scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{requestMetaKey: json.RawMessage(`"mcp-agent"`)})
-	result, err := engine.Run(ctx, deployment, input)
+	handle, err := engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "mcp", Key: "briefing"}, Input: input})
+	if err != nil {
+		return briefOutput{}, err
+	}
+	if err = handle.Join(ctx); err != nil {
+		return briefOutput{}, err
+	}
+	result, err := handle.Await(ctx)
 	if err != nil {
 		return briefOutput{}, fmt.Errorf("run MCP briefing interaction: %w", err)
 	}
 	return decodeBriefing(result)
 }
 
-func briefingInput(systemPrompt, topic string) (agent.Payload, error) {
+func briefingInput(systemPrompt, topic string) (agentrun.Payload, error) {
 	outputFormat, err := chat.NewOutputFormat(chat.OutputFormatJSON)
 	if err != nil {
-		return agent.Payload{}, fmt.Errorf("create JSON output format: %w", err)
+		return agentrun.Payload{}, fmt.Errorf("create JSON output format: %w", err)
 	}
 	prompt := fmt.Sprintf("Use %s to gather source URLs on %q.", researchQualifiedToolName, topic)
-	return agent.EncodePayload(interaction.Input{Messages: []chat.Message{
+	return agentrun.EncodePayload(agent.Input{Messages: []chat.Message{
 		chat.NewSystemMessage(systemPrompt),
 		chat.NewUserMessage(chat.NewTextPart(prompt)),
 	}, Options: chat.Options{OutputFormat: &outputFormat}})
 }
 
-func decodeBriefing(result agent.Result) (briefOutput, error) {
+func decodeBriefing(result agentrun.Result[agentrun.Payload]) (briefOutput, error) {
 	encodedOutput, ok := result.Termination().Output()
 	if !ok {
 		return briefOutput{}, fmt.Errorf("MCP briefing produced no output with status %q", result.Termination().Status())
 	}
-	output, err := encodedOutput.Decode[interaction.Output]()
+	output, err := encodedOutput.Decode[agent.Output]()
 	if err != nil {
 		return briefOutput{}, fmt.Errorf("decode interaction output: %w", err)
 	}

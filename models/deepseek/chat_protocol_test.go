@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/deepseek"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -49,7 +50,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 					corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "search", Arguments: `{"q":"scope"}`}),
 				),
 				corechat.NewToolMessage(corechat.ToolResult{
-					ID: "call-1", Name: "search", Output: corechat.NewTextToolOutput("found"),
+					ID: "call-1", Name: "search", Output: toolcontract.NewTextOutput("found"),
 				}),
 			},
 			wantReasoningWire: true,
@@ -82,7 +83,7 @@ func TestChat_ReasoningReplay(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewChatCompletions: %v", err)
 			}
-			if _, err := model.Call(t.Context(), &corechat.Request{Messages: test.messages, Tools: []corechat.ToolDefinition{{Name: "search", InputSchema: json.RawMessage(`{"type":"object"}`)}}}); err != nil {
+			if _, err := model.Call(t.Context(), &corechat.Request{Messages: test.messages, Tools: []toolcontract.Definition{{Name: "search", InputSchema: json.RawMessage(`{"type":"object"}`)}}}); err != nil {
 				t.Fatalf("Call: %v", err)
 			}
 
@@ -120,7 +121,7 @@ func TestChatMapsOfficialRequestOptions(t *testing.T) {
 	topLogProbs := int64(5)
 	request := &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("Return JSON"))},
-		Tools: []corechat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name:        "lookup",
 			Description: "Look up a record",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
@@ -247,7 +248,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 		options deepseek.RequestOptions
 		core    corechat.Options
 		choice  *corechat.ToolChoice
-		tools   []corechat.ToolDefinition
+		tools   []toolcontract.Definition
 		want    string
 	}{
 		{name: "unknown effort", core: corechat.Options{ReasoningEffort: "turbo"}, want: "reasoning_effort has unsupported value"},
@@ -258,7 +259,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 		{
 			name:   "missing named tool",
 			choice: &corechat.ToolChoice{Mode: corechat.ToolChoiceNamed, Name: "missing"},
-			tools:  []corechat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+			tools:  []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 			want:   "undefined tool",
 		},
 	}

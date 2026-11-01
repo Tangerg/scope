@@ -1,0 +1,507 @@
+package run
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"testing"
+)
+
+func TestProcessInitializationOutcomesConcludeAcceptedRootAndChildAdmissions(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		committer Store
+	}{
+		{name: "memory", committer: NewMemoryStore()},
+		{name: "recording", committer: &recordingTreeCommitter{}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			childDeployment := newChildTestDeployment(t)
+			parentDeployment := newCrossParentDeployment(t, childDeployment.ProgramRef())
+			var engine *Runtime
+			var mu sync.Mutex
+			var outcomes []ProcessInitializationOutcome
+			acknowledger := ProcessInitializationAcknowledgerFunc(func(
+				_ context.Context,
+				outcome ProcessInitializationOutcome,
+			) error {
+				if !outcome.Valid() {
+					return errors.New("acknowledger received an invalid outcome")
+				}
+				if _, published := engine.Process(outcome.Admission().Relation().ProcessID()); published {
+					return errors.New("initialized outcome was acknowledged after Process publication")
+				}
+				mu.Lock()
+				outcomes = append(outcomes, outcome)
+				mu.Unlock()
+				return nil
+			})
+			var err error
+			engine, err = New(t.Context(), Config{
+				Store:                             mode.committer,
+				ProgramResolver:                   deploymentMapResolver{childDeployment.ProgramRef(): childDeployment},
+				ProcessInitializationAcknowledger: acknowledger,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, _ := EncodePayload(struct{}{})
+			parent, err := engine.Start(t.Context(), parentDeployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			parentOutput := childTestResult(t, mustAwait(t, parent))
+			if len(parentOutput.ChildIDs) != 1 || parentOutput.Failures != 0 {
+				t.Fatalf("parent output = %#v", parentOutput)
+			}
+			childID, _ := ParseProcessID(parentOutput.ChildIDs[0])
+			child, found := engine.Process(childID)
+			if !found {
+				t.Fatal("started child is missing")
+			}
+			_ = mustAwait(t, child)
+
+			mu.Lock()
+			got := append([]ProcessInitializationOutcome(nil), outcomes...)
+			mu.Unlock()
+			if len(got) != 2 {
+				t.Fatalf("outcomes = %d, want root and child", len(got))
+			}
+			byProcess := make(map[ProcessID]ProcessInitializationOutcome, len(got))
+			for _, outcome := range got {
+				if outcome.Status() != ProcessInitializationOutcomeStatusInitialized || outcome.Status().String() != "initialized" {
+					t.Fatalf("outcome status = %s, want initialized", outcome.Status())
+				}
+				if _, failed := outcome.Failure(); failed {
+					t.Fatal("initialized outcome exposes a Failure")
+				}
+				byProcess[outcome.Admission().Relation().ProcessID()] = outcome
+			}
+			rootOutcome, rootFound := byProcess[parent.Relation().ProcessID()]
+			childOutcome, childFound := byProcess[child.Relation().ProcessID()]
+			if !rootFound || !rootOutcome.Admission().Relation().IsRoot() {
+				t.Fatalf("root outcome = %#v", rootOutcome)
+			}
+			parentID, hasParent := childOutcome.Admission().Relation().ParentID()
+			if !childFound || !hasParent || parentID != parent.Relation().ProcessID() {
+				t.Fatalf("child outcome = %#v", childOutcome)
+			}
+			// The outcome identifies the physical attempt: a root is admitted once
+			// and carries no incarnation, while a child carries the incarnation its
+			// attempt ran under, so a recovery re-attempt of one admission is
+			// distinguishable instead of colliding on the admission identity.
+			if rootOutcome.Incarnation() != (TreeIncarnationID{}) {
+				t.Fatalf("root outcome incarnation = %s, want zero", rootOutcome.Incarnation())
+			}
+			if !childOutcome.Incarnation().Valid() {
+				t.Fatalf("child outcome incarnation = %s, want a real tree incarnation", childOutcome.Incarnation())
+			}
+			// The start time is a publication fact on the Process, not carried by the
+			// admission outcome, so the published Processes own it.
+			if parent.StartedAt().IsZero() || child.StartedAt().IsZero() {
+				t.Fatalf("published start times = root %s, child %s", parent.StartedAt(), child.StartedAt())
+			}
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestProcessInitializationOutcomeReportsPostAdmissionInitializationFailure(t *testing.T) {
+	tests := []struct {
+		name  string
+		stage initializationFailureStage
+		code  string
+	}{
+		{name: "Definition start", stage: failDefinitionStart, code: "engine.process.start.failed"},
+		{name: "initial snapshot", stage: failInitialSnapshot, code: "engine.process.snapshot.failed"},
+		{name: "initial restore", stage: failInitialRestore, code: "engine.process.snapshot.unrestorable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			initializationErr := errors.New("injected initialization failure")
+			deployment := failingInitializationDeployment(t, test.stage, initializationErr)
+			var outcomes []ProcessInitializationOutcome
+			engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+					_ context.Context,
+					outcome ProcessInitializationOutcome,
+				) error {
+					outcomes = append(outcomes, outcome)
+					return nil
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+			process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+			if process != nil || !errors.Is(err, initializationErr) {
+				t.Fatalf("Start process=%v error=%v", process, err)
+			}
+			if len(outcomes) != 1 || outcomes[0].Status() != ProcessInitializationOutcomeStatusFailed || outcomes[0].Status().String() != "failed" {
+				t.Fatalf("outcomes = %#v", outcomes)
+			}
+			failure, failed := outcomes[0].Failure()
+			if !failed || failure.Code() != test.code {
+				t.Fatalf("initialization failure = %#v, present = %t", failure, failed)
+			}
+			processID := outcomes[0].Admission().Relation().ProcessID()
+			if _, published := engine.Process(processID); published {
+				t.Fatal("Process was published after failed initialization")
+			}
+			assertNoPendingProcessStarts(t, engine)
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestProcessInitializationOutcomeReportsChildInitializationFailure(t *testing.T) {
+	childDeployment := failingStartDeployment(t, errors.New("child cannot initialize"))
+	parentDeployment := newCrossParentDeployment(t, childDeployment.ProgramRef())
+	var mu sync.Mutex
+	var outcomes []ProcessInitializationOutcome
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProgramResolver: deploymentMapResolver{childDeployment.ProgramRef(): childDeployment},
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			_ context.Context,
+			outcome ProcessInitializationOutcome,
+		) error {
+			mu.Lock()
+			outcomes = append(outcomes, outcome)
+			mu.Unlock()
+			return nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := EncodePayload(struct{}{})
+	parent, err := engine.Start(t.Context(), parentDeployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := childTestResult(t, mustAwait(t, parent))
+	if output.Failures != 1 || len(output.FailureCodes) != 1 ||
+		output.FailureCodes[0] != "engine.process.start.failed" {
+		t.Fatalf("parent output = %#v", output)
+	}
+	mu.Lock()
+	got := append([]ProcessInitializationOutcome(nil), outcomes...)
+	mu.Unlock()
+	if len(got) != 2 || got[1].Status() != ProcessInitializationOutcomeStatusFailed {
+		t.Fatalf("outcomes = %#v", got)
+	}
+	parentID, child := got[1].Admission().Relation().ParentID()
+	failure, failed := got[1].Failure()
+	if !child || parentID != parent.Relation().ProcessID() || !failed || failure.Code() != "engine.process.start.failed" {
+		t.Fatalf("child outcome = %#v", got[1])
+	}
+	if _, published := engine.Process(got[1].Admission().Relation().ProcessID()); published {
+		t.Fatal("child was published after failed initialization")
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectingInitializedProcessOutcomePreventsPublication(t *testing.T) {
+	rejection := errors.New("outcome was not accepted")
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			context.Context,
+			ProcessInitializationOutcome,
+		) error {
+			return rejection
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := newChildTestDeployment(t)
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if process != nil || !errors.Is(err, rejection) {
+		t.Fatalf("Start process=%v error=%v", process, err)
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectingFailedProcessInitializationOutcomePreservesBothFailures(t *testing.T) {
+	initializationErr := errors.New("definition cannot initialize")
+	acknowledgmentErr := errors.New("outcome was not accepted")
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			_ context.Context,
+			outcome ProcessInitializationOutcome,
+		) error {
+			if outcome.Status() != ProcessInitializationOutcomeStatusFailed {
+				return fmt.Errorf("outcome status = %s, want failed", outcome.Status())
+			}
+			return acknowledgmentErr
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := failingStartDeployment(t, initializationErr)
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if process != nil || !errors.Is(err, initializationErr) || !errors.Is(err, acknowledgmentErr) {
+		t.Fatalf("Start process=%v error=%v", process, err)
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectingInitializedChildOutcomePreventsChildPublication(t *testing.T) {
+	for _, mode := range []struct {
+		name      string
+		committer Store
+	}{
+		{name: "memory", committer: NewMemoryStore()},
+		{name: "recording", committer: &recordingTreeCommitter{}},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			childDeployment := newChildTestDeployment(t)
+			parentDeployment := newCrossParentDeployment(t, childDeployment.ProgramRef())
+			rejection := errors.New("child outcome was not accepted")
+			var childID ProcessID
+			engine, err := New(t.Context(), Config{
+				Store:           mode.committer,
+				ProgramResolver: deploymentMapResolver{childDeployment.ProgramRef(): childDeployment},
+				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+					_ context.Context,
+					outcome ProcessInitializationOutcome,
+				) error {
+					if outcome.Admission().Relation().IsRoot() {
+						return nil
+					}
+					childID = outcome.Admission().Relation().ProcessID()
+					return rejection
+				}),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			input, _ := EncodePayload(struct{}{})
+			parent, err := engine.Start(t.Context(), parentDeployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+			if err != nil {
+				t.Fatal(err)
+			}
+			output := childTestResult(t, mustAwait(t, parent))
+			if output.Failures != 1 || len(output.FailureCodes) != 1 ||
+				output.FailureCodes[0] != "engine.child.initialization_outcome.unacknowledged" {
+				t.Fatalf("parent output = %#v", output)
+			}
+			if !childID.Valid() {
+				t.Fatal("child outcome was not proposed")
+			}
+			if _, published := engine.Process(childID); published {
+				t.Fatal("unacknowledged child was published")
+			}
+			if err := parent.Join(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			members := &parent.handle.treeRuntime().members
+			if reserved := parent.handle.treeRuntime().childDebits(members.get(parent.Relation().ProcessID())); reserved != (resourceAmounts{}) {
+				t.Fatalf("unacknowledged child retained budget: %+v", reserved)
+			}
+			assertNoPendingProcessStarts(t, engine)
+			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestProcessInitializationAcknowledgerPanicAndTypedNilAreContained(t *testing.T) {
+	var typedNil ProcessInitializationAcknowledgerFunc
+	if _, err := New(t.Context(), Config{Store: NewMemoryStore(), ProcessInitializationAcknowledger: typedNil}); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("typed-nil error = %v, want %v", err, ErrInvalidConfig)
+	}
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			context.Context,
+			ProcessInitializationOutcome,
+		) error {
+			panic("outcome panic")
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := newChildTestDeployment(t)
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	if process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input}); process != nil || err == nil {
+		t.Fatalf("panicking acknowledger process=%v error=%v", process, err)
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEngineCannotCloseWhileProcessInitializationOutcomeIsPending(t *testing.T) {
+	acknowledging := make(chan struct{})
+	release := make(chan struct{})
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			context.Context,
+			ProcessInitializationOutcome,
+		) error {
+			close(acknowledging)
+			<-release
+			return nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := newChildTestDeployment(t)
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	type startResult struct {
+		process *Handle[Payload]
+		err     error
+	}
+	result := make(chan startResult, 1)
+	go func() {
+		process, startErr := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+		result <- startResult{process: process, err: startErr}
+	}()
+	<-acknowledging
+	if err := engine.Close(context.WithoutCancel(t.Context())); !errors.Is(err, ErrActiveProcesses) {
+		t.Fatalf("Close error = %v, want %v", err, ErrActiveProcesses)
+	}
+	close(release)
+	started := <-result
+	if started.err != nil {
+		t.Fatal(started.err)
+	}
+	_ = mustAwait(t, started.process)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectedAdmissionProducesNoProcessInitializationOutcome(t *testing.T) {
+	var outcomeCount int
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
+		ProcessAdmitter: ProcessAdmitterFunc(func(context.Context, ProcessAdmission) error {
+			return errors.New("not admitted")
+		}),
+		ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(
+			context.Context,
+			ProcessInitializationOutcome,
+		) error {
+			outcomeCount++
+			return nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment := newChildTestDeployment(t)
+	input, _ := EncodePayload(childTestInput{Mode: "leaf"})
+	if process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input}); process != nil ||
+		!errors.Is(err, ErrProcessAdmissionRejected) {
+		t.Fatalf("Start process=%v error=%v", process, err)
+	}
+	if outcomeCount != 0 {
+		t.Fatalf("outcomes = %d, want 0", outcomeCount)
+	}
+	assertNoPendingProcessStarts(t, engine)
+	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type initializationFailureStage uint8
+
+const (
+	failDefinitionStart initializationFailureStage = iota + 1
+	failInitialSnapshot
+	failInitialRestore
+)
+
+type failingInitializationDefinition struct {
+	Definition
+	stage initializationFailureStage
+	err   error
+}
+
+func (f *failingInitializationDefinition) Start(input Payload) (Execution, error) {
+	if f.stage == failDefinitionStart {
+		return nil, f.err
+	}
+	execution, err := f.Definition.Start(input)
+	if err != nil || f.stage != failInitialSnapshot {
+		return execution, err
+	}
+	return &failingInitialSnapshotExecution{Execution: execution, err: f.err}, nil
+}
+
+func (f *failingInitializationDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	if f.stage == failInitialRestore {
+		return nil, f.err
+	}
+	return f.Definition.Restore(ctx, state)
+}
+
+type failingInitialSnapshotExecution struct {
+	Execution
+	err error
+}
+
+func (f *failingInitialSnapshotExecution) Snapshot() (ExecutionState, error) {
+	return ExecutionState{}, f.err
+}
+
+func failingStartDeployment(t *testing.T, startErr error) Program[Payload, Payload] {
+	return failingInitializationDeployment(t, failDefinitionStart, startErr)
+}
+
+func failingInitializationDeployment(
+	t *testing.T,
+	stage initializationFailureStage,
+	initializationErr error,
+) Program[Payload, Payload] {
+	t.Helper()
+	base := newChildTestDeployment(t)
+	deployment, err := Bind[Payload, Payload](BindingConfig{
+		Definition: &failingInitializationDefinition{
+			Definition: base.Definition(), stage: stage, err: initializationErr,
+		},
+		Dispatcher:           base.dispatcher,
+		ImplementationDigest: ComputeDigest([]byte("failing-initialization-implementation")),
+		ConfigurationDigest:  ComputeDigest([]byte("failing-initialization-configuration")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deployment
+}
+
+func assertNoPendingProcessStarts(t *testing.T, engine *Runtime) {
+	t.Helper()
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if len(engine.startReservations) != 0 || len(engine.childStartReservations) != 0 {
+		t.Fatalf(
+			"pending starts = %d, pending children = %d",
+			len(engine.startReservations), len(engine.childStartReservations),
+		)
+	}
+}

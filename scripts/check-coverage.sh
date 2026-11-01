@@ -6,11 +6,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 module_budget=(
   "a2a 90"
+  "a2a/managed 60.0"
   "agent 90"
   "core 90"
   "dev/providerconformance 90"
   "dev/repoarch none"
-  "dev/treecommitterconformance none"
   "etl 90"
   "etl/html 90"
   "etl/pdf 90"
@@ -24,6 +24,7 @@ module_budget=(
   "historystores/postgres 45.9"
   "historystores/redis 32.0"
   "mcp 90"
+  "mcp/managed 70"
   "models/alibaba 79.2"
   "models/anthropic 42.9"
   "models/assemblyai 66.9"
@@ -67,13 +68,14 @@ module_budget=(
   "otel/eval 90"
   "otel/rag 90"
   "rag 90"
+  "runstores/postgres 20"
   "skills 90"
   "tokenizers/tiktoken 90"
   "tools 90"
   "tools/skills 90"
   "vectorstores/azureaisearch 40.1"
   "vectorstores/azurecosmos 31.2"
-  "vectorstores/bedrockkb 55.7"
+  "retrievers/bedrockkb 55.7"
   "vectorstores/cassandra 28.1"
   "vectorstores/chroma 33.7"
   "vectorstores/clickhouse 34.8"
@@ -92,7 +94,7 @@ module_budget=(
   "vectorstores/s3vectors 23.4"
   "vectorstores/tidb 23.0"
   "vectorstores/typesense 33.8"
-  "vectorstores/vectara 24.9"
+  "retrievers/vectara 24.9"
   "vectorstores/vespa 33.2"
   "vectorstores/weaviate 41.6"
 )
@@ -101,8 +103,8 @@ module_budget=(
 # consumer keeps its budget after moving into the examples module.
 package_inventory_modules=(core agent)
 package_budget=(
-  "agent 86.8"
-  "agent/agenttest 81.2"
+  "agent/run 86.8"
+  "agent/run/runtest 81.2"
   "agent/examples/autonomous 70.2"
   "agent/examples/composition 78.4"
   "agent/examples/evaluator_optimizer 75.7"
@@ -113,18 +115,18 @@ package_budget=(
   "agent/internal/jsonwire 100.0"
   "agent/internal/panicinfo 100.0"
   "agent/messaging 88.6"
-  "agent/strategy/collaboration 85.5"
-  "agent/strategy/coordination 80.1"
-  "agent/strategy/interaction 84.2"
-  "agent/strategy/internal/childcall 95.3"
-  "agent/strategy/internal/restore 100.0"
-  "agent/strategy/internal/stepfail 100.0"
-  "agent/strategy/planning 82.4"
-  "agent/strategy/planning/goap 87.8"
-  "agent/strategy/role 87.5"
-  "agent/strategy/workflow 79.0"
+  "agent/team 85.5"
+  "agent/coordination 80.1"
+  "agent 84.2"
+  "agent/internal/strategy/childcall 95.3"
+  "agent/internal/strategy/restore 100.0"
+  "agent/internal/strategy/stepfail 100.0"
+  "agent/planning 82.4"
+  "agent/planning/goap 87.8"
+  "agent/workflow 79.0"
   "core none"
   "core/chat 89.2"
+  "core/content 89.2"
   "core/chatclient 88.8"
   "core/chatclient/internal/arch none"
   "core/chatclient/safeguard 93.1"
@@ -148,13 +150,14 @@ package_budget=(
   "core/rerank 92.8"
   "core/speech 96.9"
   "core/timestamp 100.0"
-  "core/tokenizer none"
+  "core/tokenizer 90"
   "core/tokenizer/internal/arch none"
   "core/tool 92.6"
   "core/tool/internal/arch none"
   "core/transcription 96.1"
   "core/vectorstore 86.9"
   "core/vectorstore/filter 84.2"
+  "core/vectorstore/filter/keyword 84.2"
   "core/vectorstore/inmemory 89.4"
   "core/vectorstore/storetest 62.8"
   "examples/agent/direct_vs_managed 69.1"
@@ -186,7 +189,7 @@ minimum_provider_coverage=20
 for budget in "${module_budget[@]}"; do
   read -r module minimum <<< "$budget"
   case "$module" in
-    historystores/*|models/*|vectorstores/*)
+    historystores/*|models/*|retrievers/*|runstores/*|vectorstores/*)
       ratio=$(budget_ratio "$minimum")
       read -r numerator denominator <<< "$ratio"
       if ! awk -v numerator="$numerator" -v denominator="$denominator" -v floor="$minimum_provider_coverage" 'BEGIN {exit numerator*100 < floor*denominator}'; then
@@ -252,12 +255,16 @@ profile_statistics() {
         package=block
         sub(/\/[^\/]+$/, "", package)
         sub(/^github.com\/Tangerg\/scope\//, "", package)
+        if (block ~ /^github.com\/Tangerg\/scope\/agent\/adapt\.go:/) {
+          adaptTotal+=statements[block]; adaptHit+=statements[block]*covered[block]
+        }
         total[package]+=statements[block]
         hit[package]+=statements[block]*covered[block]
         all+=statements[block]
         executed+=statements[block]*covered[block]
       }
       printf "module %d %d\n", executed, all
+      if (adaptTotal) printf "agent/adapt.go %d %d\n", adaptHit, adaptTotal
       for (package in total) printf "%s %d %d\n", package, hit[package], total[package]
     }
   ' "$profile"
@@ -301,6 +308,11 @@ for budget in "${module_budget[@]}"; do
     exit 1
   fi
   check_budget "$module" module "$minimum" || failed=1
+  if [[ "$module" == agent ]]; then
+    # Preserve the former role package's ratchet on its implementation after
+    # moving Adapt to the owning package. A root average cannot prove it.
+    check_budget agent/adapt.go agent/adapt.go 87.5 || failed=1
+  fi
   for package_entry in "${package_budget[@]}"; do
     read -r package minimum <<< "$package_entry"
     if [[ "$package" == "$module" || "$package" == "$module/"* ]]; then

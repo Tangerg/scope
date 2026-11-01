@@ -7,8 +7,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 var (
@@ -47,7 +45,7 @@ func (r *Registry) Register(values ...Tool) error {
 		if err != nil {
 			return fmt.Errorf("tools[%d]: %w", index, err)
 		}
-		name := binding.Contract().Definition().Name
+		name := binding.Contract().Name()
 		if _, duplicate := pending[name]; duplicate {
 			return fmt.Errorf("%w: %q appears more than once in batch", ErrDuplicateTool, name)
 		}
@@ -79,18 +77,18 @@ func (r *Registry) Resolve(name string) (Binding, bool) {
 	return value, ok
 }
 
-func (r *Registry) Definitions() []chat.ToolDefinition {
+func (r *Registry) Definitions() []Definition {
 	if r == nil {
 		return nil
 	}
 	r.mu.RLock()
-	definitions := make([]chat.ToolDefinition, 0, len(r.entries))
+	definitions := make([]Definition, 0, len(r.entries))
 	for _, binding := range r.entries {
 		definitions = append(definitions, binding.Contract().Definition())
 	}
 	r.mu.RUnlock()
 
-	slices.SortFunc(definitions, func(a, b chat.ToolDefinition) int {
+	slices.SortFunc(definitions, func(a, b Definition) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return definitions

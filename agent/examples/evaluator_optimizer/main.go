@@ -14,8 +14,8 @@ import (
 	"slices"
 	"strings"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/workflow"
 )
 
 const (
@@ -159,7 +159,7 @@ type executionEvidence struct {
 	Deployments map[string]int
 }
 
-// ProcessCount totals the Processes the Deployment counts already record.
+// ProcessCount totals the Processes the Program counts already record.
 func (e executionEvidence) ProcessCount() int {
 	count := 0
 	for _, processes := range e.Deployments {
@@ -178,7 +178,7 @@ func execute(
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -186,11 +186,18 @@ func execute(
 		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
 
-	input, err := agent.EncodePayload(request)
+	input, err := agentrun.EncodePayload(request)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	result, err := engine.Run(ctx, root, input)
+	handle, err := engine.Start(ctx, root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "run"}, Input: input})
+	if err != nil {
+		return optimizationReport{}, executionEvidence{}, err
+	}
+	if err = handle.Join(ctx); err != nil {
+		return optimizationReport{}, executionEvidence{}, err
+	}
+	result, err := handle.Await(ctx)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -207,33 +214,33 @@ func execute(
 		Deployments: make(map[string]int),
 	}
 	for _, snapshot := range snapshots {
-		evidence.Deployments[snapshot.DeploymentRef().Name()]++
+		evidence.Deployments[snapshot.ProgramRef().Name()]++
 	}
 	return report, evidence, nil
 }
 
 // newEvaluatorOptimizer runs one iteration per scheduled score: the schedule
 // owns the iteration bound.
-func newEvaluatorOptimizer(scores []float64, threshold float64) (agent.Deployment, error) {
+func newEvaluatorOptimizer(scores []float64, threshold float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	frozenScores, err := validateScoreSchedule(scores, threshold)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	optimizer, err := newOptimizerDeployment()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	evaluator, err := newEvaluatorDeployment(frozenScores)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	iteration, err := newIterationDeployment(optimizer, evaluator)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	root, err := newOptimizationRoot(iteration, threshold, uint64(len(frozenScores)))
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return root, nil
 }
@@ -254,7 +261,7 @@ func validateScoreSchedule(scores []float64, threshold float64) ([]float64, erro
 	return frozenScores, nil
 }
 
-func newOptimizerDeployment() (agent.Deployment, error) {
+func newOptimizerDeployment() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	return transformDeployment(
 		"example.evaluator_optimizer.optimizer",
 		"Produce one revised candidate from the objective and latest evaluator feedback.",
@@ -276,7 +283,7 @@ func newOptimizerDeployment() (agent.Deployment, error) {
 
 // newEvaluatorDeployment scores candidates; the root Loop owns the acceptance
 // threshold, so feedback never decides acceptance.
-func newEvaluatorDeployment(scores []float64) (agent.Deployment, error) {
+func newEvaluatorDeployment(scores []float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	return transformDeployment(
 		"example.evaluator_optimizer.evaluator",
 		"Score one candidate, provide revision feedback, and retain the stable best attempt.",
@@ -288,6 +295,9 @@ func newEvaluatorDeployment(scores []float64) (agent.Deployment, error) {
 				return optimizationState{}, validatePendingStateErr
 			}
 			index := len(state.History)
+			if index >= len(scores) {
+				return optimizationState{}, fmt.Errorf("no assessment scheduled for revision %d", index+1)
+			}
 			score := scores[index]
 			feedback := fmt.Sprintf("raise quality after revision %d", index+1)
 			latest := attempt{
@@ -305,23 +315,23 @@ func newEvaluatorDeployment(scores []float64) (agent.Deployment, error) {
 }
 
 func newIterationDeployment(
-	optimizer agent.Deployment,
-	evaluator agent.Deployment,
-) (agent.Deployment, error) {
-	workerBudget := agent.Budget{
-		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
+	optimizer agentrun.Program[agentrun.Payload, agentrun.Payload],
+	evaluator agentrun.Program[agentrun.Payload, agentrun.Payload],
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+	workerBudget := agentrun.Budget{
+		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Signals: agentrun.NewQuota(workerBudgetSignals),
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
 		ID: "optimize", Deployment: optimizer, Budget: workerBudget,
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	evaluate, err := workflow.Call(workflow.CallConfig{
 		ID: "evaluate", Deployment: evaluator, Budget: workerBudget,
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	iterationDefinition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name:        "example.evaluator_optimizer.iteration",
@@ -329,13 +339,13 @@ func newIterationDeployment(
 		Stages:      []workflow.Stage{optimize, evaluate},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return newWorkflowDeployment(
 		iterationDefinition,
 		"evaluator-optimizer-iteration",
 		struct {
-			WorkerBudget agent.Budget `json:"worker_budget"`
+			WorkerBudget agentrun.Budget `json:"worker_budget"`
 		}{WorkerBudget: workerBudget},
 	)
 }
@@ -365,20 +375,20 @@ func finalizeOptimization(result workflow.LoopResult[optimizationState]) (optimi
 }
 
 func newOptimizationRoot(
-	iteration agent.Deployment,
+	iteration agentrun.Program[agentrun.Payload, agentrun.Payload],
 	threshold float64,
 	maxIterations uint64,
-) (agent.Deployment, error) {
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	initialize, err := workflow.Transform("initialize", initializeOptimization)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	iterationBudget := agent.Budget{
-		Steps: agent.NewQuota(iterationBudgetSteps), Effects: agent.NewQuota(iterationBudgetEffects), Signals: agent.NewQuota(iterationBudgetSignals),
+	iterationBudget := agentrun.Budget{
+		Steps: agentrun.NewQuota(iterationBudgetSteps), Effects: agentrun.NewQuota(iterationBudgetEffects), Signals: agentrun.NewQuota(iterationBudgetSignals),
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: iteration, Budget: iterationBudget,
-		MaxIterations: agent.NewQuota(uint64(maxIterations)),
+		MaxIterations: agentrun.NewQuota(uint64(maxIterations)),
 		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
 			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
@@ -387,7 +397,7 @@ func newOptimizationRoot(
 		},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	finalize, err := workflow.Transform("finalize", func(_ context.Context,
 		result workflow.LoopResult[optimizationState],
@@ -395,7 +405,7 @@ func newOptimizationRoot(
 		return finalizeOptimization(result)
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	rootDefinition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name:        "example.evaluator_optimizer",
@@ -403,19 +413,19 @@ func newOptimizationRoot(
 		Stages:      []workflow.Stage{initialize, refine, finalize},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return newWorkflowDeployment(
 		rootDefinition,
 		"evaluator-optimizer-root",
 		struct {
-			IterationBudget agent.Budget `json:"iteration_budget"`
-			Threshold       float64      `json:"threshold"`
-			MaxIterations   agent.Quota  `json:"max_iterations"`
+			IterationBudget agentrun.Budget `json:"iteration_budget"`
+			Threshold       float64         `json:"threshold"`
+			MaxIterations   agentrun.Quota  `json:"max_iterations"`
 		}{
 			IterationBudget: iterationBudget,
 			Threshold:       threshold,
-			MaxIterations:   agent.NewQuota(uint64(maxIterations)),
+			MaxIterations:   agentrun.NewQuota(uint64(maxIterations)),
 		},
 	)
 }
@@ -429,25 +439,25 @@ func transformDeployment[I, O any](
 	description string,
 	configuration any,
 	transform workflow.TransformFunc[I, O],
-) (agent.Deployment, error) {
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("transform", transform)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: name, Description: description, Stages: []workflow.Stage{stage},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte(name + "-transform")),
-		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-transform")),
+		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
 	})
 }
 
@@ -455,21 +465,21 @@ func newWorkflowDeployment(
 	definition *workflow.Definition,
 	implementationIdentity string,
 	configuration any,
-) (agent.Deployment, error) {
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", definition.Descriptor().Name(), err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("encode %s configuration: %w", definition.Descriptor().Name(), err)
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte(implementationIdentity)),
-		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(implementationIdentity)),
+		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
 	})
 }
 
-func decodeCompleted[T any](result agent.Result) (T, error) {
+func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
 	var zero T
-	if result.Termination().Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agentrun.StatusCompleted {
 		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
 	}
 	output, present := result.Termination().Output()

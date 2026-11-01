@@ -12,8 +12,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Tangerg/scope/models/protocol/anthropic"
-	"github.com/Tangerg/scope/models/protocol/openai"
+	"github.com/Tangerg/scope/models/anthropic"
+	"github.com/Tangerg/scope/models/openai"
 )
 
 func TestProtocolHTTPDefaultsPreserveHeaderDeadline(t *testing.T) {

@@ -1,26 +1,28 @@
 package messaging_test
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"slices"
 	"sync"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/coordination"
 	"github.com/Tangerg/scope/agent/messaging"
-	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const senderStateKind = "test.sender"
 
-func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher) agent.Deployment {
+func bind(t testing.TB, definition run.Definition, dispatcher run.Dispatcher) run.Program[run.Payload, run.Payload] {
 	t.Helper()
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("messaging-fixture")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte(t.Name() + "/" + definition.Descriptor().Name())),
+		ImplementationDigest: run.ComputeDigest([]byte("messaging-fixture")),
+		ConfigurationDigest:  run.ComputeDigest([]byte(t.Name() + "/" + definition.Descriptor().Name())),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -28,9 +30,9 @@ func bind(t testing.TB, definition agent.Definition, dispatcher agent.Dispatcher
 	return deployment
 }
 
-func newEngine(t testing.TB, store agent.TreeCommitter) *agent.Engine {
+func newEngine(t testing.TB, store run.Store) *run.Runtime {
 	t.Helper()
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
+	engine, err := run.New(t.Context(), run.Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,25 +48,25 @@ func newDispatcher(t testing.TB, port messaging.DeliveryPort) *messaging.Dispatc
 	return dispatcher
 }
 
-func start(t testing.TB, engine *agent.Engine, deployment agent.Deployment, payload agent.Payload) *agent.Process {
+func start(t testing.TB, engine *run.Runtime, deployment run.Program[run.Payload, run.Payload], payload run.Payload) *run.Handle[run.Payload] {
 	t.Helper()
-	process, err := engine.Start(t.Context(), deployment, payload)
+	process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: payload})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return process
 }
 
-func input[T any](t testing.TB, value T) agent.Payload {
+func input[T any](t testing.TB, value T) run.Payload {
 	t.Helper()
-	encoded, err := agent.EncodePayload(value)
+	encoded, err := run.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return encoded
 }
 
-func inspect(t testing.TB, engine *agent.Engine, process *agent.Process) agent.ProcessSnapshot {
+func inspect(t testing.TB, engine *run.Runtime, process *run.Handle[run.Payload]) run.ProcessSnapshot {
 	t.Helper()
 	tree, err := engine.InspectTree(context.Background(), process.Relation().RootID())
 	if err != nil {
@@ -92,7 +94,7 @@ func newGate(t testing.TB) *coordination.InputGate {
 	return gate
 }
 
-type senderDefinition struct{ descriptor agent.Descriptor }
+type senderDefinition struct{ descriptor run.Descriptor }
 type senderState struct {
 	Message messaging.Message `json:"message"`
 	Sent    bool              `json:"sent"`
@@ -109,7 +111,7 @@ func newSender(t testing.TB) senderDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name: "test.reviewer", Description: "Deliver a review and retain its admission receipt.", InputSchema: in, OutputSchema: out,
 	})
 	if err != nil {
@@ -118,10 +120,10 @@ func newSender(t testing.TB) senderDefinition {
 	return senderDefinition{descriptor: descriptor}
 }
 
-func (s senderDefinition) Descriptor() agent.Descriptor { return s.descriptor }
+func (s senderDefinition) Descriptor() run.Descriptor { return s.descriptor }
 
-func (senderDefinition) ChildDeployments() []agent.Deployment { return nil }
-func (s senderDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (senderDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (s senderDefinition) Start(input run.Payload) (run.Execution, error) {
 	message, err := input.Decode[messaging.Message]()
 	if err != nil {
 		return nil, err
@@ -131,11 +133,11 @@ func (s senderDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	}
 	return &senderExecution{state: senderState{Message: message}}, nil
 }
-func (s senderDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (s senderDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if state.Kind() != senderStateKind {
-		return nil, agent.ErrInvalidExecutionState
+		return nil, run.ErrInvalidExecutionState
 	}
-	input, err := agent.ParsePayload(state.Payload())
+	input, err := run.ParsePayload(state.Payload())
 	if err != nil {
 		return nil, err
 	}
@@ -148,58 +150,58 @@ func (s senderDefinition) Restore(ctx context.Context, state agent.ExecutionStat
 	}
 	return &senderExecution{state: decoded}, nil
 }
-func (s *senderExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (s *senderExecution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	if !s.state.Sent {
 		effect, err := s.state.Message.Effect()
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
 		s.state.Sent = true
-		return agent.Continue(0, effect)
+		return run.Continue(0, effect)
 	}
 	if len(signals) != 1 {
-		return agent.Transition{}, errors.New("review requires one receipt")
+		return run.Transition{}, errors.New("review requires one receipt")
 	}
-	output, err := agent.ParsePayload(signals[0].Payload())
+	output, err := run.ParsePayload(signals[0].Payload())
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	receipt, err := output.Decode[messaging.Receipt]()
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	if !receipt.SignalID.Valid() {
-		return agent.Transition{}, messaging.ErrInvalidMessage
+		return run.Transition{}, messaging.ErrInvalidMessage
 	}
-	return agent.Complete(1, output)
+	return run.Complete(1, output)
 }
-func (s *senderExecution) Snapshot() (agent.ExecutionState, error) {
-	encoded, err := agent.EncodePayload(s.state)
+func (s *senderExecution) Snapshot() (run.ExecutionState, error) {
+	encoded, err := run.EncodePayload(s.state)
 	if err != nil {
-		return agent.ExecutionState{}, err
+		return run.ExecutionState{}, err
 	}
-	return agent.ParseExecutionState(senderStateKind, encoded.JSON())
+	return run.ParseExecutionState(senderStateKind, encoded.JSON())
 }
 
 type recipientPort struct {
-	engine             *agent.Engine
-	recipient          *agent.Process
+	engine             *run.Runtime
+	recipient          *run.Handle[run.Payload]
 	mu                 sync.Mutex
-	calls              []agent.SignalRequest
+	calls              []run.SignalRequest
 	firstAdmission     chan struct{}
 	release            chan struct{}
 	lostAcknowledgment bool
 	checkReceipts      bool
 }
 
-func (r *recipientPort) Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error {
+func (r *recipientPort) Deliver(ctx context.Context, sender, recipient run.ProcessID, signal run.SignalRequest) error {
 	if !sender.Valid() || recipient != r.recipient.Relation().ProcessID() {
-		return agent.ErrSignalRejected
+		return run.ErrSignalRejected
 	}
-	payload, err := agent.ParsePayload(signal.Payload())
+	payload, err := run.ParsePayload(signal.Payload())
 	if err != nil {
 		return err
 	}
@@ -240,14 +242,14 @@ func (r *recipientPort) holdFirstAdmission(ctx context.Context) error {
 	}
 }
 
-func (r *recipientPort) record(signal agent.SignalRequest) (first bool) {
+func (r *recipientPort) record(signal run.SignalRequest) (first bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, signal)
 	return len(r.calls) == 1
 }
 
-func (r *recipientPort) recordedCalls() []agent.SignalRequest {
+func (r *recipientPort) recordedCalls() []run.SignalRequest {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.calls)
@@ -255,7 +257,7 @@ func (r *recipientPort) recordedCalls() []agent.SignalRequest {
 
 // reconcile proves an earlier admission from the recipient's authoritative
 // receipts, which remain after the recipient has consumed or finished.
-func (r *recipientPort) reconcile(ctx context.Context, signal agent.SignalRequest) (bool, error) {
+func (r *recipientPort) reconcile(ctx context.Context, signal run.SignalRequest) (bool, error) {
 	tree, err := r.engine.InspectTree(ctx, r.recipient.Relation().RootID())
 	if err != nil {
 		return false, err
@@ -269,14 +271,14 @@ func (r *recipientPort) reconcile(ctx context.Context, signal agent.SignalReques
 			continue
 		}
 		if !receipt.Matches(signal) {
-			return false, agent.ErrSignalConflict
+			return false, run.ErrSignalConflict
 		}
 		return true, nil
 	}
 	return false, nil
 }
 
-func finish(t testing.TB, process *agent.Process) agent.Result {
+func finish(t testing.TB, process *run.Handle[run.Payload]) run.Result[run.Payload] {
 	t.Helper()
 	result, err := process.Await(context.Background())
 	if err != nil {
@@ -288,7 +290,7 @@ func finish(t testing.TB, process *agent.Process) agent.Result {
 	return result
 }
 
-func closeEngine(t testing.TB, engine *agent.Engine) {
+func closeEngine(t testing.TB, engine *run.Runtime) {
 	t.Helper()
 	if err := engine.Close(context.Background()); err != nil {
 		t.Fatal(err)

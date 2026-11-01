@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 func TestBehaviorDigestCanonicalizesHostOutput(t *testing.T) {
 	recorded := runTrajectory(t)
 	const canonical = `{"label":"<value>","nested":{"a":1,"b":2},"number":9007199254740993,"values":[1,2]}`
-	baseline, err := recorded.BehaviorDigest(func(agent.Payload) (json.RawMessage, error) {
+	baseline, err := recorded.BehaviorDigest(func(run.Payload) (json.RawMessage, error) {
 		return json.RawMessage(canonical), nil
 	})
 	if err != nil {
@@ -23,7 +23,7 @@ func TestBehaviorDigestCanonicalizesHostOutput(t *testing.T) {
 	} {
 		owned := json.RawMessage(raw)
 		before := bytes.Clone(owned)
-		digest, err := recorded.BehaviorDigest(func(agent.Payload) (json.RawMessage, error) { return owned, nil })
+		digest, err := recorded.BehaviorDigest(func(run.Payload) (json.RawMessage, error) { return owned, nil })
 		if err != nil || digest != baseline {
 			t.Errorf("BehaviorDigest(%s) = %s, %v; want %s", raw, digest, err, baseline)
 		}
@@ -35,7 +35,7 @@ func TestBehaviorDigestCanonicalizesHostOutput(t *testing.T) {
 		`{"label":"<value>","nested":{"a":1,"b":2},"number":9007199254740992,"values":[1,2]}`,
 		`{"label":"<value>","nested":{"a":1,"b":2},"number":9007199254740993,"values":[2,1]}`,
 	} {
-		digest, err := recorded.BehaviorDigest(func(agent.Payload) (json.RawMessage, error) { return json.RawMessage(changed), nil })
+		digest, err := recorded.BehaviorDigest(func(run.Payload) (json.RawMessage, error) { return json.RawMessage(changed), nil })
 		if err != nil {
 			t.Fatal(err)
 		}

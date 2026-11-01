@@ -11,7 +11,7 @@ import (
 	"testing"
 	"weak"
 
-	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
@@ -259,7 +259,7 @@ func TestFuncRejectsInvalidTextOutput(t *testing.T) {
 			for _, executable := range []tool.Tool{plain, defined} {
 				output, callErr := call(t, t.Context(), executable, `{}`)
 				if name == "invalid" {
-					if !errors.Is(callErr, chat.ErrInvalidToolOutput) || output.Content != nil || output.Details != nil {
+					if !errors.Is(callErr, tool.ErrInvalidOutput) || output.Content != nil || output.Details != nil {
 						t.Fatalf("invalid text published: output=%#v error=%v", output, callErr)
 					}
 					continue
@@ -271,7 +271,7 @@ func TestFuncRejectsInvalidTextOutput(t *testing.T) {
 					if output.Content != nil {
 						t.Fatalf("empty text published content: %#v", output)
 					}
-				} else if len(output.Content) != 1 || output.Content[0].Kind != chat.PartText || output.Content[0].Text != text {
+				} else if len(output.Content) != 1 || output.Content[0].Kind != corecontent.Text || output.Content[0].Text != text {
 					t.Fatalf("text changed: %#v", output)
 				}
 			}
@@ -307,7 +307,7 @@ func TestFuncPreservesCompletedOutputOnCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	output, callErr := call(t, ctx, function, `{}`)
-	if callErr != nil || len(output.Content) != 1 || output.Content[0].Kind != chat.PartText || output.Content[0].Text != "written" || output.Details != nil {
+	if callErr != nil || len(output.Content) != 1 || output.Content[0].Kind != corecontent.Text || output.Content[0].Text != "written" || output.Details != nil {
 		t.Fatalf("completed outcome discarded: output=%#v error=%v", output, callErr)
 	}
 }
@@ -370,10 +370,10 @@ func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	contract := binding.Contract()
-	if _, err := contract.Prepare(chat.ToolCall{ID: "odd", Name: "even", Arguments: `{"n":3}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":3}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("odd input was admitted: %v", err)
 	}
-	if _, err := contract.Prepare(chat.ToolCall{ID: "even", Name: "even", Arguments: `{"n":4}`}, nil); err != nil {
+	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":4}`}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if executions != 0 {
@@ -388,7 +388,7 @@ func TestContractDoesNotRetainFunctionExecutionResources(t *testing.T) {
 	if resource.Value() != nil {
 		t.Fatal("pure input contract retained execution resources")
 	}
-	if _, err := contract.Prepare(chat.ToolCall{ID: "call", Name: "resource", Arguments: `{}`}, nil); err != nil {
+	if _, err := contract.Prepare(tool.Request{Name: "resource", Arguments: `{}`}, nil); err != nil {
 		t.Fatal(err)
 	}
 	runtime.KeepAlive(contract)
@@ -416,12 +416,12 @@ func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 		`{"float":1e39}`, `{"bytes":"invalid base64"}`,
 		`{"value":1e999}`,
 	} {
-		if _, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "representable", Arguments: arguments}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+		if _, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%s) = %v, want invalid invocation", arguments, err)
 		}
 	}
 	for _, arguments := range []string{`{}`, `{"signed":-128}`, `{"signed":127}`, `{"unsigned":18446744073709551615}`, `{"float":1.25}`, `{"bytes":"aGk="}`} {
-		invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "representable", Arguments: arguments}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, nil)
 		if err != nil {
 			t.Fatalf("valid input rejected: %s: %v", arguments, err)
 		}
@@ -460,23 +460,23 @@ func isolatedFunctionContract(t *testing.T) (tool.Contract, weak.Pointer[[1024]b
 	return binding.Contract(), weak.Make(resource)
 }
 
-func call(t *testing.T, ctx context.Context, executable tool.Tool, arguments string) (chat.ToolOutput, error) {
+func call(t *testing.T, ctx context.Context, executable tool.Tool, arguments string) (tool.Output, error) {
 	t.Helper()
 	binding, err := tool.Bind(executable)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Output{}, err
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: binding.Contract().Definition().Name, Arguments: arguments,
+	invocation, err := binding.Contract().Prepare(tool.Request{
+		Name: binding.Contract().Definition().Name, Arguments: arguments,
 	}, nil)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Output{}, err
 	}
 	result, err := binding.Call(ctx, invocation)
 	return result.Output, err
 }
 
-func mustText(t *testing.T, output chat.ToolOutput) string {
+func mustText(t *testing.T, output tool.Output) string {
 	t.Helper()
 	text, ok := output.Text()
 	if !ok {

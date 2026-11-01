@@ -49,7 +49,10 @@ func liveMongoStore(t *testing.T, metric string) (*Store, *mongo.Collection) {
 		t.Fatal(err)
 	}
 	collection := db.Collection("documents")
-	index := mongo.SearchIndexModel{Definition: bson.M{"fields": bson.A{bson.M{"type": "vector", "path": embeddingField, "numDimensions": 2, "similarity": metric}, bson.M{"type": "filter", "path": idField}}}, Options: options.SearchIndexes().SetName(DefaultVectorIndexName).SetType("vectorSearch")}
+	if _, err := collection.Indexes().CreateOne(t.Context(), mongo.IndexModel{Keys: bson.D{{Key: termsField, Value: 1}}, Options: options.Index().SetCollation(&options.Collation{Locale: "simple"})}); err != nil {
+		t.Fatal(err)
+	}
+	index := mongo.SearchIndexModel{Definition: bson.M{"fields": bson.A{bson.M{"type": "vector", "path": fixtureSpace.StorageKey(), "numDimensions": 2, "similarity": metric}, bson.M{"type": "filter", "path": termsField}, bson.M{"type": "filter", "path": idField}}}, Options: options.SearchIndexes().SetName(DefaultVectorIndexName).SetType("vectorSearch")}
 	if _, err = collection.SearchIndexes().CreateOne(t.Context(), index); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func liveMongoStore(t *testing.T, metric string) (*Store, *mongo.Collection) {
 		case <-ticker.C:
 		}
 	}
-	store, err := NewStore(t.Context(), StoreConfig{Collection: collection, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Collection: collection, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,13 +93,13 @@ func TestLiveFilterConformance(t *testing.T) {
 				if _, err := collection.DeleteMany(ctx, bson.M{}); err != nil {
 					return nil, err
 				}
-				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
 				if err := awaitVisibleDocuments(ctx, store, docs); err != nil {
 					return nil, err
 				}
-				response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+				response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 				if err != nil {
 					return nil, err
 				}
@@ -116,7 +119,7 @@ func awaitVisibleDocuments(ctx context.Context, store *Store, docs []*document.D
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: max(len(docs), 10)}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: max(len(docs), 10)}})
 		if err != nil {
 			return err
 		}

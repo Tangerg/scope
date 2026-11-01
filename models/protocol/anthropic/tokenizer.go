@@ -3,31 +3,11 @@ package anthropic
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 
 	"github.com/Tangerg/scope/core/tokenizer"
 )
-
-// Model picks the tokenizer vocabulary Anthropic counts against; a mismatch
-// (Claude 3 model name vs Claude 4 vocab) produces wrong counts.
-type TextCounterConfig struct {
-	APIKey     string
-	Model      string
-	BaseURL    string
-	HTTPClient *http.Client
-}
-
-func (t TextCounterConfig) Validate() error {
-	if err := (apiConfig{APIKey: t.APIKey, BaseURL: t.BaseURL}).validate(); err != nil {
-		return err
-	}
-	if t.Model == "" {
-		return errors.New("anthropic: Model is required")
-	}
-	return nil
-}
 
 var _ tokenizer.TextCounter = (*TextCounter)(nil)
 
@@ -41,23 +21,6 @@ var _ tokenizer.TextCounter = (*TextCounter)(nil)
 type TextCounter struct {
 	api   *api
 	model string
-}
-
-func NewTextCounter(ctx context.Context, config TextCounterConfig) (*TextCounter, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &TextCounter{api: api, model: config.Model}, nil
 }
 
 // CountText returns the prompt-token count Anthropic would charge if

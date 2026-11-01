@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/mistral"
 )
 
@@ -35,7 +36,7 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 	}
 	firstRequest := &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("find it"))},
-		Tools: []corechat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "lookup", Description: "Look up an ID", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}`),
 		}},
 	}
@@ -61,7 +62,7 @@ func TestChatMapsNativeThinkingAndReplaysIt(t *testing.T) {
 		firstRequest.Messages[0],
 		message.Clone(),
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "call-1", Name: "lookup", Output: corechat.NewTextToolOutput(`{"name":"scope"}`),
+			ID: "call-1", Name: "lookup", Output: toolcontract.NewTextOutput(`{"name":"scope"}`),
 		}),
 	}}
 	if _, err := model.Call(t.Context(), secondRequest); err != nil {
@@ -187,10 +188,10 @@ func TestChatRejectsDuplicateToolChoiceSurfacesBeforeProviderIO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := corechat.ToolDefinition{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}
+	definition := toolcontract.Definition{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}
 	request := &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("look up"))},
-		Tools:    []corechat.ToolDefinition{definition},
+		Tools:    []toolcontract.Definition{definition},
 		ToolChoice: &corechat.ToolChoice{
 			Mode: corechat.ToolChoiceNamed, Name: "lookup",
 		},

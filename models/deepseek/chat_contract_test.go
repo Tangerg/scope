@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/deepseek"
 )
 
@@ -59,7 +60,7 @@ func TestThinkingUsesEffectiveCoreOptions(t *testing.T) {
 				defer server.Close()
 				options := chat.Options{Model: deepseek.ModelFlash, ReasoningEffort: test.effort, TopP: test.topP, Temperature: test.temperature}
 				config := deepseek.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL}
-				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 				if defaults {
 					config.DefaultOptions = options
 				} else {

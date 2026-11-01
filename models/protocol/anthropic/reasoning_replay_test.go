@@ -33,7 +33,8 @@ func TestChat_OmitsUnsignedReasoningFromPortableHistory(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "claude-test"},
 		BaseURL:        server.URL,
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewMessages: %v", err)
 	}

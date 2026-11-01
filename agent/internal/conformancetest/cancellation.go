@@ -6,13 +6,13 @@ import (
 	"sync/atomic"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 // CheckRestoreCancellation interrupts a built-in validator after each observed
 // cancellation checkpoint. Sampling Err before canceling models cancellation
 // arriving just after a successful check, without timing or scheduler races.
-func CheckRestoreCancellation(t *testing.T, definition agent.Definition, state agent.ExecutionState) {
+func CheckRestoreCancellation(t *testing.T, definition run.Definition, state run.ExecutionState) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	counter := &restoreCancellationContext{Context: ctx, cancel: cancel}

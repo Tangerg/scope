@@ -11,15 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/mcp"
 )
 
 type progressTool struct{}
 
-func (progressTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{
+func (progressTool) Definition() toolcontract.Definition {
+	return toolcontract.Definition{
 		Name:        "progress_demo",
 		Description: "Reports progress + log lines",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
@@ -34,7 +33,7 @@ func (progressTool) Call(ctx context.Context, _ toolcontract.Invocation) (toolco
 			return toolcontract.Result{}, err
 		}
 	}
-	return toolcontract.Result{Output: chat.NewTextToolOutput("ok")}, nil
+	return toolcontract.Result{Output: toolcontract.NewTextOutput("ok")}, nil
 }
 
 func TestNotifyHelpers_Progress(t *testing.T) {

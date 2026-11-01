@@ -5,9 +5,11 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -21,6 +23,7 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 		for _, state := range []string{"message", "TASK_STATE_COMPLETED", "TASK_STATE_FAILED", "TASK_STATE_CANCELED", "TASK_STATE_REJECTED", "TASK_STATE_INPUT_REQUIRED", "TASK_STATE_AUTH_REQUIRED", "TASK_STATE_WORKING"} {
 			t.Run(binding+"/"+state, func(t *testing.T) {
 				var endpoint string
+				var replyID atomic.Value
 				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 					writer.Header().Set("Content-Type", "application/json")
 					if request.Method == http.MethodGet {
@@ -54,8 +57,11 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 					}
 					var input struct {
 						Message struct {
-							Role  string `json:"role"`
-							Parts []struct {
+							Role      string `json:"role"`
+							TaskID    string `json:"taskId"`
+							ContextID string `json:"contextId"`
+							ID        string `json:"messageId"`
+							Parts     []struct {
 								Text string `json:"text"`
 							} `json:"parts"`
 						} `json:"message"`
@@ -64,10 +70,24 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 						t.Error(err)
 						return
 					}
-					if input.Message.Role != "ROLE_USER" || len(input.Message.Parts) != 1 || input.Message.Parts[0].Text != "question 9007199254740993" {
+					wantText := "question 9007199254740993"
+					resultState := state
+					if input.Message.TaskID != "" {
+						if state != "TASK_STATE_INPUT_REQUIRED" || input.Message.TaskID != "remote-task" || input.Message.ContextID != "remote-context" || input.Message.ID == "" {
+							t.Errorf("wrong task continuation: %s", params)
+						}
+						if first := replyID.Load(); first != nil && first.(string) != input.Message.ID {
+							t.Errorf("retry changed reply ID: %s", params)
+						} else {
+							replyID.Store(input.Message.ID)
+						}
+						wantText = "Paris"
+						resultState = "TASK_STATE_COMPLETED"
+					}
+					if input.Message.Role != "ROLE_USER" || len(input.Message.Parts) != 1 || input.Message.Parts[0].Text != wantText {
 						t.Errorf("request changed: %s", params)
 					}
-					result := fmt.Sprintf(`{"task":{"id":"remote-task","contextId":"remote-context","status":{"state":%q,"message":{"messageId":"status","role":"ROLE_AGENT","parts":[{"text":"status detail"}]}},"artifacts":[{"artifactId":"published","parts":[{"text":"published 9007199254740993"}]}]}}`, state)
+					result := fmt.Sprintf(`{"task":{"id":"remote-task","contextId":"remote-context","status":{"state":%q,"message":{"messageId":"status","role":"ROLE_AGENT","parts":[{"text":"status detail"}]}},"artifacts":[{"artifactId":"published","parts":[{"text":"published 9007199254740993"}]}]}}`, resultState)
 					if state == "message" {
 						result = `{"message":{"messageId":"reply","role":"ROLE_AGENT","parts":[{"text":"message 9007199254740993"}]}}`
 					}
@@ -88,6 +108,48 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 						t.Error(err)
 					}
 				})
+				if state == "TASK_STATE_INPUT_REQUIRED" {
+					b, err := tool.Bind(tools.Tools()[0])
+					if err != nil {
+						t.Fatal(err)
+					}
+					inv, err := b.Contract().Prepare(tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"question 9007199254740993"}`}, nil)
+					if err != nil {
+						t.Fatal(err)
+					}
+					pending, err := b.Call(t.Context(), inv)
+					if err != nil || pending.InputRequest == nil || string(pending.InputRequest.Prompt()) != `"status detail"` {
+						t.Fatalf("unbound task question: %v %v", pending, err)
+					}
+					c, err := pending.InputRequest.Continuation(json.RawMessage(`"Paris"`))
+					if err != nil {
+						t.Fatal(err)
+					}
+					original := tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"question 9007199254740993"}`}
+					wrong := original
+					wrong.Arguments = `{"message":"different"}`
+					wrongInv, err := b.Contract().Prepare(wrong, &c)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err = b.Call(t.Context(), wrongInv); !errors.Is(err, a2a.ErrContinuationBinding) {
+						t.Fatalf("cross-call answer: %v", err)
+					}
+					for range 2 {
+						next, prepareErr := b.Contract().Prepare(original, &c)
+						if prepareErr != nil {
+							t.Fatal(prepareErr)
+						}
+						complete, callErr := b.Call(t.Context(), next)
+						if callErr != nil || complete.InputRequest != nil {
+							t.Fatalf("continuation: %+v %v", complete, callErr)
+						}
+						if answer, _ := complete.Output.Text(); answer != "published 9007199254740993" {
+							t.Fatal(answer)
+						}
+					}
+					return
+				}
 				output, callErr := invokeTestTool(t.Context(), tools.Tools()[0], `{"message":"question 9007199254740993"}`)
 				switch state {
 				case "message", "TASK_STATE_COMPLETED":

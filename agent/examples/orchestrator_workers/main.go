@@ -12,9 +12,9 @@ import (
 	"io"
 	"os"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
+	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 )
@@ -39,7 +39,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
@@ -48,11 +48,18 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}()
 
 	goal := orchestrationGoal{Objective: "ship agent"}
-	input, err := agent.EncodePayload(goal)
+	input, err := agentrun.EncodePayload(goal)
 	if err != nil {
 		return err
 	}
-	result, err := engine.Run(ctx, root, input)
+	resultHandle, err := engine.Start(ctx, root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "result"}, Input: input})
+	if err != nil {
+		return err
+	}
+	if err = resultHandle.Join(ctx); err != nil {
+		return err
+	}
+	result, err := resultHandle.Await(ctx)
 	if err != nil {
 		return err
 	}
@@ -99,37 +106,37 @@ type orchestrationReport struct {
 	Results []workerResult `json:"results"`
 }
 
-func newOrchestratorWorkers() (agent.Deployment, error) {
+func newOrchestratorWorkers() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	children, err := newOrchestratorChildren()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	stages, err := children.stages()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: "example.orchestrator_workers", Description: "Decompose, execute, and synthesize with managed child Processes.",
 		Stages: stages,
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	root, err := agent.NewDeployment(agent.DeploymentConfig{
+	root, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-orchestrator-workers-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-orchestrator-workers-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("example-orchestrator-workers-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("example-orchestrator-workers-configuration")),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return root, nil
 }
 
 type orchestratorChildren struct {
-	decomposer  agent.Deployment
-	worker      agent.Deployment
-	synthesizer agent.Deployment
+	decomposer  agentrun.Program[agentrun.Payload, agentrun.Payload]
+	worker      agentrun.Program[agentrun.Payload, agentrun.Payload]
+	synthesizer agentrun.Program[agentrun.Payload, agentrun.Payload]
 }
 
 func newOrchestratorChildren() (orchestratorChildren, error) {
@@ -161,8 +168,8 @@ func newOrchestratorChildren() (orchestratorChildren, error) {
 }
 
 func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
-	budget := agent.Budget{
-		Steps: agent.NewQuota(workerBudgetSteps), Effects: agent.NewQuota(workerBudgetEffects), Signals: agent.NewQuota(workerBudgetSignals),
+	budget := agentrun.Budget{
+		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Signals: agentrun.NewQuota(workerBudgetSignals),
 	}
 	renderGoal, err := workflow.Transform("render_goal", interactionInput[orchestrationGoal])
 	if err != nil {
@@ -209,7 +216,7 @@ func executeWorkerTask(_ context.Context, task workerTask) (workerResult, error)
 	return workerResult{Finding: task.Instruction + ": complete"}, nil
 }
 
-func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask, error) {
+func parseWorkPlan(ctx context.Context, output agent.Output) ([]workerTask, error) {
 	plan, err := decodeModelJSON[workPlan](ctx, output)
 	if err != nil {
 		return nil, err
@@ -220,25 +227,25 @@ func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask
 	return plan.Tasks, nil
 }
 
-func interactionDeployment(name, description string, model chat.Model) (agent.Deployment, error) {
+func interactionDeployment(name, description string, model chat.Model) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	client, err := chatclient.New(model, chatclient.Config{})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: name, Description: description, MaxModelCalls: agent.NewQuota(1),
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
+		Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(1),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: client})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte(name + "-configuration")),
 	})
 }
 
@@ -246,35 +253,35 @@ func transformDeployment[I, O any](
 	name string,
 	description string,
 	transform workflow.TransformFunc[I, O],
-) (agent.Deployment, error) {
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("execute", transform)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: name, Description: description, Stages: []workflow.Stage{stage},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte(name + "-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte(name + "-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte(name + "-configuration")),
 	})
 }
 
-func interactionInput[T any](_ context.Context, value T) (interaction.Input, error) {
+func interactionInput[T any](_ context.Context, value T) (agent.Input, error) {
 	data, err := jsonv2.Marshal(value)
 	if err != nil {
-		return interaction.Input{}, err
+		return agent.Input{}, err
 	}
-	return interaction.Input{
+	return agent.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(data)))},
 	}, nil
 }
 
-func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, error) {
+func decodeModelJSON[T any](_ context.Context, output agent.Output) (T, error) {
 	var zero T
 	if output.ModelResponse == nil {
 		return zero, errors.New("interaction did not return a model response")
@@ -282,9 +289,9 @@ func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, er
 	return chatclient.JSON[T]().Decode(output.ModelResponse)
 }
 
-func decodeCompleted[T any](result agent.Result) (T, error) {
+func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
 	var zero T
-	if result.Termination().Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agentrun.StatusCompleted {
 		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
 	}
 	output, present := result.Termination().Output()

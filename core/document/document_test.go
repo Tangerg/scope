@@ -58,19 +58,6 @@ func TestNewDocumentReturnsNilOnInvalidMedia(t *testing.T) {
 	}
 }
 
-func TestDocumentContainsOnlyDataFields(t *testing.T) {
-	typ := reflect.TypeFor[document.Document]()
-	want := []string{"ID", "Text", "Media", "Metadata"}
-	if typ.NumField() != len(want) {
-		t.Fatalf("Document fields = %d, want %d", typ.NumField(), len(want))
-	}
-	for i, name := range want {
-		if got := typ.Field(i).Name; got != name {
-			t.Fatalf("field %d = %s, want %s", i, got, name)
-		}
-	}
-}
-
 func TestDocumentJSONRoundTrip(t *testing.T) {
 	original := document.Document{ID: "doc-1", Text: "hello", Metadata: metadata.Map{}}
 	if err := original.Metadata.Set("source", "test"); err != nil {

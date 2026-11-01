@@ -1,6 +1,8 @@
 package trajectory_test
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -11,8 +13,8 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
@@ -40,18 +42,18 @@ type referenceAnswer struct {
 }
 
 type referenceRow struct {
-	EffectID agent.EffectID `json:"effect_id"`
-	Note     referenceNote  `json:"note"`
+	EffectID run.EffectID  `json:"effect_id"`
+	Note     referenceNote `json:"note"`
 }
 
 // The isolated target owns business writes. Agent snapshots and observations
 // cannot manufacture a receipt, and a repeated identity cannot change its note.
 type referenceService struct {
 	mu   sync.Mutex
-	rows map[agent.EffectID]referenceNote
+	rows map[run.EffectID]referenceNote
 }
 
-func (r *referenceService) write(id agent.EffectID, note referenceNote) (string, error) {
+func (r *referenceService) write(id run.EffectID, note referenceNote) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if prior, exists := r.rows[id]; exists && prior != note {
@@ -61,14 +63,14 @@ func (r *referenceService) write(id agent.EffectID, note referenceNote) (string,
 	return "stored:" + note.Text, nil
 }
 
-func (r *referenceService) lookup(id agent.EffectID) (chat.ToolOutput, error) {
+func (r *referenceService) lookup(id run.EffectID) (tool.Output, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	note, exists := r.rows[id]
 	if !exists {
-		return chat.ToolOutput{}, errors.New("reference: no authoritative business receipt")
+		return tool.Output{}, errors.New("reference: no authoritative business receipt")
 	}
-	return chat.NewTextToolOutput("stored:" + note.Text), nil
+	return tool.NewTextOutput("stored:" + note.Text), nil
 }
 
 func (r *referenceService) snapshot() []referenceRow {
@@ -84,25 +86,25 @@ func (r *referenceService) snapshot() []referenceRow {
 	return rows
 }
 
-// Coverage comes from Engine dispatch facts and these two exact bindings,
+// Coverage comes from Runtime dispatch facts and these two exact bindings,
 // independently of whether semantic observers publish a response.
 type referenceRecorder struct {
 	trajectory.Recorder
-	modelDeployment agent.DeploymentRef
-	toolDeployment  agent.DeploymentRef
+	modelDeployment run.ProgramRef
+	toolDeployment  run.ProgramRef
 	mu              sync.Mutex
 	coverage        trajectory.Coverage
 }
 
-func (r *referenceRecorder) OnEvent(ctx context.Context, event agent.Event) {
-	if fact, ok := event.EffectStarted(); ok && fact.Target() == agent.EffectTargetDispatcher {
+func (r *referenceRecorder) OnEvent(ctx context.Context, event run.Event) {
+	if fact, ok := event.EffectStarted(); ok && fact.Target() == run.EffectTargetDispatcher {
 		id, _ := event.EffectID()
 		incarnation, _ := event.TreeIncarnationID()
 		reference := trajectory.EffectReference{
 			ProcessID: event.Relation().ProcessID(), TreeIncarnationID: incarnation, EffectID: id,
 		}
 		r.mu.Lock()
-		switch event.DeploymentRef() {
+		switch event.ProgramRef() {
 		case r.modelDeployment:
 			if !slices.Contains(r.coverage.Models, reference) {
 				r.coverage.Models = append(r.coverage.Models, reference)
@@ -125,8 +127,8 @@ func (r *referenceRecorder) classified() trajectory.Coverage {
 
 type referenceEvidence struct {
 	Trajectory        trajectory.Trajectory `json:"trajectory"`
-	Head              agent.TreeSnapshot    `json:"head"`
-	Input             agent.SignalRequest   `json:"input"`
+	Head              run.TreeSnapshot      `json:"head"`
+	Input             run.SignalRequest     `json:"input"`
 	Rows              []referenceRow        `json:"rows"`
 	WritesBeforeInput int                   `json:"writes_before_input"`
 }
@@ -177,10 +179,10 @@ func referenceModel(input referenceInput) chat.Model {
 	})
 }
 
-func referenceTools(input referenceInput, service *referenceService, recorder *referenceRecorder) (interaction.ToolSet, error) {
+func referenceTools(input referenceInput, service *referenceService, recorder *referenceRecorder) (agent.ToolSet, error) {
 	answerSchema, err := jsonschema.For[referenceAnswer]()
 	if err != nil {
-		return interaction.ToolSet{}, err
+		return agent.ToolSet{}, err
 	}
 	executable, err := newContinuingTool(tool.FuncConfig{Name: "record_note", Description: "Record a note after explicit input."},
 		func(ctx context.Context, callInput tool.Invocation) (tool.Result, error) {
@@ -206,14 +208,14 @@ func referenceTools(input referenceInput, service *referenceService, recorder *r
 			}
 			if !answer.Approved {
 				failure, rejectionErr := tool.NewFailure(tool.FailureConfig{
-					Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("rejected"),
+					Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("rejected"),
 				})
 				if rejectionErr != nil {
 					return tool.Result{}, rejectionErr
 				}
 				return tool.Result{}, failure
 			}
-			invocation, ok := interaction.ToolInvocationFromContext(ctx)
+			invocation, ok := agent.ToolInvocationFromContext(ctx)
 			if !ok {
 				return tool.Result{}, errors.New("reference: missing Engine attribution")
 			}
@@ -224,33 +226,33 @@ func referenceTools(input referenceInput, service *referenceService, recorder *r
 			if input.LoseResponse {
 				return tool.Result{}, errors.New("reference: response lost after acknowledged business write")
 			}
-			return tool.Result{Output: chat.NewTextToolOutput(text)}, nil
+			return tool.Result{Output: tool.NewTextOutput(text)}, nil
 		})
 	if err != nil {
-		return interaction.ToolSet{}, err
+		return agent.ToolSet{}, err
 	}
-	return interaction.NewToolSet(interaction.ToolSetConfig{
+	return agent.NewToolSet(agent.ToolSetConfig{
 		Name: "reference.tools", Description: "Isolated reference write binding.", Tools: []tool.Tool{executable}, Observer: recorder,
-		ImplementationDigest: agent.ComputeDigest([]byte("reference-write")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte(fmt.Sprintf("lose_response=%t", input.LoseResponse))),
+		ImplementationDigest: run.ComputeDigest([]byte("reference-write")),
+		ConfigurationDigest:  run.ComputeDigest([]byte(fmt.Sprintf("lose_response=%t", input.LoseResponse))),
 	})
 }
 
 func runReferenceTask(ctx context.Context, input referenceInput) (execution eval.Execution[referenceEvidence], runErr error) {
-	service := &referenceService{rows: make(map[agent.EffectID]referenceNote)}
+	service := &referenceService{rows: make(map[run.EffectID]referenceNote)}
 	recorder := &referenceRecorder{}
 	tools, err := referenceTools(input, service, recorder)
 	if err != nil {
 		return execution, err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name: "reference.record", Description: "Request input, write a note, and report its receipt.",
-		MaxModelCalls: agent.NewQuota(2), Tools: tools,
+		MaxModelCalls: run.NewQuota(2), Tools: tools,
 	})
 	if err != nil {
 		return execution, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: referenceModel(input), Observer: recorder})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: referenceModel(input), Observer: recorder})
 	if err != nil {
 		return execution, err
 	}
@@ -258,17 +260,17 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 	if err != nil {
 		return execution, err
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("reference-interaction")), ConfigurationDigest: agent.ComputeDigest(configuration),
+		ImplementationDigest: run.ComputeDigest([]byte("reference-interaction")), ConfigurationDigest: run.ComputeDigest(configuration),
 	})
 	if err != nil {
 		return execution, err
 	}
-	recorder.modelDeployment, recorder.toolDeployment = deployment.DeploymentRef(), tools.Deployment().DeploymentRef()
-	store := agent.NewMemoryTreeCommitter()
-	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{recorder, observations}})
+	recorder.modelDeployment, recorder.toolDeployment = deployment.ProgramRef(), tools.Program().ProgramRef()
+	store := run.NewMemoryStore()
+	observations := &runtest.ObservationRecorder{}
+	engine, err := run.New(ctx, run.Config{Store: store, EventListeners: []run.EventListener{recorder, observations}})
 	if err != nil {
 		return execution, err
 	}
@@ -277,19 +279,19 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 		defer cancel()
 		runErr = errors.Join(runErr, engine.Close(closeContext))
 	}()
-	payload, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
+	payload, err := run.EncodePayload(agent.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("Record this note after asking for input: " + input.Note)),
 	}})
 	if err != nil {
 		return execution, err
 	}
-	root, err := engine.Start(ctx, deployment, payload)
+	root, err := engine.Start(ctx, deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: payload})
 	if err != nil {
 		return execution, err
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agent.Event) bool {
+	if _, waitErr := observations.AwaitEvent(ctx, func(event run.Event) bool {
 		fact, ok := event.StepCommitted()
-		return ok && fact.Status() == agent.StatusWaiting && event.DeploymentRef() == tools.Deployment().DeploymentRef()
+		return ok && fact.Status() == run.StatusWaiting && event.ProgramRef() == tools.Program().ProgramRef()
 	}); waitErr != nil {
 		return execution, waitErr
 	}
@@ -297,7 +299,7 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 	if err != nil {
 		return execution, err
 	}
-	pending, err := interaction.PendingToolInputs(waitingHead)
+	pending, err := agent.PendingToolInputs(waitingHead)
 	if err != nil || len(pending) != 1 {
 		return execution, errors.Join(errors.New("reference: expected exactly one input wait"), err)
 	}
@@ -310,7 +312,7 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 	if err != nil {
 		return execution, err
 	}
-	id, err := agent.ParseSignalID("signal:reference-input")
+	id, err := run.ParseSignalID("signal:reference-input")
 	if err != nil {
 		return execution, err
 	}
@@ -337,9 +339,9 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 		}
 	}
 	if input.LoseResponse && input.Approved {
-		event, observationErr := observations.AwaitEvent(ctx, func(event agent.Event) bool {
+		event, observationErr := observations.AwaitEvent(ctx, func(event run.Event) bool {
 			fact, ok := event.EffectFinished()
-			return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown && event.Relation().ProcessID() == child.Relation().ProcessID()
+			return ok && fact.SettlementStatus() == run.SettlementStatusUnknown && event.Relation().ProcessID() == child.Relation().ProcessID()
 		})
 		if observationErr != nil {
 			return execution, observationErr
@@ -358,7 +360,7 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 			if lookupErr != nil {
 				return execution, lookupErr
 			}
-			settlement, settlementErr := tools.SettleToolResult(request, receipt, interaction.ResultSucceeded, nil)
+			settlement, settlementErr := tools.SettleToolResult(request, receipt, agent.ResultSucceeded, nil)
 			if settlementErr != nil {
 				return execution, settlementErr
 			}
@@ -371,6 +373,9 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 	}
 	result, err := root.Await(ctx)
 	if err != nil {
+		return execution, err
+	}
+	if _, err = root.FlushObservations(ctx); err != nil {
 		return execution, err
 	}
 	coverage := recorder.classified()
@@ -386,8 +391,8 @@ func runReferenceTask(ctx context.Context, input referenceInput) (execution eval
 		Trajectory: recorded, Head: head, Input: signal, Rows: service.snapshot(), WritesBeforeInput: writesBeforeInput,
 	}}
 	switch status := result.Termination().Status(); status {
-	case agent.StatusCompleted:
-	case agent.StatusKilled, agent.StatusCanceled, agent.StatusTimedOut:
+	case run.StatusCompleted:
+	case run.StatusKilled, run.StatusCanceled, run.StatusTimedOut:
 		execution.Status, execution.Reason = eval.ExecutionCanceled, "reference: stopped with "+status.String()
 	default:
 		execution.Status, execution.Reason = eval.ExecutionFailed, "reference: stopped with "+status.String()
@@ -414,7 +419,7 @@ func Example_referenceTask() {
 }
 
 type referenceNoteTool struct {
-	definition chat.ToolDefinition
+	definition tool.Definition
 	call       func(context.Context, tool.Invocation) (tool.Result, error)
 }
 
@@ -423,9 +428,9 @@ func newContinuingTool(config tool.FuncConfig, call func(context.Context, tool.I
 	if err != nil {
 		return referenceNoteTool{}, err
 	}
-	return referenceNoteTool{definition: chat.ToolDefinition{Name: config.Name, Description: config.Description, InputSchema: schema.JSON()}, call: call}, nil
+	return referenceNoteTool{definition: tool.Definition{Name: config.Name, Description: config.Description, InputSchema: schema.JSON()}, call: call}, nil
 }
-func (r referenceNoteTool) Definition() chat.ToolDefinition { return r.definition.Clone() }
+func (r referenceNoteTool) Definition() tool.Definition { return r.definition.Clone() }
 func (r referenceNoteTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
 	return r.call(ctx, input)
 }

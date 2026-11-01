@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 type note struct {
@@ -14,7 +14,7 @@ type note struct {
 }
 
 type receipt struct {
-	EffectID agent.EffectID
+	EffectID agentrun.EffectID
 	Note     note
 	Accepted bool
 }
@@ -34,12 +34,12 @@ type remoteLedger struct {
 	mu           sync.Mutex
 	reject       bool
 	availability queryAvailability
-	receipts     map[agent.EffectID]receipt
+	receipts     map[agentrun.EffectID]receipt
 	attempts     int
 	queries      int
 }
 
-func (r *remoteLedger) submit(ctx context.Context, id agent.EffectID, input note) error {
+func (r *remoteLedger) submit(ctx context.Context, id agentrun.EffectID, input note) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -50,13 +50,13 @@ func (r *remoteLedger) submit(ctx context.Context, id agent.EffectID, input note
 		return errors.New("remote: unexpected repeated write")
 	}
 	if r.receipts == nil {
-		r.receipts = make(map[agent.EffectID]receipt)
+		r.receipts = make(map[agentrun.EffectID]receipt)
 	}
 	r.receipts[id] = receipt{EffectID: id, Note: input, Accepted: !r.reject}
 	return nil
 }
 
-func (r *remoteLedger) lookup(ctx context.Context, id agent.EffectID) (receipt, bool, error) {
+func (r *remoteLedger) lookup(ctx context.Context, id agentrun.EffectID) (receipt, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return receipt{}, false, err
 	}

@@ -1,0 +1,75 @@
+package run
+
+import (
+	"errors"
+
+	"github.com/Tangerg/scope/agent/internal/panicinfo"
+)
+
+// callbackError seals the classifications consumed by the runtime while still
+// retaining the original error chain for explicit Host inspection. The runtime
+// must never traverse that chain after leaving the callback boundary.
+// panicked records that this boundary recovered a panic; the classifications
+// follow from it and the cause when the error is sealed.
+type callbackError struct {
+	cause    error
+	message  string
+	panicked bool
+	step     Failure
+	dispatch Failure
+	runtime  Failure
+}
+
+func (c *callbackError) Error() string { return c.message }
+func (c *callbackError) Unwrap() error { return c.cause }
+
+func sealCallbackError(err error) error {
+	if err == nil {
+		return nil
+	}
+	// An error carrying a contained panic is a panic for every consumer, so
+	// the boundary decides it once here.
+	_, panicked := errors.AsType[*CallbackPanicError](err)
+	c := &callbackError{cause: err, message: err.Error(), panicked: panicked}
+	c.step, _ = StepFailure(err)
+	c.dispatch = dispatchFailure(err)
+	if panicked {
+		c.dispatch = dispatchPanicFailure()
+	}
+	c.runtime = newTreeRuntimeFailure(err)
+	return c
+}
+
+func callbackPanic(operation string, value any) error {
+	captured, _ := panicinfo.Capture(value)
+	message := "agent: " + operation + " panicked: " + captured
+	cause := &CallbackPanicError{Operation: operation, Value: value}
+	return &callbackError{
+		cause: cause, message: message, panicked: true,
+		runtime:  newTreeRuntimeFailure(errors.New(message)),
+		dispatch: dispatchPanicFailure(),
+	}
+}
+
+// invokeCallback is the single Host callback boundary. A panic becomes a
+// CallbackPanicError and every returned error is sealed, so the runtime never
+// classifies a Host error chain after this call returns.
+func invokeCallback[T any](operation string, call func() (T, error)) (value T, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			var zero T
+			value, err = zero, callbackPanic(operation, recovered)
+		}
+	}()
+	value, err = call()
+	if err != nil {
+		var zero T
+		return zero, sealCallbackError(err)
+	}
+	return value, nil
+}
+
+func invokeCallbackErr(operation string, call func() error) error {
+	_, err := invokeCallback(operation, func() (struct{}, error) { return struct{}{}, call() })
+	return err
+}

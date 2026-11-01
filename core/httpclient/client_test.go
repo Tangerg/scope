@@ -255,3 +255,22 @@ func TestTypedNilTransportUsesTheDefaultWithoutMutatingTheHost(t *testing.T) {
 		t.Fatalf("default transport did not retain cancellation: %v", err)
 	}
 }
+
+func TestResourceBoundClientRejectsRedirectsBeforeAnotherRequest(t *testing.T) {
+	for _, tt := range []struct {
+		destination string
+		err         error
+	}{{"https://api.example/other", http.ErrUseLastResponse}, {"https://unknown.example/other", httpclient.ErrOriginNotAllowed}} {
+		client, err := httpclient.New(t.Context(), httpclient.Config{BaseURL: "https://api.example", RejectRedirects: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, tt.destination, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = client.CheckRedirect(req, nil); !errors.Is(err, tt.err) {
+			t.Fatalf("redirect %s: got %v, want %v", tt.destination, err, tt.err)
+		}
+	}
+}

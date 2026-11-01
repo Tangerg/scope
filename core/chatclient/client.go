@@ -37,7 +37,7 @@ func New(model chat.Model, config Config) (Client, error) {
 // completed text. Refusal and other non-successful completion reasons return
 // OutputCompletionError. Media and tool requests cannot become typed values.
 // Output never repairs JSON or injects format instructions into the prompt.
-func (c Client) Output[T any](ctx context.Context, req *chat.Request, format OutputFormat[T]) (T, error) {
+func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Format[T]) (T, error) {
 	var zero T
 	if !c.valid() {
 		return zero, ErrInvalidClient
@@ -45,7 +45,7 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Out
 	if err := format.validate(); err != nil {
 		return zero, err
 	}
-	contract := format.contract()
+	contract := format.Contract()
 	response, err := c.call(ctx, req, &contract)
 	return format.decodeResponse(response, err)
 }

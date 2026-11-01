@@ -31,7 +31,7 @@ import (
 
 func TestDocumentRemainsPureData(t *testing.T) {
 	typ := reflect.TypeFor[document.Document]()
-	wantFields := []string{"ID", "Text", "Media", "Metadata"}
+	wantFields := []string{"ID", "Text", "Media", "Metadata", "Provenance"}
 	for index, name := range wantFields {
 		if index >= typ.NumField() {
 			t.Fatalf("document.Document missing field %d (%s)", index, name)
@@ -48,6 +48,10 @@ func TestDocumentRemainsPureData(t *testing.T) {
 		t.Fatalf("document.Metadata type = %v, want metadata.Map", metadataField.Type)
 	}
 
+	origin, _ := typ.FieldByName("Provenance")
+	if origin.Type != reflect.TypeFor[*document.Provenance]() {
+		t.Fatalf("document.Provenance type = %v, want *document.Provenance", origin.Type)
+	}
 	pointer := reflect.PointerTo(typ)
 	for _, forbidden := range []string{"EnsureID", "Format", "FormatByMetadataMode", "FormatWith"} {
 		if _, ok := pointer.MethodByName(forbidden); ok {
@@ -58,8 +62,8 @@ func TestDocumentRemainsPureData(t *testing.T) {
 
 func TestVectorStoreCapabilitiesRemainSmall(t *testing.T) {
 	want := map[reflect.Type]string{
-		reflect.TypeFor[vectorstore.Indexer]():       "Index",
-		reflect.TypeFor[vectorstore.Searcher]():      "Search",
+		reflect.TypeFor[vectorstore.Upserter]():      "Upsert",
+		reflect.TypeFor[vectorstore.Querier]():       "Query",
 		reflect.TypeFor[vectorstore.IDDeleter]():     "DeleteIDs",
 		reflect.TypeFor[vectorstore.FilterDeleter](): "DeleteWhere",
 	}

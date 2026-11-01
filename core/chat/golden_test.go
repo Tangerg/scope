@@ -12,6 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestRequestGolden(t *testing.T) {
@@ -26,12 +27,12 @@ func TestRequestGolden(t *testing.T) {
 		chat.NewReasoningPart("I should inspect the image.", []byte("opaque-signature")),
 		chat.NewToolCallPart(chat.ToolCall{ID: "call-1", Name: "inspect_image", Arguments: `{"detail":"high"}`}),
 	)
-	tool := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "inspect_image", Output: chat.NewTextToolOutput("A scope.")})
+	tool := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "inspect_image", Output: toolcontract.NewTextOutput("A scope.")})
 	request, err := chat.NewRequest(system, user, assistant, tool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Tools = []chat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name:        "inspect_image",
 		Description: "Inspect an image",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"detail":{"type":"string"}}}`),

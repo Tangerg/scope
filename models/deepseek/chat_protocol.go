@@ -41,7 +41,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	}
 	dialect.PrepareRequest = prepareRequest
 	dialect.DisableRawRequestExtension = true
-	protocol, err := openai.NewCompatibleChatCompletions(ctx,
+	protocol, err := openai.NewChatCompletions(ctx,
 		openai.ChatCompletionsConfig{
 			APIKey:         config.APIKey,
 			DefaultOptions: config.DefaultOptions,
@@ -66,5 +66,5 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err != nil {
 		return nil, fmt.Errorf("deepseek: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

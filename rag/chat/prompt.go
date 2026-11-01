@@ -41,13 +41,13 @@ func queryFromModel(query rag.Query, text string) (rag.Query, error) {
 // every model-backed RAG component.
 type modelPrompt[T any] struct {
 	client   chatclient.Client
-	format   chatclient.OutputFormat[T]
+	format   chatclient.Format[T]
 	template *chatclient.Template
 }
 
 func newModelPrompt[T any](
 	model corechat.Model,
-	format chatclient.OutputFormat[T],
+	format chatclient.Format[T],
 	template *chatclient.Template,
 	fallback string,
 	required ...string,

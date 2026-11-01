@@ -7,13 +7,13 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type descriptorSnapshot struct {
 	remoteName      string
-	definition      corechat.ToolDefinition
+	definition      toolcontract.Definition
 	toolAnnotations sdkmcp.ToolAnnotations
 	outputSchema    jsonschema.Schema
 }
@@ -26,7 +26,7 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 	if err != nil {
 		return descriptorSnapshot{}, fmt.Errorf("mcp: encode tool input schema: %w", err)
 	}
-	definition := corechat.ToolDefinition{
+	definition := toolcontract.Definition{
 		Name: publicName, Description: descriptor.Description, InputSchema: schema,
 	}
 	if err := definition.Validate(); err != nil {

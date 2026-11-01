@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embeddingclient"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -60,23 +60,22 @@ func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pinecone
 			t.Error(closeErr)
 		}
 	})
-	model, err := embeddingclient.New(fixtureModel())
-	if err != nil {
-		t.Fatal(err)
+	if index.Tags == nil || (*index.Tags)[SpaceTag] != string(fixtureSpace) {
+		t.Fatalf("provision the local test index with %s=%s", SpaceTag, fixtureSpace)
 	}
-	return &Store{index: connection, schema: schema, embeddingClient: model, documentBatcher: fixtureBatcher{}}, connection
+	return &Store{index: connection, schema: schema, space: fixtureSpace, control: client, name: name, host: index.Host}, connection
 }
 
 func TestLocalNativeCoreFilterConformance(t *testing.T) {
 	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean} {
 		t.Run(string(metric), func(t *testing.T) {
-			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
+			storetest.FilterConformance(t, storetest.FilterConfig{Unsupported: unsupportedCases(), Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 				store, _ := localStore(t, metric)
-				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
-				request := &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
-				response, err := store.Search(ctx, request)
+				request := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
+				response, err := store.Query(ctx, request)
 				if err != nil {
 					return nil, err
 				}
@@ -96,7 +95,7 @@ func TestLocalNativeExactMetadataAndScores(t *testing.T) {
 			}
 			docs := []*document.Document{{ID: "a/b?: #", Text: "text🙂", Metadata: facts}, {ID: "empty", Text: "empty", Metadata: metadata.Map{}}, {ID: "nil", Text: "nil"}}
 			installDocuments(t, store, docs...)
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 3}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 3}})
 			if err != nil || len(response.Results) != len(docs) {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
@@ -132,7 +131,11 @@ type changedNativeIndex struct {
 }
 
 func (c *changedNativeIndex) DeleteVectorsByFilter(ctx context.Context, selection *pineconesdk.MetadataFilter) error {
-	if err := c.connection.UpdateVector(ctx, &pineconesdk.UpdateVectorRequest{Id: "changed", Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{metadataField: structpb.NewStringValue(`{"value":"b"}`)}}}); err != nil {
+	record, err := encodeRecord(&document.Document{ID: "changed", Text: "text", Metadata: metadata.Map{"value": []byte(`"b"`)}})
+	if err != nil {
+		return err
+	}
+	if err := c.connection.UpdateVector(ctx, &pineconesdk.UpdateVectorRequest{Id: "changed", Metadata: record.Metadata}); err != nil {
 		return err
 	}
 	if c.afterUpdate != nil {
@@ -161,7 +164,7 @@ func TestLocalNativeConditionalDeleteFailureAndStrictSource(t *testing.T) {
 	if err = native.UpdateVector(t.Context(), &pineconesdk.UpdateVectorRequest{Id: "changed", Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{"legacy": structpb.NewStringValue("extra")}}}); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "absent"), MinScore: 1}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 1}})
 	if err == nil || response != nil {
 		t.Fatalf("native corrupt source became an empty result: %v, %v", response, err)
 	}
@@ -170,7 +173,7 @@ func TestLocalNativeConditionalDeleteFailureAndStrictSource(t *testing.T) {
 func TestLocalNativeMetadataGroupsRetainRanking(t *testing.T) {
 	store, native := localStore(t, pineconesdk.IndexMetricDotproduct)
 	var docs []*document.Document
-	for i := range filterGroupSize + 1 {
+	for i := range 101 {
 		facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})
 		if err != nil {
 			t.Fatal(err)
@@ -183,7 +186,7 @@ func TestLocalNativeMetadataGroupsRetainRanking(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
 	if err != nil || !slices.Equal(resultIDs(response), []string{docs[len(docs)-1].ID}) {
 		t.Fatalf("ranking=%v error=%v", response, err)
 	}

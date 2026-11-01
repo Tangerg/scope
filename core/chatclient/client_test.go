@@ -12,6 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type callOnly struct {
@@ -120,14 +121,14 @@ func newProtectedCallFixture(t *testing.T) (*chat.Request, *int64) {
 		chat.NewReasoningPart("thinking", []byte{4, 5}),
 		chat.NewToolCallPart(chat.ToolCall{ID: "call-1", Name: "weather", Arguments: `{}`}),
 	)
-	toolMessage := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: chat.NewTextToolOutput("sunny")})
+	toolMessage := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: toolcontract.NewTextOutput("sunny")})
 
 	requestMaxTokens := int64(7)
 	temperature := 0.25
 	topP := 0.8
 	request := &chat.Request{
 		Messages: []chat.Message{message, assistant, toolMessage},
-		Tools: []chat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name:        "weather",
 			InputSchema: []byte(`{"type":"object"}`),
 		}},

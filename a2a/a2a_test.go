@@ -15,7 +15,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 
 	"github.com/Tangerg/scope/a2a"
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -207,7 +206,7 @@ func TestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "policy", Name: binding.Contract().Definition().Name, Arguments: `{"message":"hello"}`}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"hello"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,16 +246,14 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments string) (chat.ToolOutput, error) {
+func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments string) (toolcontract.Output, error) {
 	binding, err := toolcontract.Bind(executable)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return toolcontract.Output{}, err
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return toolcontract.Output{}, err
 	}
 	result, err := binding.Call(ctx, invocation)
 	return result.Output, err

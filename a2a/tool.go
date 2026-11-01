@@ -2,6 +2,9 @@ package a2a
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -25,7 +28,7 @@ var errEmptyToolName = errors.New("a2a: tool name must not be empty")
 func inputFailure(cause error) error {
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
 		Kind:   toolcontract.FailureKindFailed,
-		Output: corechat.NewTextToolOutput(cause.Error()),
+		Output: toolcontract.NewTextOutput(cause.Error()),
 		Cause:  cause,
 	})
 	if err != nil {
@@ -40,8 +43,9 @@ type callArguments struct {
 
 // remoteTool is immutable after construction and does not own its client.
 type remoteTool struct {
+	binding           string
 	client            *a2aclient.Client
-	definition        corechat.ToolDefinition
+	definition        toolcontract.Definition
 	concurrencyPolicy ToolConcurrencyPolicy
 }
 
@@ -65,7 +69,7 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 	if err != nil {
 		return remoteTool{}, fmt.Errorf("a2a: derive input schema: %w", err)
 	}
-	definition := corechat.ToolDefinition{
+	definition := toolcontract.Definition{
 		Name:        config.name,
 		Description: describeAgent(config.card),
 		InputSchema: inputSchema.JSON(),
@@ -75,12 +79,13 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 	}
 	return remoteTool{
 		client:            config.client,
+		binding:           rand.Text(),
 		definition:        definition,
 		concurrencyPolicy: config.concurrencyPolicy,
 	}, nil
 }
 
-func (r remoteTool) Definition() corechat.ToolDefinition { return r.definition.Clone() }
+func (r remoteTool) Definition() toolcontract.Definition { return r.definition.Clone() }
 
 func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return r.concurrencyPolicy
@@ -105,16 +110,30 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	projection := textProjection{}
 	req := &sdka2a.SendMessageRequest{Message: projection.userMessage(input.Message)}
+	if c, ok := invocation.Continuation(); ok {
+		req.Message, err = r.reply(invocation, c)
+		if err != nil {
+			return toolcontract.Result{}, err
+		}
+	}
 	result, err := r.client.SendMessage(ctx, req)
 	if err != nil {
 		return toolcontract.Result{}, fmt.Errorf("a2a: call agent %q: %w", r.definition.Name, err)
 	}
 
+	if task, ok := result.(*sdka2a.Task); ok && task != nil {
+		if req.Message.TaskID != "" && (task.ID != req.Message.TaskID || task.ContextID != req.Message.ContextID) {
+			return toolcontract.Result{}, ErrContinuationBinding
+		}
+		if task.Status.State == sdka2a.TaskStateInputRequired {
+			return r.awaitInput(task, invocation)
+		}
+	}
 	text, err := projection.result(result)
 	if err != nil {
 		return toolcontract.Result{}, fmt.Errorf("a2a: result from agent %q: %w", r.definition.Name, err)
 	}
-	return toolcontract.Result{Output: corechat.NewTextToolOutput(text)}, nil
+	return toolcontract.Result{Output: toolcontract.NewTextOutput(text)}, nil
 }
 
 func parseCallArguments(arguments []byte) (callArguments, error) {
@@ -144,4 +163,106 @@ func describeAgent(card *sdka2a.AgentCard) string {
 		b.WriteString(".")
 	}
 	return b.String()
+}
+
+var ErrContinuationBinding = errors.New("a2a: continuation does not match the original remote task")
+
+type remoteTurn struct {
+	Binding  string            `json:"binding"`
+	Original [sha256.Size]byte `json:"original"`
+	Task     sdka2a.TaskID     `json:"task"`
+	Context  string            `json:"context"`
+	Reply    string            `json:"reply"`
+	Wait     string            `json:"wait,omitzero"`
+}
+
+func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (toolcontract.Result, error) {
+	if task.ID == "" || task.ContextID == "" || task.Status.Message == nil {
+		return toolcontract.Result{}, fmt.Errorf("%w: input-required task lacks a bound question", ErrInvalidResult)
+	}
+	var question json.RawMessage
+	var schema corejsonschema.Schema
+	var err error
+	msg := task.Status.Message
+	declared, hasWait := msg.Metadata[WaitIDMetadataKey]
+	_, hasSchema := msg.Metadata[AnswerSchemaMetadataKey]
+	wait, valid := declared.(string)
+	if hasWait != hasSchema || hasWait && (!valid || strings.TrimSpace(wait) == "" || strings.TrimSpace(wait) != wait) {
+		return toolcontract.Result{}, fmt.Errorf("%w: incomplete or malformed remote wait binding", ErrInvalidResult)
+	}
+	if hasWait {
+		raw, ok := msg.Metadata[AnswerSchemaMetadataKey].(string)
+		if !ok || len(msg.Parts) != 1 || msg.Parts[0] == nil {
+			return toolcontract.Result{}, ErrInvalidResult
+		}
+		schema, err = corejsonschema.Parse([]byte(raw))
+		if err != nil {
+			return toolcontract.Result{}, err
+		}
+		p := msg.Parts[0]
+		txt, ok := p.Content.(sdka2a.Text)
+		if !ok || p.Filename != "" || len(p.Metadata) > 0 {
+			return toolcontract.Result{}, ErrUnsupportedContent
+		}
+		switch p.MediaType {
+		case "application/json":
+			question = json.RawMessage(txt)
+		case "", "text/plain":
+			question, err = jsonv2.Marshal(string(txt))
+		default:
+			return toolcontract.Result{}, ErrUnsupportedContent
+		}
+	} else {
+		prompt, projectErr := (textProjection{}).parts(msg.Parts)
+		if projectErr != nil {
+			return toolcontract.Result{}, projectErr
+		}
+		if strings.TrimSpace(prompt) == "" {
+			return toolcontract.Result{}, fmt.Errorf("%w: empty task question", ErrInvalidResult)
+		}
+		question, err = jsonv2.Marshal(prompt)
+		if err == nil {
+			schema, err = corejsonschema.Parse([]byte(`{"type":"string","minLength":1}`))
+		}
+	}
+	if err != nil {
+		return toolcontract.Result{}, err
+	}
+	state, err := jsonv2.Marshal(remoteTurn{Binding: r.binding, Original: sha256.Sum256(inv.Arguments()), Task: task.ID, Context: task.ContextID, Reply: rand.Text(), Wait: wait})
+	if err != nil {
+		return toolcontract.Result{}, err
+	}
+	request, err := toolcontract.NewInputRequest(toolcontract.InputRequestConfig{Prompt: question, ResponseSchema: schema, ContinuationState: state})
+	if err != nil {
+		return toolcontract.Result{}, err
+	}
+	return toolcontract.Result{InputRequest: &request}, nil
+}
+
+func (r remoteTool) reply(inv toolcontract.Invocation, c toolcontract.Continuation) (*sdka2a.Message, error) {
+	var turn remoteTurn
+	if err := jsonv2.Unmarshal(c.State(), &turn, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return nil, errors.Join(ErrContinuationBinding, err)
+	}
+	if turn.Binding != r.binding || turn.Original != sha256.Sum256(inv.Arguments()) || turn.Task == "" || turn.Context == "" || turn.Reply == "" {
+		return nil, ErrContinuationBinding
+	}
+	var answer string
+	var message *sdka2a.Message
+	if err := jsonv2.Unmarshal(c.Response(), &answer); err == nil && string(c.Response()) != "null" {
+		message = (textProjection{}).userMessage(answer)
+	} else if turn.Wait != "" {
+		p := sdka2a.NewTextPart(string(c.Response()))
+		p.MediaType = "application/json"
+		message = sdka2a.NewMessage(sdka2a.MessageRoleUser, p)
+	} else {
+		return nil, ErrUnsupportedContent
+	}
+	if turn.Wait != "" {
+		message.Metadata = map[string]any{WaitIDMetadataKey: turn.Wait}
+	}
+	message.TaskID = turn.Task
+	message.ContextID = turn.Context
+	message.ID = turn.Reply
+	return message, nil
 }

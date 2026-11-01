@@ -15,6 +15,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
@@ -325,7 +326,7 @@ func mapProtocolMedia(value *media.Media) (*genai.Part, error) {
 	}
 }
 
-func protocolToolResult(output corechat.ToolOutput, isError bool) (map[string]any, []*genai.FunctionResponsePart, error) {
+func protocolToolResult(output toolcontract.Output, isError bool) (map[string]any, []*genai.FunctionResponsePart, error) {
 	if len(output.Content) == 0 {
 		return protocolToolResultJSON(output.Details, isError), nil, nil
 	}
@@ -400,7 +401,7 @@ func protocolJSONFields(fields map[string]json.RawMessage) map[string]any {
 	return native
 }
 
-func mapProtocolTools(definitions []corechat.ToolDefinition) ([]*genai.Tool, error) {
+func mapProtocolTools(definitions []toolcontract.Definition) ([]*genai.Tool, error) {
 	if len(definitions) == 0 {
 		return nil, nil
 	}

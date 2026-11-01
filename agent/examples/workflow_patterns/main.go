@@ -12,8 +12,8 @@ import (
 	"os"
 	"strings"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/workflow"
 )
 
 const (
@@ -122,7 +122,7 @@ type executionEvidence struct {
 	Deployments map[string]int
 }
 
-// ProcessCount totals the Processes the Deployment counts already record.
+// ProcessCount totals the Processes the Program counts already record.
 func (e executionEvidence) ProcessCount() int {
 	count := 0
 	for _, processes := range e.Deployments {
@@ -139,18 +139,25 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
 	defer func() {
 		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
 	}()
-	input, err := agent.EncodePayload(request)
+	input, err := agentrun.EncodePayload(request)
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	result, err := engine.Run(ctx, root, input)
+	handle, err := engine.Start(ctx, root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "run"}, Input: input})
+	if err != nil {
+		return patternReport{}, executionEvidence{}, err
+	}
+	if err = handle.Join(ctx); err != nil {
+		return patternReport{}, executionEvidence{}, err
+	}
+	result, err := handle.Await(ctx)
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
@@ -165,42 +172,42 @@ func execute(
 	snapshots := tree.ProcessSnapshots()
 	evidence := executionEvidence{Deployments: make(map[string]int)}
 	for _, snapshot := range snapshots {
-		evidence.Deployments[snapshot.DeploymentRef().Name()]++
+		evidence.Deployments[snapshot.ProgramRef().Name()]++
 	}
 	return report, evidence, nil
 }
 
-func newWorkflowPatterns() (agent.Deployment, error) {
+func newWorkflowPatterns() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	children, err := newPatternChildren()
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	budget := agent.Budget{
-		Steps: agent.NewQuota(patternChildBudgetSteps), Effects: agent.NewQuota(patternChildBudgetEffects),
-		Signals: agent.NewQuota(patternChildBudgetSignals),
+	budget := agentrun.Budget{
+		Steps: agentrun.NewQuota(patternChildBudgetSteps), Effects: agentrun.NewQuota(patternChildBudgetEffects),
+		Signals: agentrun.NewQuota(patternChildBudgetSignals),
 	}
 	stages, err := newPatternStages(children, budget)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	root, err := newPatternRoot(stages, budget)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return root, nil
 }
 
 type patternChildren struct {
-	normalizer    agent.Deployment
-	summarizer    agent.Deployment
-	urgent        agent.Deployment
-	standard      agent.Deployment
-	facts         agent.Deployment
-	risks         agent.Deployment
-	approveFirst  agent.Deployment
-	rejectFirst   agent.Deployment
-	rejectSecond  agent.Deployment
-	approveSecond agent.Deployment
+	normalizer    agentrun.Program[agentrun.Payload, agentrun.Payload]
+	summarizer    agentrun.Program[agentrun.Payload, agentrun.Payload]
+	urgent        agentrun.Program[agentrun.Payload, agentrun.Payload]
+	standard      agentrun.Program[agentrun.Payload, agentrun.Payload]
+	facts         agentrun.Program[agentrun.Payload, agentrun.Payload]
+	risks         agentrun.Program[agentrun.Payload, agentrun.Payload]
+	approveFirst  agentrun.Program[agentrun.Payload, agentrun.Payload]
+	rejectFirst   agentrun.Program[agentrun.Payload, agentrun.Payload]
+	rejectSecond  agentrun.Program[agentrun.Payload, agentrun.Payload]
+	approveSecond agentrun.Program[agentrun.Payload, agentrun.Payload]
 }
 
 func newPatternChildren() (patternChildren, error) {
@@ -259,7 +266,7 @@ func newPatternChildren() (patternChildren, error) {
 	return children, nil
 }
 
-func newPatternStages(children patternChildren, budget agent.Budget) ([]workflow.Stage, error) {
+func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workflow.Stage, error) {
 	normalize, err := workflow.Call(workflow.CallConfig{
 		ID: "normalize", Deployment: children.normalizer, Budget: budget,
 	})
@@ -346,39 +353,39 @@ func selectPatternRoute(_ context.Context, state chainState) (string, error) {
 
 func newPatternRoot(
 	stages []workflow.Stage,
-	budget agent.Budget,
-) (agent.Deployment, error) {
+	budget agentrun.Budget,
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name:        "example.workflow_patterns",
 		Description: "Chain, route, section, and vote through exact managed child Processes.",
 		Stages:      stages,
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	configuration := struct {
-		Budget        agent.Budget `json:"budget"`
-		SectionWindow uint32       `json:"section_window"`
-		VoteWindow    uint32       `json:"vote_window"`
+		Budget        agentrun.Budget `json:"budget"`
+		SectionWindow uint32          `json:"section_window"`
+		VoteWindow    uint32          `json:"vote_window"`
 	}{Budget: budget, SectionWindow: sectionWindowSize, VoteWindow: voteWindowSize}
 	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	root, err := agent.NewDeployment(agent.DeploymentConfig{
+	root, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte("workflow-patterns-root")),
-		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("workflow-patterns-root")),
+		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	return root, nil
 }
 
-func routeDeployment(route string) (agent.Deployment, error) {
+func routeDeployment(route string) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	if route != urgentRouteID && route != standardRouteID {
-		return agent.Deployment{}, errors.New("route must be urgent or standard")
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, errors.New("route must be urgent or standard")
 	}
 	return transformDeployment(
 		"example.workflow_patterns.route_"+route,
@@ -395,9 +402,9 @@ func routeDeployment(route string) (agent.Deployment, error) {
 	)
 }
 
-func findingDeployment(section string) (agent.Deployment, error) {
+func findingDeployment(section string) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	if section != factsSectionID && section != risksSectionID {
-		return agent.Deployment{}, errors.New("section must be facts or risks")
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, errors.New("section must be facts or risks")
 	}
 	return transformDeployment(
 		"example.workflow_patterns.section_"+section,
@@ -414,9 +421,9 @@ func findingDeployment(section string) (agent.Deployment, error) {
 	)
 }
 
-func ballotDeployment(name string, choice ballotChoice) (agent.Deployment, error) {
+func ballotDeployment(name string, choice ballotChoice) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	if !choice.valid() {
-		return agent.Deployment{}, errors.New("ballot choice must be approve or reject")
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, errors.New("ballot choice must be approve or reject")
 	}
 	return transformDeployment(
 		"example.workflow_patterns.vote_"+name,
@@ -468,31 +475,31 @@ func transformDeployment[I, O any](
 	description string,
 	configuration any,
 	transform workflow.TransformFunc[I, O],
-) (agent.Deployment, error) {
+) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("transform", transform)
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
 		Name: name, Description: description, Stages: []workflow.Stage{stage},
 	})
 	if err != nil {
-		return agent.Deployment{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	configurationJSON, err := jsonv2.Marshal(configuration)
 	if err != nil {
-		return agent.Deployment{}, fmt.Errorf("encode %s configuration: %w", name, err)
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("encode %s configuration: %w", name, err)
 	}
-	return agent.NewDeployment(agent.DeploymentConfig{
+	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: agent.ComputeDigest([]byte(name + "-transform")),
-		ConfigurationDigest:  agent.ComputeDigest(configurationJSON),
+		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-transform")),
+		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
 	})
 }
 
-func decodeCompleted[T any](result agent.Result) (T, error) {
+func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
 	var zero T
-	if result.Termination().Status() != agent.StatusCompleted {
+	if result.Termination().Status() != agentrun.StatusCompleted {
 		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
 	}
 	output, present := result.Termination().Output()

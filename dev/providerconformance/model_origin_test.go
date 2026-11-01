@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
+	"github.com/Tangerg/scope/models/anthropic"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 	"github.com/Tangerg/scope/models/cohere"
 	"github.com/Tangerg/scope/models/elevenlabs"
@@ -26,9 +27,8 @@ import (
 	"github.com/Tangerg/scope/models/jina"
 	"github.com/Tangerg/scope/models/mistral"
 	"github.com/Tangerg/scope/models/nomic"
+	"github.com/Tangerg/scope/models/openai"
 	"github.com/Tangerg/scope/models/openrouter"
-	"github.com/Tangerg/scope/models/protocol/anthropic"
-	"github.com/Tangerg/scope/models/protocol/openai"
 	"github.com/Tangerg/scope/models/voyage"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
@@ -62,7 +62,7 @@ func modelOriginCalls() []modelOriginCall {
 			if err != nil {
 				return err
 			}
-			_, err = model.ListModels(ctx, 1, 1024)
+			_, err = model.Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, Options: chat.Options{Model: "test"}})
 			return err
 		}},
 		{name: "openrouter messages", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
@@ -70,7 +70,7 @@ func modelOriginCalls() []modelOriginCall {
 			if err != nil {
 				return err
 			}
-			_, err = model.ListModels(ctx, 1, 1024)
+			_, err = model.Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, Options: chat.Options{Model: "test"}})
 			return err
 		}},
 		{name: "google generation", header: "x-goog-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {

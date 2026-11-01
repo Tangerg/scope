@@ -13,8 +13,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -153,10 +151,15 @@ func rawMetadataSelected(point *pineconesdk.Vector, selection *pineconesdk.Metad
 	if selection == nil {
 		return true
 	}
-	value := point.Metadata.Fields[metadataField].GetStringValue()
-	for _, candidate := range selection.Fields[metadataField].GetStructValue().Fields["$in"].GetListValue().Values {
-		if candidate.GetStringValue() == value {
-			return true
+	field := selection.Fields[termsField].GetStructValue()
+	if field == nil {
+		return false
+	}
+	for _, wanted := range field.Fields["$in"].GetListValue().GetValues() {
+		for _, v := range point.Metadata.GetFields()[termsField].GetListValue().GetValues() {
+			if wanted.GetStringValue() == v.GetStringValue() {
+				return true
+			}
 		}
 	}
 	return false
@@ -173,39 +176,30 @@ func clonePoint(point *pineconesdk.Vector) *pineconesdk.Vector {
 	return &copy
 }
 
-type fixtureBatcher struct{ size int }
+const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
-func (f fixtureBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	size := f.size
-	if size == 0 {
-		size = max(len(docs), 1)
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: []float64{1, 0}})
 	}
-	return slices.Collect(slices.Chunk(docs, size)), nil
+	return b
 }
-
-func fixtureModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func (n *nativeFixture) DescribeIndex(context.Context, string) (*pineconesdk.Index, error) {
+	idx := declaredIndex()
+	idx.Schema.Fields[vectorField].DenseVector.Metric = n.metric
+	return idx, nil
 }
-
 func fixtureStore(t *testing.T) (*Store, *nativeFixture) {
 	t.Helper()
-	model, err := embeddingclient.New(fixtureModel())
-	if err != nil {
-		t.Fatal(err)
-	}
 	native := &nativeFixture{points: make(map[string]*pineconesdk.Vector), scores: make(map[string]float32), metric: pineconesdk.IndexMetricCosine}
-	return &Store{index: native, schema: nativeSchema{dimensions: 2, metric: native.metric}, embeddingClient: model, documentBatcher: fixtureBatcher{}}, native
+	return &Store{index: native, schema: nativeSchema{dimensions: 2, metric: native.metric}, space: fixtureSpace, control: native, name: "documents", host: declaredIndex().Host}, native
 }
 
 func installDocuments(t *testing.T, store *Store, docs ...*document.Document) {
 	t.Helper()
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -219,3 +213,7 @@ func resultIDs(response *vectorstore.SearchResponse) []string {
 }
 
 var errNativeFailure = errors.New("native operation failed")
+
+func unsupportedCases() map[string]error {
+	return map[string]error{"in_excludes_array": vectorstore.ErrUnsupportedFilter, "has_excludes_scalar": vectorstore.ErrUnsupportedFilter, "null_excludes_empty_values": vectorstore.ErrUnsupportedFilter, "like_literal_syntax": vectorstore.ErrUnsupportedFilter, "like_literal_wildcards": vectorstore.ErrUnsupportedFilter, "like_newline_rune": vectorstore.ErrUnsupportedFilter, "large_integer": vectorstore.ErrUnsupportedFilter, "equal_decimal": vectorstore.ErrUnsupportedFilter, "decimal_ordering": vectorstore.ErrUnsupportedFilter, "decimal_membership": vectorstore.ErrUnsupportedFilter, "decimal_collection": vectorstore.ErrUnsupportedFilter, "negated_ordering_null": vectorstore.ErrUnsupportedFilter, "equal_number": vectorstore.ErrUnsupportedFilter, "equal_bool": vectorstore.ErrUnsupportedFilter, "not_equal": vectorstore.ErrUnsupportedFilter, "less": vectorstore.ErrUnsupportedFilter, "less_equal": vectorstore.ErrUnsupportedFilter, "greater": vectorstore.ErrUnsupportedFilter, "greater_equal": vectorstore.ErrUnsupportedFilter, "and": vectorstore.ErrUnsupportedFilter, "or": vectorstore.ErrUnsupportedFilter, "not": vectorstore.ErrUnsupportedFilter, "nested_logical": vectorstore.ErrUnsupportedFilter, "in": vectorstore.ErrUnsupportedFilter, "has": vectorstore.ErrUnsupportedFilter, "like_case": vectorstore.ErrUnsupportedFilter, "like_whole_value": vectorstore.ErrUnsupportedFilter, "like_percent": vectorstore.ErrUnsupportedFilter, "like_unicode_rune": vectorstore.ErrUnsupportedFilter, "is_null": vectorstore.ErrUnsupportedFilter, "is_not_null": vectorstore.ErrUnsupportedFilter, "missing_inequality": vectorstore.ErrUnsupportedFilter, "nested_key": vectorstore.ErrUnsupportedFilter, "array_index": vectorstore.ErrUnsupportedFilter, "negated_array_index": vectorstore.ErrUnsupportedFilter, "array_index_null": vectorstore.ErrUnsupportedFilter, "array_index_key": vectorstore.ErrUnsupportedFilter, "digit_key_excludes_array": vectorstore.ErrUnsupportedFilter, "no_matches": vectorstore.ErrUnsupportedFilter}
+}

@@ -1,0 +1,163 @@
+package run
+
+import (
+	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"testing"
+
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+type scopeJoinDefinition struct {
+	descriptor Descriptor
+	reference  ProgramRef
+	boundary   ChildWaitBoundary
+}
+
+func newScopeJoinDeployment(t *testing.T, boundary ChildWaitBoundary, dispatcher Dispatcher) Program[Payload, Payload] {
+	t.Helper()
+	schema, err := jsonschema.For[string]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := NewDescriptor(DescriptorConfig{
+		Name: "test.scope_join", Description: "Owns independently settling child scopes.", InputSchema: schema, OutputSchema: schema,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := &scopeJoinDefinition{descriptor: descriptor, boundary: boundary}
+	deployment, err := Bind[Payload, Payload](BindingConfig{
+		Definition: definition, Dispatcher: dispatcher,
+		ImplementationDigest: ComputeDigest([]byte("scope-join")), ConfigurationDigest: ComputeDigest([]byte(boundary)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.reference = deployment.ProgramRef()
+	return deployment
+}
+
+func (s *scopeJoinDefinition) Descriptor() Descriptor { return s.descriptor }
+
+func (*scopeJoinDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+
+func (s *scopeJoinDefinition) Start(input Payload) (Execution, error) {
+	role, err := input.Decode[string]()
+	if err != nil {
+		return nil, err
+	}
+	return &scopeJoinExecution{definition: s, state: scopeJoinState{Role: role}}, nil
+}
+
+func (s *scopeJoinDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
+	value, err := state.Decode[scopeJoinState](s.descriptor.Name())
+	if err != nil {
+		return nil, err
+	}
+	return &scopeJoinExecution{definition: s, state: value}, nil
+}
+
+type scopeJoinState struct {
+	Role    string        `json:"role"`
+	Phase   string        `json:"phase"`
+	WaitID  WaitID        `json:"wait_id,omitzero"`
+	Outcome *ChildOutcome `json:"outcome,omitzero"`
+}
+
+type scopeJoinExecution struct {
+	definition *scopeJoinDefinition
+	state      scopeJoinState
+}
+
+func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transition, error) {
+	if s.state.Phase == "" {
+		s.state.Phase = "started"
+		switch s.state.Role {
+		case "root":
+			return Continue(0, s.child("scope"), s.child("sibling"))
+		case "scope":
+			return Continue(0, s.child("cleanup"))
+		default:
+			payload, err := jsonv2.Marshal(struct {
+				Name string `json:"name"`
+			}{Name: s.state.Role})
+			if err != nil {
+				return Transition{}, err
+			}
+			effect, err := NewDispatcherEffect(payload)
+			if err != nil {
+				return Transition{}, err
+			}
+			return Continue(0, effect)
+		}
+	}
+	consumed := uint32(len(signals))
+	if s.state.Role == "scope" && s.state.Phase == "started" {
+		s.state.Phase = "ready"
+		return Pause(consumed, "wait for explicit scope completion")
+	}
+	if s.state.Role != "root" || s.state.Phase == "satisfied" {
+		output, err := EncodePayload(s.state.Role)
+		if err != nil {
+			return Transition{}, err
+		}
+		return Complete(consumed, output)
+	}
+	if s.state.Phase == "started" {
+		// The scope child's start settles first, in declaration order.
+		result, err := ParseChildStartResult(signals[0])
+		if err != nil {
+			return Transition{}, err
+		}
+		childID, _ := result.ProcessID()
+		key, _ := ParseWaitKey("scope-boundary")
+		effect, err := NewChildWaitEffect(ChildWaitSpec{
+			Key: key, Children: []ProcessID{childID}, Boundary: s.definition.boundary, Condition: AllChildren(),
+		})
+		if err != nil {
+			return Transition{}, err
+		}
+		s.state.Phase = "waiting"
+		return Continue(consumed, effect)
+	}
+	for _, signal := range signals {
+		if opened, err := ParseChildWaitOpened(signal); err == nil {
+			s.state.WaitID = opened.WaitID()
+			continue
+		}
+		satisfied, err := ParseChildWaitSatisfied(signal)
+		if err != nil || len(satisfied.Outcomes()) != 1 {
+			return Transition{}, errors.New("scope wait did not establish its requested boundary")
+		}
+		s.state.Outcome = new(satisfied.Outcomes()[0])
+		s.state.Phase = "satisfied"
+		return Pause(consumed, "scope boundary reached; sibling remains active")
+	}
+	return Wait(consumed, s.state.WaitID)
+}
+
+func (s *scopeJoinExecution) child(role string) Effect {
+	key, _ := ParseChildKey(role)
+	input, _ := EncodePayload(role)
+	budget := Budget{Steps: NewQuota(20), Effects: NewQuota(20), Signals: NewQuota(40)}
+	if role == "scope" {
+		budget = Budget{Steps: NewQuota(40), Effects: NewQuota(40), Signals: NewQuota(80)}
+	}
+	effect, err := NewChildStartEffect(ChildSpec{
+		Key: key, ProgramRef: s.definition.reference, Input: input, Budget: budget,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return effect
+}
+
+func (s *scopeJoinExecution) Snapshot() (ExecutionState, error) {
+	payload, err := jsonv2.Marshal(s.state)
+	if err != nil {
+		return ExecutionState{}, err
+	}
+	return ParseExecutionState(s.definition.descriptor.Name(), payload)
+}

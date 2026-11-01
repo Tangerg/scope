@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolDefinitionValidateAndRoundTrip(t *testing.T) {
@@ -30,7 +31,7 @@ func TestToolDefinitionValidateAndRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Marshal: %v", err)
 			}
-			var got chat.ToolDefinition
+			var got toolcontract.Definition
 			if err := jsonv2.Unmarshal(encoded, &got); err != nil {
 				t.Fatalf("Unmarshal: %v", err)
 			}
@@ -56,10 +57,10 @@ func TestToolDefinitionClone(t *testing.T) {
 }
 
 func TestToolDefinitionRejectsInvalidValues(t *testing.T) {
-	tests := []chat.ToolDefinition{
+	tests := []toolcontract.Definition{
 		{},
 		{Name: "bad name", InputSchema: json.RawMessage(`{}`)},
-		{Name: ".bad", InputSchema: json.RawMessage(`{"type":"object"}`)},
+		{Name: "\x00bad", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		{Name: "tool", InputSchema: json.RawMessage(`{}`)},
 		{Name: "tool", InputSchema: json.RawMessage(`{"type":"array"}`)},
 		{Name: "tool"},
@@ -69,10 +70,10 @@ func TestToolDefinitionRejectsInvalidValues(t *testing.T) {
 		{Name: "tool", Description: "\xff", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}
 	for _, definition := range tests {
-		if err := definition.Validate(); !errors.Is(err, chat.ErrInvalidToolDefinition) {
+		if err := definition.Validate(); !errors.Is(err, toolcontract.ErrInvalidDefinition) {
 			t.Errorf("Validate(%+v) error = %v", definition, err)
 		}
-		if _, err := jsonv2.Marshal(definition); !errors.Is(err, chat.ErrInvalidToolDefinition) {
+		if _, err := jsonv2.Marshal(definition); !errors.Is(err, toolcontract.ErrInvalidDefinition) {
 			t.Errorf("Marshal(%+v) error = %v", definition, err)
 		}
 	}
@@ -80,14 +81,22 @@ func TestToolDefinitionRejectsInvalidValues(t *testing.T) {
 
 func TestToolDefinitionAcceptsProviderNameCharset(t *testing.T) {
 	for _, name := range []string{"read", "mcp__read-1", "1_lookup", strings.Repeat("a", 64)} {
-		definition := chat.ToolDefinition{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)}
+		definition := toolcontract.Definition{Name: name, InputSchema: json.RawMessage(`{"type":"object"}`)}
 		if err := definition.Validate(); err != nil {
 			t.Errorf("Validate(%q): %v", name, err)
 		}
 	}
-	tooLong := chat.ToolDefinition{Name: strings.Repeat("a", 65), InputSchema: json.RawMessage(`{"type":"object"}`)}
-	if err := tooLong.Validate(); !errors.Is(err, chat.ErrInvalidToolDefinition) {
-		t.Fatalf("Validate(65-byte name) error = %v, want ErrInvalidToolDefinition", err)
+	tooLong := toolcontract.Definition{Name: strings.Repeat("a", 65), InputSchema: json.RawMessage(`{"type":"object"}`)}
+	if err := tooLong.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("hello")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Tools = []toolcontract.Definition{tooLong}
+	if err := req.Validate(); !errors.Is(err, chat.ErrInvalidRequest) {
+		t.Fatalf("unprojected model name accepted: %v", err)
 	}
 }
 
@@ -107,7 +116,7 @@ func TestSanitizeToolNameOutputAlwaysValidates(t *testing.T) {
 		if name == "" {
 			continue
 		}
-		definition := chat.ToolDefinition{Name: name, InputSchema: schema}
+		definition := toolcontract.Definition{Name: name, InputSchema: schema}
 		if err := definition.Validate(); err != nil {
 			t.Errorf("SanitizeToolName(%q) = %q, which Validate rejects: %v", label, name, err)
 		}
@@ -125,7 +134,7 @@ func TestSanitizeToolNameOutputAlwaysValidates(t *testing.T) {
 func TestToolDefinitionUnmarshalIsAtomic(t *testing.T) {
 	got := validToolDefinition()
 	err := jsonv2.Unmarshal([]byte(`{"name":"replacement","input_schema":[]}`), &got)
-	if !errors.Is(err, chat.ErrInvalidToolDefinition) {
+	if !errors.Is(err, toolcontract.ErrInvalidDefinition) {
 		t.Fatalf("Unmarshal error = %v", err)
 	}
 	if got.Name != "weather" {
@@ -134,8 +143,8 @@ func TestToolDefinitionUnmarshalIsAtomic(t *testing.T) {
 }
 
 func TestToolDefinitionNilUnmarshalReceiver(t *testing.T) {
-	var definition *chat.ToolDefinition
-	if err := definition.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, chat.ErrInvalidToolDefinition) {
+	var definition *toolcontract.Definition
+	if err := definition.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, toolcontract.ErrInvalidDefinition) {
 		t.Fatalf("UnmarshalJSON error = %v, want ErrInvalidToolDefinition", err)
 	}
 }

@@ -6,15 +6,15 @@ import (
 	"sync/atomic"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
-func newDeployment(remote *remoteLedger, model *receiptModel) (agent.Deployment, interaction.ToolSet, error) {
+func newDeployment(remote *remoteLedger, model *receiptModel) (agentrun.Program[agentrun.Payload, agentrun.Payload], agent.ToolSet, error) {
 	executable, err := tool.NewFunc(tool.FuncConfig{Name: "record_note", Description: "Record one note remotely."},
 		func(ctx context.Context, input note) (string, error) {
-			invocation, ok := interaction.ToolInvocationFromContext(ctx)
+			invocation, ok := agent.ToolInvocationFromContext(ctx)
 			if !ok {
 				return "", errors.New("example: missing Engine attribution")
 			}
@@ -24,31 +24,31 @@ func newDeployment(remote *remoteLedger, model *receiptModel) (agent.Deployment,
 			return "", errors.New("remote: response lost after recording the outcome")
 		})
 	if err != nil {
-		return agent.Deployment{}, interaction.ToolSet{}, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agent.ToolSet{}, err
 	}
-	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
+	tools, err := agent.NewToolSet(agent.ToolSetConfig{
 		Name: "example.receipt_tools", Description: "A remote write whose response is lost.", Tools: []tool.Tool{executable},
-		ImplementationDigest: agent.ComputeDigest([]byte("receipt-tool")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("record_note")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("receipt-tool")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("record_note")),
 	})
 	if err != nil {
-		return agent.Deployment{}, tools, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name: "example.reconciliation", Description: "Report a reconciled business receipt.",
-		MaxModelCalls: agent.NewQuota(2), Tools: tools,
+		MaxModelCalls: agentrun.NewQuota(2), Tools: tools,
 	})
 	if err != nil {
-		return agent.Deployment{}, tools, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: model})
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: model})
 	if err != nil {
-		return agent.Deployment{}, tools, err
+		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("receipt-interaction")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("record one release note; report its receipt")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("receipt-interaction")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("record one release note; report its receipt")),
 	})
 	return deployment, tools, err
 }

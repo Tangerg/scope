@@ -10,13 +10,17 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type collectionSchema struct{ dimensions int }
 
-func newCollectionSchema(schema *api.CollectionResponse, name string) (collectionSchema, error) {
+// SpaceField binds a provisioned collection to its immutable encoder space.
+func SpaceField(space vectorstore.SpaceID) api.Field {
+	return api.Field{Name: space.StorageKey(), Type: "string", Optional: new(true), Index: new(false)}
+}
+
+func newCollectionSchema(schema *api.CollectionResponse, name string, space vectorstore.SpaceID) (collectionSchema, error) {
 	if schema == nil || schema.Name != name {
 		return collectionSchema{}, fmt.Errorf("%w: native collection identity is invalid", ErrIncompatibleCollection)
 	}
@@ -24,6 +28,13 @@ func newCollectionSchema(schema *api.CollectionResponse, name string) (collectio
 	for _, field := range schema.Fields {
 		if _, duplicate := fields[field.Name]; duplicate {
 			return collectionSchema{}, fmt.Errorf("%w: duplicate field %s", ErrIncompatibleCollection, field.Name)
+		}
+		if field.Name == space.StorageKey() {
+			if field.Type != "string" || field.Optional == nil || !*field.Optional || field.Index == nil || *field.Index || field.Embed != nil {
+				return collectionSchema{}, ErrIncompatibleCollection
+			}
+			fields[field.Name] = field
+			continue
 		}
 		switch field.Name {
 		case fieldID, fieldContent, fieldMetadata, fieldEmbedding:
@@ -37,6 +48,9 @@ func newCollectionSchema(schema *api.CollectionResponse, name string) (collectio
 			return collectionSchema{}, fmt.Errorf("%w: native auto-embedding would create a second vector owner", ErrIncompatibleCollection)
 		}
 		fields[field.Name] = field
+	}
+	if _, ok := fields[space.StorageKey()]; !ok {
+		return collectionSchema{}, fmt.Errorf("%w: invalid coordinate space", ErrIncompatibleCollection)
 	}
 	content, contentOK := fields[fieldContent]
 	facts, factsOK := fields[fieldMetadata]
@@ -90,12 +104,12 @@ func (c collectionSchema) decodeDocument(raw []byte) (storedRecord, *document.Do
 	if err = c.validateVector(*record.Embedding); err != nil {
 		return storedRecord{}, nil, err
 	}
-	var facts metadata.Map
-	if err = facts.UnmarshalJSON([]byte(*record.Metadata)); err != nil {
+	doc := new(document.Document)
+	if err = document.UnmarshalStoredMetadata([]byte(*record.Metadata), doc); err != nil {
 		return storedRecord{}, nil, err
 	}
-	doc := &document.Document{ID: id, Text: *record.Content, Metadata: facts}
-	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = id, *record.Content
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return storedRecord{}, nil, err
 	}
 	return record, doc, nil

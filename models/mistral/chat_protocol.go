@@ -131,16 +131,7 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 }
 
 func (c *Chat) Call(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
-	var accumulator corechat.ResponseAccumulator
-	for delta, err := range c.Stream(ctx, request) {
-		if err != nil {
-			return nil, err
-		}
-		if addErr := accumulator.Add(delta); addErr != nil {
-			return nil, addErr
-		}
-	}
-	return accumulator.Response()
+	return corechat.Collect(c.Stream(ctx, request))
 }
 
 func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {

@@ -10,7 +10,9 @@
 // cursor with the same name and path until it is absent. Text pages must be
 // concatenated before treating instructions or resources as complete. Cursors
 // bind the content and target; a changed source rejects a stale cursor and the
-// caller starts again. No server-side pagination session is retained.
+// caller must explicitly choose whether to adopt the new version. A terminal
+// text page includes the snapshot digest to retain with its skill name and path
+// for exact resolution through skills.Reference. No server-side pagination session is retained.
 //
 // Config.MaxResourceBytes bounds resource snapshots independently of page size.
 // Files beyond that limit fail explicitly. List pages keep whole summaries and

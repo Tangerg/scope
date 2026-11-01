@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
+
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -86,7 +87,7 @@ func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdran
 	if err = n.validateVector(vectors.GetVector().GetDense().Data); err != nil {
 		return nil, "", err
 	}
-	if len(payload) != 2 || payload[contentField] == nil || payload[metadataField] == nil {
+	if len(payload) != 3 || payload[contentField] == nil || payload[metadataField] == nil {
 		return nil, "", errors.New("qdrant: native record does not have the current payload shape")
 	}
 	content, contentOK := payload[contentField].Kind.(*qdrantclient.Value_StringValue)
@@ -94,12 +95,28 @@ func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdran
 	if !contentOK || !factsOK {
 		return nil, "", errors.New("qdrant: content and metadata_json must be strings")
 	}
-	var values metadata.Map
-	if err = values.UnmarshalJSON([]byte(facts.StringValue)); err != nil {
+	doc := new(document.Document)
+	if err = document.UnmarshalStoredMetadata([]byte(facts.StringValue), doc); err != nil {
 		return nil, "", err
 	}
-	doc := &document.Document{ID: identity, Text: content.StringValue, Metadata: values}
-	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	terms, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, "", err
+	}
+	if payload[termsField] == nil || payload[termsField].GetListValue() == nil {
+		return nil, "", errors.New("qdrant: missing derived metadata terms")
+	}
+	if got := payload[termsField].GetListValue().GetValues(); len(got) != len(terms) {
+		return nil, "", errors.New("qdrant: inconsistent derived metadata terms")
+	} else {
+		for i, v := range got {
+			if v.GetStringValue() != terms[i] {
+				return nil, "", errors.New("qdrant: corrupted derived metadata term")
+			}
+		}
+	}
+	doc.ID, doc.Text = identity, content.StringValue
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nil, "", err
 	}
 	return doc, facts.StringValue, nil
@@ -113,18 +130,23 @@ func encodeRecord(doc *document.Document) (*qdrantclient.PointStruct, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts, err := doc.Metadata.MarshalJSON()
+	facts, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
+	terms, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	list := &qdrantclient.ListValue{}
+	for _, t := range terms {
+		list.Values = append(list.Values, qdrantclient.NewValueString(t))
+	}
 	return &qdrantclient.PointStruct{Id: id, Payload: map[string]*qdrantclient.Value{
+		termsField:    {Kind: &qdrantclient.Value_ListValue{ListValue: list}},
 		contentField:  {Kind: &qdrantclient.Value_StringValue{StringValue: doc.Text}},
 		metadataField: {Kind: &qdrantclient.Value_StringValue{StringValue: string(facts)}},
 	}}, nil
-}
-
-func metadataSelection(values []string) *qdrantclient.Filter {
-	return &qdrantclient.Filter{Must: []*qdrantclient.Condition{qdrantclient.NewMatchKeywords(metadataField, values...)}}
 }
 
 type scoredDocument struct {

@@ -104,7 +104,7 @@ func TestHeadingSplitH2(t *testing.T) {
 		if got, _ := metadataValue[string](t, docs[i].Metadata, markdown.MetadataHeadingPath); got != w.path {
 			t.Errorf("docs[%d] path: want %q, got %v", i, w.path, got)
 		}
-		if got, _ := metadataValue[string](t, docs[i].Metadata, markdown.MetadataSourceName); got != "test.md" {
+		if got := docs[i].Provenance.Source; got != "test.md" {
 			t.Errorf("docs[%d] source: want test.md, got %v", i, got)
 		}
 	}

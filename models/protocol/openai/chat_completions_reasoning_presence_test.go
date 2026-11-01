@@ -61,7 +61,7 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			model, err := openai.NewCompatibleChatCompletions(t.Context(), config, dialect)
+			model, err := openai.NewChatCompletions(t.Context(), config, dialect)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -89,7 +89,7 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				model, err = openai.NewCompatibleChatCompletions(t.Context(), config, dialect)
+				model, err = openai.NewChatCompletions(t.Context(), config, dialect)
 				if err != nil {
 					t.Fatal(err)
 				}

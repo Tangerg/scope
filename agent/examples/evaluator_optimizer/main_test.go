@@ -7,10 +7,12 @@ import (
 	"errors"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/workflow"
 )
 
 func TestRun(t *testing.T) {
@@ -137,7 +139,7 @@ func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
 	}
 	for _, member := range []string{`"best":{}`, `"has_best":true`, `"accepted":true`} {
 		legacy := strings.TrimSuffix(want, "}") + "," + member + "}"
-		payload, err := agent.ParsePayload([]byte(legacy))
+		payload, err := agentrun.ParsePayload([]byte(legacy))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,5 +150,72 @@ func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
 	state.Current = &state.History[0].Candidate
 	if err := state.validateSettled(); err == nil {
 		t.Fatal("evaluated candidate remained independently writable")
+	}
+}
+
+func TestFinalReportRefusesIncompleteOrContradictoryHistory(t *testing.T) {
+	good := optimizationState{Objective: "review", History: []attempt{{Candidate: candidate{Content: "first"}, Assessment: assessment{Score: 0.8, Feedback: "evidence"}}}}
+	for _, mode := range []string{"no iterations", "no evidence", "pending revision", "invalid assessment", "missing history", "untrimmed objective"} {
+		t.Run(mode, func(t *testing.T) {
+			s := good
+			s.History = slices.Clone(good.History)
+			iters := uint64(1)
+			switch mode {
+			case "no iterations":
+				iters = 0
+			case "no evidence":
+				s.History = []attempt{}
+			case "pending revision":
+				s.Current = &candidate{Content: "not assessed"}
+			case "invalid assessment":
+				s.History[0].Assessment.Score = 2
+			case "missing history":
+				s.History = nil
+			case "untrimmed objective":
+				s.Objective = " review"
+			}
+			got, err := finalizeOptimization(workflow.LoopResult[optimizationState]{Value: s, Iterations: iters, Satisfied: true})
+			if err == nil || got.Accepted || len(got.History) != 0 {
+				t.Fatalf("invalid report=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestEvaluatorRejectsAnUnscheduledRevisionWithoutReportingAcceptance(t *testing.T) {
+	child, err := newEvaluatorDeployment([]float64{0.9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := agentrun.New(t.Context(), agentrun.Config{Store: agentrun.NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if e := rt.Close(t.Context()); e != nil {
+			t.Error(e)
+		}
+	}()
+	input, err := agentrun.EncodePayload(optimizationState{Objective: "review", Current: &candidate{Content: "extra revision"}, History: []attempt{{Candidate: candidate{Content: "documented revision"}, Assessment: assessment{Score: .9, Feedback: "reviewed"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := rt.Start(t.Context(), child, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "audit", Key: "revision-overrun"}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := h.Await(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = h.Join(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	failure, ok := result.Termination().Failure()
+	if !ok || !strings.Contains(failure.Message(), "no assessment scheduled for revision 2") {
+		t.Fatalf("termination=%v, failure=%v", result.Termination().Status(), failure)
+	}
+	if _, completed := result.Termination().Output(); completed {
+		t.Fatal("unscheduled revision published an assessment")
 	}
 }

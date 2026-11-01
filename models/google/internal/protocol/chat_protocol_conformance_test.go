@@ -13,6 +13,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
 
@@ -134,7 +135,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 			corechat.NewToolCallPart(corechat.ToolCall{ID: "google/0/2", Name: "calculate", Arguments: `{"x":2}`}),
 		),
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "google/0/2", Name: "calculate", Output: corechat.NewTextToolOutput(`{"value":4}`),
+			ID: "google/0/2", Name: "calculate", Output: toolcontract.NewTextOutput(`{"value":4}`),
 		}),
 	)
 	if err != nil {
@@ -152,7 +153,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 		TopK:            &topK,
 		TopP:            &topP,
 	}
-	request.Tools = []corechat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name:        "calculate",
 		Description: "Run a calculation",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"x":{"type":"number"}}}`),

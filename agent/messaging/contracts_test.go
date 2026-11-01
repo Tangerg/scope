@@ -6,10 +6,10 @@ import (
 	"testing"
 	"testing/synctest"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/messaging"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 )
 
 func TestDispatcherRejectsNilContextBeforeProtocolValidation(t *testing.T) {
@@ -20,7 +20,7 @@ func TestDispatcherRejectsNilContextBeforeProtocolValidation(t *testing.T) {
 		}
 	}()
 	var nilContext context.Context
-	_, _ = dispatcher.Dispatch(nilContext, agent.EffectRequest{}, nil)
+	_, _ = dispatcher.Dispatch(nilContext, run.EffectRequest{}, nil)
 }
 
 func TestMessageValidatesFrozenProtocol(t *testing.T) {
@@ -31,7 +31,7 @@ func TestMessageValidatesFrozenProtocol(t *testing.T) {
 		}
 	}
 	dispatcher := newDispatcher(t, &recipientPort{})
-	if _, dispatchErr := dispatcher.Dispatch(context.Background(), agent.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {
+	if _, dispatchErr := dispatcher.Dispatch(context.Background(), run.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {
 		t.Fatalf("empty request=%v", dispatchErr)
 	}
 	if _, effectErr := (messaging.Message{}).Effect(); !errors.Is(effectErr, messaging.ErrInvalidMessage) {
@@ -42,46 +42,46 @@ func TestMessageValidatesFrozenProtocol(t *testing.T) {
 		`{"recipient":"process:peer","payload":"review","wait_id":""}`,
 		`{"payload":"review"}`, `null`,
 	} {
-		effect, effectErr := agent.NewDispatcherEffect([]byte(payload))
+		effect, effectErr := run.NewDispatcherEffect([]byte(payload))
 		if effectErr != nil {
 			t.Fatal(effectErr)
 		}
-		if policy := dispatcher.Policy(effect).Replay; policy != agent.ReplayPolicyNever {
+		if policy := dispatcher.Policy(effect).Replay; policy != run.ReplayPolicyNever {
 			t.Fatalf("invalid effect replay=%s payload=%s", policy, payload)
 		}
 	}
-	if policy := dispatcher.Policy(agent.Effect{}).Replay; policy != agent.ReplayPolicyNever {
+	if policy := dispatcher.Policy(run.Effect{}).Replay; policy != run.ReplayPolicyNever {
 		t.Fatalf("zero effect replay=%s", policy)
 	}
 	var absent *messaging.Dispatcher
-	if policy := absent.Policy(agent.Effect{}).Replay; policy != agent.ReplayPolicyNever {
+	if policy := absent.Policy(run.Effect{}).Replay; policy != run.ReplayPolicyNever {
 		t.Fatalf("nil dispatcher replay=%s", policy)
 	}
-	if _, dispatchErr := absent.Dispatch(context.Background(), agent.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {
+	if _, dispatchErr := absent.Dispatch(context.Background(), run.EffectRequest{}, nil); !errors.Is(dispatchErr, messaging.ErrInvalidMessage) {
 		t.Fatalf("nil dispatch=%v", dispatchErr)
 	}
 }
 
 func TestSenderConformsAndMessageEffectOwnsRecipient(t *testing.T) {
-	recipient, err := agent.ParseProcessID("process:original")
+	recipient, err := run.ParseProcessID("process:original")
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitID, err := agent.ParseWaitID("wait:original")
+	waitID, err := run.ParseWaitID("wait:original")
 	if err != nil {
 		t.Fatal(err)
 	}
 	message := messaging.Message{Recipient: recipient, WaitID: &waitID, Payload: input(t, "review")}
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{Definition: newSender(t), Input: input(t, message)})
+	runtest.RunDefinitionConformance(t, runtest.DefinitionConformanceConfig{Definition: newSender(t), Input: input(t, message)})
 	effect, err := message.Effect()
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitID, err = agent.ParseWaitID("wait:replacement")
+	waitID, err = run.ParseWaitID("wait:replacement")
 	if err != nil {
 		t.Fatal(err)
 	}
-	frozenInput, err := agent.ParsePayload(effect.Payload())
+	frozenInput, err := run.ParsePayload(effect.Payload())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,21 +96,21 @@ func TestSenderConformsAndMessageEffectOwnsRecipient(t *testing.T) {
 
 func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		engine := newEngine(t, agent.NewMemoryTreeCommitter())
+		engine := newEngine(t, run.NewMemoryStore())
 		receiver := start(t, engine, bind(t, newGate(t), nil), input(t, "review"))
 		synctest.Wait()
 		waitID, _ := inspect(t, engine, receiver).WaitID()
 		port := &recipientPort{engine: engine, recipient: receiver, firstAdmission: make(chan struct{}), release: make(chan struct{})}
 		sender := start(t, engine, bind(t, newSender(t), newDispatcher(t, port)), input(t, messaging.Message{Recipient: receiver.Relation().ProcessID(), WaitID: &waitID, Payload: input(t, "review admitted")}))
 		<-port.firstAdmission
-		if cancelErr := sender.RequestCancellation(t.Context(), "cancel while confirmation is pending"); cancelErr != nil {
+		if cancelErr := sender.Cancel(t.Context(), "cancel while confirmation is pending"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
 		result := finish(t, sender)
-		if result.Termination().Status() != agent.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 || result.Usage().CommittedSteps != 0 {
+		if result.Termination().Status() != run.StatusCanceled || len(result.Termination().UnresolvedEffectIDs()) != 1 || result.Usage().CommittedSteps != 0 {
 			t.Fatalf("canceled send=%+v", result)
 		}
-		if result := finish(t, receiver); result.Termination().Status() != agent.StatusCompleted || result.Usage().AcceptedSignals != 2 {
+		if result := finish(t, receiver); result.Termination().Status() != run.StatusCompleted || result.Usage().AcceptedSignals != 2 {
 			t.Fatalf("receiver=%+v", result)
 		}
 		closeEngine(t, engine)
@@ -120,13 +120,13 @@ func TestCancellationCollectsUnacknowledgedDelivery(t *testing.T) {
 func TestMalformedMessageSettlesBeforeDelivery(t *testing.T) {
 	dispatcher := newDispatcher(t, rejectingDeliveryPort{})
 	for _, raw := range []string{`null`, `{}`, `{"recipient":"process:peer","payload":null,"unknown":true}`} {
-		effect, effectErr := agent.NewDispatcherEffect([]byte(raw))
+		effect, effectErr := run.NewDispatcherEffect([]byte(raw))
 		if effectErr != nil {
 			t.Fatal(effectErr)
 		}
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 	}
-	effect, err := agent.NewDispatcherEffect([]byte(`{}`))
+	effect, err := run.NewDispatcherEffect([]byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +135,6 @@ func TestMalformedMessageSettlesBeforeDelivery(t *testing.T) {
 
 type rejectingDeliveryPort struct{}
 
-func (rejectingDeliveryPort) Deliver(context.Context, agent.ProcessID, agent.ProcessID, agent.SignalRequest) error {
+func (rejectingDeliveryPort) Deliver(context.Context, run.ProcessID, run.ProcessID, run.SignalRequest) error {
 	panic("malformed message reached delivery")
 }

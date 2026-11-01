@@ -11,8 +11,8 @@ import (
 	"io"
 	"os"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/tool"
@@ -35,58 +35,25 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
-		Name: "example.autonomous_tools", Description: "Execute each requested Tool through its own child Process.", Tools: []tool.Tool{additionTool{}},
-		ImplementationDigest: agent.ComputeDigest([]byte("example.autonomous_tools.implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example.autonomous_tools.configuration")),
+	program, err := agent.Compile(ctx, agent.Config{
+		Name: "example.autonomous_calculator", Description: "Use available tools to complete the requested calculation.",
+		Model: client, Tools: []tool.Tool{additionTool{}}, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
+		BuildIdentity: agentrun.ComputeDigest([]byte("example-autonomous-implementation")),
+		ModelIdentity: agentrun.ComputeDigest([]byte("example calculator model")),
+		ToolIdentity:  agentrun.ComputeDigest([]byte("example addition settings")),
+		ToolBudget:    agentrun.Budget{Steps: agentrun.NewQuota(8), Effects: agentrun.NewQuota(4), Signals: agentrun.NewQuota(8)},
 	})
 	if err != nil {
 		return err
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name:          "example.autonomous_calculator",
-		Description:   "Use available Tools until the requested calculation is complete.",
-		MaxModelCalls: agent.NewQuota(calculatorFinalAnswerCall),
-		Tools:         toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
-	})
-	if err != nil {
-		return err
-	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
-		Model: client,
-	})
-	if err != nil {
-		return err
-	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
-		Definition:           definition,
-		Dispatcher:           dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("example-autonomous-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("example-autonomous-configuration")),
-	})
-	if err != nil {
-		return err
-	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{
+	decoded, err := engine.Run(ctx, program, agent.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("What is 20 + 22?")),
 	}})
-	if err != nil {
-		return err
-	}
-	result, err := engine.Run(ctx, deployment, input)
-	if err != nil {
-		return err
-	}
-	erased, ok := result.Termination().Output()
-	if !ok {
-		return fmt.Errorf("autonomous Process ended with %s", result.Termination().Status())
-	}
-	decoded, err := erased.Decode[interaction.Output]()
 	if err != nil {
 		return err
 	}
@@ -96,8 +63,8 @@ func run(ctx context.Context, output io.Writer) (err error) {
 
 type additionTool struct{}
 
-func (additionTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{
+func (additionTool) Definition() tool.Definition {
+	return tool.Definition{
 		Name:        "add",
 		Description: "Add two numbers and return their sum.",
 		InputSchema: json.RawMessage(`{
@@ -117,7 +84,7 @@ func (additionTool) Call(_ context.Context, invocation tool.Invocation) (tool.Re
 	if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
 		return tool.Result{}, err
 	}
-	return tool.Result{Output: chat.NewTextToolOutput(fmt.Sprintf("%g", input.Left+input.Right))}, nil
+	return tool.Result{Output: tool.NewTextOutput(fmt.Sprintf("%g", input.Left+input.Right))}, nil
 }
 
 type calculatorModel struct{ calls int }

@@ -1,61 +1,33 @@
 package a2a
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
-func TestTextProjectionRendersEveryContentKind(t *testing.T) {
-	cases := map[string]struct {
-		parts    sdka2a.ContentParts
-		contains string
-	}{
-		"text": {
-			parts:    sdka2a.ContentParts{sdka2a.NewTextPart("hello")},
-			contains: "hello",
-		},
-		"structured data": {
-			parts:    sdka2a.ContentParts{sdka2a.NewDataPart(map[string]any{"answer": 42})},
-			contains: `"answer":42`,
-		},
-		"url": {
-			parts:    sdka2a.ContentParts{sdka2a.NewFileURLPart("https://example.com/a", "image/png")},
-			contains: "https://example.com/a",
-		},
-		"several parts concatenate": {
-			parts: sdka2a.ContentParts{
-				sdka2a.NewTextPart("first "),
-				sdka2a.NewTextPart("second"),
-			},
-			contains: "first second",
-		},
+func requireText(t *testing.T, parts sdka2a.ContentParts) string {
+	t.Helper()
+	s, err := (textProjection{}).parts(parts)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			rendered := textProjection{}.parts(testCase.parts)
-			if !strings.Contains(rendered, testCase.contains) {
-				t.Fatalf("rendered %q, want it to contain %q", rendered, testCase.contains)
-			}
-		})
-	}
+	return s
 }
-
-func TestTextProjectionSkipsNothingSilently(t *testing.T) {
-	if rendered := (textProjection{}).parts(nil); rendered != "" {
-		t.Fatalf("empty parts rendered %q", rendered)
+func TestTextBoundaryRejectsLossyConversions(t *testing.T) {
+	for _, part := range []*sdka2a.Part{sdka2a.NewDataPart(map[string]any{"cost": 42}), sdka2a.NewFileURLPart("https://example.com/a", "image/png"), sdka2a.NewRawPart([]byte{0xff}), {Content: sdka2a.Text("body"), Filename: "header"}} {
+		parts := sdka2a.ContentParts{sdka2a.NewTextPart("prefix"), part}
+		if got, err := (textProjection{}).parts(parts); got != "" || !errors.Is(err, ErrUnsupportedContent) {
+			t.Fatalf("lossy projection: %q %v", got, err)
+		}
 	}
-
-	withNil := sdka2a.ContentParts{nil, sdka2a.NewTextPart("kept")}
-	if rendered := (textProjection{}).parts(withNil); rendered != "kept" {
-		t.Fatalf("a nil part changed the rendering: %q", rendered)
+	if _, err := (textProjection{}).parts(sdka2a.ContentParts{nil}); !errors.Is(err, ErrInvalidResult) {
+		t.Fatal(err)
 	}
-
-	unrenderable := sdka2a.ContentParts{sdka2a.NewDataPart(make(chan int))}
-	rendered := textProjection{}.parts(unrenderable)
-	if rendered == "" {
-		t.Fatal("an unrenderable payload vanished instead of leaving a marker")
+	if text := requireText(t, sdka2a.ContentParts{sdka2a.NewTextPart("first "), sdka2a.NewTextPart("second")}); text != "first second" {
+		t.Fatal(text)
 	}
 }
 

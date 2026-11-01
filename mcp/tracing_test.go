@@ -12,14 +12,13 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 type failingTraceTool struct{}
 
-func (f failingTraceTool) Definition() corechat.ToolDefinition {
-	return corechat.ToolDefinition{Name: "fail", Description: "Return a failure", InputSchema: []byte(`{"type":"object"}`)}
+func (f failingTraceTool) Definition() tool.Definition {
+	return tool.Definition{Name: "fail", Description: "Return a failure", InputSchema: []byte(`{"type":"object"}`)}
 }
 
 func (f failingTraceTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
@@ -51,7 +50,7 @@ func TestRoundTripErrorTelemetryExcludesContent(t *testing.T) {
 	require.Len(t, executables, 1)
 	binding, err := tool.Bind(executables[0])
 	require.NoError(t, err)
-	invocation, err := binding.Contract().Prepare(corechat.ToolCall{ID: "call", Name: executables[0].Definition().Name, Arguments: `{}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: executables[0].Definition().Name, Arguments: `{}`}, nil)
 	require.NoError(t, err)
 	_, err = binding.Call(t.Context(), invocation)
 	_, ok := errors.AsType[*tool.Failure](err)

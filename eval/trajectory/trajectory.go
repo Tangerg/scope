@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -32,13 +32,13 @@ const (
 // Root termination and usage must agree with the root Process's finished Event,
 // including its termination cause and stable failure classification.
 type Trajectory struct {
-	rootProcessID agent.ProcessID
-	termination   agent.Termination
-	rootUsage     agent.Usage
+	rootProcessID run.ProcessID
+	termination   run.Termination
+	rootUsage     run.Usage
 	coverage      *Coverage
 	gaps          EvidenceGaps
 	elapsed       *time.Duration
-	events        []agent.Event
+	events        []run.Event
 	modelCalls    []ModelCall
 	toolCalls     []ToolCall
 }
@@ -69,13 +69,13 @@ func New(config Config) (Trajectory, error) {
 }
 
 type Config struct {
-	RootProcessID agent.ProcessID
-	Termination   agent.Termination
-	RootUsage     agent.Usage
+	RootProcessID run.ProcessID
+	Termination   run.Termination
+	RootUsage     run.Usage
 	Coverage      *Coverage
 	Gaps          EvidenceGaps
 	Elapsed       *time.Duration
-	Events        []agent.Event
+	Events        []run.Event
 	ModelCalls    []ModelCall
 	ToolCalls     []ToolCall
 }
@@ -84,23 +84,23 @@ func (t Trajectory) Clone() (Trajectory, error) {
 	return New(t.config())
 }
 
-func (t Trajectory) RootProcessID() agent.ProcessID { return t.rootProcessID }
+func (t Trajectory) RootProcessID() run.ProcessID { return t.rootProcessID }
 
 // Termination is zero when no root Result was committed; RuntimeStopped is not
 // logical termination.
-func (t Trajectory) Termination() agent.Termination { return t.termination }
+func (t Trajectory) Termination() run.Termination { return t.termination }
 
 func (t Trajectory) Gaps() EvidenceGaps { return t.gaps }
 
-func (t Trajectory) RootUsage() agent.Usage { return t.rootUsage }
+func (t Trajectory) RootUsage() run.Usage { return t.rootUsage }
 
 func (t Trajectory) Coverage() *Coverage { return t.coverage.clone() }
 
-// Elapsed is the monotonic recording interval from root start to export,
-// including idle time. Nil means that the complete interval was not observed.
+// Elapsed spans the observed root start and final framework fact, including
+// idle time but excluding callback and export lag. Nil means the interval is unknown.
 func (t Trajectory) Elapsed() *time.Duration { return cloneElapsed(t.elapsed) }
 
-func (t Trajectory) Events() []agent.Event { return slices.Clone(t.events) }
+func (t Trajectory) Events() []run.Event { return slices.Clone(t.events) }
 
 func (t Trajectory) ModelCalls() []ModelCall { return cloneModelCalls(t.modelCalls) }
 
@@ -115,22 +115,22 @@ func (t Trajectory) config() Config {
 }
 
 type trajectoryWire struct {
-	RootProcessID agent.ProcessID    `json:"root_process_id"`
-	Termination   *agent.Termination `json:"termination,omitzero"`
-	RootUsage     agent.Usage        `json:"root_usage"`
-	Coverage      *Coverage          `json:"coverage,omitzero"`
-	Gaps          EvidenceGaps       `json:"gaps,omitzero"`
-	Elapsed       *int64             `json:"elapsed_ns,omitzero"`
-	Events        []agent.Event      `json:"events"`
-	ModelCalls    []ModelCall        `json:"model_calls,omitempty"`
-	ToolCalls     []ToolCall         `json:"tool_calls,omitempty"`
+	RootProcessID run.ProcessID    `json:"root_process_id"`
+	Termination   *run.Termination `json:"termination,omitzero"`
+	RootUsage     run.Usage        `json:"root_usage"`
+	Coverage      *Coverage        `json:"coverage,omitzero"`
+	Gaps          EvidenceGaps     `json:"gaps,omitzero"`
+	Elapsed       *int64           `json:"elapsed_ns,omitzero"`
+	Events        []run.Event      `json:"events"`
+	ModelCalls    []ModelCall      `json:"model_calls,omitempty"`
+	ToolCalls     []ToolCall       `json:"tool_calls,omitempty"`
 }
 
 func (t Trajectory) MarshalJSON() ([]byte, error) {
 	if err := t.Validate(); err != nil {
 		return nil, err
 	}
-	var termination *agent.Termination
+	var termination *run.Termination
 	if t.termination.Valid() {
 		termination = &t.termination
 	}
@@ -176,7 +176,7 @@ func (t Trajectory) Validate() error {
 	if err != nil {
 		return err
 	}
-	if !slices.IsSortedFunc(t.events, func(left, right agent.Event) int {
+	if !slices.IsSortedFunc(t.events, func(left, right run.Event) int {
 		return compareEvent(left, right, paths)
 	}) {
 		return fmt.Errorf("%w: events are not in canonical process order", ErrInvalidTrajectory)
@@ -241,12 +241,12 @@ func (t Trajectory) eventHistory() (eventHistory, error) {
 	return history, nil
 }
 
-func (t Trajectory) recordTerminal(history *eventHistory, event agent.Event) error {
+func (t Trajectory) recordTerminal(history *eventHistory, event run.Event) error {
 	activation := activationProcess{event.Relation().ProcessID(), eventIncarnation(event)}
 	switch event.Name() {
-	case agent.EventRuntimeStopped:
+	case run.EventRuntimeStopped:
 		history.stopped[activation] = true
-	case agent.EventProcessFinished:
+	case run.EventProcessFinished:
 		if history.finished[activation] {
 			return fmt.Errorf("%w: duplicate process terminal event", ErrInvalidTrajectory)
 		}
@@ -282,13 +282,13 @@ func (t Trajectory) validateTerminalEvidence(history eventHistory) error {
 	for activation := range history.stopped {
 		rootStopped = rootStopped || activation.process == t.rootProcessID
 	}
-	if history.rootFinished != 0 || !rootStopped && complete || t.rootUsage != (agent.Usage{}) {
+	if history.rootFinished != 0 || !rootStopped && complete || t.rootUsage != (run.Usage{}) {
 		return fmt.Errorf("%w: absent root result requires runtime-stop or lost event evidence and no root usage", ErrInvalidTrajectory)
 	}
 	return nil
 }
 
-func (t Trajectory) validateModelCalls(paths map[agent.ProcessID]string) error {
+func (t Trajectory) validateModelCalls(paths map[run.ProcessID]string) error {
 	for index, call := range t.modelCalls {
 		if err := call.Validate(); err != nil {
 			return fmt.Errorf("%w: model_calls[%d]: %w", ErrInvalidTrajectory, index, err)
@@ -303,7 +303,7 @@ func (t Trajectory) validateModelCalls(paths map[agent.ProcessID]string) error {
 	return nil
 }
 
-func (t Trajectory) validateToolCalls(paths map[agent.ProcessID]string) error {
+func (t Trajectory) validateToolCalls(paths map[run.ProcessID]string) error {
 	for index, call := range t.toolCalls {
 		if err := call.Validate(); err != nil {
 			return fmt.Errorf("%w: tool_calls[%d]: %w", ErrInvalidTrajectory, index, err)
@@ -318,7 +318,7 @@ func (t Trajectory) validateToolCalls(paths map[agent.ProcessID]string) error {
 	return nil
 }
 
-func (t Trajectory) matchesRootOutcome(fact agent.ProcessFinished) bool {
+func (t Trajectory) matchesRootOutcome(fact run.ProcessFinished) bool {
 	if fact.Status() != t.termination.Status() || fact.Cause() != t.termination.Cause() || fact.Usage() != t.rootUsage {
 		return false
 	}
@@ -336,7 +336,7 @@ func (t Trajectory) TotalTokens() (int64, error) {
 	}
 	var total int64
 	for _, call := range t.modelCalls {
-		if call.Outcome == interaction.ModelOutcomeNotExecuted {
+		if call.Outcome == agent.ModelOutcomeNotExecuted {
 			continue
 		}
 		if call.Response == nil || call.Response.Metadata == nil || call.Response.Metadata.Usage == nil {
@@ -356,7 +356,7 @@ func (t *Trajectory) canonicalize() error {
 	if err != nil {
 		return err
 	}
-	slices.SortFunc(t.events, func(left, right agent.Event) int {
+	slices.SortFunc(t.events, func(left, right run.Event) int {
 		return compareEvent(left, right, paths)
 	})
 	slices.SortFunc(t.modelCalls, func(left, right ModelCall) int {
@@ -373,7 +373,7 @@ func (t *Trajectory) canonicalize() error {
 // timing, response envelopes, and token usage. It requires complete history,
 // declared coverage, and a projection selecting the semantic root output. The
 // projection's object order and string escapes are normalized; numbers are not.
-func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.RawMessage]) (string, error) {
+func (t Trajectory) BehaviorDigest(project eval.Projection[run.Payload, json.RawMessage]) (string, error) {
 	if err := t.CheckCoverage(); err != nil {
 		return "", err
 	}
@@ -392,7 +392,7 @@ func (t Trajectory) BehaviorDigest(project eval.Projection[agent.Payload, json.R
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMessage]) (behaviorProjection, error) {
+func (t Trajectory) behavior(project eval.Projection[run.Payload, json.RawMessage]) (behaviorProjection, error) {
 	ordered, err := orderSemanticCalls(t.rootProcessID, t.events, t.modelCalls, t.toolCalls)
 	if err != nil {
 		return behaviorProjection{}, err
@@ -433,11 +433,11 @@ func (t Trajectory) behavior(project eval.Projection[agent.Payload, json.RawMess
 // behaviorEvents numbers events per Process phase. Acknowledgments may
 // interleave with later candidate attempts; that publication order is storage
 // scheduling, not behavior.
-func (t Trajectory) behaviorEvents(paths map[agent.ProcessID]string) []behaviorEvent {
+func (t Trajectory) behaviorEvents(paths map[run.ProcessID]string) []behaviorEvent {
 	sequences := make(map[behaviorEventStream]uint64)
 	events := make([]behaviorEvent, 0, len(t.events))
 	for _, event := range t.events {
-		if event.Name() == agent.EventDeltaDropped || event.Name() == agent.EventSignalAccepted {
+		if event.Name() == run.EventDeltaDropped || event.Name() == run.EventSignalAccepted {
 			continue
 		}
 		stream := behaviorEventStream{processID: event.Relation().ProcessID(), phase: event.Phase()}
@@ -465,7 +465,7 @@ func (t Trajectory) semanticToolCalls() ([]ToolCall, error) {
 	return ordered.tools, nil
 }
 
-func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[agent.Payload, json.RawMessage]) (eval.Report, error) {
+func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[run.Payload, json.RawMessage]) (eval.Report, error) {
 	actualDigest, err := t.BehaviorDigest(project)
 	if err != nil {
 		return eval.Report{}, err
@@ -486,7 +486,7 @@ func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projecti
 	return binaryReport(MetricConsistency, passed, feedback, parameters)
 }
 
-func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int {
+func compareEvent(left, right run.Event, paths map[run.ProcessID]string) int {
 	if result := strings.Compare(paths[left.Relation().ProcessID()], paths[right.Relation().ProcessID()]); result != 0 {
 		return result
 	}
@@ -496,7 +496,7 @@ func compareEvent(left, right agent.Event, paths map[agent.ProcessID]string) int
 	return cmp.Compare(left.ProcessSequence(), right.ProcessSequence())
 }
 
-func compareModelCall(left, right ModelCall, paths map[agent.ProcessID]string) int {
+func compareModelCall(left, right ModelCall, paths map[run.ProcessID]string) int {
 	if result := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); result != 0 {
 		return result
 	}
@@ -512,7 +512,7 @@ func compareModelCall(left, right ModelCall, paths map[agent.ProcessID]string) i
 	return strings.Compare(left.AttemptID.String(), right.AttemptID.String())
 }
 
-func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int {
+func compareToolCall(left, right ToolCall, paths map[run.ProcessID]string) int {
 	if result := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); result != 0 {
 		return result
 	}
@@ -525,17 +525,17 @@ func compareToolCall(left, right ToolCall, paths map[agent.ProcessID]string) int
 	return strings.Compare(left.AttemptID.String(), right.AttemptID.String())
 }
 
-func processPaths(root agent.ProcessID, events []agent.Event) (map[agent.ProcessID]string, error) {
+func processPaths(root run.ProcessID, events []run.Event) (map[run.ProcessID]string, error) {
 	relations, err := processRelationsOf(root, events)
 	if err != nil {
 		return nil, err
 	}
-	return relations.paths(root, func(_ agent.ProcessID, key agent.ChildKey) string { return key.String() })
+	return relations.paths(root, func(_ run.ProcessID, key run.ChildKey) string { return key.String() })
 }
 
-type processRelations map[agent.ProcessID]agent.ProcessRelation
+type processRelations map[run.ProcessID]run.ProcessRelation
 
-func processRelationsOf(root agent.ProcessID, events []agent.Event) (processRelations, error) {
+func processRelationsOf(root run.ProcessID, events []run.Event) (processRelations, error) {
 	if !root.Valid() || len(events) == 0 {
 		return nil, fmt.Errorf("%w: process relations are incomplete", ErrInvalidTrajectory)
 	}
@@ -557,9 +557,9 @@ func processRelationsOf(root agent.ProcessID, events []agent.Event) (processRela
 
 // paths resolves parents before children independently of event order, so it
 // rejects relations that leave a Process unreachable or share one path.
-func (p processRelations) paths(root agent.ProcessID, segment func(parent agent.ProcessID, key agent.ChildKey) string) (map[agent.ProcessID]string, error) {
-	paths := map[agent.ProcessID]string{root: rootProcessPath}
-	owners := map[string]agent.ProcessID{rootProcessPath: root}
+func (p processRelations) paths(root run.ProcessID, segment func(parent run.ProcessID, key run.ChildKey) string) (map[run.ProcessID]string, error) {
+	paths := map[run.ProcessID]string{root: rootProcessPath}
+	owners := map[string]run.ProcessID{rootProcessPath: root}
 	for len(paths) < len(p) {
 		progress := false
 		for process, relation := range p {
@@ -610,11 +610,11 @@ func cloneElapsed(value *time.Duration) *time.Duration {
 }
 
 type activationProcess struct {
-	process     agent.ProcessID
-	incarnation agent.TreeIncarnationID
+	process     run.ProcessID
+	incarnation run.TreeIncarnationID
 }
 
-func eventIncarnation(event agent.Event) agent.TreeIncarnationID {
+func eventIncarnation(event run.Event) run.TreeIncarnationID {
 	value, _ := event.TreeIncarnationID()
 	return value
 }
@@ -627,10 +627,10 @@ func (t Trajectory) HistoryComplete() bool {
 		return false
 	}
 	for _, event := range t.events {
-		if event.Name() == agent.EventProcessRestored || event.Name() == agent.EventRuntimeStopped {
+		if event.Name() == run.EventProcessRestored || event.Name() == run.EventRuntimeStopped {
 			return false
 		}
-		if event.ProcessSequence() == 1 && event.Name() != agent.EventProcessStarted {
+		if event.ProcessSequence() == 1 && event.Name() != run.EventProcessStarted {
 			return false
 		}
 	}
@@ -639,14 +639,14 @@ func (t Trajectory) HistoryComplete() bool {
 
 // TreeUsage sums final cumulative usage once per logical Process. RootUsage
 // remains available independently. Incomplete historical evidence is an error.
-func (t Trajectory) TreeUsage() (agent.Usage, error) {
+func (t Trajectory) TreeUsage() (run.Usage, error) {
 	if err := t.Validate(); err != nil {
-		return agent.Usage{}, err
+		return run.Usage{}, err
 	}
 	if !t.HistoryComplete() {
-		return agent.Usage{}, fmt.Errorf("%w: tree history is incomplete", ErrIncompleteRecording)
+		return run.Usage{}, fmt.Errorf("%w: tree history is incomplete", ErrIncompleteRecording)
 	}
-	var total agent.Usage
+	var total run.Usage
 	for _, event := range t.events {
 		fact, ok := event.ProcessFinished()
 		if !ok {
@@ -661,7 +661,7 @@ func (t Trajectory) TreeUsage() (agent.Usage, error) {
 			{&total.AcceptedSignals, usage.AcceptedSignals}, {&total.DroppedDeltas, usage.DroppedDeltas},
 		} {
 			if pair.value > math.MaxUint64-*pair.sum {
-				return agent.Usage{}, fmt.Errorf("%w: tree usage overflows uint64", ErrInvalidTrajectory)
+				return run.Usage{}, fmt.Errorf("%w: tree usage overflows uint64", ErrInvalidTrajectory)
 			}
 			*pair.sum += pair.value
 		}
@@ -739,7 +739,7 @@ type classifiedAttempt struct {
 func (t Trajectory) semanticCalls() []semanticCall {
 	calls := make([]semanticCall, 0, len(t.modelCalls)+len(t.toolCalls))
 	for _, call := range t.modelCalls {
-		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome == interaction.ModelOutcomeUnobserved})
+		calls = append(calls, semanticCall{effectRoleModel, call.attempt(), call.StepSequence, call.Outcome == agent.ModelOutcomeUnobserved})
 	}
 	for _, call := range t.toolCalls {
 		calls = append(calls, semanticCall{effectRoleTool, call.attempt(), call.StepSequence, call.Outcome() == ToolOutcomeUnobserved})
@@ -780,7 +780,7 @@ func (t Trajectory) validateObservedAttempts() error {
 
 func (t Trajectory) dispatcherSteps() (map[attemptIdentity]uint64, error) {
 	steps := make(map[attemptIdentity]uint64)
-	owners := make(map[agent.EffectAttemptID]attemptIdentity)
+	owners := make(map[run.EffectAttemptID]attemptIdentity)
 	for _, event := range t.events {
 		attempt, ok := dispatcherAttempt(event)
 		if !ok {

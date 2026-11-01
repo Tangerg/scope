@@ -1,0 +1,126 @@
+package workflow
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+// LoopPredicate is a bounded, deterministic, side-effect-free completion test
+// evaluated after each successful body child Process. It must honor ctx
+// cancellation; context is not a source of domain input.
+type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
+
+// LoopResult is the exact semantic output of a Loop Stage. Satisfied is false
+// when MaxIterations was exhausted; that outcome is still a valid completion.
+type LoopResult[T any] struct {
+	// Value is the output of the last completed body iteration.
+	Value      T      `json:"value"`
+	Iterations uint64 `json:"iterations"`
+	Satisfied  bool   `json:"satisfied"`
+}
+
+func (l LoopResult[T]) Valid() bool { return l.Iterations > 0 }
+
+type LoopConfig[T any] struct {
+	// ID is unique within the Workflow and remains stable across restoration.
+	ID string
+
+	// Body is the exact T-to-T child Program used for every iteration.
+	Body run.Program[run.Payload, run.Payload]
+
+	// Budget is permanently allocated from the parent for each iteration.
+	Budget run.Budget
+
+	Capabilities run.CapabilitySet
+
+	// MaxIterations bounds body child Processes. Its zero value is unlimited;
+	// a finite zero is rejected because a Loop runs its body at least once.
+	MaxIterations run.Quota
+
+	Predicate LoopPredicate[T]
+}
+
+type loopStage struct {
+	binding       childBinding
+	maxIterations run.Quota
+	predicate     func(context.Context, json.RawMessage) (bool, error)
+	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
+}
+
+// Loop constructs one at-least-once managed iteration Stage. Body must accept
+// and produce exactly T; the Stage itself produces LoopResult[T].
+func Loop[T any](config LoopConfig[T]) (Stage, error) {
+	binding, valid := newChildBinding(config.Body, config.Budget, config.Capabilities)
+	if !run.ValidQualifiedName(config.ID) || !valid || !config.MaxIterations.Allows(1) || config.Predicate == nil {
+		return Stage{}, ErrInvalidStage
+	}
+	valueSchema, err := jsonschema.For[T]()
+	if err != nil {
+		return Stage{}, fmt.Errorf("%w: Loop %q value schema: %w", ErrInvalidStage, config.ID, err)
+	}
+	resultSchema, err := jsonschema.For[LoopResult[T]]()
+	if err != nil {
+		return Stage{}, fmt.Errorf("%w: Loop %q result schema: %w", ErrInvalidStage, config.ID, err)
+	}
+	descriptor := config.Body.Descriptor()
+	if !valueSchema.Equal(descriptor.InputSchema()) ||
+		!valueSchema.Equal(descriptor.OutputSchema()) {
+		return Stage{}, fmt.Errorf("%w: Loop %q body must have an exact T-to-T contract", ErrInvalidStage, config.ID)
+	}
+	return Stage{
+		id: config.ID, kind: StageKindLoop,
+		inputSchema: valueSchema, outputSchema: resultSchema,
+		loop: loopStage{
+			binding: binding, maxIterations: config.MaxIterations,
+			predicate: loopPredicate(config.ID, config.Predicate),
+			result:    loopResult[T](resultSchema),
+		},
+	}, nil
+}
+
+func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(context.Context, json.RawMessage) (bool, error) {
+	return func(ctx context.Context, raw json.RawMessage) (bool, error) {
+		output, err := run.ParsePayload(raw)
+		if err != nil {
+			return false, err
+		}
+		value, err := output.Decode[T]()
+		if err != nil {
+			return false, err
+		}
+		satisfied, err := predicate(ctx, value)
+		if err != nil {
+			return false, fmt.Errorf("Loop %q predicate: %w", stageID, err)
+		}
+		return satisfied, nil
+	}
+}
+
+func loopResult[T any](resultSchema jsonschema.Schema) func(json.RawMessage, uint64, bool) (json.RawMessage, error) {
+	return func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
+		output, err := run.ParsePayload(raw)
+		if err != nil {
+			return nil, err
+		}
+		value, err := output.Decode[T]()
+		if err != nil {
+			return nil, err
+		}
+		result := LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied}
+		if !result.Valid() {
+			return nil, ErrInvalidExecutionState
+		}
+		erased, err := run.EncodePayload(result)
+		if err != nil {
+			return nil, err
+		}
+		if err := resultSchema.Validate(erased.JSON()); err != nil {
+			return nil, err
+		}
+		return erased.JSON(), nil
+	}
+}

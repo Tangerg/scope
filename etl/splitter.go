@@ -10,25 +10,11 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/metadata"
 )
 
 var (
 	ErrInvalidTextEncoding      = errors.New("etl: invalid text encoding")
 	ErrUnsupportedDocumentMedia = errors.New("etl: text splitting does not support document media")
-)
-
-// Chunk-lineage metadata keys stamped by [Splitter] on every emitted chunk.
-const (
-	// MetadataKeyParentID holds the source document's ID. It is omitted when
-	// the source document has no ID.
-	MetadataKeyParentID = "parent_document_id"
-
-	// MetadataKeyChunkIndex holds the zero-based position among emitted chunks.
-	MetadataKeyChunkIndex = "chunk_index"
-
-	// MetadataKeyChunkTotal holds the number of chunks emitted for the source.
-	MetadataKeyChunkTotal = "chunk_total"
 )
 
 type SplitterConfig struct {
@@ -143,22 +129,7 @@ func (s *Splitter) newChunk(ctx context.Context, source *document.Document, text
 		return nil, err
 	}
 	chunk.Metadata = source.Metadata.Clone()
-	if chunk.Metadata == nil {
-		chunk.Metadata = metadata.Map{}
-	}
-	// Inherited lineage describes an earlier split, not this source.
-	delete(chunk.Metadata, MetadataKeyParentID)
-	if err := chunk.Metadata.Set(MetadataKeyChunkIndex, index); err != nil {
-		return nil, err
-	}
-	if err := chunk.Metadata.Set(MetadataKeyChunkTotal, total); err != nil {
-		return nil, err
-	}
-	if source.ID != "" {
-		if err := chunk.Metadata.Set(MetadataKeyParentID, source.ID); err != nil {
-			return nil, err
-		}
-	}
+	chunk.Provenance = source.Provenance.Split(source.ID, index, total)
 	if err := assignID(ctx, chunk, s.idGenerator); err != nil {
 		return nil, err
 	}

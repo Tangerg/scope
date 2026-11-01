@@ -1,60 +1,35 @@
-// Package chroma adapts a host-owned Chroma Collection to Core vector-store
-// capabilities. The host creates or resolves the native collection, configures
-// its index, authentication and retry policy, and closes its SDK handles.
-// Scope supplies embeddings explicitly and creates no SDK embedding function.
+// Package chroma adapts a Host-owned Chroma collection to vectorstore.Upserter,
+// vectorstore.Querier and vectorstore.IDDeleter. It does not encode text, open
+// collections, create schemas, install metadata or close the borrowed SDK handle.
 //
-// StoreConfig contains Collection, EmbeddingModel and DocumentBatcher. The
-// native #embedding schema must contain an enabled vector index with an
-// explicit cosine, l2 or ip space. Construction validates only that schema.
-// Collection metadata and a second metric configuration
-// never select scoring. Chroma 1.5.5 exercises this contract in native tests.
-// A native SDK collection satisfies Collection directly:
+// The Host exclusively provisions an encoder pairing in collection metadata
+// under SpaceMetadataKey and establishes the native dimension before handing
+// the adapter a freshly resolved collection. Chroma reports dimension zero
+// until the first vector is inserted. NewStore rejects an unbound width, a
+// missing or mismatching space marker, or an unsupported native metric.
+// Collection.Metadata, Dimension and Schema describe the SDK handle; they
+// are not a live schema lock. No administrative changes are permitted behind
+// the bound handle. Reopen after administrative changes. Equal dimensions alone
+// do not make embedding spaces compatible.
 //
-//	collection, err := client.GetCollection(ctx, "documents")
-//	if err != nil { return err }
-//	defer collection.Close()
-//	store, err := chroma.NewStore(ctx, chroma.StoreConfig{
-//		Collection: collection, EmbeddingModel: model, DocumentBatcher: batcher,
-//	})
+// A batch is fully validated and narrowed to finite float32 coordinates before
+// its one native Upsert. An acknowledgment does not guarantee search visibility;
+// a failed attempted RPC reports its IDs as unconfirmed without retrying. A
+// document retains its original ID, text and exact metadata JSON in a single
+// scope_metadata string. Native media storage is unsupported.
 //
-// Each native record contains its original ID, text and float32 embedding.
-// Native metadata contains exactly one string, scope_metadata, holding the
-// complete Core metadata.Map JSON. Core's codec owns nil versus {}, explicit
-// null, nested JSON and exact numeric values. Core filter.Match alone owns
-// predicate membership and type errors. Unknown native metadata fields and
-// malformed records fail the current contract. Media fails before indexing I/O.
+// Query is native semantic ANN only. It never enumerates the source and never
+// evaluates an opaque metadata predicate after truncating to top-K. A predicate
+// returns vectorstore.ErrUnsupportedFilter before either Get or Query. Returned
+// records, dimensions and native scores are fully validated before MinScore is
+// applied. Native distances rank rows even when normalized Core scores tie.
 //
-// Unfiltered Search calls native Query directly. Filtered Search enumerates the
-// observed collection with paginated Get operations and lets Core select eligible
-// IDs before native ranking. An ANN query cannot enumerate a predicate. Query
-// requests up to TopK candidates and remains approximate. All returned columns,
-// identities, records and scores are validated; filtered membership is rechecked.
-// Pagination and query calls do not form a collection snapshot: newly inserted
-// records are outside a filtered observed set, and replacements or removals can
-// change returned candidates.
-//
-// Native distances determine ordering, with document ID byte order for ties
-// among returned candidates. Core converts cosine, squared L2 or
-// 1-inner-product distance to Score; MinScore applies after the complete native
-// response has been validated. Raw distances preserve ordering when Score
-// saturates. Scanning retains selected IDs in memory and increases search cost.
-//
-// Store provides explicit DeleteIDs and does not implement FilterDeleter.
-// Chroma's filtered delete first reads IDs and then appends unconditional
-// deletion records to its log; it cannot protect concurrent replacement with
-// a native conditional write. A private lock or extra version field cannot
-// repair that missing guarantee. Select a backend with an atomic predicate or
-// conditional deletion when that capability is required.
-//
-// Index prepares every model output, codec value and vector before its first
-// upsert, so validation failure publishes no earlier batch. Successful earlier
-// upserts can precede a later transport failure or cancellation; there is no
-// transaction across batches. Native SDK errors retain the caller context's
-// cancellation cause at the Scope boundary.
-//
-// Breaking replacement: Client, CollectionName, InitializeSchema, DistanceMetric,
-// Store.Close and Store.DeleteWhere are removed. Inject the native Collection
-// and retain lifecycle ownership in the host. Rebuild old flat-metadata records
-// from source documents in an exclusive collection. No old-format reader or
-// compatibility shim remains.
+// Scan explicitly authorizes Get pagination with finite record, observed-byte
+// and time budgets. It evaluates Core metadata semantics over every observed
+// source record and returns no partial result if a limit, validation or transport
+// error occurs. For a stable collection this enumerates all records; offset
+// pagination is not transactionally consistent with concurrent writes. The Host
+// must quiesce writers for repeatable membership. Chroma cannot atomically
+// delete by an arbitrary Core predicate; Store intentionally does not implement
+// vectorstore.FilterDeleter.
 package chroma

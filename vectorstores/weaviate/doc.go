@@ -1,70 +1,35 @@
-// Package weaviate implements Core vector-store capabilities using the native
-// weaviate-go-client/v5 client. The host owns credentials, transport, client
-// lifetime, and collection provisioning. NewStore binds an existing collection;
-// Scope neither creates its schema nor configures a competing distance policy.
+// Package weaviate stores vectors and queries a host-provisioned Weaviate
+// collection using the official v5 client. The host owns its credentials,
+// transport and class lifecycle. NewStore and each operation inspect the
+// current class: its description must equal SpaceID.StorageKey(), vectorizer
+// must be none, and its one unnamed dense index must have a supported native
+// distance. The class cannot use multi-tenancy. Provision content (searchable
+// word text), metadata (field text) and metadataTerms (filterable field text[]).
 //
-// Queries require the server's GraphQL API, which Weaviate has deprecated and
-// scheduled for removal from Weaviate Cloud on 2027-05-01. This adapter cannot
-// query a server with GraphQL disabled. The upstream migration requirements are
-// documented at https://docs.weaviate.io/weaviate/client-libraries/go.
+// Upsert accepts prepared vectors, validates all document UUIDs and finite
+// FLOAT32 coordinates before submitting a batch, and never lists existing
+// objects to infer a dimension. Weaviate enforces its stored native width.
+// Partial application is visible through vectorstore.WriteError, including
+// confirmed, rejected and unconfirmed identities. A failed request does not
+// imply that no objects were stored. A new index may be asynchronously visible.
 //
-// The collection requires one unnamed dense vector, vectorizer none, no tenants,
-// and exactly two text properties: content with searchable word tokenization,
-// and metadata with filterable field tokenization. Its native index owns cosine,
-// dot, l2-squared, hamming, or manhattan distance. These requirements are checked
-// against the actual schema without enumerating stored objects.
+// Canonical Core metadata remains one lossless JSON string. The same object
+// write carries an exact, derived keyword list for native scalar top-level
+// string equality. Query pushes this predicate into a single native request.
+// Unsupported filters fail without source enumeration. GraphQL nearVector
+// preserves native distance ordering; hybrid uses one native relative-score
+// fusion with both prepared coordinates and explicit lexical text. HybridAlpha
+// preserves the native default when nil. Bad hit shape, invalid score, current
+// metadata mismatch or a vector of the wrong width invalidate the whole reply.
 //
-// Native UUIDs are the sole document identities. Index and DeleteIDs require
-// lowercase hyphenated UUIDs and reject aliases before embedding or mutation.
-// Metadata is one complete Core JSON string, preserving exact numbers, arbitrary
-// keys, and the distinction between null and an empty object. Extra properties,
-// invalid metadata, missing vectors, and inconsistent vector widths fail reads.
-// Media documents are rejected before indexing I/O.
+// DeleteIDs addresses explicit canonical UUIDs. There is no predicate deletion
+// or client-side Scan capability. The v5 data client does not expose a bounded
+// streaming source reader and the adapter does not synthesize a full pass.
+// Coordinate schema changes with writers: the schema read and subsequent
+// object operation do not form a transaction.
 //
-// Weaviate does not expose a schema-level vector dimension. Index derives a
-// read-only width from the complete current source and prepares every model batch
-// and finite FLOAT32 vector before publishing one native batch. Unfiltered Search
-// lets the native index validate query dimensions and checks returned vectors
-// against the query width. An empty collection provides no stored width, including
-// one whose previous objects were deleted; the native index may reject a prepared
-// batch against its retained dimension. Native batch errors may leave accepted
-// objects stored. Every submitted UUID must have exactly one SUCCESS
-// acknowledgment; missing or partial acknowledgments fail.
-//
-// # Search and filtering
-//
-// Unfiltered Search performs native ranking without enumerating objects. Filtered
-// Search enumerates the complete source with vectors through REST after cursors.
-// Core filter.Match alone selects membership. Enumeration follows short pages
-// until an empty page and validates the records needed for that predicate. Only
-// filtered search incurs a full scan and memory proportional to selected UUIDs.
-//
-// Semantic search uses native nearVector. Selected UUIDs are queried in bounded
-// groups; raw native distance determines global TopK, independently of Core scores.
-// Hybrid search uses one native relative-score fusion over the entire selection;
-// independently normalized candidate groups cannot be merged into that fusion.
-// HybridAlpha selects the native query weight; nil preserves the server default.
-// The selection remains subject to native request limits. Native hybrid scores
-// must already be finite values in [0,1]. All returned records are validated
-// before applying MinScore, and any invalid hit fails the whole response.
-//
-// # Deletion and concurrent writes
-//
-// DeleteIDs is an explicit identity deletion and ignores only native not-found.
-// FilterDeleter is unsupported because native batch deletion does not atomically
-// guard metadata at mutation time.
-//
-// # Breaking contract
-//
-// DistanceMetric, InitializeSchema, and schema creation have been removed. Hosts
-// must provision the current collection before construction. Rebuild collections
-// with projected metadata properties or incompatible tokenization, and reindex
-// records that do not have the current complete source shape. No legacy schema or
-// numeric hybrid-score fallback is retained.
-//
-// Native integration tests require SCOPE_WEAVIATE_URL and create disposable
-// collections on that isolated server. Protocol references:
-// https://docs.weaviate.io/weaviate/manage-objects/read-all-objects
-// https://docs.weaviate.io/weaviate/manage-objects/delete
-// https://docs.weaviate.io/weaviate/config-refs/collections
+// This adapter requires the server's GraphQL API for queries:
+// https://docs.weaviate.io/weaviate/client-libraries/go.
+// Integration tests require SCOPE_WEAVIATE_URL on an isolated host and create
+// and remove disposable collections there.
 package weaviate

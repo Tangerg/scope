@@ -9,6 +9,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestProtocolEncodingRejectsInvalidUTF8(t *testing.T) {
@@ -18,7 +19,7 @@ func TestProtocolEncodingRejectsInvalidUTF8(t *testing.T) {
 		"reasoning":       chat.NewReasoningPart(invalid, nil),
 		"refusal":         chat.NewRefusalPart(invalid),
 		"message":         chat.NewUserMessage(chat.NewTextPart(invalid)),
-		"tool output":     chat.NewTextToolOutput(invalid),
+		"tool output":     toolcontract.NewTextOutput(invalid),
 		"tool arguments":  chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "tool", Arguments: invalid}),
 		"media reference": &media.Media{MIME: "image/png", Source: media.Source{Kind: media.SourceReference, Ref: invalid}},
 		"metadata key":    metadata.Map{invalid: json.RawMessage(`true`)},

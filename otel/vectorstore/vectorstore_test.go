@@ -18,16 +18,16 @@ import (
 	vectorotel "github.com/Tangerg/scope/otel/vectorstore"
 )
 
-type indexerFunc func(context.Context, *vectorstore.IndexRequest) error
+type upserterFunc func(context.Context, *vectorstore.Batch) error
 
-func (i indexerFunc) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	return i(ctx, request)
+func (u upserterFunc) Upsert(ctx context.Context, request *vectorstore.Batch) error {
+	return u(ctx, request)
 }
 
-type searcherFunc func(context.Context, *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error)
+type querierFunc func(context.Context, *vectorstore.Query) (*vectorstore.SearchResponse, error)
 
-func (s searcherFunc) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
-	return s(ctx, request)
+func (q querierFunc) Query(ctx context.Context, request *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return q(ctx, request)
 }
 
 type telemetryRig struct {
@@ -70,15 +70,15 @@ func TestNewMiddlewareRequiresSystem(t *testing.T) {
 
 func TestMiddlewareDecoratorsPreserveOptionalCapabilities(t *testing.T) {
 	middleware, _ := newVectorStoreMiddleware(t)
-	var indexer indexerFunc
-	var searcher searcherFunc
+	var upserter upserterFunc
+	var querier querierFunc
 	var idDeleter vectorstore.IDDeleter
 	var filterDeleter vectorstore.FilterDeleter
-	if wrapped := middleware.Index(indexer); wrapped != nil {
-		t.Fatalf("Index(typed nil) = %#v", wrapped)
+	if wrapped := middleware.Upsert(upserter); wrapped != nil {
+		t.Fatalf("Upsert(typed nil) = %#v", wrapped)
 	}
-	if wrapped := middleware.Search(searcher); wrapped != nil {
-		t.Fatalf("Search(typed nil) = %#v", wrapped)
+	if wrapped := middleware.Query(querier); wrapped != nil {
+		t.Fatalf("Query(typed nil) = %#v", wrapped)
 	}
 	if wrapped := middleware.DeleteIDs(idDeleter); wrapped != nil {
 		t.Fatalf("DeleteIDs(nil) = %#v", wrapped)
@@ -87,7 +87,7 @@ func TestMiddlewareDecoratorsPreserveOptionalCapabilities(t *testing.T) {
 		t.Fatalf("DeleteWhere(nil) = %#v", wrapped)
 	}
 	var zero vectorotel.Middleware
-	if err := zero.Index(indexerFunc(func(context.Context, *vectorstore.IndexRequest) error { return nil })).Index(t.Context(), nil); !errors.Is(err, vectorotel.ErrInvalidConfig) {
+	if err := zero.Upsert(upserterFunc(func(context.Context, *vectorstore.Batch) error { return nil })).Upsert(t.Context(), nil); !errors.Is(err, vectorotel.ErrInvalidConfig) {
 		t.Fatalf("zero Middleware Index error = %v, want ErrInvalidConfig", err)
 	}
 }
@@ -96,50 +96,50 @@ func TestIndexPreservesNarrowCapabilityAndError(t *testing.T) {
 	middleware, rig := newVectorStoreMiddleware(t)
 	want := errors.New("write failed")
 	var sawSpan bool
-	wrapped := middleware.Index(indexerFunc(func(ctx context.Context, request *vectorstore.IndexRequest) error {
-		sawSpan = trace.SpanFromContext(ctx).SpanContext().IsValid() && len(request.Documents) == 2
+	wrapped := middleware.Upsert(upserterFunc(func(ctx context.Context, request *vectorstore.Batch) error {
+		sawSpan = trace.SpanFromContext(ctx).SpanContext().IsValid() && len(request.Records) == 2
 		return want
 	}))
-	if _, leaked := wrapped.(vectorstore.Searcher); leaked {
-		t.Fatal("Indexer decorator leaked Searcher capability")
+	if _, leaked := wrapped.(vectorstore.Querier); leaked {
+		t.Fatal("Upserter decorator leaked Querier capability")
 	}
-	err := wrapped.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}, {ID: "two", Text: "two"}}})
+	err := wrapped.Upsert(t.Context(), &vectorstore.Batch{Space: "demo", Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "one"}, Values: []float64{1}}, {Document: &document.Document{ID: "two", Text: "two"}, Values: []float64{1}}}})
 	if !errors.Is(err, want) || !sawSpan {
-		t.Fatalf("Index() error/span = %v/%t", err, sawSpan)
+		t.Fatalf("Upsert() error/span = %v/%t", err, sawSpan)
 	}
 
 	if len(rig.spans.Ended()) == 0 {
 		t.Fatal("expected a recorded span")
 	}
 	span := rig.spans.Ended()[0]
-	if span.Name() != "index knowledge" || span.SpanKind() != trace.SpanKindClient || span.Status().Code != codes.Error {
+	if span.Name() != "upsert knowledge" || span.SpanKind() != trace.SpanKindClient || span.Status().Code != codes.Error {
 		t.Fatalf("span name/kind/status = %q/%v/%v", span.Name(), span.SpanKind(), span.Status())
 	}
 	attrs := spanAttributes(t, span)
 	assertStringAttr(t, attrs, "db.system.name", "qdrant")
-	assertStringAttr(t, attrs, "db.operation.name", "index")
+	assertStringAttr(t, attrs, "db.operation.name", "upsert")
 	assertStringAttr(t, attrs, "db.collection.name", "knowledge")
 	assertStringAttr(t, attrs, "db.namespace", "tenant")
 	if got := attrs["db.operation.batch.size"].AsInt64(); got != 2 {
 		t.Fatalf("db.operation.batch.size = %d, want 2", got)
 	}
 	metrics := collectMetrics(t, rig.reader)
-	assertMetricAttribute(t, metrics, "db.client.operation.duration", "db.operation.name", "index")
+	assertMetricAttribute(t, metrics, "db.client.operation.duration", "db.operation.name", "upsert")
 	assertMetricAttribute(t, metrics, "db.client.operation.duration", "error.type", "*errors.errorString")
 }
 
 func TestSearchPreservesMatchesAndRecordsCount(t *testing.T) {
 	middleware, rig := newVectorStoreMiddleware(t)
 	want := &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{{Document: &document.Document{ID: "one", Text: "one"}, Score: 0.9}}}
-	wrapped := middleware.Search(searcherFunc(func(context.Context, *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
+	wrapped := middleware.Query(querierFunc(func(context.Context, *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 		return want, nil
 	}))
-	if _, leaked := wrapped.(vectorstore.Indexer); leaked {
-		t.Fatal("Searcher decorator leaked Indexer capability")
+	if _, leaked := wrapped.(vectorstore.Upserter); leaked {
+		t.Fatal("Querier decorator leaked Upserter capability")
 	}
-	got, err := wrapped.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	got, err := wrapped.Query(t.Context(), &vectorstore.Query{Space: "demo", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || got != want {
-		t.Fatalf("Search() = %#v, %v", got, err)
+		t.Fatalf("Query() = %#v, %v", got, err)
 	}
 	if len(rig.spans.Ended()) == 0 {
 		t.Fatal("expected a recorded span")

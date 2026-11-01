@@ -16,7 +16,7 @@ import (
 
 func TestStoredRecordRoundTrip(t *testing.T) {
 	for _, facts := range []metadata.Map{nil, {}, {"integer": json.RawMessage(`9007199254740993`), "huge": json.RawMessage(`1e400`), "tiny": json.RawMessage(`1e-400`), "nested": json.RawMessage(`{"items":[1e400]}`), "escaped": json.RawMessage(`"\u0041lice"`)}} {
-		body, err := encodeStoredDocument("text", facts, []float64{1, 0})
+		body, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: facts}, []float64{1, 0})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,33 +74,27 @@ func TestStoredRecordRejectsInvalidAndObsoleteFormats(t *testing.T) {
 			t.Fatalf("accepted invalid record %s", raw)
 		}
 	}
-	if _, err := encodeStoredDocument("text", metadata.Map{"broken": json.RawMessage(`{`)}, []float64{1}); err == nil {
+	if _, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: metadata.Map{"broken": json.RawMessage(`{`)}}, []float64{1}); err == nil {
 		t.Fatal("accepted broken metadata")
 	}
-	if _, err := encodeStoredDocument("text", nil, []float64{math.Inf(1)}); err == nil {
+	if _, err := encodeStoredDocument(&document.Document{Text: "text"}, []float64{math.Inf(1)}); err == nil {
 		t.Fatal("accepted non-finite vector")
 	}
 }
 
 func TestNativeKeyLimits(t *testing.T) {
-	s := &Store{maximumKeyBytes: maximumCollectionKeyBytes}
+
 	for _, id := range []string{"ID", "id", "id\x00", "id ", "中文", strings.Repeat("x", 246)} {
-		if err := s.validateKey(id); err != nil {
+		if err := validateKey(id); err != nil {
 			t.Fatalf("valid key rejected: %v", err)
 		}
 	}
 	for _, id := range []string{"", strings.Repeat("x", 247)} {
-		if err := s.validateKey(id); !errors.Is(err, vectorstore.ErrInvalidDocument) {
+		if err := validateKey(id); !errors.Is(err, vectorstore.ErrInvalidDocument) {
 			t.Fatalf("invalid key accepted: %v", err)
 		}
 	}
-	s.maximumKeyBytes = maximumDefaultKeyBytes
-	if err := s.validateKey(strings.Repeat("x", 250)); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.validateKey(strings.Repeat("x", 251)); err == nil {
-		t.Fatal("oversized default key accepted")
-	}
+
 }
 
 func TestNativeDistanceScores(t *testing.T) {
@@ -150,14 +144,14 @@ func TestResultOrdering(t *testing.T) {
 }
 
 func TestInvalidStoreCallsDoNotReachDependencies(t *testing.T) {
-	s := &Store{maximumKeyBytes: maximumCollectionKeyBytes}
-	if err := s.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: strings.Repeat("x", 251), Text: "text"}}}); err == nil {
+	s := &Store{space: "s", dimensions: 2}
+	if err := s.Upsert(t.Context(), &vectorstore.Batch{Space: "s", Records: []vectorstore.Record{{Document: &document.Document{ID: strings.Repeat("x", 251), Text: "text"}, Values: []float64{1, 0}}}}); err == nil {
 		t.Fatal("oversized ID accepted")
 	}
 	if err := s.DeleteIDs(t.Context(), []string{"valid", strings.Repeat("x", 251)}); err == nil {
 		t.Fatal("invalid key batch mutated")
 	}
-	if response, err := s.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}); response != nil || !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
+	if response, err := s.Scan(t.Context(), &vectorstore.Query{Space: "s", Values: []float64{1, 0}, LexicalText: "text", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, vectorstore.ScanBudget{}); response != nil || !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
 		t.Fatalf("hybrid accepted: %v", err)
 	}
 }

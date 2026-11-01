@@ -36,7 +36,8 @@ func TestListModelsUsesTheBoundProvider(t *testing.T) {
 	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL + "/proxy/prefix", HTTPClient: server.Client(),
 		Headers: http.Header{"X-Provider-Binding": {"same-binding"}},
-	})
+	}, testChatDialect(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestListModelsRejectsIncompleteOrMalformedResponses(t *testing.T) {
 				_, _ = io.WriteString(writer, body)
 			}))
 			defer server.Close()
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testChatDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,7 +98,7 @@ func TestListModelsEnforcesBudgets(t *testing.T) {
 		_, _ = io.WriteString(writer, body)
 	}))
 	defer server.Close()
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestListModelsPreservesHTTPFailuresWithoutRetry(t *testing.T) {
 				_, _ = io.WriteString(writer, `{"error":{"type":"upstream_error","message":"unavailable"}}`)
 			}))
 			defer server.Close()
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testChatDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -161,7 +162,7 @@ func TestListModelsPreservesHTTPFailuresWithoutRetry(t *testing.T) {
 
 func TestListModelsCancellationReachesHTTP(t *testing.T) {
 	server, lifecycle := modeltest.NewBlockingServer(t, nil)
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestListModelsAcceptsEmptyCompleteList(t *testing.T) {
 		_, _ = io.Copy(writer, strings.NewReader(`{"data":[]}`))
 	}))
 	defer server.Close()
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestListModelsOwnsResponseCloseAndPreservesFailure(t *testing.T) {
 	closeErr := errors.New("response close failed")
 	body := &modelListClosingBody{Reader: strings.NewReader(`{"data":[]}`), closeErr: closeErr}
 	client := &http.Client{Transport: modelListTransport{body: body}}
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", HTTPClient: client})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", HTTPClient: client}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}

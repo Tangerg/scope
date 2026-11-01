@@ -12,6 +12,6 @@ import (
 // implements nothing, so the flag also pins which of the two this is.
 func TestStoreConformance(t *testing.T) {
 	storetest.Run(t, new(Store), storetest.Capabilities{
-		Indexer: true, Searcher: true, IDDeleter: true, FilterDeleter: true, Closer: true,
+		Upserter: true, Querier: true, IDDeleter: true, FilterDeleter: true, Closer: true,
 	})
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func BenchmarkRequestJSONHistory(b *testing.B) {
@@ -15,7 +16,7 @@ func BenchmarkRequestJSONHistory(b *testing.B) {
 			messages := make([]chat.Message, 0, count*3)
 			for i := range count {
 				call := chat.ToolCall{ID: fmt.Sprint(i), Name: "lookup", Arguments: `{"key":"value"}`}
-				messages = append(messages, chat.NewUserMessage(chat.NewTextPart(strings.Repeat("question ", 128))), chat.NewAssistantMessage(chat.NewToolCallPart(call)), chat.NewToolMessage(chat.ToolResult{ID: call.ID, Name: call.Name, Output: chat.NewTextToolOutput(strings.Repeat("evidence ", 128))}))
+				messages = append(messages, chat.NewUserMessage(chat.NewTextPart(strings.Repeat("question ", 128))), chat.NewAssistantMessage(chat.NewToolCallPart(call)), chat.NewToolMessage(chat.ToolResult{ID: call.ID, Name: call.Name, Output: toolcontract.NewTextOutput(strings.Repeat("evidence ", 128))}))
 			}
 			request, err := chat.NewRequest(messages...)
 			if err != nil {

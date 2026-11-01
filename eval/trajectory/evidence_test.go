@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-func recordedOutput(t *testing.T, recorded trajectory.Trajectory) agent.Payload {
+func recordedOutput(t *testing.T, recorded trajectory.Trajectory) run.Payload {
 	t.Helper()
 	output, completed := recorded.Termination().Output()
 	if !completed {
@@ -23,15 +23,15 @@ func recordedOutput(t *testing.T, recorded trajectory.Trajectory) agent.Payload 
 	return output
 }
 
-// completedTermination decodes the Termination an Engine would commit for
-// output; only the Engine creates one, so tests reach it through its wire form.
-func completedTermination(t *testing.T, output agent.Payload) agent.Termination {
+// completedTermination decodes the Termination a Runtime would commit for
+// output; only the Runtime creates one, so tests reach it through its wire form.
+func completedTermination(t *testing.T, output run.Payload) run.Termination {
 	t.Helper()
 	encoded, err := jsonv2.Marshal(map[string]json.RawMessage{"output": output.JSON()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var termination agent.Termination
+	var termination run.Termination
 	if err := jsonv2.Unmarshal(encoded, &termination); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func coveredInteraction(t *testing.T) trajectory.Trajectory {
 		if !found || root.Snapshot.Status().Terminal() {
 			t.Fatal("fixture ended before waiting for its Tool child")
 		}
-		if kind, waiting := root.Snapshot.WaitKind(); waiting && kind == agent.WaitKindChildren {
+		if kind, waiting := root.Snapshot.WaitKind(); waiting && kind == run.WaitKindChildren {
 			break
 		}
 		select {
@@ -135,7 +135,7 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: missingTools, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: missingTools, Expected: trajectory.Expectation{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("missing tools proved absence: %v", checkErr)
 	}
 	config = trajectoryConfig(recorded)
@@ -162,7 +162,7 @@ func TestMissingEvidenceCannotProveZeroCost(t *testing.T) {
 func TestMissingChildTailIsNotACompleteTree(t *testing.T) {
 	config := trajectoryConfig(coveredInteraction(t))
 	for i, event := range config.Events {
-		if !event.Relation().IsRoot() && event.Name() == agent.EventProcessFinished {
+		if !event.Relation().IsRoot() && event.Name() == run.EventProcessFinished {
 			config.Events = append(config.Events[:i:i], config.Events[i+1:]...)
 			break
 		}
@@ -174,20 +174,20 @@ func TestMissingChildTailIsNotACompleteTree(t *testing.T) {
 
 func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 	base := coveredInteraction(t)
-	project := func(output agent.Payload) (json.RawMessage, error) {
-		value, err := output.Decode[interaction.Output]()
+	project := func(output run.Payload) (json.RawMessage, error) {
+		value, err := output.Decode[agent.Output]()
 		if err != nil {
 			return nil, err
 		}
 		return jsonv2.Marshal(value.ModelResponse.Text())
 	}
 	config := trajectoryConfig(base)
-	value, err := recordedOutput(t, base).Decode[interaction.Output]()
+	value, err := recordedOutput(t, base).Decode[agent.Output]()
 	if err != nil {
 		t.Fatal(err)
 	}
 	value.ModelResponse.Metadata = &chat.ResponseMetadata{ID: "another-response", CreatedAt: time.Now(), Usage: &chat.Usage{InputTokens: 800, OutputTokens: 300}}
-	output, err := agent.EncodePayload(value)
+	output, err := run.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 		t.Fatalf("accounting changed semantic digest: %s, %v", digest, err)
 	}
 	value.ModelResponse.Output.Message.Parts[0].Text = "rainy"
-	output, err = agent.EncodePayload(value)
+	output, err = run.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,13 +226,13 @@ func TestSemanticProjectionCoversRealInteractionOutput(t *testing.T) {
 func TestBehaviorDigestIncludesAcknowledgedEffectResolution(t *testing.T) {
 	base := runTrajectory(t)
 	var digests []string
-	for _, status := range []agent.SettlementStatus{agent.SettlementStatusSucceeded, agent.SettlementStatusFailed} {
+	for _, status := range []run.SettlementStatus{run.SettlementStatusSucceeded, run.SettlementStatusFailed} {
 		config := trajectoryConfig(base)
 		terminal := config.Events[len(config.Events)-1]
 		resolution := changeEvent(t, terminal, map[string]any{
-			"name":          agent.EventEffectResolved,
+			"name":          run.EventEffectResolved,
 			"step_sequence": 1, "effect_id": "effect:resolution",
-			"payload": map[string]any{"effect_target": agent.EffectTargetDispatcher, "settlement_status": status},
+			"payload": map[string]any{"effect_target": run.EffectTargetDispatcher, "settlement_status": status},
 		})
 		config.Events[len(config.Events)-1] = resolution
 		config.Events = append(config.Events, changeEvent(t, terminal, map[string]any{
@@ -253,7 +253,7 @@ func TestBehaviorDigestIncludesAcknowledgedEffectResolution(t *testing.T) {
 	}
 }
 
-func changeEvent(t *testing.T, event agent.Event, fields map[string]any) agent.Event {
+func changeEvent(t *testing.T, event run.Event, fields map[string]any) run.Event {
 	t.Helper()
 	data, err := jsonv2.Marshal(event)
 	if err != nil {
@@ -273,7 +273,7 @@ func changeEvent(t *testing.T, event agent.Event, fields map[string]any) agent.E
 	if err != nil {
 		t.Fatal(err)
 	}
-	var changed agent.Event
+	var changed run.Event
 	if checkErr := jsonv2.Unmarshal(data, &changed); checkErr != nil {
 		t.Fatal(checkErr)
 	}
@@ -287,7 +287,7 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 	for i, event := range config.Events {
 		fields := map[string]any{"tree_incarnation_id": "incarnation:00000000000000000000000000000002", "occurred_at": time.Unix(100-int64(i), 0).UTC()}
 		if i == 0 {
-			fields["name"] = agent.EventProcessRestored
+			fields["name"] = run.EventProcessRestored
 		}
 		config.Events[i] = changeEvent(t, event, fields)
 	}
@@ -311,7 +311,7 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 		t.Fatalf("fragment tokens = %v", checkErr)
 	}
 	zero := time.Duration(0)
-	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: restored, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Limits: trajectory.Limits{Elapsed: &zero}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
+	if _, checkErr := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: restored, Expected: trajectory.Expectation{Status: run.StatusCompleted, Limits: trajectory.Limits{Elapsed: &zero}}}); !errors.Is(checkErr, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("unknown elapsed satisfied zero budget: %v", checkErr)
 	}
 	encoded, err := jsonv2.Marshal(restored)
@@ -330,7 +330,7 @@ func TestActivationSegmentsAndWallClockRegressionRemainUsable(t *testing.T) {
 func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 	base := coveredInteraction(t)
 	config := trajectoryConfig(base)
-	var events []agent.Event
+	var events []run.Event
 	inserted := false
 	rootSequence := uint64(0)
 	for _, event := range config.Events {
@@ -340,10 +340,10 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 		}
 		rootSequence++
 		fields := map[string]any{"process_sequence": rootSequence}
-		if event.Name() == agent.EventProcessFinished {
+		if event.Name() == run.EventProcessFinished {
 			var payload struct {
-				Cause agent.TerminationCause `json:"termination_cause"`
-				Usage agent.Usage            `json:"usage"`
+				Cause run.TerminationCause `json:"termination_cause"`
+				Usage run.Usage            `json:"usage"`
 			}
 			if checkErr := jsonv2.Unmarshal(event.Payload(), &payload); checkErr != nil {
 				t.Fatal(checkErr)
@@ -352,7 +352,7 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 			fields["payload"] = payload
 		}
 		events = append(events, changeEvent(t, event, fields))
-		if !inserted && event.Name() == agent.EventEffectStarted {
+		if !inserted && event.Name() == run.EventEffectStarted {
 			rootSequence++
 			var attempt struct {
 				ID string `json:"attempt_id"`
@@ -360,7 +360,7 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 			if err := jsonv2.Unmarshal(event.Payload(), &attempt); err != nil {
 				t.Fatal(err)
 			}
-			dropped := changeEvent(t, event, map[string]any{"process_sequence": rootSequence, "name": agent.EventDeltaDropped, "payload": map[string]any{"dropped_delta_count": 9, "attempt_id": attempt.ID}})
+			dropped := changeEvent(t, event, map[string]any{"process_sequence": rootSequence, "name": run.EventDeltaDropped, "payload": map[string]any{"dropped_delta_count": 9, "attempt_id": attempt.ID}})
 			events = append(events, dropped)
 			inserted = true
 		}
@@ -386,9 +386,9 @@ func TestObservationLossDoesNotChangeSemanticBehavior(t *testing.T) {
 
 func TestSignalArrivalTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 	base := coveredInteraction(t)
-	var signal agent.Event
+	var signal run.Event
 	for _, event := range base.Events() {
-		if event.Name() == agent.EventSignalAccepted {
+		if event.Name() == run.EventSignalAccepted {
 			signal = event
 		}
 	}
@@ -396,25 +396,25 @@ func TestSignalArrivalTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 		t.Fatal("fixture did not accept a child completion signal")
 	}
 	var digests []string
-	for _, arrival := range []string{agent.EventStepStarted, agent.EventStepCommitted} {
+	for _, arrival := range []string{run.EventStepStarted, run.EventStepCommitted} {
 		config := trajectoryConfig(base)
-		var events []agent.Event
+		var events []run.Event
 		var rootSequence uint64
 		for _, event := range config.Events {
 			if !event.Relation().IsRoot() {
 				events = append(events, event)
 				continue
 			}
-			if event.Name() == agent.EventSignalAccepted {
+			if event.Name() == run.EventSignalAccepted {
 				continue
 			}
 			rootSequence++
 			fields := map[string]any{"process_sequence": rootSequence}
 			step, _ := event.StepSequence()
-			if step == 4 && event.Name() == agent.EventStepCommitted {
-				status := agent.StatusWaiting
-				if arrival == agent.EventStepStarted {
-					status = agent.StatusRunning
+			if step == 4 && event.Name() == run.EventStepCommitted {
+				status := run.StatusWaiting
+				if arrival == run.EventStepStarted {
+					status = run.StatusRunning
 				}
 				fields["payload"] = map[string]any{"process_status": status}
 			}
@@ -473,9 +473,9 @@ func TestTakeSealsEvidenceAgainstConcurrentLateCallbacks(t *testing.T) {
 
 func TestCommitPublicationTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 	base := coveredInteraction(t)
-	var committed agent.Event
+	var committed run.Event
 	for _, event := range base.Events() {
-		if event.Relation().IsRoot() && event.Name() == agent.EventStepCommitted {
+		if event.Relation().IsRoot() && event.Name() == run.EventStepCommitted {
 			committed = event
 			break
 		}
@@ -487,10 +487,10 @@ func TestCommitPublicationTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 	var digests []string
 	for _, before := range []bool{true, false} {
 		config := trajectoryConfig(base)
-		var events []agent.Event
+		var events []run.Event
 		var sequence uint64
 		inserted := false
-		appendRoot := func(event agent.Event) {
+		appendRoot := func(event run.Event) {
 			sequence++
 			events = append(events, changeEvent(t, event, map[string]any{"process_sequence": sequence}))
 		}
@@ -503,7 +503,7 @@ func TestCommitPublicationTimingDoesNotChangeSemanticBehavior(t *testing.T) {
 				continue
 			}
 			step, _ := event.StepSequence()
-			boundary := !inserted && event.Name() == agent.EventStepStarted && step > committedStep
+			boundary := !inserted && event.Name() == run.EventStepStarted && step > committedStep
 			if boundary && before {
 				appendRoot(committed)
 			}
@@ -538,20 +538,20 @@ func TestRestoredTailCannotProveNoHistoricalToolCalls(t *testing.T) {
 		t.Fatal("fixture has no historical Tool call")
 	}
 	config := trajectoryConfig(baseline)
-	var first, terminal agent.Event
+	var first, terminal run.Event
 	for _, event := range config.Events {
 		if !event.Relation().IsRoot() {
 			continue
 		}
-		if event.Name() == agent.EventProcessStarted {
+		if event.Name() == run.EventProcessStarted {
 			first = event
 		}
-		if event.Name() == agent.EventProcessFinished {
+		if event.Name() == run.EventProcessFinished {
 			terminal = event
 		}
 	}
-	config.Events = []agent.Event{
-		changeEvent(t, first, map[string]any{"name": agent.EventProcessRestored}),
+	config.Events = []run.Event{
+		changeEvent(t, first, map[string]any{"name": run.EventProcessRestored}),
 		changeEvent(t, terminal, map[string]any{"process_sequence": 2}),
 	}
 	config.ModelCalls, config.ToolCalls, config.Elapsed = nil, nil, nil
@@ -563,7 +563,7 @@ func TestRestoredTailCannotProveNoHistoricalToolCalls(t *testing.T) {
 	if tail.HistoryComplete() {
 		t.Fatal("restored activation claimed complete execution history")
 	}
-	if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: tail, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+	if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: tail, Expected: trajectory.Expectation{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{}}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
 		t.Fatalf("missing pre-restart Tool history proved no Tool calls: %v", err)
 	}
 }
@@ -571,7 +571,7 @@ func TestRestoredTailCannotProveNoHistoricalToolCalls(t *testing.T) {
 func TestDeclaredObservationGapRemainsPortableAndCannotProveCompleteness(t *testing.T) {
 	config := trajectoryConfig(coveredInteraction(t))
 	for index, event := range config.Events {
-		if event.Relation().IsRoot() && event.Name() == agent.EventStepStarted {
+		if event.Relation().IsRoot() && event.Name() == run.EventStepStarted {
 			config.Events = append(config.Events[:index:index], config.Events[index+1:]...)
 			break
 		}

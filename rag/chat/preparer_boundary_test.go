@@ -136,7 +136,7 @@ func TestPreparerKeepsEvidenceSeparateFromStreamingResponse(t *testing.T) {
 		t.Fatalf("streamed = %#v, complete = %#v", streamed, complete)
 	}
 	evidence := prepared.Evidence()
-	if len(evidence.Candidates) != 1 || len(evidence.Citations) != 1 {
+	if len(evidence.Candidates) != 1 || evidence.Citations.Len() != 1 {
 		t.Fatalf("evidence = %#v", evidence)
 	}
 }

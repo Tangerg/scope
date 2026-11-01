@@ -7,14 +7,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/scope/core/metadata"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestChatBuildConverseStreamInput(t *testing.T) {
@@ -36,10 +36,10 @@ func TestChatBuildConverseStreamInput(t *testing.T) {
 				corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "weather", Arguments: `{"city":"Paris"}`}),
 			),
 			corechat.NewToolMessage(corechat.ToolResult{
-				ID: "call-1", Name: "weather", Output: corechat.NewTextToolOutput("rain"), IsError: true,
+				ID: "call-1", Name: "weather", Output: toolcontract.NewTextOutput("rain"), IsError: true,
 			}),
 		},
-		Tools: []corechat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "weather", Description: "Get weather", InputSchema: json.RawMessage(`{"type":"object"}`),
 		}},
 		Options: corechat.Options{Temperature: &temperature},
@@ -225,7 +225,7 @@ func TestProtocolChunkAccumulatorPreservesReasoningKind(t *testing.T) {
 }
 
 func TestMapProtocolToolsPreservesPortableChoice(t *testing.T) {
-	definitions := []corechat.ToolDefinition{{Name: "weather", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+	definitions := []toolcontract.Definition{{Name: "weather", InputSchema: json.RawMessage(`{"type":"object"}`)}}
 
 	configuration, err := mapProtocolTools(definitions, &corechat.ToolChoice{Mode: corechat.ToolChoiceRequired})
 	if err != nil {

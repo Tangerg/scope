@@ -1,9 +1,11 @@
 package weaviate
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
@@ -13,13 +15,17 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 type nativeSchema struct{ metric string }
 
-func (n *nativeSchema) read(class *models.Class, name string) error {
+func (n *nativeSchema) read(class *models.Class, name string, space vectorstore.SpaceID) error {
 	if class == nil || class.Class != name || class.Vectorizer != "none" || len(class.VectorConfig) != 0 || class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled {
 		return ErrIncompatibleClass
+	}
+	if class.Description != space.StorageKey() {
+		return vectorstore.ErrIncompatibleSpace
 	}
 	config, ok := class.VectorIndexConfig.(map[string]any)
 	if !ok {
@@ -45,12 +51,12 @@ func (n *nativeSchema) read(class *models.Class, name string) error {
 	default:
 		return ErrIncompatibleClass
 	}
-	if len(class.Properties) != 2 {
+	if len(class.Properties) != 3 {
 		return ErrIncompatibleClass
 	}
 	seen := make(map[string]struct{})
 	for _, property := range class.Properties {
-		if property == nil || len(property.DataType) != 1 || property.DataType[0] != "text" {
+		if property == nil || len(property.DataType) != 1 {
 			return ErrIncompatibleClass
 		}
 		if _, duplicate := seen[property.Name]; duplicate {
@@ -58,12 +64,16 @@ func (n *nativeSchema) read(class *models.Class, name string) error {
 		}
 		seen[property.Name] = struct{}{}
 		switch property.Name {
+		case fieldTerms:
+			if property.DataType[0] != "text[]" || property.Tokenization != "field" || property.IndexFilterable != nil && !*property.IndexFilterable {
+				return ErrIncompatibleClass
+			}
 		case fieldContent:
-			if property.Tokenization != "word" || property.IndexSearchable != nil && !*property.IndexSearchable {
+			if property.DataType[0] != "text" || property.Tokenization != "word" || property.IndexSearchable != nil && !*property.IndexSearchable {
 				return ErrIncompatibleClass
 			}
 		case fieldMetadata:
-			if property.Tokenization != "field" || property.IndexFilterable != nil && !*property.IndexFilterable {
+			if property.DataType[0] != "text" || property.Tokenization != "field" || property.IndexFilterable != nil && !*property.IndexFilterable {
 				return ErrIncompatibleClass
 			}
 		default:
@@ -121,7 +131,7 @@ func decodeDocument(id string, properties map[string]any) (*document.Document, e
 	if err := validateObjectID(id); err != nil {
 		return nil, err
 	}
-	if len(properties) != 2 {
+	if len(properties) != 3 {
 		return nil, errors.New("weaviate: native record does not have the current property shape")
 	}
 	text, textOK := properties[fieldContent].(string)
@@ -129,12 +139,31 @@ func decodeDocument(id string, properties map[string]any) (*document.Document, e
 	if !textOK || !factsOK {
 		return nil, errors.New("weaviate: content and metadata must be strings")
 	}
-	var values metadata.Map
-	if err := values.UnmarshalJSON([]byte(facts)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
 		return nil, err
 	}
-	doc := &document.Document{ID: id, Text: text, Metadata: values}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	expected, err := nativeTerms(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	terms, ok := properties[fieldTerms].([]any)
+	if !ok || len(terms) != len(expected) {
+		return nil, errors.New("weaviate: malformed derived terms")
+	}
+	reported := make([]string, len(terms))
+	for i, v := range terms {
+		token, ok := v.(string)
+		if !ok {
+			return nil, errors.New("weaviate: invalid term type")
+		}
+		reported[i] = token
+	}
+	if !slices.Equal(expected, reported) {
+		return nil, errors.New("weaviate: terms differ from canonical metadata")
+	}
+	doc.ID, doc.Text = id, text
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	return doc, nil
@@ -144,11 +173,15 @@ func encodeRecord(doc *document.Document, name string) (*models.Object, error) {
 	if err := validateObjectID(doc.ID); err != nil {
 		return nil, err
 	}
-	facts, err := doc.Metadata.MarshalJSON()
+	facts, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
-	return &models.Object{ID: strfmt.UUID(doc.ID), Class: name, Properties: map[string]any{fieldContent: doc.Text, fieldMetadata: string(facts)}}, nil
+	terms, err := nativeTerms(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	return &models.Object{ID: strfmt.UUID(doc.ID), Class: name, Properties: map[string]any{fieldContent: doc.Text, fieldMetadata: string(facts), fieldTerms: terms}}, nil
 }
 
 func graphQLVector(value any, dimensions int) error {
@@ -185,4 +218,15 @@ func graphQLRelevance(additional map[string]any, mode vectorstore.SearchMode) (f
 type rankedDocument struct {
 	result *vectorstore.SearchResult
 	rank   float64
+}
+
+func nativeTerms(facts metadata.Map) ([]string, error) {
+	terms, err := keyword.Project(facts)
+	if err != nil {
+		return nil, err
+	}
+	for i, t := range terms {
+		terms[i] = hex.EncodeToString([]byte(t))
+	}
+	return terms, nil
 }

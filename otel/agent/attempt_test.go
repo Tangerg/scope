@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	startrand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
@@ -24,20 +25,20 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					harness := newObserverHarness(t)
 					var eventMu sync.Mutex
-					var events []agent.Event
-					finished := make(chan agent.Event, 2)
-					listener := agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
+					var events []run.Event
+					finished := make(chan run.Event, 2)
+					listener := run.EventListenerFunc(func(_ context.Context, event run.Event) {
 						eventMu.Lock()
 						events = append(events, event)
 						eventMu.Unlock()
-						if event.Name() == agent.EventEffectFinished {
+						if event.Name() == run.EventEffectFinished {
 							finished <- event
 						}
 					})
-					engine, err := agent.NewEngine(agent.EngineConfig{
-						TreeCommitter:  agent.NewMemoryTreeCommitter(),
-						EventListeners: []agent.EventListener{harness.observer, listener},
-						DeltaListeners: []agent.DeltaListener{agent.DeltaListenerFunc(func(context.Context, agent.Delta) {})},
+					engine, err := run.New(t.Context(), run.Config{
+						Store:          run.NewMemoryStore(),
+						EventListeners: []run.EventListener{harness.observer, listener},
+						DeltaListeners: []run.DeltaListener{run.DeltaListenerFunc(func(context.Context, run.Delta) {})},
 					})
 					if err != nil {
 						t.Fatal(err)
@@ -48,11 +49,11 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 						}
 					}()
 					dispatcher := &uncertainDispatcher{mode: failureMode}
-					input, err := agent.EncodePayload(testInput{Value: "resolution"})
+					input, err := run.EncodePayload(testInput{Value: "resolution"})
 					if err != nil {
 						t.Fatal(err)
 					}
-					process, err := engine.Start(t.Context(), testDeploymentWithDispatcher(t, dispatcher), input)
+					process, err := engine.Start(t.Context(), testDeploymentWithDispatcher(t, dispatcher), run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -64,7 +65,7 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					if replay {
 						err = process.ReplayUnknownEffect(t.Context(), effectID)
 					} else {
-						settlement, settleErr := agent.NewSettlement(agent.SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
+						settlement, settleErr := run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`{"ok":true}`))
 						if settleErr != nil {
 							t.Fatal(settleErr)
 						}
@@ -77,6 +78,9 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 						t.Fatal(err)
 					}
 					if err := process.Join(t.Context()); err != nil {
+						t.Fatal(err)
+					}
+					if err := engine.FlushObservations(t.Context()); err != nil {
 						t.Fatal(err)
 					}
 					wantAttempts := 1
@@ -116,13 +120,13 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					processSpan := spanByName(t, harness.recorder.Ended(), "invoke_agent test.otel", 0)
 					resolved, dropped := 0, 0
 					for _, event := range processSpan.Events() {
-						if event.Name != agent.EventEffectResolved && event.Name != agent.EventDeltaDropped {
+						if event.Name != run.EventEffectResolved && event.Name != run.EventDeltaDropped {
 							continue
 						}
 						if stringAttribute(event.Attributes, "agent.effect.id") != effectID.String() {
 							t.Fatal("process event lost the logical Effect association")
 						}
-						if event.Name == agent.EventEffectResolved {
+						if event.Name == run.EventEffectResolved {
 							resolved++
 							if stringAttribute(event.Attributes, "agent.effect.target") != "dispatcher" || stringAttribute(event.Attributes, "agent.effect.status") != "succeeded" || stringAttribute(event.Attributes, "agent.effect.attempt_id") != "" {
 								t.Fatal("adjudication must expose the definite outcome without inventing an attempt")
@@ -175,10 +179,10 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 type uncertainDispatcher struct {
 	testDispatcher
 	mode     string
-	attempts []agent.EffectAttemptID
+	attempts []run.EffectAttemptID
 }
 
-func (u *uncertainDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
+func (u *uncertainDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	attemptID, _ := request.AttemptID()
 	u.attempts = append(u.attempts, attemptID)
 	emit(json.RawMessage("private-dispatch-payload"))
@@ -189,10 +193,10 @@ func (u *uncertainDispatcher) Dispatch(ctx context.Context, request agent.Effect
 	time.Sleep(3 * time.Millisecond)
 	switch u.mode {
 	case "error":
-		return agent.Settlement{}, errors.New("private-dispatch-payload")
+		return run.Settlement{}, errors.New("private-dispatch-payload")
 	case "panic":
 		panic("private-dispatch-payload")
 	default:
-		return agent.NewSettlement(agent.SettlementStatusUnknown, json.RawMessage(`null`))
+		return run.NewSettlement(run.SettlementStatusUnknown, json.RawMessage(`null`))
 	}
 }

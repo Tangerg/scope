@@ -3,20 +3,17 @@ package tool_test
 import (
 	"context"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
-func invokeTestTool(ctx context.Context, executable tool.Tool, arguments string) (chat.ToolOutput, error) {
+func invokeTestTool(ctx context.Context, executable tool.Tool, arguments string) (tool.Output, error) {
 	binding, err := tool.Bind(executable)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Output{}, err
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
 	if err != nil {
-		return chat.ToolOutput{}, err
+		return tool.Output{}, err
 	}
 	result, err := binding.Call(ctx, invocation)
 	return result.Output, err

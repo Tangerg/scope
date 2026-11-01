@@ -111,8 +111,8 @@ func TestWireFollowUpRetainsStoredTask(t *testing.T) {
 	if result.Task.ID != pending.Task.ID || result.Task.ContextID != pending.Task.ContextID || len(result.Task.History) != 2 || result.Task.History[0].ID != "turn-1" || result.Task.History[1].ID != "turn-2" || len(result.Task.Artifacts) != 2 || result.Task.Artifacts[0].ID != pending.Task.Artifacts[0].ID {
 		t.Fatalf("follow-up replaced the stored task: %s", encoded)
 	}
-	projection := textProjection{}
-	if projection.parts(result.Task.History[0].Parts) != "first input" || projection.parts(result.Task.History[1].Parts) != "second input" || projection.parts(result.Task.Artifacts[0].Parts) != "retained evidence" {
+
+	if requireText(t, result.Task.History[0].Parts) != "first input" || requireText(t, result.Task.History[1].Parts) != "second input" || requireText(t, result.Task.Artifacts[0].Parts) != "retained evidence" {
 		t.Fatalf("follow-up changed retained content: %s", encoded)
 	}
 
@@ -162,7 +162,7 @@ func TestWireCancelTaskStopsExecutionAndRetainsTerminalState(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitWireSignal(t, agent.stopped)
-	if canceled.ID != submitted.Task.ID || canceled.Status.State != sdka2a.TaskStateCanceled || len(canceled.Artifacts) != 1 || (textProjection{}).parts(canceled.Artifacts[0].Parts) != "partial evidence" {
+	if canceled.ID != submitted.Task.ID || canceled.Status.State != sdka2a.TaskStateCanceled || len(canceled.Artifacts) != 1 || requireText(t, canceled.Artifacts[0].Parts) != "partial evidence" {
 		t.Fatalf("canceled task lost its state or evidence: %s", encoded)
 	}
 	encoded = wireA2ARPC(t, server.URL, "GetTask", params)

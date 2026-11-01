@@ -10,27 +10,28 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 )
 
-type fakeEmbeddingModel struct{}
+const testSpace vectorstore.SpaceID = "unit-v1"
 
-func (fakeEmbeddingModel) Call(_ context.Context, req *embedding.Request) (*embedding.Response, error) {
-	results := make([]*embedding.Output, 0, len(req.Texts))
-	for _, text := range req.Texts {
-		r, err := embedding.NewOutput(vectorFor(text), nil)
-		if err != nil {
-			return nil, err
+func batch(docs []*document.Document) *vectorstore.Batch {
+	r := &vectorstore.Batch{Space: testSpace, Records: make([]vectorstore.Record, len(docs))}
+	for i, d := range docs {
+		r.Records[i].Document = d
+		if d != nil {
+			r.Records[i].Values = vectorFor(d.Text)
 		}
-		results = append(results, r)
 	}
-	return embedding.NewResponse(results, &embedding.ResponseMetadata{Model: "fake"})
+	return r
 }
-
+func queryFor(s string) *vectorstore.Query {
+	return &vectorstore.Query{Space: testSpace, Values: vectorFor(s)}
+}
 func vectorFor(text string) []float64 {
 	v := []float64{0, 0, 0, 0}
 	for i, r := range text {
@@ -41,7 +42,7 @@ func vectorFor(text string) []float64 {
 
 func newStore(t *testing.T) *inmemory.Store {
 	t.Helper()
-	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{Space: testSpace, Dimensions: 4})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -51,9 +52,9 @@ func newStore(t *testing.T) *inmemory.Store {
 func search(
 	store *inmemory.Store,
 	ctx context.Context,
-	request *vectorstore.SearchRequest,
+	request *vectorstore.Query,
 ) ([]*vectorstore.SearchResult, error) {
-	response, err := store.Search(ctx, request)
+	response, err := store.Query(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +80,7 @@ func TestStore_IndexAndSearchBasics(t *testing.T) {
 		mustDoc(t, "3", "unrelated text about ships", map[string]any{"animal": "none"}),
 	}
 	createReq := docs
-	err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
+	err := store.Upsert(ctx, batch(createReq))
 	if err != nil {
 		t.Fatalf("Index: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestStore_IndexAndSearchBasics(t *testing.T) {
 		t.Fatalf("Len = %d, want 3", got)
 	}
 
-	retrieveReq := &vectorstore.SearchRequest{Query: "the quick brown fox", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	retrieveReq := &vectorstore.Query{Space: testSpace, Values: vectorFor("the quick brown fox"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	retrieveReq.Options.TopK = 2
 	got, err := search(store, ctx, retrieveReq)
 	if err != nil {
@@ -105,32 +106,32 @@ func TestStore_IndexRejectsEmptyID(t *testing.T) {
 	store := newStore(t)
 	docs := []*document.Document{{ID: "", Text: "x"}}
 	req := docs
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: req}); err == nil {
+	if err := store.Upsert(t.Context(), batch(req)); err == nil {
 		t.Fatal("Index should reject empty ID")
 	}
 }
 
-func TestSearchRequestJSONPreservesMetadataFiltering(t *testing.T) {
+func TestVectorQueryJSONPreservesMetadataFiltering(t *testing.T) {
 	store := newStore(t)
 	docs := []*document.Document{
 		mustDoc(t, "alpha", "shared text", map[string]any{"tenant": "alpha"}),
 		mustDoc(t, "beta", "shared text", map[string]any{"tenant": "beta"}),
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), batch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.SearchRequest{
-		Query: "shared text", Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "alpha")},
+	request := &vectorstore.Query{
+		Space: testSpace, Values: vectorFor("shared text"), Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "alpha")},
 	}
 	data, err := jsonv2.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var restored vectorstore.SearchRequest
+	var restored vectorstore.Query
 	if decodeErr := jsonv2.Unmarshal(data, &restored); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	response, err := store.Search(t.Context(), &restored)
+	response, err := store.Query(t.Context(), &restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,11 +148,11 @@ func TestStore_SearchHonoursTopK(t *testing.T) {
 		docs = append(docs, mustDoc(t, fmt.Sprintf("d%d", i), fmt.Sprintf("text %d", i), nil))
 	}
 	createReq := docs
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq}); err != nil {
+	if err := store.Upsert(ctx, batch(createReq)); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
-	retrieveReq := &vectorstore.SearchRequest{Query: "text 3", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	retrieveReq := &vectorstore.Query{Space: testSpace, Values: vectorFor("text 3"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	retrieveReq.Options.TopK = 3
 	got, err := search(store, ctx, retrieveReq)
 	if err != nil {
@@ -171,7 +172,7 @@ func TestStore_SearchAppliesFilter(t *testing.T) {
 		mustDoc(t, "3", "bravo", map[string]any{"category": "b", "year": 2024}),
 	}
 	createReq := docs
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq}); err != nil {
+	if err := store.Upsert(ctx, batch(createReq)); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
@@ -179,7 +180,7 @@ func TestStore_SearchAppliesFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("filter.Parse: %v", err)
 	}
-	retrieveReq := &vectorstore.SearchRequest{Query: "alpha bravo", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	retrieveReq := &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha bravo"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	retrieveReq.Options.Filter = expr
 	retrieveReq.Options.TopK = 5
 	got, err := search(store, ctx, retrieveReq)
@@ -204,13 +205,13 @@ func TestStore_SearchLikePattern(t *testing.T) {
 		mustDoc(t, "3", "alpha-bravo", map[string]any{"name": "alpha-3"}),
 	}
 	createReq := docs
-	_ = store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
+	_ = store.Upsert(ctx, batch(createReq))
 
 	expr, err := filter.Parse(`name LIKE 'alpha%'`)
 	if err != nil {
 		t.Fatalf("filter.Parse: %v", err)
 	}
-	retrieveReq := &vectorstore.SearchRequest{Query: "alpha", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	retrieveReq := &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	retrieveReq.Options.Filter = expr
 	retrieveReq.Options.TopK = 10
 	got, err := search(store, ctx, retrieveReq)
@@ -245,12 +246,12 @@ func TestStoreLikeMatchesWildcardCharactersInMetadata(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store := newStore(t)
 			doc := mustDoc(t, "progress", "progress", map[string]any{"name": testCase.value})
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+			if err := store.Upsert(t.Context(), batch([]*document.Document{doc})); err != nil {
 				t.Fatal(err)
 			}
 			expr := filter.Like("name", testCase.pattern)
-			got, err := search(store, t.Context(), &vectorstore.SearchRequest{
-				Query: "progress", Options: vectorstore.SearchOptions{Filter: expr},
+			got, err := search(store, t.Context(), &vectorstore.Query{
+				Space: testSpace, Values: vectorFor("progress"), Options: vectorstore.SearchOptions{Filter: expr},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -281,7 +282,7 @@ func TestStore_Delete(t *testing.T) {
 		mustDoc(t, "3", "z", map[string]any{"keep": false}),
 	}
 	createReq := docs
-	_ = store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
+	_ = store.Upsert(ctx, batch(createReq))
 
 	expr, err := filter.Parse(`keep == false`)
 	if err != nil {
@@ -304,9 +305,9 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 		mustDoc(t, "2", "totally unrelated zzzz", nil),
 	}
 	createReq := docs
-	_ = store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
+	_ = store.Upsert(ctx, batch(createReq))
 
-	baseline := &vectorstore.SearchRequest{Query: "alpha", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	baseline := &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	baseline.Options.TopK = 10
 	baseline.Options.MinScore = 0.0
 	all, err := search(store, ctx, baseline)
@@ -327,7 +328,7 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 	}
 	threshold := (allScores[0] + allScores[1]) / 2
 
-	tight := &vectorstore.SearchRequest{Query: "alpha", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	tight := &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	tight.Options.MinScore = threshold
 	tight.Options.TopK = 10
 	got, err := search(store, ctx, tight)
@@ -343,32 +344,9 @@ func TestStore_SearchMinScoreFilters(t *testing.T) {
 	}
 }
 
-func TestStore_RejectsMissingEmbeddingModel(t *testing.T) {
-	for _, model := range []embedding.Model{nil, (*fakeEmbeddingModel)(nil)} {
-		config := inmemory.StoreConfig{EmbeddingModel: model}
-		if err := config.Validate(); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
-			t.Fatalf("StoreConfig.Validate() = %v, want ErrMissingEmbeddingModel", err)
-		}
-	}
-	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
-		t.Fatalf("NewStore error = %v, want ErrMissingEmbeddingModel", err)
-	}
-
-	var model *nilEmbeddingModel
-	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
-		t.Fatalf("NewStore typed nil error = %v, want ErrMissingEmbeddingModel", err)
-	}
-}
-
-type nilEmbeddingModel struct{}
-
-func (*nilEmbeddingModel) Call(context.Context, *embedding.Request) (*embedding.Response, error) {
-	return nil, nil
-}
-
 func TestStore_SearchOnEmpty(t *testing.T) {
 	store := newStore(t)
-	retrieveReq := &vectorstore.SearchRequest{Query: "anything", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	retrieveReq := &vectorstore.Query{Space: testSpace, Values: vectorFor("anything"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	got, err := search(store, t.Context(), retrieveReq)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -384,11 +362,11 @@ func TestStore_IndexUpsertsExistingID(t *testing.T) {
 
 	first := []*document.Document{mustDoc(t, "1", "original", map[string]any{"v": 1})}
 	createReq := first
-	_ = store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq})
+	_ = store.Upsert(ctx, batch(createReq))
 
 	second := []*document.Document{mustDoc(t, "1", "updated", map[string]any{"v": 2})}
 	updateReq := second
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: updateReq}); err != nil {
+	if err := store.Upsert(ctx, batch(updateReq)); err != nil {
 		t.Fatalf("Index upsert: %v", err)
 	}
 
@@ -420,7 +398,7 @@ func TestStore_SearchIsNull(t *testing.T) {
 		mustDoc(t, "3", "charlie", map[string]any{"category": "c"}), // no "owner"
 	}
 	createReq := docs
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq}); err != nil {
+	if err := store.Upsert(ctx, batch(createReq)); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
@@ -428,7 +406,7 @@ func TestStore_SearchIsNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse(is null): %v", err)
 	}
-	req := &vectorstore.SearchRequest{Query: "x", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	req := &vectorstore.Query{Space: testSpace, Values: vectorFor("x"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	req.Options.Filter = expr
 	req.Options.TopK = 10
 	got, err := search(store, ctx, req)
@@ -443,7 +421,7 @@ func TestStore_SearchIsNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse(is not null): %v", err)
 	}
-	req2 := &vectorstore.SearchRequest{Query: "x", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	req2 := &vectorstore.Query{Space: testSpace, Values: vectorFor("x"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	req2.Options.Filter = expr2
 	req2.Options.TopK = 10
 	got2, err := search(store, ctx, req2)
@@ -464,7 +442,7 @@ func TestStore_SearchNotIn(t *testing.T) {
 		mustDoc(t, "3", "charlie", map[string]any{"category": "c"}),
 	}
 	createReq := docs
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq}); err != nil {
+	if err := store.Upsert(ctx, batch(createReq)); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
@@ -472,7 +450,7 @@ func TestStore_SearchNotIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	req := &vectorstore.SearchRequest{Query: "x", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	req := &vectorstore.Query{Space: testSpace, Values: vectorFor("x"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	req.Options.Filter = expr
 	req.Options.TopK = 10
 	got, err := search(store, ctx, req)
@@ -497,7 +475,7 @@ func TestStore_DeleteIDs(t *testing.T) {
 		mustDoc(t, "3", "c", map[string]any{"k": "v"}),
 	}
 	createReq := docs
-	if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: createReq}); err != nil {
+	if err := store.Upsert(ctx, batch(createReq)); err != nil {
 		t.Fatalf("Index: %v", err)
 	}
 
@@ -508,7 +486,7 @@ func TestStore_DeleteIDs(t *testing.T) {
 		t.Fatalf("DeleteIDs: %v", err)
 	}
 
-	req := &vectorstore.SearchRequest{Query: "x", Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
+	req := &vectorstore.Query{Space: testSpace, Values: vectorFor("x"), Options: vectorstore.SearchOptions{TopK: vectorstore.DefaultTopK}}
 	req.Options.TopK = 10
 	got, err := search(store, ctx, req)
 	if err != nil {
@@ -529,7 +507,7 @@ func TestDecimalFilterSearchAndDelete(t *testing.T) {
 	for _, value := range []float64{0.1, 0.2, 0.3, -0.1} {
 		store.Clear()
 		doc := mustDoc(t, "decimal", "text", map[string]any{"x": value, "xs": []float64{value}})
-		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+		if err := store.Upsert(t.Context(), batch([]*document.Document{doc})); err != nil {
 			t.Fatal(err)
 		}
 		for _, expression := range []string{
@@ -540,7 +518,7 @@ func TestDecimalFilterSearchAndDelete(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{Filter: predicate}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("text"), Options: vectorstore.SearchOptions{Filter: predicate}})
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "decimal" {
 				t.Fatalf("%s: %v %v", expression, response, err)
 			}
@@ -560,14 +538,14 @@ func TestSearchCancellationDuringScoring(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	calls := 0
-	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: func(_, _ []float64) vectorstore.Score { calls++; cancel(); return 1 }})
+	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{Space: testSpace, Dimensions: 4, Similarity: func(_, _ []float64) vectorstore.Score { calls++; cancel(); return 1 }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "a", "a", nil), mustDoc(t, "b", "b", nil), mustDoc(t, "c", "c", nil)}}); err != nil {
+	if err = store.Upsert(ctx, batch([]*document.Document{mustDoc(t, "a", "a", nil), mustDoc(t, "b", "b", nil), mustDoc(t, "c", "c", nil)})); err != nil {
 		t.Fatal(err)
 	}
-	result, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "a"})
+	result, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: vectorFor("a")})
 	if result != nil || !errors.Is(err, context.Canceled) || calls != 1 {
 		t.Fatalf("result=%v err=%v calls=%d", result, err, calls)
 	}
@@ -577,37 +555,21 @@ func TestSearchCancellationDuringScoring(t *testing.T) {
 	}
 }
 
-func TestStoreOwnsEmbeddingDimensions(t *testing.T) {
-	dimensions := 2
-	scores := 0
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: make([]float64, dimensions)}
-		}
-		return embedding.NewResponse(outputs, &embedding.ResponseMetadata{Model: "test"})
-	})
-	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model, Similarity: func(_, _ []float64) vectorstore.Score { scores++; return 1 }})
-	if err != nil {
+func TestStoreBindsSpaceAndDimensionsEvenAfterClear(t *testing.T) {
+	st := newStore(t)
+	rec := batch([]*document.Document{mustDoc(t, "a", "text", nil)})
+	if err := st.Upsert(t.Context(), rec); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "a", "text", nil)}}
-	if err := store.Index(t.Context(), request); err != nil {
+	rec.Records[0].Values[0] = 999
+	q := &vectorstore.Query{Space: "another", Values: []float64{0, 0, 0, 0}}
+	if _, err := st.Query(t.Context(), q); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	dimensions = 3
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{mustDoc(t, "b", "text", nil)}}); err == nil || store.Len() != 1 {
-		t.Fatalf("index: %v, records=%d", err, store.Len())
-	}
-	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err == nil || scores != 0 {
-		t.Fatalf("search: %v, scores=%d", err, scores)
-	}
-	store.Clear()
-	if err := store.Index(t.Context(), request); err != nil {
+	st.Clear()
+	rec.Records[0].Values = []float64{1, 2, 3}
+	if err := st.Upsert(t.Context(), rec); !errors.Is(err, vectorstore.ErrIncompatibleSpace) || st.Len() != 0 {
 		t.Fatal(err)
-	}
-	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text"}); err != nil || scores != 1 {
-		t.Fatalf("search after clear: %v, scores=%d", err, scores)
 	}
 }
 
@@ -627,15 +589,18 @@ func TestDeleteIDsCanceledWhileWaitingForMutationLock(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
-	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: func([]float64, []float64) vectorstore.Score { close(entered); <-release; return 1 }})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{Space: testSpace, Dimensions: 4, Similarity: func([]float64, []float64) vectorstore.Score { close(entered); <-release; return 1 }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}}}); err != nil {
+	if err := store.Upsert(t.Context(), batch([]*document.Document{{ID: "one", Text: "one"}})); err != nil {
 		t.Fatal(err)
 	}
 	searched := make(chan error, 1)
-	go func() { _, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "one"}); searched <- err }()
+	go func() {
+		_, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("one")})
+		searched <- err
+	}()
 	<-entered
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -653,5 +618,15 @@ func TestDeleteIDsCanceledWhileWaitingForMutationLock(t *testing.T) {
 	}
 	if store.Len() != 1 {
 		t.Fatal("canceled deletion removed the record")
+	}
+}
+
+func TestQueryPreflightRejectsWrongSpaceAndHybridBeforeEncoding(t *testing.T) {
+	s := newStore(t)
+	if err := s.CheckQuery(t.Context(), "different", vectorstore.SearchOptions{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if err := s.CheckQuery(t.Context(), testSpace, vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}); err == nil {
+		t.Fatal("advertised unsupported hybrid search")
 	}
 }

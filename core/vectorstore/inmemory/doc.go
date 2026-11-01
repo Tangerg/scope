@@ -1,11 +1,5 @@
-// Package inmemory provides an in-process vector store backed by a map and a
-// configurable similarity function. It is intended for demos, unit tests, and
-// corpora that fit in RAM.
-//
-// Every public method is safe for concurrent use. Reads take a read lock and
-// writes take an exclusive lock. Embedding calls may perform provider I/O.
-// Numeric filters preserve the values of integers and finite floating-point
-// numbers when comparing across representations; numeric strings remain strings.
-//
-// Records are not durable and disappear with the process.
+// Package inmemory implements exact vector search over process-local records.
+// Upsert and Query accept precomputed coordinates in the configured space.
+// Query evaluates metadata before scoring, scans all records under a read
+// lock, and orders score ties by document ID. The Store owns no model or I/O.
 package inmemory

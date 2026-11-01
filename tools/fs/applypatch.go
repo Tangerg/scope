@@ -8,7 +8,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -102,7 +101,7 @@ deleted file mode 100644
 	return t, nil
 }
 
-func (a *ApplyPatchTool) Definition() chat.ToolDefinition {
+func (a *ApplyPatchTool) Definition() toolcontract.Definition {
 	return a.typed.Definition()
 }
 

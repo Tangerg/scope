@@ -6,7 +6,7 @@ import (
 
 	"github.com/samber/lo"
 
-	agent "github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
@@ -31,7 +31,7 @@ func TestChangedLimitMetricIsAnotherObservation(t *testing.T) {
 			ID: "trajectory",
 			Evaluator: eval.EvaluatorFunc[trajectory.Trajectory](func(ctx context.Context, actual trajectory.Trajectory) (eval.Report, error) {
 				return trajectory.Evaluator{}.Evaluate(ctx, trajectory.Sample{
-					Actual: actual, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Limits: limits},
+					Actual: actual, Expected: trajectory.Expectation{Status: agentrun.StatusCompleted, Limits: limits},
 				})
 			}),
 		}))}})

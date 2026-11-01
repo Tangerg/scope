@@ -10,47 +10,47 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 	agentotel "github.com/Tangerg/scope/otel/agent"
 )
 
 func TestObservedTreeCommitterPreservesConformance(t *testing.T) {
 	harness := newObserverHarness(t)
-	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
-		store := agent.NewMemoryTreeCommitter()
+	runtest.RunTreeCommitterConformance(t, func() runtest.TreeCommitterConformanceDriver {
+		store := run.NewMemoryStore()
 		observed, err := harness.observer.WrapTreeCommitter(store)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return observedDurabilityDriver{MemoryTreeCommitter: store, observed: observed}
+		return observedDurabilityDriver{MemoryStore: store, observed: observed}
 	})
 }
 
 type observedDurabilityDriver struct {
-	*agent.MemoryTreeCommitter
-	observed agent.TreeCommitter
+	*run.MemoryStore
+	observed run.Store
 }
 
-func (o observedDurabilityDriver) TreeCommitter() agent.TreeCommitter { return o.observed }
+func (o observedDurabilityDriver) TreeCommitter() run.Store { return o.observed }
 
 func TestObservedTreeCommitterRecordsAcknowledgedBoundaries(t *testing.T) {
 	harness := newObserverHarness(t)
-	store := agent.NewMemoryTreeCommitter()
+	store := run.NewMemoryStore()
 	committer, err := harness.observer.WrapTreeCommitter(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer})
+	engine, err := run.New(t.Context(), run.Config{Store: committer})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "private input"})
+	input, err := run.EncodePayload(testInput{Value: "private input"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+	result, err := runtest.Observe(t.Context(), engine, testDeployment(t), input)
+	if err != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -121,8 +121,8 @@ func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T)
 	}{
 		{name: "acknowledged", outcome: "acknowledged"},
 		{name: "response lost", err: errors.New("secret storage connection"), outcome: "unresolved"},
-		{name: "ownership", err: fmt.Errorf("secret storage connection: %w", agent.ErrTreeIncarnationConflict), outcome: "ownership_conflict"},
-		{name: "content", err: fmt.Errorf("secret storage connection: %w", agent.ErrCommitConflict), outcome: "content_conflict"},
+		{name: "ownership", err: fmt.Errorf("secret storage connection: %w", run.ErrTreeIncarnationConflict), outcome: "ownership_conflict"},
+		{name: "content", err: fmt.Errorf("secret storage connection: %w", run.ErrCommitConflict), outcome: "content_conflict"},
 		{name: "panic", panicked: true, outcome: "unresolved"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -169,30 +169,30 @@ func TestObservedTreeCommitterPreservesErrorsAndRedactsDiagnostics(t *testing.T)
 }
 
 type checkpointCapture struct {
-	agent.TreeCommitter
-	start agent.TreeCheckpoint
+	run.Store
+	start run.TreeCheckpoint
 }
 
-func (c *checkpointCapture) CommitCheckpoint(ctx context.Context, checkpoint agent.TreeCheckpoint) error {
-	if checkpoint.Kind() == agent.TreeCheckpointKindStart {
+func (c *checkpointCapture) CommitCheckpoint(ctx context.Context, checkpoint run.TreeCheckpoint) error {
+	if checkpoint.Kind() == run.TreeCheckpointKindStart {
 		c.start = checkpoint
 	}
-	return c.TreeCommitter.CommitCheckpoint(ctx, checkpoint)
+	return c.Store.CommitCheckpoint(ctx, checkpoint)
 }
 
-func observedCheckpoint(t testing.TB, value string) agent.TreeCheckpoint {
+func observedCheckpoint(t testing.TB, value string) run.TreeCheckpoint {
 	t.Helper()
-	store := &checkpointCapture{TreeCommitter: agent.NewMemoryTreeCommitter()}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store})
+	store := &checkpointCapture{Store: run.NewMemoryStore()}
+	engine, err := run.New(t.Context(), run.Config{Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: value})
+	input, err := run.EncodePayload(testInput{Value: value})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+	result, err := runtest.Observe(t.Context(), engine, testDeployment(t), input)
+	if err != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("checkpoint fixture status=%s error=%v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -202,13 +202,13 @@ func observedCheckpoint(t testing.TB, value string) agent.TreeCheckpoint {
 }
 
 type failingObservedDurability struct {
-	agent.TreeCommitter
+	run.Store
 	err      error
 	panicked bool
 	calls    int
 }
 
-func (f *failingObservedDurability) CommitCheckpoint(context.Context, agent.TreeCheckpoint) error {
+func (f *failingObservedDurability) CommitCheckpoint(context.Context, run.TreeCheckpoint) error {
 	f.calls++
 	if f.panicked {
 		panic("secret storage connection")
@@ -218,12 +218,12 @@ func (f *failingObservedDurability) CommitCheckpoint(context.Context, agent.Tree
 
 func TestWrapTreeCommitterRejectsInvalidConstruction(t *testing.T) {
 	harness := newObserverHarness(t)
-	var typedNil *agent.MemoryTreeCommitter
+	var typedNil *run.MemoryStore
 	if _, err := harness.observer.WrapTreeCommitter(typedNil); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
 		t.Fatalf("typed nil error=%v", err)
 	}
 	var observer *agentotel.Observer
-	if _, err := observer.WrapTreeCommitter(agent.NewMemoryTreeCommitter()); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
+	if _, err := observer.WrapTreeCommitter(run.NewMemoryStore()); !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
 		t.Fatalf("nil observer error=%v", err)
 	}
 }
@@ -234,13 +234,13 @@ func ExampleObserver_WrapTreeCommitter() {
 		panic(err)
 	}
 	defer observer.Close()
-	committer, err := observer.WrapTreeCommitter(agent.NewMemoryTreeCommitter())
+	committer, err := observer.WrapTreeCommitter(run.NewMemoryStore())
 	if err != nil {
 		panic(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeCommitter:  committer,
-		EventListeners: []agent.EventListener{observer},
+	engine, err := run.New(context.Background(), run.Config{
+		Store:          committer,
+		EventListeners: []run.EventListener{observer},
 	})
 	if err != nil {
 		panic(err)
@@ -253,30 +253,30 @@ func ExampleObserver_WrapTreeCommitter() {
 }
 
 type settlementFailureCommitter struct {
-	*agent.MemoryTreeCommitter
+	*run.MemoryStore
 	cause error
 }
 
-func (s *settlementFailureCommitter) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if boundary.Kind() == agent.EffectBoundaryKindSettled {
+func (s *settlementFailureCommitter) CommitEffect(ctx context.Context, boundary run.EffectBoundary) error {
+	if boundary.Kind() == run.EffectBoundaryKindSettled {
 		return s.cause
 	}
-	return s.MemoryTreeCommitter.CommitEffect(ctx, boundary)
+	return s.MemoryStore.CommitEffect(ctx, boundary)
 }
 
 func TestObserverRetainsDispatchOutcomeWhenSettlementCommitFails(t *testing.T) {
 	harness := newObserverHarness(t)
 	cause := errors.New("settlement storage failure")
-	store := &settlementFailureCommitter{MemoryTreeCommitter: agent.NewMemoryTreeCommitter(), cause: cause}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{harness.observer}})
+	store := &settlementFailureCommitter{MemoryStore: run.NewMemoryStore(), cause: cause}
+	engine, err := run.New(t.Context(), run.Config{Store: store, EventListeners: []run.EventListener{harness.observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "observed"})
+	input, err := run.EncodePayload(testInput{Value: "observed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = engine.Run(t.Context(), testDeployment(t), input)
+	_, err = runtest.Observe(t.Context(), engine, testDeployment(t), input)
 	if !errors.Is(err, cause) {
 		t.Fatalf("Run error=%v", err)
 	}

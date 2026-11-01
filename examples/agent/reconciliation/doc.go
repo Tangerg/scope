@@ -1,5 +1,5 @@
 // Command reconciliation investigates a Tool response lost after a remote
-// operation, restores the acknowledged tree in a replacement Engine, and either
+// operation, restores the acknowledged tree in a replacement Runtime, and either
 // settles a confirmed result or stops with the Unknown intact.
 //
 // Run from the repository root:
@@ -12,7 +12,7 @@
 //	cd examples
 //	GOWORK=off go run ./agent/reconciliation
 //
-// The deterministic model, remote ledger, and MemoryTreeCommitter keep this
+// The deterministic model, remote ledger, and MemoryStore keep this
 // example offline. They demonstrate public API consumption, not durable storage
 // or live-model quality. The same source is tested with workspace dependencies
 // and with the published Agent and Core versions selected by examples/go.mod.
@@ -22,10 +22,10 @@
 // the Host pauses the live parent, reads the stored head, and retains its
 // original EffectRequest. After a crashed writer there is no live parent to
 // pause; recovery reads the store directly. A stale head must fail activation.
-// The Host restores the exact Deployment, queries the remote operation by
+// The Host restores the exact Program, queries the remote operation by
 // EffectID, and checks the receipt against the original arguments. Only a confirmed success
 // or rejection becomes a ToolSet.SettleToolResult submitted through
-// Process.ResolveUnknownEffect. No snapshot or Strategy state is edited.
+// Handle.ResolveUnknownEffect. No snapshot or Strategy state is edited.
 //
 // A missing receipt or failed query does not establish failure or permission to
 // repeat the write. The example cancels the tree and retains its unresolved

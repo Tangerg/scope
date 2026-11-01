@@ -12,6 +12,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
@@ -313,7 +314,7 @@ func mapProtocolToolArguments(arguments string) (nativeJSONObject, error) {
 	return mapped, nil
 }
 
-func mapProtocolTools(definitions []corechat.ToolDefinition) (nativeTools, error) {
+func mapProtocolTools(definitions []toolcontract.Definition) (nativeTools, error) {
 	if len(definitions) == 0 {
 		return nil, nil
 	}

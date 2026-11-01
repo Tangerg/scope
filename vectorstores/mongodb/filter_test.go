@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -16,6 +17,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
@@ -38,10 +40,22 @@ func (f *filterCollection) Aggregate(_ context.Context, value any, _ ...options.
 	if len(pipeline) != 0 && pipeline[0][0].Key == "$listSearchIndexes" {
 		return mongo.NewCursorFromDocuments(f.policy, nil, nil)
 	}
-	if len(pipeline) == 0 {
+	if len(pipeline) > 0 && pipeline[0][0].Key == "$match" {
+		limit := pipeline[1][0].Value.(int64) - 1
+		maxBytes := pipeline[4][0].Value.(bson.M)["within"].(bson.M)["$and"].(bson.A)[1].(bson.M)["$lte"].(bson.A)[1].(int64)
+		var sum int64
 		var rows []any
-		for _, record := range f.records {
-			rows = append(rows, record)
+		for i, record := range f.records {
+			sum += int64(len(record))
+			fits := int64(i) < limit && sum <= maxBytes
+			row := bson.M{"within": fits}
+			if fits {
+				row["document"] = record
+			}
+			rows = append(rows, row)
+			if !fits {
+				break
+			}
 		}
 		return mongo.NewCursorFromDocuments(rows, f.enumerationErr, nil)
 	}
@@ -58,12 +72,23 @@ func (f *filterCollection) Aggregate(_ context.Context, value any, _ ...options.
 	query := pipeline[0][0].Value.(bson.M)
 	var ids []string
 	if selected, ok := query["filter"].(bson.M); ok {
-		ids = selected[idField].(bson.M)["$in"].([]string)
-		f.queryBatches = append(f.queryBatches, len(ids))
+		if field, ok := selected[idField].(bson.M); ok {
+			ids = field["$in"].([]string)
+			f.queryBatches = append(f.queryBatches, len(ids))
+		}
 	}
 	var hits []bson.M
 	for _, record := range f.records {
 		id := record.Lookup(idField).StringValue()
+		if where, ok := query["filter"].(bson.M); ok && !f.ignoreSelected {
+			if criteria, ok := where[termsField].(bson.M); ok {
+				var terms []string
+				_ = record.Lookup(termsField).Unmarshal(&terms)
+				if !slices.Contains(terms, criteria["$in"].([]string)[0]) {
+					continue
+				}
+			}
+		}
 		if ids != nil && !f.ignoreSelected && !slices.Contains(ids, id) {
 			continue
 		}
@@ -122,6 +147,7 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 	constraint := value.(bson.M)
 	var ids []string
 	var observed *string
+	var term string
 	if id, ok := constraint[idField].(string); ok {
 		ids = []string{id}
 		equality := constraint["$expr"].(bson.M)["$eq"].(bson.A)
@@ -129,6 +155,8 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 			return nil, errors.New("conditional delete used wrong metadata field")
 		}
 		observed = new(equality[1].(bson.M)["$literal"].(string))
+	} else if token, ok := constraint[termsField].(string); ok {
+		term = token
 	} else {
 		ids = constraint[idField].(bson.M)["$in"].([]string)
 	}
@@ -141,7 +169,9 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 	for _, record := range f.records {
 		id := record.Lookup(idField).StringValue()
 		current, currentOK := record.Lookup(metadataField).StringValueOK()
-		if slices.Contains(ids, id) && (observed == nil || currentOK && current == *observed) {
+		var terms []string
+		_ = record.Lookup(termsField).Unmarshal(&terms)
+		if (slices.Contains(ids, id) || term != "" && slices.Contains(terms, term)) && (observed == nil || currentOK && current == *observed) {
 			f.deleted = append(f.deleted, id)
 			count++
 			continue
@@ -154,21 +184,30 @@ func (f *filterCollection) DeleteMany(_ context.Context, value any, builders ...
 
 func mongoFilterStore(t *testing.T, docs []*document.Document) (*Store, *filterCollection) {
 	t.Helper()
-	collection := &filterCollection{scores: make(map[string]float64)}
+	collection := &filterCollection{policy: []any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}, scores: make(map[string]float64)}
 	store := upsertStore(t, collection)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if len(docs) == 0 {
+		return store, collection
+	}
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	return store, collection
 }
 
 func nativeIndexPolicy(name, metric string, dimension int) bson.M {
-	return bson.M{"name": name, "type": "vectorSearch", "status": "READY", "queryable": true, "latestDefinition": bson.M{"fields": bson.A{bson.M{"type": "vector", "path": embeddingField, "numDimensions": dimension, "similarity": metric}, bson.M{"type": "filter", "path": idField}}}}
+	return bson.M{"name": name, "type": "vectorSearch", "status": "READY", "queryable": true, "latestDefinition": bson.M{"fields": bson.A{bson.M{"type": "vector", "path": fixtureSpace.StorageKey(), "numDimensions": dimension, "similarity": metric}, bson.M{"type": "filter", "path": termsField}, bson.M{"type": "filter", "path": idField}}}}
 }
 
 func nativeRecord(t *testing.T, id, facts string) bson.Raw {
 	t.Helper()
-	raw, err := bson.Marshal(bson.M{idField: id, contentField: "text", embeddingField: []float32{1, 0}, metadataField: facts})
+	var m metadata.Map
+	_ = m.UnmarshalJSON([]byte(facts))
+	terms, err := keyword.Project(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := bson.Marshal(bson.M{idField: id, contentField: "text", fixtureSpace.StorageKey(): []float32{1, 0}, metadataField: facts, termsField: terms})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +217,7 @@ func nativeRecord(t *testing.T, id, facts string) bson.Raw {
 func TestFilterConformance(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		store, _ := mongoFilterStore(t, docs)
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +243,7 @@ func TestDeleteWhereDoesNotMutateAfterEnumerationFailure(t *testing.T) {
 	store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}})
 	want := errors.New("cursor unavailable")
 	collection.enumerationErr = want
-	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "x")); !errors.Is(err, want) {
+	if err := store.DeleteMatching(t.Context(), filter.EQ("value", "x"), fixtureBudget()); !errors.Is(err, want) {
 		t.Fatal(err)
 	}
 	if len(collection.deleted) != 0 {
@@ -215,7 +254,7 @@ func TestDeleteWhereDoesNotMutateAfterEnumerationFailure(t *testing.T) {
 func TestDeleteWhereRetainsChangedMetadata(t *testing.T) {
 	store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text", Metadata: metadata.Map{"value": []byte(`"X"`)}}})
 	collection.beforeDelete = func() { collection.records[0] = nativeRecord(t, "one", `{"value":"x"}`) }
-	if err := store.DeleteWhere(t.Context(), filter.EQ("value", "X")); err != nil {
+	if err := store.DeleteMatching(t.Context(), filter.EQ("value", "X"), fixtureBudget()); err != nil {
 		t.Fatal(err)
 	}
 	if len(collection.deleted) != 0 || len(collection.records) != 1 {
@@ -232,7 +271,7 @@ func TestFilteredSearchMergesBoundedIDBatches(t *testing.T) {
 	for index, doc := range docs {
 		collection.scores[doc.ID] = float64(index+1) / float64(len(docs))
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,10 +292,67 @@ func TestFilteredSearchRejectsChangedSelection(t *testing.T) {
 				}
 				collection.records[0] = nativeRecord(t, id, facts)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "x")}})
 			if err == nil || response != nil {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
 		})
+	}
+}
+
+const fixtureSpace vectorstore.SpaceID = "paired-v1"
+
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: []float64{1, 0}})
+	}
+	return b
+}
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 32 << 20, Timeout: time.Minute}
+}
+func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if q.Options.Filter != nil {
+		return s.Scan(ctx, q, fixtureBudget())
+	}
+	return s.Query(ctx, q)
+}
+
+func TestNativeEqualityDoesNotEnumerateOrCoerceArrays(t *testing.T) {
+	s, collection := mongoFilterStore(t, []*document.Document{{ID: "scalar", Text: "text", Metadata: metadata.Map{"k": []byte(`"x"`)}}, {ID: "array", Text: "text", Metadata: metadata.Map{"k": []byte(`["x"]`)}}})
+	collection.enumerationErr = errors.New("enumeration not authorized")
+	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("k", "x")}}
+	hits, err := s.Query(t.Context(), q)
+	if err != nil || len(hits.Results) != 1 || hits.Results[0].Document.ID != "scalar" {
+		t.Fatalf("reply=%v err=%v", hits, err)
+	}
+	q.Options.Filter = filter.EQ("k", 1)
+	if hits, err = s.Query(t.Context(), q); !errors.Is(err, vectorstore.ErrUnsupportedFilter) || hits != nil {
+		t.Fatalf("unrepresentable filter=%v err=%v", hits, err)
+	}
+}
+
+func TestScanRejectsUnpaidNonmatchesBeforePublication(t *testing.T) {
+	s, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})
+	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("k")}}
+	for _, budget := range []vectorstore.ScanBudget{{MaxBytes: 10240, MaxRecords: 1, Timeout: time.Second}, {MaxBytes: 1, MaxRecords: 2, Timeout: time.Second}} {
+		if got, err := s.Scan(t.Context(), q, budget); !errors.Is(err, vectorstore.ErrScanBudget) || got != nil {
+			t.Fatalf("got=%v err=%v", got, err)
+		}
+		if err := s.DeleteMatching(t.Context(), q.Options.Filter, budget); !errors.Is(err, vectorstore.ErrScanBudget) || len(collection.deleted) != 0 {
+			t.Fatalf("deleted=%v err=%v", collection.deleted, err)
+		}
+	}
+}
+
+func TestSpaceDriftPreventsMutation(t *testing.T) {
+	s, collection := mongoFilterStore(t, nil)
+	definition := collection.policy[0].(bson.M)["latestDefinition"].(bson.M)
+	definition["fields"].(bson.A)[0].(bson.M)["path"] = vectorstore.SpaceID("other-model-same-width").StorageKey()
+	err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}}))
+	if !errors.Is(err, vectorstore.ErrIncompatibleSpace) || collection.writes != 0 {
+		t.Fatalf("writes=%d err=%v", collection.writes, err)
 	}
 }

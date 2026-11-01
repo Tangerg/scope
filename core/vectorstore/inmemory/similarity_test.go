@@ -1,13 +1,11 @@
 package inmemory_test
 
 import (
-	"context"
 	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 )
@@ -181,20 +179,17 @@ func TestDotProductSimilarityNormalizesAfterCancellation(t *testing.T) {
 func TestStoreSearchPreservesCosineAcrossEmbeddingScales(t *testing.T) {
 	for name, scale := range map[string]float64{"ordinary": 1, "large": 1e200, "small": 1e-200} {
 		t.Run(name, func(t *testing.T) {
-			model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-				outputs := make([]*embedding.Output, len(request.Texts))
-				for index := range outputs {
-					outputs[index] = &embedding.Output{Embedding: []float64{scale, scale}}
-				}
-				return embedding.NewResponse(outputs, nil)
-			})
-			store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: model})
+			store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{Space: testSpace, Dimensions: 2})
 			if err != nil {
 				t.Fatal(err)
 			}
-			indexDocuments(t, store, mustDoc(t, "self", "same", nil))
-			got, err := search(store, t.Context(), &vectorstore.SearchRequest{
-				Query: "same", Options: vectorstore.SearchOptions{MinScore: 0.9},
+			coords := []float64{scale, scale}
+			rec := vectorstore.Record{Document: mustDoc(t, "self", "same", nil), Values: coords}
+			if upsertErr := store.Upsert(t.Context(), &vectorstore.Batch{Space: testSpace, Records: []vectorstore.Record{rec}}); upsertErr != nil {
+				t.Fatal(upsertErr)
+			}
+			got, err := search(store, t.Context(), &vectorstore.Query{
+				Space: testSpace, Values: coords, Options: vectorstore.SearchOptions{MinScore: 0.9},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -230,13 +225,13 @@ func TestSearchScansConcurrentlyWithBorrowedVectors(t *testing.T) {
 		calls.Add(1)
 		return inmemory.CosineSimilarity(left, right)
 	}
-	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: fakeEmbeddingModel{}, Similarity: similarity})
+	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{Space: testSpace, Dimensions: 4, Similarity: similarity})
 	if err != nil {
 		t.Fatal(err)
 	}
 	indexDocuments(t, store, mustDoc(t, "a", "alpha", nil), mustDoc(t, "b", "beta", nil), mustDoc(t, "c", "gamma", nil))
 
-	first, err := search(store, t.Context(), &vectorstore.SearchRequest{Query: "alpha"})
+	first, err := search(store, t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha")})
 	if err != nil || len(first) == 0 {
 		t.Fatalf("baseline search: %v results, %v", len(first), err)
 	}
@@ -246,7 +241,7 @@ func TestSearchScansConcurrentlyWithBorrowedVectors(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			got, err := search(store, t.Context(), &vectorstore.SearchRequest{Query: "alpha"})
+			got, err := search(store, t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("alpha")})
 			if err != nil {
 				t.Error(err)
 				return

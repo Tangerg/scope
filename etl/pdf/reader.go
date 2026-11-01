@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,13 +14,13 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/origin"
 )
 
 const (
-	MetadataPageIndex  = "pdf.page"
 	MetadataPagesTotal = "pdf.pages.total"
-	MetadataSourceName = "pdf.source"
-	DefaultMaxPages    = 10_000
+
+	DefaultMaxPages = 10_000
 )
 
 // ErrPartialRead accompanies usable output when one or more pages could not be read.
@@ -30,7 +31,7 @@ var ErrPageLimit = errors.New("pdf reader: page limit exceeded")
 
 // ReaderConfig controls PDF extraction. PerPage emits one document per readable
 // page. Password is used for encrypted PDFs. Metadata is cloned by NewReader,
-// and cannot contain the reader's page index, page total, or source keys. A zero
+// and cannot contain the reader's page total key. A zero
 // SourceBudget uses [etl.DefaultMaxSourceBytes]. A zero MaxPages uses
 // [DefaultMaxPages], independently of the encoded source's byte size.
 type ReaderConfig struct {
@@ -47,6 +48,7 @@ type Reader struct {
 	size          int64
 	perPage       bool
 	sourceName    string
+	sourceBudget  etl.SourceBudget
 	password      string
 	extraMetadata coremetadata.Map
 	maxPages      int
@@ -80,10 +82,10 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 		maxPages = DefaultMaxPages
 	}
 	r := &Reader{
-		source:        source,
-		size:          size,
-		perPage:       config.PerPage,
-		sourceName:    config.SourceName,
+		source:     source,
+		size:       size,
+		perPage:    config.PerPage,
+		sourceName: config.SourceName, sourceBudget: config.SourceBudget,
 		password:      config.Password,
 		extraMetadata: config.Metadata.Clone(),
 		maxPages:      maxPages,
@@ -91,7 +93,7 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("pdf reader: invalid metadata: %w", err)
 	}
-	for _, key := range [...]string{MetadataPageIndex, MetadataPagesTotal, MetadataSourceName} {
+	for _, key := range [...]string{MetadataPagesTotal} {
 		if _, exists := r.extraMetadata[key]; exists {
 			return nil, fmt.Errorf("pdf reader: metadata key %q is owned by the reader", key)
 		}
@@ -114,7 +116,22 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 			docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
 		}
 	}()
-	pdfReader, err := r.openReader(ctx)
+	var p *document.Provenance
+	source := r.source
+	if r.sourceName != "" {
+		// Parse the same bounded snapshot that was hashed. A second pass over a
+		// mutable ReaderAt cannot attest that the pages came from those bytes.
+		raw, originInfo, readErr := origin.Read(ctx, io.NewSectionReader(source, 0, r.size), r.sourceBudget, r.sourceName)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if int64(len(raw)) != r.size {
+			return nil, io.ErrUnexpectedEOF
+		}
+		source = bytes.NewReader(raw)
+		p = originInfo
+	}
+	pdfReader, err := r.openReader(ctx, source)
 	if err != nil {
 		return nil, err
 	}
@@ -130,17 +147,17 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 		return nil, fmt.Errorf("%w: declared %d pages; maximum is %d", ErrPageLimit, total, r.maxPages)
 	}
 	if r.perPage {
-		return r.readPages(ctx, pdfReader, total)
+		return r.readPages(ctx, pdfReader, total, p)
 	}
-	return r.readWhole(ctx, pdfReader, total)
+	return r.readWhole(ctx, pdfReader, total, p)
 }
 
-func (r *Reader) openReader(ctx context.Context) (*ledongthuc.Reader, error) {
+func (r *Reader) openReader(ctx context.Context, source io.ReaderAt) (*ledongthuc.Reader, error) {
 	if r.password != "" {
 		// The parser retries until the callback returns "", so offering the
 		// password once ends the loop after a single wrong attempt.
 		password := r.password
-		pdfReader, err := ledongthuc.NewReaderEncrypted(r.source, r.size, func() string {
+		pdfReader, err := ledongthuc.NewReaderEncrypted(source, r.size, func() string {
 			if ctx.Err() != nil {
 				return ""
 			}
@@ -156,14 +173,14 @@ func (r *Reader) openReader(ctx context.Context) (*ledongthuc.Reader, error) {
 		}
 		return pdfReader, nil
 	}
-	pdfReader, err := ledongthuc.NewReader(r.source, r.size)
+	pdfReader, err := ledongthuc.NewReader(source, r.size)
 	if err != nil {
 		return nil, fmt.Errorf("pdf: open: %w", err)
 	}
 	return pdfReader, nil
 }
 
-func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, total int) ([]*document.Document, error) {
+func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
 	body, readErr := r.readAllText(ctx, pdfReader, total)
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -177,10 +194,11 @@ func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, to
 	if err != nil {
 		return nil, fmt.Errorf("pdf: encode metadata: %w", err)
 	}
+	doc.Provenance = p
 	return []*document.Document{doc}, readErr
 }
 
-func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, total int) ([]*document.Document, error) {
+func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
 	docs := make([]*document.Document, 0, total)
 	var failures pageErrors
 	for index := range total {
@@ -208,9 +226,11 @@ func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, to
 		if err != nil {
 			return nil, fmt.Errorf("pdf: page %d metadata: %w", page, err)
 		}
-		if err := md.Set(MetadataPageIndex, page); err != nil {
-			return nil, fmt.Errorf("pdf: page %d metadata: %w", page, err)
+		doc.Provenance = p.Clone()
+		if doc.Provenance == nil {
+			doc.Provenance = &document.Provenance{}
 		}
+		doc.Provenance.Page = page
 		doc.Metadata = md
 		docs = append(docs, doc)
 	}
@@ -221,11 +241,6 @@ func (r *Reader) baseMetadata(total int) (coremetadata.Map, error) {
 	md := r.extraMetadata.Clone()
 	if err := md.Set(MetadataPagesTotal, total); err != nil {
 		return nil, err
-	}
-	if r.sourceName != "" {
-		if err := md.Set(MetadataSourceName, r.sourceName); err != nil {
-			return nil, err
-		}
 	}
 	return md, nil
 }

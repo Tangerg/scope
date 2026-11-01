@@ -37,7 +37,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -56,14 +56,14 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 		openai.ChatOptionTemperature, openai.ChatOptionTopP,
 		openai.ChatOptionPresencePenalty, openai.ChatOptionFrequencyPenalty,
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(ctx,
+	protocol, err := openai.NewChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntl), HTTPClient: config.HTTPClient},
 		reasoningDialect,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("minimax: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }
 
 type MessagesConfig struct {
@@ -83,13 +83,13 @@ func (m MessagesConfig) Validate() error {
 	return nil
 }
 
-func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Messages, error) {
+func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntlAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: "minimax", PrepareRequest: prepareAnthropicRequest})
+	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntlAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: "minimax", PrepareRequest: prepareAnthropicRequest})
 	if err != nil {
 		return nil, fmt.Errorf("minimax: construct Anthropic-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

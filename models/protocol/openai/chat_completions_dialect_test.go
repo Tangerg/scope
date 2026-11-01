@@ -44,13 +44,13 @@ func testTextReasoningDialect(t *testing.T, test textReasoningDialectCase) {
 	server := newTextReasoningServer(t, test.responseField, &requestBody)
 	t.Cleanup(server.Close)
 
-	adapter, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "provider-model"},
 		BaseURL:        server.URL,
 	}, test.dialect)
 	if err != nil {
-		t.Fatalf("NewCompatibleChatCompletions: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	field := scopeopenai.TextReasoningContent
 	if test.responseField == "reasoning" {
@@ -123,11 +123,13 @@ func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 		construct func(context.Context, scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error)
 		wantField string
 	}{
-		{name: "native", construct: scopeopenai.NewChatCompletions, wantField: "max_completion_tokens"},
+		{name: "native", construct: func(ctx context.Context, config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
+			return scopeopenai.NewChatCompletions(ctx, config, testChatDialect())
+		}, wantField: "max_completion_tokens"},
 		{
 			name: "compatible",
 			construct: func(ctx context.Context, config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
-				return scopeopenai.NewCompatibleChatCompletions(ctx, config, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
+				return scopeopenai.NewChatCompletions(ctx, config, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 			},
 			wantField: "max_tokens",
 		},

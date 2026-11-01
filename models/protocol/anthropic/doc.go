@@ -26,11 +26,11 @@
 // blocks retain their identities through aggregation and history replay.
 //
 // Provider packages exposing an Anthropic-compatible endpoint reuse the
-// Messages protocol through [NewCompatibleMessages] and select one typed
+// Messages protocol through [NewMessages] and select one typed
 // [Dialect]. Application code continues to use the provider's own chat type.
 //
 // [Messages.CountInputTokens] exposes the provider-specific complete-request
-// token endpoint. [NewTextCounter] serves isolated text workflows.
+// token endpoint. the Messages text-counter binding serves isolated text workflows.
 //
 // [Messages.ListModels] follows the SDK's native model pagination using this
 // binding. Count and total response-byte budgets are explicit per operation;

@@ -41,7 +41,8 @@ func TestListModelsUsesTheBoundProvider(t *testing.T) {
 	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey: "test-key", BaseURL: server.URL + "/proxy/prefix", HTTPClient: server.Client(),
 		Headers: http.Header{"X-Provider-Binding": {"same-binding"}},
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestListModelsRejectsIncompleteOrMalformedResponses(t *testing.T) {
 				_, _ = io.WriteString(writer, body)
 			}))
 			defer server.Close()
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +106,7 @@ func TestListModelsEnforcesBudgets(t *testing.T) {
 		_, _ = io.WriteString(writer, body)
 	}))
 	defer server.Close()
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestListModelsPreservesHTTPFailuresWithoutRetry(t *testing.T) {
 				_, _ = io.WriteString(writer, `{"error":{"type":"upstream_error","message":"unavailable"}}`)
 			}))
 			defer server.Close()
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,7 +170,7 @@ func TestListModelsPreservesHTTPFailuresWithoutRetry(t *testing.T) {
 
 func TestListModelsCancellationReachesHTTP(t *testing.T) {
 	server, lifecycle := modeltest.NewBlockingServer(t, nil)
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +199,7 @@ func TestListModelsAcceptsEmptyCompleteList(t *testing.T) {
 		_, _ = io.Copy(writer, strings.NewReader(`{"data":[],"has_more":false}`))
 	}))
 	defer server.Close()
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +230,7 @@ func TestListModelsOwnsResponseCloseAndPreservesFailure(t *testing.T) {
 	closeErr := errors.New("response close failed")
 	body := &modelListClosingBody{Reader: strings.NewReader(`{"data":[],"has_more":false}`), closeErr: closeErr}
 	client := &http.Client{Transport: modelListTransport{body: body}}
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: client})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: client}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}

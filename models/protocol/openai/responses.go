@@ -62,14 +62,13 @@ var (
 	_ corechat.Streamer = (*Responses)(nil)
 )
 
-func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, error) {
-	return NewCompatibleResponses(ctx, config, ResponsesDialect{Provider: "openai"})
-}
-
-// NewCompatibleResponses shares the Responses event lifecycle with a provider
+// NewResponses shares the Responses event lifecycle with a provider
 // that explicitly implements it. Provider wrappers expose only supported
 // optional capabilities such as model discovery or input-token counting.
-func NewCompatibleResponses(ctx context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
+func NewResponses(ctx context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
+	if err := requireBindingEndpoint(dialect.Provider, config.BaseURL); err != nil {
+		return nil, err
+	}
 	if err := dialect.Validate(); err != nil {
 		return nil, err
 	}
@@ -93,16 +92,7 @@ func (r *Responses) ListModels(ctx context.Context, maxModels int, maxResponseBy
 }
 
 func (r *Responses) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	var accumulator corechat.ResponseAccumulator
-	for delta, err := range r.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if addErr := accumulator.Add(delta); addErr != nil {
-			return nil, addErr
-		}
-	}
-	return accumulator.Response()
+	return corechat.Collect(r.Stream(ctx, req))
 }
 
 // CountInputTokens calls the provider's Responses input-token endpoint with

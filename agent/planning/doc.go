@@ -1,0 +1,26 @@
+// Package planning provides goal-directed state planning as an Agent execution
+// strategy. Goal, Condition, WorldState, Action, and Plan belong exclusively to
+// this package; the Agent kernel sees only opaque Execution state and Effects.
+//
+// Planning separates predicted Action semantics from external execution. A
+// Planner is a pure, deterministic search over a Problem. A managed Planning
+// Execution reads the real world through a Sensor and executes selected Actions
+// outside its Step through a Program-bound dispatcher or a child Process,
+// then senses again before accepting that the prediction became true. A Sensor
+// supplies decision input; it has no role in execution telemetry.
+//
+// Attempt facts determine which Actions remain eligible. An Action reported as
+// successful remains current until sensing confirms its predicted effects;
+// failed or unconfirmed Actions are excluded from subsequent planning. Restore
+// reconstructs those decisions from the same facts used during live execution.
+// A delegated Action waits for its child subtree to drain before reobserving
+// the world. A child start or execution failure records a failed attempt;
+// it does not bypass sensing or directly establish the Action's effects.
+// Drained child subtrees with unresolved Effects fail the Process before any
+// further sensing or action. Join alone does not prove external outcomes.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Runtime-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
+package planning

@@ -25,6 +25,9 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
+	if err := requireBindingEndpoint(i.Provider, i.BaseURL); err != nil {
+		return err
+	}
 	if err := validateProvider(i.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}

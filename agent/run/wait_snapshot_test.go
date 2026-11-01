@@ -1,0 +1,148 @@
+package run
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"testing"
+)
+
+func TestSnapshotsRejectImpossibleWaitState(t *testing.T) {
+	engine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	definition := newEngineTestDefinition(t, "engine.wait", "wait")
+	deployment := engineTestDeployment(t, definition, &engineTestDispatcher{policy: ReplayPolicyNever})
+	input, _ := EncodePayload(engineTestInput{Value: "snapshot"})
+	process, err := engine.Start(t.Context(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if killErr := process.Kill(context.Background(), "test complete"); killErr != nil && !errors.Is(killErr, ErrProcessFinished) {
+			t.Error(killErr)
+		}
+		awaitResult(t, process)
+	})
+	waitForStatus(t, process, StatusWaiting)
+	waiting, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitID, _ := waiting.ProcessSnapshots()[0].WaitID()
+	id, _ := ParseSignalID("signal:answer")
+	answer, _ := NewSignalRequest(id, waitID, []byte(`{"kind":"answer","value":"approved"}`))
+	if accepted, deliveryErr := process.DeliverSignals(t.Context(), answer); !accepted || deliveryErr != nil {
+		t.Fatalf("answer = %t, %v", accepted, deliveryErr)
+	}
+	if result := awaitResult(t, process); result.Termination().Status() != StatusCompleted {
+		t.Fatalf("result = %s", result.Termination().Status())
+	}
+	completed, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The mailbox owns whether the entered wait is answered: an answered wait
+	// leaves the Process runnable (or Paused) without clearing what it entered.
+	for _, paused := range []bool{false, true} {
+		wire := controlValue(waiting.ProcessSnapshots()[0].wire())
+		signal := controlValue(answer.signal())
+		wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(signal))
+		want := StatusRunning
+		if paused {
+			wire.PauseReason, want = "inspect", StatusPaused
+		}
+		snapshot, parseErr := parseTestProcessSnapshot(controlValue(jsonv2.Marshal(wire)))
+		if parseErr != nil {
+			t.Fatalf("answered current wait rejected: %v", parseErr)
+		}
+		if _, waitingOn := snapshot.WaitID(); snapshot.Status() != want || waitingOn {
+			t.Fatalf("answered current wait status=%s waiting=%t, want %s", snapshot.Status(), waitingOn, want)
+		}
+	}
+	tests := []struct {
+		name   string
+		tree   TreeSnapshot
+		mutate func(*processSnapshotWire)
+	}{
+		{
+			name: "wait has no opening Signal", tree: waiting,
+			mutate: func(wire *processSnapshotWire) {
+				wire.Mailbox.Signals = nil
+				wire.Mailbox.SignalCursor = 0
+			},
+		},
+		{
+			name: "answer precedes opening", tree: completed,
+			mutate: func(wire *processSnapshotWire) {
+				wire.Mailbox.Signals[0], wire.Mailbox.Signals[1] = wire.Mailbox.Signals[1], wire.Mailbox.Signals[0]
+			},
+		},
+		{
+			name: "unknown current wait", tree: waiting,
+			mutate: func(wire *processSnapshotWire) {
+				unknown, _ := ParseWaitID("wait:unknown")
+				wire.CurrentWaitID = &unknown
+			},
+		},
+		{
+			name: "paused unknown current wait", tree: waiting,
+			mutate: func(wire *processSnapshotWire) {
+				unknown, _ := ParseWaitID("wait:unknown")
+				wire.PauseReason, wire.CurrentWaitID = "inspect", &unknown
+			},
+		},
+		{
+			name: "multiple answers for one wait", tree: completed,
+			mutate: func(wire *processSnapshotWire) {
+				secondID, _ := ParseSignalID("signal:second-answer")
+				request, _ := NewSignalRequest(secondID, waitID, answer.Payload())
+				signal, _ := request.signal()
+				wire.Mailbox.Signals = append(wire.Mailbox.Signals, mailboxRecordWire(signal))
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, parseErr := ParseTreeSnapshot(test.tree.JSON()); parseErr != nil {
+				t.Fatalf("valid baseline: %v", parseErr)
+			}
+			wire, err := test.tree.ProcessSnapshots()[0].wire()
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&wire)
+			data, err := jsonv2.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, parseErr := parseTestProcessSnapshot(data); !errors.Is(parseErr, ErrInvalidSnapshot) {
+				t.Errorf("Process parser = %v; want ErrInvalidSnapshot", parseErr)
+			}
+			var fields map[string]json.RawMessage
+			if decodeErr := jsonv2.Unmarshal(test.tree.JSON(), &fields); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			fields["process_snapshots"], err = jsonv2.Marshal([]json.RawMessage{data})
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := jsonv2.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, parseErr := ParseTreeSnapshot(encoded); !errors.Is(parseErr, ErrInvalidTreeSnapshot) || !errors.Is(parseErr, ErrInvalidSnapshot) {
+				t.Errorf("Tree parser = %v; want ErrInvalidTreeSnapshot and ErrInvalidSnapshot", parseErr)
+			}
+		})
+	}
+}

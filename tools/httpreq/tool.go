@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
@@ -36,7 +35,7 @@ func NewTool(client *Client) (*Tool, error) {
 	return t, nil
 }
 
-func (t *Tool) Definition() chat.ToolDefinition { return t.inner.Definition() }
+func (t *Tool) Definition() toolcontract.Definition { return t.inner.Definition() }
 
 func (t *Tool) Unwrap() toolcontract.Tool { return t.inner }
 
@@ -73,7 +72,7 @@ func admissionFailure(admission *admissionError) error {
 	}
 	cause := fmt.Errorf("httpreq: request: %w", admission)
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind: kind, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
+		Kind: kind, Cause: cause, Output: toolcontract.NewTextOutput(cause.Error()),
 	})
 	if err != nil {
 		return errors.Join(cause, err)

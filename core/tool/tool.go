@@ -8,7 +8,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -22,7 +21,7 @@ var (
 type Tool interface {
 	// Definition returns a detached, valid schema snapshot. Callers may expose or
 	// mutate the returned value without changing subsequent calls or execution.
-	Definition() chat.ToolDefinition
+	Definition() Definition
 	// Call executes one schema-validated invocation. Implementations still own
 	// capability-specific semantic validation. Ordinary failure is returned as
 	// error without assigning retry or control-flow meaning. Implementations must
@@ -36,7 +35,7 @@ type Tool interface {
 
 // contractState is the frozen trust boundary. The compiled input Schema owns the
 // input-schema fact: it already carries the canonical JSON the Definition
-// projects, so storing a separate chat.ToolDefinition would keep a second,
+// projects, so storing a separate Definition would keep a second,
 // possibly key-reordered, copy of the same schema. Only the name and description,
 // which the Schema does not hold, are kept alongside it.
 type contractState struct {
@@ -46,7 +45,7 @@ type contractState struct {
 	validate    func([]byte) error
 }
 
-// Contract is the immutable trust boundary from an untrusted chat.ToolCall to
+// Contract is the immutable trust boundary from an untrusted Request to
 // an Invocation. It retains the frozen definition, compiled schema, and input
 // validator without retaining an executable Tool. It is safe for concurrent use
 // independently of the Tool.
@@ -88,14 +87,22 @@ func Bind(executable Tool) (Binding, error) {
 // invocations. Retaining it does not retain the executable Tool.
 func (b Binding) Contract() Contract { return b.contract }
 
+// Name identifies the frozen execution target without copying its schema.
+func (c Contract) Name() string {
+	if c.state == nil {
+		return ""
+	}
+	return c.state.name
+}
+
 // Definition projects an independent snapshot of the frozen definition from its
 // single schema owner. InputSchema is the compiled Schema's canonical JSON, so
 // the exposed definition and the enforced contract never disagree on bytes.
-func (c Contract) Definition() chat.ToolDefinition {
+func (c Contract) Definition() Definition {
 	if c.state == nil {
-		return chat.ToolDefinition{}
+		return Definition{}
 	}
-	return chat.ToolDefinition{
+	return Definition{
 		Name:        c.state.name,
 		Description: c.state.description,
 		InputSchema: c.state.input.JSON(),
@@ -116,7 +123,7 @@ type Invocation struct {
 // or authorization policy. Blank arguments are normalized to the empty object.
 // A nil continuation starts a new logical call. A driving runtime may pass an
 // answer only for the same call that produced its committed InputRequest.
-func (c Contract) Prepare(call chat.ToolCall, continuation *Continuation) (Invocation, error) {
+func (c Contract) Prepare(call Request, continuation *Continuation) (Invocation, error) {
 	if c.state == nil {
 		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
 	}

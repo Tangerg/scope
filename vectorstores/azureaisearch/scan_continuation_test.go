@@ -7,7 +7,6 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
-	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
@@ -39,16 +38,14 @@ func TestFilteredSearchCompletesNativeScanContinuation(t *testing.T) {
 					t.Error(err)
 				}
 			}
-			response, err := fixture.store().Search(t.Context(), &vectorstore.SearchRequest{
-				Query: "query", Options: vectorstore.SearchOptions{Filter: filter.EQ("tenant", "one")},
-			})
+			response, err := fixture.store().Scan(t.Context(), testScan(filter.EQ("tenant", "one")))
 			if lateFailure {
-				if err == nil || response != nil || fixture.modelCalls.Load() != 0 {
-					t.Fatalf("incomplete scan hid invalid metadata: response=%v calls=%d error=%v", response, fixture.modelCalls.Load(), err)
+				if err == nil || response != nil {
+					t.Fatalf("incomplete scan hid invalid metadata: response=%v error=%v", response, err)
 				}
 				return
 			}
-			if err != nil || response == nil || len(response.Results) != 1 || response.Results[0].Document.ID != "one" {
+			if err != nil || response == nil || len(response) != 1 || response[0].ID != "one" {
 				t.Fatalf("scan continuation lost eligible document: response=%v error=%v", response, err)
 			}
 		})

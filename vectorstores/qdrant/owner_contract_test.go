@@ -1,7 +1,6 @@
 package qdrant
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,8 +11,7 @@ import (
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -22,7 +20,7 @@ import (
 func TestMetadataHasOneLosslessCoreCodec(t *testing.T) {
 	for _, facts := range []metadata.Map{nil, {}, {"huge": json.RawMessage(`1e1000`), "decimal": json.RawMessage(`1.00000000000000001`), "nested": json.RawMessage(`{"list":[null,true,{}]}`), "content": json.RawMessage(`"user value"`)}} {
 		store, _ := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "text🙂", Metadata: facts}})
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}})
 		if err != nil || len(response.Results) != 1 {
 			t.Fatalf("response=%v err=%v", response, err)
 		}
@@ -33,42 +31,14 @@ func TestMetadataHasOneLosslessCoreCodec(t *testing.T) {
 	}
 }
 
-type singletonBatcher struct{}
-
-func (s singletonBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, 1)), nil
-}
-
 func TestEveryNativeVectorIsPreparedBeforePublication(t *testing.T) {
-	for _, failure := range []string{"model", "width", "FLOAT32"} {
-		t.Run(failure, func(t *testing.T) {
-			store, fixture := qdrantFilterStore(t, nil)
-			store.documentBatcher = singletonBatcher{}
-			calls := 0
-			model, err := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				calls++
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch failure {
-					case "model":
-						return nil, errors.New("later model failed")
-					case "width":
-						vector = []float64{1}
-					case "FLOAT32":
-						vector[0] = math.MaxFloat64
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			store.embeddingClient = model
-			err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "1", Text: "first"}, {ID: "2", Text: "last"}}})
-			if err == nil || fixture.upserts != 0 {
-				t.Fatalf("prepared invalid batch was published: %d, %v", fixture.upserts, err)
-			}
-		})
+	for _, coords := range [][]float64{{1}, {math.MaxFloat64, 0}} {
+		store, fixture := qdrantFilterStore(t, nil)
+		batch := fixtureBatch([]*document.Document{{ID: "1", Text: "first"}, {ID: "2", Text: "last"}})
+		batch.Records[1].Values = coords
+		if err := store.Upsert(t.Context(), batch); err == nil || fixture.upserts != 0 {
+			t.Fatalf("invalid vector published: %d, %v", fixture.upserts, err)
+		}
 	}
 }
 
@@ -79,7 +49,11 @@ func TestNativeMetadataConditionRetainsConcurrentUpdate(t *testing.T) {
 	}
 	store, fixture := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "changed", Metadata: facts}, {ID: "2", Text: "retained selection", Metadata: facts}})
 	fixture.beforeDelete = func() {
-		fixture.points[0].Payload[metadataField] = &qdrantclient.Value{Kind: &qdrantclient.Value_StringValue{StringValue: `{"value":"b"}`}}
+		changed, encodeErr := encodeRecord(&document.Document{ID: "1", Text: "changed", Metadata: metadata.Map{"value": []byte(`"b"`)}})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		fixture.points[0].Payload = changed.Payload
 	}
 	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "a")); err != nil {
 		t.Fatal(err)
@@ -93,7 +67,7 @@ func TestNativeRanksMergeBeforeCoreNormalization(t *testing.T) {
 	for _, metric := range []qdrantclient.Distance{qdrantclient.Distance_Cosine, qdrantclient.Distance_Dot, qdrantclient.Distance_Euclid, qdrantclient.Distance_Manhattan} {
 		t.Run(metric.String(), func(t *testing.T) {
 			var docs []*document.Document
-			for i := range filterPageSize + 1 {
+			for i := range 257 {
 				facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})
 				if err != nil {
 					t.Fatal(err)
@@ -109,7 +83,7 @@ func TestNativeRanksMergeBeforeCoreNormalization(t *testing.T) {
 			if metric == qdrantclient.Distance_Euclid || metric == qdrantclient.Distance_Manhattan {
 				fixture.scores[docs[len(docs)-1].ID] = 0
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID {
 				t.Fatalf("ranking=%v error=%v", response, err)
 			}
@@ -117,7 +91,7 @@ func TestNativeRanksMergeBeforeCoreNormalization(t *testing.T) {
 	}
 }
 
-func TestCompleteSourceValidationPrecedesSelection(t *testing.T) {
+func TestReturnedRecordsAreValidated(t *testing.T) {
 	for name, mutate := range map[string]func(*qdrantclient.PointStruct){
 		"missing content": func(point *qdrantclient.PointStruct) { delete(point.Payload, contentField) },
 		"expanded payload": func(point *qdrantclient.PointStruct) {
@@ -137,11 +111,11 @@ func TestCompleteSourceValidationPrecedesSelection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store, fixture := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "text"}})
 			mutate(fixture.points[0])
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.EQ("value", "absent")}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{MinScore: 1}})
 			if err == nil || response != nil {
 				t.Fatalf("malformed source became empty success: %v, %v", response, err)
 			}
-			if err = store.DeleteWhere(t.Context(), filter.IsNull("value")); err == nil || len(fixture.deleted) > 0 {
+			if err = store.DeleteWhere(t.Context(), filter.GT("value", 2)); err == nil || len(fixture.deleted) > 0 {
 				t.Fatalf("incomplete source allowed deletion: %v", err)
 			}
 		})
@@ -154,6 +128,7 @@ func TestNativeQueryFailuresNeverReturnPartialSuccess(t *testing.T) {
 			store, fixture := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "text"}})
 			if failure == "negative distance" {
 				store.schema.metric = qdrantclient.Distance_Euclid
+				fixture.metric = store.schema.metric
 			}
 			fixture.queryHook = func(*qdrantclient.QueryPoints) (*qdrantclient.QueryResponse, error) {
 				point := fixture.points[0]
@@ -177,7 +152,7 @@ func TestNativeQueryFailuresNeverReturnPartialSuccess(t *testing.T) {
 				}
 				return page, nil
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 2, MinScore: 1}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2, MinScore: 1}})
 			if err == nil || response != nil {
 				t.Fatalf("invalid hit produced response=%v error=%v", response, err)
 			}
@@ -185,30 +160,26 @@ func TestNativeQueryFailuresNeverReturnPartialSuccess(t *testing.T) {
 	}
 }
 
-func TestNativeScrollRejectsRepeatedIdentitiesAndOffsets(t *testing.T) {
-	for _, mode := range []string{"nil", "duplicate", "offset", "oversized"} {
-		t.Run(mode, func(t *testing.T) {
-			store, fixture := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "text"}})
-			fixture.scrollHook = func(*qdrantclient.ScrollPoints) (*qdrantclient.ScrollResponse, error) {
-				point := fixture.points[0]
-				record := &qdrantclient.RetrievedPoint{Id: point.Id, Payload: point.Payload, Vectors: nativeOutput(point.Vectors)}
-				page := &qdrantclient.ScrollResponse{Result: []*qdrantclient.RetrievedPoint{record}}
-				switch mode {
-				case "nil":
-					page.Result[0] = nil
-				case "duplicate":
-					page.Result = append(page.Result, record)
-				case "offset":
-					page.Result = nil
-					page.NextPageOffset = point.Id
-				case "oversized":
-					page.Result = make([]*qdrantclient.RetrievedPoint, filterPageSize+1)
-				}
-				return page, nil
-			}
-			if err := store.DeleteWhere(t.Context(), filter.IsNull("value")); err == nil || len(fixture.deleted) != 0 {
-				t.Fatalf("incomplete selection mutated: %v", err)
-			}
-		})
+func TestNativeFilterNeverScrolls(t *testing.T) {
+	store, fixture := qdrantFilterStore(t, []*document.Document{{ID: "1", Text: "text"}})
+	if _, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteWhere(t.Context(), filter.IsNull("value")); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.scrolls != 0 {
+		t.Fatalf("native predicate triggered %d full-source scrolls", fixture.scrolls)
+	}
+}
+
+func TestReservedStorageFieldRejectsEntireBatchBeforePublication(t *testing.T) {
+	store, fixture := qdrantFilterStore(t, nil)
+	docs := []*document.Document{{ID: "1", Text: "valid"}, {ID: "2", Text: "forged", Metadata: metadata.Map{document.StoredProvenanceKey: json.RawMessage("null")}}}
+	if err := store.CheckDocuments(t.Context(), fixtureSpace, docs); !errors.Is(err, vectorstore.ErrInvalidDocument) {
+		t.Fatalf("admission accepted a forged source: %v", err)
+	}
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); !errors.Is(err, vectorstore.ErrInvalidDocument) || fixture.upserts != 0 {
+		t.Fatalf("invalid batch produced %d native writes: %v", fixture.upserts, err)
 	}
 }

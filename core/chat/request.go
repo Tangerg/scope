@@ -4,6 +4,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 var ErrInvalidRequest = errors.New("chat: invalid request")
@@ -12,10 +14,10 @@ var ErrInvalidRequest = errors.New("chat: invalid request")
 // and Clone snapshot every mutable nested value before middleware or providers
 // receive it.
 type Request struct {
-	Messages   []Message        `json:"messages"`
-	Tools      []ToolDefinition `json:"tools,omitempty"`
-	ToolChoice *ToolChoice      `json:"tool_choice,omitzero"`
-	Options    Options          `json:"options,omitzero"`
+	Messages   []Message                 `json:"messages"`
+	Tools      []toolcontract.Definition `json:"tools,omitempty"`
+	ToolChoice *ToolChoice               `json:"tool_choice,omitzero"`
+	Options    Options                   `json:"options,omitzero"`
 }
 
 func (r *Request) Clone() *Request {
@@ -24,7 +26,7 @@ func (r *Request) Clone() *Request {
 	}
 	clone := &Request{
 		Messages:   make([]Message, len(r.Messages)),
-		Tools:      make([]ToolDefinition, len(r.Tools)),
+		Tools:      make([]toolcontract.Definition, len(r.Tools)),
 		ToolChoice: r.ToolChoice.Clone(),
 		Options:    r.Options.Clone(),
 	}
@@ -81,6 +83,9 @@ func (r *Request) validateTools() (map[string]struct{}, error) {
 	for i := range r.Tools {
 		if err := r.Tools[i].Validate(); err != nil {
 			return nil, fmt.Errorf("%w: tools[%d]: %w", ErrInvalidRequest, i, err)
+		}
+		if err := ValidateToolName(r.Tools[i].Name); err != nil {
+			return nil, err
 		}
 		if _, duplicate := toolNames[r.Tools[i].Name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate tool name %q", ErrInvalidRequest, r.Tools[i].Name)

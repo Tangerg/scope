@@ -38,8 +38,8 @@ func TestReadsRejectEveryIncompleteCurrentRecord(t *testing.T) {
 			store, native := fixtureStore(t)
 			installDocuments(t, store, &document.Document{ID: "one", Text: "text"}, &document.Document{ID: "two", Text: "text"})
 			mutate(native.points["two"])
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.EQ("absent", "value")}})
-			if err == nil || response != nil || len(native.queries) != 0 {
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 1}})
+			if err == nil || response != nil || len(native.queries) != 1 {
 				t.Fatalf("corrupt source became apparent empty success: %v, %v", response, err)
 			}
 			if err = store.DeleteWhere(t.Context(), filter.IsNull("absent")); err == nil || len(native.points) != 2 {
@@ -49,64 +49,22 @@ func TestReadsRejectEveryIncompleteCurrentRecord(t *testing.T) {
 	}
 }
 
-func TestSelectionFailuresNeverPublishDeletionOrQuery(t *testing.T) {
-	for _, failure := range []string{"nil list", "wrong namespace", "nil ID", "empty ID", "duplicate ID", "oversized list", "repeat token", "list error", "nil fetch", "missing fetch", "wrong fetch namespace", "wrong fetched identity", "fetch error"} {
-		t.Run(failure, func(t *testing.T) {
-			store, native := fixtureStore(t)
-			installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
-			native.list = func(*pineconesdk.ListVectorsRequest) (*pineconesdk.ListVectorsResponse, error) {
-				page := &pineconesdk.ListVectorsResponse{Namespace: native.Namespace(), VectorIds: []*string{new("one")}}
-				switch failure {
-				case "nil list":
-					return nil, nil
-				case "wrong namespace":
-					page.Namespace = "other"
-				case "nil ID":
-					page.VectorIds = []*string{nil}
-				case "empty ID":
-					page.VectorIds = []*string{new("")}
-				case "duplicate ID":
-					page.VectorIds = append(page.VectorIds, new("one"))
-				case "oversized list":
-					page.VectorIds = make([]*string, metadataListPageSize+1)
-				case "repeat token":
-					page.VectorIds = nil
-					page.NextPaginationToken = new("repeated")
-				case "list error":
-					return nil, errNativeFailure
-				}
-				return page, nil
-			}
-			native.fetch = func([]string) (*pineconesdk.FetchVectorsResponse, error) {
-				page := &pineconesdk.FetchVectorsResponse{Namespace: native.Namespace(), Vectors: map[string]*pineconesdk.Vector{"one": clonePoint(native.points["one"])}}
-				switch failure {
-				case "nil fetch":
-					return nil, nil
-				case "missing fetch":
-					delete(page.Vectors, "one")
-				case "wrong fetch namespace":
-					page.Namespace = "other"
-				case "wrong fetched identity":
-					page.Vectors["one"].Id = "other"
-				case "fetch error":
-					return nil, errNativeFailure
-				}
-				return page, nil
-			}
-			// A filtered Search exercises the selection path; its failures must prevent
-			// the query. An unfiltered Search no longer selects, so it cannot be used
-			// to drive these cases.
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "a")}})
-			if err == nil || response != nil || len(native.queries) != 0 {
-				t.Fatalf("response=%v error=%v", response, err)
-			}
-			if err = store.DeleteWhere(t.Context(), filter.IsNull("value")); err == nil || native.points["one"] == nil {
-				t.Fatalf("deleted with incomplete selection: %v", err)
-			}
-		})
+func TestUnsupportedPredicatesDoNotQueryOrDelete(t *testing.T) {
+	store, native := fixtureStore(t)
+	installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
+	for _, p := range []filter.Predicate{filter.EQ("value", uint64(9007199254740993)), filter.IsNull("tenant")} {
+		q := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{Filter: p}}
+		if hits, err := store.Query(t.Context(), q); hits != nil || !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
+			t.Fatalf("query=%v err=%v", hits, err)
+		}
+		if err := store.DeleteWhere(t.Context(), p); !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
+			t.Fatal(err)
+		}
+	}
+	if len(native.queries) != 0 || len(native.points) != 1 {
+		t.Fatal("unsupported predicate reached native ranking or deletion")
 	}
 }
-
 func TestSearchDoesNotHideMalformedLowScoreHits(t *testing.T) {
 	for _, failure := range []string{"nil response", "query error", "wrong namespace", "too many hits", "nil hit", "nil vector", "duplicate hit", "bad metadata", "changed membership", "NaN score", "negative distance"} {
 		t.Run(failure, func(t *testing.T) {
@@ -144,7 +102,7 @@ func TestSearchDoesNotHideMalformedLowScoreHits(t *testing.T) {
 				}
 				return page, nil
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 2, MinScore: 1, Filter: filter.IsNull("value")}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 2, MinScore: 1, Filter: filter.IsNull("value")}})
 			if err == nil || response != nil {
 				t.Fatalf("malformed low score hit succeeded: %v, %v", response, err)
 			}
@@ -152,12 +110,12 @@ func TestSearchDoesNotHideMalformedLowScoreHits(t *testing.T) {
 	}
 }
 
-func TestSearchRequestAndEmptyResultContracts(t *testing.T) {
+func TestVectorQueryAndEmptyResultContracts(t *testing.T) {
 	store, native := fixtureStore(t)
-	if response, err := store.Search(t.Context(), nil); response != nil || err == nil {
+	if response, err := store.Query(t.Context(), nil); response != nil || err == nil {
 		t.Fatal("nil request succeeded")
 	}
-	if response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: MaxTopK + 1}}); response != nil || !errors.Is(err, vectorstore.ErrInvalidOptions) {
+	if response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: MaxTopK + 1}}); response != nil || !errors.Is(err, vectorstore.ErrInvalidOptions) {
 		t.Fatalf("TopK: %v, %v", response, err)
 	}
 	// An unfiltered Search issues the native query directly instead of listing the
@@ -166,21 +124,18 @@ func TestSearchRequestAndEmptyResultContracts(t *testing.T) {
 	native.query = func(*pineconesdk.QueryByVectorValuesRequest) (*pineconesdk.QueryVectorsResponse, error) {
 		return &pineconesdk.QueryVectorsResponse{Namespace: native.Namespace()}, nil
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")})
 	if err != nil || response == nil || len(response.Results) != 0 || len(native.queries) != 1 {
 		t.Fatalf("empty namespace: %v, %v", response, err)
 	}
 	installDocuments(t, store, &document.Document{ID: "one", Text: "text"})
-	if response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"}); err != nil || response == nil || len(response.Results) != 0 {
+	if response, err = store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")}); err != nil || response == nil || len(response.Results) != 0 {
 		t.Fatalf("empty query: %v, %v", response, err)
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	native.list = func(*pineconesdk.ListVectorsRequest) (*pineconesdk.ListVectorsResponse, error) {
-		return nil, context.Cause(canceled)
-	}
 	// A filtered Search reaches the selection path that observes cancellation.
-	if response, err = store.Search(canceled, &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "a")}}); response != nil || !errors.Is(err, context.Canceled) {
+	if response, err = store.Query(canceled, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "a")}}); response != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled: %v, %v", response, err)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -15,33 +14,42 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-type testBatcher struct{ size int }
+const testSpace vectorstore.SpaceID = "test-encoder-v1"
 
-func (t testBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, cmp.Or(t.size, 32))), nil
+func testPartition() string { return testSpace.StorageKey() + ":library" }
+func testBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: testSpace}
+	for _, d := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: d, Values: []float64{1, 0}})
+	}
+	return b
 }
-
-func constantModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func testScan(p filter.Predicate) ScanConfig {
+	return ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: 5 * time.Second}}
+}
+func scanIDs(ctx context.Context, s *Store, p filter.Predicate) ([]string, error) {
+	docs, err := s.Scan(ctx, testScan(p))
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.ID
+	}
+	return ids, nil
 }
 
 type queryWire struct {
@@ -70,12 +78,13 @@ type protocolFixture struct {
 	scanScript []queryPage
 	rankScript []queryPage
 	deleteHook func(http.ResponseWriter, *http.Request) bool
+	writeHook  func(http.ResponseWriter, string) bool
 	nextETag   int
 }
 
 func newProtocolFixture(t *testing.T, function azcosmos.VectorDistanceFunction) *protocolFixture {
 	t.Helper()
-	fixture := &protocolFixture{t: t, properties: map[string]any{"id": "vectors", "partitionKey": map[string]any{"kind": "Hash", "paths": []string{"/partition_key"}}, "vectorEmbeddingPolicy": map[string]any{"vectorEmbeddings": []any{map[string]any{"path": "/embedding", "dataType": "float32", "distanceFunction": string(function), "dimensions": 2}}}}, records: make(map[string]json.RawMessage), scores: make(map[string]float64), pageSize: 2, partition: "library"}
+	fixture := &protocolFixture{t: t, properties: map[string]any{"id": "vectors", "partitionKey": map[string]any{"kind": "Hash", "paths": []string{"/partition_key"}}, "vectorEmbeddingPolicy": map[string]any{"vectorEmbeddings": []any{map[string]any{"path": "/embedding", "dataType": "float32", "distanceFunction": string(function), "dimensions": 2}}}}, records: make(map[string]json.RawMessage), scores: make(map[string]float64), pageSize: 2, partition: testPartition()}
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.server.Close)
 	credential, err := azcosmos.NewKeyCredential("dGVzdA==")
@@ -93,9 +102,9 @@ func newProtocolFixture(t *testing.T, function azcosmos.VectorDistanceFunction) 
 	return fixture
 }
 
-func (p *protocolFixture) store(model embedding.Model, size int) *Store {
+func (p *protocolFixture) store() *Store {
 	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Container: p.container, PartitionKey: "library", EmbeddingModel: model, DocumentBatcher: testBatcher{size: size}})
+	store, err := NewStore(p.t.Context(), StoreConfig{Container: p.container, PartitionKey: "library", Space: testSpace})
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -128,12 +137,17 @@ func (p *protocolFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		id := strings.TrimPrefix(r.URL.Path, "/dbs/test/colls/vectors/docs/")
 		var record itemRecord
+		if _, ok := p.records[id]; !ok {
+			w.WriteHeader(404)
+			p.respond(w, map[string]string{"code": "NotFound"})
+			return
+		}
 		if err := jsonv2.Unmarshal(p.records[id], &record); err != nil {
 			p.t.Error(err)
 			w.WriteHeader(404)
 			return
 		}
-		if record.ETag == nil || r.Header.Get("If-Match") != *record.ETag {
+		if r.Header.Get("If-Match") != "" && (record.ETag == nil || r.Header.Get("If-Match") != *record.ETag) {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			p.respond(w, map[string]string{"code": "PreconditionFailed", "message": "changed item"})
 			return
@@ -154,6 +168,9 @@ func (p *protocolFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := jsonv2.Unmarshal(record["id"], &id); err != nil {
 			p.t.Error(err)
 			w.WriteHeader(400)
+			return
+		}
+		if p.writeHook != nil && p.writeHook(w, id) {
 			return
 		}
 		p.nextETag++
@@ -285,7 +302,7 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 
 func storedDocument(t *testing.T, doc *document.Document) json.RawMessage {
 	t.Helper()
-	record, err := encodeDocument(doc, "library")
+	record, err := encodeDocument(doc, testPartition())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,34 +315,26 @@ func storedDocument(t *testing.T, doc *document.Document) json.RawMessage {
 
 func TestNativeIDSelectionHasCoreFilterSemantics(t *testing.T) {
 	fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture.mu.Lock()
 		clear(fixture.records)
 		fixture.mu.Unlock()
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, testBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
-		if err != nil {
-			return nil, err
-		}
-		ids := make([]string, len(response.Results))
-		for i, result := range response.Results {
-			ids[i] = result.Document.ID
-		}
-		return ids, nil
+		return scanIDs(ctx, store, predicate)
 	}})
 }
 
 func TestMetadataRoundtripAndReplacement(t *testing.T) {
 	fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	for _, facts := range []metadata.Map{nil, {}, {"large": json.RawMessage(`9007199254740993`), "nested": json.RawMessage(`{"small":1.0000000000000000001,"huge":1e1000}`), "embedding": json.RawMessage(`"user fact"`)}} {
-		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text", Metadata: facts}}}); err != nil {
+		if err := store.Upsert(t.Context(), testBatch([]*document.Document{{ID: "one", Text: "text", Metadata: facts}})); err != nil {
 			t.Fatal(err)
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -333,10 +342,10 @@ func TestMetadataRoundtripAndReplacement(t *testing.T) {
 			t.Fatalf("metadata changed: %#v", response)
 		}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "replacement"}}}); err != nil {
+	if err := store.Upsert(t.Context(), testBatch([]*document.Document{{ID: "one", Text: "replacement"}})); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,30 +355,10 @@ func TestMetadataRoundtripAndReplacement(t *testing.T) {
 }
 
 func TestIndexPreparesEveryBatchBeforePublication(t *testing.T) {
-	for _, failure := range []string{"embedding", "dimension", "overflow", "underflow", "late budget", "late ID"} {
+	for _, failure := range []string{"dimension", "overflow", "underflow", "late budget", "late ID"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-			calls := 0
-			cause := errors.New("late model failure")
-			model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 && failure == "embedding" {
-					return nil, cause
-				}
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch failure {
-					case "dimension":
-						vector = []float64{1}
-					case "overflow":
-						vector = []float64{1e100, 0}
-					case "underflow":
-						vector = []float64{1e-100, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			})
-			store := fixture.store(model, 1)
+			store := fixture.store()
 			docs := []*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}}
 			if failure == "late budget" {
 				docs[1].Text = strings.Repeat("x", maxItemBytes)
@@ -377,16 +366,20 @@ func TestIndexPreparesEveryBatchBeforePublication(t *testing.T) {
 			if failure == "late ID" {
 				docs[1].ID = "invalid/path"
 			}
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs})
+			batch := testBatch(docs)
+			switch failure {
+			case "dimension":
+				batch.Records[1].Values = []float64{1}
+			case "overflow":
+				batch.Records[1].Values = []float64{1e100, 0}
+			case "underflow":
+				batch.Records[1].Values = []float64{1e-100, 0}
+			}
+			err := store.Upsert(t.Context(), batch)
 			if err == nil || fixture.writes != 0 {
 				t.Fatalf("Index = %v, published %d writes", err, fixture.writes)
 			}
-			if failure == "embedding" && !errors.Is(err, cause) {
-				t.Fatalf("cause lost: %v", err)
-			}
-			if (failure == "late budget" || failure == "late ID") && calls != 0 {
-				t.Fatalf("invalid facts invoked model %d times", calls)
-			}
+
 		})
 	}
 }

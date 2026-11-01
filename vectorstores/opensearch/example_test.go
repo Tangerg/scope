@@ -5,23 +5,17 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"slices"
+
 	"strings"
 	"time"
 
 	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/opensearch"
 )
-
-type exampleBatcher struct{}
-
-func (e exampleBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, 32)), nil
-}
 
 func ExampleNewStore() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -38,7 +32,7 @@ func ExampleNewStore() {
 		}
 	}()
 	// Provision once through the native host API before constructing Store.
-	provisionRequest, err := http.NewRequestWithContext(ctx, http.MethodPut, "/documents", strings.NewReader(`{"settings":{"index.knn":true,"index.knn.derived_source.enabled":false,"index.derived_source.enabled":false},"mappings":{"dynamic":"strict","properties":{"content":{"type":"text"},"embedding":{"type":"knn_vector","dimension":2,"method":{"name":"hnsw","engine":"lucene","space_type":"cosinesimil"}},"metadata_json":{"type":"keyword","index":false,"doc_values":false}}}}`))
+	provisionRequest, err := http.NewRequestWithContext(ctx, http.MethodPut, "/documents", strings.NewReader(`{"settings":{"index.knn":true,"index.knn.derived_source.enabled":false,"index.derived_source.enabled":false},"mappings":{"_meta":{"scope_vector_space":"paired-v1"},"dynamic":"strict","properties":{"content":{"type":"text"},"embedding":{"type":"knn_vector","dimension":2,"method":{"name":"hnsw","engine":"lucene","space_type":"cosinesimil"}},"metadata_json":{"type":"keyword","index":false,"doc_values":false}}}}`))
 	if err != nil {
 		panic(err)
 	}
@@ -52,21 +46,14 @@ func ExampleNewStore() {
 		panic(errors.Join(errors.New("native index provisioning failed"), closeErr))
 	}
 
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := opensearch.NewStore(ctx, opensearch.StoreConfig{Client: client, IndexName: "documents", EmbeddingModel: model, DocumentBatcher: exampleBatcher{}})
+	store, err := opensearch.NewStore(ctx, opensearch.StoreConfig{Client: client, IndexName: "documents", Space: "paired-v1"})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "example"}}}); err != nil {
+	if err = store.Upsert(ctx, &vectorstore.Batch{Space: "paired-v1", Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "example"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "example"}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: "paired-v1", Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
 	if err = store.DeleteIDs(ctx, []string{"one"}); err != nil {

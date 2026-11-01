@@ -8,9 +8,10 @@ import (
 	"slices"
 	"strings"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type behaviorProjection struct {
@@ -22,31 +23,31 @@ type behaviorProjection struct {
 }
 
 type behaviorTermination struct {
-	Status            agent.Status           `json:"status"`
-	Cause             agent.TerminationCause `json:"cause"`
-	FailureKind       agent.FailureKind      `json:"failure_kind,omitzero"`
-	FailureCode       string                 `json:"failure_code,omitempty"`
-	UnresolvedEffects int                    `json:"unresolved_effects,omitzero"`
+	Status            run.Status           `json:"status"`
+	Cause             run.TerminationCause `json:"cause"`
+	FailureKind       run.FailureKind      `json:"failure_kind,omitzero"`
+	FailureCode       string               `json:"failure_code,omitempty"`
+	UnresolvedEffects int                  `json:"unresolved_effects,omitzero"`
 }
 
 type behaviorEventStream struct {
-	processID agent.ProcessID
-	phase     agent.EventPhase
+	processID run.ProcessID
+	phase     run.EventPhase
 }
 
 type behaviorEvent struct {
-	ProcessPath      string                 `json:"process_path"`
-	Sequence         uint64                 `json:"sequence"`
-	StepSequence     uint64                 `json:"step_sequence,omitzero"`
-	Name             string                 `json:"name"`
-	Phase            agent.EventPhase       `json:"phase"`
-	ProcessStatus    agent.Status           `json:"process_status,omitzero"`
-	TerminationCause agent.TerminationCause `json:"termination_cause,omitempty"`
-	FailureKind      agent.FailureKind      `json:"failure_kind,omitzero"`
-	FailureCode      string                 `json:"failure_code,omitempty"`
-	StepStatus       agent.StepStatus       `json:"step_status,omitzero"`
-	EffectTarget     agent.EffectTarget     `json:"effect_target,omitempty"`
-	Settlement       agent.SettlementStatus `json:"settlement,omitzero"`
+	ProcessPath      string               `json:"process_path"`
+	Sequence         uint64               `json:"sequence"`
+	StepSequence     uint64               `json:"step_sequence,omitzero"`
+	Name             string               `json:"name"`
+	Phase            run.EventPhase       `json:"phase"`
+	ProcessStatus    run.Status           `json:"process_status,omitzero"`
+	TerminationCause run.TerminationCause `json:"termination_cause,omitempty"`
+	FailureKind      run.FailureKind      `json:"failure_kind,omitzero"`
+	FailureCode      string               `json:"failure_code,omitempty"`
+	StepStatus       run.StepStatus       `json:"step_status,omitzero"`
+	EffectTarget     run.EffectTarget     `json:"effect_target,omitempty"`
+	Settlement       run.SettlementStatus `json:"settlement,omitzero"`
 }
 
 func (b behaviorEvent) compare(other behaviorEvent) int {
@@ -60,11 +61,11 @@ func (b behaviorEvent) compare(other behaviorEvent) int {
 }
 
 type behaviorModel struct {
-	ProcessPath string                   `json:"process_path"`
-	Step        uint64                   `json:"step"`
-	Sequence    uint64                   `json:"sequence"`
-	Outcome     interaction.ModelOutcome `json:"outcome"`
-	ToolCalls   []behaviorToolDecision   `json:"tool_calls,omitempty"`
+	ProcessPath string                 `json:"process_path"`
+	Step        uint64                 `json:"step"`
+	Sequence    uint64                 `json:"sequence"`
+	Outcome     agent.ModelOutcome     `json:"outcome"`
+	ToolCalls   []behaviorToolDecision `json:"tool_calls,omitempty"`
 }
 
 type behaviorToolDecision struct {
@@ -94,9 +95,9 @@ type behaviorTool struct {
 }
 
 type behaviorToolResult struct {
-	Name    string          `json:"name"`
-	Output  chat.ToolOutput `json:"output"`
-	IsError bool            `json:"is_error,omitzero"`
+	Name    string              `json:"name"`
+	Output  toolcontract.Output `json:"output"`
+	IsError bool                `json:"is_error,omitzero"`
 }
 
 func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
@@ -116,7 +117,7 @@ func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
 	return tool, nil
 }
 
-func behaviorTerminationOf(termination agent.Termination) behaviorTermination {
+func behaviorTerminationOf(termination run.Termination) behaviorTermination {
 	projection := behaviorTermination{
 		Status: termination.Status(), Cause: termination.Cause(),
 		UnresolvedEffects: len(termination.UnresolvedEffectIDs()),
@@ -128,7 +129,7 @@ func behaviorTerminationOf(termination agent.Termination) behaviorTermination {
 	return projection
 }
 
-func (b *behaviorEvent) apply(event agent.Event) {
+func (b *behaviorEvent) apply(event run.Event) {
 	if fact, present := event.ProcessFinished(); present {
 		failure, failed := fact.Failure()
 		b.ProcessStatus = fact.Status()
@@ -170,15 +171,15 @@ func canonicalArguments(arguments string) (json.RawMessage, error) {
 }
 
 type behaviorChild struct {
-	parent agent.ProcessID
-	key    agent.ChildKey
+	parent run.ProcessID
+	key    run.ChildKey
 }
 
 // semanticProcessPaths substitutes only child identities that the Interaction owner
 // can derive exactly from a recorded model decision. Custom Strategy ChildKeys
 // remain semantic. Provider-generated ToolCall IDs are retained in the record
 // but cannot perturb this projection's process identity.
-func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []ModelCall) (map[agent.ProcessID]string, error) {
+func semanticProcessPaths(root run.ProcessID, events []run.Event, models []ModelCall) (map[run.ProcessID]string, error) {
 	relations, err := processRelationsOf(root, events)
 	if err != nil {
 		return nil, err
@@ -187,7 +188,7 @@ func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []M
 	if err != nil {
 		return nil, err
 	}
-	return relations.paths(root, func(parent agent.ProcessID, key agent.ChildKey) string {
+	return relations.paths(root, func(parent run.ProcessID, key run.ChildKey) string {
 		if segment, mapped := segments[behaviorChild{parent, key}]; mapped {
 			return segment
 		}
@@ -197,13 +198,13 @@ func semanticProcessPaths(root agent.ProcessID, events []agent.Event, models []M
 
 var interactionChildRoles = [...]struct {
 	name string
-	key  func(modelCall uint64, index uint32, call chat.ToolCall) (agent.ChildKey, error)
+	key  func(modelCall uint64, index uint32, call chat.ToolCall) (run.ChildKey, error)
 }{
-	{"tool", func(modelCall uint64, index uint32, _ chat.ToolCall) (agent.ChildKey, error) {
-		return interaction.ToolChildKey(modelCall, index)
+	{"tool", func(modelCall uint64, index uint32, _ chat.ToolCall) (run.ChildKey, error) {
+		return agent.ToolChildKey(modelCall, index)
 	}},
-	{"delegate", func(modelCall uint64, _ uint32, call chat.ToolCall) (agent.ChildKey, error) {
-		return interaction.DelegateChildKey(modelCall, call)
+	{"delegate", func(modelCall uint64, _ uint32, call chat.ToolCall) (run.ChildKey, error) {
+		return agent.DelegateChildKey(modelCall, call)
 	}},
 }
 
@@ -231,17 +232,17 @@ func interactionSegments(models []ModelCall) (map[behaviorChild]string, error) {
 // semanticCallOrder is the one structural order used by deterministic behavior
 // comparison and exact Tool assertions. It makes no claim about sibling timing.
 type semanticCallOrder struct {
-	paths  map[agent.ProcessID]string
+	paths  map[run.ProcessID]string
 	models []ModelCall
 	tools  []ToolCall
 }
 
-func orderSemanticCalls(root agent.ProcessID, events []agent.Event, models []ModelCall, tools []ToolCall) (semanticCallOrder, error) {
+func orderSemanticCalls(root run.ProcessID, events []run.Event, models []ModelCall, tools []ToolCall) (semanticCallOrder, error) {
 	paths, err := semanticProcessPaths(root, events, models)
 	if err != nil {
 		return semanticCallOrder{}, err
 	}
-	attemptOrder := make(map[agent.EffectAttemptID]uint64)
+	attemptOrder := make(map[run.EffectAttemptID]uint64)
 	for _, event := range events {
 		if fact, ok := event.EffectStarted(); ok {
 			attemptOrder[fact.AttemptID()] = event.ProcessSequence()

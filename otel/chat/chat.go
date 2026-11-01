@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
@@ -17,9 +18,8 @@ import (
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/samber/lo"
-
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
 )
@@ -415,7 +415,7 @@ func errorTypeAttribute(err error) attribute.KeyValue {
 		errortelemetry.Class{Err: corechat.ErrInvalidPart, Type: errorTypeInvalidPart},
 		errortelemetry.Class{Err: corechat.ErrInvalidToolCall, Type: errorTypeInvalidToolCall},
 		errortelemetry.Class{Err: corechat.ErrInvalidToolResult, Type: errorTypeInvalidToolResult},
-		errortelemetry.Class{Err: corechat.ErrInvalidToolDefinition, Type: errorTypeInvalidToolDefinition},
+		errortelemetry.Class{Err: toolcontract.ErrInvalidDefinition, Type: errorTypeInvalidToolDefinition},
 		errortelemetry.Class{Err: corechat.ErrInvalidOutputFormat, Type: errorTypeInvalidOutputFormat},
 		errortelemetry.Class{Err: corechat.ErrInvalidOptions, Type: errorTypeInvalidOptions},
 		errortelemetry.Class{Err: corechat.ErrInvalidUsage, Type: errorTypeInvalidUsage},

@@ -2,11 +2,12 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"net/url"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -22,7 +23,7 @@ type ToolSource struct {
 // beyond RPC sessions. It must be deterministic, side-effect-free, safe for
 // concurrent use, and free of Tool, session, or execution-backend captures.
 // Annotations are isolated and the invocation is schema-validated. Results follow
-// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool]; direct
+// [github.com/Tangerg/scope/agent.ConcurrentTool]; direct
 // Tool.Call invocations remain the host's responsibility.
 type ToolConcurrencyPolicy func(
 	sourceName, remoteName string,
@@ -34,9 +35,9 @@ type ToolConcurrencyPolicy func(
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
 type ToolDiscoveryConfig struct {
-	// If nil, names use [chat.SanitizeToolName] on "<sourceName>_<remoteName>"
-	// (or remoteName alone when sourceName is empty), with a 64-byte limit.
-	// Sanitizing can merge identities; [DiscoverTools] rejects batch collisions.
+	// Each source and remote name is a separate escaped path segment. An
+	// explicit override must remain unique; model aliasing belongs to the
+	// binding that exposes this tool to a particular model.
 	PublicName PublicToolNameFunc
 
 	// If nil, no additional request metadata is forwarded to tool calls,
@@ -53,9 +54,9 @@ func (t ToolDiscoveryConfig) publicName(sourceName, remoteName string) string {
 		return t.PublicName(sourceName, remoteName)
 	}
 	if sourceName == "" {
-		return chat.SanitizeToolName(remoteName)
+		return url.PathEscape(remoteName)
 	}
-	return chat.SanitizeToolName(sourceName + "_" + remoteName)
+	return url.PathEscape(sourceName) + "/" + url.PathEscape(remoteName)
 }
 
 func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscoveryConfig) ([]toolcontract.Tool, error) {
@@ -82,6 +83,7 @@ func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscove
 			}
 			seen[name] = struct{}{}
 			tools = append(tools, remoteTool{
+				binding:           rand.Text(),
 				session:           source.Session,
 				descriptor:        snapshot,
 				requestMeta:       config.RequestMeta,

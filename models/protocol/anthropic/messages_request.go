@@ -17,6 +17,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
@@ -486,7 +487,7 @@ func mapProtocolToolCall(call corechat.ToolCall) (anthropicsdk.ContentBlockParam
 	return anthropicsdk.NewToolUseBlock(call.ID, input, call.Name), nil
 }
 
-func mapProtocolTools(definitions []corechat.ToolDefinition) ([]anthropicsdk.ToolUnionParam, error) {
+func mapProtocolTools(definitions []toolcontract.Definition) ([]anthropicsdk.ToolUnionParam, error) {
 	tools := make([]anthropicsdk.ToolUnionParam, 0, len(definitions))
 	for i := range definitions {
 		var encodedSchema metadata.Map

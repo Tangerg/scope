@@ -8,7 +8,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	skillsrc "github.com/Tangerg/scope/skills"
 )
@@ -196,7 +195,7 @@ func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceReq
 func inputFailure(cause error) error {
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
 		Kind:   toolcontract.FailureKindFailed,
-		Output: chat.NewTextToolOutput(cause.Error()),
+		Output: toolcontract.NewTextOutput(cause.Error()),
 		Cause:  cause,
 	})
 	if err != nil {

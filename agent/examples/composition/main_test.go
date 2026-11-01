@@ -1,6 +1,8 @@
 package main
 
 import (
+	startrand "crypto/rand"
+
 	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
@@ -12,11 +14,12 @@ import (
 	"testing/synctest"
 	"time"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
-	"github.com/Tangerg/scope/agent/strategy/workflow"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
+	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 )
 
@@ -45,16 +48,16 @@ func TestRunHonorsCancellationBeforeExecution(t *testing.T) {
 
 func TestUppercaseExecutionRejectsInvalidAdvancement(t *testing.T) {
 	deployment := compositionValue(newUppercaseDeployment())
-	execution := compositionValue(deployment.Definition().Start(compositionValue(agent.EncodePayload(textInput{Text: "once"}))))
+	execution := compositionValue(deployment.Definition().Start(compositionValue(agentrun.EncodePayload(textInput{Text: "once"}))))
 	before := compositionValue(execution.Snapshot())
-	if _, err := execution.Step(t.Context(), []agent.Signal{{}}); !errors.Is(err, agent.ErrInvalidSignal) {
+	if _, err := execution.Step(t.Context(), []agentrun.Signal{{}}); !errors.Is(err, agentrun.ErrInvalidSignal) {
 		t.Fatalf("unexpected Signal error = %v", err)
 	}
 	if after := compositionValue(execution.Snapshot()); !bytes.Equal(after.Payload(), before.Payload()) {
 		t.Fatal("rejected input advanced the execution")
 	}
 	transition := compositionValue(execution.Step(t.Context(), nil))
-	if transition.Kind() != agent.TransitionKindComplete {
+	if transition.Kind() != agentrun.TransitionKindComplete {
 		t.Fatalf("valid step kind = %s, want complete", transition.Kind())
 	}
 	completed := compositionValue(execution.Snapshot())
@@ -71,7 +74,7 @@ func TestUppercaseRestoreHonorsCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := agent.ParseExecutionState(uppercaseStateKind, []byte(`{"text":"x","done":false}`))
+	state, err := agentrun.ParseExecutionState(uppercaseStateKind, []byte(`{"text":"x","done":false}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,12 +86,12 @@ func TestUppercaseRestoreHonorsCancellation(t *testing.T) {
 }
 
 type compositionFixture struct {
-	local       agent.Deployment
-	model       agent.Deployment
-	composition agent.Deployment
+	local       agentrun.Program[agentrun.Payload, agentrun.Payload]
+	model       agentrun.Program[agent.Input, agent.Output]
+	composition agentrun.Program[agentrun.Payload, agentrun.Payload]
 }
 
-func newCompositionFixture(t *testing.T, model agent.Deployment) compositionFixture {
+func newCompositionFixture(t *testing.T, model agentrun.Program[agent.Input, agent.Output]) compositionFixture {
 	t.Helper()
 	local, err := newUppercaseDeployment()
 	if err != nil {
@@ -106,9 +109,9 @@ func newCompositionFixture(t *testing.T, model agent.Deployment) compositionFixt
 	return compositionFixture{local: local, model: model, composition: composition}
 }
 
-func newCompositionEngine(t *testing.T, config agent.EngineConfig) *agent.Engine {
+func newCompositionEngine(t *testing.T, config agentrun.Config) *agentrun.Runtime {
 	t.Helper()
-	engine, err := agent.NewEngine(config)
+	engine, err := agentrun.New(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,17 +124,16 @@ func newCompositionEngine(t *testing.T, config agent.EngineConfig) *agent.Engine
 }
 
 func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
-	if _, err := newCompositionDeployment(agent.Deployment{}, agent.Deployment{}); !errors.Is(err, agent.ErrInvalidDeployment) {
+	if _, err := newCompositionDeployment(agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agentrun.Program[agent.Input, agent.Output]{}); !errors.Is(err, agentrun.ErrInvalidProgram) {
 		t.Fatalf("invalid child bindings: %v", err)
 	}
-	fixture := newCompositionFixture(t, agent.Deployment{})
+	fixture := newCompositionFixture(t, agentrun.Program[agent.Input, agent.Output]{})
 	for _, test := range []struct {
 		name  string
-		local agent.Deployment
-		model agent.Deployment
+		local agentrun.Program[agentrun.Payload, agentrun.Payload]
+		model agentrun.Program[agent.Input, agent.Output]
 	}{
-		{name: "local child has Interaction schema", local: fixture.model, model: fixture.model},
-		{name: "model child has text schema", local: fixture.local, model: fixture.local},
+		{name: "local child has Interaction schema", local: fixture.model.Erase(), model: fixture.model},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			deployment, err := newCompositionDeployment(test.local, test.model)
@@ -141,21 +143,21 @@ func TestDefinitionsRejectInvalidBoundaryValues(t *testing.T) {
 		})
 	}
 	for _, test := range []struct {
-		deployment agent.Deployment
-		input      agent.Payload
+		deployment agentrun.Program[agentrun.Payload, agentrun.Payload]
+		input      agentrun.Payload
 	}{
-		{deployment: fixture.local, input: compositionValue(agent.EncodePayload(textInput{Text: "x"}))},
-		{deployment: fixture.composition, input: compositionValue(agent.EncodePayload(compositionInput{Prompt: "x"}))},
+		{deployment: fixture.local, input: compositionValue(agentrun.EncodePayload(textInput{Text: "x"}))},
+		{deployment: fixture.composition, input: compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "x"}))},
 	} {
 		t.Run(test.deployment.Descriptor().Name(), func(t *testing.T) {
-			input := compositionValue(agent.ParsePayload([]byte(`{}`)))
+			input := compositionValue(agentrun.ParsePayload([]byte(`{}`)))
 			if _, startErr := test.deployment.Definition().Start(input); startErr == nil {
 				t.Error("Start accepted missing required input")
 			}
 			execution := compositionValue(test.deployment.Definition().Start(test.input))
 			state := compositionValue(execution.Snapshot())
 			payload := append(bytes.TrimSuffix(state.Payload(), []byte("}")), []byte(`,"unknown":true}`)...)
-			invalid := compositionValue(agent.ParseExecutionState(state.Kind(), payload))
+			invalid := compositionValue(agentrun.ParseExecutionState(state.Kind(), payload))
 			if _, err := test.deployment.Definition().Restore(t.Context(), invalid); err == nil {
 				t.Error("Restore accepted unknown state fields")
 			}
@@ -170,25 +172,25 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 }
 
 func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
-	store := agent.NewMemoryTreeCommitter()
+	store := agentrun.NewMemoryStore()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	model, dispatcher := newUncertainModelDeployment(t)
 	fixture := newCompositionFixture(t, model)
-	observations := &agenttest.ObservationRecorder{}
-	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{observations}})
+	observations := &runtest.ObservationRecorder{}
+	engine := newCompositionEngine(t, agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{observations}})
 	input, err := fixture.composition.Descriptor().EncodeInput(compositionInput{Prompt: "recovered"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := engine.Start(ctx, fixture.composition, input)
+	root, err := engine.Start(ctx, fixture.composition, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { retireWriter(t, root) })
-	unknownEvent, err := observations.AwaitEvent(ctx, func(event agent.Event) bool {
+	unknownEvent, err := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
 		fact, ok := event.EffectFinished()
-		return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown
+		return ok && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +200,7 @@ func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report, found := inspection.Process(root.Relation().ProcessID()); !found || report.Snapshot.Status() != agent.StatusWaiting {
+	if report, found := inspection.Process(root.Relation().ProcessID()); !found || report.Snapshot.Status() != agentrun.StatusWaiting {
 		t.Fatal("composition is not waiting on its unknown child")
 	}
 	tree, err := engine.CaptureTree(ctx, root.Relation().ProcessID())
@@ -209,15 +211,15 @@ func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatalf("captured Processes=%d, want the root, two adapters, and two leaves", len(tree.ProcessSnapshots()))
 	}
 
-	restoredEngine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: store})
-	restored, err := restoredEngine.RestoreTree(ctx, fixture.composition, tree)
+	restoredEngine := newCompositionEngine(t, agentrun.Config{Store: store})
+	restored, err := restoredEngine.Recover(ctx, fixture.composition, tree)
 	if err != nil {
 		t.Fatal(err)
 	}
 	child := assertRestoredUnknownChild(ctx, t, restoredEngine, restored, unknownEvent, dispatcher)
 	// The external boundary supplies the recovered result; the Host never decodes
 	// the Interaction payload or edits either Strategy's execution state.
-	var settlement agent.Settlement
+	var settlement agentrun.Settlement
 	select {
 	case settlement = <-dispatcher.settlements:
 	case <-ctx.Done():
@@ -243,14 +245,14 @@ func testUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 
 // retireWriter stops the original root after restoration fenced it, so its
 // only acceptable outcomes are completion or an incarnation conflict.
-func retireWriter(t *testing.T, root *agent.Process) {
+func retireWriter(t *testing.T, root *agentrun.Handle[agentrun.Payload]) {
 	t.Helper()
 	ctx := context.WithoutCancel(t.Context())
 	if err := root.Kill(ctx, "release retired writer"); err != nil &&
-		!errors.Is(err, agent.ErrProcessFinished) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		!errors.Is(err, agentrun.ErrProcessFinished) && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
 		t.Error(err)
 	}
-	if err := root.Join(ctx); err != nil && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+	if err := root.Join(ctx); err != nil && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
 		t.Error(err)
 	}
 }
@@ -258,11 +260,11 @@ func retireWriter(t *testing.T, root *agent.Process) {
 func assertRestoredUnknownChild(
 	ctx context.Context,
 	t *testing.T,
-	engine *agent.Engine,
-	restored *agent.Process,
-	unknownEvent agent.Event,
+	engine *agentrun.Runtime,
+	restored *agentrun.Handle[agentrun.Payload],
+	unknownEvent agentrun.Event,
 	dispatcher *lostResponseDispatcher,
-) *agent.Process {
+) *agentrun.Handle[agentrun.Payload] {
 	t.Helper()
 	child, found := engine.Process(unknownEvent.Relation().ProcessID())
 	if !found {
@@ -279,7 +281,7 @@ func assertRestoredUnknownChild(
 	if !childFound || !present || len(unknown) != 1 || unknown[0] != effectID {
 		t.Fatalf("unknown Effects=%v original=%s", unknown, effectID)
 	}
-	if !rootFound || rootReport.Snapshot.Status() != agent.StatusWaiting || dispatcher.calls.Load() != 1 {
+	if !rootFound || rootReport.Snapshot.Status() != agentrun.StatusWaiting || dispatcher.calls.Load() != 1 {
 		t.Fatalf("root status=%s dispatches=%d", rootReport.Snapshot.Status(), dispatcher.calls.Load())
 	}
 	return child
@@ -288,9 +290,9 @@ func assertRestoredUnknownChild(
 func assertRecoveredTreeCompleted(
 	ctx context.Context,
 	t *testing.T,
-	engine *agent.Engine,
-	rootID agent.ProcessID,
-	original agent.TreeSnapshot,
+	engine *agentrun.Runtime,
+	rootID agentrun.ProcessID,
+	original agentrun.TreeSnapshot,
 	dispatcher *lostResponseDispatcher,
 ) {
 	t.Helper()
@@ -307,33 +309,33 @@ func assertRecoveredTreeCompleted(
 	}
 	for _, process := range original.ProcessSnapshots() {
 		report, found := inspection.Process(process.Relation().ProcessID())
-		if !found || report.Snapshot.Status() != agent.StatusCompleted {
+		if !found || report.Snapshot.Status() != agentrun.StatusCompleted {
 			t.Fatalf("original Process %s was lost or did not complete", process.Relation().ProcessID())
 		}
 	}
 }
 
-func newUncertainModelDeployment(t *testing.T) (agent.Deployment, *lostResponseDispatcher) {
+func newUncertainModelDeployment(t *testing.T) (agentrun.Program[agent.Input, agent.Output], *lostResponseDispatcher) {
 	t.Helper()
 	client, err := chatclient.New(compositionModel{}, chatclient.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
-		Name: "example.uncertain_model", Description: "Recover a lost composition response.", MaxModelCalls: agent.NewQuota(1),
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
+		Name: "example.uncertain_model", Description: "Recover a lost composition response.", MaxModelCalls: agentrun.NewQuota(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{Model: client})
+	next, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: client})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher := &lostResponseDispatcher{next: next, settlements: make(chan agent.Settlement, 1)}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	dispatcher := &lostResponseDispatcher{next: next, settlements: make(chan agentrun.Settlement, 1)}
+	deployment, err := agentrun.Bind[agent.Input, agent.Output](agentrun.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("uncertain-composition-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("uncertain-composition-configuration")),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("uncertain-composition-implementation")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte("uncertain-composition-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -342,77 +344,77 @@ func newUncertainModelDeployment(t *testing.T) (agent.Deployment, *lostResponseD
 }
 
 type lostResponseDispatcher struct {
-	next        agent.Dispatcher
-	settlements chan agent.Settlement
+	next        agentrun.Dispatcher
+	settlements chan agentrun.Settlement
 	calls       atomic.Int64
 }
 
-func (l *lostResponseDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
+func (l *lostResponseDispatcher) Dispatch(ctx context.Context, request agentrun.EffectRequest, emit agentrun.DeltaEmitter) (agentrun.Settlement, error) {
 	l.calls.Add(1)
 	settlement, err := l.next.Dispatch(ctx, request, emit)
 	if err != nil {
-		return agent.Settlement{}, err
+		return agentrun.Settlement{}, err
 	}
 	select {
 	case l.settlements <- settlement:
-		return agent.Settlement{}, errors.New("response lost after external completion")
+		return agentrun.Settlement{}, errors.New("response lost after external completion")
 	case <-ctx.Done():
-		return agent.Settlement{}, ctx.Err()
+		return agentrun.Settlement{}, ctx.Err()
 	}
 }
 
-func (*lostResponseDispatcher) Policy(agent.Effect) agent.EffectPolicy {
-	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+func (*lostResponseDispatcher) Policy(agentrun.Effect) agentrun.EffectPolicy {
+	return agentrun.EffectPolicy{Replay: agentrun.ReplayPolicyNever}
 }
 
 func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
-	fixture := newCompositionFixture(t, agent.Deployment{})
+	fixture := newCompositionFixture(t, agentrun.Program[agent.Input, agent.Output]{})
 	base := fixture.composition
 	definition := &recordingDefinition{Definition: base.Definition()}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
 		Definition:           definition,
-		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
-		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
+		ImplementationDigest: base.ProgramRef().ImplementationDigest(),
+		ConfigurationDigest:  base.ProgramRef().ConfigurationDigest(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := newCompositionEngine(t, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine := newCompositionEngine(t, agentrun.Config{Store: agentrun.NewMemoryStore()})
 	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "boundaries"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), deployment, input)
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+	result, err := runtest.Observe(t.Context(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != agentrun.StatusCompleted {
 		t.Fatalf("result=%s error=%v", result.Termination().Status(), err)
 	}
-	agenttest.RunDefinitionConformance(t, agenttest.DefinitionConformanceConfig{
+	runtest.RunDefinitionConformance(t, runtest.DefinitionConformanceConfig{
 		Definition: base.Definition(), Input: input, RestoredCases: definition.samples,
 	})
 	for _, sample := range definition.samples {
 		t.Run(sample.Name+" rejects unexpected first signal", func(t *testing.T) {
 			execution := restoreComposition(t, base, sample)
-			if _, err := execution.Step(t.Context(), append([]agent.Signal{{}}, sample.Signals...)); err == nil {
+			if _, err := execution.Step(t.Context(), append([]agentrun.Signal{{}}, sample.Signals...)); err == nil {
 				t.Fatal("unexpected first Signal was discarded")
 			}
 		})
 	}
 	opening, completion := childWaitSamples(t, definition.samples)
-	for _, sample := range []agenttest.ExecutionConformanceCase{opening, completion} {
+	for _, sample := range []runtest.ExecutionConformanceCase{opening, completion} {
 		t.Run(sample.Name+" consumes only its prefix", func(t *testing.T) {
 			transition, err := restoreComposition(t, base, sample).Step(t.Context(), append(sample.Signals[:1:1], completion.Signals[0]))
 			if err != nil || transition.ConsumedSignals() != 1 {
 				t.Fatalf("consumed=%d error=%v", transition.ConsumedSignals(), err)
 			}
-			if sample.Name == opening.Name && transition.Kind() != agent.TransitionKindWait {
+			if sample.Name == opening.Name && transition.Kind() != agentrun.TransitionKindWait {
 				t.Fatalf("kind=%s, want wait", transition.Kind())
 			}
 		})
 	}
-	// An opening acknowledges whichever WaitID the Engine minted; only the
+	// An opening acknowledges whichever WaitID the Runtime minted; only the
 	// completion can answer another wait.
 	t.Run(completion.Name+" rejects unrelated wait", func(t *testing.T) {
-		if _, err := restoreComposition(t, base, completion).Step(t.Context(), []agent.Signal{unrelatedWaitSignal(t, completion.Signals[0])}); err == nil {
+		if _, err := restoreComposition(t, base, completion).Step(t.Context(), []agentrun.Signal{unrelatedWaitSignal(t, completion.Signals[0])}); err == nil {
 			t.Fatal("unrelated wait was accepted")
 		}
 	})
@@ -421,7 +423,7 @@ func TestCompositionRestoresEverySignalBoundary(t *testing.T) {
 	}
 }
 
-func restoreComposition(t *testing.T, deployment agent.Deployment, sample agenttest.ExecutionConformanceCase) agent.Execution {
+func restoreComposition(t *testing.T, deployment agentrun.Program[agentrun.Payload, agentrun.Payload], sample runtest.ExecutionConformanceCase) agentrun.Execution {
 	t.Helper()
 	execution, err := deployment.Definition().Restore(t.Context(), sample.State)
 	if err != nil {
@@ -430,16 +432,16 @@ func restoreComposition(t *testing.T, deployment agent.Deployment, sample agentt
 	return execution
 }
 
-func childWaitSamples(t *testing.T, samples []agenttest.ExecutionConformanceCase) (opening, completion agenttest.ExecutionConformanceCase) {
+func childWaitSamples(t *testing.T, samples []runtest.ExecutionConformanceCase) (opening, completion runtest.ExecutionConformanceCase) {
 	t.Helper()
 	for _, sample := range samples {
 		if len(sample.Signals) == 0 {
 			continue
 		}
-		if _, err := agent.ParseChildWaitOpened(sample.Signals[0]); err == nil {
+		if _, err := agentrun.ParseChildWaitOpened(sample.Signals[0]); err == nil {
 			opening = sample
 		}
-		if _, err := agent.ParseChildWaitSatisfied(sample.Signals[0]); err == nil {
+		if _, err := agentrun.ParseChildWaitSatisfied(sample.Signals[0]); err == nil {
 			completion = sample
 		}
 	}
@@ -449,7 +451,7 @@ func childWaitSamples(t *testing.T, samples []agenttest.ExecutionConformanceCase
 	return opening, completion
 }
 
-func unrelatedWaitSignal(t *testing.T, signal agent.Signal) agent.Signal {
+func unrelatedWaitSignal(t *testing.T, signal agentrun.Signal) agentrun.Signal {
 	t.Helper()
 	encoded, err := jsonv2.Marshal(signal)
 	if err != nil {
@@ -457,7 +459,7 @@ func unrelatedWaitSignal(t *testing.T, signal agent.Signal) agent.Signal {
 	}
 	waitID, _ := signal.WaitID()
 	encoded = bytes.ReplaceAll(encoded, []byte(`"`+waitID.String()+`"`), []byte(`"wait:unrelated"`))
-	var unrelated agent.Signal
+	var unrelated agentrun.Signal
 	if err := jsonv2.Unmarshal(encoded, &unrelated); err != nil {
 		t.Fatal(err)
 	}
@@ -465,11 +467,11 @@ func unrelatedWaitSignal(t *testing.T, signal agent.Signal) agent.Signal {
 }
 
 type recordingDefinition struct {
-	agent.Definition
-	samples []agenttest.ExecutionConformanceCase
+	agentrun.Definition
+	samples []runtest.ExecutionConformanceCase
 }
 
-func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (r *recordingDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {
 	execution, err := r.Definition.Start(input)
 	if err != nil {
 		return nil, err
@@ -477,7 +479,7 @@ func (r *recordingDefinition) Start(input agent.Payload) (agent.Execution, error
 	return &recordingExecution{Execution: execution, definition: r}, nil
 }
 
-func (r *recordingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (r *recordingDefinition) Restore(ctx context.Context, state agentrun.ExecutionState) (agentrun.Execution, error) {
 	execution, err := r.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
@@ -486,16 +488,16 @@ func (r *recordingDefinition) Restore(ctx context.Context, state agent.Execution
 }
 
 type recordingExecution struct {
-	agent.Execution
+	agentrun.Execution
 	definition *recordingDefinition
 }
 
-func (r *recordingExecution) Step(ctx context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (r *recordingExecution) Step(ctx context.Context, signals []agentrun.Signal) (agentrun.Transition, error) {
 	state, err := r.Snapshot()
 	if err != nil {
-		return agent.Transition{}, err
+		return agentrun.Transition{}, err
 	}
-	r.definition.samples = append(r.definition.samples, agenttest.ExecutionConformanceCase{
+	r.definition.samples = append(r.definition.samples, runtest.ExecutionConformanceCase{
 		Name: fmt.Sprintf("step %d", len(r.definition.samples)+1), State: state, Signals: slices.Clone(signals),
 	})
 	return r.Execution.Step(ctx, signals)
@@ -512,11 +514,11 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newCompositionFixture(t, newFailingModelDeployment(t))
-			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}
+			config := agentrun.Config{Store: agentrun.NewMemoryStore()}
 			if test.refuse {
-				refused := fixture.model.DeploymentRef()
-				config.ProcessAdmitter = agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
-					if admission.DeploymentRef() == refused {
+				refused := fixture.model.ProgramRef()
+				config.ProcessAdmitter = agentrun.ProcessAdmitterFunc(func(_ context.Context, admission agentrun.ProcessAdmission) error {
+					if admission.ProgramRef() == refused {
 						return errors.New("model child refused")
 					}
 					return nil
@@ -527,8 +529,8 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := engine.Run(t.Context(), fixture.composition, input)
-			if err != nil || result.Termination().Status() != agent.StatusFailed {
+			result, err := runtest.Observe(t.Context(), engine, fixture.composition, input)
+			if err != nil || result.Termination().Status() != agentrun.StatusFailed {
 				t.Fatalf("status=%s error=%v", result.Termination().Status(), err)
 			}
 			if failure, found := result.Termination().Failure(); !found || failure.Code() != test.wantCode {
@@ -544,16 +546,16 @@ func TestCompositionPreservesChildFailures(t *testing.T) {
 	}
 }
 
-func newFailingModelDeployment(t *testing.T) agent.Deployment {
+func newFailingModelDeployment(t *testing.T) agentrun.Program[agent.Input, agent.Output] {
 	t.Helper()
 	model, err := newModelDeployment()
 	if err != nil {
 		t.Fatal(err)
 	}
-	failing, err := agent.NewDeployment(agent.DeploymentConfig{
+	failing, err := agentrun.Bind[agent.Input, agent.Output](agentrun.BindingConfig{
 		Definition:           failingDefinition{Definition: model.Definition()},
-		ImplementationDigest: agent.ComputeDigest([]byte("failing-composition-child")),
-		ConfigurationDigest:  model.DeploymentRef().ConfigurationDigest(),
+		ImplementationDigest: agentrun.ComputeDigest([]byte("failing-composition-child")),
+		ConfigurationDigest:  model.ProgramRef().ConfigurationDigest(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -561,9 +563,9 @@ func newFailingModelDeployment(t *testing.T) agent.Deployment {
 	return failing
 }
 
-type failingDefinition struct{ agent.Definition }
+type failingDefinition struct{ agentrun.Definition }
 
-func (f failingDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (f failingDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {
 	execution, err := f.Definition.Start(input)
 	if err != nil {
 		return nil, err
@@ -571,7 +573,7 @@ func (f failingDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	return failingExecution{Execution: execution}, nil
 }
 
-func (f failingDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (f failingDefinition) Restore(ctx context.Context, state agentrun.ExecutionState) (agentrun.Execution, error) {
 	execution, err := f.Definition.Restore(ctx, state)
 	if err != nil {
 		return nil, err
@@ -579,28 +581,28 @@ func (f failingDefinition) Restore(ctx context.Context, state agent.ExecutionSta
 	return failingExecution{Execution: execution}, nil
 }
 
-type failingExecution struct{ agent.Execution }
+type failingExecution struct{ agentrun.Execution }
 
-func (f failingExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
-	failure, err := agent.NewFailure(agent.FailureKindExecution, "example.injected_failure", "composition child failed")
+func (f failingExecution) Step(context.Context, []agentrun.Signal) (agentrun.Transition, error) {
+	failure, err := agentrun.NewFailure(agentrun.FailureKindExecution, "example.injected_failure", "composition child failed")
 	if err != nil {
-		return agent.Transition{}, err
+		return agentrun.Transition{}, err
 	}
-	return agent.Fail(0, failure)
+	return agentrun.Fail(0, failure)
 }
 
 func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
-	fixture := newCompositionFixture(t, agent.Deployment{})
+	fixture := newCompositionFixture(t, agentrun.Program[agent.Input, agent.Output]{})
 	base := fixture.composition
 	input, err := base.Descriptor().EncodeInput(compositionInput{Prompt: "admission"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conformancetest.Run(t, agent.DeploymentConfig{
+	conformancetest.Run(t, agentrun.BindingConfig{
 		Definition:           base.Definition(),
-		ImplementationDigest: base.DeploymentRef().ImplementationDigest(),
-		ConfigurationDigest:  base.DeploymentRef().ConfigurationDigest(),
-	}, agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()}, input)
+		ImplementationDigest: base.ProgramRef().ImplementationDigest(),
+		ConfigurationDigest:  base.ProgramRef().ConfigurationDigest(),
+	}, agentrun.Config{Store: agentrun.NewMemoryStore()}, input)
 }
 
 func compositionValue[T any](value T, err error) T {
@@ -608,4 +610,11 @@ func compositionValue[T any](value T, err error) T {
 		panic(err)
 	}
 	return value
+}
+
+func TestCompositionRejectsMissingModelInputWithoutPublishingOutput(t *testing.T) {
+	r, err := (compositionModel{}).Call(t.Context(), &chat.Request{})
+	if r != nil || err == nil {
+		t.Fatalf("empty input produced %v %v", r, err)
+	}
 }

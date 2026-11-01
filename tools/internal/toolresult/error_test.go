@@ -4,7 +4,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
@@ -12,7 +11,7 @@ import (
 func TestWithEvidencePreservesAmbiguousFailureAndResponse(t *testing.T) {
 	unknown := errors.New("second operation outcome unknown")
 	failure, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: errors.New("first operation failed"), Output: chat.NewTextToolOutput("first failed"),
+		Kind: tool.FailureKindFailed, Cause: errors.New("first operation failed"), Output: tool.NewTextOutput("first failed"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -31,7 +30,7 @@ func TestWithEvidencePreservesAmbiguousFailureAndResponse(t *testing.T) {
 }
 
 func TestWithEvidencePreservesExistingOutcomeAndObservations(t *testing.T) {
-	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("denied")})
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("denied")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +39,7 @@ func TestWithEvidencePreservesExistingOutcomeAndObservations(t *testing.T) {
 		t.Fatalf("outcome owner replaced: %v", got)
 	}
 	unknown := errors.New("unknown")
-	observation, err := tool.NewCallError(tool.CallErrorConfig{Cause: unknown, Evidence: chat.NewTextToolOutput("partial")})
+	observation, err := tool.NewCallError(tool.CallErrorConfig{Cause: unknown, Evidence: tool.NewTextOutput("partial")})
 	if err != nil {
 		t.Fatal(err)
 	}

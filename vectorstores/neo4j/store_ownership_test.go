@@ -8,17 +8,17 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	native "github.com/neo4j/neo4j-go-driver/v6/neo4j"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 func TestDocumentPropertiesPreserveCoreMetadata(t *testing.T) {
-	store := &Store{idProperty: "id", textProperty: "text", metadataProperty: "metadata", embeddingProperty: "embedding"}
+	store := &Store{dimensions: 2, idProperty: "id", textProperty: "text", metadataProperty: "metadata", embeddingProperty: "embedding"}
 	cases := []metadata.Map{nil, {}, {"nested": json.RawMessage(`{"value":[null,1e1000,"\u0061"]}`), "decimal": json.RawMessage(`1.00000000000000001`), "exponent": json.RawMessage(`9007199254740993.0`), "null": json.RawMessage(`null`)}}
 	for _, values := range cases {
 		properties, err := store.documentProperties(&document.Document{ID: "id", Text: "hello", Metadata: values}, []float64{1, 0})
@@ -46,7 +46,7 @@ func TestDocumentPropertiesPreserveCoreMetadata(t *testing.T) {
 }
 
 func TestConfigDefaultsAndValidation(t *testing.T) {
-	valid := StoreConfig{Driver: &testDriver{}, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) { return nil, nil }), DocumentBatcher: testBatcher{}}
+	valid := StoreConfig{Driver: &testDriver{}, Space: fixtureSpace, Dimensions: 2}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +67,8 @@ func TestConfigDefaultsAndValidation(t *testing.T) {
 	}
 	invalid := []StoreConfig{valid, valid, valid, valid}
 	invalid[0].Driver = nil
-	invalid[1].EmbeddingModel = nil
-	invalid[2].DocumentBatcher = nil
+	invalid[1].Space = ""
+	invalid[2].Dimensions = 0
 	invalid[3].Similarity = "wrong"
 	for _, config := range invalid {
 		if err := config.Validate(); err == nil {
@@ -88,7 +88,7 @@ func recordWith(properties map[string]any) *native.Record {
 }
 
 func TestDecodeRejectsMalformedCurrentNode(t *testing.T) {
-	store := &Store{idProperty: "id", textProperty: "text", metadataProperty: "metadata", embeddingProperty: "embedding"}
+	store := &Store{dimensions: 2, idProperty: "id", textProperty: "text", metadataProperty: "metadata", embeddingProperty: "embedding"}
 	valid := func() map[string]any {
 		return map[string]any{"id": "original", "text": "hello", "metadata": `{"value":1e1000}`, "embedding": []any{float64(1), float64(0)}}
 	}
@@ -118,12 +118,6 @@ func TestDecodeRejectsMalformedCurrentNode(t *testing.T) {
 			t.Fatalf("accepted malformed record %v", values)
 		}
 	}
-}
-
-type testBatcher struct{}
-
-func (testBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
 }
 
 type testDriver struct {
@@ -183,17 +177,17 @@ func TestTransactionReturnsCloseAndCancellationErrors(t *testing.T) {
 	}
 }
 
-func TestInvalidRequestsFailBeforeModelOrDriver(t *testing.T) {
+func TestInvalidRequestsFailBeforeDriver(t *testing.T) {
 	// Invalid requests and unsupported modes are also exercised by storetest.Run.
-	store := new(Store)
-	if err := store.Index(t.Context(), nil); err == nil {
+	store := &Store{space: fixtureSpace, dimensions: 2}
+	if err := store.Upsert(t.Context(), nil); err == nil {
 		t.Fatal("accepted nil")
 	}
-	response, searchErr := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}})
+	response, searchErr := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, LexicalText: "q", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, fixtureBudget)
 	if response != nil || !errors.Is(searchErr, vectorstore.ErrUnsupportedSearchMode) {
 		t.Fatalf("response=%v err=%v", response, searchErr)
 	}
-	if err := store.DeleteWhere(t.Context(), nil); !errors.Is(err, vectorstore.ErrMissingFilter) {
+	if err := store.DeleteMatching(t.Context(), nil, fixtureBudget); !errors.Is(err, vectorstore.ErrMissingFilter) {
 		t.Fatal(err)
 	}
 	if err := store.DeleteIDs(t.Context(), nil); err != nil {
@@ -201,6 +195,27 @@ func TestInvalidRequestsFailBeforeModelOrDriver(t *testing.T) {
 	}
 	_, err := store.documentProperties(&document.Document{ID: "x", Metadata: metadata.Map{"value": json.RawMessage(`invalid`)}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "metadata") {
+		t.Fatal(err)
+	}
+}
+
+const fixtureSpace vectorstore.SpaceID = "fixture.v1"
+
+var fixtureBudget = vectorstore.ScanBudget{MaxRecords: 1000, MaxBytes: 16 << 20, Timeout: time.Minute}
+
+func TestUnindexedLabelCannotPromiseANativeQuery(t *testing.T) {
+	s := &Store{space: fixtureSpace, dimensions: 2}
+	if _, ok := any(s).(vectorstore.Querier); ok {
+		t.Fatal("unindexed label advertised an index")
+	}
+	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: "foreign", Values: []float64{0, 1}}, fixtureBudget); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{0, 1}}, vectorstore.ScanBudget{}); err == nil {
+		t.Fatal("unbudgeted full label read")
+	}
+	batch := &vectorstore.Batch{Space: fixtureSpace, Records: []vectorstore.Record{{Document: &document.Document{ID: "doc", Text: "x"}, Values: []float64{1}}}}
+	if err := s.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrInvalidRequest) {
 		t.Fatal(err)
 	}
 }

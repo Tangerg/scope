@@ -45,16 +45,7 @@ func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
 }
 
 func (c *Chat) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	var accumulator corechat.ResponseAccumulator
-	for delta, err := range c.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if addErr := accumulator.Add(delta); addErr != nil {
-			return nil, addErr
-		}
-	}
-	return accumulator.Response()
+	return corechat.Collect(c.Stream(ctx, req))
 }
 
 // Stream bridges Ollama's callback stream into Core's pull sequence. Returning

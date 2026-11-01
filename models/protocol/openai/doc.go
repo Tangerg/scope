@@ -68,7 +68,7 @@
 // commentary and final answers retain their original boundaries during replay.
 //
 // Provider packages with an OpenAI-compatible endpoint reuse the protocol
-// through [NewCompatibleChatCompletions] and select one typed [Dialect]. This
+// through [NewChatCompletions] and select one typed [Dialect]. This
 // keeps provider-only fields such as reasoning_content out of OpenAI's native
 // behavior while sharing the standard wire mapping.
 // Moderation reads the native category flags and scores before the SDK's scalar

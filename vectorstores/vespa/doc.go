@@ -1,15 +1,13 @@
-// Package vespa implements Core indexing, semantic search, and predicate deletion
-// through Vespa's Document and Search APIs. The caller deploys the application
-// package and owns its HTTP client's authentication and transport lifetime.
+// Package vespa stores precomputed vectors and searches an explicitly bounded
+// source through the Vespa Document and Search APIs. The actual native
+// document namespace is derived from the host's logical namespace, SpaceID
+// and coordinate width. Upsert validates, narrows and encodes the complete
+// batch before any write. It does not enumerate the existing corpus. Each
+// confirmed response must name the original native ID; WriteError identifies
+// acknowledged, uncertain and unattempted records.
 //
-// Metadata has one representation: scope_metadata is a string containing the
-// complete Core metadata JSON, including null versus an empty object, arbitrary
-// keys, and exact nested numbers. No business metadata attributes, presence
-// lists, or independently writable namespace fields are used. Every operation
-// visits the configured native namespace and document type with [document],
-// follows opaque continuations to completion, and validates the current three
-// document fields before filtering or writing. Core filter.Match alone selects
-// metadata. Visits are not a cross-request snapshot.
+// Metadata has one representation: scope_metadata stores the complete Core
+// metadata JSON including null versus an empty object and exact numeric values.
 //
 // The deployed schema requires Vespa 8.741.10 or newer and this shape (adapt the
 // native tensor width and configured field/profile names to the application):
@@ -45,18 +43,20 @@
 // [StoreConfig.RankingProfile] must rank solely by closeness(field, EmbeddingField),
 // with finite relevance in [0,1]. The application package owns the native metric,
 // tensor width, rank profile, and query limits. NewStore performs no I/O because
-// Vespa exposes no standard schema API on this endpoint; existing source rows
-// establish the observed tensor width, and native errors remain errors.
+// Vespa exposes no standard schema API on this endpoint. Scan verifies every
+// visited native tensor's width. A document endpoint and rank-profile name
+// alone do not prove an ANN index, so this store does not implement Querier.
 //
-// Search uses exact nearestNeighbor over groups of at most 128 selected native
-// IDs, requests every selected neighbor, validates every hit before MinScore,
+// Scan follows every opaque visit continuation and validates the complete
+// observed source before applying the predicate. It uses exact nearestNeighbor
+// over groups of at most 128 selected native IDs, requests every selected neighbor, validates every hit before MinScore,
 // and merges native relevance before applying TopK. Full coverage with no
 // degraded cause or query error is required. A silently capped query or missing
 // selected document is an error, rather than a shortened successful result.
 // This full-source approach favors exact Core semantics over native metadata
 // indexes. It performs a linear visit and does not implement hybrid search.
 //
-// DeleteWhere sends each selected native ID with a test-and-set condition
+// DeleteMatching sends each selected native ID with a test-and-set condition
 // comparing the entire observed scope_metadata string. Vespa owns the atomic
 // comparison and removal; a failed condition preserves the changed document.
 // The operation does not retry by ID or reselect replacements. This is metadata
@@ -70,9 +70,10 @@
 // responses are bounded by MaxResponseBytes. The host controls timeouts and
 // retries; this adapter adds none.
 //
-// The former metadata attribute schema and MaxHits configuration are removed.
-// Deploy the current schema and reindex from the authoritative documents; old
-// rows are rejected without compatibility reads or migrations.
+// The scan grant covers every visited record and cumulative native JSON bytes,
+// including empty continuation pages and ranking responses. Each HTTP read is
+// capped by the smaller of the per-response limit and remaining scan bytes.
+// The deadline covers the whole operation. Incomplete visits are never ranked.
 //
 // Native guarantees: https://docs.vespa.ai/en/reference/api/document-v1.html and
 // https://docs.vespa.ai/en/writing/indexing.html#documentid-example.

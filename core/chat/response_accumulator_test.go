@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -108,7 +109,7 @@ func TestResponseAccumulatorMergesInterleavedParallelToolCalls(t *testing.T) {
 }
 
 func TestResponseAccumulatorAttachesCitationsAndRefusal(t *testing.T) {
-	citation := chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com/source"}, Title: "Source"}
+	citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"}, Title: "Source"}
 	chunks := []*chat.ResponseDelta{
 		{Parts: []chat.PartDelta{chat.NewTextDelta("claim"), chat.NewCitationDelta(citation)}},
 		{Parts: []chat.PartDelta{chat.NewRefusalDelta("cannot continue")}, FinishReason: chat.FinishReasonRefusal},
@@ -286,7 +287,7 @@ func decode[T any](t *testing.T, values metadata.Map, key string) T {
 func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 	for _, last := range []chat.PartDelta{
 		chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "different", Arguments: "bad"}),
-		chat.NewCitationDelta(chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com"}}),
+		chat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com"}}),
 	} {
 		var accumulator chat.ResponseAccumulator
 		initial := &chat.ResponseDelta{
@@ -377,7 +378,7 @@ func TestUsagePresenceSurvivesStreamingAndExplicitZero(t *testing.T) {
 }
 
 func TestResponseAccumulatorRetainsCitationMetadata(t *testing.T) {
-	citation := chat.NewCitationDelta(chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com"}})
+	citation := chat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com"}})
 	if err := citation.Metadata.Set("provider_state", map[string]int{"page": 2}); err != nil {
 		t.Fatal(err)
 	}

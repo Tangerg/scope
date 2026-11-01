@@ -12,6 +12,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	scopeopenai "github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -29,7 +30,7 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 	t.Helper()
 	server := newCoreChatServer(t)
 	t.Cleanup(server.Close)
-	adapter, err := scopeopenai.NewCompatibleChatCompletions(t.Context(),
+	adapter, err := scopeopenai.NewChatCompletions(t.Context(),
 		scopeopenai.ChatCompletionsConfig{
 			APIKey:         "test-key",
 			DefaultOptions: corechat.Options{Model: "gpt-default-must-be-overridden"},
@@ -133,11 +134,11 @@ func assertCoreChatAggregated(t *testing.T, response *corechat.Response) {
 func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 	server := modeltest.OpenAISSEServer([]string{`{ "id":"chatcmpl-multiple","model":"gpt-5.2","choices":[ {"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"first"}}, {"index":1,"finish_reason":"stop","delta":{"role":"assistant","content":"second"}} ] }`})
 	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {
-		t.Fatalf("NewCompatibleChatCompletions: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request, err := corechat.NewRequest(corechat.NewUserMessage(corechat.NewTextPart("hello")))
 	if err != nil {
@@ -154,11 +155,11 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 		http.Error(writer, "unexpected provider I/O", http.StatusBadRequest)
 	}))
 	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewCompatibleChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {
-		t.Fatalf("NewCompatibleChatCompletions: %v", err)
+		t.Fatalf("NewChatCompletions: %v", err)
 	}
 	request, err := corechat.NewRequest(corechat.NewUserMessage(corechat.NewTextPart("hello")))
 	if err != nil {
@@ -200,7 +201,7 @@ func newCoreChatRequest(t *testing.T) *corechat.Request {
 		corechat.NewUserMessage(corechat.NewTextPart("Inspect these inputs."), corechat.NewMediaPart(image), corechat.NewMediaPart(file)),
 		assistant,
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "call-1", Name: "search", Output: corechat.NewTextToolOutput(`{"hits":2}`),
+			ID: "call-1", Name: "search", Output: toolcontract.NewTextOutput(`{"hits":2}`),
 		}),
 	)
 	if err != nil {
@@ -213,7 +214,7 @@ func newCoreChatRequest(t *testing.T) *corechat.Request {
 		t.Fatalf("NewOutputFormat: %v", err)
 	}
 	request.Options = corechat.Options{Model: "gpt-5.2", OutputFormat: &format, Temperature: &temperature, MaxOutputTokens: &maxTokens, Stop: []string{"<END>"}}
-	request.Tools = []corechat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name:        "search",
 		Description: "Search the index",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}`),

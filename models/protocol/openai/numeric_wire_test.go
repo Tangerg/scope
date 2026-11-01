@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -43,7 +44,7 @@ func TestOpenJSONNumbersRemainExactOnTheWire(t *testing.T) {
 			if defaults {
 				config.DefaultOptions = options
 			}
-			model, err := openai.NewChatCompletions(t.Context(), config)
+			model, err := openai.NewChatCompletions(t.Context(), config, testChatDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,7 +55,7 @@ func TestOpenJSONNumbersRemainExactOnTheWire(t *testing.T) {
 			if !defaults {
 				request.Options = options
 			}
-			request.Tools = []chat.ToolDefinition{{Name: "identify", InputSchema: json.RawMessage(schema)}}
+			request.Tools = []toolcontract.Definition{{Name: "identify", InputSchema: json.RawMessage(schema)}}
 			format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "answer", Schema: json.RawMessage(schema)})
 			if err != nil {
 				t.Fatal(err)
@@ -80,7 +81,7 @@ func TestOpenJSONNumbersRemainExactOnTheWire(t *testing.T) {
 
 func TestResponsesGenerationAndCountingKeepExactSchemas(t *testing.T) {
 	boundary := new(numericTransport)
-	model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}})
+	model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}}, testResponsesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestResponsesGenerationAndCountingKeepExactSchemas(t *testing.T) {
 		t.Fatal(err)
 	}
 	const schema = `{"type":"object","properties":{"id":{"const":9007199254740993}},"required":["id"]}`
-	request.Tools = []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
+	request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
 	format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "answer", Schema: json.RawMessage(schema)})
 	if err != nil {
 		t.Fatal(err)

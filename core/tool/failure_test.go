@@ -9,14 +9,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestFailurePreservesCauseAndOwnedOutput(t *testing.T) {
 	cause := errors.New("operation failed")
-	output := chat.ToolOutput{
-		Content: []chat.ToolContent{{Kind: chat.PartText, Text: "first"}, {Kind: chat.PartText, Text: "second"}},
+	output := tool.Output{
+		Content: []corecontent.Block{{Kind: corecontent.Text, Text: "first"}, {Kind: corecontent.Text, Text: "second"}},
 		Details: json.RawMessage(`{"committed":["one"]}`),
 	}
 	want := output.Clone()
@@ -45,11 +45,11 @@ func TestFailurePreservesCauseAndOwnedOutput(t *testing.T) {
 func TestFailureRejectsIncompleteConstruction(t *testing.T) {
 	for _, test := range []struct {
 		cause  error
-		output chat.ToolOutput
+		output tool.Output
 	}{
 		{},
 		{cause: (*os.PathError)(nil)},
-		{cause: errors.New("failed"), output: chat.ToolOutput{Details: json.RawMessage(`{`)}},
+		{cause: errors.New("failed"), output: tool.Output{Details: json.RawMessage(`{`)}},
 	} {
 		failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: test.cause, Output: test.output})
 		if failure != nil || !errors.Is(err, tool.ErrInvalidFailure) {
@@ -61,21 +61,21 @@ func TestFailureRejectsIncompleteConstruction(t *testing.T) {
 func TestNilFailureHasInvalidZeroBehavior(t *testing.T) {
 	var failure *tool.Failure
 	if failure.Error() != tool.ErrInvalidFailure.Error() || failure.Cause() != nil ||
-		!reflect.DeepEqual(failure.Output(), chat.ToolOutput{}) {
+		!reflect.DeepEqual(failure.Output(), tool.Output{}) {
 		t.Fatalf("nil Failure = error %q, cause %v, output %+v", failure.Error(), failure.Cause(), failure.Output())
 	}
 }
 
 func TestFailureKindAndDiagnosticsHaveSeparateAuthority(t *testing.T) {
 	inner, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("inner refusal"),
+		Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("inner refusal"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cause := errors.Join(context.DeadlineExceeded, inner)
 	outer, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput("complete current outcome"),
+		Kind: tool.FailureKindFailed, Cause: cause, Output: tool.NewTextOutput("complete current outcome"),
 	})
 	if err != nil {
 		t.Fatal(err)

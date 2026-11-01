@@ -37,8 +37,8 @@ func TestSearchResponseValidateForEnforcesMetadataFilter(t *testing.T) {
 			response := &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{
 				{Document: &document.Document{ID: "doc", Text: "content", Metadata: facts}, Score: 1},
 			}}
-			request := &vectorstore.SearchRequest{Query: "content", Options: vectorstore.SearchOptions{Filter: test.predicate}}
-			err = response.ValidateFor(request)
+			request := &vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{Filter: test.predicate}}
+			err = request.ValidateResponse(response)
 			if !test.wantError {
 				if err != nil {
 					t.Fatal(err)

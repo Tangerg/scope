@@ -7,20 +7,18 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 // Authorization carries only the frozen model-visible contract and validated
 // arguments, so policy code cannot bypass Contract validation or execute the invocation.
 type Authorization struct {
-	definition chat.ToolDefinition
+	definition Definition
 	arguments  []byte
 }
 
 // Definition is detached because policy implementations may retain or annotate
 // what they inspect without changing the executable contract.
-func (a Authorization) Definition() chat.ToolDefinition {
+func (a Authorization) Definition() Definition {
 	return a.definition.Clone()
 }
 
@@ -57,7 +55,7 @@ type GuardConfig struct {
 // specific public feedback uses NewFailure at its own invocation boundary.
 type Guard struct {
 	tool       Tool
-	definition chat.ToolDefinition
+	definition Definition
 	authorizer Authorizer
 }
 
@@ -80,7 +78,7 @@ func NewGuard(config GuardConfig) (Guard, error) {
 	}, nil
 }
 
-func (g Guard) Definition() chat.ToolDefinition {
+func (g Guard) Definition() Definition {
 	return g.definition.Clone()
 }
 
@@ -101,7 +99,7 @@ func (g Guard) Call(ctx context.Context, invocation Invocation) (Result, error) 
 	if !allowed {
 		failure, err := NewFailure(FailureConfig{
 			Kind:   FailureKindRejected,
-			Output: chat.NewTextToolOutput(fmt.Sprintf("error: tool %q is not authorized", g.definition.Name)),
+			Output: NewTextOutput(fmt.Sprintf("error: tool %q is not authorized", g.definition.Name)),
 		})
 		if err != nil {
 			return Result{}, err

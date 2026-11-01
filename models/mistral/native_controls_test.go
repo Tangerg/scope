@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/embedding"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/mistral"
 )
 
@@ -74,7 +75,7 @@ func TestChatMapsNamedToolChoiceAndTopK(t *testing.T) {
 	}
 	request := &chat.Request{
 		Messages:   []chat.Message{chat.NewUserMessage(chat.NewTextPart("look up"))},
-		Tools:      []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		Tools:      []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		ToolChoice: &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup", Parallelism: chat.ToolParallelismSingle},
 		Options:    chat.Options{TopK: new(int64(7))},
 	}

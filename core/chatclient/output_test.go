@@ -41,7 +41,7 @@ func TestClientOutputPreservesUnsuccessfulCompletion(t *testing.T) {
 		chat.FinishReasonRefusal, chat.FinishReasonOther,
 	} {
 		t.Run(reason.String(), func(t *testing.T) {
-			response := textResponse(`{"name":"tea","steps":[]}`)
+			response := responseWithText(t, `{"name":"tea","steps":[]}`)
 			response.Output.FinishReason = reason
 			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return response, nil
@@ -131,7 +131,7 @@ func TestClientOutputSnapshotsSchema(t *testing.T) {
 	if _, err := client.Output(t.Context(), textRequest("tea"), format); err != nil {
 		t.Fatal(err)
 	}
-	if format.contract().Schema[0] != '{' {
+	if format.Contract().Schema[0] != '{' {
 		t.Fatal("provider mutation escaped the output format snapshot")
 	}
 }
@@ -159,7 +159,7 @@ func TestClientOutputRejectsDuplicateOrInvalidFormat(t *testing.T) {
 		t.Fatalf("model called %d times for duplicate output format", calls)
 	}
 
-	if _, err := client.Output(t.Context(), textRequest("hello"), OutputFormat[recipe]{}); !errors.Is(err, ErrInvalidOutputFormat) {
+	if _, err := client.Output(t.Context(), textRequest("hello"), Format[recipe]{}); !errors.Is(err, ErrInvalidOutputFormat) {
 		t.Fatalf("zero output format = %v, want ErrInvalidOutputFormat", err)
 	}
 	var zeroClient Client

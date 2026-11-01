@@ -3,10 +3,8 @@ package chat
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/samber/lo"
 
@@ -82,19 +80,19 @@ func (c contextBudget) limited() bool { return c.maxTokens > 0 }
 // admit measures the complete encoded evidence block rather than summing
 // per-candidate counts, because JSON framing and vocabulary merges across
 // entries make those sums inexact.
-func (c contextBudget) admit(ctx context.Context, evidence []contextualEvidence) ([]byte, bool, error) {
-	encoded, err := jsonv2.Marshal(evidence)
+func (c contextBudget) admit(ctx context.Context, evidence rag.Evidence) (bool, error) {
+	block, err := evidence.Render()
 	if err != nil {
-		return nil, false, fmt.Errorf("rag: encode contextual evidence: %w", err)
+		return false, err
 	}
-	tokens, err := c.counter.CountText(ctx, string(encoded))
+	tokens, err := c.counter.CountText(ctx, block)
 	if err != nil {
-		return nil, false, fmt.Errorf("rag: count context tokens: %w", err)
+		return false, fmt.Errorf("rag: count context tokens: %w", err)
 	}
 	if tokens < 0 {
-		return nil, false, fmt.Errorf("%w: token counter returned %d", ErrInvalidContextBudget, tokens)
+		return false, fmt.Errorf("%w: TokenCounter returned %d", ErrInvalidContextBudget, tokens)
 	}
-	return encoded, tokens <= c.maxTokens, nil
+	return tokens <= c.maxTokens, nil
 }
 
 var _ rag.Augmenter = (*ContextualAugmenter)(nil)
@@ -105,12 +103,6 @@ type ContextualAugmenter struct {
 	allowEmptyContext   bool
 	formatter           document.Formatter
 	budget              contextBudget
-}
-
-type contextualEvidence struct {
-	Citation string `json:"citation"`
-	ID       string `json:"id,omitempty"`
-	Content  string `json:"content"`
 }
 
 func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmenter, error) {
@@ -144,93 +136,45 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, cand
 		return c.handleEmptyContext(query)
 	}
 
-	encodedContext, citations, err := c.formatContext(ctx, candidates)
+	selection, err := c.selectEvidence(ctx, candidates)
 	if err != nil {
 		return rag.Augmentation{}, err
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return rag.Augmentation{}, ctxErr
-	}
-
-	augmentation, err := rag.NewAugmentation(c.assemble(encodedContext, query.Text()))
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return rag.Augmentation{}, err
 	}
-	return augmentation.WithCitations(citations)
+	return selection.Augment(c.instructions+"\n\n---------------------\n", "\n---------------------\n\nQuery: "+query.Text()+"\n\nAnswer:")
 }
 
-// assemble writes the final prompt structurally: instructions, then the evidence
-// block, then the query. The augmenter owns this layout so the citations it emits
-// always correspond to evidence the prompt actually contains; a caller that needs
-// a different prompt implements rag.Augmenter and owns both text and citations.
-func (c *ContextualAugmenter) assemble(evidence, query string) string {
-	var builder strings.Builder
-	builder.WriteString(c.instructions)
-	builder.WriteString("\n\n---------------------\n")
-	builder.WriteString(evidence)
-	builder.WriteString("\n---------------------\n\nQuery: ")
-	builder.WriteString(query)
-	builder.WriteString("\n\nAnswer:")
-	return builder.String()
-}
-
-func (c *ContextualAugmenter) formatContext(ctx context.Context, candidates rag.Candidates) (string, rag.Citations, error) {
+func (c *ContextualAugmenter) selectEvidence(ctx context.Context, candidates rag.Candidates) (rag.Evidence, error) {
 	if err := candidates.Validate(); err != nil {
-		return "", nil, fmt.Errorf("rag: format context: %w", err)
+		return nil, fmt.Errorf("rag: format context: %w", err)
 	}
-	evidence := make([]contextualEvidence, 0, len(candidates))
-	citations := make(rag.Citations, 0, len(candidates))
-	var encoded []byte
-
-	for index, candidate := range candidates {
+	selected := make(rag.Evidence, 0, len(candidates))
+	for i, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
-			return "", nil, err
+			return nil, err
 		}
-		entry, err := c.evidence(index, len(citations), candidate)
+		content, err := c.formatter.Format(candidate.Document.Clone())
 		if err != nil {
-			return "", nil, err
+			return nil, fmt.Errorf("rag: format context candidate %d: %w", i, err)
 		}
-		evidence = append(evidence, entry)
+		proposed := append(selected, rag.Excerpt{Candidate: candidate, Content: content})
 		if c.budget.limited() {
-			admitted, accepted, err := c.budget.admit(ctx, evidence)
+			fits, err := c.budget.admit(ctx, proposed)
 			if err != nil {
-				return "", nil, err
+				return nil, err
 			}
-			if !accepted {
-				evidence = evidence[:len(evidence)-1]
+			if !fits {
 				continue
 			}
-			encoded = admitted
 		}
-		citations = append(citations, candidate)
+		selected = proposed
 	}
-
-	if len(evidence) == 0 {
-		return "", nil, ErrContextBudgetExceeded
+	if len(selected) == 0 {
+		return nil, ErrContextBudgetExceeded
 	}
-	if !c.budget.limited() {
-		contextEncoding, err := jsonv2.Marshal(evidence)
-		if err != nil {
-			return "", nil, fmt.Errorf("rag: encode contextual evidence: %w", err)
-		}
-		encoded = contextEncoding
-	}
-	return string(encoded), citations, nil
-}
-
-func (c *ContextualAugmenter) evidence(index, position int, candidate rag.Candidate) (contextualEvidence, error) {
-	content, err := c.formatter.Format(candidate.Document)
-	if err != nil {
-		return contextualEvidence{}, fmt.Errorf("rag: format context candidate %d: %w", index, err)
-	}
-	if strings.TrimSpace(content) == "" {
-		return contextualEvidence{}, fmt.Errorf("%w: candidate %d formatted to blank content", rag.ErrInvalidAugmentation, index)
-	}
-	return contextualEvidence{
-		Citation: rag.CitationMarker(position),
-		ID:       candidate.Document.ID,
-		Content:  content,
-	}, nil
+	return selected, nil
 }
 
 func (c *ContextualAugmenter) handleEmptyContext(query rag.Query) (rag.Augmentation, error) {

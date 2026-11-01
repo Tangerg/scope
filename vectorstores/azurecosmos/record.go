@@ -51,7 +51,7 @@ func encodeDocument(doc *document.Document, partition string) (itemRecord, error
 	if err := validateID(doc.ID); err != nil {
 		return itemRecord{}, err
 	}
-	encoded, err := doc.Metadata.MarshalJSON()
+	encoded, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return itemRecord{}, err
 	}

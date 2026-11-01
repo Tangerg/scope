@@ -8,6 +8,7 @@ import (
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -261,17 +262,17 @@ func protocolToolArguments(arguments map[string]any) (string, error) {
 	return protocolJSON(arguments)
 }
 
-func protocolCitations(metadata *genai.CitationMetadata) []corechat.Citation {
+func protocolCitations(metadata *genai.CitationMetadata) []corecontent.Citation {
 	if metadata == nil {
 		return nil
 	}
-	result := make([]corechat.Citation, 0, len(metadata.Citations))
+	result := make([]corecontent.Citation, 0, len(metadata.Citations))
 	for _, citation := range metadata.Citations {
 		if citation == nil || citation.URI == "" {
 			continue
 		}
-		mapped := corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: citation.URI},
+		mapped := corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: citation.URI},
 			Title:  citation.Title,
 		}
 		result = append(result, mapped)

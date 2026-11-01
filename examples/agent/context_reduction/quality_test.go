@@ -10,7 +10,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -55,7 +55,7 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 				calls[index] = trajectory.ToolExpectation{Name: "read_report", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: trajectory.ToolOutcomeSucceeded}
 			}
 			return (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{Actual: *value.Execution.Output, Expected: trajectory.Expectation{
-				Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls}, Limits: trajectory.Limits{DroppedDeltas: new(uint64(0))},
+				Status: agentrun.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls}, Limits: trajectory.Limits{DroppedDeltas: new(uint64(0))},
 			}})
 		})})),
 		lo.Must(eval.NewAssessment(eval.AssessmentConfig[sample]{ID: "context", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
@@ -80,7 +80,7 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dataset, err := eval.NewDataset(agent.ComputeDigest(fixture).String(), cases...)
+	dataset, err := eval.NewDataset(agentrun.ComputeDigest(fixture).String(), cases...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 // Tool protocol still complete; otherwise the gate would only test execution.
 type corruptingReducer struct{}
 
-func (corruptingReducer) ReduceModelContext(_ context.Context, _ interaction.ModelInvocation, request *chat.Request) ([]chat.Message, error) {
+func (corruptingReducer) PrepareContext(_ context.Context, _ agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	messages := request.Clone().Messages
 	for _, message := range messages {
 		for _, part := range message.Parts {

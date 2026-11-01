@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -236,8 +236,8 @@ func (l Limits) elapsedReport(actual Trajectory) (eval.Report, error) {
 // identity. Baseline is optional and enables deterministic replay comparison.
 // A zero Output omits the assertion; a valid JSON null asserts a null output.
 type Expectation struct {
-	Status   agent.Status  `json:"status"`
-	Output   agent.Payload `json:"output,omitzero"`
+	Status   run.Status    `json:"status"`
+	Output   run.Payload   `json:"output,omitzero"`
 	Tools    *ToolSequence `json:"tools,omitzero"`
 	Baseline *Trajectory   `json:"baseline,omitzero"`
 	Limits   Limits        `json:"limits,omitzero"`
@@ -247,7 +247,7 @@ func (e Expectation) Validate() error {
 	if !e.Status.Terminal() {
 		return fmt.Errorf("%w: expected status must be terminal", ErrInvalidSample)
 	}
-	if e.Status != agent.StatusCompleted && !e.Output.IsZero() {
+	if e.Status != run.StatusCompleted && !e.Output.IsZero() {
 		return fmt.Errorf("%w: only completed status can expect output", ErrInvalidSample)
 	}
 	if e.Tools != nil {
@@ -280,7 +280,7 @@ func (s Sample) Validate() error {
 	return nil
 }
 
-func (s Sample) reports(project eval.Projection[agent.Payload, json.RawMessage]) ([]eval.Report, error) {
+func (s Sample) reports(project eval.Projection[run.Payload, json.RawMessage]) ([]eval.Report, error) {
 	outcome, err := s.outcomeReport()
 	if err != nil {
 		return nil, err

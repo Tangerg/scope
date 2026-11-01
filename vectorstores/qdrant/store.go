@@ -5,38 +5,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
+	_ vectorstore.Upserter      = (*Store)(nil)
+	_ vectorstore.Querier       = (*Store)(nil)
 	_ vectorstore.FilterDeleter = (*Store)(nil)
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 )
 
 type Store struct {
-	client          APIClient
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	collectionName  string
-	schema          nativeSchema
+	client         APIClient
+	space          vectorstore.SpaceID
+	collectionName string
+	schema         nativeSchema
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	model, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
 		return nil, err
 	}
 	collections, err := config.Client.ListCollections(ctx)
@@ -46,66 +40,112 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if !slices.Contains(collections, config.CollectionName) {
 		return nil, fmt.Errorf("%w: concrete collection is missing; aliases are not accepted", ErrIncompatibleCollection)
 	}
-	info, err := config.Client.GetCollectionInfo(ctx, config.CollectionName)
+	store := &Store{client: config.Client, collectionName: config.CollectionName, space: config.Space}
+	store.schema, err = store.readSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var schema nativeSchema
-	if err = schema.read(info); err != nil {
-		return nil, err
-	}
-	// Construction verifies connectivity, the concrete collection, and schema
-	// compatibility; it does not audit every record. Full-source integrity is an
-	// explicit maintenance concern, not an implicit cost of opening the store.
-	store := &Store{client: config.Client, embeddingClient: model, documentBatcher: config.DocumentBatcher, collectionName: config.CollectionName, schema: schema}
 	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return err
+func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
+	info, err := s.client.GetCollectionInfo(ctx, s.collectionName)
+	if err != nil {
+		return nativeSchema{}, err
 	}
-	records := make(map[string]*qdrantclient.PointStruct, len(request.Documents))
-	for _, doc := range request.Documents {
-		point, err := encodeRecord(doc)
-		if err != nil {
-			return err
-		}
-		records[doc.ID] = point
+	if info.GetConfig().GetMetadata()[SpaceMetadataKey].GetStringValue() != string(s.space) {
+		return nativeSchema{}, fmt.Errorf("%w: collection does not declare %q", vectorstore.ErrIncompatibleSpace, s.space)
 	}
-	batches, batchErr := request.Batch(ctx, s.documentBatcher)
-	if batchErr != nil {
-		return batchErr
-	}
-	prepared := &qdrantclient.UpsertPoints{CollectionName: s.collectionName, Wait: new(true)}
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return err
-		}
-		for i, doc := range batch.Documents {
-			vector, err := s.schema.vector(vectors[i])
-			if err != nil {
-				return err
-			}
-			point := records[doc.ID]
-			point.Vectors = qdrantclient.NewVectorsDense(vector)
-			prepared.Points = append(prepared.Points, point)
-		}
-	}
-	result, err := s.client.Upsert(ctx, prepared)
+	var schema nativeSchema
+	err = schema.read(info)
+	return schema, err
+}
+func (s *Store) verifyCollection(ctx context.Context) error {
+	schema, err := s.readSchema(ctx)
 	if err != nil {
 		return err
 	}
-	return requireAppliedUpdate(result, "upsert")
+	if schema != s.schema {
+		return fmt.Errorf("%w: collection vector configuration changed", ErrIncompatibleCollection)
+	}
+	return nil
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = request.Validate(); err != nil {
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, d := range docs {
+		if _, err := encodeRecord(d); err != nil {
+			return err
+		}
+	}
+	return s.verifyCollection(ctx)
+}
+
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	req := &qdrantclient.UpsertPoints{CollectionName: s.collectionName, Wait: new(true)}
+	for _, record := range batch.Records {
+		point, err := encodeRecord(record.Document)
+		if err != nil {
+			return err
+		}
+		values, err := s.schema.vector(record.Values)
+		if err != nil {
+			return err
+		}
+		point.Vectors = qdrantclient.NewVectorsDense(values)
+		req.Points = append(req.Points, point)
+	}
+	if err := s.verifyCollection(ctx); err != nil {
+		return err
+	}
+	res, err := s.client.Upsert(ctx, req)
+	if err == nil {
+		err = requireAppliedUpdate(res, "upsert")
+	}
+	if err != nil {
+		ids := make([]string, len(batch.Records))
+		for i, r := range batch.Records {
+			ids[i] = r.Document.ID
+		}
+		if res.GetStatus() == qdrantclient.UpdateStatus_ClockRejected {
+			return &vectorstore.WriteError{Err: err, Rejected: ids}
+		}
+		return &vectorstore.WriteError{Err: err, Unconfirmed: ids}
+	}
+	return nil
+}
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if _, err := nativeFilter(opts.Filter); err != nil {
+		return err
+	}
+	return s.verifyCollection(ctx)
+}
+
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -113,45 +153,27 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	// Without a predicate there is nothing to pre-select, so the native query alone
-	// computes the result: an unfiltered Search no longer enumerates and validates
-	// the whole collection, and a stored record outside the ranked result cannot
-	// fail it. A filtered Search still reads the source because Core filter.Match
-	// owns predicate semantics the native query cannot express.
-	var selected []string
-	if request.Options.Filter != nil {
-		selected, err = s.selectMetadata(ctx, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	where, err := nativeFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
-	query, err := s.schema.vector(vector)
+	query, err := s.schema.vector(request.Values)
 	if err != nil {
 		return nil, err
-	}
-	groups := [][]string{nil}
-	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(selected, filterPageSize))
 	}
 	var ranked []scoredDocument
 	seen := make(map[string]struct{})
-	for _, group := range groups {
+	{
 		native := &qdrantclient.QueryPoints{CollectionName: s.collectionName, Limit: new(uint64(request.Options.ResultLimit())), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true), Query: qdrantclient.NewQueryDense(query)}
-		if group != nil {
-			native.Filter = metadataSelection(group)
+		native.Filter = where
+		if err := s.verifyCollection(ctx); err != nil {
+			return nil, err
 		}
 		hits, err := s.client.Query(ctx, native)
 		if err != nil {
@@ -164,7 +186,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			if hit == nil || hit.ShardKey != nil {
 				return nil, errors.New("qdrant: native query returned a missing or shard-keyed hit")
 			}
-			doc, payload, err := s.schema.decode(hit.Id, hit.Payload, hit.Vectors)
+			doc, _, err := s.schema.decode(hit.Id, hit.Payload, hit.Vectors)
 			if err != nil {
 				return nil, err
 			}
@@ -172,22 +194,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 				return nil, errors.New("qdrant: native query repeated an identity")
 			}
 			seen[doc.ID] = struct{}{}
-			if group != nil {
-				if !slices.Contains(group, payload) {
-					return nil, errors.New("qdrant: hit is outside selected metadata values")
-				}
-				values, decodeErr := doc.Metadata.Values()
-				if decodeErr != nil {
-					return nil, decodeErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, values)
-				if matchErr != nil {
-					return nil, matchErr
-				}
-				if !matched {
-					return nil, errors.New("qdrant: native hit changed Core membership")
-				}
-			}
+
 			raw := float64(hit.Score)
 			score, err := s.schema.score(raw)
 			if err != nil {
@@ -220,66 +227,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	return response, nil
 }
 
-func (s *Store) selectMetadata(ctx context.Context, predicate filter.Predicate) ([]string, error) {
-	request := &qdrantclient.ScrollPoints{CollectionName: s.collectionName, Limit: new(uint32(filterPageSize)), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true)}
-	seen, offsets := make(map[string]struct{}), make(map[string]struct{})
-	selected := make(map[string]struct{})
-	for {
-		if err := context.Cause(ctx); err != nil {
-			return nil, err
-		}
-		points, next, err := s.client.ScrollAndOffset(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		if len(points) > filterPageSize {
-			return nil, errors.New("qdrant: native scroll exceeded its page limit")
-		}
-		for _, point := range points {
-			if point == nil {
-				return nil, errors.New("qdrant: native scroll returned a nil point")
-			}
-			doc, payload, sourceErr := s.schema.decode(point.Id, point.Payload, point.Vectors)
-			if sourceErr != nil {
-				return nil, sourceErr
-			}
-			if point.ShardKey != nil {
-				return nil, errors.New("qdrant: native record uses unsupported custom sharding")
-			}
-			if _, duplicate := seen[doc.ID]; duplicate {
-				return nil, errors.New("qdrant: native scroll repeated an identity")
-			}
-			seen[doc.ID] = struct{}{}
-			matched := true
-			if predicate != nil {
-				values, decodeErr := doc.Metadata.Values()
-				if decodeErr != nil {
-					return nil, decodeErr
-				}
-				matched, sourceErr = filter.Match(predicate, values)
-				if sourceErr != nil {
-					return nil, sourceErr
-				}
-			}
-			if matched {
-				selected[payload] = struct{}{}
-			}
-		}
-		if next == nil {
-			return slices.Sorted(maps.Keys(selected)), nil
-		}
-		offset, err := formatPointID(next)
-		if err != nil {
-			return nil, err
-		}
-		if _, repeated := offsets[offset]; repeated {
-			return nil, errors.New("qdrant: native scroll repeated an offset")
-		}
-		offsets[offset] = struct{}{}
-		request.Offset = next
-	}
-}
-
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
@@ -287,20 +234,18 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	values, err := s.selectMetadata(ctx, predicate)
+	where, err := nativeFilter(predicate)
 	if err != nil {
 		return err
 	}
-	for group := range slices.Chunk(values, filterPageSize) {
-		result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelectorFilter(metadataSelection(group))))
-		if err != nil {
-			return err
-		}
-		if err = requireAppliedUpdate(result, "conditional delete"); err != nil {
-			return err
-		}
+	if err = s.verifyCollection(ctx); err != nil {
+		return err
 	}
-	return nil
+	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelectorFilter(where)))
+	if err != nil {
+		return err
+	}
+	return requireAppliedUpdate(result, "conditional delete")
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
@@ -318,6 +263,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	}
 	if len(points) == 0 {
 		return nil
+	}
+	if err := s.verifyCollection(ctx); err != nil {
+		return err
 	}
 	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelector(points...)))
 	if err != nil {

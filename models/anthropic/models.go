@@ -3,8 +3,6 @@ package anthropic
 import (
 	"cmp"
 	"context"
-	"errors"
-	"fmt"
 	"net/http"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -34,7 +32,11 @@ func (m MessagesConfig) protocol() anthropicprotocol.MessagesConfig {
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*anthropicprotocol.Messages, error) {
-	return anthropicprotocol.NewMessages(ctx, config.protocol())
+	return anthropicprotocol.NewMessages(ctx, config.protocol(), anthropicprotocol.Dialect{
+		Provider:       "anthropic",
+		MaxTemperature: 1,
+		RejectTopK:     true, RejectTopP: true, NativeJSONSchema: true},
+	)
 }
 
 type ChatCompletionsConfig struct {
@@ -44,20 +46,13 @@ type ChatCompletionsConfig struct {
 	HTTPClient     *http.Client
 }
 
-func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("anthropic: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("anthropic: DefaultOptions: %w", err)
-	}
-	return nil
+func (c ChatCompletionsConfig) Validate() error { return c.protocol().Validate() }
+
+func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
+	return openaiprotocol.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURLOpenAI), HTTPClient: c.HTTPClient}
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	// Anthropic publishes a field-by-field support table for this endpoint, and
 	// several entries a Core option maps onto say "Ignored". Sending one and
 	// letting Anthropic discard it is, to the caller, the same as this adapter
@@ -67,8 +62,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	// it. response_format is also ignored, so JSON output goes through the
 	// ErrUnsupportedOutputFormat instead of a parameter the endpoint drops.
 	maximumTemperature := 1.0
-	return openaiprotocol.NewCompatibleChatCompletions(ctx,
-		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
+	protocol, err := openaiprotocol.NewChatCompletions(ctx,
+		config.protocol(),
 		openaiprotocol.Dialect{
 			Provider:        "anthropic",
 			TokenLimitField: openaiprotocol.TokenLimitMaxTokens,
@@ -81,21 +76,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 			NativeOutputFormat: func(corechat.OutputFormatType) bool { return false },
 		},
 	)
-}
-
-type TextCounterConfig struct {
-	APIKey     string
-	Model      string
-	BaseURL    string
-	HTTPClient *http.Client
-}
-
-func (t TextCounterConfig) Validate() error { return t.protocol().Validate() }
-
-func (t TextCounterConfig) protocol() anthropicprotocol.TextCounterConfig {
-	return anthropicprotocol.TextCounterConfig{APIKey: t.APIKey, Model: t.Model, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
-}
-
-func NewTextCounter(ctx context.Context, config TextCounterConfig) (*anthropicprotocol.TextCounter, error) {
-	return anthropicprotocol.NewTextCounter(ctx, config.protocol())
+	if err != nil {
+		return nil, err
+	}
+	return corechat.NewStreamModel(protocol)
 }

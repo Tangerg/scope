@@ -9,7 +9,6 @@ import (
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -33,7 +32,7 @@ func encodeDocuments(docs []*document.Document, policy nativePolicy) ([]nativeRe
 		if len(doc.Text) > policy.contentBytes {
 			return nil, ErrDocumentContentTooLong
 		}
-		facts, err := doc.Metadata.MarshalJSON()
+		facts, err := document.MarshalStoredMetadata(doc)
 		if err != nil {
 			return nil, err
 		}
@@ -104,12 +103,12 @@ func decodeRows(rows milvusclient.ResultSet, policy nativePolicy) ([]nativeRecor
 			}
 			values[index] = value
 		}
-		var facts metadata.Map
-		if err := facts.UnmarshalJSON([]byte(values[2])); err != nil {
+		doc := new(document.Document)
+		if err := document.UnmarshalStoredMetadata([]byte(values[2]), doc); err != nil {
 			return nil, err
 		}
-		doc := &document.Document{ID: values[0], Text: values[1], Metadata: facts}
-		if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+		doc.ID, doc.Text = values[0], values[1]
+		if err := vectorstore.ValidateDocument(doc); err != nil {
 			return nil, err
 		}
 		if len(values[0]) > policy.idBytes || len(values[1]) > policy.contentBytes || len(values[2]) > policy.metadataBytes {

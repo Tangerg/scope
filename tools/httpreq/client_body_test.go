@@ -13,7 +13,6 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/httpreq"
 )
@@ -131,9 +130,7 @@ func TestToolPreservesInterruptedPostResponseAsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "post-1", Name: "http_request", Arguments: `{"url":"https://example.com","method":"POST","body":"create"}`,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com","method":"POST","body":"create"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,9 +181,7 @@ func TestToolPreservesNonUTF8BodyAndHeaderObservations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		invocation, err := binding.Contract().Prepare(chat.ToolCall{
-			ID: "read-1", Name: "http_request", Arguments: `{"url":"https://example.com"}`,
-		}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com"}`}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

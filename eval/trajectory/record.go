@@ -5,9 +5,10 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 // ToolOutcome classifies the retained settlement of one Tool call.
@@ -37,16 +38,16 @@ func (t ToolOutcome) Valid() bool {
 
 // ModelCall is one physical model boundary attributed to an Agent Process Step.
 type ModelCall struct {
-	TreeIncarnationID agent.TreeIncarnationID  `json:"tree_incarnation_id,omitzero"`
-	EffectID          agent.EffectID           `json:"effect_id"`
-	AttemptID         agent.EffectAttemptID    `json:"attempt_id"`
-	ProcessID         agent.ProcessID          `json:"process_id"`
-	StepSequence      uint64                   `json:"step_sequence"`
-	CallSequence      uint64                   `json:"call_sequence"`
-	Request           *chat.Request            `json:"request"`
-	Response          *chat.Response           `json:"response,omitzero"`
-	Outcome           interaction.ModelOutcome `json:"outcome"`
-	Failure           string                   `json:"failure,omitempty"`
+	TreeIncarnationID run.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          run.EffectID          `json:"effect_id"`
+	AttemptID         run.EffectAttemptID   `json:"attempt_id"`
+	ProcessID         run.ProcessID         `json:"process_id"`
+	StepSequence      uint64                `json:"step_sequence"`
+	CallSequence      uint64                `json:"call_sequence"`
+	Request           *chat.Request         `json:"request"`
+	Response          *chat.Response        `json:"response,omitzero"`
+	Outcome           agent.ModelOutcome    `json:"outcome"`
+	Failure           string                `json:"failure,omitempty"`
 }
 
 func (m ModelCall) Clone() ModelCall {
@@ -66,13 +67,13 @@ func (m ModelCall) Validate() error {
 }
 
 func (m ModelCall) validateSettlement() error {
-	if m.Outcome == interaction.ModelOutcomeUnobserved {
+	if m.Outcome == agent.ModelOutcomeUnobserved {
 		if m.Response != nil || m.Failure != "" {
 			return fmt.Errorf("%w: unobserved model call cannot carry settlement evidence", ErrInvalidTrajectory)
 		}
 		return nil
 	}
-	settlement := interaction.ModelSettlement{Outcome: m.Outcome, Response: m.Response, Failure: m.Failure}
+	settlement := agent.ModelSettlement{Outcome: m.Outcome, Response: m.Response, Failure: m.Failure}
 	if err := settlement.Validate(); err != nil {
 		return fmt.Errorf("%w: model settlement: %w", ErrInvalidTrajectory, err)
 	}
@@ -101,17 +102,17 @@ func (m ModelCall) toolDecisions() []chat.ToolCall {
 // The model call that requested it is the Tool child's ChildKey, recorded once
 // in Events, so the record does not restate it.
 type ToolCall struct {
-	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
-	EffectID          agent.EffectID          `json:"effect_id"`
-	AttemptID         agent.EffectAttemptID   `json:"attempt_id"`
-	ProcessID         agent.ProcessID         `json:"process_id"`
-	StepSequence      uint64                  `json:"step_sequence"`
-	Call              chat.ToolCall           `json:"call"`
-	Result            *chat.ToolResult        `json:"result,omitzero"`
-	InputRequired     bool                    `json:"input_required,omitzero"`
-	Unknown           bool                    `json:"unknown,omitzero"`
+	TreeIncarnationID run.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          run.EffectID          `json:"effect_id"`
+	AttemptID         run.EffectAttemptID   `json:"attempt_id"`
+	ProcessID         run.ProcessID         `json:"process_id"`
+	StepSequence      uint64                `json:"step_sequence"`
+	Call              chat.ToolCall         `json:"call"`
+	Result            *chat.ToolResult      `json:"result,omitzero"`
+	InputRequired     bool                  `json:"input_required,omitzero"`
+	Unknown           bool                  `json:"unknown,omitzero"`
 	// Evidence is non-final output for Unknown. It is never a ToolResult.
-	Evidence *chat.ToolOutput `json:"evidence,omitzero"`
+	Evidence *toolcontract.Output `json:"evidence,omitzero"`
 	// Failure describes a failed call or diagnoses an unknown outcome without
 	// claiming that the external operation definitely failed.
 	Failure string `json:"failure,omitempty"`
@@ -220,15 +221,15 @@ func (t ToolCall) attempt() attemptIdentity {
 // attemptIdentity names one physical dispatcher attempt. EffectAttemptID alone
 // is not trusted as a key: validation must detect one ID claimed by two owners.
 type attemptIdentity struct {
-	processID   agent.ProcessID
-	incarnation agent.TreeIncarnationID
-	effectID    agent.EffectID
-	attemptID   agent.EffectAttemptID
+	processID   run.ProcessID
+	incarnation run.TreeIncarnationID
+	effectID    run.EffectID
+	attemptID   run.EffectAttemptID
 }
 
-func dispatcherAttempt(event agent.Event) (attemptIdentity, bool) {
+func dispatcherAttempt(event run.Event) (attemptIdentity, bool) {
 	fact, ok := event.EffectStarted()
-	if !ok || fact.Target() != agent.EffectTargetDispatcher {
+	if !ok || fact.Target() != run.EffectTargetDispatcher {
 		return attemptIdentity{}, false
 	}
 	effect, _ := event.EffectID()

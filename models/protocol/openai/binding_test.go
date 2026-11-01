@@ -32,11 +32,11 @@ func (b *bindingTransport) RoundTrip(request *http.Request) (*http.Response, err
 func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 	constructors := map[string]func(string, *http.Client) (bool, error){
 		"NewChatCompletions": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client})
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, testChatDialect())
 			return model == nil, err
 		},
 		"NewResponses": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client})
+			model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, testResponsesDialect())
 			return model == nil, err
 		},
 		"NewEmbeddingModel": func(endpoint string, client *http.Client) (bool, error) {
@@ -63,8 +63,8 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 			model, err := openai.NewAudioTranslationModel(t.Context(), openai.AudioTranslationModelConfig{DefaultOptions: transcription.Options{Model: "test-model"}, APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Provider: "openai"})
 			return model == nil, err
 		},
-		"NewCompatibleChatCompletions": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewCompatibleChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, openai.Dialect{Provider: "deepseek", TokenLimitField: openai.TokenLimitMaxTokens})
+		"compatible NewChatCompletions": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, openai.Dialect{Provider: "deepseek", TokenLimitField: openai.TokenLimitMaxTokens})
 			return model == nil, err
 		},
 	}
@@ -80,6 +80,12 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 			}
 			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://example.test/path#section"} {
 				missing, err := construct(endpoint, client)
+				if endpoint == "" && strings.HasPrefix(name, "compatible ") {
+					if !missing || err == nil {
+						t.Fatalf("compatible binding accepted an implicit official endpoint")
+					}
+					continue
+				}
 				if err != nil || missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
 				}
@@ -97,7 +103,7 @@ func TestBindingValidatesEnvironmentURLBeforeIO(t *testing.T) {
 			t.Setenv("OPENAI_BASE_URL", environmentURL)
 			transport := &bindingTransport{}
 			for _, explicitURL := range []string{"", "https://explicit.example.test"} {
-				model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}})
+				model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}}, testChatDialect())
 				if explicitURL != "" {
 					if err != nil || model == nil {
 						t.Fatalf("explicit binding was affected by unused environment: model = %v, error = %v", model, err)
@@ -128,7 +134,7 @@ func TestBindingFreezesEnvironmentURLAndPreservesExplicitPrecedence(t *testing.T
 		{server.URL + "/explicit", "/explicit/models"},
 	} {
 		t.Setenv("OPENAI_BASE_URL", server.URL+"/environment")
-		model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: test.explicitURL, HTTPClient: server.Client()})
+		model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: test.explicitURL, HTTPClient: server.Client()}, testChatDialect())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +154,7 @@ func TestBindingUsesSDKDefaultWhenEnvironmentIsAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := &bindingTransport{}
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,11 +192,11 @@ data: {"type":"response.completed","response":{"id":"response-1","status":"compl
 		}
 	}))
 	defer server.Close()
-	completions, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+	completions, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
-	responses, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+	responses, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "explicit-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}, testResponsesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}

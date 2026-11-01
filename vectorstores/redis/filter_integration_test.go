@@ -16,7 +16,7 @@ import (
 
 // Explicitly running this test creates and removes an isolated Redis index.
 func TestLiveFilterConformance(t *testing.T) {
-	store, _, _ := liveStore(t, "COSINE", constantModel())
+	store, _, _ := liveStore(t, "COSINE")
 	var previous []string
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		if err := store.DeleteIDs(ctx, previous); err != nil {
@@ -26,13 +26,13 @@ func TestLiveFilterConformance(t *testing.T) {
 		for _, doc := range docs {
 			previous = append(previous, doc.ID)
 		}
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
 		if err := awaitVisibleDocuments(ctx, store, docs); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 		if err != nil {
 			return nil, err
 		}
@@ -51,7 +51,7 @@ func awaitVisibleDocuments(ctx context.Context, store *Store, docs []*document.D
 	defer ticker.Stop()
 	var mismatch string
 	for {
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: max(len(docs), 10)}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: max(len(docs), 10)}})
 		if err != nil {
 			return fmt.Errorf("%s: %w", mismatch, err)
 		}

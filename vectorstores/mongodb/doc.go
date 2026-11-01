@@ -1,63 +1,33 @@
-// Package mongodb adapts an existing MongoDB Vector Search collection to Core
-// Indexer, Searcher, IDDeleter and FilterDeleter. The host owns the official v2
-// driver client, authentication, transport, write concern, collection and index
-// provisioning, and lifetime. Store owns no resource and does not implement Closer.
+// Package mongodb stores prepared vectors in a host-owned MongoDB Vector Search
+// collection. The Host provisions and owns the driver, collection and indexes.
+// NewStore and each data operation read the named READY, queryable vectorSearch
+// definition. Its one vector field must be SpaceID.StorageKey(); a different
+// space of the same dimension cannot bind the index. The native definition
+// supplies the width and similarity policy, and must index _id as a filter.
 //
-// Construction reads the named native index through $listSearchIndexes. It must
-// be a READY, queryable vectorSearch index with one embedding vector, a positive
-// native dimension, a supported native cosine, euclidean or dotProduct policy,
-// and an _id filter path. BUILDING remains invalid even if an older definition
-// is queryable. Store projects only the native dimension; similarity and score
-// normalization remain entirely native. Keep the bound collection and index
-// policy stable during Store's lifetime; reconstruct Store after replacement.
-// A deployment without Vector Search or index-list read privileges fails at
-// construction. Store does not create indexes, probe models or arbitrate policy.
+// Upsert validates every FLOAT32 vector before submitting one ordered BulkWrite.
+// Replacements require both the string _id and the space-specific vector field.
+// A conflicting identity in another space cannot overwrite that record.
+// Uncertain delivery, rejected writes and ordered unattempted tails remain
+// distinguishable through vectorstore.WriteError. An acknowledged write does not
+// guarantee visibility in the asynchronous vector index. No operation embeds text.
 //
-// The current BSON document has exactly _id, content, metadata_json and
-// embedding. Identity is the native string _id alone. Content and metadata_json
-// are strings; embedding is an array of finite FLOAT32 values encoded as BSON
-// doubles. Core metadata.Map owns the complete JSON encoding, preserving nil,
-// empty objects, exact numbers, nested values and arbitrary user keys. Business
-// metadata never becomes BSON fields or an independent numeric representation.
-// Media documents are rejected before model or mutation IO.
+// Core metadata is stored losslessly in metadata_json. metadata_terms is an
+// atomic derived projection of those bytes. Query uses native vector ranking;
+// scalar top-level string equality requires metadata_terms in the vector index.
+// Unsupported filters fail without enumerating documents. DeleteWhere uses an
+// indexed term under binary collation and requires a matching ordinary ascending
+// metadata_terms index; its hint prevents a silent full collection scan.
 //
-// Unfiltered Search uses $vectorSearch directly. A predicate requires complete
-// collection enumeration and strict validation before Core filter.Match selects
-// membership. Filtered $vectorSearch queries use bounded selected
-// identity groups and verify each returned identity and current metadata. Both
-// paths use native ranking and native [0,1] scores, merge before TopK, and apply
-// MinScore after strict hit validation. Scores are never clamped or recomputed.
-// Search supports semantic mode only. Enumeration costs O(N) source reads and
-// identity tracking; query merging holds up to O(groups * TopK) hits.
+// Scan and DeleteMatching are explicit alternatives for arbitrary Core predicates.
+// Their budget covers source BSON bytes and records, including nonmatches, and
+// elapsed time. Server aggregation admits at most MaxRecords+1 candidates and
+// withholds payloads beyond the grant. Budget exhaustion returns no partial
+// search result and happens before any delete. The ranking pass validates current
+// metadata; conditional deletion compares observed metadata under binary collation.
+// The separate selection and action have no shared snapshot. Identical metadata
+// does not prove a record revision, and concurrent new matches may be missed.
 //
-// NumCandidates is an ANN recall floor bounded by the native 10000 ceiling and
-// raised to cover TopK. TopK beyond that ceiling fails before native or model IO.
-// Vector Search index visibility remains asynchronous. An acknowledged write
-// does not imply immediate query visibility; Store adds no retry or polling.
-//
-// Index encodes every document and completes every model batch and vector check
-// before one BulkWrite. The native driver owns request batching and limits.
-// MatchedCount plus UpsertedCount must cover every replacement, and w:0 is an
-// explicit failure. This is not transactional publication: native IO can apply
-// a prefix before failing. Native _id selectors use binary collation for writes
-// and deletions rather than inheriting a case-insensitive collection collation.
-//
-// DeleteWhere finishes Core enumeration before any deletion. Each native delete
-// constrains both _id and the complete observed metadata_json string with
-// expression equality and binary collation. Changed metadata is retained. It
-// provides no shared read snapshot or revision CAS; concurrent updates that
-// preserve the same metadata value may still be deleted, and newly matching
-// records may remain. Hosts requiring a snapshot must coordinate writers.
-// DeleteIDs validates and deduplicates the whole input before explicit identity
-// deletion. Native mutation failures and invalid acknowledgments stay errors.
-//
-// Breaking replacement removes Dimensions, Similarity and its enum,
-// InitializeSchema, configurable storage fields and MetadataFieldsToFilter.
-// Rebuild old BSON metadata documents into the current metadata_json string and
-// provision the native vector index through the host SDK. There are no numeric
-// adapters, old-format reads, migrations or schema-creation branches.
-//
-// Default tests are offline. Integration tests require SCOPE_MONGODB_URI for a
-// deployment with Vector Search and create isolated databases and search indexes,
-// poll only fixture readiness and visibility, then drop databases and disconnect.
+// Ordinary tests are offline. Integration tests require SCOPE_MONGODB_URI on a
+// deployment with Vector Search; fixtures provision and remove isolated databases.
 package mongodb

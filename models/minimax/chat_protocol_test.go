@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/minimax"
 )
 
@@ -132,7 +133,7 @@ func TestChatReplaysStructuredReasoningDetails(t *testing.T) {
 		userMessage,
 		assistantMessage.Clone(),
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "call-1", Name: "lookup", Output: corechat.NewTextToolOutput("found"),
+			ID: "call-1", Name: "lookup", Output: toolcontract.NewTextOutput("found"),
 		}),
 	}}); err != nil {
 		t.Fatalf("second Call: %v", err)

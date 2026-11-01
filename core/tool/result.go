@@ -3,8 +3,6 @@ package tool
 import (
 	"errors"
 	"fmt"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 var ErrInvalidResult = errors.New("tool: invalid result")
@@ -14,7 +12,7 @@ var ErrInvalidResult = errors.New("tool: invalid result")
 // suspension; the runtime alone owns committing and resuming a logical call.
 // The zero result completes with an empty output.
 type Result struct {
-	Output       chat.ToolOutput
+	Output       Output
 	InputRequest *InputRequest
 }
 

@@ -4,22 +4,16 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"slices"
+
 	"time"
 
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/typesense"
 )
-
-type exampleBatcher struct{}
-
-func (e exampleBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, 32)), nil
-}
 
 func ExampleNewStore() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -34,21 +28,15 @@ func ExampleNewStore() {
 	if err != nil {
 		panic(err)
 	}
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := typesense.NewStore(ctx, typesense.StoreConfig{Client: client, CollectionName: "documents", EmbeddingModel: model, DocumentBatcher: exampleBatcher{}})
+	const space vectorstore.SpaceID = "encoder-v1"
+	store, err := typesense.NewStore(ctx, typesense.StoreConfig{Client: client, CollectionName: "documents", Space: space})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "example"}}}); err != nil {
+	if err = store.Upsert(ctx, &vectorstore.Batch{Space: space, Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "example"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "example"}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
 	if err = store.DeleteIDs(ctx, []string{"one"}); err != nil {

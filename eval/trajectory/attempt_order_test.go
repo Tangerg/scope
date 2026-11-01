@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
@@ -27,8 +27,8 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 		}
 		first.Unknown, first.Result, first.Failure = true, nil, "uncertain first attempt"
 		config.ToolCalls = []trajectory.ToolCall{first, second}
-		var events []agent.Event
-		var started agent.Event
+		var events []run.Event
+		var started run.Event
 		var sequence uint64
 		for _, event := range config.Events {
 			if event.Relation().ProcessID() != first.ProcessID {
@@ -42,15 +42,15 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 				continue
 			}
 			if fact, ok := event.EffectFinished(); ok && fact.AttemptID() == baseline.ToolCalls()[0].AttemptID {
-				events = append(events, changeAttemptEvent(t, event, sequence, first.AttemptID, agent.SettlementStatusUnknown))
+				events = append(events, changeAttemptEvent(t, event, sequence, first.AttemptID, run.SettlementStatusUnknown))
 				sequence++
 				events = append(events, changeAttemptEvent(t, started, sequence, second.AttemptID, ""))
 				sequence++
-				events = append(events, changeAttemptEvent(t, event, sequence, second.AttemptID, agent.SettlementStatusSucceeded))
+				events = append(events, changeAttemptEvent(t, event, sequence, second.AttemptID, run.SettlementStatusSucceeded))
 				sequence++
 				events = append(events, changeEvent(t, event, map[string]any{
-					"process_sequence": sequence, "name": agent.EventEffectResolved,
-					"payload": map[string]any{"effect_target": agent.EffectTargetDispatcher, "settlement_status": agent.SettlementStatusSucceeded},
+					"process_sequence": sequence, "name": run.EventEffectResolved,
+					"payload": map[string]any{"effect_target": run.EffectTargetDispatcher, "settlement_status": run.SettlementStatusSucceeded},
 				}))
 				continue
 			}
@@ -62,7 +62,7 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 		report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{
-			Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
+			Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
 				{Name: "weather", Outcome: trajectory.ToolOutcomeUnknown},
 				{Name: "weather", Outcome: trajectory.ToolOutcomeSucceeded},
 			}},
@@ -73,9 +73,9 @@ func TestToolSequenceKeepsPhysicalAttemptOrderAcrossRandomIDs(t *testing.T) {
 	}
 }
 
-// Imported replay evidence uses actual attempt order and the Engine's current
+// Imported replay evidence uses actual attempt order and the Runtime's current
 // event schema. The fixture does not change ToolSet's ReplayPolicyNever.
-func changeAttemptEvent(t *testing.T, event agent.Event, sequence uint64, attempt agent.EffectAttemptID, status agent.SettlementStatus) agent.Event {
+func changeAttemptEvent(t *testing.T, event run.Event, sequence uint64, attempt run.EffectAttemptID, status run.SettlementStatus) run.Event {
 	t.Helper()
 	var payload map[string]json.RawMessage
 	if err := jsonv2.Unmarshal(event.Payload(), &payload); err != nil {

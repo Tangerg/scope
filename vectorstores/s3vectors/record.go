@@ -10,7 +10,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -36,7 +35,7 @@ func encodeDocument(doc *document.Document) (s3vdoc.Interface, error) {
 	if err := validateKey(doc.ID); err != nil {
 		return nil, err
 	}
-	encoded, err := doc.Metadata.MarshalJSON()
+	encoded, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +80,12 @@ func decodeDocument(key string, raw s3vdoc.Interface) (*document.Document, error
 	if wire.ID == nil || *wire.ID != key || wire.Content == nil || wire.Metadata == nil {
 		return nil, errors.New("s3vectors: native document does not match the strict current schema or key projection")
 	}
-	var facts metadata.Map
-	if err = facts.UnmarshalJSON([]byte(*wire.Metadata)); err != nil {
+	doc := new(document.Document)
+	if err = document.UnmarshalStoredMetadata([]byte(*wire.Metadata), doc); err != nil {
 		return nil, err
 	}
-	doc := &document.Document{ID: key, Text: *wire.Content, Metadata: facts}
-	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = key, *wire.Content
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	return doc, nil

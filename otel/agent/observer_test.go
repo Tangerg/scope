@@ -1,6 +1,10 @@
 package agent_test
 
 import (
+	"github.com/Tangerg/scope/agent/run/runtest"
+
+	startrand "crypto/rand"
+
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -19,7 +23,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 	agentotel "github.com/Tangerg/scope/otel/agent"
 )
@@ -73,22 +77,22 @@ func newObserverHarness(t testing.TB) observerHarness {
 	return observerHarness{provider: provider, recorder: recorder, reader: reader, observer: observer}
 }
 
-func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result {
+func runObservedProcess(t *testing.T, observer *agentotel.Observer) run.Result[run.Payload] {
 	t.Helper()
 	deployment := testDeployment(t)
-	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeCommitter:  agent.NewMemoryTreeCommitter(),
-		EventListeners: []agent.EventListener{observer},
+	engine, err := run.New(t.Context(), run.Config{
+		Store:          run.NewMemoryStore(),
+		EventListeners: []run.EventListener{observer},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "observed"})
+	input, err := run.EncodePayload(testInput{Value: "observed"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(context.Background(), deployment, input)
-	if err != nil || result.Termination().Status() != agent.StatusCompleted {
+	result, err := runtest.Observe(context.Background(), engine, deployment, input)
+	if err != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("result status = %s, error = %v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -97,7 +101,7 @@ func runObservedProcess(t *testing.T, observer *agentotel.Observer) agent.Result
 	return result
 }
 
-func assertObservedSpans(t *testing.T, spans []sdktrace.ReadOnlySpan, result agent.Result) {
+func assertObservedSpans(t *testing.T, spans []sdktrace.ReadOnlySpan, result run.Result[run.Payload]) {
 	t.Helper()
 	if len(spans) != 4 {
 		for _, span := range spans {
@@ -150,7 +154,7 @@ func assertObservedSpanIdentity(t *testing.T, process, effect sdktrace.ReadOnlyS
 	}
 }
 
-func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result agent.Result) {
+func assertObservedMetrics(t *testing.T, reader *sdkmetric.ManualReader, result run.Result[run.Payload]) {
 	t.Helper()
 	var metrics metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &metrics); err != nil {
@@ -201,16 +205,16 @@ func TestObserverRecordsStableProcessFailureAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(observer.Close)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{observer}})
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: testValueProcessFailure})
+	input, err := run.EncodePayload(testInput{Value: testValueProcessFailure})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), testDeployment(t), input)
-	if err != nil || result.Termination().Status() != agent.StatusFailed {
+	result, err := runtest.Observe(t.Context(), engine, testDeployment(t), input)
+	if err != nil || result.Termination().Status() != run.StatusFailed {
 		t.Fatalf("result = %s, error = %v", result.Termination().Status(), err)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -246,17 +250,17 @@ func TestObserverRecordsStepAndEffectErrors(t *testing.T) {
 		name        string
 		value       string
 		spanName    string
-		wantStatus  agent.Status
+		wantStatus  run.Status
 		wantMessage string
 	}{
 		{
 			name: "Step failure", value: testValueStepFailure,
-			spanName: "agent.step", wantStatus: agent.StatusFailed,
+			spanName: "agent.step", wantStatus: run.StatusFailed,
 			wantMessage: "agent Execution Step failed",
 		},
 		{
 			name: "Effect failure", value: testValueEffectFailure,
-			spanName: "agent.effect", wantStatus: agent.StatusCompleted,
+			spanName: "agent.effect", wantStatus: run.StatusCompleted,
 			wantMessage: "agent dispatcher Effect failed",
 		},
 	}
@@ -270,17 +274,17 @@ func TestObserverRecordsStepAndEffectErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(observer.Close)
-			engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(),
-				EventListeners: []agent.EventListener{observer},
+			engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(),
+				EventListeners: []run.EventListener{observer},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := agent.EncodePayload(testInput{Value: test.value})
+			input, err := run.EncodePayload(testInput{Value: test.value})
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := engine.Run(t.Context(), testDeployment(t), input)
+			result, err := runtest.Observe(t.Context(), engine, testDeployment(t), input)
 			if err != nil || result.Termination().Status() != test.wantStatus {
 				t.Fatalf("result = %s, error = %v", result.Termination().Status(), err)
 			}
@@ -296,11 +300,11 @@ func TestObserverRecordsStepAndEffectErrors(t *testing.T) {
 
 func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	deployment := testDeployment(t)
-	store := agent.NewMemoryTreeCommitter()
+	store := run.NewMemoryStore()
 	paused := make(chan struct{}, 1)
-	source, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{
-		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
-			if event.Name() == agent.EventProcessPaused {
+	source, err := run.New(t.Context(), run.Config{Store: store, EventListeners: []run.EventListener{
+		run.EventListenerFunc(func(_ context.Context, event run.Event) {
+			if event.Name() == run.EventProcessPaused {
 				paused <- struct{}{}
 			}
 		}),
@@ -308,11 +312,11 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "pause"})
+	input, err := run.EncodePayload(testInput{Value: "pause"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	original, err := source.Start(context.Background(), deployment, input)
+	original, err := source.Start(context.Background(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,16 +343,16 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restoredEngine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer, EventListeners: []agent.EventListener{observer}})
+	restoredEngine, err := run.New(t.Context(), run.Config{Store: committer, EventListeners: []run.EventListener{observer}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := restoredEngine.RestoreTree(context.Background(), deployment, snapshot)
+	restored, err := restoredEngine.Recover(context.Background(), deployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = original.Kill(context.Background(), "retire source writer")
-	if joinErr := original.Join(t.Context()); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+	if joinErr := original.Join(t.Context()); !errors.Is(joinErr, run.ErrTreeIncarnationConflict) {
 		t.Fatalf("retired writer result: %v", joinErr)
 	}
 	if closeErr := source.Close(t.Context()); closeErr != nil {
@@ -357,7 +361,7 @@ func TestObserverDistinguishesRestoredProcessActivation(t *testing.T) {
 	if err := restored.Resume(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil || result.Termination().Status() != agent.StatusCompleted {
+	if result, awaitErr := restored.Await(context.Background()); awaitErr != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("restored result = %s termination=%+v, error = %v", result.Termination().Status(), result.Termination(), awaitErr)
 	}
 	if err := restoredEngine.Close(context.WithoutCancel(t.Context())); err != nil {
@@ -400,22 +404,22 @@ func TestObserverIgnoresEventsAfterClose(t *testing.T) {
 	assertNoRecordedMetrics(t, metrics)
 }
 
-func captureObserverEvents(t *testing.T) []agent.Event {
+func captureObserverEvents(t *testing.T) []run.Event {
 	t.Helper()
-	var events []agent.Event
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{
-		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
+	var events []run.Event
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{
+		run.EventListenerFunc(func(_ context.Context, event run.Event) {
 			events = append(events, event)
 		}),
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "closed observer"})
+	input, err := run.EncodePayload(testInput{Value: "closed observer"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, runErr := engine.Run(context.Background(), testDeployment(t), input); runErr != nil || !result.Valid() {
+	if result, runErr := runtest.Observe(context.Background(), engine, testDeployment(t), input); runErr != nil || !result.Valid() {
 		t.Fatalf("result = %#v, error = %v", result, runErr)
 	}
 	if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
@@ -424,7 +428,7 @@ func captureObserverEvents(t *testing.T) []agent.Event {
 	return events
 }
 
-func collectClosedObserverMetrics(t *testing.T, events []agent.Event) metricdata.ResourceMetrics {
+func collectClosedObserverMetrics(t *testing.T, events []run.Event) metricdata.ResourceMetrics {
 	t.Helper()
 	reader := sdkmetric.NewManualReader()
 	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
@@ -606,14 +610,14 @@ type testEffectResponse struct {
 }
 
 type testDefinition struct {
-	descriptor agent.Descriptor
+	descriptor run.Descriptor
 }
 
-func (t testDefinition) Descriptor() agent.Descriptor { return t.descriptor }
+func (t testDefinition) Descriptor() run.Descriptor { return t.descriptor }
 
-func (testDefinition) ChildDeployments() []agent.Deployment { return nil }
+func (testDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
 
-func (testDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (testDefinition) Start(input run.Payload) (run.Execution, error) {
 	value, err := input.Decode[testInput]()
 	if err != nil {
 		return nil, err
@@ -621,9 +625,9 @@ func (testDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	return &testExecution{Value: value.Value}, nil
 }
 
-func (testDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (testDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if state.Kind() != "test.otel" {
-		return nil, agent.ErrInvalidExecutionState
+		return nil, run.ErrInvalidExecutionState
 	}
 	var execution testExecution
 	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
@@ -637,22 +641,22 @@ type testExecution struct {
 	Phase uint8  `json:"phase"`
 }
 
-func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
+func (t *testExecution) Step(context.Context, []run.Signal) (run.Transition, error) {
 	if t.Phase == 0 && t.Value == testValueProcessFailure {
-		failure, err := agent.NewFailure(agent.FailureKindExecution, "test.otel.failed", "test failure")
+		failure, err := run.NewFailure(run.FailureKindExecution, "test.otel.failed", "test failure")
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
 		t.Phase = 2
-		return agent.Fail(0, failure)
+		return run.Fail(0, failure)
 	}
 	if t.Phase == 0 && t.Value == testValueStepFailure {
-		return agent.Transition{}, errors.New("test Step failure")
+		return run.Transition{}, errors.New("test Step failure")
 	}
 	if t.Phase == 0 {
 		if t.Value == "pause" {
 			t.Phase = 1
-			return agent.Pause(0, "test observation restore")
+			return run.Pause(0, "test observation restore")
 		}
 		operation := testEffectObserve
 		if t.Value == testValueEffectFailure {
@@ -660,29 +664,29 @@ func (t *testExecution) Step(context.Context, []agent.Signal) (agent.Transition,
 		}
 		payload, err := jsonv2.Marshal(testEffectRequest{Operation: operation})
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
-		effect, err := agent.NewDispatcherEffect(payload)
+		effect, err := run.NewDispatcherEffect(payload)
 		if err != nil {
-			return agent.Transition{}, err
+			return run.Transition{}, err
 		}
 		t.Phase = 1
-		return agent.Continue(0, effect)
+		return run.Continue(0, effect)
 	}
-	output, err := agent.EncodePayload(testOutput{Value: t.Value})
+	output, err := run.EncodePayload(testOutput{Value: t.Value})
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
 	t.Phase = 2
 	consumedSignals := uint32(1)
 	if t.Value == "pause" {
 		consumedSignals = 0
 	}
-	return agent.Complete(consumedSignals, output)
+	return run.Complete(consumedSignals, output)
 }
 
-func (t *testExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.EncodeExecutionState("test.otel", struct {
+func (t *testExecution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState("test.otel", struct {
 		Value string `json:"value"`
 		Phase uint8  `json:"phase"`
 	}{Value: t.Value, Phase: t.Phase})
@@ -692,34 +696,34 @@ type testDispatcher struct{}
 
 func (testDispatcher) Dispatch(
 	_ context.Context,
-	request agent.EffectRequest,
-	_ agent.DeltaEmitter,
-) (agent.Settlement, error) {
+	request run.EffectRequest,
+	_ run.DeltaEmitter,
+) (run.Settlement, error) {
 	var effectRequest testEffectRequest
 	if err := jsonv2.Unmarshal(request.Effect().Payload(), &effectRequest); err != nil {
-		return agent.Settlement{}, err
+		return run.Settlement{}, err
 	}
-	status := agent.SettlementStatusSucceeded
+	status := run.SettlementStatusSucceeded
 	if effectRequest.Operation == testEffectFail {
-		status = agent.SettlementStatusFailed
+		status = run.SettlementStatusFailed
 	}
-	payload, err := jsonv2.Marshal(testEffectResponse{OK: status == agent.SettlementStatusSucceeded})
+	payload, err := jsonv2.Marshal(testEffectResponse{OK: status == run.SettlementStatusSucceeded})
 	if err != nil {
-		return agent.Settlement{}, err
+		return run.Settlement{}, err
 	}
-	return agent.NewSettlement(status, payload)
+	return run.NewSettlement(status, payload)
 }
 
-func (testDispatcher) Policy(agent.Effect) agent.EffectPolicy {
-	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
+func (testDispatcher) Policy(run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }
 
-func testDeployment(t testing.TB) agent.Deployment {
+func testDeployment(t testing.TB) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	return testDeploymentWithDispatcher(t, testDispatcher{})
 }
 
-func testDeploymentWithDispatcher(t testing.TB, dispatcher agent.Dispatcher) agent.Deployment {
+func testDeploymentWithDispatcher(t testing.TB, dispatcher run.Dispatcher) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	inputSchema, err := jsonschema.For[testInput]()
 	if err != nil {
@@ -729,17 +733,17 @@ func testDeploymentWithDispatcher(t testing.TB, dispatcher agent.Dispatcher) age
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name: "test.otel", Description: "Exercises the OpenTelemetry Event adapter.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: testDefinition{descriptor: descriptor}, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("test-otel-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("test-otel-configuration")),
+		ImplementationDigest: run.ComputeDigest([]byte("test-otel-implementation")),
+		ConfigurationDigest:  run.ComputeDigest([]byte("test-otel-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -747,12 +751,12 @@ func testDeploymentWithDispatcher(t testing.TB, dispatcher agent.Dispatcher) age
 	return deployment
 }
 
-func captureProcessStartedEvent(t *testing.T) agent.Event {
+func captureProcessStartedEvent(t *testing.T) run.Event {
 	t.Helper()
-	var started agent.Event
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{
-		agent.EventListenerFunc(func(_ context.Context, event agent.Event) {
-			if event.Name() == agent.EventProcessStarted {
+	var started run.Event
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{
+		run.EventListenerFunc(func(_ context.Context, event run.Event) {
+			if event.Name() == run.EventProcessStarted {
 				started = event
 			}
 		}),
@@ -760,11 +764,11 @@ func captureProcessStartedEvent(t *testing.T) agent.Event {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(testInput{Value: "capture start"})
+	input, err := run.EncodePayload(testInput{Value: "capture start"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, runErr := engine.Run(context.Background(), testDeployment(t), input); runErr != nil || !result.Valid() {
+	if result, runErr := runtest.Observe(context.Background(), engine, testDeployment(t), input); runErr != nil || !result.Valid() {
 		t.Fatalf("capture run result = %#v, error = %v", result, runErr)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {

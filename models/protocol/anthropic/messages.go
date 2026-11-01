@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	protocolProvider           = "anthropic"
-	protocolDefaultMaxTokens   = 4096
-	protocolMaximumTemperature = 1
+	protocolProvider         = "anthropic"
+	protocolDefaultMaxTokens = 4096
 )
 
 // Defaults are copied during construction; callers may select the model per
@@ -53,18 +52,10 @@ type Messages struct {
 	dialect  Dialect
 }
 
-func NewMessages(ctx context.Context, config MessagesConfig) (*Messages, error) {
-	return newMessages(ctx, config, Dialect{
-		Provider: protocolProvider, MaxTemperature: protocolMaximumTemperature,
-		RejectTopK: true, RejectTopP: true, NativeJSONSchema: true,
-	})
-}
-
-func NewCompatibleMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
-	return newMessages(ctx, config, dialect)
-}
-
-func newMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
+func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
+	if dialect.Provider != protocolProvider && config.BaseURL == "" {
+		return nil, errors.New("anthropic protocol: a compatible binding requires an explicit endpoint")
+	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -97,16 +88,7 @@ func (m *Messages) ListModels(ctx context.Context, maxModels int, maxResponseByt
 }
 
 func (m *Messages) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	var accumulator corechat.ResponseAccumulator
-	for delta, err := range m.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if addErr := accumulator.Add(delta); addErr != nil {
-			return nil, addErr
-		}
-	}
-	return accumulator.Response()
+	return corechat.Collect(m.Stream(ctx, req))
 }
 
 // CountInputTokens calls the provider's Messages token-count endpoint with the
@@ -192,4 +174,13 @@ func (m *Messages) buildProtocolRequest(req *corechat.Request) (*anthropicsdk.Me
 		return nil, err
 	}
 	return params, nil
+}
+
+// TextCounter binds text-only counting to this exact endpoint and vocabulary;
+// a model selected only at request time cannot identify a text vocabulary.
+func (m *Messages) TextCounter() (*TextCounter, error) {
+	if m == nil || m.api == nil || m.defaults.Model == "" {
+		return nil, errors.New("anthropic: text counting requires a bound model")
+	}
+	return &TextCounter{api: m.api, model: m.defaults.Model}, nil
 }

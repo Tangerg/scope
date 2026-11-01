@@ -7,11 +7,9 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -32,9 +30,9 @@ type StoreConfig struct {
 	EmbeddingField  string
 	QueryTensorName string
 	// RankingProfile must rank only by closeness(field, EmbeddingField).
-	RankingProfile  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	RankingProfile string
+	Space          vectorstore.SpaceID
+	Dimensions     int
 	// HTTPClient remains host-owned. Scope snapshots client settings and
 	// restricts requests to Endpoint's origin while sharing its transport and jar.
 	HTTPClient       *http.Client
@@ -50,11 +48,11 @@ func (s StoreConfig) Validate() error {
 	if s.RankingProfile == "" {
 		return errors.New("vespa: RankingProfile is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("vespa: EmbeddingModel is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("vespa: DocumentBatcher is required")
+	if s.Dimensions < 1 {
+		return errors.New("vespa: positive Dimensions required")
 	}
 	if s.MaxResponseBytes < 0 || s.MaxResponseBytes == math.MaxInt64 {
 		return errors.New("vespa: MaxResponseBytes must fit a positive bounded reader")
@@ -78,4 +76,10 @@ func (s *StoreConfig) applyDefaults() {
 	if s.HTTPClient == nil {
 		s.HTTPClient = http.DefaultClient
 	}
+}
+
+// DocumentNamespace binds a logical namespace to its coordinate space and
+// width; changing the binding cannot access the previous document IDs.
+func (s StoreConfig) DocumentNamespace() string {
+	return cmp.Or(s.Namespace, s.SchemaName) + "_" + s.Space.StorageKey() + "_" + strconv.Itoa(s.Dimensions)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/anthropic"
 )
 
@@ -44,7 +45,8 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: chat.Options{Model: "claude-test"},
 		BaseURL:        server.URL,
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +55,7 @@ func TestChatCountsTheSameMultimodalMessageInput(t *testing.T) {
 			chat.NewSystemMessage("frozen instructions"),
 			chat.NewUserMessage(chat.NewTextPart("inspect"), chat.NewMediaPart(image)),
 		},
-		Tools: []chat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "inspect_image", Description: "Inspect an image",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		}},
@@ -95,11 +97,11 @@ func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
 				_, _ = w.Write([]byte(test.body))
 			}))
 			defer server.Close()
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}, testMessagesDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
-			counter, err := anthropic.NewTextCounter(t.Context(), anthropic.TextCounterConfig{APIKey: "test", BaseURL: server.URL, Model: "model"})
+			counter, err := model.TextCounter()
 			if err != nil {
 				t.Fatal(err)
 			}

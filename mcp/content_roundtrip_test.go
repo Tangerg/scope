@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/tool"
@@ -139,8 +140,8 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 func TestCoreContentMetadataAndCitationsRoundTrip(t *testing.T) {
 	var values metadata.Map
 	require.NoError(t, values.Set("app/value", json.RawMessage(`9007199254740993`)))
-	output := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartText, Text: "evidence", Metadata: values,
-		Citations: []chat.Citation{{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com/source"}, Title: "Source"}},
+	output := tool.Output{Content: []corecontent.Block{{Kind: chat.PartText, Text: "evidence", Metadata: values,
+		Citations: []corecontent.Citation{{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"}, Title: "Source"}},
 	}}}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "core-source"}, nil)
 	local := contentOutputTool{output: output}
@@ -167,9 +168,9 @@ func TestCoreMediaNamesRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	linked.Name = "site"
 	parts := []*media.Media{image, audio, document, linked}
-	output := chat.ToolOutput{}
+	output := tool.Output{}
 	for _, value := range parts {
-		output.Content = append(output.Content, chat.ToolContent{Kind: chat.PartMedia, Media: value})
+		output.Content = append(output.Content, corecontent.Block{Kind: chat.PartMedia, Media: value})
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "named-media"}, nil)
 	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
@@ -209,9 +210,9 @@ func TestCoreMediaIdentityAndMetadataRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	linked.ID, linked.Name, linked.Metadata = "link-1", "site", values.Clone()
 	parts := []*media.Media{image, document, linked}
-	output := chat.ToolOutput{}
+	output := tool.Output{}
 	for _, value := range parts {
-		output.Content = append(output.Content, chat.ToolContent{Kind: chat.PartMedia, Media: value})
+		output.Content = append(output.Content, corecontent.Block{Kind: chat.PartMedia, Media: value})
 	}
 	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("failed"), Output: output})
 	require.NoError(t, err)
@@ -260,7 +261,7 @@ func TestCoreMediaIdentityAndMetadataRoundTrip(t *testing.T) {
 func TestMediaReferencesDoNotCrossMCP(t *testing.T) {
 	reference, err := media.NewReference("image/png", "file-opaque-1")
 	require.NoError(t, err)
-	output := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: reference}}}
+	output := tool.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: reference}}}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "reference-media"}, nil)
 	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
 	session := connectContentServer(t, server)
@@ -272,12 +273,12 @@ func TestMediaReferencesDoNotCrossMCP(t *testing.T) {
 }
 
 type contentOutputTool struct {
-	output chat.ToolOutput
+	output tool.Output
 	err    error
 }
 
-func (c contentOutputTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{Name: "content", InputSchema: json.RawMessage(`{"type":"object"}`)}
+func (c contentOutputTool) Definition() tool.Definition {
+	return tool.Definition{Name: "content", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
 func (c contentOutputTool) Call(context.Context, tool.Invocation) (tool.Result, error) {

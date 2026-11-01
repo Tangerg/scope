@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -39,7 +40,7 @@ func mapMistralContentChunk(raw json.RawMessage) (corechat.Part, bool, error) {
 	}
 }
 
-func mapMistralReferenceChunk(raw json.RawMessage) ([]corechat.Citation, bool, error) {
+func mapMistralReferenceChunk(raw json.RawMessage) ([]corecontent.Citation, bool, error) {
 	var chunk struct {
 		Type         contentType       `json:"type"`
 		ReferenceIDs []json.RawMessage `json:"reference_ids"`
@@ -50,14 +51,14 @@ func mapMistralReferenceChunk(raw json.RawMessage) ([]corechat.Citation, bool, e
 	if chunk.Type != contentTypeReference && chunk.Type != contentTypeToolReference {
 		return nil, false, nil
 	}
-	citations := make([]corechat.Citation, 0, len(chunk.ReferenceIDs))
+	citations := make([]corecontent.Citation, 0, len(chunk.ReferenceIDs))
 	for index := range chunk.ReferenceIDs {
 		reference, err := mistralReferenceID(chunk.ReferenceIDs[index])
 		if err != nil {
 			return nil, true, fmt.Errorf("reference_ids[%d]: %w", index, err)
 		}
-		citations = append(citations, corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: reference},
+		citations = append(citations, corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: reference},
 		})
 	}
 	return citations, true, nil

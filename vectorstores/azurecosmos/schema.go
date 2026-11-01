@@ -11,8 +11,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -58,7 +56,10 @@ func newContainerSchema(properties *azcosmos.ContainerProperties, name, partitio
 }
 
 func (c containerSchema) narrow(vector []float64) ([]float32, error) {
-	narrowed := embedding.Float32Vector(vector)
+	narrowed := make([]float32, len(vector))
+	for i, v := range vector {
+		narrowed[i] = float32(v)
+	}
 	if err := c.validateVector(narrowed); err != nil {
 		return nil, err
 	}
@@ -118,12 +119,12 @@ func (c containerSchema) decodeDocument(raw []byte, partition string) (*document
 	if err := c.validateVector(*record.Embedding); err != nil {
 		return nil, "", err
 	}
-	var facts metadata.Map
-	if err := facts.UnmarshalJSON([]byte(*record.Metadata)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(*record.Metadata), doc); err != nil {
 		return nil, "", err
 	}
-	doc := &document.Document{ID: *record.ID, Text: *record.Content, Metadata: facts}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = *record.ID, *record.Content
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, "", err
 	}
 	return doc, azcore.ETag(*record.ETag), nil

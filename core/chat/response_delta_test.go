@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -18,8 +19,8 @@ func TestResponseDeltaJSONRoundTrip(t *testing.T) {
 	if metadataErr := image.Metadata.Set("test/source", "fixture"); metadataErr != nil {
 		t.Fatal(metadataErr)
 	}
-	citation := chat.Citation{
-		Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com/source"},
+	citation := corecontent.Citation{
+		Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"},
 		Title:  "Source",
 	}
 	delta := chat.ResponseDelta{

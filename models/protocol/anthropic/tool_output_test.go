@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolResultPreservesTextImageAndDocumentContent(t *testing.T) {
@@ -19,7 +21,7 @@ func TestToolResultPreservesTextImageAndDocumentContent(t *testing.T) {
 	document.Name = "evidence.pdf"
 	mapped, err := mapProtocolToolResult(corechat.ToolResult{
 		ID: "call", Name: "inspect", IsError: true,
-		Output: corechat.ToolOutput{Content: []corechat.ToolContent{
+		Output: toolcontract.Output{Content: []corecontent.Block{
 			{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: document},
 		}},
 	})
@@ -39,7 +41,7 @@ func TestToolResultRejectsUnsupportedMedia(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = mapProtocolToolResult(corechat.ToolResult{
-		ID: "call", Name: "listen", Output: corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: audio}}},
+		ID: "call", Name: "listen", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corechat.PartMedia, Media: audio}}},
 	})
 	if err == nil {
 		t.Fatal("mapProtocolToolResult accepted unsupported audio")

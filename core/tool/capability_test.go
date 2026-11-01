@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -17,8 +16,8 @@ type capabilityMarker interface {
 
 type markedTool struct{}
 
-func (markedTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{Name: "marked", InputSchema: json.RawMessage(`{"type":"object"}`)}
+func (markedTool) Definition() tool.Definition {
+	return tool.Definition{Name: "marked", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
 func (markedTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
@@ -28,7 +27,7 @@ func (markedTool) Marker() string { return "inner" }
 
 type wrappingTool struct{ inner tool.Tool }
 
-func (w *wrappingTool) Definition() chat.ToolDefinition { return w.inner.Definition() }
+func (w *wrappingTool) Definition() tool.Definition { return w.inner.Definition() }
 func (w *wrappingTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
 	return w.inner.Call(ctx, input)
 }

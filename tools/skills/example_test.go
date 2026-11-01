@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	skillsrc "github.com/Tangerg/scope/skills"
 	skillstool "github.com/Tangerg/scope/tools/skills"
@@ -63,9 +62,7 @@ func ExampleNewTools_pagination() {
 		if err != nil {
 			panic(err)
 		}
-		invocation, err := binding.Contract().Prepare(chat.ToolCall{
-			ID: "read", Name: "load_skill", Arguments: string(arguments),
-		}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "load_skill", Arguments: string(arguments)}, nil)
 		if err != nil {
 			panic(err)
 		}

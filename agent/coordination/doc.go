@@ -1,0 +1,36 @@
+// Package coordination provides bounded coordination through ordinary Agent
+// Definitions. InputGate turns one addressed input into a result carrying the
+// original Signal identity. Deadline participates through the cancellable
+// DeadlineDispatcher. FirstSuccess owns a competition among exact child requests.
+//
+// These Definitions use the public Step, Effect, Signal, and child-wait protocol.
+// They have no scheduler, mailbox, journal, or lifecycle authority of their own.
+// A Program supplies exact implementation and configuration digests; the
+// configuration digest must cover schemas, bounds, and decision policies.
+//
+// A competition selects among observed terminal results, in request order within
+// one satisfaction Signal, after all candidate starts have settled. Slow
+// admission delays selection even when an earlier child has already completed.
+// Completing the competition cancels its remaining descendants. Use the drained
+// child-wait boundary or Handle.Join before reusing their exclusive resources.
+// Competition progress follows the retained candidate results and WaitID. No
+// phase is persisted. Declaring the starts creates one result per candidate;
+// each start receipt fills its result in candidate order, and the child's
+// outcome later replaces that receipt. The completing Step decides the winner
+// and reports it only in the Output the Runtime owns; the completed state keeps
+// just its candidates and a completion marker.
+//
+// Gates and competitions consume finite child, Effect, and Signal allocations.
+// Gate replacement changes the recipient address. A delivery must remain bound
+// to its original Process and WaitID until its admission and disposition are
+// known; retrying against a replacement can consume the same input twice.
+//
+// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
+// Runtime-owned settlements are consumed only at their matching protocol phase;
+// Wait openings may share a window with the following completion. InputGate
+// replies, when used as children, must address the child's current WaitID.
+// Violations detected while consuming these protocols return errors wrapping
+// ErrInvalidProtocol, recorded as contract / coordination.protocol.invalid.
+// Candidate predicate errors remain execution failures; cancellation remains
+// Runtime-owned.
+package coordination

@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func mustImage(t *testing.T) *media.Media {
@@ -27,7 +28,7 @@ func validToolCall() chat.ToolCall {
 }
 
 func validToolResult() chat.ToolResult {
-	output, err := chat.NewJSONToolOutput(json.RawMessage(`{"temperature":20}`))
+	output, err := toolcontract.NewJSONOutput(json.RawMessage(`{"temperature":20}`))
 	if err != nil {
 		panic(err)
 	}

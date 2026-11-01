@@ -13,6 +13,7 @@ import (
 	"github.com/Tangerg/scope/core/history/inmemory"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestNewRejectsNilStore(t *testing.T) {
@@ -144,7 +145,7 @@ func TestCallDefersToolCallUntilCompleteToolExchange(t *testing.T) {
 	call := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{
 		ID: "call-1", Name: "weather", Arguments: `{}`,
 	}))
-	tool := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: chat.NewTextToolOutput("sunny")})
+	tool := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: toolcontract.NewTextOutput("sunny")})
 
 	if _, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return response(call), nil

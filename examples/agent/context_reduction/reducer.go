@@ -5,8 +5,9 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
@@ -17,7 +18,7 @@ const (
 
 type contextPolicy struct {
 	ID      string
-	Reducer interaction.ModelContextReducer
+	Reducer agent.ContextProcessor
 }
 
 type duplicateOutputReference struct {
@@ -29,7 +30,7 @@ type duplicateOutputReference struct {
 // it neither summarizes evidence nor treats an output as permission to act.
 type duplicateToolOutputReducer struct{}
 
-func (duplicateToolOutputReducer) ReduceModelContext(ctx context.Context, _ interaction.ModelInvocation, request *chat.Request) ([]chat.Message, error) {
+func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (duplicateToolOutputReducer) ReduceModelContext(ctx context.Context, _ inte
 			if len(reference) >= minimumDuplicateBytes {
 				continue
 			}
-			replacement := chat.NewTextToolOutput(string(reference))
+			replacement := toolcontract.NewTextOutput(string(reference))
 			originalBytes, err := jsonv2.Marshal(result.Output)
 			if err != nil {
 				return nil, fmt.Errorf("measure original Tool output: %w", err)
@@ -89,4 +90,4 @@ func (duplicateToolOutputReducer) ReduceModelContext(ctx context.Context, _ inte
 	return messages, nil
 }
 
-var _ interaction.ModelContextReducer = duplicateToolOutputReducer{}
+var _ agent.ContextProcessor = duplicateToolOutputReducer{}

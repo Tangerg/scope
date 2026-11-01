@@ -21,7 +21,7 @@ import (
 )
 
 func declaredIndex() *pineconesdk.Index {
-	return &pineconesdk.Index{Name: "documents", Host: "native.fixture", Schema: &pineconesdk.IndexSchema{Fields: map[string]pineconesdk.IndexSchemaField{vectorField: {DenseVector: &pineconesdk.DenseVectorField{Dimension: 2, Metric: pineconesdk.IndexMetricCosine}}}}, Status: &pineconesdk.IndexStatus{Ready: true}, Deployment: &pineconesdk.IndexDeployment{Managed: &pineconesdk.ManagedDeployment{Cloud: pineconesdk.CloudAWS, Region: "us-east-1"}}}
+	return &pineconesdk.Index{Tags: new(pineconesdk.IndexTags{SpaceTag: string(fixtureSpace)}), Name: "documents", Host: "native.fixture", Schema: &pineconesdk.IndexSchema{Fields: map[string]pineconesdk.IndexSchemaField{vectorField: {DenseVector: &pineconesdk.DenseVectorField{Dimension: 2, Metric: pineconesdk.IndexMetricCosine}}}}, Status: &pineconesdk.IndexStatus{Ready: true}, Deployment: &pineconesdk.IndexDeployment{Managed: &pineconesdk.ManagedDeployment{Cloud: pineconesdk.CloudAWS, Region: "us-east-1"}}}
 }
 
 func TestNativePolicyHasNoConfiguredCompetitorOrDefault(t *testing.T) {
@@ -149,7 +149,7 @@ func TestConstructionUsesNativeSDKPolicyAndOwnsOnlyOpenedConnection(t *testing.T
 			index := declaredIndex()
 			index.Host = "http://" + listener.Addr().String()
 			payload, err := jsonv2.Marshal(map[string]any{
-				"name": index.Name, "host": index.Host, "status": map[string]any{"ready": true, "state": "Ready"},
+				"tags": index.Tags, "name": index.Name, "host": index.Host, "status": map[string]any{"ready": true, "state": "Ready"},
 				"schema":     map[string]any{"fields": map[string]any{"_values": map[string]any{"type": "dense_vector", "dimension": 2, "metric": "cosine"}}},
 				"deployment": map[string]any{"deployment_type": "managed", "cloud": "aws", "region": "us-east-1"},
 			})
@@ -172,7 +172,7 @@ func TestConstructionUsesNativeSDKPolicyAndOwnsOnlyOpenedConnection(t *testing.T
 			if failure == "open error" {
 				observed.openErr = errNativeFailure
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: observed, IndexName: index.Name, EmbeddingModel: fixtureModel(), DocumentBatcher: fixtureBatcher{}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: observed, IndexName: index.Name, Space: fixtureSpace})
 			if failure == "" {
 				if err != nil || store == nil {
 					t.Fatalf("store=%v error=%v", store, err)
@@ -205,7 +205,7 @@ func TestConstructionReportsControlFailuresAndConfigErrors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		config := StoreConfig{Client: client, IndexName: "documents", EmbeddingModel: fixtureModel(), DocumentBatcher: fixtureBatcher{}}
+		config := StoreConfig{Client: client, IndexName: "documents", Space: fixtureSpace}
 		store, err := NewStore(t.Context(), config)
 		httpServer.Close()
 		if err == nil || store != nil {
@@ -213,15 +213,15 @@ func TestConstructionReportsControlFailuresAndConfigErrors(t *testing.T) {
 		}
 	}
 	var typedNil *observedClient
-	valid := StoreConfig{Client: typedNil, IndexName: "documents", EmbeddingModel: fixtureModel(), DocumentBatcher: fixtureBatcher{}}
+	valid := StoreConfig{Client: typedNil, IndexName: "documents", Space: fixtureSpace}
 	if err := valid.Validate(); !errors.Is(err, ErrMissingClient) {
 		t.Fatal(err)
 	}
 	valid.Client = &observedClient{}
 	for _, mutate := range []func(*StoreConfig){
 		func(config *StoreConfig) { config.IndexName = "" },
-		func(config *StoreConfig) { config.EmbeddingModel = nil },
-		func(config *StoreConfig) { config.DocumentBatcher = nil },
+		func(config *StoreConfig) { config.Space = "" },
+		func(config *StoreConfig) { config.Space = " wrong " },
 		func(config *StoreConfig) { config.Namespace = "🙂" },
 		func(config *StoreConfig) { config.Namespace = strings.Repeat("x", 513) },
 	} {

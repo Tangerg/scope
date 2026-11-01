@@ -11,11 +11,11 @@ import (
 func TestIndexSnapshot(t *testing.T) {
 	s := newStore(t)
 	d := &document.Document{ID: "one", Text: "original"}
-	if err := s.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{d}}); err != nil {
+	if err := s.Upsert(t.Context(), batch([]*document.Document{d})); err != nil {
 		t.Fatal(err)
 	}
 	d.Text = "changed by caller"
-	r, err := s.Search(t.Context(), &vectorstore.SearchRequest{Query: "original"})
+	r, err := s.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("original")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,16 +26,16 @@ func TestIndexSnapshot(t *testing.T) {
 func TestSearchSnapshot(t *testing.T) {
 	s := newStore(t)
 	d := &document.Document{ID: "one", Text: "original"}
-	if err := s.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{d}}); err != nil {
+	if err := s.Upsert(t.Context(), batch([]*document.Document{d})); err != nil {
 		t.Fatal(err)
 	}
-	q := &vectorstore.SearchRequest{Query: "original"}
-	r, err := s.Search(t.Context(), q)
+	q := &vectorstore.Query{Space: testSpace, Values: vectorFor("original")}
+	r, err := s.Query(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.Results[0].Document.Text = "changed through search result"
-	next, err := s.Search(t.Context(), q)
+	next, err := s.Query(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,12 +49,12 @@ func TestStableTies(t *testing.T) {
 	for i := range ds {
 		ds[i] = &document.Document{ID: fmt.Sprintf("doc-%02d", i), Text: "same"}
 	}
-	if err := s.Index(t.Context(), &vectorstore.IndexRequest{Documents: ds}); err != nil {
+	if err := s.Upsert(t.Context(), batch(ds)); err != nil {
 		t.Fatal(err)
 	}
-	q := &vectorstore.SearchRequest{Query: "same", Options: vectorstore.SearchOptions{TopK: 1}}
+	q := &vectorstore.Query{Space: testSpace, Values: vectorFor("same"), Options: vectorstore.SearchOptions{TopK: 1}}
 	for range 20 {
-		r, err := s.Search(t.Context(), q)
+		r, err := s.Query(t.Context(), q)
 		if err != nil {
 			t.Fatal(err)
 		}

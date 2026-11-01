@@ -17,7 +17,7 @@ import (
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -54,7 +54,7 @@ func liveStore(t *testing.T, metric qdrantclient.Distance) (*Store, *qdrantclien
 		}
 	})
 	name := "scope_native_" + rand.Text()
-	if err = client.CreateCollection(t.Context(), &qdrantclient.CreateCollection{CollectionName: name, VectorsConfig: qdrantclient.NewVectorsConfig(&qdrantclient.VectorParams{Size: 2, Distance: metric})}); err != nil {
+	if err = client.CreateCollection(t.Context(), &qdrantclient.CreateCollection{CollectionName: name, Metadata: map[string]*qdrantclient.Value{SpaceMetadataKey: qdrantclient.NewValueString(string(fixtureSpace))}, VectorsConfig: qdrantclient.NewVectorsConfig(&qdrantclient.VectorParams{Size: 2, Distance: metric})}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -64,14 +64,7 @@ func liveStore(t *testing.T, metric qdrantclient.Distance) (*Store, *qdrantclien
 			t.Error(deleteErr)
 		}
 	})
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: model, DocumentBatcher: integrationBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +76,7 @@ func TestLiveFilterConformance(t *testing.T) {
 		t.Run(metric.String(), func(t *testing.T) {
 			store, _, _ := liveStore(t, metric)
 			var previous []string
-			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
+			storetest.FilterConformance(t, storetest.FilterConfig{Unsupported: unsupportedCases(), Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 				if err := store.DeleteIDs(ctx, previous); err != nil {
 					return nil, err
 				}
@@ -91,11 +84,11 @@ func TestLiveFilterConformance(t *testing.T) {
 				for _, doc := range docs {
 					previous = append(previous, doc.ID)
 				}
-				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
-				request := &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
-				response, err := store.Search(ctx, request)
+				request := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
+				response, err := store.Query(ctx, request)
 				if err != nil {
 					return nil, err
 				}
@@ -106,7 +99,7 @@ func TestLiveFilterConformance(t *testing.T) {
 				if err = store.DeleteWhere(ctx, predicate); err != nil {
 					return nil, err
 				}
-				remaining, err := store.Search(ctx, request)
+				remaining, err := store.Query(ctx, request)
 				if err != nil || len(remaining.Results) != 0 {
 					return nil, errors.Join(err, errors.New("native conditional delete retained matches"))
 				}
@@ -121,10 +114,10 @@ func TestLiveExactMetadataAndRawNativeScores(t *testing.T) {
 		t.Run(metric.String(), func(t *testing.T) {
 			store, client, name := liveStore(t, metric)
 			docs := []*document.Document{{ID: "0", Text: "nil🙂"}, {ID: "18446744073709551615", Text: "empty", Metadata: metadata.Map{}}, {ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "exact", Metadata: metadata.Map{"huge": json.RawMessage(`1e1000`), "integer": json.RawMessage(`9007199254740993`), "nested": json.RawMessage(`{"items":[null,true,{}]}`)}}}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 3}})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 3}})
 			if err != nil || len(response.Results) != 3 {
 				t.Fatalf("response=%v err=%v", response, err)
 			}
@@ -173,7 +166,11 @@ type changedNativeClient struct {
 }
 
 func (c *changedNativeClient) Delete(ctx context.Context, request *qdrantclient.DeletePoints) (*qdrantclient.UpdateResult, error) {
-	changed, err := c.native.SetPayload(ctx, &qdrantclient.SetPayloadPoints{CollectionName: c.name, Wait: new(true), PointsSelector: qdrantclient.NewPointsSelector(qdrantclient.NewIDNum(1)), Payload: map[string]*qdrantclient.Value{metadataField: {Kind: &qdrantclient.Value_StringValue{StringValue: `{"value":"b"}`}}}})
+	record, err := encodeRecord(&document.Document{ID: "1", Text: "changed", Metadata: metadata.Map{"value": []byte(`"b"`)}})
+	if err != nil {
+		return nil, err
+	}
+	changed, err := c.native.SetPayload(ctx, &qdrantclient.SetPayloadPoints{CollectionName: c.name, Wait: new(true), PointsSelector: qdrantclient.NewPointsSelector(qdrantclient.NewIDNum(1)), Payload: record.Payload})
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +186,7 @@ func TestLiveConditionalDeletionRetainsMetadataUpdateAndRejectsCorruption(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "1", Text: "changed", Metadata: facts}, {ID: "2", Text: "unchanged", Metadata: facts}}}); err != nil {
+	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "1", Text: "changed", Metadata: facts}, {ID: "2", Text: "unchanged", Metadata: facts}})); err != nil {
 		t.Fatal(err)
 	}
 	store.client = &changedNativeClient{APIClient: client, native: client, name: name}
@@ -207,13 +204,11 @@ func TestLiveConditionalDeletionRetainsMetadataUpdateAndRejectsCorruption(t *tes
 	if err = requireAppliedUpdate(updated, "native corruption fixture"); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.EQ("value", "absent"), MinScore: 1}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{MinScore: 1}})
 	if err == nil || response != nil {
 		t.Fatalf("native corrupt source became success: %v, %v", response, err)
 	}
-	if rebound, constructorErr := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		return nil, errors.New("unexpected model call")
-	}), DocumentBatcher: integrationBatcher{}}); constructorErr != nil || rebound == nil {
+	if rebound, constructorErr := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, Space: fixtureSpace}); constructorErr != nil || rebound == nil {
 		t.Fatalf("constructor enumerated stored records: %v", constructorErr)
 	}
 }
@@ -222,7 +217,7 @@ func TestLiveRawRankingAcrossMetadataGroups(t *testing.T) {
 	store, client, name := liveStore(t, qdrantclient.Distance_Dot)
 	var docs []*document.Document
 	var points []*qdrantclient.PointStruct
-	for i := range filterPageSize + 1 {
+	for i := range 257 {
 		facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})
 		if err != nil {
 			t.Fatal(err)
@@ -236,7 +231,7 @@ func TestLiveRawRankingAcrossMetadataGroups(t *testing.T) {
 		point.Vectors = qdrantclient.NewVectorsDense([]float32{float32(i + 40), 0})
 		points = append(points, point)
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	applied, err := client.Upsert(t.Context(), &qdrantclient.UpsertPoints{CollectionName: name, Wait: new(true), Points: points})
@@ -246,7 +241,7 @@ func TestLiveRawRankingAcrossMetadataGroups(t *testing.T) {
 	if err = requireAppliedUpdate(applied, "native rank fixture"); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[len(docs)-1].ID {
 		t.Fatalf("native rank was normalized before TopK: %v, %v", response, err)
 	}

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -17,7 +16,7 @@ func TestExecutableToolProtocolStaysMinimal(t *testing.T) {
 	}
 	want := map[string]reflect.Type{
 		"Call":       reflect.TypeFor[func(context.Context, tool.Invocation) (tool.Result, error)](),
-		"Definition": reflect.TypeFor[func() chat.ToolDefinition](),
+		"Definition": reflect.TypeFor[func() tool.Definition](),
 	}
 	for name, signature := range want {
 		method, ok := typeOf.MethodByName(name)

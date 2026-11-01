@@ -149,14 +149,14 @@ func TestPreparerAugmentsRequestAndOwnsEvidence(t *testing.T) {
 	if len(evidence.Candidates) != 1 {
 		t.Fatalf("candidates = %#v", evidence.Candidates)
 	}
-	citations := evidence.Citations
+	citations := evidence.Citations.Candidates()
 	if len(citations) != 1 || citations[0].Document.Text != doc.Text {
 		t.Fatalf("citations = %#v", citations)
 	}
 	evidence.Candidates[0].Document.Text = "changed"
-	evidence.Citations[0].Document.Text = "changed"
+	evidence.Citations.Candidates()[0].Document.Text = "changed"
 	again := prepared.Evidence()
-	if again.Candidates[0].Document.Text != doc.Text || again.Citations[0].Document.Text != doc.Text {
+	if again.Candidates[0].Document.Text != doc.Text || again.Citations.Candidates()[0].Document.Text != doc.Text {
 		t.Fatal("evidence snapshot mutated preparation")
 	}
 }

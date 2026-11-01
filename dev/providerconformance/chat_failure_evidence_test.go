@@ -6,12 +6,12 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/modeltest"
+	"github.com/Tangerg/scope/models/anthropic"
 	"github.com/Tangerg/scope/models/bedrock"
 	"github.com/Tangerg/scope/models/google"
 	"github.com/Tangerg/scope/models/mistral"
 	"github.com/Tangerg/scope/models/ollama"
-	"github.com/Tangerg/scope/models/protocol/anthropic"
-	"github.com/Tangerg/scope/models/protocol/openai"
+	"github.com/Tangerg/scope/models/openai"
 )
 
 func TestChatLocalRejectionPreservesNonExecutionEvidence(t *testing.T) {

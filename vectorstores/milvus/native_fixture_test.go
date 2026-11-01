@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/milvus-io/milvus-proto/go-api/v3/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v3/milvuspb"
@@ -24,7 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -54,7 +55,7 @@ type nativeService struct {
 }
 
 func nativeSchema(name string) *entity.Schema {
-	return entity.NewSchema().WithName(name).
+	return entity.NewSchema().WithName(name).WithDescription(fixtureSpace.StorageKey()).
 		WithField(entity.NewField().WithName(fieldID).WithDataType(entity.FieldTypeVarChar).WithMaxLength(nativeMaxVarCharBytes).WithIsPrimaryKey(true)).
 		WithField(entity.NewField().WithName(fieldContent).WithDataType(entity.FieldTypeVarChar).WithMaxLength(nativeMaxVarCharBytes)).
 		WithField(entity.NewField().WithName(fieldMeta).WithDataType(entity.FieldTypeVarChar).WithMaxLength(nativeMaxVarCharBytes)).
@@ -272,43 +273,27 @@ func nativeClient(t *testing.T, service *nativeService) *milvusclient.Client {
 	return client
 }
 
-type testBatcher struct {
-	singleton bool
-	err       error
-}
+const fixtureSpace vectorstore.SpaceID = "test-v1"
 
-func (t testBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	if t.err != nil {
-		return nil, t.err
-	}
-	if !t.singleton {
-		return [][]*document.Document{docs}, nil
-	}
-	batches := make([][]*document.Document, len(docs))
-	for position, doc := range docs {
-		batches[position] = []*document.Document{doc}
-	}
-	return batches, nil
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
-
-func fixtureModel(vectorFor func(string) []float64) embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for position, text := range request.Texts {
-			vector := []float64{1, 0}
-			if vectorFor != nil {
-				vector = vectorFor(text)
-			}
-			outputs[position] = &embedding.Output{Embedding: vector}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func fixtureVector(_ string) []float64                          { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch { return fixtureBatchWith(docs, nil) }
+func fixtureBatchWith(docs []*document.Document, coords func(string) []float64) *vectorstore.Batch {
+	if coords == nil {
+		coords = fixtureVector
+	}
+	records := make([]vectorstore.Record, len(docs))
+	for i, doc := range docs {
+		records[i] = vectorstore.Record{Document: doc, Values: coords(doc.Text)}
+	}
+	return &vectorstore.Batch{Space: fixtureSpace, Records: records}
 }
-
-func nativeStore(t *testing.T, metric entity.MetricType, vectorFor func(string) []float64) (*Store, *nativeService) {
+func nativeStore(t *testing.T, metric entity.MetricType) (*Store, *nativeService) {
 	t.Helper()
 	service := newNativeService(metric)
-	store, err := NewStore(t.Context(), StoreConfig{Client: nativeClient(t, service), CollectionName: "documents", EmbeddingModel: fixtureModel(vectorFor), DocumentBatcher: testBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: nativeClient(t, service), CollectionName: "documents", Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,8 +302,8 @@ func nativeStore(t *testing.T, metric entity.MetricType, vectorFor func(string) 
 
 func indexedStore(t *testing.T, metric entity.MetricType, docs []*document.Document, vectorFor func(string) []float64) (*Store, *nativeService) {
 	t.Helper()
-	store, service := nativeStore(t, metric, vectorFor)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	store, service := nativeStore(t, metric)
+	if err := store.Upsert(t.Context(), fixtureBatchWith(docs, vectorFor)); err != nil {
 		t.Fatal(fmt.Errorf("index fixture: %w", err))
 	}
 	return store, service

@@ -45,8 +45,8 @@ func TestCoreSelectsAllRowsBeforeEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	docs := []*document.Document{{ID: "one", Text: "text", Metadata: facts}}
-	ids, err := selectIDs(docs, predicate)
-	if err != nil || len(ids) != 1 || string(ids[0]) != "one" {
+	ids, err := selectRecords(t.Context(), docs, predicate)
+	if err != nil || len(ids) != 1 || ids[0].ID != "one" {
 		t.Fatalf("native int4 restriction leaked into Core: ids=%v error=%v", ids, err)
 	}
 	if err = docs[0].Metadata.Set("value", "wrong type"); err != nil {
@@ -56,7 +56,7 @@ func TestCoreSelectsAllRowsBeforeEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ids, err := selectIDs(docs, predicate); err == nil || ids != nil {
+	if ids, err := selectRecords(t.Context(), docs, predicate); err == nil || ids != nil {
 		t.Fatalf("type error concealed: ids=%v error=%v", ids, err)
 	}
 }

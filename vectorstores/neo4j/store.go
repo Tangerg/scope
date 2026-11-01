@@ -3,8 +3,10 @@ package neo4j
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -13,9 +15,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -50,8 +49,7 @@ func (s SimilarityFunction) Valid() bool {
 func (s SimilarityFunction) String() string { return string(s) }
 
 // StoreConfig selects an exclusively owned document label and its four properties.
-// Empty property names use their exported defaults. Driver, EmbeddingModel and
-// DocumentBatcher are required.
+// Empty property names use their exported defaults. Driver, Dimensions and Space are required.
 type StoreConfig struct {
 	Driver   Driver
 	Database string
@@ -62,8 +60,8 @@ type StoreConfig struct {
 	TextProperty      string
 	// MetadataProperty stores the entire Core JSON map, including null or {}.
 	MetadataProperty string
-	EmbeddingModel   embedding.Model
-	DocumentBatcher  vectorstore.Batcher
+	Space            vectorstore.SpaceID
+	Dimensions       int
 	Similarity       SimilarityFunction
 	// InitializeSchema creates the ID uniqueness constraint. Construction always
 	// verifies the actual constraint, including when schema creation is disabled.
@@ -75,11 +73,11 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.Driver) {
 		return errors.New("neo4j: Driver is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("neo4j: EmbeddingModel is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("neo4j: DocumentBatcher is required")
+	if s.Dimensions < 1 {
+		return errors.New("neo4j: positive Dimensions required")
 	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("neo4j: unsupported Similarity %q", s.Similarity)
@@ -118,10 +116,8 @@ func (s *StoreConfig) applyDefaults() {
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 // Store projects Core documents onto Neo4j nodes. Core owns filter semantics;
@@ -134,8 +130,8 @@ type Store struct {
 	idProperty        string
 	textProperty      string
 	metadataProperty  string
-	embeddingClient   embeddingclient.Client
-	documentBatcher   vectorstore.Batcher
+	space             vectorstore.SpaceID
+	dimensions        int
 	similarity        SimilarityFunction
 }
 
@@ -144,15 +140,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, fmt.Errorf("neo4j: create embedding client: %w", err)
-	}
 	store := &Store{
 		driver: config.Driver, database: config.Database, label: config.Label,
 		embeddingProperty: config.EmbeddingProperty, idProperty: config.IDProperty,
 		textProperty: config.TextProperty, metadataProperty: config.MetadataProperty,
-		embeddingClient: client, documentBatcher: config.DocumentBatcher, similarity: config.Similarity,
+		space: config.Space, dimensions: config.Dimensions, similarity: config.Similarity,
 	}
 	if err := store.initialize(ctx, config.InitializeSchema); err != nil {
 		return nil, fmt.Errorf("neo4j: initialize: %w", err)
@@ -161,8 +153,12 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 }
 
 func (s *Store) initialize(ctx context.Context, create bool) error {
+	// Neo4j permits only one uniqueness constraint per label/property schema.
+	// The physical constraint name attests this label's immutable space/width.
+	// A pre-existing foreign constraint is never silently adopted.
+	binding := fmt.Sprintf("scope_%x", sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q/%d", s.label, s.idProperty, s.space, s.dimensions))))
 	if create {
-		query := fmt.Sprintf("CREATE CONSTRAINT IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE", quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
+		query := fmt.Sprintf("CREATE CONSTRAINT %s IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE", quoteIdentifier(binding), quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
 		if _, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
 			result, err := tx.Run(ctx, query, nil)
 			if err != nil {
@@ -174,7 +170,7 @@ func (s *Store) initialize(ctx context.Context, create bool) error {
 		}
 	}
 	_, err := s.transact(ctx, neo4j.AccessModeRead, func(tx neo4j.ManagedTransaction) (any, error) {
-		result, err := tx.Run(ctx, "SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties WHERE type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$label] AND properties = [$property] RETURN count(*) AS count", map[string]any{"label": s.label, "property": s.idProperty})
+		result, err := tx.Run(ctx, "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties WHERE name=$binding AND type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$label] AND properties = [$property] RETURN count(*) AS count", map[string]any{"binding": binding, "label": s.label, "property": s.idProperty})
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +180,7 @@ func (s *Store) initialize(ctx context.Context, create bool) error {
 		}
 		count, ok := record.Get("count")
 		if !ok || count != int64(1) {
-			return nil, errors.New("neo4j: document ID requires a native uniqueness constraint")
+			return nil, fmt.Errorf("neo4j: missing uniqueness constraint bound to the requested space and width: %w", vectorstore.ErrIncompatibleSpace)
 		}
 		// Capability discovery must fail at construction, not on the first search.
 		_, err = s.scoreVectors(ctx, tx, [][]float64{{1, 0}}, nil)
@@ -198,10 +194,12 @@ func (s *Store) transact(ctx context.Context, mode neo4j.AccessMode, work neo4j.
 	defer func() {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionCloseTimeout)
 		defer cancel()
+		if err != nil {
+			value = nil
+		}
 		err = errors.Join(err, session.Close(closeCtx))
 		if err != nil {
 			err = errors.Join(err, ctx.Err())
-			value = nil
 		}
 	}()
 	if mode == neo4j.AccessModeWrite {
@@ -210,48 +208,38 @@ func (s *Store) transact(ctx context.Context, mode neo4j.AccessMode, work neo4j.
 	return session.ExecuteRead(ctx, work)
 }
 
-// Index embeds outside the SDK's retryable transaction and publishes the complete
-// request in one native transaction. No model call is repeated by a database retry.
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("neo4j: index: %w", err)
+// Upsert validates a single precomputed batch before one database transaction.
+func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
+	if err := request.ValidateFor(s.space); err != nil {
+		return err
 	}
-	for i, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("neo4j: index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
+	rows := make([]map[string]any, 0, len(request.Records))
+	vectors := make([][]float64, 0, len(request.Records))
+	ids := make([]string, 0, len(request.Records))
+	for _, r := range request.Records {
+		if r.Document.Media != nil {
+			return vectorstore.ErrInvalidDocument
 		}
-	}
-	batches, batchErr := request.Batch(ctx, s.documentBatcher)
-	if batchErr != nil {
-		return fmt.Errorf("neo4j: batch: %w", batchErr)
-	}
-	rows := make([]map[string]any, 0, len(request.Documents))
-	vectors := make([][]float64, 0, len(request.Documents))
-	for _, batch := range batches {
-		texts, err := batch.Texts()
+		if len(r.Values) != s.dimensions {
+			return fmt.Errorf("neo4j: wrong coordinate width: %w", vectorstore.ErrInvalidRequest)
+		}
+		props, err := s.documentProperties(r.Document, r.Values)
 		if err != nil {
 			return err
 		}
-		embedded, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("neo4j: embed: %w", err)
-		}
-		for i, doc := range batch.Documents {
-			props, err := s.documentProperties(doc, embedded[i])
-			if err != nil {
-				return err
-			}
-			rows = append(rows, props)
-			vectors = append(vectors, embedded[i])
-		}
+		rows = append(rows, props)
+		vectors = append(vectors, r.Values)
+		ids = append(ids, r.Document.ID)
 	}
 	query := fmt.Sprintf("UNWIND $rows AS row MERGE (n:%s {%s: row[$idProperty]}) SET n = row", quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
-	_, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
+	submitted := false
+	ack, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
 		// The native function owns metric-specific vector validity, including cosine's nonzero norm.
 		if _, err := s.scoreVectors(ctx, tx, vectors, nil); err != nil {
 			return nil, err
 		}
 		for batch := range slices.Chunk(rows, transactionBatchSize) {
+			submitted = true
 			result, err := tx.Run(ctx, query, map[string]any{"rows": batch, "idProperty": s.idProperty})
 			if err != nil {
 				return nil, err
@@ -260,16 +248,22 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 				return nil, err
 			}
 		}
-		return nil, nil
+		return true, nil
 	})
 	if err != nil {
-		return fmt.Errorf("neo4j: upsert: %w", err)
+		if ack == true {
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids}
+		}
+		if submitted {
+			return &vectorstore.WriteError{Err: err, Unconfirmed: ids}
+		}
+		return err
 	}
 	return nil
 }
 
 func (s *Store) documentProperties(doc *document.Document, vector []float64) (map[string]any, error) {
-	encoded, err := doc.Metadata.MarshalJSON()
+	encoded, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, fmt.Errorf("neo4j: encode metadata for %q: %w", doc.ID, err)
 	}
@@ -299,11 +293,11 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	if !idOK || strings.TrimSpace(id) == "" || !textOK || !metadataOK {
 		return nil, errors.New("neo4j: invalid document property types or ID")
 	}
-	var decoded metadata.Map
-	if err := decoded.UnmarshalJSON([]byte(encoded)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(encoded), doc); err != nil {
 		return nil, fmt.Errorf("neo4j: decode metadata for %q: %w", id, err)
 	}
-	doc := &document.Document{ID: id, Text: text, Metadata: decoded}
+	doc.ID, doc.Text = id, text
 	if err := doc.Validate(); err != nil {
 		return nil, err
 	}
@@ -319,8 +313,13 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 		}
 		vector[i] = value
 	}
-	if err := (&embedding.Output{Embedding: vector}).Validate(); err != nil {
-		return nil, err
+	if len(vector) != s.dimensions || len(vector) == 0 {
+		return nil, errors.New("neo4j: stored vector width mismatch")
+	}
+	for _, v := range vector {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil, errors.New("neo4j: nonfinite stored coordinate")
+		}
 	}
 	elementID, _ := record.Get("elementID")
 	handle, ok := elementID.(string)
@@ -338,22 +337,42 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	return &storedNode{document: doc, vector: vector, elementID: handle}, nil
 }
 
-func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, predicate filter.Predicate, lock bool) ([]*storedNode, error) {
+func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, predicate filter.Predicate, lock bool, meter *vectorstore.ScanMeter, readLimit int) ([]*storedNode, error) {
 	lockClause := ""
 	if lock {
 		// A dependent SET acquires the node write lock before the property read;
 		// the native transaction retains that lock through validation and deletion.
 		lockClause = fmt.Sprintf(" SET n.%s = n.%s", quoteIdentifier(s.idProperty), quoteIdentifier(s.idProperty))
 	}
-	query := fmt.Sprintf("MATCH (n:%s)%s WITH n, properties(n) AS stored RETURN elementId(n) AS elementID, stored AS properties, vector.similarity.%s(stored[$embeddingProperty], stored[$embeddingProperty]) AS selfScore", quoteIdentifier(s.label), lockClause, s.similarity)
-	result, err := tx.Run(ctx, query, map[string]any{"embeddingProperty": s.embeddingProperty})
+	query := fmt.Sprintf("MATCH (n:%s) WITH n LIMIT $readLimit %s WITH n, properties(n) AS stored RETURN elementId(n) AS elementID, stored AS properties, vector.similarity.%s(stored[$embeddingProperty], stored[$embeddingProperty]) AS selfScore", quoteIdentifier(s.label), lockClause, s.similarity)
+	result, err := tx.Run(ctx, query, map[string]any{"embeddingProperty": s.embeddingProperty, "readLimit": readLimit})
 	if err != nil {
 		return nil, err
 	}
 	var selected []*storedNode
 	seen := make(map[string]struct{})
 	for result.Next(ctx) {
-		node, err := s.decodeRecord(result.Record())
+		record := result.Record()
+		props, _ := record.Get("properties")
+		properties, _ := props.(map[string]any)
+		var bytes int64
+		for k, v := range properties {
+			bytes += int64(len(k))
+			switch value := v.(type) {
+			case string:
+				bytes += int64(len(value))
+			case []any:
+				bytes += 8 * int64(len(value))
+			}
+		}
+		id, _ := record.Get("elementID")
+		if handle, ok := id.(string); ok {
+			bytes += int64(len(handle))
+		}
+		if err := meter.Charge(bytes); err != nil {
+			return nil, err
+		}
+		node, err := s.decodeRecord(record)
 		if err != nil {
 			return nil, err
 		}
@@ -432,8 +451,8 @@ func (s *Store) scoreVectors(ctx context.Context, tx neo4j.ManagedTransaction, v
 	return scores, nil
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = request.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, fmt.Errorf("neo4j: search: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -441,14 +460,26 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
+	if len(request.Values) != s.dimensions {
+		return nil, vectorstore.ErrInvalidRequest
+	}
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
 	value, err := s.transact(ctx, neo4j.AccessModeRead, func(tx neo4j.ManagedTransaction) (any, error) {
-		return s.selectNodes(ctx, tx, request.Options.Filter, false)
+		if _, scoreErr := s.scoreVectors(ctx, tx, [][]float64{request.Values}, nil); scoreErr != nil {
+			return nil, scoreErr
+		}
+		return s.selectNodes(ctx, tx, request.Options.Filter, false, meter, budget.MaxRecords+1)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("neo4j: read candidates: %w", err)
@@ -457,10 +488,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if len(selected) == 0 {
 		return &vectorstore.SearchResponse{}, nil
 	}
-	queryVector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, fmt.Errorf("neo4j: embed query: %w", err)
-	}
+	queryVector := request.Values
 	vectors := make([][]float64, len(selected))
 	for i, node := range selected {
 		vectors[i] = node.vector
@@ -490,19 +518,25 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-// DeleteWhere validates the entire observed collection before any deletion.
+// DeleteMatching validates the entire observed collection before any deletion.
 // Node write locks prevent an observed match being replaced before deletion.
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
 		return fmt.Errorf("neo4j: delete: %w", err)
 	}
-	_, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
-		nodes, err := s.selectNodes(ctx, tx, predicate, true)
-		if err != nil {
-			return nil, err
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	_, err = s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
+		nodes, selectionErr := s.selectNodes(ctx, tx, predicate, true, meter, budget.MaxRecords+1)
+		if selectionErr != nil {
+			return nil, selectionErr
 		}
 		handles := make([]string, len(nodes))
 		for i, node := range nodes {
@@ -510,12 +544,12 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 		}
 		query := fmt.Sprintf("MATCH (n:%s) WHERE elementId(n) IN $ids DETACH DELETE n", quoteIdentifier(s.label))
 		for batch := range slices.Chunk(handles, transactionBatchSize) {
-			result, err := tx.Run(ctx, query, map[string]any{"ids": batch})
-			if err != nil {
-				return nil, err
+			result, runErr := tx.Run(ctx, query, map[string]any{"ids": batch})
+			if runErr != nil {
+				return nil, runErr
 			}
-			if _, err := result.Consume(ctx); err != nil {
-				return nil, err
+			if _, consumeErr := result.Consume(ctx); consumeErr != nil {
+				return nil, consumeErr
 			}
 		}
 		return nil, nil

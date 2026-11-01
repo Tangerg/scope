@@ -9,19 +9,18 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/milvus-io/milvus/client/v3/column"
 	"github.com/milvus-io/milvus/client/v3/entity"
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 	"google.golang.org/grpc"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var (
-	_ vectorstore.Indexer   = (*Store)(nil)
-	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
 	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
@@ -36,21 +35,16 @@ type collectionClient interface {
 }
 
 type Store struct {
-	client          collectionClient
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	collectionName  string
+	client         collectionClient
+	space          vectorstore.SpaceID
+	collectionName string
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	embeddings, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{client: config.Client, embeddingClient: embeddings, documentBatcher: config.DocumentBatcher, collectionName: config.CollectionName}
+	s := &Store{client: config.Client, space: config.Space, collectionName: config.CollectionName}
 	if _, err := s.readPolicy(ctx); err != nil {
 		return nil, err
 	}
@@ -61,6 +55,9 @@ func (s *Store) readPolicy(ctx context.Context) (nativePolicy, error) {
 	collection, err := s.client.DescribeCollection(ctx, milvusclient.NewDescribeCollectionOption(s.collectionName))
 	if err != nil {
 		return nativePolicy{}, err
+	}
+	if collection == nil || collection.Schema == nil || collection.Schema.Description != s.space.StorageKey() {
+		return nativePolicy{}, fmt.Errorf("%w: incorrect physical space binding", ErrSchemaMismatch)
 	}
 	policy, err := decodePolicy(collection, s.collectionName)
 	if err != nil {
@@ -83,7 +80,7 @@ func (s *Store) readPolicy(ctx context.Context) (nativePolicy, error) {
 	return policy, nil
 }
 
-func (s *Store) selectDocuments(ctx context.Context, policy nativePolicy, predicate filter.Predicate) ([]nativeRecord, error) {
+func (s *Store) selectDocuments(ctx context.Context, policy nativePolicy, predicate filter.Predicate, meter *vectorstore.ScanMeter) ([]nativeRecord, error) {
 	var selected []nativeRecord
 	cursor := ""
 	for {
@@ -102,6 +99,9 @@ func (s *Store) selectDocuments(ctx context.Context, policy nativePolicy, predic
 			return selected, nil
 		}
 		for _, record := range records {
+			if err := meter.Charge(int64(len(record.doc.ID)) + int64(len(record.doc.Text)) + int64(len(record.metadata)) + 4*int64(policy.dimensions)); err != nil {
+				return nil, err
+			}
 			if record.doc.ID <= cursor {
 				return nil, errors.New("milvus: source identities do not advance")
 			}
@@ -117,88 +117,121 @@ func (s *Store) selectDocuments(ctx context.Context, policy nativePolicy, predic
 	}
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	for _, doc := range request.Documents {
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
 		if doc.Media != nil {
-			return fmt.Errorf("%w: media is unsupported", vectorstore.ErrInvalidDocument)
+			return vectorstore.ErrInvalidDocument
 		}
 	}
 	policy, err := s.readPolicy(ctx)
 	if err != nil {
 		return err
 	}
-	records, err := encodeDocuments(request.Documents, policy)
+	_, err = encodeDocuments(docs, policy)
+	return err
+}
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	docs := make([]*document.Document, len(batch.Records))
+	values := make([][]float64, len(docs))
+	ids := make([]string, len(docs))
+	for i, r := range batch.Records {
+		if r.Document.Media != nil {
+			return vectorstore.ErrInvalidDocument
+		}
+		docs[i] = r.Document
+		values[i] = r.Values
+		ids[i] = r.Document.ID
+	}
+	policy, err := s.readPolicy(ctx)
 	if err != nil {
 		return err
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
+	records, err := encodeDocuments(docs, policy)
 	if err != nil {
 		return err
 	}
-	prepared := make([][]column.Column, 0, len(batches))
-	position := 0
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
-		}
-		vectors, embedErr := s.embeddingClient.EmbedTexts(ctx, texts)
-		if embedErr != nil {
-			return embedErr
-		}
-		columns, columnErr := encodeColumns(records[position:position+len(batch.Documents)], vectors, policy)
-		if columnErr != nil {
-			return columnErr
-		}
-		prepared = append(prepared, columns)
-		position += len(batch.Documents)
-	}
-	if _, err = s.selectDocuments(ctx, policy, nil); err != nil {
+	cols, err := encodeColumns(records, values, policy)
+	if err != nil {
 		return err
 	}
-	for _, columns := range prepared {
-		result, err := s.client.Upsert(ctx, milvusclient.NewColumnBasedInsertOption(s.collectionName, columns...))
+	result, err := s.client.Upsert(ctx, milvusclient.NewColumnBasedInsertOption(s.collectionName, cols...))
+	if err != nil {
+		return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
+	}
+	if result.UpsertCount != int64(len(docs)) || result.IDs == nil || result.IDs.Len() != len(docs) {
+		return &vectorstore.WriteError{Unconfirmed: ids, Err: errors.New("milvus: inconsistent upsert acknowledgment")}
+	}
+	seen := make(map[string]bool, len(ids))
+	for i := range ids {
+		id, err := result.IDs.GetAsString(i)
 		if err != nil {
-			return err
+			return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
 		}
-		count := columns[0].Len()
-		if result.UpsertCount != int64(count) || result.IDs == nil || result.IDs.Len() != count {
-			return fmt.Errorf("milvus: upsert acknowledgment does not cover %d documents", count)
-		}
-		for position := range count {
-			id, err := result.IDs.GetAsString(position)
-			if err != nil {
-				return err
-			}
-			expected, err := columns[0].GetAsString(position)
-			if err != nil {
-				return err
-			}
-			if id != expected {
-				return errors.New("milvus: upsert acknowledged a different identity")
-			}
+		seen[id] = true
+	}
+	for _, id := range ids {
+		if !seen[id] {
+			return &vectorstore.WriteError{Unconfirmed: ids, Err: errors.New("milvus: acknowledged IDs differ from submitted records")}
 		}
 	}
 	return nil
 }
-
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := s.checkOptions(opts, false); err != nil {
+		return err
+	}
+	_, err := s.readPolicy(ctx)
+	return err
+}
+func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.ResultLimit() > nativeMaxTopK {
+		return errors.New("milvus: result limit exceeds the native topK limit")
+	}
+	if opts.Filter != nil && !allowFilter {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return nil
+}
+func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return s.rank(ctx, q, nil)
+}
+func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	return s.rank(meter.Context(), q, meter)
+}
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vectorstore.ScanMeter) (*vectorstore.SearchResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := request.Validate(); err != nil {
+	if err := request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err := s.checkOptions(request.Options, meter != nil); err != nil {
 		return nil, err
 	}
 	limit := request.Options.ResultLimit()
-	if limit > nativeMaxTopK {
-		return nil, errors.New("milvus: result limit exceeds the native topK limit")
-	}
 	policy, err := s.readPolicy(ctx)
 	if err != nil {
 		return nil, err
@@ -207,20 +240,16 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	groups := [][]nativeRecord{nil}
 	if request.Options.Filter != nil {
 		var candidates []nativeRecord
-		candidates, err = s.selectDocuments(ctx, policy, request.Options.Filter)
+		candidates, err = s.selectDocuments(ctx, policy, request.Options.Filter, meter)
 		if err != nil {
 			return nil, err
 		}
 		if len(candidates) == 0 {
-			return response, response.ValidateFor(request)
+			return response, request.ValidateResponse(response)
 		}
 		groups = slices.Collect(slices.Chunk(candidates, identityGroupSize))
 	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	query, err := policy.vector(vector)
+	query, err := policy.vector(request.Values)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +326,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	for _, hit := range ranked[:min(limit, len(ranked))] {
 		response.Results = append(response.Results, hit.result)
 	}
-	if err := response.ValidateFor(request); err != nil {
+	if err := request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil

@@ -106,7 +106,7 @@ type metricConfiguration struct {
 
 type Evaluator[T any] struct {
 	client    chatclient.Client
-	format    chatclient.OutputFormat[modelReport]
+	format    chatclient.Format[modelReport]
 	metric    eval.Metric
 	prompt    Prompt[T]
 	options   chat.Options

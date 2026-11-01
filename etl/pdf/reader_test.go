@@ -84,7 +84,9 @@ func TestReadWholeExtractsRealPDFAndOwnsMetadata(t *testing.T) {
 		t.Fatalf("documents = %+v", docs)
 	}
 	assertMetadata(t, docs[0].Metadata, pdf.MetadataPagesTotal, 2)
-	assertMetadata(t, docs[0].Metadata, pdf.MetadataSourceName, "actual.pdf")
+	if p := docs[0].Provenance; p == nil || p.Source != "actual.pdf" {
+		t.Fatalf("source=%+v", p)
+	}
 	assertMetadata(t, docs[0].Metadata, "custom", "kept")
 }
 
@@ -102,7 +104,9 @@ func TestReadPerPageExtractsPageIdentity(t *testing.T) {
 		t.Fatalf("documents = %+v", docs)
 	}
 	for index, doc := range docs {
-		assertMetadata(t, doc.Metadata, pdf.MetadataPageIndex, index+1)
+		if p := doc.Provenance; p == nil || p.Page != index+1 {
+			t.Fatalf("page=%+v; want %d", p, index+1)
+		}
 		assertMetadata(t, doc.Metadata, pdf.MetadataPagesTotal, 2)
 	}
 }

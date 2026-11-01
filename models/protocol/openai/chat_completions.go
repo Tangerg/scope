@@ -56,11 +56,7 @@ type ChatCompletions struct {
 	dialect  Dialect
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ChatCompletions, error) {
-	return newChatCompletions(ctx, config, Dialect{Provider: protocolProvider, TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: prepareOpenAIChatRequest})
-}
-
-func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) error {
+func RequestStreamUsage(_ *corechat.Request, target *CompatibleRequest) error {
 	options := make(map[string]any)
 	if value, supplied := target.extraFields["stream_options"]; supplied {
 		if value == nil {
@@ -82,11 +78,10 @@ func prepareOpenAIChatRequest(_ *corechat.Request, target *CompatibleRequest) er
 	return target.SetExtraField("stream_options", options)
 }
 
-func NewCompatibleChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
-	return newChatCompletions(ctx, config, dialect)
-}
-
-func newChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
+	if err := requireBindingEndpoint(dialect.Provider, config.BaseURL); err != nil {
+		return nil, err
+	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -119,16 +114,7 @@ func (c *ChatCompletions) ListModels(ctx context.Context, maxModels int, maxResp
 }
 
 func (c *ChatCompletions) Call(ctx context.Context, req *corechat.Request) (*corechat.Response, error) {
-	var accumulator corechat.ResponseAccumulator
-	for delta, err := range c.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if addErr := accumulator.Add(delta); addErr != nil {
-			return nil, addErr
-		}
-	}
-	return accumulator.Response()
+	return corechat.Collect(c.Stream(ctx, req))
 }
 
 // Stream performs one streaming Chat Completions request. Stable tool identity

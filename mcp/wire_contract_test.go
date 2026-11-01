@@ -16,7 +16,6 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
@@ -221,9 +220,9 @@ func TestWireRegistrationPreservesArgumentsSchemaAndResults(t *testing.T) {
 		t.Run(payload, func(t *testing.T) {
 			const schema = `{"type":"object","properties":{"n":{"type":"integer","const":9007199254740993}},"required":["n"]}`
 			received := make(chan string, 1)
-			executable := testTool{definition: chat.ToolDefinition{Name: "probe", InputSchema: json.RawMessage(schema)}, call: func(ctx context.Context, invocation tool.Invocation) (chat.ToolOutput, error) {
+			executable := testTool{definition: tool.Definition{Name: "probe", InputSchema: json.RawMessage(schema)}, call: func(ctx context.Context, invocation tool.Invocation) (tool.Output, error) {
 				received <- string(invocation.Arguments())
-				return chat.ToolOutput{Details: json.RawMessage(payload)}, nil
+				return tool.Output{Details: json.RawMessage(payload)}, nil
 			}}
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "scope-server", Version: "1"}, nil)
 			if err := scopemcp.Register(server, executable); err != nil {

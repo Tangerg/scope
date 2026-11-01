@@ -2,22 +2,22 @@
 // tracing and metrics APIs. The Agent Kernel does not import OpenTelemetry.
 //
 // Each Process activation is an in-process invoke_agent span named after its
-// Deployment, with matching gen_ai.invoke_agent.duration. A restored activation
+// program, with matching gen_ai.invoke_agent.duration. A restored activation
 // starts a new observation interval; the process activation attribute separates
 // it from an initial invocation. Process IDs remain runtime attributes, not
 // stable gen_ai.agent.id values. Model selection stays at the model boundary.
 // Durable Process, Step, and Effect spans are keyed by the active incarnation,
 // so overlapping old and restored instances never share span ownership.
-// Effect spans and dropped-Delta events carry the Engine's physical AttemptID.
+// Effect spans and dropped-Delta events carry the Runtime's physical AttemptID.
 // Replays keep the logical EffectID and receive a fresh AttemptID. Unknown
 // resolution is a Process event with the definite settlement, not another
 // invocation or an extension of the original duration. These identities never
 // become metric dimensions.
 //
-// Register an Observer as an Engine EventListener and wrap each Deployment's
+// Register an Observer as a run.EventListener and wrap each program's
 // Dispatcher with Observer.WrapDispatcher to make downstream model and tool
-// spans children of their Effect span. Close the Engine before the Observer.
-// Wrap the selected TreeCommitter with Observer.WrapTreeCommitter to observe
+// spans children of the actual dispatch span. Close the Runtime before the Observer.
+// Wrap the selected run.Store with Observer.WrapTreeCommitter to observe
 // protocol acknowledgment duration, proposed snapshot bytes, and conflict or
 // unresolved outcomes. This integration does not select storage, read heads,
 // infer rollback, or measure the age of stored state.

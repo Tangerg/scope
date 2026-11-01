@@ -33,10 +33,10 @@ var (
 	ErrInvalidOutput = errors.New("chatclient: invalid output")
 )
 
-// OutputFormat couples a provider-neutral request contract with the decoder
+// Format couples a provider-neutral request contract with the decoder
 // for its complete response. Pass one to [Client.Output], or call its Decode on
 // a response obtained elsewhere so every caller shares one decode rule.
-type OutputFormat[T any] struct {
+type Format[T any] struct {
 	formatType        chat.OutputFormatType
 	schemaName        string
 	schemaDescription string
@@ -45,8 +45,8 @@ type OutputFormat[T any] struct {
 }
 
 // Text selects provider-native text output without post-processing.
-func Text() OutputFormat[string] {
-	return OutputFormat[string]{
+func Text() Format[string] {
+	return Format[string]{
 		formatType: chat.OutputFormatText,
 		decoder:    func(raw []byte) (string, error) { return string(raw), nil },
 	}
@@ -54,8 +54,8 @@ func Text() OutputFormat[string] {
 
 // JSON selects provider-native JSON output and rejects unknown object members
 // when decoding T.
-func JSON[T any]() OutputFormat[T] {
-	return OutputFormat[T]{
+func JSON[T any]() Format[T] {
+	return Format[T]{
 		formatType: chat.OutputFormatJSON,
 		decoder:    decodeJSON[T],
 	}
@@ -66,10 +66,10 @@ type JSONSchemaConfig struct {
 	Description string
 }
 
-func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
+func JSONSchema[T any](config JSONSchemaConfig) (Format[T], error) {
 	schema, err := corejsonschema.For[T]()
 	if err != nil {
-		return OutputFormat[T]{}, fmt.Errorf("%w: derive schema: %w", ErrInvalidOutputFormat, err)
+		return Format[T]{}, fmt.Errorf("%w: derive schema: %w", ErrInvalidOutputFormat, err)
 	}
 	contract, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{
 		Name:        config.Name,
@@ -77,9 +77,9 @@ func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
 		Schema:      schema.JSON(),
 	})
 	if err != nil {
-		return OutputFormat[T]{}, fmt.Errorf("%w: %w", ErrInvalidOutputFormat, err)
+		return Format[T]{}, fmt.Errorf("%w: %w", ErrInvalidOutputFormat, err)
 	}
-	return OutputFormat[T]{
+	return Format[T]{
 		formatType:        contract.Type,
 		schemaName:        contract.Name,
 		schemaDescription: contract.Description,
@@ -90,9 +90,9 @@ func JSONSchema[T any](config JSONSchemaConfig) (OutputFormat[T], error) {
 
 // The compiled schema owns both request bytes and response admission; a
 // retained wire copy could drift from the decoder's contract.
-func (o OutputFormat[T]) contract() chat.OutputFormat {
+func (f Format[T]) Contract() chat.OutputFormat {
 	return chat.OutputFormat{
-		Type: o.formatType, Name: o.schemaName, Description: o.schemaDescription, Schema: o.schema.JSON(),
+		Type: f.formatType, Name: f.schemaName, Description: f.schemaDescription, Schema: f.schema.JSON(),
 	}
 }
 
@@ -102,8 +102,8 @@ func (o OutputFormat[T]) contract() chat.OutputFormat {
 // and the fields are private, so there is no other way to hold a contract.
 // Re-validating it here would recompile the JSON Schema on every call and
 // discard the result.
-func (o OutputFormat[T]) validate() error {
-	if o.decoder == nil {
+func (f Format[T]) validate() error {
+	if f.decoder == nil {
 		return fmt.Errorf("%w: nil decoder", ErrInvalidOutputFormat)
 	}
 	return nil
@@ -113,15 +113,15 @@ func (o OutputFormat[T]) validate() error {
 // [Client.Output], without a model call, so a caller that already holds a
 // response, such as a managed Agent, reuses one structured-output rule instead
 // of a weaker copy.
-func (o OutputFormat[T]) Decode(response *chat.Response) (T, error) {
+func (f Format[T]) Decode(response *chat.Response) (T, error) {
 	var zero T
-	if err := o.validate(); err != nil {
+	if err := f.validate(); err != nil {
 		return zero, err
 	}
-	return o.decodeResponse(response, nil)
+	return f.decodeResponse(response, nil)
 }
 
-func (o OutputFormat[T]) decodeResponse(response *chat.Response, responseErr error) (T, error) {
+func (f Format[T]) decodeResponse(response *chat.Response, responseErr error) (T, error) {
 	var zero T
 	if responseErr != nil {
 		return zero, responseErr
@@ -132,14 +132,14 @@ func (o OutputFormat[T]) decodeResponse(response *chat.Response, responseErr err
 	if err := response.Validate(); err != nil {
 		return zero, fmt.Errorf("%w: response: %w", ErrInvalidOutput, err)
 	}
-	text, err := o.completedText(response.Output)
+	text, err := f.completedText(response.Output)
 	if err != nil {
 		return zero, err
 	}
-	return o.decodeText(text)
+	return f.decodeText(text)
 }
 
-func (o OutputFormat[T]) completedText(output *chat.Output) (string, error) {
+func (f Format[T]) completedText(output *chat.Output) (string, error) {
 	var text, refusal strings.Builder
 	var unsupported chat.PartKind
 	if output.Message != nil {
@@ -167,15 +167,15 @@ func (o OutputFormat[T]) completedText(output *chat.Output) (string, error) {
 	return text.String(), nil
 }
 
-func (o OutputFormat[T]) decodeText(text string) (T, error) {
+func (f Format[T]) decodeText(text string) (T, error) {
 	raw := []byte(text)
-	if o.schema.Valid() {
-		if err := o.schema.Validate(raw); err != nil {
+	if f.schema.Valid() {
+		if err := f.schema.Validate(raw); err != nil {
 			var zero T
 			return zero, fmt.Errorf("%w: decode: %w", ErrInvalidOutput, err)
 		}
 	}
-	value, err := o.decoder(raw)
+	value, err := f.decoder(raw)
 	if err != nil {
 		var zero T
 		return zero, fmt.Errorf("%w: decode: %w", ErrInvalidOutput, err)

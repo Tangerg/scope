@@ -7,7 +7,6 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -17,7 +16,7 @@ func TestNewToolValidatesPublicDefinition(t *testing.T) {
 		card:   &sdka2a.AgentCard{Name: "Remote Agent"},
 		name:   "invalid name",
 	})
-	if !errors.Is(err, corechat.ErrInvalidToolDefinition) {
+	if !errors.Is(err, toolcontract.ErrInvalidDefinition) {
 		t.Fatalf("newRemoteTool error = %v, want chat.ErrInvalidToolDefinition", err)
 	}
 }
@@ -36,9 +35,7 @@ func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	}
 	// A blank message passes schema admission but fails argument parsing before
 	// the remote agent is called; the zero client is never reached.
-	invocation, err := binding.Contract().Prepare(corechat.ToolCall{
-		ID: "call-1", Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`}, nil)
 	if err != nil {
 		t.Fatalf("Prepare rejected blank message before Call: %v", err)
 	}
@@ -46,5 +43,22 @@ func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	failure, ok := errors.AsType[*toolcontract.Failure](callErr)
 	if !ok || failure.Kind() != toolcontract.FailureKindFailed {
 		t.Fatalf("blank message call error = %v, want FailureKindFailed", callErr)
+	}
+}
+
+func TestUnprojectableRemoteQuestionsRemainUnanswered(t *testing.T) {
+	r := remoteTool{}
+	for _, tc := range []struct {
+		task  *sdka2a.Task
+		cause error
+	}{
+		{&sdka2a.Task{ID: "task", ContextID: "ctx"}, ErrInvalidResult},
+		{&sdka2a.Task{ID: "task", ContextID: "ctx", Status: sdka2a.TaskStatus{Message: sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewRawPart([]byte{0xff}))}}, ErrUnsupportedContent},
+		{&sdka2a.Task{ID: "task", ContextID: "ctx", Status: sdka2a.TaskStatus{Message: sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(" "))}}, ErrInvalidResult},
+	} {
+		res, err := r.awaitInput(tc.task, toolcontract.Invocation{})
+		if res.InputRequest != nil || !errors.Is(err, tc.cause) {
+			t.Fatalf("invalid question escaped: %+v %v", res, err)
+		}
 	}
 }

@@ -9,7 +9,6 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -107,12 +106,12 @@ func (n nativeSchema) decode(hit searchHit) (*document.Document, error) {
 	if err := n.validateVector(record.Embedding); err != nil {
 		return nil, err
 	}
-	var facts metadata.Map
-	if err := facts.UnmarshalJSON([]byte(record.MetadataJSON)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(record.MetadataJSON), doc); err != nil {
 		return nil, err
 	}
-	doc := &document.Document{ID: hit.ID, Text: record.Content, Metadata: facts}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = hit.ID, record.Content
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	if len(doc.ID) > nativeMaximumIDBytes {

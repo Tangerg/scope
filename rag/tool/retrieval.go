@@ -10,13 +10,12 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/rag"
 )
 
 // RetrievalConfig describes a model-visible retrieval capability. Name
-// and Description follow [chat.ToolDefinition] requirements. Retriever is
+// and Description follow [coretool.Definition] requirements. Retriever is
 // required and may already be composed with transformers, expansion, fusion,
 // and refiners.
 type RetrievalConfig struct {
@@ -74,7 +73,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 	return Retrieval{function: function}, nil
 }
 
-func (r Retrieval) Definition() chat.ToolDefinition { return r.function.Definition() }
+func (r Retrieval) Definition() coretool.Definition { return r.function.Definition() }
 
 func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (coretool.Result, error) {
 	return r.function.Call(ctx, invocation)
@@ -87,7 +86,7 @@ func (r Retrieval) Unwrap() coretool.Tool { return r.function }
 func inputFailure(cause error) error {
 	failure, err := coretool.NewFailure(coretool.FailureConfig{
 		Kind:   coretool.FailureKindFailed,
-		Output: chat.NewTextToolOutput(cause.Error()),
+		Output: coretool.NewTextOutput(cause.Error()),
 		Cause:  cause,
 	})
 	if err != nil {

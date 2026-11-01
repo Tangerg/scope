@@ -1,6 +1,8 @@
 package main
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"reflect"
@@ -8,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -18,8 +20,8 @@ import (
 const lostToolRound uint64 = 17
 
 type confirmedToolCall struct {
-	EffectID agent.EffectID
-	Output   chat.ToolOutput
+	EffectID agentrun.EffectID
+	Output   tool.Output
 }
 
 type losingReportTool struct {
@@ -32,7 +34,7 @@ func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool
 	if err != nil {
 		return tool.Result{}, err
 	}
-	invocation, ok := interaction.ToolInvocationFromContext(ctx)
+	invocation, ok := agent.ToolInvocationFromContext(ctx)
 	if !ok {
 		return tool.Result{}, errors.New("missing Tool invocation")
 	}
@@ -57,8 +59,8 @@ type contextProbe struct {
 	last     *chat.Request
 }
 
-func (c *contextProbe) ReduceModelContext(ctx context.Context, invocation interaction.ModelInvocation, request *chat.Request) ([]chat.Message, error) {
-	messages, err := (duplicateToolOutputReducer{}).ReduceModelContext(ctx, invocation, request)
+func (c *contextProbe) PrepareContext(ctx context.Context, invocation agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+	messages, err := (duplicateToolOutputReducer{}).PrepareContext(ctx, invocation, request)
 	if err != nil {
 		return nil, err
 	}
@@ -104,13 +106,13 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := agent.NewMemoryTreeCommitter()
-	observations := &agenttest.ObservationRecorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{before, observations}})
+	store := agentrun.NewMemoryStore()
+	observations := &runtest.ObservationRecorder{}
+	engine, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{before, observations}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var root *agent.Process
+	var root *agentrun.Handle[agentrun.Payload]
 	t.Cleanup(func() {
 		if closeErr := closeTree(context.WithoutCancel(ctx), engine, root); closeErr != nil {
 			t.Error(closeErr)
@@ -120,13 +122,13 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err = engine.Start(ctx, deployment, input)
+	root, err = engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agent.Event) bool {
+	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
 		fact, ok := event.EffectFinished()
-		return ok && !event.Relation().IsRoot() && fact.SettlementStatus() == agent.SettlementStatusUnknown
+		return ok && !event.Relation().IsRoot() && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
 	}); waitErr != nil {
 		t.Fatal(waitErr)
 	}
@@ -139,8 +141,8 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if pauseErr := root.Pause(ctx, "restore committed context while the Tool is unknown"); pauseErr != nil {
 		t.Fatal(pauseErr)
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agent.Event) bool {
-		return event.Name() == agent.EventProcessPaused && event.Relation().IsRoot()
+	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
+		return event.Name() == agentrun.EventProcessPaused && event.Relation().IsRoot()
 	}); waitErr != nil {
 		t.Fatal(waitErr)
 	}
@@ -152,11 +154,11 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("acknowledged head: found=%t, error=%v", found, err)
 	}
-	snapshot, err := agent.ParseTreeSnapshot(head.JSON())
+	snapshot, err := agentrun.ParseTreeSnapshot(head.JSON())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var request agent.EffectRequest
+	var request agentrun.EffectRequest
 	for _, process := range snapshot.ProcessSnapshots() {
 		for _, id := range process.UnknownEffectIDs() {
 			if request.Valid() {
@@ -179,26 +181,26 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replacementDeployment.DeploymentRef() != deployment.DeploymentRef() {
+	if replacementDeployment.ProgramRef() != deployment.ProgramRef() {
 		t.Fatal("instrumentation changed the deployment binding")
 	}
-	replacement, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: store, EventListeners: []agent.EventListener{after}})
+	replacement, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{after}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var restored *agent.Process
+	var restored *agentrun.Handle[agentrun.Payload]
 	t.Cleanup(func() {
 		if closeErr := closeTree(context.WithoutCancel(ctx), replacement, restored); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
-	restored, err = replacement.RestoreTree(ctx, replacementDeployment, snapshot)
+	restored, err = replacement.Recover(ctx, replacementDeployment, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Tool settlement carries no replacement model context: the only source
 	// for the recovered prefix is the context already committed in the tree.
-	settlement, err := tools.SettleToolResult(request, receipt.Output, interaction.ResultSucceeded, nil)
+	settlement, err := tools.SettleToolResult(request, receipt.Output, agent.ResultSucceeded, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

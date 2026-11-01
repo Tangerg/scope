@@ -15,7 +15,7 @@ import (
 
 // ToolConcurrencyPolicy supplies a Host classifier for calls from one model
 // response. Its result follows the scheduling contract of
-// [github.com/Tangerg/scope/agent/strategy/interaction.ConcurrentTool].
+// [github.com/Tangerg/scope/agent.ConcurrentTool].
 // The adapter does not serialize direct Tool.Call invocations.
 // The invocation has passed schema validation. The callback must be
 // deterministic, side-effect-free, and safe for concurrent use and replay.

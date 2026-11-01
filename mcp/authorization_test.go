@@ -9,14 +9,13 @@ import (
 	"github.com/Tangerg/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
 
 func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 	inner, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindRejected, Output: chat.NewTextToolOutput("private dependency output"),
+		Kind: tool.FailureKindRejected, Output: tool.NewTextOutput("private dependency output"),
 		Cause: errors.New("private policy detail"),
 	})
 	require.NoError(t, err)

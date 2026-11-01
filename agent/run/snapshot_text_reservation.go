@@ -1,0 +1,21 @@
+package run
+
+// Each optional text field charges its own worst-case JSON expansion when it
+// enters the projection. The byte count cannot drift from a separate field count.
+type snapshotTextReservation struct{ growth uint64 }
+
+func (s *snapshotTextReservation) reason(maxBytes int) string {
+	s.growth += uint64(6*maxBytes - len(snapshotReservationText))
+	return snapshotReservationText
+}
+
+func (s *snapshotTextReservation) failure() Failure {
+	s.growth += snapshotFailureGrowth
+	return snapshotReservationFailure()
+}
+
+// snapshotReservationFailure is the placeholder whose worst-case expansion is
+// snapshotFailureGrowth.
+func snapshotReservationFailure() Failure {
+	return Failure{kind: FailureKindExecution, code: snapshotReservationText, message: snapshotReservationText}
+}

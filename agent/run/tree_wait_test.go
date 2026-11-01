@@ -1,0 +1,203 @@
+package run
+
+import (
+	"context"
+	"fmt"
+	"slices"
+	"testing"
+	"time"
+)
+
+func TestPauseRetainsChildWaitUntilCompletion(t *testing.T) {
+	runtime, first := waitingOwnerFixture(t, 1)
+	parentID, _ := first.handle.relation.ParentID()
+	parent := runtime.members.get(parentID)
+	waitID := parent.currentWaitID
+	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
+		t.Fatalf("pause child wait: %v", err)
+	}
+	if err := parent.resume(); err != nil || parent.status() != StatusWaiting || parent.currentWaitID != waitID {
+		t.Fatalf("Resume lost unanswered child wait: %v", err)
+	}
+	if err := parent.requestPause("inspect children"); err != nil || !runtime.applyPendingControl(parent) {
+		t.Fatalf("pause child wait: %v", err)
+	}
+	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
+	second.installTermination(first.finish.Termination, first.finish.FinishedAt)
+	runtime.finishIfTerminal(second)
+	if parent.status() != StatusPaused || parent.awaitedWaitID().Valid() || parent.mailbox.pendingCount() != 1 {
+		t.Fatal("child completion did not clear only the wait")
+	}
+	if err := parent.resume(); err != nil || parent.status() != StatusRunning {
+		t.Fatalf("Resume after child completion: %v", err)
+	}
+}
+
+func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
+	runtime, first := waitingOwnerFixture(t, 3)
+	parentID, _ := first.handle.relation.ParentID()
+	parent := runtime.members.get(parentID)
+	waitID := parent.currentWaitID
+	second := runtime.members.get(runtime.members.childrenOf(parentID)[1])
+	second.installTermination(first.finish.Termination, first.finish.FinishedAt)
+	runtime.finishIfTerminal(second)
+	owners := runtime.members.childrenOf(runtime.rootID)
+	for _, ownerID := range owners {
+		owner := runtime.members.get(ownerID)
+		if ownerID != parentID {
+			if owner.mailbox.pendingCount() != 0 || owner.status() != StatusWaiting {
+				t.Fatal("child completion changed an unrelated parent's wait")
+			}
+			continue
+		}
+		pending := owner.mailbox.pending()
+		if len(pending) != 1 {
+			t.Fatalf("parent received %d completion signals, want 1", len(pending))
+		}
+		completed, err := ParseChildWaitSatisfied(pending[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, drained := completed.Outcomes()[0].SubtreeUnresolvedEffects(); completed.WaitID() != waitID || drained {
+			t.Fatal("completion lost the parent's active wait")
+		}
+		var got []ProcessID
+		for _, outcome := range completed.Outcomes() {
+			got = append(got, outcome.Result().ProcessID())
+		}
+		if !slices.Equal(got, []ProcessID{first.handle.processID(), second.handle.processID()}) {
+			t.Fatalf("completion outcomes=%v", got)
+		}
+	}
+	openWaits := func() int {
+		count := 0
+		for _, ownerID := range owners {
+			// A terminal owner's waits end with it.
+			if owner := runtime.members.get(ownerID); !owner.status().Terminal() {
+				count += len(owner.mailbox.openChildWaits())
+			}
+		}
+		return count
+	}
+	if err := parent.mailbox.commit(1); err != nil {
+		t.Fatal(err)
+	}
+	if openWaits() != 2 {
+		t.Fatal("consuming one parent's completion closed another wait")
+	}
+	other := runtime.members.get(owners[0])
+	if other == parent {
+		other = runtime.members.get(owners[1])
+	}
+	other.installTermination(first.finish.Termination, first.finish.FinishedAt)
+	runtime.finishIfTerminal(other)
+	if openWaits() != 1 {
+		t.Fatal("terminating one parent closed another parent's wait")
+	}
+}
+
+func TestJoinReadinessSurvivesCommitAndFreeze(t *testing.T) {
+	for _, barrier := range []string{"commit", "freeze"} {
+		t.Run(barrier, func(t *testing.T) {
+			runtime, completed := waitingOwnerFixture(t, 1)
+			if barrier == "commit" {
+				runtime.writer.inFlight.Store(&treeCommit{})
+			} else {
+				runtime.freeze.active.Store(&activeTreeFreeze{})
+			}
+			if runtime.publishJoins() || completed.handle.joinDone() {
+				t.Fatal("join crossed a publication barrier")
+			}
+			runtime.writer.inFlight.Store(nil)
+			runtime.freeze.active.Store(nil)
+			if !runtime.publishJoins() || !completed.handle.joinDone() || completed.handle.joinError() != nil {
+				t.Fatal("releasing the barrier lost a ready join")
+			}
+			if runtime.publishJoins() {
+				t.Fatal("unchanged tree published another join")
+			}
+		})
+	}
+}
+
+func waitingOwnerFixture(b testing.TB, parents int) (*treeRuntime, *processState) {
+	b.Helper()
+	engine, err := New(context.Background(), Config{Store: NewMemoryStore()})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
+			b.Error(closeErr)
+		}
+	})
+	deployment := newChildTestDeployment(b)
+	input, err := EncodePayload(childTestInput{Mode: "leaf"})
+	if err != nil {
+		b.Fatal(err)
+	}
+	now := time.Now().Round(0).UTC()
+	makeProcess := func(parent *processState, name string) *processState {
+		id := newProcessID()
+		relation := rootProcessRelation(id)
+		if parent != nil {
+			key, keyErr := ParseChildKey(name)
+			if keyErr != nil {
+				b.Fatal(keyErr)
+			}
+			relation = childProcessRelation(id, parent.handle.relation, key)
+		}
+		execution, state, _, err := initializeExecution(b.Context(), deployment.Definition(), input)
+		if err != nil {
+			b.Fatal(err)
+		}
+		handle := newProcessHandle(relation, deployment,
+			engine.budget, engine.capabilities, now)
+		return newProcessState(handle, deployment, execution, state)
+	}
+	root := makeProcess(nil, "root")
+	runtime := newTreeRuntime(engine, root.handle.processID(), engine.treeLimits, b.Context(), root)
+	var notified *processState
+	for index := range parents {
+		parent := makeProcess(root, fmt.Sprintf("parent-%d", index))
+		first := makeProcess(parent, "first")
+		second := makeProcess(parent, "second")
+		for _, process := range []*processState{parent, first, second} {
+			runtime.addProcess(process)
+		}
+		output, err := EncodePayload(childTestOutput{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		termination, err := (terminationInputs{outcome: completedOutcome(output)}).resolve()
+		if err != nil {
+			b.Fatal(err)
+		}
+		first.installTermination(termination, now)
+		first.handle.publishResult(first.result())
+		runtime.finishProcessBookkeeping(first)
+		waitID, err := ParseWaitID(fmt.Sprintf("wait:parent-%d", index))
+		if err != nil {
+			b.Fatal(err)
+		}
+		key, err := ParseWaitKey("children")
+		if err != nil {
+			b.Fatal(err)
+		}
+		spec := ChildWaitSpec{
+			Key: key, Children: []ProcessID{first.handle.processID(), second.handle.processID()},
+			Boundary: ChildWaitBoundaryResult, Condition: AllChildren(),
+		}
+		openTestChildWait(b, &parent.mailbox, waitID, spec)
+		if err := parent.mailbox.commit(1); err != nil {
+			b.Fatal(err)
+		}
+		parent.currentWaitID = waitID
+		opened := []openedChildWait{{waitID: waitID, spec: spec}}
+		if answers, err := runtime.childWaitAnswers(parent.handle.processID(), opened); err != nil || len(answers) != 0 {
+			b.Fatalf("opened wait answers=%d error=%v", len(answers), err)
+		}
+		notified = first
+	}
+	return runtime, notified
+}

@@ -18,15 +18,12 @@
 // Serving a continuation emits updates to that existing task rather than a
 // replacement Task. Agent.Run receives the current message; retained protocol
 // history is not an implicit conversational context for the Agent.
-// Remote tools make one SendMessage exchange. Tasks requiring further input or
-// authentication remain ordinary RemoteAgentError values; the host must use
-// the SDK when it needs to continue those tasks.
+// An input-required remote task becomes a tool.InputRequest bound to the
+// original task, context, and tool binding. A validated text answer reuses
+// the reply identity and continues the same task. Authentication requests
+// require explicit Host handling.
 //
-// Native Data parts are rendered from SDK-decoded values, not retained wire
-// JSON. The SDK decodes generic numbers as float64, so Scope cannot promise
-// exact numbers in native Data. A standalone null Data part is rejected by the
-// SDK rather than treated as empty text. Recheck generic decoding when changing
-// a2a-go; text parts retain their text.
+// The text boundary rejects structured, binary and URI parts explicitly.
 // Independently encoded JSON-RPC and HTTP+JSON peers check result semantics;
 // raw JSON-RPC callers exercise stored-task continuation and cancellation.
 package a2a

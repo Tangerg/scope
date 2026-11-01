@@ -8,7 +8,6 @@ import (
 
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -30,11 +29,7 @@ func (p *policyClient) ScrollAndOffset(context.Context, *qdrantclient.ScrollPoin
 func TestNativeCollectionPolicyHasNoConfiguredMetricOrDimension(t *testing.T) {
 	for _, metric := range []qdrantclient.Distance{qdrantclient.Distance_Cosine, qdrantclient.Distance_Dot, qdrantclient.Distance_Euclid, qdrantclient.Distance_Manhattan} {
 		client := &policyClient{info: collectionInfo(metric, 2), names: []string{"documents"}}
-		model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-			t.Fatal("construction called model")
-			return nil, nil
-		})
-		store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: "documents", EmbeddingModel: model, DocumentBatcher: visibilityBatcher{}})
+		store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: "documents", Space: fixtureSpace})
 		if err != nil || store.schema.dimensions != 2 || store.schema.metric != metric {
 			t.Fatalf("store=%v err=%v", store, err)
 		}
@@ -79,8 +74,8 @@ func TestNativeCollectionPolicyHasNoConfiguredMetricOrDimension(t *testing.T) {
 
 func TestConstructionRejectsMissingPolicyAndInvalidConfig(t *testing.T) {
 	client := &policyClient{info: collectionInfo(qdrantclient.Distance_Cosine, 2), names: []string{"documents"}}
-	config := StoreConfig{Client: client, CollectionName: "documents", EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) { return nil, nil }), DocumentBatcher: visibilityBatcher{}}
-	for _, mutate := range []func(*StoreConfig){func(c *StoreConfig) { c.Client = (*policyClient)(nil) }, func(c *StoreConfig) { c.CollectionName = "" }, func(c *StoreConfig) { c.EmbeddingModel = nil }, func(c *StoreConfig) { c.DocumentBatcher = nil }} {
+	config := StoreConfig{Client: client, CollectionName: "documents", Space: fixtureSpace}
+	for _, mutate := range []func(*StoreConfig){func(c *StoreConfig) { c.Client = (*policyClient)(nil) }, func(c *StoreConfig) { c.CollectionName = "" }, func(c *StoreConfig) { c.Space = "" }, func(c *StoreConfig) { c.Space = "different" }} {
 		candidate := config
 		mutate(&candidate)
 		if store, err := NewStore(t.Context(), candidate); err == nil || store != nil {

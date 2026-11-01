@@ -20,8 +20,8 @@ import (
 	nativesense "github.com/typesense/typesense-go/v3/typesense"
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -48,8 +48,7 @@ type APIClient interface {
 type StoreConfig struct {
 	Client           APIClient
 	CollectionName   string
-	EmbeddingModel   embedding.Model
-	DocumentBatcher  vectorstore.Batcher
+	Space            vectorstore.SpaceID
 	HybridAlpha      *float32
 	MaxResponseBytes int64
 }
@@ -58,11 +57,8 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.Client) {
 		return errors.New("typesense: Client is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("typesense: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("typesense: DocumentBatcher is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
 	if !collectionNamePattern.MatchString(cmp.Or(s.CollectionName, DefaultCollectionName)) {
 		return errors.New("typesense: CollectionName must be a safe identifier")
@@ -77,16 +73,15 @@ func (s StoreConfig) Validate() error {
 }
 
 var (
-	_ vectorstore.Indexer   = (*Store)(nil)
-	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
 	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
 	client           APIClient
 	collectionName   string
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
+	space            vectorstore.SpaceID
 	schema           collectionSchema
 	hybridAlpha      *float32
 	maxResponseBytes int64
@@ -96,31 +91,48 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{client: config.Client, collectionName: cmp.Or(config.CollectionName, DefaultCollectionName), embeddingClient: client, documentBatcher: config.DocumentBatcher, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
+	store := &Store{client: config.Client, collectionName: cmp.Or(config.CollectionName, DefaultCollectionName), space: config.Space, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
 	if config.HybridAlpha != nil {
 		store.hybridAlpha = new(*config.HybridAlpha)
 	}
-	native, callErr := store.client.GetCollection(ctx, store.collectionName)
-	raw, err := store.readResponse(native, callErr)
+	schema, err := store.readSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var schema api.CollectionResponse
-	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
-		return nil, err
-	}
-	store.schema, err = newCollectionSchema(&schema, store.collectionName)
-	if err != nil {
-		return nil, err
-	}
+	store.schema = schema
 	return store, nil
 }
 
-func (s *Store) readResponse(response *http.Response, callErr error) (raw []byte, err error) {
+func (s *Store) readSchema(ctx context.Context) (collectionSchema, error) {
+	native, callErr := s.client.GetCollection(ctx, s.collectionName)
+	raw, err := s.readResponse(native, callErr)
+	if err != nil {
+		return collectionSchema{}, err
+	}
+	var schema api.CollectionResponse
+	if err = jsonv2.Unmarshal(raw, &schema); err != nil {
+		return collectionSchema{}, err
+	}
+	return newCollectionSchema(&schema, s.collectionName, s.space)
+}
+func (s *Store) checkBinding(ctx context.Context) error {
+	schema, err := s.readSchema(ctx)
+	if err != nil {
+		return err
+	}
+	if schema != s.schema {
+		return ErrIncompatibleCollection
+	}
+	return nil
+}
+
+func (s *Store) readResponse(response *http.Response, callErr error) ([]byte, error) {
+	return readNativeResponse(response, callErr, s.maxResponseBytes)
+}
+
+var errResponseLimit = errors.New("typesense: native response exceeds MaxResponseBytes")
+
+func readNativeResponse(response *http.Response, callErr error, limit int64) (raw []byte, err error) {
 	if response == nil {
 		if callErr != nil {
 			return nil, callErr
@@ -139,12 +151,12 @@ func (s *Store) readResponse(response *http.Response, callErr error) (raw []byte
 	if callErr != nil {
 		return nil, callErr
 	}
-	raw, err = io.ReadAll(io.LimitReader(response.Body, s.maxResponseBytes+1))
+	raw, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(raw)) > s.maxResponseBytes {
-		return nil, errors.New("typesense: native response exceeds MaxResponseBytes")
+	if int64(len(raw)) > limit {
+		return nil, errResponseLimit
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, &nativesense.HTTPError{Status: response.StatusCode, Body: raw}
@@ -152,67 +164,73 @@ func (s *Store) readResponse(response *http.Response, callErr error) (raw []byte
 	return raw, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	records := make(map[string]storedRecord, len(request.Documents))
-	for _, doc := range request.Documents {
-		record, err := encodeDocument(doc)
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := encodeDocument(doc); err != nil {
+			return err
+		}
+	}
+	return s.checkBinding(ctx)
+}
+
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	var payload bytes.Buffer
+	ids := make([]string, len(batch.Records))
+	for i, r := range batch.Records {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		item, err := encodeDocument(r.Document)
 		if err != nil {
 			return err
 		}
-		records[doc.ID] = record
+		vec, err := s.schema.narrow(r.Values)
+		if err != nil {
+			return err
+		}
+		item.Embedding = &vec
+		wire, err := jsonv2.Marshal(item)
+		if err != nil {
+			return err
+		}
+		payload.Write(wire)
+		payload.WriteByte('\n')
+		ids[i] = r.Document.ID
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
+	if err := s.checkBinding(ctx); err != nil {
 		return err
 	}
-	var payloads [][]byte
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
-		}
-		vectors, embedErr := s.embeddingClient.EmbedTexts(ctx, texts)
-		if embedErr != nil {
-			return embedErr
-		}
-		var payload bytes.Buffer
-		for i, doc := range batch.Documents {
-			vector, vectorErr := s.schema.narrow(vectors[i])
-			if vectorErr != nil {
-				return vectorErr
-			}
-			record := records[doc.ID]
-			record.Embedding = &vector
-			body, encodeErr := jsonv2.Marshal(record)
-			if encodeErr != nil {
-				return encodeErr
-			}
-			payload.Write(body)
-			payload.WriteByte('\n')
-		}
-		payloads = append(payloads, payload.Bytes())
+	res, sendErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert), ReturnId: new(true)}, mediaTypeJSONL, &payload)
+	raw, err := s.readResponse(res, sendErr)
+	if err != nil {
+		return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
 	}
-	for i, payload := range payloads {
-		native, callErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert)}, mediaTypeJSONL, bytes.NewReader(payload))
-		raw, readErr := s.readResponse(native, callErr)
-		if readErr != nil {
-			return readErr
-		}
-		if ackErr := validateImport(raw, len(batches[i].Documents)); ackErr != nil {
-			return ackErr
-		}
-	}
-	return nil
+	return validateImport(raw, ids)
 }
 
-func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([]string, error) {
+func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) ([]string, error) {
 	native, callErr := s.client.ExportDocuments(ctx, s.collectionName, nil)
-	raw, err := s.readResponse(native, callErr)
+	raw, err := readNativeResponse(native, callErr, min(budget.MaxBytes, s.maxResponseBytes))
+	if errors.Is(err, errResponseLimit) && budget.MaxBytes <= s.maxResponseBytes {
+		return nil, errors.Join(vectorstore.ErrScanBudget, err)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(raw)) > budget.MaxBytes {
+		return nil, vectorstore.ErrScanBudget
 	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
 	var keys []string
@@ -233,6 +251,9 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([
 			return nil, errors.New("typesense: export repeated a native key")
 		}
 		seen[*record.ID] = struct{}{}
+		if len(seen) > budget.MaxRecords {
+			return nil, vectorstore.ErrScanBudget
+		}
 		if predicate != nil {
 			values, valueErr := doc.Metadata.Values()
 			if valueErr != nil {
@@ -250,30 +271,73 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([
 	}
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return s.rank(ctx, q, nil)
+}
+
+// Scan explicitly authorizes an export of the entire collection to compute
+// exact membership. MaxBytes bounds the JSONL source payload, not ANN pages.
+// The collection can change between export and ranking; membership is rechecked.
+func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := budget.Validate(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
+	return s.rank(ctx, q, &budget)
+}
+func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
+		return err
+	}
+	if opts.EffectiveMode() == vectorstore.SearchModeHybrid && opts.ResultLimit() > MaxResultsPerPage {
+		return fmt.Errorf("%w: typesense hybrid TopK must not exceed %d because fusion changes between pages", vectorstore.ErrInvalidOptions, MaxResultsPerPage)
+	}
+	if opts.Filter != nil && !allowFilter {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return nil
+}
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := s.checkOptions(opts, false); err != nil {
+		return err
+	}
+	return s.checkBinding(ctx)
+}
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
+	if err = s.checkOptions(request.Options, budget != nil); err != nil {
 		return nil, err
-	}
-	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid && request.Options.ResultLimit() > MaxResultsPerPage {
-		return nil, fmt.Errorf("%w: typesense hybrid TopK must not exceed %d because fusion changes between pages", vectorstore.ErrInvalidOptions, MaxResultsPerPage)
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
+
+	if err = s.checkBinding(ctx); err != nil {
+		return nil, err
+	}
 	var keys []string
 	if request.Options.Filter != nil {
-		keys, err = s.matchingKeys(ctx, request.Options.Filter)
+		if budget == nil {
+			return nil, vectorstore.ErrUnsupportedFilter
+		}
+		keys, err = s.matchingKeys(ctx, request.Options.Filter, *budget)
 		if err != nil {
 			return nil, err
 		}
@@ -281,11 +345,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
 		}
 	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	query, err := s.schema.narrow(vector)
+	query, err := s.schema.narrow(request.Values)
 	if err != nil {
 		return nil, err
 	}
@@ -310,14 +370,14 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 }
 
-func (s *Store) searchParameters(request *vectorstore.SearchRequest, vector []float32) *searchQuery {
+func (s *Store) searchParameters(request *vectorstore.Query, vector []float32) *searchQuery {
 	var alpha *float32
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		alpha = s.hybridAlpha
 	}
 	params := &searchQuery{MultiSearchCollectionParameters: api.MultiSearchCollectionParameters{Collection: new(s.collectionName), Q: new(wildcardQuery), VectorQuery: new(formatVectorQuery(vector, request.Options.ResultLimit(), alpha)), PerPage: new(min(request.Options.ResultLimit(), MaxResultsPerPage))}}
 	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
-		params.Q = new(request.Query)
+		params.Q = new(request.LexicalText)
 		params.QueryBy = new(fieldContent)
 	}
 	return params
@@ -335,6 +395,12 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			keys = append(keys, key)
 			seen[key] = struct{}{}
 		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := s.checkBinding(ctx); err != nil {
+		return err
 	}
 	for group := range slices.Chunk(keys, maxKeysPerDelete) {
 		native, callErr := s.client.DeleteDocuments(ctx, s.collectionName, &api.DeleteDocumentsParams{FilterBy: new(keyFilter(group))})
@@ -359,30 +425,61 @@ func keyFilter(keys []string) string {
 	return fieldID + keyFilterOperator + strings.Join(keys, ",") + "]"
 }
 
-func validateImport(raw []byte, want int) error {
+func validateImport(raw []byte, ids []string) error {
+	implicated := make(map[string]int, len(ids))
+	for _, id := range ids {
+		implicated[id] = 0
+	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
-	count := 0
+	var cause error
 	for {
 		var ack struct {
-			Success *bool   `json:"success"`
-			Error   *string `json:"error"`
+			ID      string `json:"id"`
+			Success *bool  `json:"success"`
 		}
 		err := jsonv2.UnmarshalDecode(decoder, &ack)
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return err
+			cause = err
+			break
 		}
-		if ack.Success == nil || !*ack.Success {
-			return fmt.Errorf("typesense: import record %d failed: %s", count, lo.FromPtr(ack.Error))
+		id, err := decodeKey(ack.ID)
+		old, ok := implicated[id]
+		if err != nil || !ok {
+			cause = errors.New("typesense: import acknowledgment has unknown identity")
+			continue
 		}
-		count++
+		if old != 0 || ack.Success == nil {
+			implicated[id] = -1
+			cause = errors.New("typesense: contradictory import acknowledgment")
+			continue
+		}
+		if *ack.Success {
+			implicated[id] = 1
+		} else {
+			implicated[id] = 2
+		}
 	}
-	if count != want {
-		return fmt.Errorf("typesense: import acknowledged %d of %d records", count, want)
+	evidence := &vectorstore.WriteError{Err: cause}
+	for _, id := range ids {
+		switch implicated[id] {
+		case 1:
+			evidence.Acknowledged = append(evidence.Acknowledged, id)
+		case 2:
+			evidence.Rejected = append(evidence.Rejected, id)
+		default:
+			evidence.Unconfirmed = append(evidence.Unconfirmed, id)
+		}
 	}
-	return nil
+	if len(evidence.Acknowledged) == len(ids) && cause == nil {
+		return nil
+	}
+	if evidence.Err == nil {
+		evidence.Err = errors.New("typesense: import is incomplete or rejected")
+	}
+	return evidence
 }
 
 type searchQuery struct {

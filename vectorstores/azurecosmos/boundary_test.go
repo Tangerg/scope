@@ -16,7 +16,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -26,12 +25,12 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 	for _, function := range []azcosmos.VectorDistanceFunction{azcosmos.VectorDistanceFunctionCosine, azcosmos.VectorDistanceFunctionDotProduct, azcosmos.VectorDistanceFunctionEuclidean} {
 		t.Run(string(function), func(t *testing.T) {
 			fixture := newProtocolFixture(t, function)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			fixture.records["a"] = storedDocument(t, &document.Document{ID: "a", Text: "a"})
 			fixture.records["b"] = storedDocument(t, &document.Document{ID: "b", Text: "b"})
 			fixture.scores["a"] = 0.3
 			fixture.scores["b"] = 0.7
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -73,14 +72,9 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 			case "metric":
 				policy["distanceFunction"] = "unknown"
 			}
-			calls := 0
-			model := embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return constantModel().Call(ctx, request)
-			})
-			store, err := NewStore(t.Context(), StoreConfig{Container: fixture.container, PartitionKey: "library", EmbeddingModel: model, DocumentBatcher: testBatcher{}})
-			if err == nil || store != nil || calls != 0 {
-				t.Fatalf("NewStore = %v, %v; model calls = %d", store, err, calls)
+			store, err := NewStore(t.Context(), StoreConfig{Container: fixture.container, PartitionKey: "library", Space: testSpace})
+			if err == nil || store != nil {
+				t.Fatalf("NewStore = %v, %v", store, err)
 			}
 			if !errors.Is(err, ErrIncompatibleContainer) {
 				t.Fatalf("native policy error lost identity: %v", err)
@@ -93,12 +87,7 @@ func TestSearchValidatesFullPartitionBeforeEmbedding(t *testing.T) {
 	for _, fault := range []string{"metadata", "dimension", "unknown field", "partition", "etag", "duplicate ID", "whitespace ID", "predicate type", "token"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-			calls := 0
-			model := embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return constantModel().Call(ctx, request)
-			})
-			store := fixture.store(model, 32)
+			store := fixture.store()
 			first := storedDocument(t, &document.Document{ID: "one", Text: "first"})
 			second := storedDocument(t, &document.Document{ID: "two", Text: "second"})
 			var fields map[string]json.RawMessage
@@ -132,19 +121,19 @@ func TestSearchValidatesFullPartitionBeforeEmbedding(t *testing.T) {
 			if fault == "token" {
 				fixture.scanScript = []queryPage{{items: []json.RawMessage{}, token: "loop"}, {items: []json.RawMessage{}, token: "loop"}}
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: 1}})
-			if err == nil || response != nil || calls != 0 {
-				t.Fatalf("Search = %#v, %v; model calls = %d", response, err, calls)
+			response, err := store.Scan(t.Context(), testScan(predicate))
+			if err == nil || response != nil {
+				t.Fatalf("Search = %#v, %v", response, err)
 			}
 		})
 	}
 }
 
 func TestSearchCompletesNativePagesBeforeTruncation(t *testing.T) {
-	for _, fault := range []string{"none", "late item", "missing score", "late score", "duplicate", "cycle", "transport", "outside membership", "changed membership"} {
+	for _, fault := range []string{"none", "late item", "missing score", "late score", "duplicate", "cycle", "transport"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionDotProduct)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			first := storedDocument(t, &document.Document{ID: "b", Text: "first", Metadata: metadata.Map{"eligible": json.RawMessage(`true`)}})
 			second := storedDocument(t, &document.Document{ID: "a", Text: "second", Metadata: metadata.Map{"eligible": json.RawMessage(`true`)}})
 			fixture.records["a"] = second
@@ -167,14 +156,11 @@ func TestSearchCompletesNativePagesBeforeTruncation(t *testing.T) {
 			case "transport":
 				last.items = []json.RawMessage{}
 				last.status = http.StatusForbidden
-			case "outside membership":
-				last.items = []json.RawMessage{mustJSON(t, map[string]any{"item": storedDocument(t, &document.Document{ID: "outside", Text: "other"}), "score": 1001})}
-			case "changed membership":
-				last.items = []json.RawMessage{mustJSON(t, map[string]any{"item": storedDocument(t, &document.Document{ID: "a", Text: "other", Metadata: metadata.Map{"eligible": json.RawMessage(`false`)}}), "score": 1001})}
+
 			}
 			fixture.rankScript = []queryPage{{items: []json.RawMessage{early}, token: "next"}, {items: []json.RawMessage{}, token: "last"}, last}
-			request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("eligible", true)}}
-			response, err := store.Search(t.Context(), request)
+			request := &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 2}}
+			response, err := store.Query(t.Context(), request)
 			if fault == "none" {
 				if err != nil || response.Results[0].Document.ID != "a" {
 					t.Fatalf("raw native rank lost after saturated score projection: %#v, %v", response, err)
@@ -188,32 +174,12 @@ func TestSearchCompletesNativePagesBeforeTruncation(t *testing.T) {
 	}
 }
 
-func TestGroupedNativeSelectionRanksGlobally(t *testing.T) {
-	fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-	fixture.pageSize = 1000
-	store := fixture.store(constantModel(), 32)
-	for i := range 1201 {
-		id := fmt.Sprintf("%04d", i)
-		fixture.records[id] = storedDocument(t, &document.Document{ID: id, Text: "text"})
-	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("missing"), TopK: 1201}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(response.Results) != 1201 || response.Results[0].Document.ID != "0000" || response.Results[1200].Document.ID != "1200" {
-		t.Fatalf("grouped query returned %d unexpected results", len(response.Results))
-	}
-	var counts []int
-	for _, query := range fixture.queries {
-		if query.Query == "SELECT VALUE c FROM c" {
-			continue
-		}
-		counts = append(counts, len(query.Parameters)-2)
-	}
-	want := slices.Repeat([]int{100}, 12)
-	want = append(want, 1)
-	if !slices.Equal(counts, want) {
-		t.Fatalf("native query groups = %v", counts)
+func TestNativeQueryRejectsOpaquePredicatesBeforeScanning(t *testing.T) {
+	f := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
+	s := f.store()
+	q := &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{Filter: filter.IsNull("missing")}}
+	if out, err := s.Query(t.Context(), q); !errors.Is(err, vectorstore.ErrUnsupportedFilter) || out != nil || len(f.queries) != 0 {
+		t.Fatalf("query=%v,err=%v,queries=%d", out, err, len(f.queries))
 	}
 }
 
@@ -221,7 +187,7 @@ func TestDeleteWhereUsesObservedETag(t *testing.T) {
 	for _, fault := range []string{"none", "changed", "late corrupt", "missing predicate"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			fixture.records["one"] = storedDocument(t, &document.Document{ID: "one", Text: "text", Metadata: metadata.Map{"eligible": json.RawMessage(`true`)}})
 			predicate := filter.EQ("eligible", true)
 			if fault == "changed" {
@@ -241,7 +207,7 @@ func TestDeleteWhereUsesObservedETag(t *testing.T) {
 			if fault == "missing predicate" {
 				predicate = nil
 			}
-			err := store.DeleteWhere(t.Context(), predicate)
+			err := store.DeleteMatching(t.Context(), testScan(predicate))
 			if fault == "none" {
 				if err != nil || len(fixture.records) != 0 || !slices.Equal(fixture.deletes, []string{"one"}) {
 					t.Fatalf("DeleteWhere = %v, deletes %v", err, fixture.deletes)
@@ -284,28 +250,24 @@ func TestNativeScoresAreValidated(t *testing.T) {
 
 func TestSearchRejectsUnsupportedModeBeforeIO(t *testing.T) {
 	fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-	calls := 0
-	store := fixture.store(embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-		calls++
-		return constantModel().Call(ctx, request)
-	}), 32)
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}})
-	if err == nil || response != nil || calls != 0 || len(fixture.queries) != 0 {
-		t.Fatalf("Search = %#v, %v; calls=%d queries=%d", response, err, calls, len(fixture.queries))
+	store := fixture.store()
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, LexicalText: "terms", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}})
+	if err == nil || response != nil || len(fixture.queries) != 0 {
+		t.Fatalf("Search = %#v, %v; queries=%d", response, err, len(fixture.queries))
 	}
 	cause := errors.New("canceled context")
 	ctx, cancel := context.WithCancelCause(t.Context())
 	cancel(cause)
-	response, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "query"})
+	response, err = store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 	if err == nil || response != nil {
 		t.Fatalf("canceled Search = %#v, %v", response, err)
 	}
 }
 
 func TestStoreConfigAndPartitionBudgets(t *testing.T) {
-	for _, change := range []func(*StoreConfig){func(c *StoreConfig) { c.Container = nil }, func(c *StoreConfig) { c.PartitionKey = "" }, func(c *StoreConfig) { c.PartitionKey = string([]byte{0xff}) }, func(c *StoreConfig) { c.PartitionKey = strings.Repeat("x", 2049) }, func(c *StoreConfig) { c.EmbeddingModel = nil }, func(c *StoreConfig) { c.DocumentBatcher = nil }} {
+	for _, change := range []func(*StoreConfig){func(c *StoreConfig) { c.Container = nil }, func(c *StoreConfig) { c.PartitionKey = "" }, func(c *StoreConfig) { c.PartitionKey = string([]byte{0xff}) }, func(c *StoreConfig) { c.PartitionKey = strings.Repeat("x", 2049) }, func(c *StoreConfig) { c.Space = "" }} {
 		fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
-		config := StoreConfig{Container: fixture.container, PartitionKey: "library", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}}
+		config := StoreConfig{Container: fixture.container, PartitionKey: "library", Space: testSpace}
 		change(&config)
 		if err := config.Validate(); err == nil {
 			t.Fatal("invalid config accepted")
@@ -321,8 +283,8 @@ func TestStoreConfigAndPartitionBudgets(t *testing.T) {
 	}{{1, 101, true}, {1, 102, false}, {2, 2048, true}, {3, 100, false}} {
 		fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
 		fixture.properties["partitionKey"].(map[string]any)["version"] = test.version
-		fixture.partition = strings.Repeat("x", test.bytes)
-		store, err := NewStore(t.Context(), StoreConfig{Container: fixture.container, PartitionKey: strings.Repeat("x", test.bytes), EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}})
+		fixture.partition = strings.Repeat("x", test.bytes-len(testSpace.StorageKey())-1)
+		store, err := NewStore(t.Context(), StoreConfig{Container: fixture.container, PartitionKey: strings.Repeat("x", test.bytes-len(testSpace.StorageKey())-1), Space: testSpace})
 		if test.valid {
 			if err != nil || store == nil {
 				t.Fatalf("native partition budget rejected %+v: %v", test, err)

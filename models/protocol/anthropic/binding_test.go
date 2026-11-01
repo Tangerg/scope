@@ -28,15 +28,12 @@ func (b *bindingTransport) RoundTrip(request *http.Request) (*http.Response, err
 func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 	constructors := map[string]func(string, *http.Client) (bool, error){
 		"NewMessages": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, testMessagesDialect())
 			return model == nil, err
 		},
-		"NewTextCounter": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := anthropic.NewTextCounter(t.Context(), anthropic.TextCounterConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client, Model: "test-model"})
-			return model == nil, err
-		},
-		"NewCompatibleMessages": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := anthropic.NewCompatibleMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, anthropic.Dialect{Provider: "compatible"})
+
+		"compatible NewMessages": func(endpoint string, client *http.Client) (bool, error) {
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, anthropic.Dialect{Provider: "compatible"})
 			return model == nil, err
 		},
 	}
@@ -52,6 +49,12 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 			}
 			for _, endpoint := range []string{"", "http://localhost:1234/proxy/prefix", "https://example.test/path?key=value", "https://example.test/path#section"} {
 				missing, err := construct(endpoint, client)
+				if endpoint == "" && strings.HasPrefix(name, "compatible ") {
+					if !missing || err == nil {
+						t.Fatalf("compatible binding accepted an implicit official endpoint")
+					}
+					continue
+				}
 				if err != nil || missing {
 					t.Errorf("BaseURL %q: nil model = %t, error = %v", endpoint, missing, err)
 				}
@@ -69,7 +72,7 @@ func TestBindingValidatesSelectedEnvironmentURLBeforeIO(t *testing.T) {
 			t.Setenv("ANTHROPIC_BASE_URL", environmentURL)
 			transport := &bindingTransport{}
 			for _, explicitURL := range []string{"", "https://explicit.example.test"} {
-				model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}})
+				model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: explicitURL, HTTPClient: &http.Client{Transport: transport}}, testMessagesDialect())
 				if explicitURL == "" {
 					if err == nil || model != nil || !strings.Contains(err.Error(), "ANTHROPIC_BASE_URL") {
 						t.Fatalf("environment binding: model = %v, error = %v", model, err)
@@ -116,7 +119,8 @@ func TestBindingCallsExplicitEndpointWithInvalidEnvironmentURL(t *testing.T) {
 	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey: "test-key", BaseURL: server.URL + "/explicit", HTTPClient: server.Client(), Headers: headers,
 		DefaultOptions: corechat.Options{Model: "claude-test"},
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +161,8 @@ func TestBindingPreservesHTTPClientRedirectPolicy(t *testing.T) {
 	}
 	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{
 		APIKey: "test-key", BaseURL: server.URL, HTTPClient: client,
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +187,7 @@ func TestBindingFreezesEnvironmentURLAndPreservesExplicitPrecedence(t *testing.T
 		{server.URL + "/explicit", "/explicit/v1/models"},
 	} {
 		t.Setenv("ANTHROPIC_BASE_URL", server.URL+"/environment")
-		model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: test.explicitURL, HTTPClient: server.Client()})
+		model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: test.explicitURL, HTTPClient: server.Client()}, testMessagesDialect())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,7 +207,7 @@ func TestBindingUsesSDKDefaultWhenEnvironmentIsAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := &bindingTransport{}
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}

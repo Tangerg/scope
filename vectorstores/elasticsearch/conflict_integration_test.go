@@ -3,7 +3,6 @@
 package elasticsearch
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,7 +13,7 @@ import (
 	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -42,57 +41,50 @@ func (c *concurrentWriter) Perform(request *http.Request) (*http.Response, error
 }
 
 func TestLiveConditionalDeleteRetainsConcurrentVersion(t *testing.T) {
-	store, client := liveStore(t, "cosine", constantModel())
+	store, client := liveStore(t, "cosine")
 	facts, err := metadata.FromValues(map[string]any{"value": "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text", Metadata: facts}}}); err != nil {
+	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text", Metadata: facts}})); err != nil {
 		t.Fatal(err)
 	}
 	if err = refreshNative(t.Context(), client, store.indexName); err != nil {
 		t.Fatal(err)
 	}
 	store.client = &concurrentWriter{client: client, index: store.indexName}
-	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "x")); err == nil {
+	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "x"), fixtureBudget()); err == nil {
 		t.Fatal("stale native CAS reported success")
 	}
 	if err = refreshNative(t.Context(), client, store.indexName); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
 	if err != nil || len(response.Results) != 1 || string(response.Results[0].Document.Metadata["value"]) != `"y"` || response.Results[0].Document.Text != "updated" {
 		t.Fatalf("concurrent version was lost: %#v, %v", response, err)
 	}
-	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "y")); err != nil {
+	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "y"), fixtureBudget()); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestLiveFilteredGroupsPreserveNativeRanking(t *testing.T) {
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i, text := range request.Texts {
-			value, err := strconv.ParseFloat(text, 64)
-			if err != nil {
-				return nil, err
-			}
-			outputs[i] = &embedding.Output{Embedding: []float64{value, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, client := liveStore(t, "max_inner_product", model)
+	store, client := liveStore(t, "max_inner_product")
 	docs := make([]*document.Document, 513)
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("%04d", i), Text: strconv.Itoa(i + 1)}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	batch := fixtureBatch(docs)
+	for i := range batch.Records {
+		batch.Records[i].Values[0] = float64(i + 1)
+	}
+	if err := store.Upsert(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
 	if err := refreshNative(t.Context(), client, store.indexName); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "1", Options: vectorstore.SearchOptions{TopK: 3, Filter: filter.IsNull("unused")}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("1"), Options: vectorstore.SearchOptions{TopK: 3, Filter: filter.IsNull("unused")}})
 	if err != nil {
 		t.Fatal(err)
 	}

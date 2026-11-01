@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/anthropic"
 )
 
@@ -33,7 +35,8 @@ func newProtocolChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "default-must-be-overridden"},
 		BaseURL:        server.URL,
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewMessages: %v", err)
 	}
@@ -49,7 +52,7 @@ func assertProtocolChatStream(t *testing.T, responses []*corechat.ResponseDelta)
 	t.Helper()
 	var text, reasoning, signature strings.Builder
 	var toolIDs []string
-	var citations []corechat.Citation
+	var citations []corecontent.Citation
 	var sawRedacted bool
 	var finalUsage *corechat.Usage
 	for _, response := range responses {
@@ -147,7 +150,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 		corechat.NewUserMessage(corechat.NewTextPart("Read the image and PDF."), corechat.NewMediaPart(image), corechat.NewMediaPart(pdf)),
 		assistant,
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "toolu-1", Name: "lookup", Output: corechat.NewTextToolOutput("not found"), IsError: true,
+			ID: "toolu-1", Name: "lookup", Output: toolcontract.NewTextOutput("not found"), IsError: true,
 		}),
 	)
 	if err != nil {
@@ -159,7 +162,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 		MaxOutputTokens: &maxTokens,
 		Stop:            []string{"END"},
 	}
-	request.Tools = []corechat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name:        "lookup",
 		Description: "Look up a record",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"integer"}}}`),

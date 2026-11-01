@@ -5,9 +5,9 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl/pdf"
 )
 
@@ -78,14 +78,14 @@ func TestMalformedPageIsReportedAndBlankPageIsSkipped(t *testing.T) {
 	}
 }
 
-func TestInvalidSourceMetadataCannotEscapeInDocuments(t *testing.T) {
+func TestInvalidSourceCannotEscapeInProvenance(t *testing.T) {
 	payload := testPDF("readable")
 	for _, perPage := range []bool{false, true} {
 		reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{PerPage: perPage, SourceName: "bad\xff"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if docs, err := reader.Read(t.Context()); docs != nil || err == nil || !strings.Contains(err.Error(), "metadata") {
+		if docs, err := reader.Read(t.Context()); docs != nil || !errors.Is(err, document.ErrInvalidDocument) {
 			t.Fatalf("perPage=%t Read = %v, %v", perPage, docs, err)
 		}
 	}

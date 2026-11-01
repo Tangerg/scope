@@ -16,6 +16,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/origin"
 )
 
 const (
@@ -23,13 +24,12 @@ const (
 	MetadataDescription = "html.description"
 	MetadataCanonical   = "html.canonical"
 	MetadataSelector    = "html.selector"
-	MetadataSourceName  = "html.source"
 )
 
 // ReaderConfig controls HTML extraction. By default whitespace runs are collapsed;
 // PreserveWhitespace retains the source spacing instead. Metadata is cloned
 // by NewReader and cannot contain the reader's title, description, canonical,
-// selector, or source keys. A zero SourceBudget uses [etl.DefaultMaxSourceBytes].
+// or selector keys. A zero SourceBudget uses [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
 	Selector           string
 	SourceName         string
@@ -65,7 +65,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("html reader: invalid metadata: %w", err)
 	}
-	for _, key := range [...]string{MetadataTitle, MetadataDescription, MetadataCanonical, MetadataSelector, MetadataSourceName} {
+	for _, key := range [...]string{MetadataTitle, MetadataDescription, MetadataCanonical, MetadataSelector} {
 		if _, exists := r.extraMetadata[key]; exists {
 			return nil, fmt.Errorf("html reader: metadata key %q is owned by the reader", key)
 		}
@@ -84,7 +84,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, err := r.sourceBudget.ReadAll(ctx, r.source)
+	raw, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("html: read source: %w", err)
 	}
@@ -93,15 +93,26 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 		return nil, fmt.Errorf("html: parse: %w", err)
 	}
 
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	page := newPageInfo(doc)
 
 	if r.selector == "" {
-		return r.readWhole(ctx, doc, page)
+		docs, readErr := r.readWhole(ctx, doc, page)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if len(docs) != 0 {
+			docs[0].Provenance = p
+		}
+		return docs, nil
 	}
-	return r.readSelector(ctx, doc, page)
+	docs, err := r.readSelector(ctx, doc, page)
+	if err != nil {
+		return nil, err
+	}
+	return origin.Parts(ctx, p, docs)
 }
 
 func (r *Reader) readWhole(ctx context.Context, doc *goquery.Document, page pageInfo) ([]*document.Document, error) {
@@ -165,11 +176,6 @@ func (r *Reader) buildMetadata(page pageInfo, selector string) (coremetadata.Map
 	md := r.extraMetadata.Clone()
 	if err := page.applyTo(&md); err != nil {
 		return nil, err
-	}
-	if r.sourceName != "" {
-		if err := md.Set(MetadataSourceName, r.sourceName); err != nil {
-			return nil, err
-		}
 	}
 	if selector != "" {
 		if err := md.Set(MetadataSelector, selector); err != nil {

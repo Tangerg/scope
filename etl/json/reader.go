@@ -4,8 +4,7 @@ package json
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	jsonv2 "encoding/json/v2"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/origin"
 )
 
 // Reader parses a JSON payload into [*document.Document] entries. Top-level
@@ -22,12 +22,15 @@ import (
 // spelling and are not restricted to the float64 range.
 type Reader struct {
 	source       io.Reader
+	sourceName   string
 	sourceBudget etl.SourceBudget
 }
 
 // ReaderConfig controls the whole-source memory budget. The zero budget uses
 // [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
+	// SourceName identifies the original input; empty means anonymous.
+	SourceName   string
 	SourceBudget etl.SourceBudget
 }
 
@@ -35,14 +38,14 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("json reader: source must not be nil")
 	}
-	return &Reader{source: source, sourceBudget: config.SourceBudget}, nil
+	return &Reader{source: source, sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
 }
 
 func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	data, err := r.sourceBudget.ReadAll(ctx, r.source)
+	data, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("json reader: read source: %w", err)
 	}
@@ -50,44 +53,55 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 		return nil, ctxErr
 	}
 
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) > 0 && trimmed[0] == '[' {
-		return r.parseArray(ctx, trimmed)
-	}
-	var value json.RawMessage
-	if unmarshalErr := jsonv2.Unmarshal(trimmed, &value); unmarshalErr != nil {
-		return nil, fmt.Errorf("json reader: decode source: %w", unmarshalErr)
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
-	}
-
-	doc, err := document.NewDocument(string(value), nil)
-	if err != nil {
-		return nil, fmt.Errorf("json reader: build document: %w", err)
-	}
-	return []*document.Document{doc}, nil
-}
-
-func (*Reader) parseArray(ctx context.Context, data []byte) ([]*document.Document, error) {
-	var items []json.RawMessage
-	if err := jsonv2.Unmarshal(data, &items); err != nil {
-		return nil, fmt.Errorf("json reader: decode array: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	docs := make([]*document.Document, 0, len(items))
-	for index, item := range items {
-		if err := ctx.Err(); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(data))
+	array := dec.PeekKind() == '['
+	if array {
+		if _, err = dec.ReadToken(); err != nil {
 			return nil, err
 		}
-		doc, err := document.NewDocument(string(item), nil)
-		if err != nil {
-			return nil, fmt.Errorf("json reader: build array document %d: %w", index, err)
+	}
+	var docs []*document.Document
+	for !array || dec.PeekKind() != ']' {
+		if err = ctx.Err(); err != nil {
+			return nil, err
 		}
+		raw, readErr := dec.ReadValue()
+		if readErr != nil {
+			return nil, fmt.Errorf("json reader: decode value: %w", readErr)
+		}
+		doc, buildErr := document.NewDocument(string(raw), nil)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		end := dec.InputOffset()
+		doc.Provenance = origin.Span(p, end-int64(len(raw)), end)
 		docs = append(docs, doc)
+		if !array {
+			break
+		}
+	}
+	if array {
+		if _, err = dec.ReadToken(); err != nil {
+			return nil, err
+		}
+	}
+	if _, err = dec.ReadToken(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("json reader: invalid trailing input")
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	if array {
+		for i, d := range docs {
+			if err = ctx.Err(); err != nil {
+				return nil, err
+			}
+			span := d.Provenance
+			d.Provenance = p.Split("", i, len(docs))
+			if span != nil {
+				d.Provenance.Bytes = span.Bytes
+			}
+		}
 	}
 	return docs, nil
 }

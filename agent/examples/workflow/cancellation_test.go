@@ -1,23 +1,25 @@
 package main
 
 import (
+	"github.com/Tangerg/scope/agent/run/runtest"
+
 	"context"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
-	root, err := newManagedWorkflow()
+	root, err := newManagedWorkflow(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	admittedChild := false
-	engine, err := agent.NewEngine(agent.EngineConfig{
-		TreeCommitter: agent.NewMemoryTreeCommitter(),
-		ProcessAdmitter: agent.ProcessAdmitterFunc(func(_ context.Context, admission agent.ProcessAdmission) error {
+	engine, err := agentrun.New(t.Context(), agentrun.Config{
+		Store: agentrun.NewMemoryStore(),
+		ProcessAdmitter: agentrun.ProcessAdmitterFunc(func(_ context.Context, admission agentrun.ProcessAdmission) error {
 			if _, child := admission.Relation().ParentID(); child {
 				admittedChild = true
 				cancel()
@@ -37,8 +39,8 @@ func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(ctx, root, input)
-	if err != nil || !admittedChild || result.Termination().Status() != agent.StatusCanceled {
+	result, err := runtest.Observe(ctx, engine, root.Erase(), input)
+	if err != nil || !admittedChild || result.Termination().Status() != agentrun.StatusCanceled {
 		t.Fatalf("cancellation result = %s, child admission = %t, error = %v", result.Termination().Status(), admittedChild, err)
 	}
 }

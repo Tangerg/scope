@@ -24,7 +24,7 @@ func TestResponsesInstructionsBelongToCoreMessages(t *testing.T) {
 						return target.SetExtraField("instructions", native)
 					}
 				}
-				model, err := openai.NewCompatibleResponses(t.Context(), config, binding)
+				model, err := openai.NewResponses(t.Context(), config, binding)
 				if err != nil {
 					t.Fatal(err)
 				}

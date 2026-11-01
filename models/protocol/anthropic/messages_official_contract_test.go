@@ -9,7 +9,9 @@ import (
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestNativeClaudeSamplingContract(t *testing.T) {
@@ -61,7 +63,7 @@ func TestNativeClaudeRejectsCompetingStreamControl(t *testing.T) {
 
 func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	request := validNativeRequest(t)
-	request.Tools = []corechat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`),
 	}}
 	request.ToolChoice = &corechat.ToolChoice{
@@ -94,38 +96,38 @@ func TestProtocolCitationProjectionCoversOfficialVariants(t *testing.T) {
 	tests := []struct {
 		name      string
 		value     any
-		wantKind  corechat.CitationSourceKind
+		wantKind  corecontent.CitationSourceKind
 		wantValue string
 	}{
 		{
 			name: "character location", value: anthropicsdk.CitationCharLocation{
 				FileID: "file-char", DocumentTitle: "Character document", CitedText: "character quote",
 			},
-			wantKind: corechat.CitationSourceReference, wantValue: "file-char",
+			wantKind: corecontent.CitationSourceReference, wantValue: "file-char",
 		},
 		{
 			name: "page location title fallback", value: anthropicsdk.CitationPageLocation{
 				DocumentTitle: "Page document", CitedText: "page quote",
 			},
-			wantKind: corechat.CitationSourceReference, wantValue: "Page document",
+			wantKind: corecontent.CitationSourceReference, wantValue: "Page document",
 		},
 		{
 			name: "content block location", value: anthropicsdk.CitationContentBlockLocation{
 				FileID: "file-block", DocumentTitle: "Block document", CitedText: "block quote",
 			},
-			wantKind: corechat.CitationSourceReference, wantValue: "file-block",
+			wantKind: corecontent.CitationSourceReference, wantValue: "file-block",
 		},
 		{
 			name: "web search", value: anthropicsdk.CitationsWebSearchResultLocation{
 				URL: "https://example.com/source", Title: "Web source", CitedText: "web quote",
 			},
-			wantKind: corechat.CitationSourceURI, wantValue: "https://example.com/source",
+			wantKind: corecontent.CitationSourceURI, wantValue: "https://example.com/source",
 		},
 		{
 			name: "search result", value: anthropicsdk.CitationsSearchResultLocation{
 				Source: "search-result-1", Title: "Search source", CitedText: "search quote",
 			},
-			wantKind: corechat.CitationSourceReference, wantValue: "search-result-1",
+			wantKind: corecontent.CitationSourceReference, wantValue: "search-result-1",
 		},
 	}
 	for _, tt := range tests {
@@ -154,15 +156,15 @@ func TestProtocolCitationProjectionCoversOfficialVariants(t *testing.T) {
 			}
 		})
 	}
-	if citation, include, err := mapProtocolCitation(nil); err != nil || include || citation != (corechat.Citation{}) {
+	if citation, include, err := mapProtocolCitation(nil); err != nil || include || citation != (corecontent.Citation{}) {
 		t.Fatalf("nil citation = %#v, %v, %v", citation, include, err)
 	}
 }
 
 func TestProtocolPartsAsDeltasPreservesPortableSemantics(t *testing.T) {
 	text := corechat.NewTextPart("answer")
-	text.Citations = []corechat.Citation{{
-		Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: "https://example.com/source"},
+	text.Citations = []corecontent.Citation{{
+		Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"},
 	}}
 	reasoning := corechat.NewReasoningPart("thinking", []byte("state"))
 	if err := reasoning.Metadata.Set("anthropic/test", true); err != nil {

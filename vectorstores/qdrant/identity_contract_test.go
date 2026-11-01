@@ -18,16 +18,21 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type identityCollections struct {
 	qdrantclient.UnimplementedCollectionsServer
+	metric *qdrantclient.Distance
 }
 
 func (i *identityCollections) Get(context.Context, *qdrantclient.GetCollectionInfoRequest) (*qdrantclient.GetCollectionInfoResponse, error) {
-	return &qdrantclient.GetCollectionInfoResponse{Result: collectionInfo(qdrantclient.Distance_Cosine, 2)}, nil
+	metric := qdrantclient.Distance_Cosine
+	if i.metric != nil {
+		metric = *i.metric
+	}
+	return &qdrantclient.GetCollectionInfoResponse{Result: collectionInfo(metric, 2)}, nil
 }
 
 func (i *identityCollections) List(context.Context, *qdrantclient.ListCollectionsRequest) (*qdrantclient.ListCollectionsResponse, error) {
@@ -118,7 +123,7 @@ func nativeIdentityKey(id *qdrantclient.PointId) (string, error) {
 	}
 }
 
-func qdrantIdentityStore(t *testing.T) (*Store, *identityPoints, *atomic.Int64) {
+func qdrantIdentityStore(t *testing.T) (*Store, *identityPoints) {
 	t.Helper()
 	points := &identityPoints{points: make(map[string]*qdrantclient.PointStruct)}
 	listener := bufconn.Listen(1024 * 1024)
@@ -147,23 +152,15 @@ func qdrantIdentityStore(t *testing.T) (*Store, *identityPoints, *atomic.Int64) 
 			t.Error(closeErr)
 		}
 	})
-	var embeddings atomic.Int64
+
 	store, err := NewStore(t.Context(), StoreConfig{
 		Client: client, CollectionName: "documents",
-		DocumentBatcher: visibilityBatcher{},
-		EmbeddingModel: embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-			embeddings.Add(1)
-			outputs := make([]*embedding.Output, len(request.Texts))
-			for index := range outputs {
-				outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-			}
-			return embedding.NewResponse(outputs, nil)
-		}),
+		Space: fixtureSpace,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, points, &embeddings
+	return store, points
 }
 
 func TestIndexRejectsUUIDAliasesBeforeIO(t *testing.T) {
@@ -174,16 +171,16 @@ func TestIndexRejectsUUIDAliasesBeforeIO(t *testing.T) {
 		"{f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4}",
 	} {
 		t.Run(alias, func(t *testing.T) {
-			store, points, embeddings := qdrantIdentityStore(t)
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{
+			store, points := qdrantIdentityStore(t)
+			err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{
 				{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "canonical"},
 				{ID: alias, Text: "alias"},
-			}})
+			}))
 			if !errors.Is(err, ErrInvalidPointID) {
 				t.Fatalf("Index error = %v, want ErrInvalidPointID", err)
 			}
-			if embeddings.Load() != 0 || points.upserts.Load() != 0 {
-				t.Fatalf("rejected batch performed I/O: embeddings=%d, upserts=%d", embeddings.Load(), points.upserts.Load())
+			if points.upserts.Load() != 0 {
+				t.Fatalf("rejected batch performed I/O: upserts=%d", points.upserts.Load())
 			}
 		})
 	}
@@ -197,7 +194,7 @@ func TestDeleteIDsRejectsUUIDAliasesBeforeIO(t *testing.T) {
 		"{f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4}",
 	} {
 		t.Run(alias, func(t *testing.T) {
-			store, points, _ := qdrantIdentityStore(t)
+			store, points := qdrantIdentityStore(t)
 			if err := store.DeleteIDs(t.Context(), []string{"42", alias}); !errors.Is(err, ErrInvalidPointID) {
 				t.Errorf("DeleteIDs error = %v, want ErrInvalidPointID", err)
 			}
@@ -209,17 +206,17 @@ func TestDeleteIDsRejectsUUIDAliasesBeforeIO(t *testing.T) {
 }
 
 func TestIndexAndSearchPreserveCanonicalPointIDs(t *testing.T) {
-	store, _, _ := qdrantIdentityStore(t)
+	store, _ := qdrantIdentityStore(t)
 	documents := []*document.Document{
 		{ID: "0", Text: "zero"},
 		{ID: "18446744073709551615", Text: "maximum uint64"},
 		{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "uuid"},
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: documents}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(documents)); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 3}}
-	response, err := store.Search(t.Context(), request)
+	request := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 3}}
+	response, err := store.Query(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +235,7 @@ func TestIndexAndSearchPreserveCanonicalPointIDs(t *testing.T) {
 	if deleteErr := store.DeleteIDs(t.Context(), []string{"0", "18446744073709551615", "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4"}); deleteErr != nil {
 		t.Fatal(deleteErr)
 	}
-	response, err = store.Search(t.Context(), request)
+	response, err = store.Query(t.Context(), request)
 	if err != nil || len(response.Results) != 0 {
 		t.Fatalf("Search after DeleteIDs = %v, error %v", response, err)
 	}

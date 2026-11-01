@@ -7,6 +7,7 @@
 // [FilterConformance] runs isolated backend queries and compares selected IDs
 // with exact expectations and [filter.Match]. Its callback must query the backend,
 // not evaluate the predicate locally. Unsupported semantics need classified errors.
+// [ProvenanceConformance] checks source fidelity and isolation from metadata filters.
 //
 // # Field identifiers
 //

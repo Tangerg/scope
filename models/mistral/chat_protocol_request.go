@@ -13,6 +13,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
@@ -259,7 +260,7 @@ func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 	return message, nil
 }
 
-func mapChatTools(definitions []corechat.ToolDefinition) ([]chatTool, error) {
+func mapChatTools(definitions []toolcontract.Definition) ([]chatTool, error) {
 	tools := make([]chatTool, 0, len(definitions))
 	for index := range definitions {
 		var parameters map[string]json.RawMessage

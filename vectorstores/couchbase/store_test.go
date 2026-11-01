@@ -7,18 +7,11 @@ import (
 
 	"github.com/couchbase/gocb/v2"
 
-	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-type configBatcher struct{}
-
-func (c *configBatcher) Batch(ctx context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{docs}, ctx.Err()
-}
-
 func TestStoreConfigValidation(t *testing.T) {
-	valid := StoreConfig{Cluster: new(gocb.Cluster), BucketName: "bucket-name", EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) { return nil, nil }), DocumentBatcher: new(configBatcher)}
+	valid := StoreConfig{Cluster: new(gocb.Cluster), BucketName: "bucket-name", Space: "fixture", Dimensions: 2}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -27,11 +20,7 @@ func TestStoreConfigValidation(t *testing.T) {
 		func(c *StoreConfig) { c.BucketName = "" },
 		func(c *StoreConfig) { c.BucketName = "bucket`" },
 		func(c *StoreConfig) { c.ScopeName = "scope.x" },
-		func(c *StoreConfig) { c.CollectionName = "collection x" },
-		func(c *StoreConfig) { c.EmbeddingModel = nil },
-		func(c *StoreConfig) { c.EmbeddingModel = embedding.ModelFunc(nil) },
-		func(c *StoreConfig) { c.DocumentBatcher = nil },
-		func(c *StoreConfig) { c.DocumentBatcher = (*configBatcher)(nil) },
+		func(c *StoreConfig) { c.Dimensions = 0 }, func(c *StoreConfig) { c.Space = "" },
 		func(c *StoreConfig) { c.Similarity = Similarity("wrong") },
 	} {
 		config := valid
@@ -45,12 +34,33 @@ func TestStoreConfigValidation(t *testing.T) {
 	}
 	config := valid
 	config.applyDefaults()
-	if config.ScopeName != DefaultScopeName || config.CollectionName != DefaultCollectionName || config.Similarity != DefaultSimilarity {
+	if config.ScopeName != DefaultScopeName || config.CollectionName() != config.Space.StorageKey()+"_2" || config.Similarity != DefaultSimilarity {
 		t.Fatal(config)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if s, err := NewStore(ctx, valid); s != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled constructor reached SDK: %v", err)
+	}
+}
+
+func TestCollectionIdentityCannotMixSpacesOrWidths(t *testing.T) {
+	a := StoreConfig{Space: "embedder/v1", Dimensions: 2}
+	b := a
+	b.Space = "embedder/v2"
+	c := a
+	c.Dimensions = 3
+	if a.CollectionName() == b.CollectionName() || a.CollectionName() == c.CollectionName() {
+		t.Fatal("physical collection shared by incompatible bindings")
+	}
+	s := &Store{space: a.Space, dimensions: a.Dimensions}
+	if _, ok := any(s).(vectorstore.Querier); ok {
+		t.Fatal("primary index advertised as vector index")
+	}
+	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: b.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: a.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
+		t.Fatal("unbudgeted scan")
 	}
 }

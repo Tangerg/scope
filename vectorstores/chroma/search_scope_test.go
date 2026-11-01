@@ -10,14 +10,14 @@ import (
 )
 
 func TestUnfilteredSearchDoesNotEnumerateSource(t *testing.T) {
-	config, collection, _ := boundaryConfig(t, v2.SpaceCosine)
+	config, collection := boundaryConfig(t, v2.SpaceCosine)
 	collection.getErr = errors.New("source reads denied")
 	collection.query = queryRecords(oneRecord("null"), 0)
 	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Query(t.Context(), query(vectorstore.SearchOptions{TopK: 1}))
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "id" {
 		t.Fatalf("native query = %v, %v", response, err)
 	}

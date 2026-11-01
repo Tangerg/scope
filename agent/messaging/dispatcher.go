@@ -7,7 +7,7 @@ import (
 
 	"github.com/samber/lo"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 // ErrNilDeliveryPort rejects construction without a delivery authority.
@@ -25,18 +25,18 @@ var ErrNilDeliveryPort = errors.New("messaging: delivery port is required")
 // must preserve identity conflicts and admission evidence for the entire replay
 // obligation.
 type DeliveryPort interface {
-	Deliver(ctx context.Context, sender, recipient agent.ProcessID, signal agent.SignalRequest) error
+	Deliver(ctx context.Context, sender, recipient run.ProcessID, signal run.SignalRequest) error
 }
 
 // DispatcherConfig binds the only delivery authority used by this Dispatcher.
-// Its policy and routing configuration belong in the Deployment's exact binding.
+// Its policy and routing configuration belong in the Program's exact binding.
 type DispatcherConfig struct {
 	Port DeliveryPort
 }
 
 // Dispatcher delivers each frozen Message under one Effect-derived SignalID.
 // It owns no retry loop, mailbox, routing registry, or background work.
-// For valid Engine requests, local rejection settles Failed with a JSON
+// For valid Runtime requests, local rejection settles Failed with a JSON
 // diagnostic string. Success carries Receipt; every DeliveryPort error remains
 // unknown because it cannot disprove an earlier admission.
 type Dispatcher struct {
@@ -55,24 +55,24 @@ func NewDispatcher(config DispatcherConfig) (*Dispatcher, error) {
 // Message owns its recipient; the receipt carries only the SignalID the
 // recipient admitted, which derives from the sending Effect.
 type Receipt struct {
-	SignalID agent.SignalID `json:"signal_id"`
+	SignalID run.SignalID `json:"signal_id"`
 }
 
-func (d *Dispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
+func (d *Dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	if d == nil || lo.IsNil(d.port) {
-		return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 	}
 	if _, err := decodeMessage(effect); err != nil {
-		return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 	}
-	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
+	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }
 
 // Dispatch requires a non-nil context and panics if ctx is nil.
-func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, _ agent.DeltaEmitter) (agent.Settlement, error) {
-	ctx = agent.RequireContext(ctx)
+func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
+	ctx = run.RequireContext(ctx)
 	if !request.Valid() {
-		return agent.Settlement{}, ErrInvalidMessage
+		return run.Settlement{}, ErrInvalidMessage
 	}
 	if d == nil || lo.IsNil(d.port) {
 		return messageFailureSettlement(ErrInvalidMessage)
@@ -86,21 +86,21 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, 
 		return messageFailureSettlement(err)
 	}
 	if deliveryErr := d.port.Deliver(ctx, request.Relation().ProcessID(), message.Recipient, signal); deliveryErr != nil {
-		return agent.Settlement{}, deliveryErr
+		return run.Settlement{}, deliveryErr
 	}
 	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID()})
 	if err != nil {
-		return agent.Settlement{}, err
+		return run.Settlement{}, err
 	}
-	return agent.NewSettlement(agent.SettlementStatusSucceeded, payload)
+	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
 }
 
-var _ agent.Dispatcher = (*Dispatcher)(nil)
+var _ run.Dispatcher = (*Dispatcher)(nil)
 
-func messageFailureSettlement(cause error) (agent.Settlement, error) {
-	payload, err := jsonv2.Marshal(agent.NormalizeDiagnostic(cause.Error()))
+func messageFailureSettlement(cause error) (run.Settlement, error) {
+	payload, err := jsonv2.Marshal(run.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
-		return agent.Settlement{}, err
+		return run.Settlement{}, err
 	}
-	return agent.NewSettlement(agent.SettlementStatusFailed, payload)
+	return run.NewSettlement(run.SettlementStatusFailed, payload)
 }

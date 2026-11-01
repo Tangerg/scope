@@ -17,11 +17,11 @@ func TestStorePreservesMixedDocumentContent(t *testing.T) {
 	}
 	doc := &document.Document{ID: "mixed", Text: "image caption", Media: content}
 	want := doc.Clone()
-	if indexErr := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); indexErr != nil {
+	if indexErr := store.Upsert(t.Context(), batch([]*document.Document{doc})); indexErr != nil {
 		t.Fatal(indexErr)
 	}
 	doc.Media = nil
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "image caption"})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: vectorFor("image caption")})
 	if err != nil {
 		t.Fatal(err)
 	}

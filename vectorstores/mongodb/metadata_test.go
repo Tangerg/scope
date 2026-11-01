@@ -28,7 +28,7 @@ func TestCoreMetadataIsOneJSONStringThroughNativeBSON(t *testing.T) {
 		if raw.Lookup(metadataField).StringValue() != string(expected) {
 			t.Fatalf("native JSON=%v", raw)
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+		response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")})
 		if err != nil || len(response.Results) != 1 {
 			t.Fatalf("response=%v err=%v", response, err)
 		}
@@ -41,10 +41,10 @@ func TestCoreMetadataIsOneJSONStringThroughNativeBSON(t *testing.T) {
 
 func TestCurrentSchemaRejectsLegacyAndMalformedRecordsOutsideFilter(t *testing.T) {
 	for _, bad := range []bson.D{
-		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: "metadata", Value: bson.M{"value": "outside"}}, {Key: embeddingField, Value: []float32{1, 0}}},
-		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `{"key":1,"key":2}`}, {Key: embeddingField, Value: []float32{1, 0}}},
-		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `null`}, {Key: embeddingField, Value: []float32{1}}},
-		{{Key: idField, Value: "bad"}, {Key: idField, Value: "duplicate"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `null`}, {Key: embeddingField, Value: []float32{1, 0}}},
+		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: "metadata", Value: bson.M{"value": "outside"}}, {Key: fixtureSpace.StorageKey(), Value: []float32{1, 0}}},
+		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `{"key":1,"key":2}`}, {Key: fixtureSpace.StorageKey(), Value: []float32{1, 0}}},
+		{{Key: idField, Value: "bad"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `null`}, {Key: fixtureSpace.StorageKey(), Value: []float32{1}}},
+		{{Key: idField, Value: "bad"}, {Key: idField, Value: "duplicate"}, {Key: contentField, Value: "text"}, {Key: metadataField, Value: `null`}, {Key: fixtureSpace.StorageKey(), Value: []float32{1, 0}}},
 	} {
 		store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}})
 		raw, err := bson.Marshal(bad)
@@ -52,7 +52,7 @@ func TestCurrentSchemaRejectsLegacyAndMalformedRecordsOutsideFilter(t *testing.T
 			t.Fatal(err)
 		}
 		collection.records = append(collection.records, raw)
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.IsNull("absent")}})
+		response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 1, Filter: filter.IsNull("absent")}})
 		if err == nil || response != nil {
 			t.Fatalf("invalid source became success: %v %v", response, err)
 		}

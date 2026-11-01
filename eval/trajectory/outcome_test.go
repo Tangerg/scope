@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -27,7 +27,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	}
 	type outcomeCase struct {
 		name, code, message string
-		kind                agent.FailureKind
+		kind                run.FailureKind
 		conflict            bool
 	}
 	cases := []outcomeCase{
@@ -35,8 +35,8 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 		{name: "diagnostic only", kind: original.Kind(), code: original.Code(), message: "another diagnostic"},
 		{name: "failure code", kind: original.Kind(), code: "test.different", message: original.Message(), conflict: true},
 	}
-	for _, kind := range []agent.FailureKind{
-		agent.FailureKindExecution, agent.FailureKindContract, agent.FailureKindExternal, agent.FailureKindPanic,
+	for _, kind := range []run.FailureKind{
+		run.FailureKindExecution, run.FailureKindContract, run.FailureKindExternal, run.FailureKindPanic,
 	} {
 		if kind != original.Kind() {
 			cases = append(cases, outcomeCase{
@@ -51,7 +51,7 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			failure, err := agent.NewFailure(testCase.kind, testCase.code, testCase.message)
+			failure, err := run.NewFailure(testCase.kind, testCase.code, testCase.message)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,11 +94,11 @@ func TestTrajectoryRequiresAgreementWithRootFinishedEvent(t *testing.T) {
 	}
 }
 
-func trajectoryFailureTermination(t *testing.T, original agent.Termination, failure agent.Failure) agent.Termination {
+func trajectoryFailureTermination(t *testing.T, original run.Termination, failure run.Failure) run.Termination {
 	t.Helper()
 	encoded, err := jsonv2.Marshal(struct {
-		Failure             agent.Failure    `json:"failure"`
-		UnresolvedEffectIDs []agent.EffectID `json:"unresolved_effect_ids,omitempty"`
+		Failure             run.Failure    `json:"failure"`
+		UnresolvedEffectIDs []run.EffectID `json:"unresolved_effect_ids,omitempty"`
 	}{
 		Failure:             failure,
 		UnresolvedEffectIDs: original.UnresolvedEffectIDs(),
@@ -106,7 +106,7 @@ func trajectoryFailureTermination(t *testing.T, original agent.Termination, fail
 	if err != nil {
 		t.Fatal(err)
 	}
-	var termination agent.Termination
+	var termination run.Termination
 	if err := jsonv2.Unmarshal(encoded, &termination); err != nil {
 		t.Fatal(err)
 	}

@@ -1,12 +1,14 @@
 package trajectory_test
 
 import (
+	startrand "crypto/rand"
 	"errors"
 	"testing"
 	"testing/synctest"
 
-	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/coordination"
+	"github.com/Tangerg/scope/agent/coordination"
+
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
@@ -22,21 +24,21 @@ func TestRecorderSeparatesOverlappingRootIncarnations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			deployment, err := agent.NewDeployment(agent.DeploymentConfig{Definition: definition, ImplementationDigest: agent.ComputeDigest([]byte("recording")), ConfigurationDigest: agent.ComputeDigest([]byte("recording"))})
+			deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{Definition: definition, ImplementationDigest: run.ComputeDigest([]byte("recording")), ConfigurationDigest: run.ComputeDigest([]byte("recording"))})
 			if err != nil {
 				t.Fatal(err)
 			}
 			recorder := new(trajectory.Recorder)
-			config := agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}}
-			firstEngine, err := agent.NewEngine(config)
+			config := run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{recorder}}
+			firstEngine, err := run.New(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
 			}
-			input, err := agent.EncodePayload("question")
+			input, err := run.EncodePayload("question")
 			if err != nil {
 				t.Fatal(err)
 			}
-			first, err := firstEngine.Start(t.Context(), deployment, input)
+			first, err := firstEngine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -45,11 +47,11 @@ func TestRecorderSeparatesOverlappingRootIncarnations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			secondEngine, err := agent.NewEngine(config)
+			secondEngine, err := run.New(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
 			}
-			second, err := secondEngine.RestoreTree(t.Context(), deployment, cut)
+			second, err := secondEngine.Recover(t.Context(), deployment, cut)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,11 +62,13 @@ func TestRecorderSeparatesOverlappingRootIncarnations(t *testing.T) {
 			if killErr := first.Kill(t.Context(), "retire old writer"); killErr != nil {
 				t.Fatal(killErr)
 			}
-			if joinErr := first.Join(t.Context()); !errors.Is(joinErr, agent.ErrTreeIncarnationConflict) {
+			if joinErr := first.Join(t.Context()); !errors.Is(joinErr, run.ErrTreeIncarnationConflict) {
 				t.Fatalf("old writer=%v", joinErr)
 			}
 			if discard {
-				recorder.Discard(first)
+				if discardErr := recorder.Discard(t.Context(), first); discardErr != nil {
+					t.Fatal(discardErr)
+				}
 			} else {
 				recorded, takeErr := recorder.Take(t.Context(), first, nil)
 				if takeErr != nil {
@@ -90,11 +94,11 @@ func TestRecorderSeparatesOverlappingRootIncarnations(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			terminalEngine, err := agent.NewEngine(config)
+			terminalEngine, err := run.New(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
 			}
-			terminal, err := terminalEngine.RestoreTree(t.Context(), deployment, terminalCut)
+			terminal, err := terminalEngine.Recover(t.Context(), deployment, terminalCut)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -19,7 +19,7 @@
 // refusals, reasoning replay state, and tool calls remain typed protocol values
 // while exact provider-only data stays in namespaced metadata.
 //
-// ToolDefinition describes wire schema only. Executable tools, registries,
+// Requests project tool.Definition; executable tools, registries,
 // history, retries, middleware policy, and tool loops belong to higher-level
 // modules. Protocol values therefore never retain callbacks, provider clients,
 // or other runtime objects.

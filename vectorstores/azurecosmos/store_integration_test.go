@@ -64,7 +64,7 @@ func TestNativeCosmos(t *testing.T) {
 					t.Error(deleteErr)
 				}
 			})
-			store, storeErr := NewStore(ctx, StoreConfig{Container: container, PartitionKey: "library", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{size: 32}})
+			store, storeErr := NewStore(ctx, StoreConfig{Container: container, PartitionKey: "library", Space: testSpace})
 			if storeErr != nil {
 				t.Fatal(storeErr)
 			}
@@ -72,25 +72,18 @@ func TestNativeCosmos(t *testing.T) {
 				defer func() {
 					cleanup, stop := context.WithTimeout(context.WithoutCancel(queryCtx), time.Minute)
 					defer stop()
-					queryErr = errors.Join(queryErr, store.DeleteWhere(cleanup, filter.IsNull("unused")))
+					queryErr = errors.Join(queryErr, store.DeleteMatching(cleanup, testScan(filter.IsNull("unused"))))
 				}()
-				if queryErr = store.Index(queryCtx, &vectorstore.IndexRequest{Documents: docs}); queryErr != nil {
+				if queryErr = store.Upsert(queryCtx, testBatch(docs)); queryErr != nil {
 					return nil, queryErr
 				}
-				response, queryErr := store.Search(queryCtx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
-				if queryErr != nil {
-					return nil, queryErr
-				}
-				for _, row := range response.Results {
-					ids = append(ids, row.Document.ID)
-				}
-				return ids, nil
+				return scanIDs(queryCtx, store, predicate)
 			}})
 			for _, facts := range []metadata.Map{nil, {}, {"large": json.RawMessage(`9007199254740993`), "nested": json.RawMessage(`{"decimal":1.0000000000000000001,"huge":1e1000}`)}} {
-				if indexErr := store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text", Metadata: facts}}}); indexErr != nil {
+				if indexErr := store.Upsert(ctx, testBatch([]*document.Document{{ID: "one", Text: "text", Metadata: facts}})); indexErr != nil {
 					t.Fatal(indexErr)
 				}
-				response, searchErr := store.Search(ctx, &vectorstore.SearchRequest{Query: "query"})
+				response, searchErr := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}})
 				if searchErr != nil {
 					t.Fatal(searchErr)
 				}
@@ -98,20 +91,20 @@ func TestNativeCosmos(t *testing.T) {
 					t.Fatal("native metadata roundtrip changed its fact")
 				}
 			}
-			selected, selectErr := store.selectItems(ctx, nil)
+			selected, selectErr := store.selectItems(ctx, testScan(nil))
 			if selectErr != nil || len(selected) != 1 {
 				t.Fatalf("native selection = %d, %v", len(selected), selectErr)
 			}
-			if indexErr := store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "changed"}}}); indexErr != nil {
+			if indexErr := store.Upsert(ctx, testBatch([]*document.Document{{ID: "one", Text: "changed"}})); indexErr != nil {
 				t.Fatal(indexErr)
 			}
 			etag := selected[0].etag
-			_, deleteErr := container.DeleteItem(ctx, azcosmos.NewPartitionKeyString("library"), "one", &azcosmos.ItemOptions{IfMatchEtag: &etag})
+			_, deleteErr := container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(testPartition()), "one", &azcosmos.ItemOptions{IfMatchEtag: &etag})
 			var nativeErr *azcore.ResponseError
 			if !errors.As(deleteErr, &nativeErr) || nativeErr.StatusCode != 412 {
 				t.Fatalf("native stale conditional delete = %v", deleteErr)
 			}
-			if deleteErr = store.DeleteWhere(ctx, filter.IsNull("unused")); deleteErr != nil {
+			if deleteErr = store.DeleteMatching(ctx, testScan(filter.IsNull("unused"))); deleteErr != nil {
 				t.Fatal(deleteErr)
 			}
 		})

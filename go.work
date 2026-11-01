@@ -2,11 +2,11 @@ go 1.27.3
 
 use (
 	./a2a
+	./a2a/managed
 	./agent
 	./core
 	./dev/providerconformance
 	./dev/repoarch
-	./dev/treecommitterconformance
 	./etl
 	./etl/html
 	./etl/pdf
@@ -20,6 +20,7 @@ use (
 	./historystores/postgres
 	./historystores/redis
 	./mcp
+	./mcp/managed
 	./models/alibaba
 	./models/anthropic
 	./models/assemblyai
@@ -63,13 +64,15 @@ use (
 	./otel/eval
 	./otel/rag
 	./rag
+	./retrievers/bedrockkb
+	./retrievers/vectara
+	./runstores/postgres
 	./skills
 	./tokenizers/tiktoken
 	./tools
 	./tools/skills
 	./vectorstores/azureaisearch
 	./vectorstores/azurecosmos
-	./vectorstores/bedrockkb
 	./vectorstores/cassandra
 	./vectorstores/chroma
 	./vectorstores/clickhouse
@@ -88,7 +91,6 @@ use (
 	./vectorstores/s3vectors
 	./vectorstores/tidb
 	./vectorstores/typesense
-	./vectorstores/vectara
 	./vectorstores/vespa
 	./vectorstores/weaviate
 )

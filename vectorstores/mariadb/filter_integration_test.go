@@ -1,6 +1,6 @@
 //go:build integration
 
-package mariadb_test
+package mariadb
 
 import (
 	"context"
@@ -13,30 +13,27 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
+
 	"testing"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
-	"github.com/Tangerg/scope/vectorstores/mariadb"
 )
 
 type nativeFixture struct {
-	db              *sql.DB
-	store           *mariadb.Store
-	schema          string
-	table           string
-	model           embedding.Model
-	embeddingCalls  atomic.Int64
-	beforeEmbedding func(context.Context) error
+	db     *sql.DB
+	store  *Store
+	schema string
+	table  string
+
+	vectorFor func(string) []float64
 }
 
 func newNativeFixture(t *testing.T) *nativeFixture {
@@ -56,19 +53,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	})
 	schema := "scope_filter_" + strings.ToLower(rand.Text())
 	f := &nativeFixture{db: db, schema: schema, table: schema + ".documents"}
-	f.model = embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-		f.embeddingCalls.Add(1)
-		if f.beforeEmbedding != nil {
-			if err := f.beforeEmbedding(ctx); err != nil {
-				return nil, err
-			}
-		}
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for index := range outputs {
-			outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
@@ -76,26 +61,45 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 			t.Errorf("cleanup isolated database: %v", err)
 		}
 	})
-	f.store, err = mariadb.NewStore(t.Context(), f.config(true))
+	f.store, err = NewStore(t.Context(), f.config(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return f
 }
 
-func (n *nativeFixture) config(initialize bool) mariadb.StoreConfig {
-	return mariadb.StoreConfig{DB: n.db, SchemaName: n.schema, TableName: "documents", MetadataColumn: "facts", EmbeddingModel: n.model, DocumentBatcher: nativeBatcher{}, Dimensions: 2, InitializeSchema: initialize}
+func (n *nativeFixture) config(initialize bool) StoreConfig {
+	return StoreConfig{DB: n.db, SchemaName: n.schema, TableName: "documents", MetadataColumn: "facts", Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
 }
 
+func (n *nativeFixture) vector(text string) []float64 {
+	if n.vectorFor != nil {
+		return n.vectorFor(text)
+	}
+	return fixtureVector(text)
+}
+func (n *nativeFixture) batch(docs []*document.Document) *vectorstore.Batch {
+	b := fixtureBatch(docs)
+	for i, d := range docs {
+		b.Records[i].Values = n.vector(d.Text)
+	}
+	return b
+}
+func (n *nativeFixture) read(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if q.Options.Filter != nil {
+		return n.store.Scan(ctx, q, fixtureBudget())
+	}
+	return n.store.Query(ctx, q)
+}
 func (n *nativeFixture) install(ctx context.Context, docs []*document.Document) error {
 	if _, err := n.db.ExecContext(ctx, "DELETE FROM "+n.table); err != nil {
 		return err
 	}
-	return n.store.Index(ctx, &vectorstore.IndexRequest{Documents: docs})
+	return n.store.Upsert(ctx, n.batch(docs))
 }
 
 func (n *nativeFixture) search(ctx context.Context, predicate filter.Predicate, limit int) ([]string, error) {
-	response, err := n.store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: limit, Filter: predicate}})
+	response, err := n.read(ctx, &vectorstore.Query{Space: fixtureSpace, Values: n.vector("filter conformance"), Options: vectorstore.SearchOptions{TopK: limit, Filter: predicate}})
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +128,7 @@ func (n *nativeFixture) ids(ctx context.Context) ([]string, error) {
 }
 
 func (n *nativeFixture) delete(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-	if err := n.store.DeleteWhere(ctx, predicate); err != nil {
+	if err := n.store.DeleteMatching(ctx, predicate, fixtureBudget()); err != nil {
 		return nil, err
 	}
 	remaining, err := n.ids(ctx)
@@ -138,12 +142,6 @@ func (n *nativeFixture) delete(ctx context.Context, docs []*document.Document, p
 		}
 	}
 	return deleted, nil
-}
-
-type nativeBatcher struct{}
-
-func (n nativeBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
 }
 
 func TestLiveMetadataFilters(t *testing.T) {
@@ -213,15 +211,10 @@ func TestLiveMetadataFilters(t *testing.T) {
 	}
 	t.Run("type_errors", func(t *testing.T) { nativeTypeErrors(t, f) })
 	t.Run("snapshot", func(t *testing.T) { nativeFilterSnapshot(t, f) })
-	t.Run("embedding_failure", func(t *testing.T) {
-		if err := f.install(t.Context(), nativeDocuments(t, []any{7})); err != nil {
-			t.Fatal(err)
-		}
-		failure := errors.New("embedding unavailable")
-		f.beforeEmbedding = func(context.Context) error { return failure }
-		defer func() { f.beforeEmbedding = nil }()
-		if _, err := f.search(t.Context(), nativePredicate(t, `value > 3`), 1); !errors.Is(err, failure) || f.db.Stats().InUse != 0 {
-			t.Fatalf("search failure = %v, in-use connections %d", err, f.db.Stats().InUse)
+	t.Run("mismatched_space", func(t *testing.T) {
+		q := &vectorstore.Query{Space: "unbound", Values: []float64{1, 0}}
+		if r, err := f.read(t.Context(), q); r != nil || !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+			t.Fatalf("foreign space: %v, %v", r, err)
 		}
 	})
 }
@@ -242,7 +235,7 @@ func nativeTypeErrors(t *testing.T, f *nativeFixture) {
 					if err := f.install(t.Context(), docs); err != nil {
 						t.Fatal(err)
 					}
-					calls := f.embeddingCalls.Load()
+
 					var got []string
 					if operation == "search" {
 						got, err = f.search(t.Context(), predicate, 1)
@@ -254,8 +247,8 @@ func nativeTypeErrors(t *testing.T, f *nativeFixture) {
 							t.Fatalf("%s error = %v, want wrapped Core error %v", operation, err, expectedErr)
 						}
 						ids, readErr := f.ids(t.Context())
-						if readErr != nil || !slices.Equal(ids, []string{docs[0].ID}) || f.embeddingCalls.Load() != calls {
-							t.Fatalf("%s changed effects: IDs %v, read error %v, embedding calls %d -> %d", operation, ids, readErr, calls, f.embeddingCalls.Load())
+						if readErr != nil || !slices.Equal(ids, []string{docs[0].ID}) {
+							t.Fatalf("%s changed effects: IDs %v, read error %v", operation, ids, readErr)
 						}
 					} else {
 						var want []string
@@ -277,12 +270,12 @@ func nativeTypeErrors(t *testing.T, f *nativeFixture) {
 	if err := f.install(t.Context(), docs); err != nil {
 		t.Fatal(err)
 	}
-	calls := f.embeddingCalls.Load()
+
 	predicate := nativePredicate(t, `value > 3`)
-	if _, err := f.search(t.Context(), predicate, 1); err == nil || f.embeddingCalls.Load() != calls {
+	if _, err := f.search(t.Context(), predicate, 1); err == nil {
 		t.Fatalf("search concealed an invalid row beyond TopK: %v", err)
 	}
-	if err := f.store.DeleteWhere(t.Context(), predicate); err == nil {
+	if err := f.store.DeleteMatching(t.Context(), predicate, fixtureBudget()); err == nil {
 		t.Fatal("deletion concealed an invalid row")
 	}
 	ids, err := f.ids(t.Context())
@@ -299,47 +292,19 @@ func nativeFilterSnapshot(t *testing.T, f *nativeFixture) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	entered, release := make(chan struct{}, 1), make(chan struct{})
-	releaseGate := sync.OnceFunc(func() { close(release) })
-	f.beforeEmbedding = func(ctx context.Context) error {
-		entered <- struct{}{}
-		select {
-		case <-release:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-	var workers sync.WaitGroup
-	defer func() { releaseGate(); cancel(); workers.Wait(); f.beforeEmbedding = nil }()
-	result := make(chan struct {
-		response *vectorstore.SearchResponse
-		err      error
-	}, 1)
+	budget := fixtureBudget()
 	predicate := nativePredicate(t, `value > 3`)
-	workers.Go(func() {
-		response, err := f.store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: 1, Filter: predicate}})
-		result <- struct {
-			response *vectorstore.SearchResponse
-			err      error
-		}{response, err}
-	})
-	select {
-	case <-entered:
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	tx, err := f.store.prepareFilter(ctx, predicate, true, &budget)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer tx.Rollback()
 	if _, err := f.db.ExecContext(ctx, "UPDATE "+f.table+" SET facts = ? WHERE id = ?", `{"value":"7"}`, docs[0].ID); err != nil {
 		t.Fatal(err)
 	}
-	releaseGate()
-	select {
-	case got := <-result:
-		if got.err != nil || got.response == nil || len(got.response.Results) != 1 || !got.response.Results[0].Document.Metadata.Equal(docs[0].Metadata) {
-			t.Fatalf("filter snapshot lost its original metadata: response %#v, error %v", got.response, got.err)
-		}
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+	page, err := f.store.readFilterPage(ctx, tx, predicate, nil)
+	if err != nil || len(page.ids) != 1 {
+		t.Fatalf("existing scan lost original membership: %+v, %v", page, err)
 	}
 }
 
@@ -399,12 +364,9 @@ func TestLiveSchemaRejectsCompetingIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, initialize := range []bool{false, true} {
-				if _, err := mariadb.NewStore(t.Context(), f.config(initialize)); err == nil || !strings.Contains(err.Error(), test.want) {
+				if _, err := NewStore(t.Context(), f.config(initialize)); err == nil || !strings.Contains(err.Error(), test.want) {
 					t.Fatalf("initialize %v: accepted obsolete identity: %v", initialize, err)
 				}
-			}
-			if f.embeddingCalls.Load() != 0 {
-				t.Fatal("schema validation invoked embedding")
 			}
 		})
 	}
@@ -416,7 +378,7 @@ func TestLiveIDLimitAndMetadataRoundTrip(t *testing.T) {
 	if err := f.install(t.Context(), docs); err != nil {
 		t.Fatal(err)
 	}
-	response, err := f.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "round trip", Options: vectorstore.SearchOptions{TopK: 2}})
+	response, err := f.read(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: f.vector("round trip"), Options: vectorstore.SearchOptions{TopK: 2}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,10 +393,10 @@ func TestLiveIDLimitAndMetadataRoundTrip(t *testing.T) {
 			t.Fatal("nil metadata became an object")
 		}
 	}
-	calls := f.embeddingCalls.Load()
+
 	invalid := []*document.Document{{ID: "valid", Text: "valid"}, {ID: strings.Repeat("é", 1537), Text: "too long"}}
-	if err := f.store.Index(t.Context(), &vectorstore.IndexRequest{Documents: invalid}); !errors.Is(err, vectorstore.ErrInvalidDocument) || f.embeddingCalls.Load() != calls {
-		t.Fatalf("oversized ID = %v, embedding calls %d -> %d", err, calls, f.embeddingCalls.Load())
+	if err := f.store.Upsert(t.Context(), f.batch(invalid)); !errors.Is(err, vectorstore.ErrInvalidDocument) {
+		t.Fatalf("oversized ID = %v", err)
 	}
 	ids, err := f.ids(t.Context())
 	want := []string{"empty", docs[0].ID}
@@ -462,15 +424,15 @@ func TestLiveDefaultDatabaseAndIdentifierCase(t *testing.T) {
 	})
 	config := f.config(false)
 	config.DB, config.SchemaName, config.IDColumn = db, "", "ID"
-	store, err := mariadb.NewStore(t.Context(), config)
+	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	docs := nativeDocuments(t, []any{7})
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: nativePredicate(t, `value > 3`)}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: f.vector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, `value > 3`)}})
 	if err != nil || response == nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[0].ID {
 		t.Fatalf("default database query = %#v, %v", response, err)
 	}
@@ -481,7 +443,7 @@ func TestLiveSchemaRequiresTransactionalStorage(t *testing.T) {
 	if _, err := f.db.ExecContext(t.Context(), "ALTER TABLE "+f.table+" DROP PRIMARY KEY, ENGINE=MyISAM"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mariadb.NewStore(t.Context(), f.config(false)); err == nil || !strings.Contains(err.Error(), "InnoDB") {
+	if _, err := NewStore(t.Context(), f.config(false)); err == nil || !strings.Contains(err.Error(), "InnoDB") {
 		t.Fatalf("non-transactional table accepted: %v", err)
 	}
 }
@@ -498,38 +460,34 @@ func TestLivePagedFilteringAndGlobalRanking(t *testing.T) {
 		docs[index] = &document.Document{ID: fmt.Sprintf("doc-%04d", index), Text: strconv.Itoa(index), Metadata: facts}
 	}
 	config := f.config(false)
-	config.DistanceMetric = mariadb.DistanceEuclidean
-	config.EmbeddingModel = embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for position, text := range request.Texts {
-			distance := 0
-			if index, err := strconv.Atoi(text); err == nil {
-				distance = 1000 + index
-				switch index {
-				case 0:
-					distance = 0
-				case 1:
-					distance = 3
-				case 600:
-					distance = 2
-				case 1029:
-					distance = 1
-				}
+	config.DistanceMetric = DistanceEuclidean
+	f.vectorFor = func(text string) []float64 {
+		distance := 0
+		if index, err := strconv.Atoi(text); err == nil {
+			distance = 1000 + index
+			switch index {
+			case 0:
+				distance = 0
+			case 1:
+				distance = 3
+			case 600:
+				distance = 2
+			case 1029:
+				distance = 1
 			}
-			outputs[position] = &embedding.Output{Embedding: []float64{1 + float64(distance), 0}}
 		}
-		return embedding.NewResponse(outputs, nil)
-	})
+		return []float64{1 + float64(distance), 0}
+	}
 	var err error
-	f.store, err = mariadb.NewStore(t.Context(), config)
+	f.store, err = NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := f.install(t.Context(), docs); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 3, Filter: nativePredicate(t, `value == true`)}}
-	response, err := f.store.Search(t.Context(), request)
+	request := &vectorstore.Query{Space: fixtureSpace, Values: f.vector("query"), Options: vectorstore.SearchOptions{TopK: 3, Filter: nativePredicate(t, `value == true`)}}
+	response, err := f.read(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,11 +501,11 @@ func TestLivePagedFilteringAndGlobalRanking(t *testing.T) {
 		}
 	}
 	request.Options.MinScore = 0.3
-	response, err = f.store.Search(t.Context(), request)
+	response, err = f.read(t.Context(), request)
 	if err != nil || response == nil || len(response.Results) != 2 || response.Results[0].Document.ID != wantIDs[0] || response.Results[1].Document.ID != wantIDs[1] {
 		t.Fatalf("score threshold = %#v, %v", response, err)
 	}
-	if err := f.store.DeleteWhere(t.Context(), request.Options.Filter); err != nil {
+	if err := f.store.DeleteMatching(t.Context(), request.Options.Filter, fixtureBudget()); err != nil {
 		t.Fatal(err)
 	}
 	ids, err := f.ids(t.Context())
@@ -572,12 +530,12 @@ func TestLivePagedValidationAndDeletionAreAtomic(t *testing.T) {
 	if err := f.install(t.Context(), docs); err != nil {
 		t.Fatal(err)
 	}
-	calls := f.embeddingCalls.Load()
+
 	predicate := nativePredicate(t, `value > 3`)
-	if _, err := f.search(t.Context(), predicate, 1); err == nil || f.embeddingCalls.Load() != calls {
+	if _, err := f.search(t.Context(), predicate, 1); err == nil {
 		t.Fatalf("last-page invalid metadata was hidden: %v", err)
 	}
-	if err := f.store.DeleteWhere(t.Context(), predicate); err == nil {
+	if err := f.store.DeleteMatching(t.Context(), predicate, fixtureBudget()); err == nil {
 		t.Fatal("last-page invalid metadata allowed deletion")
 	}
 	var want []string
@@ -598,7 +556,7 @@ func TestLivePagedValidationAndDeletionAreAtomic(t *testing.T) {
 	if _, err := f.db.ExecContext(t.Context(), trigger); err != nil {
 		t.Fatal(err)
 	}
-	err = f.store.DeleteWhere(t.Context(), predicate)
+	err = f.store.DeleteMatching(t.Context(), predicate, fixtureBudget())
 	var nativeErr *mysql.MySQLError
 	if !errors.As(err, &nativeErr) || nativeErr.Number != 1644 {
 		t.Fatalf("last-page failure = %v, want native rejection", err)
@@ -632,4 +590,40 @@ func nativePredicate(t *testing.T, source string) filter.Predicate {
 		t.Fatal(err)
 	}
 	return predicate
+}
+
+func TestLiveSpaceAndSourceBudget(t *testing.T) {
+	f := newNativeFixture(t)
+	ctx := t.Context()
+	docs := nativeDocuments(t, []any{1, 2, 3})
+	if err := f.install(ctx, docs); err != nil {
+		t.Fatal(err)
+	}
+	config := f.config(false)
+	config.Space = "another-space-same-width"
+	if st, err := NewStore(ctx, config); st != nil || !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("rebound foreign space: %v, %v", st, err)
+	}
+	q := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{Filter: filter.EQ("value", 1)}}
+	if res, err := f.store.Query(ctx, q); res != nil || !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
+		t.Fatalf("implicit scan: %v, %v", res, err)
+	}
+	for _, limit := range []string{"records", "bytes"} {
+		budget := fixtureBudget()
+		if limit == "records" {
+			budget.MaxRecords = 1
+		} else {
+			budget.MaxBytes = 1
+		}
+		if res, err := f.store.Scan(ctx, q, budget); res != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+			t.Fatalf("partial scan %s: %v, %v", limit, res, err)
+		}
+		if err := f.store.DeleteMatching(ctx, q.Options.Filter, budget); !errors.Is(err, vectorstore.ErrScanBudget) {
+			t.Fatal(err)
+		}
+	}
+	ids, err := f.ids(ctx)
+	if err != nil || len(ids) != len(docs) {
+		t.Fatalf("budgeted failure changed source: %v, %v", ids, err)
+	}
 }

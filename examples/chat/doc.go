@@ -1,6 +1,6 @@
 // Command chat demonstrates an ordinary structured model call using only Core.
 // The deterministic model keeps the example offline; it does not measure model
-// quality. A provider's chat.Model can replace it without introducing an Engine.
+// quality. A provider's chat.Model can replace it without introducing a Runtime.
 //
 // Run from the repository root:
 //

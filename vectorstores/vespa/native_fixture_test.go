@@ -12,37 +12,41 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-type fixtureModel struct{ vectorFor func(string) []float64 }
+const fixtureSpace vectorstore.SpaceID = "fixture.v1"
 
-func (f fixtureModel) Call(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-	outputs := make([]*embedding.Output, len(request.Texts))
-	for index, text := range request.Texts {
-		vector := []float64{1, 0}
-		if f.vectorFor != nil {
-			vector = f.vectorFor(text)
-		}
-		outputs[index] = &embedding.Output{Embedding: vector}
+var fixtureBudget = vectorstore.ScanBudget{MaxRecords: 3000, MaxBytes: 64 << 20, Timeout: time.Minute}
+
+func fixtureVector(text string) []float64 {
+	if text == "ordinary" {
+		return []float64{0, 1}
 	}
-	return embedding.NewResponse(outputs, nil)
+	return []float64{1, 0}
 }
-
-type testBatcher struct{ single bool }
-
-func (t testBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	if !t.single {
-		return [][]*document.Document{documents}, nil
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, d := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: d, Values: fixtureVector(d.Text)})
 	}
-	batches := make([][]*document.Document, len(documents))
-	for index, doc := range documents {
-		batches[index] = []*document.Document{doc}
+	return b
+}
+func fixtureMeter(t *testing.T, ctx context.Context) *vectorstore.ScanMeter {
+	t.Helper()
+	m, err := fixtureBudget.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return batches, nil
+	t.Cleanup(m.Close)
+	return m
+}
+func fixtureNamespace() string {
+	return (StoreConfig{Namespace: "scope", Space: fixtureSpace, Dimensions: 2}).DocumentNamespace()
 }
 
 type nativeFixture struct {
@@ -68,12 +72,8 @@ func newFixtureStore(t *testing.T, config StoreConfig) (*Store, *nativeFixture) 
 	config.Namespace = "scope"
 	config.RankingProfile = "scope_rank"
 	config.HTTPClient = server.Client()
-	if config.EmbeddingModel == nil {
-		config.EmbeddingModel = fixtureModel{}
-	}
-	if config.DocumentBatcher == nil {
-		config.DocumentBatcher = testBatcher{}
-	}
+	config.Space = fixtureSpace
+	config.Dimensions = 2
 	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +111,7 @@ func (n *nativeFixture) serve(writer http.ResponseWriter, request *http.Request)
 		}
 		hits := make([]queryHit, 0, len(ids))
 		for _, rawID := range ids {
-			id := strings.TrimPrefix(rawID, "id:scope:scope::")
+			id := strings.TrimPrefix(rawID, "id:"+fixtureNamespace()+":scope::")
 			fields, exists := n.rows[id]
 			if !exists {
 				continue
@@ -144,7 +144,7 @@ func (n *nativeFixture) serve(writer http.ResponseWriter, request *http.Request)
 			response = n.searchResponse(ids, hits)
 		}
 	} else {
-		prefix := "/document/v1/scope/scope/docid/"
+		prefix := "/document/v1/" + fixtureNamespace() + "/scope/docid/"
 		id, ok := strings.CutPrefix(request.URL.Path, prefix)
 		if !ok {
 			http.Error(writer, "unexpected native scope", 400)
@@ -177,7 +177,7 @@ func (n *nativeFixture) serve(writer http.ResponseWriter, request *http.Request)
 			end := min(start+n.pageSize, len(ids))
 			page := visitResponse{DocumentCount: new(end - start), Documents: make([]visitDocument, 0, end-start)}
 			for _, identity := range ids[start:end] {
-				page.Documents = append(page.Documents, visitDocument{ID: "id:scope:scope::" + identity, Fields: n.rows[identity]})
+				page.Documents = append(page.Documents, visitDocument{ID: "id:" + fixtureNamespace() + ":scope::" + identity, Fields: n.rows[identity]})
 			}
 			if end < len(ids) {
 				page.Continuation = "opaque:" + strconv.Itoa(end)
@@ -203,7 +203,7 @@ func (n *nativeFixture) serve(writer http.ResponseWriter, request *http.Request)
 				return
 			}
 			n.rows[id] = body.Fields
-			response = map[string]string{"id": "id:scope:scope::" + id}
+			response = map[string]string{"id": "id:" + fixtureNamespace() + ":scope::" + id}
 			if n.putResponse != nil {
 				response = n.putResponse(id)
 			}
@@ -225,7 +225,7 @@ func (n *nativeFixture) serve(writer http.ResponseWriter, request *http.Request)
 				return
 			}
 			delete(n.rows, id)
-			response = map[string]string{"id": "id:scope:scope::" + id}
+			response = map[string]string{"id": "id:" + fixtureNamespace() + ":scope::" + id}
 		default:
 			http.Error(writer, "unexpected method", 400)
 			return

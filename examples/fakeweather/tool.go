@@ -8,7 +8,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -179,7 +178,7 @@ func New(writer io.Writer) *Tool {
 	return t
 }
 
-func (t *Tool) Definition() chat.ToolDefinition { return t.typed.Definition() }
+func (t *Tool) Definition() toolcontract.Definition { return t.typed.Definition() }
 
 func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	t.log("validated_request", string(invocation.Arguments()))

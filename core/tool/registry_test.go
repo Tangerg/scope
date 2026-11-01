@@ -6,28 +6,27 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 type stubTool struct {
-	definition chat.ToolDefinition
-	result     chat.ToolOutput
+	definition tool.Definition
+	result     tool.Output
 }
 
-func (s *stubTool) Definition() chat.ToolDefinition { return s.definition }
+func (s *stubTool) Definition() tool.Definition { return s.definition }
 func (s *stubTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{Output: s.result.Clone()}, nil
 }
 
 func newStubTool(name string) *stubTool {
 	return &stubTool{
-		definition: chat.ToolDefinition{
+		definition: tool.Definition{
 			Name:        name,
 			Description: "test " + name,
 			InputSchema: json.RawMessage(`{"type":"object"}`),
 		},
-		result: chat.NewTextToolOutput(name + " result"),
+		result: tool.NewTextOutput(name + " result"),
 	}
 }
 
@@ -41,7 +40,7 @@ func TestRegistryResolveAndDefinitions(t *testing.T) {
 	if !ok {
 		t.Fatal("Resolve(alpha) did not find registered tool")
 	}
-	invocation, err := value.Contract().Prepare(chat.ToolCall{ID: "call", Name: "alpha", Arguments: `{}`}, nil)
+	invocation, err := value.Contract().Prepare(tool.Request{Name: "alpha", Arguments: `{}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

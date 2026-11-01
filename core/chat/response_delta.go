@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -60,13 +61,13 @@ func (p PartDeltaKind) Valid() bool {
 // Part because incomplete tool arguments and citation attachment are not valid
 // stable message content.
 type PartDelta struct {
-	Kind           PartDeltaKind  `json:"kind"`
-	Text           string         `json:"text,omitempty"`
-	Media          *media.Media   `json:"media,omitzero"`
-	ReasoningState []byte         `json:"reasoning_state,omitempty"`
-	ToolCall       *ToolCallDelta `json:"tool_call,omitzero"`
-	Citation       *Citation      `json:"citation,omitzero"`
-	Metadata       metadata.Map   `json:"metadata,omitzero"`
+	Kind           PartDeltaKind         `json:"kind"`
+	Text           string                `json:"text,omitempty"`
+	Media          *media.Media          `json:"media,omitzero"`
+	ReasoningState []byte                `json:"reasoning_state,omitempty"`
+	ToolCall       *ToolCallDelta        `json:"tool_call,omitzero"`
+	Citation       *corecontent.Citation `json:"citation,omitzero"`
+	Metadata       metadata.Map          `json:"metadata,omitzero"`
 }
 
 func NewTextDelta(text string) PartDelta {
@@ -86,7 +87,7 @@ func NewToolCallDelta(delta ToolCallDelta) PartDelta {
 	return PartDelta{Kind: PartDeltaToolCall, ToolCall: new(delta)}
 }
 
-func NewCitationDelta(citation Citation) PartDelta {
+func NewCitationDelta(citation corecontent.Citation) PartDelta {
 	return PartDelta{Kind: PartDeltaCitation, Citation: new(citation)}
 }
 

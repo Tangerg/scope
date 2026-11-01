@@ -6,7 +6,6 @@ import (
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -43,9 +42,7 @@ func TestToolConcurrencyPolicyUsesHostPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

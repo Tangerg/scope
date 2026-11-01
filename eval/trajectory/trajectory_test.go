@@ -1,6 +1,10 @@
 package trajectory_test
 
 import (
+	"github.com/Tangerg/scope/agent/run/runtest"
+
+	startrand "crypto/rand"
+
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -12,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
@@ -52,7 +56,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	report, err := (trajectory.Evaluator{OutputProjection: rawOutputProjection}).Evaluate(t.Context(), trajectory.Sample{
 		Actual: recorded,
 		Expected: trajectory.Expectation{
-			Status: agent.StatusCompleted,
+			Status: run.StatusCompleted,
 			Output: recordedOutput(t, recorded),
 			Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{
 				Name: "weather", Arguments: &paris,
@@ -76,7 +80,7 @@ func TestRecorderAndEvaluatorCoverAgentRegressionDimensions(t *testing.T) {
 	report, err = (trajectory.Evaluator{OutputProjection: rawOutputProjection}).Evaluate(t.Context(), trajectory.Sample{
 		Actual: recorded,
 		Expected: trajectory.Expectation{
-			Status: agent.StatusCompleted,
+			Status: run.StatusCompleted,
 			Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{
 				Name: "weather", Arguments: &berlin,
 			}}},
@@ -108,7 +112,7 @@ func TestRecorderCapturesInteractionModelAndToolFacts(t *testing.T) {
 	}
 }
 
-func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool) *agent.Process {
+func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer agent.ToolObserver, weather tool.Tool) *run.Handle[run.Payload] {
 	t.Helper()
 	process, _ := startRecordedInteraction(t, recorder, observer, weather, 2)
 	_, err := process.Await(t.Context())
@@ -118,59 +122,59 @@ func runRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observe
 	return process
 }
 
-func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*agent.Process, *agent.Engine) {
+func startRecordedInteraction(t *testing.T, recorder *trajectory.Recorder, observer agent.ToolObserver, weather tool.Tool, maxModelCalls uint32) (*run.Handle[run.Payload], *run.Runtime) {
 	t.Helper()
 	return startRecordedInteractionModel(t, recorder, observer, weather, maxModelCalls, &fixtureInteractionClient{})
 }
 
-func startRecordedInteractionModel(t *testing.T, recorder *trajectory.Recorder, observer interaction.ToolObserver, weather tool.Tool, maxModelCalls uint32, model chat.Model) (*agent.Process, *agent.Engine) {
+func startRecordedInteractionModel(t *testing.T, recorder *trajectory.Recorder, observer agent.ToolObserver, weather tool.Tool, maxModelCalls uint32, model chat.Model) (*run.Handle[run.Payload], *run.Runtime) {
 	t.Helper()
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{
+	toolSet, err := agent.NewToolSet(agent.ToolSetConfig{
 		Name: "test.trajectory.tools", Description: "Record independently settled Tool calls.", Tools: []tool.Tool{weather}, Observer: observer,
-		ImplementationDigest: agent.ComputeDigest([]byte("trajectory-tool-implementation")), ConfigurationDigest: agent.ComputeDigest([]byte("trajectory-tool-configuration")),
+		ImplementationDigest: run.ComputeDigest([]byte("trajectory-tool-implementation")), ConfigurationDigest: run.ComputeDigest([]byte("trajectory-tool-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name: "test.trajectory_interaction", Description: "Exercise trajectory observation boundaries.",
-		MaxModelCalls: agent.NewQuota(uint64(maxModelCalls)), Tools: toolSet, ToolBudget: agent.Budget{Steps: agent.NewQuota(8), Effects: agent.NewQuota(4), Signals: agent.NewQuota(8)},
+		MaxModelCalls: run.NewQuota(uint64(maxModelCalls)), Tools: toolSet, ToolBudget: run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(4), Signals: run.NewQuota(8)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, interaction.DispatcherConfig{
+	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{
 		Model: model, Observer: recorder,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("trajectory-interaction-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("trajectory-interaction-configuration")),
+		ImplementationDigest: run.ComputeDigest([]byte("trajectory-interaction-implementation")),
+		ConfigurationDigest:  run.ComputeDigest([]byte("trajectory-interaction-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}})
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{recorder}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	input, err := agent.EncodePayload(interaction.Input{
+	input, err := run.EncodePayload(agent.Input{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(t.Context(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		if killErr := process.Kill(ctx, "release recorded test tree"); killErr != nil && !errors.Is(killErr, agent.ErrProcessFinished) {
+		if killErr := process.Kill(ctx, "release recorded test tree"); killErr != nil && !errors.Is(killErr, run.ErrProcessFinished) {
 			t.Error(killErr)
 		}
 		if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
@@ -255,7 +259,7 @@ func TestEvaluatorHonorsCancellationAndRejectsInvalidExpectations(t *testing.T) 
 		t.Fatalf("canceled evaluation error = %v", err)
 	}
 	invalid := trajectory.Expectation{
-		Status: agent.StatusCompleted,
+		Status: run.StatusCompleted,
 		Tools:  &trajectory.ToolSequence{},
 	}
 	invalidArguments := trajectory.ToolArguments(`{} {}`)
@@ -268,11 +272,11 @@ func TestEvaluatorHonorsCancellationAndRejectsInvalidExpectations(t *testing.T) 
 }
 
 func TestToolArgumentsRejectAmbiguousJSON(t *testing.T) {
-	processID, err := agent.ParseProcessID("process:arguments")
+	processID, err := run.ParseProcessID("process:arguments")
 	if err != nil {
 		t.Fatal(err)
 	}
-	effectID, err := agent.ParseEffectID("effect:arguments")
+	effectID, err := run.ParseEffectID("effect:arguments")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,13 +349,13 @@ type fixtureOutput struct {
 	Value string `json:"value"`
 }
 
-type fixtureDefinition struct{ descriptor agent.Descriptor }
+type fixtureDefinition struct{ descriptor run.Descriptor }
 
-func (f fixtureDefinition) Descriptor() agent.Descriptor { return f.descriptor }
+func (f fixtureDefinition) Descriptor() run.Descriptor { return f.descriptor }
 
-func (fixtureDefinition) ChildDeployments() []agent.Deployment { return nil }
+func (fixtureDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
 
-func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
+func (fixtureDefinition) Start(input run.Payload) (run.Execution, error) {
 	value, err := input.Decode[fixtureInput]()
 	if err != nil {
 		return nil, err
@@ -359,7 +363,7 @@ func (fixtureDefinition) Start(input agent.Payload) (agent.Execution, error) {
 	return &fixtureExecution{Value: value.Value, NullOutput: value.NullOutput}, nil
 }
 
-func (fixtureDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (fixtureDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	var execution fixtureExecution
 	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
 		return nil, err
@@ -373,38 +377,38 @@ type fixtureExecution struct {
 	Done       bool   `json:"done"`
 }
 
-func (f *fixtureExecution) Step(context.Context, []agent.Signal) (agent.Transition, error) {
+func (f *fixtureExecution) Step(context.Context, []run.Signal) (run.Transition, error) {
 	if f.Done {
-		return agent.Transition{}, agent.ErrInvalidExecutionState
+		return run.Transition{}, run.ErrInvalidExecutionState
 	}
 	f.Done = true
 	var value *fixtureOutput
 	if !f.NullOutput {
 		value = &fixtureOutput{Value: f.Value}
 	}
-	output, err := agent.EncodePayload(value)
+	output, err := run.EncodePayload(value)
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
-	return agent.Complete(0, output)
+	return run.Complete(0, output)
 }
 
-func (f *fixtureExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.EncodeExecutionState("test.trajectory", f)
+func (f *fixtureExecution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState("test.trajectory", f)
 }
 
 type rejectingDispatcher struct{}
 
 func (rejectingDispatcher) Dispatch(
 	context.Context,
-	agent.EffectRequest,
-	agent.DeltaEmitter,
-) (agent.Settlement, error) {
-	return agent.Settlement{}, errors.New("test dispatcher received an unexpected effect")
+	run.EffectRequest,
+	run.DeltaEmitter,
+) (run.Settlement, error) {
+	return run.Settlement{}, errors.New("test dispatcher received an unexpected effect")
 }
 
-func (rejectingDispatcher) Policy(agent.Effect) agent.EffectPolicy {
-	return agent.EffectPolicy{Replay: agent.ReplayPolicyNever}
+func (rejectingDispatcher) Policy(run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
 
 type fixtureInteractionClient struct {
@@ -452,8 +456,8 @@ type fixtureWeatherTool struct {
 	release <-chan struct{}
 }
 
-func (fixtureWeatherTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{
+func (fixtureWeatherTool) Definition() tool.Definition {
+	return tool.Definition{
 		Name: "weather", Description: "Return deterministic fixture weather.",
 		InputSchema: json.RawMessage(`{
 			"type":"object",
@@ -475,7 +479,7 @@ func (f fixtureWeatherTool) Call(ctx context.Context, _ tool.Invocation) (tool.R
 	if f.failure != nil {
 		return tool.Result{}, f.failure
 	}
-	return tool.Result{Output: chat.NewTextToolOutput("sunny")}, nil
+	return tool.Result{Output: tool.NewTextOutput("sunny")}, nil
 }
 
 func runTrajectory(t *testing.T) trajectory.Trajectory {
@@ -499,32 +503,32 @@ func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory 
 			t.Fatal(err)
 		}
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name: "test.trajectory", Description: "Complete one deterministic trajectory.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: fixtureDefinition{descriptor: descriptor}, Dispatcher: rejectingDispatcher{},
-		ImplementationDigest: agent.ComputeDigest([]byte("trajectory-test-implementation")),
-		ConfigurationDigest:  agent.ComputeDigest([]byte("trajectory-test-configuration")),
+		ImplementationDigest: run.ComputeDigest([]byte("trajectory-test-implementation")),
+		ConfigurationDigest:  run.ComputeDigest([]byte("trajectory-test-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := &trajectory.Recorder{}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}})
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{recorder}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = engine.Close(context.WithoutCancel(t.Context())) })
-	input, err := agent.EncodePayload(value)
+	input, err := run.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := engine.Run(t.Context(), deployment, input)
+	result, err := runtest.Observe(t.Context(), engine, deployment, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +543,7 @@ func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory 
 	return recorded
 }
 
-func rawOutputProjection(output agent.Payload) (json.RawMessage, error) { return output.JSON(), nil }
+func rawOutputProjection(output run.Payload) (json.RawMessage, error) { return output.JSON(), nil }
 
 func TestLimitsJSONPreservesNanoseconds(t *testing.T) {
 	for _, elapsed := range []time.Duration{0, 9007199254740993} {
@@ -583,11 +587,11 @@ func TestRealProviderToolCallIDsDoNotChangeBehaviorDigest(t *testing.T) {
 		}
 		records = append(records, recorded)
 	}
-	var keys []agent.ChildKey
+	var keys []run.ChildKey
 	var digests []string
 	for _, record := range records {
 		for _, event := range record.Events() {
-			if event.Name() == agent.EventProcessStarted && !event.Relation().IsRoot() {
+			if event.Name() == run.EventProcessStarted && !event.Relation().IsRoot() {
 				key, _ := event.Relation().ChildKey()
 				keys = append(keys, key)
 			}
@@ -612,11 +616,11 @@ func TestRealProviderToolCallIDsDoNotChangeBehaviorDigest(t *testing.T) {
 
 func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 	paris, berlin := trajectory.ToolArguments(`{"city":"Paris"}`), trajectory.ToolArguments(`{"city":"Berlin"}`)
-	firstKey, err := interaction.ToolChildKey(1, 0)
+	firstKey, err := agent.ToolChildKey(1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rawFirstKeys []agent.ChildKey
+	var rawFirstKeys []run.ChildKey
 	for _, model := range []*fixtureInteractionClient{
 		{callID: "call-a", secondCallID: "call-b"},
 		{callID: "call-b", secondCallID: "call-a"},
@@ -634,13 +638,13 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, event := range recorded.Events() {
-			if event.Relation().ProcessID() == recorded.ToolCalls()[0].ProcessID && event.Name() == agent.EventProcessStarted {
+			if event.Relation().ProcessID() == recorded.ToolCalls()[0].ProcessID && event.Name() == run.EventProcessStarted {
 				key, _ := event.Relation().ChildKey()
 				rawFirstKeys = append(rawFirstKeys, key)
 			}
 		}
 		report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{
-			Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
+			Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{
 				{Name: "weather", Arguments: &paris, Outcome: trajectory.ToolOutcomeSucceeded},
 				{Name: "weather", Arguments: &berlin, Outcome: trajectory.ToolOutcomeSucceeded},
 			}},
@@ -649,7 +653,7 @@ func TestToolSequenceUsesSemanticOrderAcrossProviderToolCallIDs(t *testing.T) {
 			t.Fatalf("provider IDs reordered semantic Tool expectation: report=%+v error=%v", report, err)
 		}
 	}
-	if !slices.Equal(rawFirstKeys, []agent.ChildKey{firstKey, firstKey}) {
+	if !slices.Equal(rawFirstKeys, []run.ChildKey{firstKey, firstKey}) {
 		t.Fatalf("provider call IDs reordered recorded Tool children: first keys %v", rawFirstKeys)
 	}
 }

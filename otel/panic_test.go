@@ -92,8 +92,8 @@ func TestCapabilityPanicsEndObservationAndPropagateUnchanged(t *testing.T) {
 
 type panickingCapability struct{ value any }
 
-func (p panickingCapability) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{Name: "panic", InputSchema: json.RawMessage(`{"type":"object"}`)}
+func (p panickingCapability) Definition() tool.Definition {
+	return tool.Definition{Name: "panic", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
 func (p panickingCapability) Call(context.Context, tool.Invocation) (tool.Result, error) {
@@ -114,9 +114,9 @@ func (p panickingCapability) Conversations(context.Context) ([]history.Conversat
 	panic(p.value)
 }
 
-func (p panickingCapability) Index(context.Context, *vectorstore.IndexRequest) error { panic(p.value) }
+func (p panickingCapability) Upsert(context.Context, *vectorstore.Batch) error { panic(p.value) }
 
-func (p panickingCapability) Search(context.Context, *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
+func (p panickingCapability) Query(context.Context, *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	panic(p.value)
 }
 
@@ -159,9 +159,9 @@ func (p panickingCapability) invoke(t *testing.T, operation string, traces trace
 		}
 		switch operation {
 		case "index":
-			_ = middleware.Index(p).Index(t.Context(), nil)
+			_ = middleware.Upsert(p).Upsert(t.Context(), nil)
 		case "search":
-			_, _ = middleware.Search(p).Search(t.Context(), nil)
+			_, _ = middleware.Query(p).Query(t.Context(), nil)
 		case "delete_ids":
 			_ = middleware.DeleteIDs(p).DeleteIDs(t.Context(), nil)
 		case "delete_where":

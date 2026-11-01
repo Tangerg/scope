@@ -8,15 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
@@ -91,10 +89,10 @@ func (m Middleware) Wrap(next coretool.Tool) (coretool.Tool, error) {
 type instrumentedTool struct {
 	middleware Middleware
 	next       coretool.Tool
-	definition chat.ToolDefinition
+	definition coretool.Definition
 }
 
-func (i *instrumentedTool) Definition() chat.ToolDefinition {
+func (i *instrumentedTool) Definition() coretool.Definition {
 	return i.definition.Clone()
 }
 

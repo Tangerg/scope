@@ -9,7 +9,7 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 func TestRun(t *testing.T) {
@@ -36,16 +36,16 @@ func TestReconciliationPreservesExecutionAndBusinessFacts(t *testing.T) {
 		name         string
 		reject       bool
 		availability queryAvailability
-		status       agent.Status
+		status       agentrun.Status
 		unknown      int
 		writes       int
 		modelCalls   int32
 		message      string
 	}{
-		{name: "confirmed", status: agent.StatusCompleted, writes: 1, modelCalls: 2, message: "stored:release note"},
-		{name: "rejected", reject: true, status: agent.StatusCompleted, modelCalls: 2, message: "rejected: write denied"},
-		{name: "missing", availability: queryMissing, status: agent.StatusCanceled, unknown: 1, writes: 1, modelCalls: 1},
-		{name: "unavailable", availability: queryUnavailable, status: agent.StatusCanceled, unknown: 1, writes: 1, modelCalls: 1},
+		{name: "confirmed", status: agentrun.StatusCompleted, writes: 1, modelCalls: 2, message: "stored:release note"},
+		{name: "rejected", reject: true, status: agentrun.StatusCompleted, modelCalls: 2, message: "rejected: write denied"},
+		{name: "missing", availability: queryMissing, status: agentrun.StatusCanceled, unknown: 1, writes: 1, modelCalls: 1},
+		{name: "unavailable", availability: queryUnavailable, status: agentrun.StatusCanceled, unknown: 1, writes: 1, modelCalls: 1},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -70,12 +70,12 @@ func TestReconciliationPreservesExecutionAndBusinessFacts(t *testing.T) {
 					t.Fatal("handoff changed the Interaction and Tool child identities")
 				}
 				for _, snapshot := range result.Before.ProcessSnapshots() {
-					if !slices.ContainsFunc(result.Head.ProcessSnapshots(), func(current agent.ProcessSnapshot) bool {
-						return current.Relation() == snapshot.Relation() && current.DeploymentRef() == snapshot.DeploymentRef()
+					if !slices.ContainsFunc(result.Head.ProcessSnapshots(), func(current agentrun.ProcessSnapshot) bool {
+						return current.Relation() == snapshot.Relation() && current.ProgramRef() == snapshot.ProgramRef()
 					}) {
 						t.Fatalf("handoff lost Process %s or changed its binding", snapshot.Relation().ProcessID())
 					}
-					if snapshot.Relation().IsRoot() && snapshot.Status() != agent.StatusPaused {
+					if snapshot.Relation().IsRoot() && snapshot.Status() != agentrun.StatusPaused {
 						t.Fatalf("live parent was not durably paused before handoff: %s", snapshot.Status())
 					}
 				}
@@ -117,10 +117,10 @@ func TestReceiptMustMatchOriginalWrite(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, wrong := range []receipt{
-			{EffectID: agent.EffectID{}, Note: note{Text: "release note"}, Accepted: true},
+			{EffectID: agentrun.EffectID{}, Note: note{Text: "release note"}, Accepted: true},
 			{EffectID: result.Request.ID(), Note: note{Text: "another operation"}, Accepted: true},
 		} {
-			lookup := func(context.Context, agent.EffectID) (receipt, bool, error) { return wrong, true, nil }
+			lookup := func(context.Context, agentrun.EffectID) (receipt, bool, error) { return wrong, true, nil }
 			resolved, _, investigationErr := reconcile(ctx, lookup, tools, result.Request, nil)
 			if investigationErr == nil || investigationErr.Error() != "example: remote receipt does not match the original write" || resolved {
 				t.Fatalf("mismatched receipt accepted: resolved=%t error=%v", resolved, investigationErr)

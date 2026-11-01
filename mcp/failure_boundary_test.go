@@ -9,18 +9,17 @@ import (
 	"github.com/Tangerg/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/require"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
 )
 
 func TestMCPPublishesOnlyOneCompleteInvocationFailure(t *testing.T) {
 	failure, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: errors.New("internal cause"), Output: chat.NewTextToolOutput("complete failure"),
+		Kind: tool.FailureKindFailed, Cause: errors.New("internal cause"), Output: tool.NewTextOutput("complete failure"),
 	})
 	require.NoError(t, err)
 	otherFailure, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: errors.New("another cause"), Output: chat.NewTextToolOutput("other failure"),
+		Kind: tool.FailureKindFailed, Cause: errors.New("another cause"), Output: tool.NewTextOutput("other failure"),
 	})
 	require.NoError(t, err)
 	for _, test := range []struct {

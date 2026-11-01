@@ -11,11 +11,9 @@ import (
 	"testing"
 
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -28,10 +26,10 @@ func TestCoreMetadataRoundTrips(t *testing.T) {
 		store, native := fixtureStore(t)
 		doc := &document.Document{ID: "a/b?: #", Text: "text\n🙂", Metadata: facts}
 		installDocuments(t, store, doc)
-		if len(native.points[doc.ID].Metadata.Fields) != 2 {
+		if len(native.points[doc.ID].Metadata.Fields) != 3 {
 			t.Fatal("metadata expanded into native fields")
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+		response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
 		if err != nil || len(response.Results) != 1 {
 			t.Fatalf("response=%v error=%v", response, err)
 		}
@@ -43,13 +41,13 @@ func TestCoreMetadataRoundTrips(t *testing.T) {
 }
 
 func TestNativeFilterConformance(t *testing.T) {
-	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
+	storetest.FilterConformance(t, storetest.FilterConfig{Unsupported: unsupportedCases(), Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		store, _ := fixtureStore(t)
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
-		response, err := store.Search(ctx, request)
+		request := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}
+		response, err := store.Query(ctx, request)
 		if err != nil {
 			return nil, err
 		}
@@ -57,7 +55,7 @@ func TestNativeFilterConformance(t *testing.T) {
 		if err = store.DeleteWhere(ctx, predicate); err != nil {
 			return nil, err
 		}
-		remaining, err := store.Search(ctx, request)
+		remaining, err := store.Query(ctx, request)
 		if err != nil || len(remaining.Results) != 0 {
 			return nil, errors.Join(err, errors.New("conditional delete retained selected records"))
 		}
@@ -65,44 +63,30 @@ func TestNativeFilterConformance(t *testing.T) {
 	}})
 }
 
-func TestIndexPreparesEveryBatchBeforePublishing(t *testing.T) {
-	for _, failure := range []string{"later model", "later dimension", "FLOAT32 overflow", "later ID", "later metadata", "later media"} {
+func TestIndexPreparesEveryRecordBeforePublishing(t *testing.T) {
+	for _, failure := range []string{"later dimension", "FLOAT32 overflow", "later ID", "later metadata", "later media"} {
 		t.Run(failure, func(t *testing.T) {
 			store, native := fixtureStore(t)
-			store.documentBatcher = fixtureBatcher{size: 1}
-			calls := 0
-			model, err := embeddingclient.New(embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 && failure == "later model" {
-					return nil, errNativeFailure
-				}
-				values := []float64{1, 0}
-				if calls == 2 && failure == "later dimension" {
-					values = []float64{1}
-				}
-				if calls == 2 && failure == "FLOAT32 overflow" {
-					values[0] = math.MaxFloat64
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: values}}, nil)
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			store.embeddingClient = model
-			docs := []*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "last"}}
+			batch := fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "last"}})
+			r := &batch.Records[1]
 			switch failure {
+			case "later dimension":
+				r.Values = []float64{1}
+			case "FLOAT32 overflow":
+				r.Values[0] = math.MaxFloat64
 			case "later ID":
-				docs[1].ID = "invalid🙂"
+				r.Document.ID = "invalid🙂"
 			case "later metadata":
-				docs[1].Metadata = metadata.Map{"bad": json.RawMessage(`invalid`)}
+				r.Document.Metadata = metadata.Map{"bad": json.RawMessage("invalid")}
 			case "later media":
-				docs[1].Media, err = media.NewBytes("image/png", []byte{1})
+				var err error
+				r.Document.Media, err = media.NewBytes("image/png", []byte{1})
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
-			if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err == nil || len(native.upserts) != 0 {
-				t.Fatalf("published before failure: upserts=%v error=%v", native.upserts, err)
+			if err := store.Upsert(t.Context(), batch); err == nil || len(native.upserts) != 0 {
+				t.Fatalf("invalid record published: %v, %v", native.upserts, err)
 			}
 		})
 	}
@@ -121,14 +105,60 @@ func TestIndexNativeBatchLimitsAndAcknowledgments(t *testing.T) {
 	for _, count := range []uint32{0, 1, 3} {
 		store, native = fixtureStore(t)
 		native.upsert = func([]*pineconesdk.Vector) (uint32, error) { return count, nil }
-		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs[:2]}); err == nil {
+		if err := store.Upsert(t.Context(), fixtureBatch(docs[:2])); err == nil {
 			t.Fatalf("accepted acknowledgment %d", count)
 		}
 	}
 	store, native = fixtureStore(t)
 	native.upsert = func([]*pineconesdk.Vector) (uint32, error) { return 0, errNativeFailure }
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs[:1]}); !errors.Is(err, errNativeFailure) {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs[:1])); !errors.Is(err, errNativeFailure) {
 		t.Fatal(err)
+	}
+}
+
+func TestIndexReportsGroupAcknowledgmentsWithoutInventingSuccesses(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     uint32
+		err       error
+		wantCount *int
+	}{
+		{"partial", 1, nil, new(1)},
+		{"zero", 0, nil, new(0)},
+		{"malformed overcount", MaxVectorsPerUpsert + 1, nil, nil},
+		{"response lost", 0, errNativeFailure, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, native := fixtureStore(t)
+			ids := make([]string, 2*MaxVectorsPerUpsert+1)
+			for i := range ids {
+				ids[i] = fmt.Sprint(i)
+			}
+			var docs []*document.Document
+			for _, id := range ids {
+				docs = append(docs, &document.Document{ID: id, Text: id})
+			}
+			var calls int
+			native.upsert = func(points []*pineconesdk.Vector) (uint32, error) {
+				calls++
+				if calls == 1 {
+					return uint32(len(points)), nil
+				}
+				return tc.count, tc.err
+			}
+			err := store.Upsert(t.Context(), fixtureBatch(docs))
+			w, ok := errors.AsType[*vectorstore.WriteError](err)
+			if !ok || calls != 2 || !slices.Equal(w.Acknowledged, ids[:MaxVectorsPerUpsert]) ||
+				!slices.Equal(w.Unconfirmed, ids[MaxVectorsPerUpsert:2*MaxVectorsPerUpsert]) || !slices.Equal(w.Unattempted, ids[2*MaxVectorsPerUpsert:]) {
+				t.Fatalf("calls=%d write evidence=%+v, error=%v", calls, w, err)
+			}
+			if (w.AcknowledgedCount == nil) != (tc.wantCount == nil) || w.AcknowledgedCount != nil && *w.AcknowledgedCount != *tc.wantCount {
+				t.Fatalf("unexpected aggregate acknowledgment: %v", w.AcknowledgedCount)
+			}
+			if tc.err != nil && !errors.Is(err, tc.err) {
+				t.Fatalf("lost native cause: %v", err)
+			}
+		})
 	}
 }
 
@@ -138,7 +168,7 @@ func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
 			store, native := fixtureStore(t)
 			store.schema.metric, native.metric = metric, metric
 			var docs []*document.Document
-			for i := range filterGroupSize + 1 {
+			for i := range 101 {
 				facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})
 				if err != nil {
 					t.Fatal(err)
@@ -154,8 +184,8 @@ func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
 				native.scores[docs[len(docs)-1].ID] = 0
 			}
 			installDocuments(t, store, docs...)
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
-			if err != nil || !slices.Equal(resultIDs(response), []string{docs[len(docs)-1].ID}) || len(native.queries) != 2 {
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("value", "a")}})
+			if err != nil || !slices.Equal(resultIDs(response), []string{docs[len(docs)-1].ID}) || len(native.queries) != 1 {
 				t.Fatalf("response=%v calls=%d error=%v", response, len(native.queries), err)
 			}
 			for _, request := range native.queries {
@@ -175,7 +205,11 @@ func TestConditionalDeleteRetainsConcurrentMetadataChange(t *testing.T) {
 	}
 	installDocuments(t, store, &document.Document{ID: "changed", Text: "text", Metadata: facts}, &document.Document{ID: "unchanged", Text: "text", Metadata: facts})
 	native.beforeDelete = func() {
-		native.points["changed"].Metadata.Fields[metadataField] = structpb.NewStringValue(`{"value":"b"}`)
+		changed, encodeErr := encodeRecord(&document.Document{ID: "changed", Text: "text", Metadata: metadata.Map{"value": []byte(`"b"`)}})
+		if encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+		native.points["changed"].Metadata = changed.Metadata
 	}
 	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "a")); err != nil {
 		t.Fatal(err)

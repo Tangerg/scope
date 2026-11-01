@@ -173,7 +173,8 @@ func newToolStreamModel(t *testing.T, toolDeltas []string) corechat.Streamer {
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "gpt-5.2"},
-	})
+	}, testChatDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewChatCompletions: %v", err)
 	}

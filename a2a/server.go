@@ -51,13 +51,25 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if lo.IsNil(config.TaskStore) {
 		return nil, ErrNilTaskStore
 	}
+	return serveProtocol(config.Card, func(c sdka2a.AgentCapabilities) a2asrv.RequestHandler {
+		return a2asrv.NewHandler(exec, a2asrv.WithCapabilityChecks(&c), a2asrv.WithTaskStore(config.TaskStore))
+	})
+}
 
-	// Freeze the card into the bytes this handler serves and decode a copy it
-	// owns. Those frozen bytes are the single representation of what the server
-	// advertises and admits: the gate, the RPC route, and the served card all
-	// derive from them, so later mutation of config.Card or its Extensions slice
-	// changes none of them.
-	card, encoded, err := freezeCard(config.Card)
+// NewProtocolHTTPHandler serves a fixed agent card and an already-bound A2A
+// request handler on its declared JSON-RPC route. The supplied handler owns
+// lifecycle semantics and must implement the capabilities declared by its card.
+func NewProtocolHTTPHandler(card *sdka2a.AgentCard, handler a2asrv.RequestHandler) (http.Handler, error) {
+	if lo.IsNil(handler) {
+		return nil, fmt.Errorf("a2a: protocol handler required")
+	}
+	return serveProtocol(card, func(sdka2a.AgentCapabilities) a2asrv.RequestHandler { return handler })
+}
+func serveProtocol(source *sdka2a.AgentCard, bind func(sdka2a.AgentCapabilities) a2asrv.RequestHandler) (http.Handler, error) {
+	if source == nil {
+		return nil, ErrNilCard
+	}
+	card, encoded, err := freezeCard(source)
 	if err != nil {
 		return nil, err
 	}
@@ -69,11 +81,7 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	requestHandler := a2asrv.NewHandler(exec,
-		a2asrv.WithCapabilityChecks(&capabilities),
-		a2asrv.WithTaskStore(config.TaskStore),
-	)
+	requestHandler := bind(capabilities)
 	cardHandler := a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded})
 
 	rpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)

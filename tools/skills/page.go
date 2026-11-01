@@ -58,6 +58,8 @@ type ListPage struct {
 // TextPage preserves UTF-8 and every byte of the source. Concatenate Content
 // across pages until NextCursor is absent before treating instructions as complete.
 type TextPage struct {
+	// Snapshot is supplied on the final page. Together with the requested name and path it is a skills.Reference to the complete adopted bytes.
+	Snapshot   string  `json:"snapshot,omitzero"`
 	Content    string  `json:"content"`
 	NextCursor *Cursor `json:"next_cursor,omitzero"`
 }
@@ -106,7 +108,14 @@ func textPage(operation, name, path, content string, cursor *Cursor, maxBytes in
 	if !utf8.ValidString(content) {
 		return TextPage{}, fmt.Errorf("%w: content must be valid UTF-8", skillsrc.ErrInvalidSkill)
 	}
-	snapshot := contentSnapshot(operation, name, path, []byte(content))
+	if operation == "load" && path != "" || operation == "resource" && path == "" {
+		return TextPage{}, ErrInvalidCursor
+	}
+	ref, err := skillsrc.NewReference(name, path, []byte(content))
+	if err != nil {
+		return TextPage{}, err
+	}
+	snapshot := ref.Digest
 	start, err := cursor.start(snapshot, len(content))
 	if err != nil {
 		return TextPage{}, err
@@ -122,6 +131,8 @@ func textPage(operation, name, path, content string, cursor *Cursor, maxBytes in
 		page := TextPage{Content: content[start:end]}
 		if end < len(content) {
 			page.NextCursor = &Cursor{Offset: end, Snapshot: snapshot}
+		} else {
+			page.Snapshot = snapshot
 		}
 		return page
 	})

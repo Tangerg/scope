@@ -14,7 +14,6 @@ var (
 	ErrInvalidMessage    = errors.New("chat: invalid message")
 	ErrInvalidPart       = errors.New("chat: invalid part")
 	ErrInvalidToolCall   = errors.New("chat: invalid tool call")
-	ErrInvalidToolOutput = errors.New("chat: invalid tool output")
 	ErrInvalidToolResult = errors.New("chat: invalid tool result")
 )
 

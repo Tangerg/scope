@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 )
@@ -34,7 +34,7 @@ const (
 // OutputProjection is required only when comparing a replay baseline.
 // Resource counts cover the whole tree; unknown evidence returns an error.
 type Evaluator struct {
-	OutputProjection eval.Projection[agent.Payload, json.RawMessage]
+	OutputProjection eval.Projection[run.Payload, json.RawMessage]
 }
 
 func (e Evaluator) Evaluate(ctx context.Context, sample Sample) (eval.Report, error) {

@@ -3,6 +3,8 @@
 package main
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"errors"
 	"slices"
@@ -10,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/agenttest"
+	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 )
 
 func TestMCPProcessBoundary(t *testing.T) {
@@ -26,7 +28,7 @@ func TestMCPProcessBoundary(t *testing.T) {
 		}
 		for _, permit := range []bool{false, true} {
 			deployment := peerDeployment(t, ctx, peer, permit, briefingQuery)
-			engine := managedEngine(t, agent.NewMemoryTreeCommitter(), nil)
+			engine := managedEngine(t, agentrun.NewMemoryStore(), nil)
 			brief, runErr := runBriefing(ctx, engine, deployment, prompt, briefingTopic)
 			if runErr != nil {
 				t.Fatal(runErr)
@@ -45,15 +47,15 @@ func TestMCPProcessBoundary(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 		defer cancel()
 		peer := openExpert(t, ctx, binary)
-		store := agent.NewMemoryTreeCommitter()
+		store := agentrun.NewMemoryStore()
 		engine := managedEngine(t, store, nil)
 		root := startManagedBriefing(t, ctx, engine, peerDeployment(t, ctx, peer, true, expertWaitQuery))
 		peer.await(t, ctx, expertStarted)
-		if err := root.RequestCancellation(ctx, "stop the external search"); err != nil {
+		if err := root.Cancel(ctx, "stop the external search"); err != nil {
 			t.Fatal(err)
 		}
 		result, err := root.Await(ctx)
-		if err != nil || result.Termination().Status() != agent.StatusCanceled {
+		if err != nil || result.Termination().Status() != agentrun.StatusCanceled {
 			t.Fatalf("cancellation status=%s error=%v", result.Termination().Status(), err)
 		}
 		if err := root.Join(ctx); err != nil {
@@ -69,15 +71,15 @@ func TestMCPProcessBoundary(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 		defer cancel()
 		peer := openExpert(t, ctx, binary)
-		store := agent.NewMemoryTreeCommitter()
-		observations := &agenttest.ObservationRecorder{}
+		store := agentrun.NewMemoryStore()
+		observations := &runtest.ObservationRecorder{}
 		engine := managedEngine(t, store, observations)
 		deployment := peerDeployment(t, ctx, peer, true, expertDisconnectQuery)
 		root := startManagedBriefing(t, ctx, engine, deployment)
 		peer.await(t, ctx, expertStarted)
-		if _, err := observations.AwaitEvent(ctx, func(event agent.Event) bool {
+		if _, err := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
 			fact, ok := event.EffectFinished()
-			return ok && fact.SettlementStatus() == agent.SettlementStatusUnknown
+			return ok && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -87,8 +89,8 @@ func TestMCPProcessBoundary(t *testing.T) {
 		if err := root.Pause(ctx, "handoff before reconnecting"); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := observations.AwaitEvent(ctx, func(event agent.Event) bool {
-			return event.Name() == agent.EventProcessPaused && event.Relation().IsRoot()
+		if _, err := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
+			return event.Name() == agentrun.EventProcessPaused && event.Relation().IsRoot()
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -100,20 +102,20 @@ func TestMCPProcessBoundary(t *testing.T) {
 		reconnected := openExpert(t, ctx, binary)
 		replacement := managedEngine(t, store, nil)
 		changedGrant := peerDeployment(t, ctx, reconnected, false, expertDisconnectQuery)
-		if changedGrant.DeploymentRef() == deployment.DeploymentRef() {
+		if changedGrant.ProgramRef() == deployment.ProgramRef() {
 			t.Fatal("authorization change did not change the exact binding")
 		}
-		if _, err := replacement.RestoreTree(ctx, changedGrant, head); !errors.Is(err, agent.ErrInvalidTreeSnapshot) {
+		if _, err := replacement.Recover(ctx, changedGrant, head); !errors.Is(err, agentrun.ErrInvalidTreeSnapshot) {
 			t.Fatalf("restoration with changed authorization=%v", err)
 		}
 		if loaded := loadHead(t, ctx, store, head.RootID()); loaded.Digest() != head.Digest() {
 			t.Fatal("rejected restoration advanced the authoritative head")
 		}
 		exact := peerDeployment(t, ctx, reconnected, true, expertDisconnectQuery)
-		if exact.DeploymentRef() != deployment.DeploymentRef() {
+		if exact.ProgramRef() != deployment.ProgramRef() {
 			t.Fatal("session identity leaked into the deployment binding")
 		}
-		restored, err := replacement.RestoreTree(ctx, exact, head)
+		restored, err := replacement.Recover(ctx, exact, head)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,11 +133,11 @@ func TestMCPProcessBoundary(t *testing.T) {
 		if status := reconnected.status(t, ctx); status.Calls != 0 {
 			t.Fatalf("recovery replayed an uncertain call: %+v", status)
 		}
-		if cancelErr := restored.RequestCancellation(ctx, "leave the remote outcome unresolved"); cancelErr != nil {
+		if cancelErr := restored.Cancel(ctx, "leave the remote outcome unresolved"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
 		result, err := restored.Await(ctx)
-		if err != nil || result.Termination().Status() != agent.StatusCanceled {
+		if err != nil || result.Termination().Status() != agentrun.StatusCanceled {
 			t.Fatalf("restored cancellation=%s error=%v", result.Termination().Status(), err)
 		}
 		if joinErr := restored.Join(ctx); joinErr != nil {
@@ -160,7 +162,7 @@ func TestMCPProcessBoundary(t *testing.T) {
 	})
 }
 
-func peerDeployment(t *testing.T, ctx context.Context, peer *stdioPeer, permit bool, query string) agent.Deployment {
+func peerDeployment(t *testing.T, ctx context.Context, peer *stdioPeer, permit bool, query string) agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	t.Helper()
 	deployment, err := newBriefingDeployment(ctx, briefingConfig{Session: peer.session, ExpertDigest: peer.artifact.digest, AllowSearch: permit, Query: query})
 	if err != nil {
@@ -169,13 +171,13 @@ func peerDeployment(t *testing.T, ctx context.Context, peer *stdioPeer, permit b
 	return deployment
 }
 
-func managedEngine(t *testing.T, store *agent.MemoryTreeCommitter, recorder *agenttest.ObservationRecorder) *agent.Engine {
+func managedEngine(t *testing.T, store *agentrun.MemoryStore, recorder *runtest.ObservationRecorder) *agentrun.Runtime {
 	t.Helper()
-	config := agent.EngineConfig{TreeCommitter: store}
+	config := agentrun.Config{Store: store}
 	if recorder != nil {
-		config.EventListeners = []agent.EventListener{recorder}
+		config.EventListeners = []agentrun.EventListener{recorder}
 	}
-	engine, err := agent.NewEngine(config)
+	engine, err := agentrun.New(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,13 +191,13 @@ func managedEngine(t *testing.T, store *agent.MemoryTreeCommitter, recorder *age
 	return engine
 }
 
-func startManagedBriefing(t *testing.T, ctx context.Context, engine *agent.Engine, deployment agent.Deployment) *agent.Process {
+func startManagedBriefing(t *testing.T, ctx context.Context, engine *agentrun.Runtime, deployment agentrun.Program[agentrun.Payload, agentrun.Payload]) *agentrun.Handle[agentrun.Payload] {
 	t.Helper()
 	input, err := briefingInput("Use the external expert.", briefingTopic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := engine.Start(ctx, deployment, input)
+	root, err := engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,21 +205,21 @@ func startManagedBriefing(t *testing.T, ctx context.Context, engine *agent.Engin
 	return root
 }
 
-func cleanupRoot(t *testing.T, root *agent.Process) {
+func cleanupRoot(t *testing.T, root *agentrun.Handle[agentrun.Payload]) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
-		if err := root.Kill(ctx, "test cleanup"); err != nil && !errors.Is(err, agent.ErrProcessFinished) && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		if err := root.Kill(ctx, "test cleanup"); err != nil && !errors.Is(err, agentrun.ErrProcessFinished) && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
 			t.Error(err)
 		}
-		if err := root.Join(ctx); err != nil && !errors.Is(err, agent.ErrTreeIncarnationConflict) {
+		if err := root.Join(ctx); err != nil && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
 			t.Error(err)
 		}
 	})
 }
 
-func loadHead(t *testing.T, ctx context.Context, store *agent.MemoryTreeCommitter, root agent.ProcessID) agent.TreeSnapshot {
+func loadHead(t *testing.T, ctx context.Context, store *agentrun.MemoryStore, root agentrun.ProcessID) agentrun.TreeSnapshot {
 	t.Helper()
 	head, found, err := store.LoadTree(ctx, root)
 	if err != nil || !found {
@@ -226,9 +228,9 @@ func loadHead(t *testing.T, ctx context.Context, store *agent.MemoryTreeCommitte
 	return head
 }
 
-func unknownRequest(t *testing.T, head agent.TreeSnapshot) agent.EffectRequest {
+func unknownRequest(t *testing.T, head agentrun.TreeSnapshot) agentrun.EffectRequest {
 	t.Helper()
-	var requests []agent.EffectRequest
+	var requests []agentrun.EffectRequest
 	for _, snapshot := range head.ProcessSnapshots() {
 		for _, id := range snapshot.UnknownEffectIDs() {
 			request, found := head.EffectRequest(snapshot.Relation().ProcessID(), id)

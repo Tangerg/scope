@@ -17,14 +17,20 @@ type indexSchema struct {
 	metric     types.DistanceMetric
 }
 
-func newIndexSchema(index *types.Index, bucket, name string) (indexSchema, error) {
+// NonFilterableKeys returns the exact immutable metadata schema to provision
+// when creating an index in this space. The marker binds a table even while empty.
+func NonFilterableKeys(space vectorstore.SpaceID) []string {
+	return []string{contentMetaKey, metadataMetaKey, space.StorageKey()}
+}
+
+func newIndexSchema(index *types.Index, bucket, name string, space vectorstore.SpaceID) (indexSchema, error) {
 	if index == nil || index.IndexName == nil || *index.IndexName != name || index.VectorBucketName == nil || *index.VectorBucketName != bucket || index.Dimension == nil || *index.Dimension < 1 || *index.Dimension > 4096 || index.DataType != types.DataTypeFloat32 || (index.DistanceMetric != types.DistanceMetricCosine && index.DistanceMetric != types.DistanceMetricEuclidean) || index.MetadataConfiguration == nil {
 		return indexSchema{}, fmt.Errorf("%w: native identity, dimensions, data type or metric are invalid", ErrIncompatibleIndex)
 	}
 	keys := slices.Clone(index.MetadataConfiguration.NonFilterableMetadataKeys)
 	slices.Sort(keys)
-	if !slices.Equal(keys, []string{contentMetaKey, metadataMetaKey}) {
-		return indexSchema{}, fmt.Errorf("%w: non-filterable keys must be exactly %s and %s", ErrIncompatibleIndex, contentMetaKey, metadataMetaKey)
+	if !slices.Equal(keys, NonFilterableKeys(space)) {
+		return indexSchema{}, fmt.Errorf("%w: index does not carry the required content and coordinate-space binding", ErrIncompatibleIndex)
 	}
 	return indexSchema{dimensions: int(*index.Dimension), metric: index.DistanceMetric}, nil
 }

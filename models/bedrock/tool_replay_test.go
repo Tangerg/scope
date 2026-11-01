@@ -16,6 +16,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestEmptyToolObjectsReachBedrockWire(t *testing.T) {
@@ -47,7 +48,7 @@ func TestEmptyToolObjectsReachBedrockWire(t *testing.T) {
 	input, _, err := model.buildConverseStreamInput(&corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("read the clock")),
 		corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "clock", Arguments: `{}`})),
-		corechat.NewToolMessage(corechat.ToolResult{ID: "call-1", Name: "clock", Output: corechat.ToolOutput{Details: json.RawMessage(`{}`)}}),
+		corechat.NewToolMessage(corechat.ToolResult{ID: "call-1", Name: "clock", Output: toolcontract.Output{Details: json.RawMessage(`{}`)}}),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestEmptyToolObjectsReachBedrockWire(t *testing.T) {
 func TestToolJSONDocumentsPreserveMeaningfulEmptyValues(t *testing.T) {
 	for _, raw := range []string{`{}`, `[]`, `null`, `0`, `false`} {
 		t.Run(raw, func(t *testing.T) {
-			blocks, err := mapToolResultContent(corechat.ToolOutput{Details: json.RawMessage(raw)})
+			blocks, err := mapToolResultContent(toolcontract.Output{Details: json.RawMessage(raw)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -127,8 +128,8 @@ func TestConversePreservesExactOpenJSONNumbers(t *testing.T) {
 	request := &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("lookup")),
 		corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993,"ratio":12345678901234567890.0123456789}`})),
-		corechat.NewToolMessage(corechat.ToolResult{ID: "call", Name: "lookup", Output: corechat.ToolOutput{Details: json.RawMessage(`{"id":9007199254740993}`)}}),
-	}, Tools: []corechat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}}
+		corechat.NewToolMessage(corechat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.Output{Details: json.RawMessage(`{"id":9007199254740993}`)}}),
+	}, Tools: []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"const":9007199254740993}}}`)}}}
 	if err := request.Options.Extensions.Set(ChatRequestExtensionKey, ChatRequestOptions{AdditionalModelRequestFields: metadata.Map{"native": json.RawMessage(`9007199254740993`)}}); err != nil {
 		t.Fatal(err)
 	}

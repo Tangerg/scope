@@ -17,12 +17,16 @@ Each capability has one owning package and one public representation. Scope avoi
 | Need | Canonical APIs | Checked source |
 | --- | --- | --- |
 | Ordinary structured model calls | `chatclient.New`, `Client.Output`; streaming uses `NewStreamClient` | [Core-only consumer](examples/chat/main.go) |
-| Managed execution | Interaction `Definition` and `Dispatcher`, `Deployment`, `Engine.Start`, `Process.Await` | [Direct versus managed](examples/agent/direct_vs_managed/main.go) |
-| Recovery and remote reconciliation | `TreeCommitter`, `Engine.RestoreTree`, `ToolSet.SettleToolResult`, `Process.ResolveUnknownEffect` | [Unknown outcomes](examples/agent/reconciliation/doc.go), [PostgreSQL and process crashes](dev/treecommitterconformance/doc.go) |
+| Managed execution | `agent.Compile`, `run.Runtime.Run`, `run.Runtime.Start`, `run.Handle.Await` | [Direct versus managed](examples/agent/direct_vs_managed/main.go) |
+| Recovery and remote reconciliation | `run.Store`, `run.Runtime.Recover`, `ToolSet.SettleToolResult`, `run.Handle.ResolveUnknownEffect` | [Unknown outcomes](examples/agent/reconciliation/doc.go), [PostgreSQL and process crashes](runstores/postgres/doc.go) |
+| Direct tool execution | `tool.Bind`, `Contract.Prepare(tool.Request, nil)`, `Binding.Call` | [Tool contracts](core/tool/doc.go) |
+| Embedded indexing and retrieval | `index.Writer.Write`, `vector.Encoder`, `vectorstore.Batch`, `vectorstore.Query` | [Native and hosted backends](vectorstores/README.md) |
+| Revision-bound RAG citations | Named ETL input, shared query encoding and prompt-admitted evidence | [Offline citation example](examples/rag/citations/main.go) |
+| External input and observation | `TreeSnapshot.Pending`, `Handle.Answer`, `Handle.Observe` | [Typed start and recovery tests](agent/compile_test.go) |
 
 Start with ordinary calls when you only need model I/O. The first consumer and
 its tests depend on Core alone. Managed execution adds an explicit commit
-boundary; `MemoryTreeCommitter` retains facts only for that instance's lifetime.
+boundary; `MemoryStore` retains facts only for that instance's lifetime.
 Persistent storage and business transactions stay with the Host. A terminal
 Process status does not establish that every remote operation has a known result.
 
@@ -120,11 +124,34 @@ The offline recovery example uses memory storage and a simulated remote ledger.
 For real PostgreSQL transactions and independent-process failure, run
 `scripts/check-tree-committer.sh` with Docker available. It provisions an isolated
 container and runs the same conformance and crash tests with both workspace and
-published dependencies; no credentials or shared database are required.
+staged candidate dependencies; no credentials or shared database are required.
+
+### Verify an unpublished change
+
+Stage the changes you want to test. To verify that ordinary consumers can
+resolve those modules before any tags exist, run:
+
+```sh
+./scripts/check-candidate.sh examples mcp runstores/postgres rag
+```
+
+The script builds a temporary Go module proxy, substitutes one candidate version
+in a disposable copy, and tests with `GOWORK=off`. It does not publish or edit
+the checkout. Publishing the modules remains a separate release step.
 
 ## Evolution
 
 Modules follow semantic versioning independently. Before version 1, a minor release may replace a wrong public design without retaining aliases or compatibility shims. Consumers should pin the module versions they adopt and review minor upgrades.
+
+When replacing a storage or execution contract, stop admission on the old Host
+and drain active trees or retain their receipts for reconciliation. A tool may
+have acted even when its result is unknown; never replay it on the new runtime
+from chat history alone. Provision the current store schema separately and
+restore only exact program bindings. Reuse vectors only when their space and
+source revisions are established; otherwise rebuild from the authoritative
+documents before switching the read binding. Keep old business receipts until
+unknown external effects are settled. Rolling back a binary neither reverses
+those effects nor makes an incompatible snapshot readable.
 
 ## License
 

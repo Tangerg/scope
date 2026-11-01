@@ -31,31 +31,27 @@ func TestNewQuery_RequiresText(t *testing.T) {
 
 func TestAugmentationOwnsCitationOrder(t *testing.T) {
 	doc, _ := document.NewDocument("evidence", nil)
-	augmentation, err := rag.NewAugmentation("answer with [1]")
-	if err != nil {
-		t.Fatal(err)
-	}
-	augmentation, err = augmentation.WithCitations(rag.Citations{candidate(doc)})
+	augmentation, err := (rag.Evidence{{Candidate: candidate(doc), Content: doc.Text}}).Augment("answer with ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	copied := augmentation
-	citations := copied.Citations()
+	citations := copied.Citations().Candidates()
 	citations[0].Document.Text = "mutated"
-	if augmentation.Citations()[0].Document.Text != "evidence" || doc.Text != "evidence" {
+	if augmentation.Citations().Candidates()[0].Document.Text != "evidence" || doc.Text != "evidence" {
 		t.Fatal("citation document aliases caller mutation")
 	}
-	copied, err = copied.WithCitations(rag.Citations{candidate(identifiedDocument(t, "replacement", "other evidence"))})
+	copied, err = (rag.Evidence{{Candidate: candidate(identifiedDocument(t, "replacement", "other evidence")), Content: "other evidence"}}).Augment("before", "after")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if copied.Citations()[0].Document.Text != "other evidence" || augmentation.Citations()[0].Document.Text != "evidence" {
+	if copied.Citations().Candidates()[0].Document.Text != "other evidence" || augmentation.Citations().Candidates()[0].Document.Text != "evidence" {
 		t.Fatal("replacing citations changed another augmentation")
 	}
 	if rag.CitationMarker(0) != "[1]" || rag.CitationMarker(1) != "[2]" {
 		t.Fatalf("markers = %s, %s", rag.CitationMarker(0), rag.CitationMarker(1))
 	}
-	if _, err := augmentation.WithCitations(rag.Citations{{Score: 1}}); !errors.Is(err, rag.ErrInvalidAugmentation) {
+	if _, err := (rag.Evidence{{Candidate: rag.Candidate{Score: 1}}}).Augment("", ""); !errors.Is(err, rag.ErrInvalidAugmentation) {
 		t.Fatalf("invalid citation error = %v", err)
 	}
 }

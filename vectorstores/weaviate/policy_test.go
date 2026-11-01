@@ -1,6 +1,7 @@
 package weaviate
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -11,9 +12,9 @@ import (
 
 func TestNativeCollectionOwnsMetricWithoutConfiguredCounterpart(t *testing.T) {
 	for _, metric := range []string{distanceCosine, distanceDot, distanceL2Squared, distanceHamming, distanceManhattan} {
-		store, calls := newNativeStore(t, &nativeFixture{class: nativeClass("Documents", metric)})
-		if store.schema.metric != metric || calls.Load() != 0 {
-			t.Fatalf("metric=%s model calls=%d", store.schema.metric, calls.Load())
+		store := newNativeStore(t, &nativeFixture{class: nativeClass("Documents", metric)})
+		if store.schema.metric != metric {
+			t.Fatalf("metric=%s", store.schema.metric)
 		}
 	}
 }
@@ -39,19 +40,19 @@ func TestNativeSchemaRejectsCompetingVectorizersAndInvalidRepresentations(t *tes
 			class := nativeClass("Documents", distanceCosine)
 			change(class)
 			var schema nativeSchema
-			if err := schema.read(class, "Documents"); err == nil {
+			if err := schema.read(class, "Documents", fixtureSpace); err == nil {
 				t.Fatal("invalid native schema was accepted")
 			}
 		})
 	}
 }
 
-func TestObservedNativeWidthConstrainsPublication(t *testing.T) {
-	store, fixture := indexedNativeStore(t, []*document.Document{{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "native"}})
-	fixture.objects["f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4"].Vector = []float32{1, 0, 0}
-	before := fixture.batches.Load()
-	err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "00000000-0000-0000-0000-000000000001", Text: "wrong width"}}})
-	if err == nil || fixture.batches.Load() != before {
-		t.Fatal("wrong width reached native publication")
+func TestWrongSpaceReprovisioningPreventsWrite(t *testing.T) {
+	f := &nativeFixture{}
+	s := newNativeStore(t, f)
+	f.class.Description = vectorstore.SpaceID("different").StorageKey()
+	err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "00000000-0000-0000-0000-000000000001", Text: "text"}}))
+	if !errors.Is(err, vectorstore.ErrIncompatibleSpace) || f.batches.Load() != 0 {
+		t.Fatalf("err=%v writes=%d", err, f.batches.Load())
 	}
 }

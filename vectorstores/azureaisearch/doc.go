@@ -1,65 +1,37 @@
-// Package azureaisearch implements Core indexing, semantic and hybrid search,
-// and explicit ID deletion over the Azure AI Search REST API.
+// Package azureaisearch stores precomputed vectors and provides native vector
+// and hybrid ranking over the Azure AI Search REST API. The host provisions the
+// index, HTTP client, retries and credentials. Scope never creates the index.
 //
-// The host provisions one dedicated index and injects an authenticated HTTP
-// client. Authentication, token refresh, transport timeouts, retries and client
-// lifecycle belong to the host. Construction validates the actual index schema
-// without enumerating stored records or calling the embedding model. The bound
-// schema must remain unchanged for the lifetime of a Store.
+// The index must have four retrievable fields: a sortable/filterable Edm.String
+// key without normalization; a searchable content string; a searchable, stored
+// Collection(Edm.Single) named Space.StorageKey(); and a plain unindexed string
+// holding the complete Core metadata JSON, including null and precise numbers.
+// The vector field's native profile defines dimension and metric. A different
+// space needs a different index even if widths match. NewStore reads this schema;
+// operations recheck it, without fencing concurrent administrative index changes.
 //
-// The current schema has exactly four retrievable fields, named by StoreConfig:
+// Upsert validates IDs, text-only documents, float32 coordinates and the size
+// of all requests before publication. Each native upload replaces the whole
+// record; batches contain at most 1000 actions and 16 MiB. Responses require
+// per-key acknowledgments. A WriteError distinguishes acknowledgments,
+// rejections, unknown outcomes and groups not attempted. Search visibility is
+// asynchronous; there is no transaction across documents.
 //
-//   - ID: Edm.String, the sole key, filterable and sortable, without a normalizer.
-//   - Content: searchable Edm.String for native lexical evidence.
-//   - Vector: searchable, stored Collection(Edm.Single), with positive dimensions
-//     and an explicit native vector profile, algorithm kind and metric.
-//   - Metadata: unindexed Edm.String containing the complete Core metadata JSON.
+// Query requires a same-space vector. Hybrid adds LexicalText for native RRF;
+// semantic and hybrid ranking validate every returned record before thresholds,
+// order by raw score and break ties by ID. TopK is limited to 1000. Native
+// cosine scores are inverted to similarity; other scores clamp to [0,1].
+// Core predicates return ErrUnsupportedFilter before any source read. Scan is
+// an explicit alternative with independent positive maxima for records, observed
+// JSON row bytes and time. Nonmatches count; errors return no partial rows.
+// Per-request HTTP framing is bounded separately by MaxResponseBytes.
+// Keyset scans and continuations are not snapshots. The host must quiesce
+// concurrent writes when complete stable membership is required. Continuation
+// parameters never control the destination of credentials.
 //
-// Core owns JSON values and predicate semantics, including precise numbers,
-// nested keys, array indexing, Unicode LIKE, and null versus empty metadata.
-// Index uploads complete records rather than merging individual metadata fields.
-// Media is refused. IDs retain their original spelling; unsupported native key
-// characters, leading underscores and keys over 1024 bytes are rejected without
-// encoding aliases. All batches are embedded, narrowed to native float32,
-// validated against the actual vector width and encoded within the 16 MiB
-// request limit before the first write. Native writes use at most 1000 actions
-// and require every per-document acknowledgment. Azure does not provide a
-// transaction across actions: a later transport or document failure can leave
-// earlier successful writes applied. Index visibility remains asynchronous.
-//
-// Unfiltered Search issues native vector or hybrid ranking directly and validates
-// every returned record. Filtered Search scans stored records with ordered ID
-// ranges until an empty page, and Core alone selects metadata membership before
-// ANN or TopK. Selected IDs enter search.in with vectorFilterMode=preFilter.
-// Semantic search supplies a vector; hybrid search adds lexical evidence from
-// the content field and retains native fusion. TopK cannot exceed 1000.
-// Returned filtered membership is rechecked. Native continuation parameters
-// advance paging while the configured endpoint retains credential authority.
-// Repeated continuations, duplicate or unexpected IDs, invalid returned records
-// and invalid native scores fail with no response.
-//
-// Native score order is retained before threshold selection, including when Core
-// scores clamp to the same value. Cosine scores use Azure's documented transform
-// to recover cosine similarity. Azure publishes no invertible transform for the
-// other metrics or hybrid RRF, so those native scores clamp to Core's [0,1] range
-// without an invented conversion. Equal native scores use bytewise ID order among
-// the candidates returned by Azure.
-//
-// Reads do not form a collection snapshot. Concurrent writes can alter or remove
-// candidates between scanning and querying. DeleteIDs expresses explicit key
-// intent, ignores unknown keys and deduplicates repeated keys. DeleteWhere is not
-// exposed: Azure's delete action ignores every supplied field except the key and
-// offers no metadata CAS to protect a replacement after a predicate read.
-//
-// Breaking migration: rebuild a dedicated four-field index from original data;
-// flat metadata indexes and merge-based records are not read or upgraded. Remove
-// SimilarityMetric and APIKey configuration, inject authenticated HTTPClient,
-// and use explicit ID deletion. There are no legacy schema branches or adapters.
-//
-// Native integration tests require SCOPE_AZURE_SEARCH_ENDPOINT and
-// SCOPE_AZURE_SEARCH_API_KEY. They create and remove uniquely named indexes;
-// missing environment fails instead of skipping. Default tests are offline.
-//
-// Native contracts: https://learn.microsoft.com/en-us/rest/api/searchservice/documents/
-// and https://learn.microsoft.com/en-us/azure/search/vector-search-ranking.
+// DeleteIDs deduplicates explicit keys, including unknown keys. The API offers
+// no predicate CAS; consequently there is no delete-by-scan operation.
+// Live tests require SCOPE_AZURE_SEARCH_ENDPOINT and SCOPE_AZURE_SEARCH_API_KEY
+// and create and drop their own index. See https://learn.microsoft.com/en-us/azure/search/vector-search-ranking.
+// Native contracts: https://learn.microsoft.com/en-us/rest/api/searchservice/documents/.
 package azureaisearch

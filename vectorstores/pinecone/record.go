@@ -12,8 +12,9 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 type nativeSchema struct {
@@ -87,7 +88,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 }
 
 func (n nativeSchema) decode(point *pineconesdk.Vector) (*document.Document, string, error) {
-	if point == nil || point.Id == "" || point.Values == nil || point.SparseValues != nil || point.Metadata == nil || len(point.Metadata.Fields) != 2 {
+	if point == nil || point.Id == "" || point.Values == nil || point.SparseValues != nil || point.Metadata == nil || len(point.Metadata.Fields) != 3 {
 		return nil, "", errors.New("pinecone: native record does not have the current dense shape")
 	}
 	if err := n.validateVector(*point.Values); err != nil {
@@ -103,15 +104,28 @@ func (n nativeSchema) decode(point *pineconesdk.Vector) (*document.Document, str
 	if !textOK || !factsOK {
 		return nil, "", errors.New("pinecone: native content and metadata_json must be strings")
 	}
-	var values metadata.Map
-	if err := values.UnmarshalJSON([]byte(facts.StringValue)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(facts.StringValue), doc); err != nil {
 		return nil, "", err
 	}
-	doc := &document.Document{ID: point.Id, Text: text.StringValue, Metadata: values}
+	terms, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, "", err
+	}
+	list := point.Metadata.Fields[termsField].GetListValue()
+	if list == nil || len(list.Values) != len(terms) {
+		return nil, "", errors.New("pinecone: missing or inconsistent metadata terms")
+	}
+	for i, v := range list.Values {
+		if v.GetStringValue() != terms[i] {
+			return nil, "", errors.New("pinecone: invalid derived metadata term")
+		}
+	}
+	doc.ID, doc.Text = point.Id, text.StringValue
 	if err := validateNativeIdentifier(doc.ID, false); err != nil {
 		return nil, "", err
 	}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, "", err
 	}
 	return doc, facts.StringValue, nil
@@ -124,12 +138,19 @@ func encodeRecord(doc *document.Document) (*pineconesdk.Vector, error) {
 	if doc.Media != nil {
 		return nil, vectorstore.ErrInvalidDocument
 	}
-	facts, err := doc.Metadata.MarshalJSON()
+	facts, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
-	// Protobuf stores two strings; Core alone encodes the metadata value domain.
-	return &pineconesdk.Vector{Id: doc.ID, Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{contentField: structpb.NewStringValue(doc.Text), metadataField: structpb.NewStringValue(string(facts))}}}, nil
+	terms, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	list := &structpb.ListValue{}
+	for _, t := range terms {
+		list.Values = append(list.Values, structpb.NewStringValue(t))
+	}
+	return &pineconesdk.Vector{Id: doc.ID, Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{termsField: structpb.NewListValue(list), contentField: structpb.NewStringValue(doc.Text), metadataField: structpb.NewStringValue(string(facts))}}}, nil
 }
 
 func validateNativeIdentifier(value string, allowEmpty bool) error {
@@ -147,12 +168,19 @@ func validateNativeIdentifier(value string, allowEmpty bool) error {
 	return nil
 }
 
-func metadataSelection(values []string) *pineconesdk.MetadataFilter {
-	items := make([]*structpb.Value, len(values))
-	for i, value := range values {
-		items[i] = structpb.NewStringValue(value)
+// Pinecone matches membership in its indexed metadata string array. Only
+// positive top-level scalar string equality is compiled; no implicit list/fetch
+// is allowed for operators outside that proven subset.
+func nativeFilter(predicate filter.Predicate) (*pineconesdk.MetadataFilter, error) {
+	if predicate == nil {
+		return nil, nil
 	}
-	return &structpb.Struct{Fields: map[string]*structpb.Value{metadataField: structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"$in": structpb.NewListValue(&structpb.ListValue{Values: items})}})}}
+	term, err := keyword.EqualString(predicate)
+	if err != nil {
+		return nil, err
+	}
+	items := []*structpb.Value{structpb.NewStringValue(term)}
+	return &structpb.Struct{Fields: map[string]*structpb.Value{termsField: structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{"$in": structpb.NewListValue(&structpb.ListValue{Values: items})}})}}, nil
 }
 
 type scoredDocument struct {

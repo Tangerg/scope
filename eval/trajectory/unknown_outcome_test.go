@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
-	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/agent/run"
+
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
 func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	callError, err := tool.NewCallError(tool.CallErrorConfig{Cause: errors.New("tool boundary unavailable"), Evidence: chat.NewTextToolOutput("partial observation")})
+	callError, err := tool.NewCallError(tool.CallErrorConfig{Cause: errors.New("tool boundary unavailable"), Evidence: tool.NewTextOutput("partial observation")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,8 +28,8 @@ func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 	defer cancel()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
-	var unknown []agent.EffectID
-	var owner *agent.Process
+	var unknown []run.EffectID
+	var owner *run.Handle[run.Payload]
 	for len(unknown) == 0 {
 		inspection, captureErr := engine.InspectTree(ctx, process.Relation().ProcessID())
 		if captureErr != nil {
@@ -64,14 +64,14 @@ func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 		t.Fatal(killErr)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Termination().Status() != agent.StatusKilled {
+	if err != nil || result.Termination().Status() != run.StatusKilled {
 		t.Fatalf("terminated Process status=%s error=%v", result.Termination().Status(), err)
 	}
 	if owner == nil || owner.Relation().ProcessID() == process.Relation().ProcessID() || len(result.Termination().UnresolvedEffectIDs()) != 0 {
 		t.Fatal("unknown Effect must remain owned by its Tool child")
 	}
 	toolResult, err := owner.Await(ctx)
-	if err != nil || toolResult.Termination().Status() != agent.StatusCanceled {
+	if err != nil || toolResult.Termination().Status() != run.StatusCanceled {
 		t.Fatalf("Tool status=%s error=%v", toolResult.Termination().Status(), err)
 	}
 	unresolved := toolResult.Termination().UnresolvedEffectIDs()
@@ -110,7 +110,7 @@ func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 	}
 	for _, outcome := range []trajectory.ToolOutcome{trajectory.ToolOutcomeSucceeded, trajectory.ToolOutcomeError} {
 		if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: covered, Expected: trajectory.Expectation{
-			Status: agent.StatusKilled, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "weather", Outcome: outcome}}},
+			Status: run.StatusKilled, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "weather", Outcome: outcome}}},
 		}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
 			t.Fatalf("unknown Tool result became a decided outcome: %v", err)
 		}
@@ -119,11 +119,11 @@ func TestRecorderPreservesCallErrorAsUnknownToolOutcome(t *testing.T) {
 
 type delayedToolObserver struct {
 	*trajectory.Recorder
-	invocation interaction.ToolInvocation
-	settlement interaction.ToolSettlement
+	invocation agent.ToolInvocation
+	settlement agent.ToolSettlement
 }
 
-func (d *delayedToolObserver) OnToolSettled(_ context.Context, invocation interaction.ToolInvocation, settlement interaction.ToolSettlement) {
+func (d *delayedToolObserver) OnToolSettled(_ context.Context, invocation agent.ToolInvocation, settlement agent.ToolSettlement) {
 	d.invocation = invocation
 	d.settlement = settlement
 }
@@ -152,8 +152,8 @@ func TestMalformedToolSettlementBecomesObservationGap(t *testing.T) {
 	if observer.settlement.Result == nil {
 		t.Fatal("fixture Tool did not settle with a result")
 	}
-	recorder.OnToolSettled(t.Context(), observer.invocation, interaction.ToolSettlement{
-		Result: observer.settlement.Result, Evidence: new(chat.NewTextToolOutput("non-final output")),
+	recorder.OnToolSettled(t.Context(), observer.invocation, agent.ToolSettlement{
+		Result: observer.settlement.Result, Evidence: new(tool.NewTextOutput("non-final output")),
 	})
 	recorded, err := recorder.Take(t.Context(), process, nil)
 	if err != nil {
@@ -170,13 +170,13 @@ func TestMalformedToolSettlementBecomesObservationGap(t *testing.T) {
 
 type settlementOnlyObserver struct {
 	*trajectory.Recorder
-	invocation interaction.ToolInvocation
-	settlement interaction.ToolSettlement
+	invocation agent.ToolInvocation
+	settlement agent.ToolSettlement
 }
 
-func (s *settlementOnlyObserver) OnToolStarted(context.Context, interaction.ToolInvocation) {}
+func (s *settlementOnlyObserver) OnToolStarted(context.Context, agent.ToolInvocation) {}
 
-func (s *settlementOnlyObserver) OnToolSettled(ctx context.Context, invocation interaction.ToolInvocation, settlement interaction.ToolSettlement) {
+func (s *settlementOnlyObserver) OnToolSettled(ctx context.Context, invocation agent.ToolInvocation, settlement agent.ToolSettlement) {
 	s.invocation, s.settlement = invocation, settlement
 	s.Recorder.OnToolSettled(ctx, invocation, settlement)
 }

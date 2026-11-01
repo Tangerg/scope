@@ -31,10 +31,10 @@ type Output struct {
 	Stderr   []byte
 	ExitCode int
 	Duration time.Duration
-	// Truncation is observed by the executor, independent of markers in the
-	// output. False does not prove complete collection when Run returns an error.
-	StdoutTruncated bool
-	StderrTruncated bool
+	// Dropped counts include bytes observed but not retained, never bytes lost
+	// before collection. A zero count on error does not prove completeness.
+	StdoutDroppedBytes uint64
+	StderrDroppedBytes uint64
 
 	// CancellationObserved reports that cancellation or timeout was observed
 	// before returning; it does not establish why the process exited.

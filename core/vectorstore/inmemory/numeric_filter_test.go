@@ -69,11 +69,11 @@ func TestStoreNumericFiltersPreserveMixedNumberValues(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := newStore(t)
 			doc := mustDoc(t, "record", "record text", map[string]any{"value": test.stored})
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+			if err := store.Upsert(t.Context(), batch([]*document.Document{doc})); err != nil {
 				t.Fatal(err)
 			}
-			results, err := search(store, t.Context(), &vectorstore.SearchRequest{
-				Query: "record text", Options: vectorstore.SearchOptions{Filter: test.predicate},
+			results, err := search(store, t.Context(), &vectorstore.Query{
+				Space: testSpace, Values: vectorFor("record text"), Options: vectorstore.SearchOptions{Filter: test.predicate},
 			})
 			if err != nil {
 				t.Errorf("Search() error = %v", err)

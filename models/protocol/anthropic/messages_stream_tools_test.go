@@ -135,7 +135,8 @@ func newToolStreamModel(t *testing.T, events []string) corechat.Streamer {
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: toolStreamOptions(),
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewMessages: %v", err)
 	}

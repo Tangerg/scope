@@ -10,10 +10,11 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-func validToolDefinition() chat.ToolDefinition {
-	return chat.ToolDefinition{
+func validToolDefinition() toolcontract.Definition {
+	return toolcontract.Definition{
 		Name:        "weather",
 		Description: "look up weather",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"city":{"type":"string"}}}`),
@@ -55,7 +56,7 @@ func TestRequestClone(t *testing.T) {
 
 	request := &chat.Request{
 		Messages: []chat.Message{user, assistant, tool},
-		Tools:    []chat.ToolDefinition{validToolDefinition()},
+		Tools:    []toolcontract.Definition{validToolDefinition()},
 		Options: chat.Options{
 			MaxOutputTokens: new(int64(10)),
 			Stop:            []string{"END"},
@@ -109,7 +110,7 @@ func TestRequestValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.Tools = []chat.ToolDefinition{validToolDefinition()}
+	request.Tools = []toolcontract.Definition{validToolDefinition()}
 	format, err := chat.NewOutputFormat(chat.OutputFormatJSON)
 	if err != nil {
 		t.Fatal(err)
@@ -139,9 +140,9 @@ func TestRequestValidateRejectsInvalidValues(t *testing.T) {
 		{name: "nil", request: nil},
 		{name: "no messages", request: &chat.Request{}},
 		{name: "invalid message", request: &chat.Request{Messages: []chat.Message{invalidMessage}}, also: chat.ErrInvalidMessage},
-		{name: "invalid tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{{}}}, also: chat.ErrInvalidToolDefinition},
-		{name: "invalid tool description", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{invalidDescription}}, also: chat.ErrInvalidToolDefinition},
-		{name: "duplicate tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []chat.ToolDefinition{definition, definition}}},
+		{name: "invalid tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []toolcontract.Definition{{}}}, also: toolcontract.ErrInvalidDefinition},
+		{name: "invalid tool description", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []toolcontract.Definition{invalidDescription}}, also: toolcontract.ErrInvalidDefinition},
+		{name: "duplicate tool", request: &chat.Request{Messages: []chat.Message{validMessage}, Tools: []toolcontract.Definition{definition, definition}}},
 		{name: "invalid options", request: &chat.Request{Messages: []chat.Message{validMessage}, Options: invalidOption}, also: chat.ErrInvalidOptions},
 	}
 	for _, tt := range tests {
@@ -184,7 +185,7 @@ func TestRequestJSONRoundTrip(t *testing.T) {
 		chat.NewSystemMessage("rules"),
 		chat.NewAssistantMessage(chat.NewToolCallPart(validToolCall())),
 	)
-	request.Tools = []chat.ToolDefinition{validToolDefinition()}
+	request.Tools = []toolcontract.Definition{validToolDefinition()}
 	request.Options = chat.Options{Model: "model", MaxOutputTokens: new(int64(100))}
 	if err := request.Options.Extensions.Set("anthropic/cache_control", map[string]bool{"enabled": true}); err != nil {
 		t.Fatal(err)
@@ -255,7 +256,7 @@ func TestRequestValidatesToolChoiceAgainstDefinitions(t *testing.T) {
 		t.Fatalf("tool choice without tools error = %v", err)
 	}
 
-	request.Tools = []chat.ToolDefinition{validToolDefinition()}
+	request.Tools = []toolcontract.Definition{validToolDefinition()}
 	request.ToolChoice = &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup"}
 	if err := request.Validate(); !errors.Is(err, chat.ErrInvalidRequest) || !strings.Contains(err.Error(), "undefined tool") {
 		t.Fatalf("undefined named choice error = %v", err)
@@ -271,7 +272,7 @@ func TestRequestProtocolFieldsContainNoInterfaces(t *testing.T) {
 	for _, typ := range []reflect.Type{
 		reflect.TypeFor[chat.Request](),
 		reflect.TypeFor[chat.Options](),
-		reflect.TypeFor[chat.ToolDefinition](),
+		reflect.TypeFor[toolcontract.Definition](),
 	} {
 		for field := range typ.Fields() {
 			if field.Type.Kind() == reflect.Interface {
@@ -282,7 +283,7 @@ func TestRequestProtocolFieldsContainNoInterfaces(t *testing.T) {
 }
 
 func TestRequestStructureAllowsClippedToolHistory(t *testing.T) {
-	result := chat.ToolResult{ID: "call", Name: "tool", Output: chat.NewTextToolOutput("answer")}
+	result := chat.ToolResult{ID: "call", Name: "tool", Output: toolcontract.NewTextOutput("answer")}
 	request, err := chat.NewRequest(chat.NewToolMessage(result))
 	if err != nil {
 		t.Fatal(err)

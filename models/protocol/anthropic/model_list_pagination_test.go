@@ -39,7 +39,7 @@ func TestListModelsUsesSDKPaginationAndTotalBudget(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL + "/gateway", HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL + "/gateway", HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestListModelsRejectsFailuresAfterTheFirstPage(t *testing.T) {
 				_, _ = io.WriteString(writer, test.body)
 			}))
 			defer server.Close()
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +102,7 @@ func TestListModelsStopsBeforeFetchingBeyondModelLimit(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"data":[{"id":"first"}],"has_more":true,"last_id":"first"}`)
 	}))
 	defer server.Close()
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func ExampleMessages_ListModels() {
 		_, _ = io.WriteString(writer, `{"data":[{"id":"second"}],"has_more":false,"last_id":"second"}`)
 	}))
 	defer server.Close()
-	model, err := anthropic.NewMessages(context.Background(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	model, err := anthropic.NewMessages(context.Background(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()}, testMessagesDialect())
 	if err != nil {
 		fmt.Println(err)
 		return

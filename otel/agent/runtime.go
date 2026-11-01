@@ -1,11 +1,11 @@
 package agent
 
 import (
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 type runtimeError struct {
-	failure agent.FailureClassification
+	failure run.FailureClassification
 }
 
 func (r runtimeError) Error() string {

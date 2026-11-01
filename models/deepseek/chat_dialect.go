@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -108,7 +109,7 @@ func prepareRequest(request *corechat.Request, target *openai.CompatibleRequest)
 	return nil
 }
 
-func (r RequestOptions) ValidateFor(generation corechat.Options, tools []corechat.ToolDefinition, stream bool) error {
+func (r RequestOptions) ValidateFor(generation corechat.Options, tools []toolcontract.Definition, stream bool) error {
 	thinkingEnabled := generation.ReasoningEffort != reasoningEffortNone
 	switch generation.ReasoningEffort {
 	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh, reasoningEffortMax:

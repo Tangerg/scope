@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -57,14 +58,8 @@ func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
 // TokenCountBatcher preserves document order and rejects any document that
 // exceeds the batch token budget. Split oversized documents before batching.
 type TokenCountBatcher struct {
-	counter   tokenizer.TextCounter
-	maxTokens int
+	batching  tokenizer.BatchConfig
 	formatter document.Formatter
-}
-
-type sizedDocument struct {
-	document *document.Document
-	tokens   int
 }
 
 func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, error) {
@@ -74,8 +69,7 @@ func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, e
 	}
 
 	return &TokenCountBatcher{
-		counter:   config.Counter,
-		maxTokens: config.MaxTokens,
+		batching:  tokenizer.BatchConfig{Counter: config.Counter, MaxTokens: config.MaxTokens},
 		formatter: config.Formatter,
 	}, nil
 }
@@ -84,72 +78,36 @@ func (t *TokenCountBatcher) Batch(ctx context.Context, docs []*document.Document
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sized, err := t.measure(ctx, docs)
-	if err != nil {
-		return nil, err
-	}
-	return t.partition(sized), nil
-}
-
-func (t *TokenCountBatcher) measure(ctx context.Context, docs []*document.Document) ([]sizedDocument, error) {
-	sized := make([]sizedDocument, 0, len(docs))
-	for index, doc := range docs {
+	texts := make([]string, len(docs))
+	for i, doc := range docs {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if doc == nil {
-			return nil, fmt.Errorf("etl: size document %d: %w", index, ErrNilDocument)
+			return nil, fmt.Errorf("etl: size document %d: %w", i, ErrNilDocument)
 		}
 		if err := doc.Validate(); err != nil {
-			return nil, fmt.Errorf("etl: size document %d: %w", index, err)
+			return nil, fmt.Errorf("etl: size document %d: %w", i, err)
 		}
-		rendered := doc.Text
+		texts[i] = doc.Text
 		if t.formatter != nil {
-			formatted, err := t.formatter.Format(doc)
+			v, err := t.formatter.Format(doc)
 			if err != nil {
-				return nil, fmt.Errorf("etl: format document %d for sizing: %w", index, err)
+				return nil, fmt.Errorf("etl: format document %d: %w", i, err)
 			}
-			rendered = formatted
+			texts[i] = v
 		}
-
-		count, err := t.counter.CountText(ctx, rendered)
-		if err != nil {
-			return nil, fmt.Errorf("etl: count document %d tokens: %w", index, err)
-		}
-		if count < 0 {
-			return nil, fmt.Errorf("etl: token counter returned %d for document %d", count, index)
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if count > t.maxTokens {
-			return nil, fmt.Errorf("etl: document %q has %d tokens, exceeding the batch budget of %d",
-				doc.ID, count, t.maxTokens)
-		}
-		sized = append(sized, sizedDocument{document: doc, tokens: count})
 	}
-	return sized, nil
-}
-
-func (t *TokenCountBatcher) partition(sized []sizedDocument) [][]*document.Document {
-	var (
-		batches      [][]*document.Document
-		currentBatch []*document.Document
-		currentSum   int
-	)
-
-	for _, item := range sized {
-		if item.tokens > t.maxTokens-currentSum {
-			batches = append(batches, currentBatch)
-			currentBatch = nil
-			currentSum = 0
-		}
-		currentBatch = append(currentBatch, item.document)
-		currentSum += item.tokens
+	groups, err := t.batching.Batches(ctx, texts)
+	if err != nil {
+		return nil, err
 	}
-
-	if len(currentBatch) > 0 {
-		batches = append(batches, currentBatch)
+	var batches [][]*document.Document
+	offset := 0
+	for _, g := range groups {
+		end := offset + len(g)
+		batches = append(batches, slices.Clone(docs[offset:end]))
+		offset = end
 	}
-	return batches
+	return batches, nil
 }

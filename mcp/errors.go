@@ -3,7 +3,8 @@ package mcp
 import "errors"
 
 var (
-	ErrIncompleteResult = errors.New("mcp: remote tool result requires further input")
+	ErrContinuationBinding = errors.New("mcp: continuation does not match this admitted remote call")
+	ErrIncompleteResult    = errors.New("mcp: remote tool result requires further input")
 
 	ErrNilServer = errors.New("mcp: server must not be nil")
 

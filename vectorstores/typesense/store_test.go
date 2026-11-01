@@ -1,7 +1,6 @@
 package typesense
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/json/jsontext"
@@ -17,30 +16,37 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-type testBatcher struct{ size int }
+const fixtureSpace vectorstore.SpaceID = "typesense-fixture"
 
-func (t testBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, cmp.Or(t.size, 32))), nil
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
-func constantModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	r := make([]vectorstore.Record, len(docs))
+	for i, doc := range docs {
+		r[i] = vectorstore.Record{Document: doc, Values: fixtureVector("")}
+	}
+	return &vectorstore.Batch{Space: fixtureSpace, Records: r}
+}
+func fixtureQuery(text string, opts vectorstore.SearchOptions) *vectorstore.Query {
+	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector(text), Options: opts}
+	if opts.EffectiveMode() == vectorstore.SearchModeHybrid {
+		q.LexicalText = text
+	}
+	return q
 }
 
 type countedBody struct {
@@ -81,6 +87,7 @@ type protocolFixture struct {
 func newProtocolFixture(t *testing.T) *protocolFixture {
 	t.Helper()
 	fixture := &protocolFixture{t: t, schema: map[string]any{"name": "documents", "fields": []any{map[string]any{"name": "content", "type": "string", "index": true, "store": true}, map[string]any{"name": "metadata", "type": "string", "index": false, "store": true}, map[string]any{"name": "embedding", "type": "float[]", "num_dim": 2, "vec_dist": "cosine", "index": true, "store": true}}}, records: make(map[string]json.RawMessage)}
+	fixture.schema["fields"] = append(fixture.schema["fields"].([]any), map[string]any{"name": fixtureSpace.StorageKey(), "type": "string", "optional": true, "index": false})
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.server.Close)
 	var err error
@@ -91,9 +98,9 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	return fixture
 }
 
-func (p *protocolFixture) store(model embedding.Model, size int) *Store {
+func (p *protocolFixture) store() *Store {
 	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, CollectionName: "documents", EmbeddingModel: model, DocumentBatcher: testBatcher{size: size}})
+	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, CollectionName: "documents", Space: fixtureSpace})
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -124,6 +131,7 @@ func (p *protocolFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("action") != "upsert" {
 			p.t.Errorf("import action = %q", r.URL.RawQuery)
 		}
+		var replies strings.Builder
 		decoder := jsontext.NewDecoder(r.Body)
 		for {
 			value, err := decoder.ReadValue()
@@ -143,11 +151,13 @@ func (p *protocolFixture) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			p.records[*record.ID] = slices.Clone(value)
 			if p.importOverride == nil {
-				io.WriteString(w, "{\"success\":true}\n")
+				fmt.Fprintf(&replies, "{\"id\":%q,\"success\":true}\n", *record.ID)
 			}
 		}
 		if p.importOverride != nil {
 			io.WriteString(w, *p.importOverride)
+		} else {
+			io.WriteString(w, replies.String())
 		}
 		return
 	}
@@ -253,15 +263,15 @@ func nativeRecord(t *testing.T, doc *document.Document) json.RawMessage {
 
 func TestNativeIDSelectionHasCoreFilterSemantics(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture.mu.Lock()
 		clear(fixture.records)
 		fixture.mu.Unlock()
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
+		response, err := store.Scan(ctx, fixtureQuery("query", vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}), fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -278,16 +288,16 @@ func TestNativeIDSelectionHasCoreFilterSemantics(t *testing.T) {
 
 func TestCoreMetadataAndIdentityRoundtrip(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	for _, id := range []string{"one", " spaced ", "*", "back`tick", "trailing\\", "a/b?x", "中文🙂"} {
 		for _, facts := range []metadata.Map{nil, {}, {"large": json.RawMessage(`9007199254740993`), "nested": json.RawMessage(`{"decimal":1.0000000000000000001,"huge":1e1000}`), "content": json.RawMessage(`"user fact"`)}} {
 			fixture.mu.Lock()
 			clear(fixture.records)
 			fixture.mu.Unlock()
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: id, Text: "text", Metadata: facts}}}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: id, Text: "text", Metadata: facts}})); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("unused")}})
+			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -307,62 +317,54 @@ func TestCoreMetadataAndIdentityRoundtrip(t *testing.T) {
 	}
 }
 
-func TestIndexPreparesEveryBatchBeforePublication(t *testing.T) {
-	for _, fault := range []string{"late embedding", "dimension", "overflow", "underflow", "invalid metadata"} {
+func TestUpsertPreflightsAllRecords(t *testing.T) {
+	for _, fault := range []string{"dimension", "overflow", "underflow", "metadata"} {
 		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			calls := 0
-			cause := errors.New("late model failure")
-			model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 && fault == "late embedding" {
-					return nil, cause
-				}
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch fault {
-					case "dimension":
-						vector = []float64{1}
-					case "overflow":
-						vector = []float64{1e100, 0}
-					case "underflow":
-						vector = []float64{1e-100, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			})
-			store := fixture.store(model, 1)
-			docs := []*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}}
-			if fault == "invalid metadata" {
-				docs[1].Metadata = metadata.Map{"bad": json.RawMessage(`broken`)}
+			f := newProtocolFixture(t)
+			s := f.store()
+			b := fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}})
+			switch fault {
+			case "dimension":
+				b.Records[1].Values = []float64{1}
+			case "overflow":
+				b.Records[1].Values = []float64{1e100, 0}
+			case "underflow":
+				b.Records[1].Values = []float64{1e-100, 0}
+			case "metadata":
+				b.Records[1].Document.Metadata = metadata.Map{"bad": json.RawMessage("broken")}
 			}
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs})
-			if err == nil || fixture.imports != 0 {
-				t.Fatalf("Index = %v, published imports = %d", err, fixture.imports)
-			}
-			if fault == "late embedding" && !errors.Is(err, cause) {
-				t.Fatalf("lost model cause: %v", err)
-			}
-			if fault == "invalid metadata" && calls != 0 {
-				t.Fatal("invalid metadata reached model")
+			if err := s.Upsert(t.Context(), b); err == nil || f.imports != 0 {
+				t.Fatal(err, f.imports)
 			}
 		})
 	}
 }
-
-func TestImportRequiresAllNativeAcknowledgments(t *testing.T) {
-	for _, body := range []string{"{\"success\":true}\n{\"success\":true}\n", "{\"success\":true}\n", "{\"success\":true}\n{\"success\":false,\"error\":\"bad\"}\n", "{\"success\":true}\nnull\n", "{}\n{}\n", "{\"success\":true}\n{\"success\":true}\n{\"success\":true}\n"} {
-		t.Run(body, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 32)
-			fixture.importOverride = &body
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}}})
-			wantSuccess := body == "{\"success\":true}\n{\"success\":true}\n"
-			if (err == nil) != wantSuccess {
-				t.Fatalf("Index = %v", err)
+func TestImportRequiresIdentifiedNativeAcknowledgments(t *testing.T) {
+	for _, tc := range []struct {
+		body                   string
+		ack, rejected, unknown int
+	}{
+		{"{\"id\":\"dHdv\",\"success\":true}\n{\"id\":\"b25l\",\"success\":true}", 2, 0, 0},
+		{"{\"id\":\"b25l\",\"success\":true}", 1, 0, 1},
+		{"{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"dHdv\",\"success\":false}", 1, 1, 0},
+		{"{\"success\":true}\n{}", 0, 0, 2},
+		{"{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"b25l\",\"success\":false}", 0, 0, 2},
+		{"{\"id\":\"b25l\",\"success\":true}\ntruncated", 1, 0, 1},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			f := newProtocolFixture(t)
+			f.importOverride = &tc.body
+			s := f.store()
+			err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}}))
+			if tc.ack == 2 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
 			}
-			if fixture.responses.Load() != fixture.closed.Load() {
-				t.Fatal("native import response body leaked")
+			w, ok := errors.AsType[*vectorstore.WriteError](err)
+			if !ok || len(w.Acknowledged) != tc.ack || len(w.Rejected) != tc.rejected || len(w.Unconfirmed) != tc.unknown {
+				t.Fatalf("incorrect evidence: %#v (%v)", w, err)
 			}
 		})
 	}

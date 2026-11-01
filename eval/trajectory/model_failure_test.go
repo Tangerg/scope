@@ -2,6 +2,10 @@ package trajectory_test
 
 import (
 	"context"
+	startrand "crypto/rand"
+	"sync"
+	"time"
+
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,7 +15,8 @@ import (
 	"testing/synctest"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -40,7 +45,7 @@ func TestHistoryFailureRetainsGenerationAndUsageInTrajectoryJSON(t *testing.T) {
 			}
 			var calls atomic.Int32
 			metadata := &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 17, OutputTokens: 11}}
-			config := interaction.DispatcherConfig{}
+			config := agent.DispatcherConfig{}
 			if streaming {
 				config.Streamer = middleware.Stream(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 					return func(yield func(*chat.ResponseDelta, error) bool) {
@@ -55,9 +60,9 @@ func TestHistoryFailureRetainsGenerationAndUsageInTrajectoryJSON(t *testing.T) {
 				}))
 			}
 			recorder := new(trajectory.Recorder)
-			process, _, _ := startModelRecording(t, recorder, config, agent.NewMemoryTreeCommitter(), false)
+			process, _, _ := startModelRecording(t, recorder, config, run.NewMemoryStore(), false)
 			result, err := process.Await(t.Context())
-			if err != nil || result.Termination().Status() != agent.StatusFailed {
+			if err != nil || result.Termination().Status() != run.StatusFailed {
 				t.Fatalf("history failure became success: %v, %v", result.Termination(), err)
 			}
 			recorded, err := recorder.Take(t.Context(), process, nil)
@@ -71,7 +76,7 @@ func TestHistoryFailureRetainsGenerationAndUsageInTrajectoryJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			observed := recorded.ModelCalls()
-			if len(observed) != 1 || observed[0].Outcome != interaction.ModelOutcomeFailed || observed[0].Response.Text() != "completed generation" || observed[0].Failure == "" {
+			if len(observed) != 1 || observed[0].Outcome != agent.ModelOutcomeFailed || observed[0].Response.Text() != "completed generation" || observed[0].Failure == "" {
 				t.Fatalf("generation and postprocessing evidence diverged: %+v", observed)
 			}
 			if tokens, accountingErr := recorded.TotalTokens(); accountingErr != nil || tokens != 28 {
@@ -85,36 +90,41 @@ func TestHistoryFailureRetainsGenerationAndUsageInTrajectoryJSON(t *testing.T) {
 			if err := jsonv2.Unmarshal(data, &restored); err != nil {
 				t.Fatal(err)
 			}
-			if tokens, err := restored.TotalTokens(); err != nil || tokens != 28 || restored.ModelCalls()[0].Outcome != interaction.ModelOutcomeFailed || calls.Load() != 1 {
+			if tokens, err := restored.TotalTokens(); err != nil || tokens != 28 || restored.ModelCalls()[0].Outcome != agent.ModelOutcomeFailed || calls.Load() != 1 {
 				t.Fatalf("restored usage=%d error=%v model calls=%d", tokens, err, calls.Load())
 			}
 		})
 	}
 }
 
-func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config interaction.DispatcherConfig, committer agent.TreeCommitter, replay bool) (*agent.Process, *agent.Engine, *interaction.Dispatcher) {
+func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config agent.DispatcherConfig, committer run.Store, replay bool) (*run.Handle[run.Payload], *run.Runtime, run.Program[run.Payload, run.Payload]) {
 	t.Helper()
-	definition, err := interaction.NewDefinition(interaction.DefinitionConfig{Name: "test.model_recording", Description: "Record actual model boundaries.", MaxModelCalls: agent.NewQuota(1)})
+	return startModelRecordingWithListener(t, recorder, config, committer, replay, recorder, 0)
+}
+
+func startModelRecordingWithListener(t *testing.T, recorder *trajectory.Recorder, config agent.DispatcherConfig, committer run.Store, replay bool, listener run.EventListener, capacity int) (*run.Handle[run.Payload], *run.Runtime, run.Program[run.Payload, run.Payload]) {
+	t.Helper()
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{Name: "test.model_recording", Description: "Record actual model boundaries.", MaxModelCalls: run.NewQuota(1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if config.Observer == nil {
 		config.Observer = recorder
 	}
-	dispatcher, err := interaction.NewDispatcher(definition, config)
+	dispatcher, err := agent.NewDispatcher(definition, config)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var external agent.Dispatcher = dispatcher
+	var external run.Dispatcher = dispatcher
 	if replay {
 		external = replayableTestModelDispatcher{dispatcher}
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{Definition: definition, Dispatcher: external,
-		ImplementationDigest: agent.ComputeDigest([]byte("model-recording-implementation")), ConfigurationDigest: agent.ComputeDigest([]byte("model-recording-configuration"))})
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{Definition: definition, Dispatcher: external,
+		ImplementationDigest: run.ComputeDigest([]byte("model-recording-implementation")), ConfigurationDigest: run.ComputeDigest([]byte("model-recording-configuration"))})
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: committer, EventListeners: []agent.EventListener{recorder}})
+	engine, err := run.New(t.Context(), run.Config{Store: committer, EventListeners: []run.EventListener{listener}, EventBufferCapacity: capacity})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,34 +133,34 @@ func startModelRecording(t *testing.T, recorder *trajectory.Recorder, config int
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("retained question"))}})
+	input, err := run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("retained question"))}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(t.Context(), deployment, input)
+	process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return process, engine, dispatcher
+	return process, engine, deployment
 }
 
 func TestDefiniteModelOutcomesPreserveClassificationAndTokenEvidence(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		cause      error
-		outcome    interaction.ModelOutcome
+		outcome    agent.ModelOutcome
 		knownUsage bool
 	}{
-		{name: "not executed", cause: &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("input rejected")}, outcome: interaction.ModelOutcomeNotExecuted, knownUsage: true},
-		{name: "failed after dispatch", cause: &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("output rejected")}, outcome: interaction.ModelOutcomeFailed},
+		{name: "not executed", cause: &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("input rejected")}, outcome: agent.ModelOutcomeNotExecuted, knownUsage: true},
+		{name: "failed after dispatch", cause: &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("output rejected")}, outcome: agent.ModelOutcomeFailed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := new(trajectory.Recorder)
 			cause := fmt.Errorf("model rejected request: %w", test.cause)
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, cause })
-			process, engine, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, agent.NewMemoryTreeCommitter(), false)
+			process, engine, _ := startModelRecording(t, recorder, agent.DispatcherConfig{Model: model}, run.NewMemoryStore(), false)
 			result, err := process.Await(t.Context())
-			if err != nil || result.Termination().Status() != agent.StatusFailed {
+			if err != nil || result.Termination().Status() != run.StatusFailed {
 				t.Fatalf("definite failure=%v error=%v", result.Termination(), err)
 			}
 			snapshot, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
@@ -173,7 +183,7 @@ func TestDefiniteModelOutcomesPreserveClassificationAndTokenEvidence(t *testing.
 			finished := false
 			for _, event := range recorded.Events() {
 				if fact, ok := event.EffectFinished(); ok && fact.AttemptID() == calls[0].AttemptID {
-					finished = fact.SettlementStatus() == agent.SettlementStatusFailed
+					finished = fact.SettlementStatus() == run.SettlementStatusFailed
 				}
 			}
 			if !finished {
@@ -213,13 +223,13 @@ type incompleteModelObserver struct {
 	invalid  bool
 }
 
-func (i incompleteModelObserver) OnModelStarted(ctx context.Context, invocation interaction.ModelInvocation, request *chat.Request) {
+func (i incompleteModelObserver) OnModelStarted(ctx context.Context, invocation agent.ModelInvocation, request *chat.Request) {
 	i.recorder.OnModelStarted(ctx, invocation, request)
 }
 
-func (i incompleteModelObserver) OnModelSettled(ctx context.Context, invocation interaction.ModelInvocation, _ interaction.ModelSettlement) {
+func (i incompleteModelObserver) OnModelSettled(ctx context.Context, invocation agent.ModelInvocation, _ agent.ModelSettlement) {
 	if i.invalid {
-		i.recorder.OnModelSettled(ctx, invocation, interaction.ModelSettlement{Outcome: interaction.ModelOutcomeUnobserved})
+		i.recorder.OnModelSettled(ctx, invocation, agent.ModelSettlement{Outcome: agent.ModelOutcomeUnobserved})
 	}
 }
 
@@ -230,15 +240,15 @@ func TestMissingOrInvalidModelObservationStaysUnobserved(t *testing.T) {
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}, nil
 			})
-			process, _, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{
+			process, _, _ := startModelRecording(t, recorder, agent.DispatcherConfig{
 				Model: model, Observer: incompleteModelObserver{recorder: recorder, invalid: invalid},
-			}, agent.NewMemoryTreeCommitter(), false)
+			}, run.NewMemoryStore(), false)
 			recorded, err := recorder.Take(t.Context(), process, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
 			calls := recorded.ModelCalls()
-			if len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnobserved || calls[0].Response != nil || calls[0].Failure != "" {
+			if len(calls) != 1 || calls[0].Outcome != agent.ModelOutcomeUnobserved || calls[0].Response != nil || calls[0].Failure != "" {
 				t.Fatalf("missing model settlement became observed evidence: %+v", calls)
 			}
 			var dropped uint64
@@ -261,7 +271,7 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				recorder := &trajectory.Recorder{}
 				started := make(chan struct{})
-				config := interaction.DispatcherConfig{Model: chat.ModelFunc(func(ctx context.Context, _ *chat.Request) (*chat.Response, error) {
+				config := agent.DispatcherConfig{Model: chat.ModelFunc(func(ctx context.Context, _ *chat.Request) (*chat.Response, error) {
 					close(started)
 					switch mode {
 					case "nil":
@@ -286,10 +296,10 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 						}
 					})
 				}
-				process, _, _ := startModelRecording(t, recorder, config, agent.NewMemoryTreeCommitter(), false)
+				process, _, _ := startModelRecording(t, recorder, config, run.NewMemoryStore(), false)
 				<-started
 				if mode == "canceled" {
-					if err := process.RequestCancellation(t.Context(), "stop provider call"); err != nil {
+					if err := process.Cancel(t.Context(), "stop provider call"); err != nil {
 						t.Fatal(err)
 					}
 				} else {
@@ -303,7 +313,7 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 					t.Fatal(err)
 				}
 				calls := recorded.ModelCalls()
-				if len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
+				if len(calls) != 1 || calls[0].Outcome != agent.ModelOutcomeUnknown || calls[0].Response != nil || calls[0].Failure == "" || calls[0].Request.Messages[0].Parts[0].Text != "retained question" {
 					t.Fatalf("failed model evidence = %+v", calls)
 				}
 				call := calls[0]
@@ -316,7 +326,7 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 						startedMatch = fact.AttemptID() == call.AttemptID
 					}
 					if fact, ok := event.EffectFinished(); ok {
-						settledMatch = fact.AttemptID() == call.AttemptID && fact.SettlementStatus() == agent.SettlementStatusUnknown
+						settledMatch = fact.AttemptID() == call.AttemptID && fact.SettlementStatus() == run.SettlementStatusUnknown
 					}
 				}
 				if !startedMatch || !settledMatch {
@@ -347,13 +357,13 @@ func TestFailedModelAttemptsRetainRequestAndUnknownSettlement(t *testing.T) {
 	}
 }
 
-type failingModelSettlementCommitter struct{ *agent.MemoryTreeCommitter }
+type failingModelSettlementCommitter struct{ *run.MemoryStore }
 
-func (f failingModelSettlementCommitter) CommitEffect(ctx context.Context, boundary agent.EffectBoundary) error {
-	if boundary.Kind() == agent.EffectBoundaryKindSettled && boundary.Request().Effect().Target() == agent.EffectTargetDispatcher {
+func (f failingModelSettlementCommitter) CommitEffect(ctx context.Context, boundary run.EffectBoundary) error {
+	if boundary.Kind() == run.EffectBoundaryKindSettled && boundary.Request().Effect().Target() == run.EffectTargetDispatcher {
 		return errors.New("settlement persistence unavailable")
 	}
-	return f.MemoryTreeCommitter.CommitEffect(ctx, boundary)
+	return f.MemoryStore.CommitEffect(ctx, boundary)
 }
 
 func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
@@ -363,7 +373,7 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 			message := chat.NewAssistantMessage(chat.NewTextPart("observed response"))
 			return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}, nil
 		})
-		process, _, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, failingModelSettlementCommitter{agent.NewMemoryTreeCommitter()}, false)
+		process, _, _ := startModelRecording(t, recorder, agent.DispatcherConfig{Model: model}, failingModelSettlementCommitter{run.NewMemoryStore()}, false)
 		if _, err := process.Await(t.Context()); err == nil {
 			t.Fatal("fixture did not stop the runtime")
 		}
@@ -374,12 +384,12 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 		if recorded.Termination().Valid() || recorded.HistoryComplete() {
 			t.Fatal("runtime failure invented a committed root result")
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != agent.ModelOutcomeSucceeded || calls[0].Response.Text() != "observed response" {
 			t.Fatalf("observed response was retracted: %+v", calls)
 		}
 		stopped := false
 		for _, event := range recorded.Events() {
-			stopped = stopped || event.Name() == agent.EventRuntimeStopped
+			stopped = stopped || event.Name() == run.EventRuntimeStopped
 		}
 		if !stopped {
 			t.Fatal("runtime stop fact was lost")
@@ -392,26 +402,26 @@ func TestRecorderExportsRuntimeStoppedWithoutInventingRootResult(t *testing.T) {
 		if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: decoded, Expected: trajectory.Expectation{Status: agent.StatusCompleted}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
+		if _, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: decoded, Expected: trajectory.Expectation{Status: run.StatusCompleted}}); !errors.Is(err, trajectory.ErrIncompleteRecording) {
 			t.Fatalf("unknown root result became an eval failure: %v", err)
 		}
 	})
 }
 
 // This fixture authorizes replay only for its deterministic in-memory model.
-type replayableTestModelDispatcher struct{ *interaction.Dispatcher }
+type replayableTestModelDispatcher struct{ *agent.Dispatcher }
 
-func (replayableTestModelDispatcher) Policy(agent.Effect) agent.EffectPolicy {
-	return agent.EffectPolicy{Replay: agent.ReplayPolicySameIdentity}
+func (replayableTestModelDispatcher) Policy(run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }
 
 func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		recorder := &trajectory.Recorder{}
-		invocations := make(chan interaction.ModelInvocation, 2)
+		invocations := make(chan agent.ModelInvocation, 2)
 		count := 0
 		model := chat.ModelFunc(func(ctx context.Context, _ *chat.Request) (*chat.Response, error) {
-			invocation, _ := interaction.ModelInvocationFromContext(ctx)
+			invocation, _ := agent.ModelInvocationFromContext(ctx)
 			invocations <- invocation
 			count++
 			if count == 1 {
@@ -420,7 +430,7 @@ func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T)
 			message := chat.NewAssistantMessage(chat.NewTextPart("resolved on replay"))
 			return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}, nil
 		})
-		process, _, _ := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, agent.NewMemoryTreeCommitter(), true)
+		process, _, _ := startModelRecording(t, recorder, agent.DispatcherConfig{Model: model}, run.NewMemoryStore(), true)
 		synctest.Wait()
 		first := <-invocations
 		if err := process.ReplayUnknownEffect(t.Context(), first.EffectID()); err != nil {
@@ -449,7 +459,7 @@ func TestRecorderKeepsEveryPhysicalModelAttemptForOneLogicalEffect(t *testing.T)
 			t.Fatalf("two attempts did not satisfy physical coverage: %v", digestErr)
 		}
 		for _, call := range recorded.ModelCalls() {
-			if call.AttemptID == firstID && call.Outcome != interaction.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome != interaction.ModelOutcomeSucceeded {
+			if call.AttemptID == firstID && call.Outcome != agent.ModelOutcomeUnknown || call.AttemptID == secondID && call.Outcome != agent.ModelOutcomeSucceeded {
 				t.Fatal("replay overwrote the earlier Unknown")
 			}
 		}
@@ -470,13 +480,13 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			return nil, errors.New("response acknowledgment lost")
 		})
-		process, engine, dispatcher := startModelRecording(t, recorder, interaction.DispatcherConfig{Model: model}, agent.NewMemoryTreeCommitter(), false)
+		process, engine, deployment := startModelRecording(t, recorder, agent.DispatcherConfig{Model: model}, run.NewMemoryStore(), false)
 		synctest.Wait()
 		snapshot, err := engine.CaptureTree(t.Context(), process.Relation().ProcessID())
 		if err != nil {
 			t.Fatal(err)
 		}
-		var effect agent.EffectID
+		var effect run.EffectID
 		for _, state := range snapshot.ProcessSnapshots() {
 			if state.Relation().ProcessID() == process.Relation().ProcessID() {
 				effect = state.UnknownEffectIDs()[0]
@@ -491,7 +501,7 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		}
 		message := chat.NewAssistantMessage(chat.NewTextPart("investigated response"))
 		response := &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
-		settlement, err := dispatcher.SettleModelResult(request, response, []chat.Message{chat.NewUserMessage(chat.NewTextPart("retained question"))})
+		settlement, err := agent.SettleModelResult(deployment, request, response)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -502,18 +512,64 @@ func TestRecorderPreservesUnknownAttemptAndLaterInvestigatedResolution(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != interaction.ModelOutcomeUnknown {
+		if calls := recorded.ModelCalls(); len(calls) != 1 || calls[0].Outcome != agent.ModelOutcomeUnknown {
 			t.Fatalf("investigation rewrote physical history: %+v", calls)
 		}
 		resolved := false
 		for _, event := range recorded.Events() {
 			if fact, ok := event.EffectResolved(); ok {
 				id, _ := event.EffectID()
-				resolved = event.Relation().ProcessID() == process.Relation().ProcessID() && id == effect && fact.SettlementStatus() == agent.SettlementStatusSucceeded
+				resolved = event.Relation().ProcessID() == process.Relation().ProcessID() && id == effect && fact.SettlementStatus() == run.SettlementStatusSucceeded
 			}
 		}
-		if !resolved || recorded.Termination().Status() != agent.StatusCompleted {
+		if !resolved || recorded.Termination().Status() != run.StatusCompleted {
 			t.Fatal("resolution chain lost committed evidence")
 		}
 	})
+}
+
+func TestTakeAccountsForQueuedAndLostEventsWithoutLosingEarlyModelCalls(t *testing.T) {
+	for _, size := range []int{1, 128} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			recorder := &trajectory.Recorder{}
+			release := make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			delayed := run.EventListenerFunc(func(ctx context.Context, e run.Event) { <-release; recorder.OnEvent(ctx, e) })
+			config := agent.DispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("done"))), FinishReason: chat.FinishReasonStop}}, nil
+			})}
+			process, _, _ := startModelRecordingWithListener(t, recorder, config, run.NewMemoryStore(), false, delayed, size)
+			if err := process.Join(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Millisecond)
+			defer cancel()
+			if _, err := recorder.Take(ctx, process, nil); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("early take: %v", err)
+			}
+			// A host can abandon the export wait without authorizing evidence deletion.
+			discardCtx, stop := context.WithTimeout(t.Context(), 5*time.Millisecond)
+			if err := recorder.Discard(discardCtx, process); !errors.Is(err, context.DeadlineExceeded) {
+				stop()
+				t.Fatalf("discard bypassed a still-running collector: %v", err)
+			}
+			stop()
+			unblock()
+			captured, err := recorder.Take(t.Context(), process, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(captured.ModelCalls()) != 1 || captured.ModelCalls()[0].Outcome != agent.ModelOutcomeSucceeded {
+				t.Fatalf("early model evidence: %v", captured.ModelCalls())
+			}
+			published, err := process.FlushObservations(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if captured.Gaps().DroppedEvents != published-uint64(len(captured.Events())) || (captured.Gaps().DroppedEvents > 0) != (size == 1) {
+				t.Fatalf("published=%d recorded=%d gaps=%v", published, len(captured.Events()), captured.Gaps())
+			}
+		})
+	}
 }

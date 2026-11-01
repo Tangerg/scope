@@ -55,10 +55,15 @@ func ExampleContextualAugmenter() {
 		panic(err)
 	}
 	doc.ID = "scope"
+	doc.Provenance = document.NewProvenance("scope.txt", []byte(doc.Text))
 	result, err := augmenter.Augment(context.Background(), query, rag.Candidates{{Document: doc, Score: 1}})
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(rag.CitationMarker(0), result.Citations()[0].Document.ID)
-	// Output: [1] scope
+	doc, err = result.Citations().Resolve("[1]")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(doc.ID, doc.Provenance.Source)
+	// Output: scope scope.txt
 }

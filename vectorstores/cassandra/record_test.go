@@ -1,7 +1,6 @@
 package cassandra
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -11,7 +10,6 @@ import (
 	gocql "github.com/apache/cassandra-gocql-driver/v2"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -79,14 +77,8 @@ func TestSimilarityProjectsNativeScores(t *testing.T) {
 
 type nilSession struct{ Session }
 
-type unitBatcher struct{}
-
-func (unitBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
-
 func TestConfigValidatesCurrentSchemaInputs(t *testing.T) {
-	valid := StoreConfig{Session: &gocql.Session{}, EmbeddingModel: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) { return nil, nil }), DocumentBatcher: unitBatcher{}}
+	valid := StoreConfig{Session: &gocql.Session{}, Space: "test-space"}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +100,8 @@ func TestConfigValidatesCurrentSchemaInputs(t *testing.T) {
 	var typedNil *nilSession
 	invalid := []StoreConfig{valid, valid, valid, valid, valid, valid, valid}
 	invalid[0].Session = typedNil
-	invalid[1].EmbeddingModel = nil
-	invalid[2].DocumentBatcher = nil
+	invalid[1].Space = ""
+	invalid[2].Space = " padded"
 	invalid[3].Similarity = "wrong"
 	invalid[4].InitializeSchema = true
 	invalid[5].CreateDimensions = 2
@@ -125,5 +117,22 @@ func TestConfigValidatesCurrentSchemaInputs(t *testing.T) {
 	}
 	if got := quoteIdentifier(`a"b`); got != `"a""b"` {
 		t.Fatal(got)
+	}
+}
+
+func TestRawStoreRejectsForeignSpaceWithoutOpeningSession(t *testing.T) {
+	store := &Store{space: "a", dimensions: 2}
+	batch := &vectorstore.Batch{Space: "b", Records: []vectorstore.Record{{Document: &document.Document{ID: "x", Text: "x"}, Values: []float64{1, 0}}}}
+	if err := store.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(t.Context(), &vectorstore.Query{Space: "b", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatal(err)
+	}
+	if _, err := store.Scan(t.Context(), &vectorstore.Query{Space: "a", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
+		t.Fatal("scan without host budget")
+	}
+	if _, ok := any(store).(vectorstore.Querier); ok {
+		t.Fatal("unindexed full source advertised as native query")
 	}
 }

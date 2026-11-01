@@ -22,13 +22,13 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-func liveStore(t *testing.T, model fixtureModel) *Store {
+func liveStore(t *testing.T) *Store {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_VESPA_ENDPOINT")
 	if endpoint == "" {
 		t.Fatal("SCOPE_VESPA_ENDPOINT is required with -tags=integration")
 	}
-	config := StoreConfig{Endpoint: endpoint, SchemaName: "scope", Namespace: "scope_native_" + strings.ToLower(rand.Text()), RankingProfile: "scope_rank", EmbeddingModel: model, DocumentBatcher: testBatcher{}, HTTPClient: &http.Client{Timeout: 30 * time.Second}}
+	config := StoreConfig{Endpoint: endpoint, SchemaName: "scope", Namespace: "scope_native_" + strings.ToLower(rand.Text()), RankingProfile: "scope_rank", Space: fixtureSpace, Dimensions: 2, HTTPClient: &http.Client{Timeout: 30 * time.Second}}
 	store, err := NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func liveStore(t *testing.T, model fixtureModel) *Store {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
 		defer cancel()
-		records, _, err := store.readSource(ctx)
+		records, _, err := store.readSource(fixtureMeter(t, ctx))
 		if err != nil {
 			t.Error(err)
 			return
@@ -52,7 +52,7 @@ func liveStore(t *testing.T, model fixtureModel) *Store {
 
 func liveIndex(t *testing.T, store *Store, docs []*document.Document) {
 	t.Helper()
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	if err := liveVisibility(t.Context(), store, len(docs)); err != nil {
@@ -63,12 +63,17 @@ func liveIndex(t *testing.T, store *Store, docs []*document.Document) {
 // Native puts are durable before every search replica necessarily sees them.
 // Visibility synchronization belongs to the isolated fixture, not Store retries.
 func liveVisibility(ctx context.Context, store *Store, count int) error {
+	meter, err := fixtureBudget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
 	deadline := time.NewTimer(30 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		records, _, readErr := store.readSource(ctx)
+		records, _, readErr := store.readSource(meter)
 		if readErr != nil {
 			return readErr
 		}
@@ -84,7 +89,7 @@ func liveVisibility(ctx context.Context, store *Store, count int) error {
 			allVisible := true
 			for start := 0; start < len(ids); start += queryGroupSize {
 				group := ids[start:min(start+queryGroupSize, len(ids))]
-				matched, queryErr := store.query(ctx, map[string]any{"yql": "select documentid from scope where scope_documentid in (" + strings.Join(group, ",") + ")", "hits": len(group), "presentation.summary": defaultSummary})
+				matched, queryErr := store.query(meter, map[string]any{"yql": "select documentid from scope where scope_documentid in (" + strings.Join(group, ",") + ")", "hits": len(group), "presentation.summary": defaultSummary})
 				if queryErr != nil {
 					return queryErr
 				}
@@ -110,9 +115,9 @@ func liveVisibility(ctx context.Context, store *Store, count int) error {
 func TestLiveFilterConformance(t *testing.T) {
 	for _, deletion := range []bool{false, true} {
 		t.Run(fmt.Sprintf("delete=%t", deletion), func(t *testing.T) {
-			store := liveStore(t, fixtureModel{})
+			store := liveStore(t)
 			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-				records, _, err := store.readSource(ctx)
+				records, _, err := store.readSource(fixtureMeter(t, ctx))
 				if err != nil {
 					return nil, err
 				}
@@ -123,10 +128,10 @@ func TestLiveFilterConformance(t *testing.T) {
 				}
 				liveIndex(t, store, docs)
 				if deletion {
-					if err = store.DeleteWhere(ctx, predicate); err != nil {
+					if err = store.DeleteMatching(ctx, predicate, fixtureBudget); err != nil {
 						return nil, err
 					}
-					remaining, _, readErr := store.readSource(ctx)
+					remaining, _, readErr := store.readSource(fixtureMeter(t, ctx))
 					if readErr != nil {
 						return nil, readErr
 					}
@@ -138,7 +143,7 @@ func TestLiveFilterConformance(t *testing.T) {
 					}
 					return deleted, nil
 				}
-				response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+				response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
 				if err != nil {
 					return nil, err
 				}
@@ -153,16 +158,16 @@ func TestLiveFilterConformance(t *testing.T) {
 }
 
 func TestLiveExactMetadataAndNamespace(t *testing.T) {
-	store := liveStore(t, fixtureModel{})
+	store := liveStore(t)
 	facts := metadata.Map{"scope_documentid": json.RawMessage(`"business ID"`), "scope_namespace": json.RawMessage(`"business namespace"`), "$key": json.RawMessage(`{"exact":9007199254740993,"huge":1e1000,"zero":{},"line":"f\no"}`)}
 	docs := []*document.Document{{ID: "null", Text: "text"}, {ID: "empty", Text: "text", Metadata: metadata.Map{}}, {ID: "quote/\"\\文", Text: "text", Metadata: facts}}
 	for index := range 32 {
 		docs = append(docs, &document.Document{ID: fmt.Sprintf("page-%d", index), Text: "text"})
 	}
 	liveIndex(t, store, docs)
-	other := liveStore(t, fixtureModel{})
+	other := liveStore(t)
 	liveIndex(t, other, []*document.Document{{ID: "null", Text: "other"}})
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
 	if err != nil || len(response.Results) != len(docs) {
 		t.Fatalf("native result count: response=%v error=%v", response, err)
 	}
@@ -176,24 +181,24 @@ func TestLiveExactMetadataAndNamespace(t *testing.T) {
 			t.Fatalf("native round trip %q: %v", expected.ID, got)
 		}
 	}
-	if err = store.DeleteWhere(t.Context(), filter.EQ("scope_documentid", "business ID")); err != nil {
+	if err = store.DeleteMatching(t.Context(), filter.EQ("scope_documentid", "business ID"), fixtureBudget); err != nil {
 		t.Fatal(err)
 	}
-	remaining, _, err := store.readSource(t.Context())
+	remaining, _, err := store.readSource(fixtureMeter(t, t.Context()))
 	if err != nil || len(remaining) != len(docs)-1 {
 		t.Fatalf("native literal delete: remaining=%d error=%v", len(remaining), err)
 	}
 }
 
 func TestLiveMetadataConditionAndGeneratedIdentity(t *testing.T) {
-	store := liveStore(t, fixtureModel{})
+	store := liveStore(t)
 	facts, err := metadata.FromValues(map[string]any{"tenant": "old"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	doc := &document.Document{ID: "guard", Text: "text", Metadata: facts}
 	liveIndex(t, store, []*document.Document{doc})
-	records, _, err := store.readSource(t.Context())
+	records, _, err := store.readSource(fixtureMeter(t, t.Context()))
 	if err != nil || len(records) != 1 {
 		t.Fatalf("native source: rows=%d error=%v", len(records), err)
 	}
@@ -210,14 +215,14 @@ func TestLiveMetadataConditionAndGeneratedIdentity(t *testing.T) {
 	if err != nil || status != http.StatusPreconditionFailed {
 		t.Fatalf("native metadata guard: status=%d error=%v", status, err)
 	}
-	current, _, err := store.readSource(t.Context())
+	current, _, err := store.readSource(fixtureMeter(t, t.Context()))
 	if err != nil || len(current) != 1 {
 		t.Fatalf("changed document lost: rows=%d error=%v", len(current), err)
 	}
-	if err := store.DeleteWhere(t.Context(), filter.EQ("tenant", "new")); err != nil {
+	if err := store.DeleteMatching(t.Context(), filter.EQ("tenant", "new"), fixtureBudget); err != nil {
 		t.Fatal(err)
 	}
-	if remaining, _, err := store.readSource(t.Context()); err != nil || len(remaining) != 0 {
+	if remaining, _, err := store.readSource(fixtureMeter(t, t.Context())); err != nil || len(remaining) != 0 {
 		t.Fatalf("matching native delete: rows=%d error=%v", len(remaining), err)
 	}
 	body := map[string]any{"fields": map[string]any{identityAttribute: "fake"}}
@@ -227,22 +232,14 @@ func TestLiveMetadataConditionAndGeneratedIdentity(t *testing.T) {
 }
 
 func TestLiveRankingAcrossGroups(t *testing.T) {
-	store := liveStore(t, fixtureModel{vectorFor: func(text string) []float64 {
-		if text == "winner" {
-			return []float64{1, 0}
-		}
-		if text == "query" {
-			return []float64{1, 0}
-		}
-		return []float64{0, 1}
-	}})
+	store := liveStore(t)
 	docs := make([]*document.Document, 129)
 	for index := range docs {
 		docs[index] = &document.Document{ID: fmt.Sprintf("%03d", index), Text: "ordinary"}
 	}
 	docs[len(docs)-1].Text = "winner"
 	liveIndex(t, store, docs)
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}}, fixtureBudget)
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "128" || response.Results[0].Score != 1 {
 		t.Fatalf("native group ranking: response=%v error=%v", response, err)
 	}

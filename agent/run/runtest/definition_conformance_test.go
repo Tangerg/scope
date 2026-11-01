@@ -1,0 +1,374 @@
+package runtest
+
+import (
+	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+type definitionConformanceInput struct {
+	Value uint64 `json:"value"`
+}
+
+type definitionConformanceDefinition struct {
+	descriptor run.Descriptor
+	counter    atomic.Uint64
+	shared     *uint64
+	lossy      bool
+}
+
+func newDefinitionConformanceFixture(t *testing.T) *definitionConformanceDefinition {
+	t.Helper()
+	schema, err := jsonschema.For[definitionConformanceInput]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
+		Name:         "agenttest.definition_conformance",
+		Description:  "Exercise Definition and Execution conformance checks.",
+		InputSchema:  schema,
+		OutputSchema: schema,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &definitionConformanceDefinition{descriptor: descriptor}
+}
+
+func (d *definitionConformanceDefinition) Descriptor() run.Descriptor {
+	return d.descriptor
+}
+
+func (*definitionConformanceDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+	return nil
+}
+
+func (d *definitionConformanceDefinition) Start(input run.Payload) (run.Execution, error) {
+	value, err := input.Decode[definitionConformanceInput]()
+	if err != nil {
+		return nil, err
+	}
+	if d.shared != nil {
+		return &definitionConformanceExecution{definition: d, shared: d.shared}, nil
+	}
+	return &definitionConformanceExecution{definition: d, value: value.Value}, nil
+}
+
+func (d *definitionConformanceDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+	var value definitionConformanceInput
+	if err := jsonv2.Unmarshal(state.Payload(), &value); err != nil {
+		return nil, err
+	}
+	return &definitionConformanceExecution{definition: d, value: value.Value, restored: d.lossy}, nil
+}
+
+type definitionConformanceExecution struct {
+	definition *definitionConformanceDefinition
+	value      uint64
+	restored   bool
+	shared     *uint64
+}
+
+func (d *definitionConformanceExecution) Step(_ context.Context, _ []run.Signal) (run.Transition, error) {
+	if d.restored {
+		d.value += 10
+	}
+	if d.shared != nil {
+		*d.shared++
+	} else if d.definition.counter.Load() != 0 {
+		d.value = d.definition.counter.Add(1)
+	} else {
+		d.value++
+	}
+	return run.Continue(0)
+}
+
+func (d *definitionConformanceExecution) Snapshot() (run.ExecutionState, error) {
+	value := d.value
+	if d.shared != nil {
+		value = *d.shared
+	}
+	payload, err := jsonv2.Marshal(definitionConformanceInput{Value: value})
+	if err != nil {
+		return run.ExecutionState{}, err
+	}
+	return run.ParseExecutionState("agenttest.definition_conformance", payload)
+}
+
+func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, stepErr := execution.Step(context.Background(), nil); stepErr != nil {
+		t.Fatal(stepErr)
+	}
+	restoredState, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	RunDefinitionConformance(t, DefinitionConformanceConfig{
+		Definition:       definition,
+		Input:            input,
+		FollowingSignals: [][]run.Signal{nil, nil},
+		RestoredCases: []ExecutionConformanceCase{{
+			Name: "after one Step", State: restoredState,
+		}},
+	})
+}
+
+func TestDefinitionConformanceDetectsHiddenMutableInput(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	definition.counter.Store(1)
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
+		Definition: definition,
+		Input:      input,
+	})
+	if !errors.Is(err, errConformanceValuesDiffer) {
+		t.Fatalf("hidden mutable input error = %v", err)
+	}
+}
+
+func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	shared := uint64(7)
+	definition.shared = &shared
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
+		Definition: definition,
+		Input:      input,
+	})
+	if !errors.Is(err, errConformanceExecutionsShareState) {
+		t.Fatalf("shared mutable state error = %v", err)
+	}
+}
+
+func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	definition.lossy = true
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: definition, Input: input})
+	if !errors.Is(err, errConformanceValuesDiffer) {
+		t.Fatalf("lossy restore = %v", err)
+	}
+}
+
+func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) {
+	definition := newDefinitionConformanceFixture(t)
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*DefinitionConformanceConfig)
+		want   string
+	}{
+		{"initial", func(config *DefinitionConformanceConfig) { config.InitialSignals = []run.Signal{{}} }, "fresh Signals: batch 0 signal 0 is invalid"},
+		{"following", func(config *DefinitionConformanceConfig) { config.FollowingSignals = [][]run.Signal{nil, {{}}} }, "fresh Signals: batch 2 signal 0 is invalid"},
+		{"restored", func(config *DefinitionConformanceConfig) { config.RestoredCases[0].Signals = []run.Signal{{}} }, "restored case \"sample\" Signals: batch 0 signal 0 is invalid"},
+		{"restored following", func(config *DefinitionConformanceConfig) {
+			config.RestoredCases[0].FollowingSignals = [][]run.Signal{nil, {{}}}
+		}, "restored case \"sample\" Signals: batch 2 signal 0 is invalid"},
+		{"rejected name", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].Name = " padded"
+		}, "rejected case 0 has an invalid name"},
+		{"rejected duplicate", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases = append(config.RejectedCases, config.RejectedCases[0])
+		}, "rejected case name \"rejected\" is duplicated"},
+		{"rejected state", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].State = run.ExecutionState{}
+		}, "rejected case \"rejected\" has an invalid state"},
+		{"rejected signals", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].Signals = []run.Signal{{}}
+		}, "rejected case \"rejected\" Signals: batch 0 signal 0 is invalid"},
+		{"rejected kind", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].FailureKind = run.FailureKindInvalid
+		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
+		{"rejected code", func(config *DefinitionConformanceConfig) {
+			config.RejectedCases[0].FailureCode = "Rejected"
+		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := DefinitionConformanceConfig{
+				Definition: definition, Input: input,
+				RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state}},
+				RejectedCases: []RejectedStepConformanceCase{{
+					Name: "rejected", State: state,
+					FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected",
+				}},
+			}
+			test.mutate(&config)
+			if err := validateDefinitionConformanceConfig(config); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("invalid config error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+type conformanceContextExecution struct {
+	seen context.Context
+}
+
+func (c *conformanceContextExecution) Step(ctx context.Context, _ []run.Signal) (run.Transition, error) {
+	c.seen = ctx
+	if err := ctx.Err(); err != nil {
+		return run.Transition{}, err
+	}
+	return run.Continue(0)
+}
+
+func (c *conformanceContextExecution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState("test.context", 0)
+}
+
+func TestConformanceStepPreservesCallerCancellationAndClosesItsScope(t *testing.T) {
+	execution := &conformanceContextExecution{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	if _, err := callStep(ctx, execution, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(execution.seen.Err(), context.Canceled) || ctx.Err() != nil {
+		t.Fatal("Step must close its own context without canceling the caller")
+	}
+	cancel()
+	if _, err := callStep(ctx, execution, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation did not reach Step: %v", err)
+	}
+}
+
+func TestEquivalentStateIgnoresObjectMemberOrder(t *testing.T) {
+	left := map[string]any{"first": 1, "second": map[string]any{"a": true, "b": false}}
+	right := map[string]any{"second": map[string]any{"b": false, "a": true}, "first": 1}
+	for range 32 {
+		if err := requireEquivalent("state", left, right); err != nil {
+			t.Fatal(err)
+		}
+	}
+	right["first"] = 2
+	if err := requireEquivalent("state", left, right); !errors.Is(err, errConformanceValuesDiffer) {
+		t.Fatalf("changed state = %v, want conformance mismatch", err)
+	}
+}
+
+type rejectingDefinition struct {
+	descriptor run.Descriptor
+	err        error
+}
+
+func newRejectingDefinition(t *testing.T, err error) *rejectingDefinition {
+	t.Helper()
+	schema, schemaErr := jsonschema.For[definitionConformanceInput]()
+	if schemaErr != nil {
+		t.Fatal(schemaErr)
+	}
+	descriptor, descriptorErr := run.NewDescriptor(run.DescriptorConfig{
+		Name:         "agenttest.rejecting",
+		Description:  "Exercise rejected-Step conformance checks.",
+		InputSchema:  schema,
+		OutputSchema: schema,
+	})
+	if descriptorErr != nil {
+		t.Fatal(descriptorErr)
+	}
+	return &rejectingDefinition{descriptor: descriptor, err: err}
+}
+
+func (r *rejectingDefinition) Descriptor() run.Descriptor { return r.descriptor }
+
+func (*rejectingDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+	return nil
+}
+
+func (r *rejectingDefinition) Start(run.Payload) (run.Execution, error) {
+	return &rejectingExecution{err: r.err}, nil
+}
+
+func (r *rejectingDefinition) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
+	return &rejectingExecution{err: r.err}, nil
+}
+
+type rejectingExecution struct{ err error }
+
+func (r *rejectingExecution) Step(context.Context, []run.Signal) (run.Transition, error) {
+	if r.err == nil {
+		return run.Continue(0)
+	}
+	return run.Transition{}, r.err
+}
+
+func (r *rejectingExecution) Snapshot() (run.ExecutionState, error) {
+	payload, err := jsonv2.Marshal(definitionConformanceInput{})
+	if err != nil {
+		return run.ExecutionState{}, err
+	}
+	return run.ParseExecutionState("agenttest.rejecting", payload)
+}
+
+func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
+	declared := run.NewClassifiedError(run.FailureKindContract, "agenttest.rejected", "agenttest: rejected")
+	state, err := (&rejectingExecution{}).Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sample := RejectedStepConformanceCase{
+		Name: "sample", State: state,
+		FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected",
+	}
+	if verifyErr := verifyRejectedStep(t.Context(),
+		newRejectingDefinition(t, fmt.Errorf("step: %w", declared)), sample,
+	); verifyErr != nil {
+		t.Fatalf("a correctly classified rejection failed: %v", verifyErr)
+	}
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"accepted", nil, "instead of a classified Failure"},
+		{"unclassified", errors.New("plain failure"), "unclassified error"},
+		{
+			"wrong classification",
+			run.NewClassifiedError(run.FailureKindExecution, "agenttest.other", "agenttest: other"),
+			"want contract/agenttest.rejected",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			verifyErr := verifyRejectedStep(t.Context(), newRejectingDefinition(t, test.err), sample)
+			if verifyErr == nil || !strings.Contains(verifyErr.Error(), test.want) {
+				t.Fatalf("rejection check error = %v, want %q", verifyErr, test.want)
+			}
+		})
+	}
+}

@@ -4,22 +4,22 @@ import (
 	"fmt"
 	"slices"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 // EffectReference identifies one logical dispatcher Effect in one runtime
 // activation, including every SameIdentity replay attempt. A zero
-// TreeIncarnationID leaves the activation undeclared; Engine-produced requests
+// TreeIncarnationID leaves the activation undeclared; Runtime-produced requests
 // always carry the active writer incarnation.
 type EffectReference struct {
-	ProcessID         agent.ProcessID         `json:"process_id"`
-	TreeIncarnationID agent.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
-	EffectID          agent.EffectID          `json:"effect_id"`
+	ProcessID         run.ProcessID         `json:"process_id"`
+	TreeIncarnationID run.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
+	EffectID          run.EffectID          `json:"effect_id"`
 }
 
 func (e EffectReference) Valid() bool {
 	return e.ProcessID.Valid() && e.EffectID.Valid() &&
-		(e.TreeIncarnationID == (agent.TreeIncarnationID{}) || e.TreeIncarnationID.Valid())
+		(e.TreeIncarnationID == (run.TreeIncarnationID{}) || e.TreeIncarnationID.Valid())
 }
 
 // Coverage is the Host's exhaustive classification of dispatcher Effects in

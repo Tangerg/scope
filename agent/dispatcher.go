@@ -2,152 +2,304 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-// ReplayPolicy states whether a Dispatcher can prove that repeating an Effect
-// with the same EffectID is the same logical external operation. It does not
-// claim transactionality or allow replay under a different identity.
-type ReplayPolicy string
+type DispatcherConfig struct {
+	// Exactly one of Model and Streamer is required. The selected capability
+	// owns the entire response lifecycle; streaming is accumulated before settlement.
+	Model    chat.Model
+	Streamer chat.Streamer
 
-const (
-	ReplayPolicyInvalid ReplayPolicy = ""
-	// ReplayPolicyNever forbids both restored pending replay and explicit
-	// replay of an Unknown. A host can still supply a definite settlement.
-	ReplayPolicyNever        ReplayPolicy = "never"
-	ReplayPolicySameIdentity ReplayPolicy = "same_identity"
-)
+	// Observer receives exact model response facts. Nil disables observation.
+	Observer ModelObserver
 
-func (r ReplayPolicy) Valid() bool {
-	switch r {
-	case ReplayPolicyNever, ReplayPolicySameIdentity:
-		return true
+	// ContextProcessor optionally replaces the message context immediately
+	// before each model call. Nil sends WorkingContext unchanged.
+	ContextProcessor ContextProcessor
+}
+
+// Dispatcher executes model calls emitted by an Interaction Execution. It is
+// immutable after construction and may serve Processes concurrently when the
+// supplied model capability supports concurrent use.
+type Dispatcher struct {
+	model    chat.Model
+	streamer chat.Streamer
+	// definition owns the Tool manifest and Delegates the model may call.
+	definition          *Definition
+	observer            ModelObserver
+	observationFailures observationFailureCounters
+	contextReducer      ContextProcessor
+}
+
+// ObservationFailures returns a concurrency-safe snapshot of ModelObserver
+// panics isolated by this Dispatcher. The counts do not alter settlements.
+func (d *Dispatcher) ObservationFailures() ObservationFailures {
+	if d == nil {
+		return ObservationFailures{}
+	}
+	return d.observationFailures.snapshot()
+}
+
+func (d DispatcherConfig) validate() error {
+	switch {
+	case (d.Model == nil) == (d.Streamer == nil):
+		return fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
+	case lo.IsNil(d.Model) && lo.IsNil(d.Streamer):
+		return fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
+	case d.Observer != nil && lo.IsNil(d.Observer):
+		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
+	case d.ContextProcessor != nil && lo.IsNil(d.ContextProcessor):
+		return fmt.Errorf("%w: ContextProcessor is typed nil", ErrInvalidDispatcherConfig)
+
+	}
+	return nil
+}
+
+func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
+	if !definition.valid() {
+		return nil, fmt.Errorf("%w: Definition is required", ErrInvalidDispatcherConfig)
+	}
+	if err := config.validate(); err != nil {
+		return nil, err
+	}
+	if definition.prepareContext != (config.ContextProcessor != nil) {
+		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidDispatcherConfig)
+	}
+
+	dispatcher := &Dispatcher{
+		model: config.Model, streamer: config.Streamer, observer: config.Observer,
+		contextReducer: config.ContextProcessor,
+
+		definition: definition,
+	}
+	return dispatcher, nil
+}
+
+// Dispatch executes one validated Interaction protocol operation and returns a
+// definite owner-defined Signal payload. An error means the external outcome
+// is not provable; Runtime therefore records an unknown settlement instead of
+// retrying the operation.
+// A nil ctx is invalid and panics before the request is processed.
+func (d *Dispatcher) Dispatch(
+	ctx context.Context,
+	request run.EffectRequest,
+	emit run.DeltaEmitter,
+) (run.Settlement, error) {
+	ctx = run.RequireContext(ctx)
+	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
+		return failedSettlement(ErrInvalidDispatcherConfig)
+	}
+	envelope, err := decodeEffect(request.Effect().Payload())
+	if err != nil {
+		return failedSettlement(err)
+	}
+	switch envelope.operation() {
+	case operationPrepare:
+		return d.prepareContext(ctx, request, envelope.Preparation)
+	case operationModelCall:
+		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
 	default:
-		return false
+		return failedSettlement(errors.New("interaction: unsupported dispatcher operation"))
 	}
 }
 
-func (r ReplayPolicy) String() string {
-	if !r.Valid() {
-		return invalidEnumName
+// Policy forbids model replay and requires no capabilities.
+func (*Dispatcher) Policy(_ run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
+}
+
+func (d *Dispatcher) dispatchModel(
+	ctx context.Context,
+	request run.EffectRequest,
+	call *modelCall,
+	emit run.DeltaEmitter,
+) (run.Settlement, error) {
+	modelRequest := call.Request.request()
+	definitions, err := d.definition.modelDefinitions(call.AdvertisedToolNames)
+	if err != nil {
+		return failedSettlement(err)
 	}
-	return string(r)
-}
-
-// EffectRequest is the immutable dispatch context prepared by the Engine.
-type EffectRequest struct {
-	incarnationID TreeIncarnationID
-	deploymentRef DeploymentRef
-	relation      ProcessRelation
-	stepSequence  uint64
-	batchIndex    uint32
-	attemptID     EffectAttemptID
-	effect        Effect
-}
-
-func (e EffectRequest) Valid() bool {
-	return e.deploymentRef.Valid() && e.relation.Valid() && e.stepSequence > 0 &&
-		e.effect.Valid()
-}
-
-func newEffectRequest(
-	incarnationID TreeIncarnationID,
-	deploymentRef DeploymentRef,
-	relation ProcessRelation,
-	stepSequence uint64,
-	batchIndex uint32,
-	effect Effect,
-) EffectRequest {
-	return EffectRequest{
-		incarnationID: incarnationID, deploymentRef: deploymentRef, relation: relation,
-		stepSequence: stepSequence, batchIndex: batchIndex,
-		// Effect is a frozen value with an immutable payload, so the request shares
-		// it directly; the public Effect() accessor still copies on read.
-		effect: effect,
+	modelRequest.Tools = definitions
+	if validateErr := modelRequest.Validate(); validateErr != nil {
+		return failedSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
 	}
+	invocation := modelInvocationFromRequest(
+		request,
+		call.ModelCallSequence,
+		call.AppliedSteerSignalIDs,
+	)
+	ctx = withModelInvocation(ctx, invocation)
+	result := &modelCallResult{}
+	base, err := run.EncodePayload(signalEnvelope{ModelResult: result})
+	if err != nil {
+		return failedSettlement(err)
+	}
+	// A content-free stop is the smallest complete chat response. Measure it
+	// with the same owner and representation as the eventual settlement.
+	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
+	minimum, err := run.EncodePayload(signalEnvelope{ModelResult: result})
+	if err != nil {
+		return failedSettlement(err)
+	}
+	if len(minimum.JSON()) > d.definition.maxResponseBytes {
+		return failedSettlement(ErrModelResponseTooLarge)
+	}
+	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.definition.maxResponseBytes-len(base.JSON()))
+	if err != nil {
+		kind := chat.ClassifyFailure(err)
+		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
+			// A definite failure settles as Failed, not an unknown to reconcile.
+			return failedSettlement(err)
+		}
+		return run.Settlement{}, err
+	}
+	result.Response = response
+	return result.settlement(d.definition.maxResponseBytes)
 }
 
-// TreeIncarnationID identifies the active durable writer for observation and
-// correlation. It is not part of the Effect's idempotency identity, which
-// remains ID across restoration.
-func (e EffectRequest) TreeIncarnationID() (TreeIncarnationID, bool) {
-	return e.incarnationID, e.incarnationID.Valid()
+func (d *Dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, call *modelCall) (run.Settlement, error) {
+	if d.contextReducer == nil {
+		return failedSettlement(ErrInvalidDispatcherConfig)
+	}
+	original := call.Request.request()
+	tools, err := d.definition.modelDefinitions(call.AdvertisedToolNames)
+	if err != nil {
+		return failedSettlement(err)
+	}
+	original.Tools = tools
+	messages, err := d.contextReducer.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, original.Clone())
+	if err != nil {
+		if _, definite := errors.AsType[*ContextFailure](err); definite {
+			return failedSettlement(err)
+		}
+		return run.Settlement{}, err
+	}
+	result, err := d.definition.settlePreparedContext(req, messages)
+	if err != nil {
+		return failedSettlement(err)
+	}
+	return result, nil
 }
 
-func (e EffectRequest) DeploymentRef() DeploymentRef { return e.deploymentRef }
-
-func (e EffectRequest) Relation() ProcessRelation { return e.relation }
-
-// StepSequence returns the one-based Step sequence that declared the Effect.
-func (e EffectRequest) StepSequence() uint64 { return e.stepSequence }
-
-// BatchIndex returns the zero-based declaration order within the Step Effect batch.
-func (e EffectRequest) BatchIndex() uint32 { return e.batchIndex }
-
-// ID derives from the Process, Step, and batch position the request names.
-func (e EffectRequest) ID() EffectID {
-	return e.relation.ProcessID().effectID(e.stepSequence, int(e.batchIndex))
+func (d *Dispatcher) observeModelStarted(ctx context.Context, invocation ModelInvocation, request *chat.Request) {
+	if d.observer == nil {
+		return
+	}
+	attempt, _ := invocation.AttemptID()
+	defer d.observationFailures.recordPanic(modelStartedCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
+	d.observer.OnModelStarted(ctx, invocation, request.Clone())
 }
 
-// AttemptID identifies this physical Dispatch invocation. Captured requests and
-// durability boundaries describe logical Effects without an active invocation;
-// they return false. Replay keeps ID and receives a fresh AttemptID.
-func (e EffectRequest) AttemptID() (EffectAttemptID, bool) {
-	return e.attemptID, e.attemptID.Valid()
+func (d *Dispatcher) observeModelSettled(ctx context.Context, invocation ModelInvocation, settlement ModelSettlement) {
+	if d.observer == nil {
+		return
+	}
+	attempt, _ := invocation.AttemptID()
+	defer d.observationFailures.recordPanic(modelSettledCallback, d.observer, invocation.Relation().ProcessID(), invocation.EffectID(), attempt)
+	settlement.Response = settlement.Response.Clone()
+	d.observer.OnModelSettled(ctx, invocation, settlement)
 }
 
-// Effect returns an independently owned copy of the frozen intent.
-func (e EffectRequest) Effect() Effect { return e.effect.clone() }
-
-// DeltaEmitter accepts Strategy-owned streaming payloads while Dispatch is
-// active. The Engine validates, orders, bounds, and publishes each payload as a
-// best-effort Delta; concurrent calls are serialized, and delivered
-// EffectSequence values increase with gaps for dropped payloads. It returns no
-// observer error. With no DeltaListener the emitter is nil, so Dispatchers must
-// guard emission with emit != nil. A Dispatcher must join concurrent emissions
-// before returning and must not retain or call emit afterward.
-type DeltaEmitter func(payload json.RawMessage)
-
-// Dispatcher executes Strategy-owned Effects outside Execution.Step. The Engine
-// supplies valid requests and non-nil contexts; direct callers must do the
-// same. Rejecting a valid request before external work starts is a definite
-// Failed settlement. Implementations may serve Processes concurrently, must
-// return in bounded time, and must not mutate an Execution or start unowned
-// goroutines.
-//
-// A transparent decorator preserves the context, request identity, emitter,
-// Settlement, and error of its wrapped Dispatcher, and forwards its
-// EffectPolicy; it may add required capabilities for the work it adds.
-// Forwarding a SameIdentity ReplayPolicy is valid only when the added work is
-// safe to repeat under the original identity. Observation counters count dispatch attempts, including
-// replay, not distinct logical operations; the Definition example shows one.
-type Dispatcher interface {
-	// Dispatch performs one frozen Effect and returns the Settlement answering
-	// request; a non-nil error means the external outcome is unknown, not
-	// definitely failed. emit is valid only during this call. The runtime
-	// cancels ctx, which keeps Host values, when terminal intent reaches this
-	// Process or an ancestor, and still collects the returned settlement. Panics
-	// in Dispatch or in interpreting its error are isolated as unknown outcomes.
-	// Explicit replay errors keep the original cause; Await, durable state, and
-	// events retain only outcome classifications and bounded diagnostics.
-	Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error)
-	// Policy declares, without I/O or mutable side effects, how the Engine
-	// treats this exact Effect. The answer is deterministic for equivalent
-	// Effects; the Engine asks again rather than retaining a copy.
-	Policy(effect Effect) EffectPolicy
+func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvocation, request *chat.Request, emit run.DeltaEmitter, remainingBytes int) (response *chat.Response, err error) {
+	d.observeModelStarted(ctx, invocation, request)
+	var accumulator chat.ResponseAccumulator
+	defer func() {
+		if value := recover(); value != nil {
+			if response == nil {
+				response, _ = accumulator.Response()
+			}
+			d.observeModelSettled(ctx, invocation, ModelSettlement{
+				Outcome: ModelOutcomeUnknown, Response: response, Failure: run.NormalizeDiagnostic(fmt.Sprint(value)),
+			})
+			panic(value)
+		}
+		d.observeModelSettled(ctx, invocation, newModelSettlement(response, err))
+	}()
+	response, err = d.callModel(ctx, request, emit, remainingBytes, &accumulator)
+	// Invalid trailing frames cannot retract terminal generation. A partial
+	// stream is not a Response, but still contradicts non-execution.
+	if response == nil && err != nil {
+		response, _ = accumulator.Response()
+	}
+	if response != nil {
+		if validateErr := response.Validate(); validateErr != nil {
+			return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: invalid model response: %w", errors.Join(err, validateErr))}
+		}
+	}
+	if (response != nil || accumulator.HasDeltas()) && chat.ClassifyFailure(err) == chat.CallFailureNotExecuted {
+		err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: model generation contradicts non-execution: %w", err)}
+	}
+	if err != nil {
+		kind := chat.ClassifyFailure(err)
+		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
+			return response, err
+		}
+		return response, fmt.Errorf("interaction: model outcome unknown: %w", err)
+	}
+	if response == nil {
+		return nil, errors.New("interaction: model outcome unknown: nil response")
+	}
+	return response, nil
 }
 
-// EffectPolicy is the Dispatcher's declaration about one Effect it executes.
-type EffectPolicy struct {
-	// Replay states whether the Effect can be repeated under its original
-	// EffectID when restoring a pending attempt or through
-	// Process.ReplayUnknownEffect. A settled Unknown requires an explicit host
-	// request; terminal intent forbids starting replay.
-	Replay ReplayPolicy
-	// RequiredCapabilities is the authority the Process must hold. Insufficient
-	// authority rejects the entire Step before dispatch, and restoration rejects
-	// a prepared Effect the restored Process could not have prepared.
-	RequiredCapabilities CapabilitySet
+func (d *Dispatcher) callModel(
+	ctx context.Context,
+	request *chat.Request,
+	emit run.DeltaEmitter,
+	remainingBytes int,
+	accumulator *chat.ResponseAccumulator,
+) (*chat.Response, error) {
+	if d.streamer == nil {
+		return d.model.Call(ctx, request)
+	}
+	sequence := d.streamer.Stream(ctx, request)
+	if sequence == nil {
+		return nil, errors.New("model streamer returned a nil sequence")
+	}
+	for delta, err := range sequence {
+		if err != nil {
+			return nil, err
+		}
+		if delta == nil {
+			return nil, errors.New("model stream yielded a nil response Delta")
+		}
+		payload, err := encodeModelResponseDelta(delta)
+		if err != nil {
+			return nil, err
+		}
+		if len(payload) > remainingBytes {
+			return nil, ErrModelResponseTooLarge
+		}
+		remainingBytes -= len(payload)
+		if err := accumulator.Add(delta); err != nil {
+			return nil, fmt.Errorf("accumulate model stream: %w", err)
+		}
+		if emit != nil {
+			emit(payload)
+		}
+	}
+	// Response rejects a stream that produced no deltas, so no local tally is kept.
+	response, err := accumulator.Response()
+	if err != nil {
+		return nil, fmt.Errorf("complete model stream: %w", err)
+	}
+	return response, nil
 }
 
-func (e EffectPolicy) Valid() bool { return e.Replay.Valid() }
+func cloneDefinitions(definitions []toolcontract.Definition) []toolcontract.Definition {
+	cloned := make([]toolcontract.Definition, len(definitions))
+	for index := range definitions {
+		cloned[index] = definitions[index].Clone()
+	}
+	return cloned
+}
+
+var _ run.Dispatcher = (*Dispatcher)(nil)

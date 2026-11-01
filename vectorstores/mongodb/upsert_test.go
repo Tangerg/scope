@@ -2,17 +2,15 @@ package mongodb
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
@@ -33,47 +31,16 @@ func (c *countingCollection) BulkWrite(
 	return c.result, nil
 }
 
-// constantModel is a stand-in embedding model for configuration tests that
-// never reach an embedding call.
-type constantModel struct{}
-
-func (constantModel) Call(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-	outputs := make([]*embedding.Output, len(request.Texts))
-	for index := range outputs {
-		outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-	}
-	return embedding.NewResponse(outputs, nil)
+func (*countingCollection) Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
+	return mongo.NewCursorFromDocuments([]any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}, nil, nil)
 }
-
-type upsertBatcher struct{}
-
-func (upsertBatcher) Batch(
-	_ context.Context,
-	documents []*document.Document,
-) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
-
 func upsertStore(t *testing.T, collection DocumentCollection) *Store {
 	t.Helper()
-	client, err := embeddingclient.New(embedding.ModelFunc(
-		func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-			outputs := make([]*embedding.Output, len(request.Texts))
-			for index := range outputs {
-				outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-			}
-			return embedding.NewResponse(outputs, nil)
-		}))
+	s, err := NewStore(t.Context(), StoreConfig{Collection: collection, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &Store{
-		collection:      collection,
-		schema:          nativeSchema{dimensions: 2},
-		numCandidates:   DefaultNumCandidates,
-		embeddingClient: client,
-		documentBatcher: upsertBatcher{},
-	}
+	return s
 }
 
 // MatchedCount covers the replacements that found an existing document and
@@ -82,10 +49,10 @@ func upsertStore(t *testing.T, collection DocumentCollection) *Store {
 func TestIndexRequiresEveryReplacementToApply(t *testing.T) {
 	t.Parallel()
 
-	request := &vectorstore.IndexRequest{Documents: []*document.Document{
+	request := fixtureBatch([]*document.Document{
 		{ID: "one", Text: "first"},
 		{ID: "two", Text: "second"},
-	}}
+	})
 	for _, sample := range []struct {
 		name   string
 		result *mongo.BulkWriteResult
@@ -122,18 +89,18 @@ func TestIndexRequiresEveryReplacementToApply(t *testing.T) {
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			collection := &countingCollection{result: sample.result}
-			err := upsertStore(t, collection).Index(t.Context(), request)
+			err := upsertStore(t, collection).Upsert(t.Context(), request)
 			if collection.sent != 2 {
 				t.Fatalf("write models sent = %d, want 2", collection.sent)
 			}
 			if sample.want == "" {
 				if err != nil {
-					t.Fatalf("Index() = %v, want nil", err)
+					t.Fatalf("Upsert() = %v, want nil", err)
 				}
 				return
 			}
 			if err == nil || !strings.Contains(err.Error(), sample.want) {
-				t.Fatalf("Index() = %v, want an error containing %q", err, sample.want)
+				t.Fatalf("Upsert() = %v, want an error containing %q", err, sample.want)
 			}
 		})
 	}
@@ -147,7 +114,7 @@ type deletionCollection struct {
 }
 
 func (d *deletionCollection) Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
-	return mongo.NewCursorFromDocuments([]any{bson.M{idField: "one", contentField: "text", embeddingField: []float32{1, 0}, metadataField: `{"tag":"one"}`}}, nil, nil)
+	return mongo.NewCursorFromDocuments([]any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}, nil, nil)
 }
 
 func (d *deletionCollection) DeleteMany(context.Context, any, ...options.Lister[options.DeleteManyOptions]) (*mongo.DeleteResult, error) {
@@ -163,5 +130,20 @@ func TestDeleteRequiresAcknowledgment(t *testing.T) {
 				t.Fatalf("result=%v error=%v", result, err)
 			}
 		}
+	}
+}
+
+func TestOrderedBulkFailurePreservesOnlyProvedIDs(t *testing.T) {
+	ids := []string{"inserted", "uncertain", "rejected", "unsent"}
+	failure := mongo.BulkWriteException{WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}}}
+	r := &mongo.BulkWriteResult{UpsertedIDs: map[int64]any{0: "inserted"}, MatchedCount: 2, UpsertedCount: 1}
+	w := writeEvidence(ids, r, failure)
+	if !slices.Equal(w.Acknowledged, ids[:1]) || !slices.Equal(w.Unconfirmed, ids[1:2]) || !slices.Equal(w.Rejected, ids[2:3]) || !slices.Equal(w.Unattempted, ids[3:]) || w.AcknowledgedCount != nil {
+		t.Fatalf("evidence=%+v", w)
+	}
+	r = &mongo.BulkWriteResult{Acknowledged: true, MatchedCount: 1}
+	w = writeEvidence(ids, r, errors.New("short receipt"))
+	if len(w.Acknowledged) != 0 || !slices.Equal(w.Unconfirmed, ids) || w.AcknowledgedCount == nil || *w.AcknowledgedCount != 1 {
+		t.Fatalf("evidence=%+v", w)
 	}
 }

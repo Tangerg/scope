@@ -61,7 +61,7 @@ func TestReasoningDetailsReplayUsesCoreText(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			model, err := openai.NewCompatibleChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 			}, dialect)
 			if err != nil {
@@ -109,7 +109,7 @@ func TestReasoningDetailsRejectInvalidNativeState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := openai.NewCompatibleChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 	}, dialect)
 	if err != nil {
@@ -169,7 +169,7 @@ func testAnonymousReasoningBoundaries(t *testing.T, identity string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, err := openai.NewCompatibleChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 	}, dialect)
 	if err != nil {

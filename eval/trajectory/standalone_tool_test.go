@@ -1,11 +1,13 @@
 package trajectory_test
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"testing"
 
-	agent "github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
@@ -15,14 +17,14 @@ import (
 // complete, valid record.
 func TestStandaloneToolSetRecordsAValidCall(t *testing.T) {
 	recorder := &trajectory.Recorder{}
-	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
+	tools, err := agent.NewToolSet(agent.ToolSetConfig{
 		Name: "test.trajectory.standalone", Description: "Run one Tool call directly.", Tools: []tool.Tool{fixtureWeatherTool{}}, Observer: recorder,
-		ImplementationDigest: agent.ComputeDigest([]byte("standalone-implementation")), ConfigurationDigest: agent.ComputeDigest([]byte("standalone-configuration")),
+		ImplementationDigest: run.ComputeDigest([]byte("standalone-implementation")), ConfigurationDigest: run.ComputeDigest([]byte("standalone-configuration")),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter(), EventListeners: []agent.EventListener{recorder}})
+	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{recorder}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,11 +33,11 @@ func TestStandaloneToolSetRecordsAValidCall(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	input, err := agent.EncodePayload(map[string]chat.ToolCall{"call": {ID: "call", Name: "weather", Arguments: `{"city":"Paris"}`}})
+	input, err := run.EncodePayload(map[string]chat.ToolCall{"call": {ID: "call", Name: "weather", Arguments: `{"city":"Paris"}`}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(t.Context(), tools.Deployment(), input)
+	process, err := engine.Start(t.Context(), tools.Program(), run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}

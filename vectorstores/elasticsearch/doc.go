@@ -27,39 +27,30 @@
 // deployments must provision the current schema and reindex their source
 // documents; obsolete fields, configuration and record formats are not accepted.
 //
-// Index prepares all records, embedding batches, native vectors and NDJSON before
-// its first bulk publication. A validation or model failure publishes nothing.
-// Native I/O failures may leave earlier bulk records published; no cross-record
-// transaction is claimed. Every bulk acknowledgment must identify the requested
-// operation, index and document, with a valid status and no hidden failure.
+// The native mapping must bind _meta.scope_vector_space to the Host's immutable
+// encoder space. Changing that declaration is a rebuild, not permission to reuse
+// an old index. The Host must coordinate physical index replacement; HTTP
+// configuration checks and data requests are distinct operations.
 //
-// Unfiltered Search issues native KNN directly and validates every returned hit.
-// Filtered Search reads a complete scroll snapshot, and Core filter.Match alone
-// selects metadata membership. Bounded native ID selections restrict KNN; native
-// ranks are merged before TopK and the Core score threshold. Only predicate
-// enumeration costs O(N) source reads and ID bookkeeping. Enumeration and ranking
-// are separate requests; returned membership is revalidated without promising a
-// cross-request snapshot. Native TopK limits are checked before I/O.
+// Upsert prepares all records and checks their float32 representations before
+// publishing NDJSON in independent MaxBulkBytes groups. A WriteError records
+// verified item acknowledgments, explicit rejections, groups not submitted and
+// uncertain IDs. Successful ingestion is not a guarantee of search visibility.
 //
-// Timeout, failed or missing shard acknowledgments, malformed records, repeated
-// identities, truncated pages, missing concurrency tokens and unreadable hits
-// fail the operation. Search returns no response on any error. Scroll cleanup
-// uses a bounded context even after caller cancellation; cleanup failures remain
-// visible. [StoreConfig.MaxResponseBytes] bounds every response and defaults to
-// [DefaultMaxResponseBytes]; response bodies are always closed.
+// Query only sends native KNN; it never enumerates source records. The native
+// mapping deliberately preserves full metadata as opaque unindexed bytes, so
+// a filtered Query returns vectorstore.ErrUnsupportedFilter before rank I/O.
+// A Host with authority over the entire physical index can explicitly call
+// Scan for interpreted predicates. Scan bounds source records, cumulative
+// encoded scroll response bytes (excluding ranking and cleanup), and elapsed
+// time. Exceeding a budget returns no partial ranking. The adapter checks the
+// native result window, every returned record and every shard acknowledgment.
+// Scroll selection and native ranking are separate reads, not a cross-RPC snapshot.
 //
-// DeleteIDs deduplicates IDs and treats unknown IDs as successful no-ops.
-// DeleteWhere enumerates the complete metadata snapshot before writing, then
-// uses native sequence-number and primary-term conditional deletes. A changed
-// or vanished snapshot member fails rather than deleting a newer version or
-// silently succeeding. Earlier deletions may remain applied after a failure.
-//
-// Default tests are offline. Tests selected with -tags=integration require
-// SCOPE_ELASTICSEARCH_ENDPOINT and optionally SCOPE_ELASTICSEARCH_USERNAME and
-// SCOPE_ELASTICSEARCH_PASSWORD. They create and delete unique native indexes;
-// run them only against an isolated instance. Native verification exercises
-// Elasticsearch 8.19.7 and its current KNN and stored-source contracts.
-//
-// See https://www.elastic.co/guide/en/elasticsearch/reference/8.19/dense-vector.html
-// and https://www.elastic.co/guide/en/elasticsearch/reference/8.19/search-search.html.
+// DeleteMatching requires the same explicit scan budget, completes selection
+// first, and uses each selected sequence number and primary term in its bulk
+// conditional delete. A conflict is an error; no blind identity deletion or
+// framework retry follows. DeleteIDs expresses unconditional identity intent.
+// The Host owns the native transport. Offline tests exercise HTTP protocol
+// fixtures; tagged tests require a separately provisioned isolated service.
 package elasticsearch

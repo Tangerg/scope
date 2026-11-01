@@ -7,34 +7,32 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
-	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
-	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 const Provider = "AzureCosmosDB"
 
-// Bound escaped 1023-byte IDs and a 4096-component vector below the native
-// request budget; this is a transport grouping policy, not a result limit.
-const maxQueryIDs = 100
-
 var ErrIncompatibleContainer = errors.New("azurecosmos: container is incompatible")
 
 type StoreConfig struct {
-	Container       *azcosmos.ContainerClient
-	PartitionKey    string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Container    *azcosmos.ContainerClient
+	PartitionKey string
+	Space        vectorstore.SpaceID
 }
+
+// physicalPartition is an actual Cosmos routing key; the prefix is fixed-width,
+// so logical keys cannot escape their vector space by containing a delimiter.
+func (s StoreConfig) physicalPartition() string { return s.Space.StorageKey() + ":" + s.PartitionKey }
 
 func (s StoreConfig) Validate() error {
 	if s.Container == nil {
@@ -43,95 +41,154 @@ func (s StoreConfig) Validate() error {
 	if s.PartitionKey == "" || !utf8.ValidString(s.PartitionKey) || len(s.PartitionKey) > 2048 {
 		return errors.New("azurecosmos: PartitionKey must contain 1 to 2048 valid UTF-8 bytes")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("azurecosmos: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("azurecosmos: DocumentBatcher is required")
-	}
-	return nil
+	return s.Space.Validate()
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
-	container       *azcosmos.ContainerClient
-	partitionKey    string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	schema          containerSchema
+	container    *azcosmos.ContainerClient
+	partitionKey string
+	space        vectorstore.SpaceID
+	schema       containerSchema
 }
 
-func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
-	if err := config.Validate(); err != nil {
+func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
+	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
+	s := &Store{container: cfg.Container, space: cfg.Space, partitionKey: cfg.physicalPartition()}
+	schema, err := s.binding(ctx)
 	if err != nil {
 		return nil, err
 	}
-	response, err := config.Container.Read(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("azurecosmos: read container: %w", err)
-	}
-	schema, err := newContainerSchema(response.ContainerProperties, config.Container.ID(), config.PartitionKey)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{container: config.Container, partitionKey: config.PartitionKey, embeddingClient: client, documentBatcher: config.DocumentBatcher, schema: schema}
-	return store, nil
+	s.schema = schema
+	return s, nil
 }
-
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) binding(ctx context.Context) (containerSchema, error) {
+	response, err := s.container.Read(ctx, nil)
+	if err != nil {
+		return containerSchema{}, fmt.Errorf("azurecosmos: read container: %w", err)
+	}
+	return newContainerSchema(response.ContainerProperties, s.container.ID(), s.partitionKey)
+}
+func (s *Store) verify(ctx context.Context) error {
+	schema, err := s.binding(ctx)
+	if err != nil {
 		return err
 	}
-	records := make(map[string]itemRecord, len(request.Documents))
-	for _, doc := range request.Documents {
-		record, err := encodeDocument(doc, s.partitionKey)
+	if schema != s.schema {
+		return vectorstore.ErrIncompatibleSpace
+	}
+	return nil
+}
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, d := range docs {
+		if _, err := encodeDocument(d, s.partitionKey); err != nil {
+			return err
+		}
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	ids := make([]string, len(batch.Records))
+	bodies := make([][]byte, len(ids))
+	for i, r := range batch.Records {
+		rec, err := encodeDocument(r.Document, s.partitionKey)
 		if err != nil {
 			return err
 		}
-		records[doc.ID] = record
+		v, err := s.schema.narrow(r.Values)
+		if err != nil {
+			return err
+		}
+		rec.Embedding = &v
+		bodies[i], err = rec.marshal()
+		if err != nil {
+			return err
+		}
+		ids[i] = r.Document.ID
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
+	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	var bodies [][]byte
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
+	return s.writeItems(ctx, ids, func(i int) error {
+		_, err := s.container.UpsertItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), bodies[i], nil)
+		return err
+	})
+}
+
+// writeItems records exactly which single-item requests were issued. A server
+// timeout or lost response cannot determine whether the current item changed.
+func (s *Store) writeItems(ctx context.Context, ids []string, write func(int) error) error {
+	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:i]), Unattempted: slices.Clone(ids[i:]), Err: err}
 		}
-		vectors, embedErr := s.embeddingClient.EmbedTexts(ctx, texts)
-		if embedErr != nil {
-			return embedErr
-		}
-		for i, doc := range batch.Documents {
-			vector, vectorErr := s.schema.narrow(vectors[i])
-			if vectorErr != nil {
-				return fmt.Errorf("azurecosmos: document %s: %w", doc.ID, vectorErr)
+		if err := write(i); err != nil {
+			failure := &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:i]), Unattempted: slices.Clone(ids[i+1:]), Err: err}
+			var response *azcore.ResponseError
+			if errors.As(err, &response) {
+				switch response.StatusCode {
+				case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusPreconditionFailed, http.StatusRequestEntityTooLarge, http.StatusTooManyRequests:
+					failure.Rejected = []string{id}
+					return failure
+				}
 			}
-			record := records[doc.ID]
-			record.Embedding = &vector
-			body, bodyErr := record.marshal()
-			if bodyErr != nil {
-				return bodyErr
-			}
-			bodies = append(bodies, body)
-		}
-	}
-	for _, body := range bodies {
-		if _, writeErr := s.container.UpsertItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), body, nil); writeErr != nil {
-			return fmt.Errorf("azurecosmos: upsert item: %w", writeErr)
+			failure.Unconfirmed = []string{id}
+			return failure
 		}
 	}
 	return nil
+}
+func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if err := validateID(id); err != nil {
+			return err
+		}
+		if !seen[id] {
+			keys = append(keys, id)
+			seen[id] = true
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	return s.writeItems(ctx, keys, func(i int) error {
+		_, err := s.container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), keys[i], nil)
+		var response *azcore.ResponseError
+		if errors.As(err, &response) && response.StatusCode == http.StatusNotFound {
+			return nil
+		}
+		return err
+	})
 }
 
 func (s *Store) query(ctx context.Context, query string, parameters []azcosmos.QueryParameter, visit func([]byte) error) error {
@@ -157,158 +214,91 @@ func (s *Store) query(ctx context.Context, query string, parameters []azcosmos.Q
 	return nil
 }
 
-type selectedItem struct {
-	id   string
-	etag azcore.ETag
-}
-
-func (s *Store) selectItems(ctx context.Context, predicate filter.Predicate) ([]selectedItem, error) {
-	var selected []selectedItem
-	seen := make(map[string]struct{})
-	err := s.query(ctx, "SELECT VALUE c FROM c", nil, func(raw []byte) error {
-		doc, etag, err := s.schema.decodeDocument(raw, s.partitionKey)
-		if err != nil {
-			return err
-		}
-		if _, repeated := seen[doc.ID]; repeated {
-			return errors.New("azurecosmos: partition scan repeated an item ID")
-		}
-		seen[doc.ID] = struct{}{}
-		if predicate != nil {
-			values, valueErr := doc.Metadata.Values()
-			if valueErr != nil {
-				return valueErr
-			}
-			matched, matchErr := filter.Match(predicate, values)
-			if matchErr != nil {
-				return matchErr
-			}
-			if !matched {
-				return nil
-			}
-		}
-		selected = append(selected, selectedItem{id: doc.ID, etag: etag})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return selected, nil
-}
-
 type rankedResult struct {
 	raw    float64
 	result *vectorstore.SearchResult
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = s.CheckQuery(ctx, request.Space, request.Options); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	var selected []selectedItem
-	if request.Options.Filter != nil {
-		selected, err = s.selectItems(ctx, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
-		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	queryVector, err := s.schema.narrow(request.Values)
 	if err != nil {
 		return nil, err
-	}
-	queryVector, err := s.schema.narrow(vector)
-	if err != nil {
-		return nil, err
-	}
-	groups := [][]selectedItem{nil}
-	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(selected, maxQueryIDs))
 	}
 	var ranked []rankedResult
 	seen := make(map[string]struct{})
-	for _, group := range groups {
-		parameters := []azcosmos.QueryParameter{{Name: "@queryVec", Value: queryVector}, {Name: "@topK", Value: request.Options.ResultLimit()}}
-		where := ""
-		allowed := make(map[string]struct{}, len(group))
-		if group != nil {
-			names := make([]string, len(group))
-			for i, item := range group {
-				name := fmt.Sprintf("@id%d", i)
-				names[i] = name
-				parameters = append(parameters, azcosmos.QueryParameter{Name: name, Value: item.id})
-				allowed[item.id] = struct{}{}
-			}
-			where = " WHERE c.id IN (" + strings.Join(names, ",") + ")"
-			parameters[1].Value = min(len(group), request.Options.ResultLimit())
+	parameters := []azcosmos.QueryParameter{{Name: "@queryVec", Value: queryVector}, {Name: "@topK", Value: request.Options.ResultLimit()}}
+	distance := "VectorDistance(c.embedding, @queryVec)"
+	sql := "SELECT TOP @topK c AS item, " + distance + " AS score FROM c ORDER BY " + distance
+	queryErr := s.query(ctx, sql, parameters, func(raw []byte) error {
+		var row struct {
+			Item  json.RawMessage `json:"item"`
+			Score *float64        `json:"score"`
 		}
-		distance := "VectorDistance(c.embedding, @queryVec)"
-		sql := "SELECT TOP @topK c AS item, " + distance + " AS score FROM c" + where + " ORDER BY " + distance
-		queryErr := s.query(ctx, sql, parameters, func(raw []byte) error {
-			var row struct {
-				Item  json.RawMessage `json:"item"`
-				Score *float64        `json:"score"`
-			}
-			if decodeErr := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
-				return decodeErr
-			}
-			if row.Score == nil {
-				return errors.New("azurecosmos: native result is missing its numeric score")
-			}
-			doc, _, decodeErr := s.schema.decodeDocument(row.Item, s.partitionKey)
-			if decodeErr != nil {
-				return decodeErr
-			}
-			if _, duplicate := seen[doc.ID]; duplicate {
-				return errors.New("azurecosmos: ranked queries repeated an item ID")
-			}
-			seen[doc.ID] = struct{}{}
-			if group != nil {
-				if _, member := allowed[doc.ID]; !member {
-					return errors.New("azurecosmos: native query returned an ID outside Core membership")
-				}
-				values, valueErr := doc.Metadata.Values()
-				if valueErr != nil {
-					return valueErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, values)
-				if matchErr != nil {
-					return matchErr
-				}
-				if !matched {
-					return errors.New("azurecosmos: native result changed Core membership during search")
-				}
-			}
-			score, scoreErr := s.schema.score(*row.Score)
-			if scoreErr != nil {
-				return scoreErr
-			}
-			result, resultErr := vectorstore.NewSearchResult(doc, score)
-			if resultErr != nil {
-				return resultErr
-			}
-			ranked = append(ranked, rankedResult{raw: *row.Score, result: result})
-			return nil
-		})
-		if queryErr != nil {
-			return nil, queryErr
+		if decodeErr := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+			return decodeErr
 		}
+		if row.Score == nil {
+			return errors.New("azurecosmos: native result is missing its numeric score")
+		}
+		doc, _, decodeErr := s.schema.decodeDocument(row.Item, s.partitionKey)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return errors.New("azurecosmos: ranked queries repeated an item ID")
+		}
+		seen[doc.ID] = struct{}{}
+		if len(seen) > request.Options.ResultLimit() {
+			return errors.New("azurecosmos: service returned more records than requested")
+		}
+		score, scoreErr := s.schema.score(*row.Score)
+		if scoreErr != nil {
+			return scoreErr
+		}
+		result, resultErr := vectorstore.NewSearchResult(doc, score)
+		if resultErr != nil {
+			return resultErr
+		}
+		ranked = append(ranked, rankedResult{raw: *row.Score, result: result})
+		return nil
+	})
+	if queryErr != nil {
+		return nil, queryErr
 	}
 	slices.SortFunc(ranked, func(left, right rankedResult) int {
 		order := cmp.Compare(left.raw, right.raw)
@@ -333,22 +323,86 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
-	if predicate == nil {
+func (s *Store) selectItems(ctx context.Context, cfg ScanConfig) ([]selectedItem, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	meter, err := cfg.Budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	if err = s.verify(ctx); err != nil {
+		return nil, err
+	}
+	var selected []selectedItem
+	seen := make(map[string]bool)
+	err = s.query(ctx, "SELECT VALUE c FROM c", nil, func(raw []byte) error {
+		if chargeErr := meter.Charge(int64(len(raw))); chargeErr != nil {
+			return chargeErr
+		}
+		doc, etag, decodeErr := s.schema.decodeDocument(raw, s.partitionKey)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if seen[doc.ID] {
+			return errors.New("azurecosmos: partition scan repeated an item ID")
+		}
+		seen[doc.ID] = true
+		if cfg.Filter != nil {
+			values, valueErr := doc.Metadata.Values()
+			if valueErr != nil {
+				return valueErr
+			}
+			matched, matchErr := filter.Match(cfg.Filter, values)
+			if matchErr != nil || !matched {
+				return matchErr
+			}
+		}
+		selected = append(selected, selectedItem{doc: doc, etag: etag})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	return selected, nil
+}
+
+// Scan evaluates Core metadata predicates after charging every raw Cosmos item.
+// Cosmos continuation pages do not form a multi-page transactional snapshot.
+func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document, error) {
+	selected, err := s.selectItems(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	docs := make([]*document.Document, len(selected))
+	for i, item := range selected {
+		docs[i] = item.doc
+	}
+	return docs, nil
+}
+
+// DeleteMatching verifies the complete authorized scan before the first delete.
+// A replacement is protected by its native ETag. Deletes are individually
+// acknowledged, not atomic across a partition; failures return a WriteError.
+func (s *Store) DeleteMatching(ctx context.Context, cfg ScanConfig) error {
+	if cfg.Filter == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err := predicate.Validate(); err != nil {
-		return err
-	}
-	selected, err := s.selectItems(ctx, predicate)
+	selected, err := s.selectItems(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	for _, item := range selected {
-		etag := item.etag
-		if _, deleteErr := s.container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), item.id, &azcosmos.ItemOptions{IfMatchEtag: &etag}); deleteErr != nil {
-			return fmt.Errorf("azurecosmos: delete observed item %s: %w", item.id, deleteErr)
-		}
+	ids := make([]string, len(selected))
+	for i, r := range selected {
+		ids[i] = r.doc.ID
 	}
-	return nil
+	return s.writeItems(ctx, ids, func(i int) error {
+		_, err := s.container.DeleteItem(ctx, azcosmos.NewPartitionKeyString(s.partitionKey), ids[i], &azcosmos.ItemOptions{IfMatchEtag: &selected[i].etag})
+		return err
+	})
 }

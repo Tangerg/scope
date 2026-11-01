@@ -25,7 +25,7 @@ type LocalExecutorConfig struct {
 	Directory string
 	Shell     string
 	// MaxBytesPerStream caps captured stdout and stderr independently.
-	// Zero selects 30 KiB per stream; truncation markers are additional bytes.
+	// Zero selects 30 KiB per stream. Capture never inserts presentation text.
 	MaxBytesPerStream int
 }
 
@@ -103,10 +103,10 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	duration := time.Since(start)
 
 	out := Output{
-		Stdout:               stdout.finalize(),
-		Stderr:               stderr.finalize(),
-		StdoutTruncated:      stdout.dropped != 0,
-		StderrTruncated:      stderr.dropped != 0,
+		Stdout:               stdout.buf.Bytes(),
+		Stderr:               stderr.buf.Bytes(),
+		StdoutDroppedBytes:   stdout.dropped,
+		StderrDroppedBytes:   stderr.dropped,
 		ExitCode:             result.ExitCode,
 		Duration:             duration,
 		CancellationObserved: result.CancellationObserved,
@@ -120,7 +120,7 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 type boundedBuffer struct {
 	buf     bytes.Buffer
 	limit   int
-	dropped int
+	dropped uint64
 }
 
 func newBoundedBuffer(limit int) *boundedBuffer {
@@ -130,27 +130,13 @@ func newBoundedBuffer(limit int) *boundedBuffer {
 func (b *boundedBuffer) Write(p []byte) (int, error) {
 	avail := b.limit - b.buf.Len()
 	if avail <= 0 {
-		b.dropped += len(p)
+		b.dropped += uint64(len(p))
 		return len(p), nil
 	}
 	if len(p) <= avail {
 		return b.buf.Write(p)
 	}
 	n, _ := b.buf.Write(p[:avail])
-	b.dropped += len(p) - n
+	b.dropped += uint64(len(p) - n)
 	return len(p), nil
-}
-
-func (b *boundedBuffer) finalize() []byte {
-	if b.dropped == 0 {
-		return b.buf.Bytes()
-	}
-	out := b.buf.Bytes()
-
-	if i := bytes.LastIndexByte(out, '\n'); i > 0 {
-		shift := len(out) - (i + 1)
-		out = out[:i+1]
-		b.dropped += shift
-	}
-	return fmt.Appendf(out, "... [%d bytes truncated] ...\n", b.dropped)
 }

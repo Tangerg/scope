@@ -2,133 +2,70 @@ package etl_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
 )
 
-func TestSplitter_ReplacesLineageWhenSplittingUnidentifiedChunks(t *testing.T) {
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(_ context.Context, text string) ([]string, error) {
-			return strings.Fields(text), nil
-		},
-	})
+func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
+	gen := etl.NewSHA256IDGenerator(nil)
+	split := func(_ context.Context, s string) ([]string, error) { return strings.Split(s, " "), nil }
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: split, IDGenerator: gen})
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent, err := document.NewDocument("one two", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	parent.ID = "original"
-	chunks, err := splitter.Split(t.Context(), []*document.Document{parent})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(chunks) != 2 {
-		t.Fatalf("first split returned %d chunks, want 2", len(chunks))
-	}
-	for index, chunk := range chunks {
-		if chunk.ID != "" {
-			t.Fatalf("chunk %d has an unexpected ID %q", index, chunk.ID)
+	original := []byte("word  word")
+	facts := metadata.Map{}
+	for _, key := range []string{"parent_document_id", "chunk_index", "chunk_total"} {
+		if setErr := facts.Set(key, "tenant value"); setErr != nil {
+			t.Fatal(setErr)
 		}
 	}
-	resplit, err := splitter.Split(t.Context(), chunks)
-	if err != nil {
-		t.Fatal(err)
+	p := document.NewProvenance("book", original)
+	p.Page = 3
+	p.Bytes = &document.ByteRange{End: int64(len(original))}
+	parent := &document.Document{ID: "edition", Text: string(original), Provenance: p, Metadata: facts}
+	docs, err := splitter.Split(t.Context(), []*document.Document{parent})
+	if err != nil || len(docs) != 2 {
+		t.Fatalf("first split: %v %v", docs, err)
 	}
-	if len(resplit) != 2 {
-		t.Fatalf("second split returned %d chunks, want 2", len(resplit))
+	twice, err := splitter.Split(t.Context(), docs)
+	if err != nil || len(twice) != 2 {
+		t.Fatalf("second split: %v %v", twice, err)
 	}
-	for index, chunk := range resplit {
-		if chunk.Text != chunks[index].Text {
-			t.Errorf("chunk %d text = %q, want %q", index, chunk.Text, chunks[index].Text)
+	if docs[0].ID == docs[1].ID {
+		t.Fatal("identical text occurrences received the same store identity")
+	}
+	for i, d := range twice {
+		q := d.Provenance
+		want := []document.Chunk{{Parent: "edition", Index: i, Total: 2}, {Parent: docs[i].ID, Index: 0, Total: 1}}
+		if q == nil || q.Source != p.Source || q.Revision != p.Revision || q.Page != 3 || q.Bytes != nil || !slices.Equal(q.Chunks, want) || !facts.Equal(d.Metadata) {
+			t.Fatalf("nested chunk: %+v %v", q, d.Metadata)
 		}
-		if _, exists := chunk.Metadata[etl.MetadataKeyParentID]; exists {
-			t.Errorf("chunk %d inherited its grandparent as its parent", index)
+		q.Chunks[0].Parent = "changed"
+		if docs[i].Provenance.Chunks[0].Parent != "edition" {
+			t.Fatal("child aliased its parent")
 		}
-		if value, found, decodeErr := chunk.Metadata.Decode[int](etl.MetadataKeyChunkIndex); decodeErr != nil || !found || value != 0 {
-			t.Errorf("chunk %d index = %d, %t, %v, want 0", index, value, found, decodeErr)
-		}
-		if value, found, decodeErr := chunk.Metadata.Decode[int](etl.MetadataKeyChunkTotal); decodeErr != nil || !found || value != 1 {
-			t.Errorf("chunk %d total = %d, %t, %v, want 1", index, value, found, decodeErr)
-		}
-		if value, found, decodeErr := chunks[index].Metadata.Decode[string](etl.MetadataKeyParentID); decodeErr != nil || !found || value != "original" {
-			t.Errorf("source chunk %d parent changed: %q, %t, %v", index, value, found, decodeErr)
-		}
+	}
+	if p.Bytes == nil || len(p.Chunks) != 0 {
+		t.Fatal("source location was overwritten")
 	}
 }
-
-func TestSplitter_StampsChunkLineage(t *testing.T) {
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(_ context.Context, text string) ([]string, error) {
-			return []string{"a", "", "b", "c"}, nil
-		},
-	})
+func TestAnonymousInputCanBeSplitWithoutClaimingAnOriginal(t *testing.T) {
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: func(_ context.Context, s string) ([]string, error) { return []string{s}, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	parent, _ := document.NewDocument("ignored", nil)
-	parent.ID = "parent-1"
-	_ = parent.Metadata.Set("source", "manual")
-
-	chunks, err := splitter.Split(t.Context(), []*document.Document{parent})
+	docs, err := splitter.Split(t.Context(), []*document.Document{{Text: "anonymous"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(chunks) != 3 {
-		t.Fatalf("want 3 non-empty chunks, got %d", len(chunks))
-	}
-
-	for i, chunk := range chunks {
-		if value, ok, _ := chunk.Metadata.Decode[int](etl.MetadataKeyChunkIndex); !ok || value != i {
-			t.Fatalf("chunk %d: chunk_index = %v", i, value)
-		}
-		if value, ok, _ := chunk.Metadata.Decode[int](etl.MetadataKeyChunkTotal); !ok || value != 3 {
-			t.Fatalf("chunk %d: chunk_total = %v", i, value)
-		}
-		if value, ok, _ := chunk.Metadata.Decode[string](etl.MetadataKeyParentID); !ok || value != "parent-1" {
-			t.Fatalf("chunk %d: parent id = %v", i, value)
-		}
-		if value, ok, _ := chunk.Metadata.Decode[string]("source"); !ok || value != "manual" {
-			t.Fatalf("chunk %d: original metadata not carried through", i)
-		}
-	}
-}
-
-func TestSplitter_NoParentIDWhenSourceUnidentified(t *testing.T) {
-	splitter, _ := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"x"}, nil
-		},
-	})
-
-	parent, _ := document.NewDocument("body", nil)
-	chunks, _ := splitter.Split(t.Context(), []*document.Document{parent})
-
-	if _, ok := chunks[0].Metadata[etl.MetadataKeyParentID]; ok {
-		t.Fatal("parent_document_id must be absent when source has no id")
-	}
-}
-
-func TestSplitter_AssignsChunkIDs(t *testing.T) {
-	splitter, _ := etl.NewSplitter(etl.SplitterConfig{
-		IDGenerator: etl.NewSHA256IDGenerator(nil),
-		SplitFunc: func(_ context.Context, _ string) ([]string, error) {
-			return []string{"x", "y"}, nil
-		},
-	})
-
-	parent, _ := document.NewDocument("body", nil)
-	chunks, _ := splitter.Split(t.Context(), []*document.Document{parent})
-
-	if chunks[0].ID == "" || chunks[1].ID == "" {
-		t.Fatal("chunks must get ids when IDGenerator is set")
-	}
-	if chunks[0].ID == chunks[1].ID {
-		t.Fatal("distinct chunks must get distinct ids")
+	d := docs[0]
+	if d.ID != "" || d.Metadata != nil || d.Provenance.Source != "" || d.Provenance.Revision != "" || !slices.Equal(d.Provenance.Chunks, []document.Chunk{{Index: 0, Total: 1}}) {
+		t.Fatalf("invented identity: %+v", d)
 	}
 }

@@ -7,10 +7,10 @@ import (
 	"math"
 	"regexp"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -46,12 +46,15 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 	if err != nil || !present {
 		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks current metadata: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
 	}
-	var meta metadata.Map
-	if err = meta.UnmarshalJSON([]byte(facts)); err != nil {
+	doc := new(document.Document)
+	if err = document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
 		return nativeRecord{}, err
 	}
-	doc := &document.Document{ID: id, Text: text, Metadata: meta}
-	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = id, text
+	if strings.TrimSpace(id) == "" {
+		return nativeRecord{}, vectorstore.ErrMissingDocumentID
+	}
+	if err = doc.Validate(); err != nil {
 		return nativeRecord{}, err
 	}
 	if err = validateText(id); err != nil {
@@ -83,8 +86,9 @@ func floatVector(values []float64, width int) ([]float32, error) {
 	if len(values) == 0 || (width != 0 && len(values) != width) {
 		return nil, errors.New("vespa: vector has inconsistent dimensions")
 	}
-	vector := embedding.Float32Vector(values)
+	vector := make([]float32, len(values))
 	for index, value := range values {
+		vector[index] = float32(value)
 		narrowed := float64(vector[index])
 		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsInf(narrowed, 0) || (value != 0 && narrowed == 0) {
 			return nil, errors.New("vespa: vector is not representable in float32")

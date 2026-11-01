@@ -21,14 +21,14 @@ import (
 	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-func liveStore(t *testing.T, metric string, model embedding.Model) (*Store, *elasticsearchsdk.Client) {
+func liveStore(t *testing.T, metric string) (*Store, *elasticsearchsdk.Client) {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_ELASTICSEARCH_ENDPOINT")
 	if endpoint == "" {
@@ -48,7 +48,7 @@ func liveStore(t *testing.T, metric string, model embedding.Model) (*Store, *ela
 		}
 	})
 	name := "scope-es-" + strings.ToLower(rand.Text())
-	body := fmt.Sprintf(`{"mappings":{"dynamic":"strict","properties":{"content":{"type":"text"},"metadata_json":{"type":"keyword","index":false,"doc_values":false},"embedding":{"type":"dense_vector","dims":2,"similarity":%q,"index_options":{"type":"flat"}}}}}`, metric)
+	body := fmt.Sprintf(`{"mappings":{"_meta":{"scope_vector_space":"paired-v1"},"dynamic":"strict","properties":{"content":{"type":"text"},"metadata_json":{"type":"keyword","index":false,"doc_values":false},"embedding":{"type":"dense_vector","dims":2,"similarity":%q,"index_options":{"type":"flat"}}}}}`, metric)
 	created, err := client.Indices.Create(name, client.Indices.Create.WithContext(t.Context()), client.Indices.Create.WithBody(strings.NewReader(body)))
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func liveStore(t *testing.T, metric string, model embedding.Model) (*Store, *ela
 			t.Error(closeErr)
 		}
 	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, IndexName: name, EmbeddingModel: model, DocumentBatcher: testBatcher{size: 32}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, IndexName: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func refreshNative(ctx context.Context, client *elasticsearchsdk.Client, name st
 }
 
 func TestLiveFilterConformance(t *testing.T) {
-	store, client := liveStore(t, "cosine", constantModel())
+	store, client := liveStore(t, "cosine")
 	var previous []string
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		if err := store.DeleteIDs(ctx, previous); err != nil {
@@ -106,13 +106,13 @@ func TestLiveFilterConformance(t *testing.T) {
 		for _, doc := range docs {
 			previous = append(previous, doc.ID)
 		}
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
 		if err := refreshNative(ctx, client, store.indexName); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 		if err != nil {
 			return nil, err
 		}
@@ -127,19 +127,19 @@ func TestLiveFilterConformance(t *testing.T) {
 func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 	for _, metric := range []string{"cosine", "l2_norm", "dot_product", "max_inner_product"} {
 		t.Run(metric, func(t *testing.T) {
-			store, client := liveStore(t, metric, constantModel())
+			store, client := liveStore(t, metric)
 			facts := []metadata.Map{nil, {}, {"content": json.RawMessage(`"user value"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}}
 			docs := make([]*document.Document, len(facts))
 			for i := range facts {
 				docs[i] = &document.Document{ID: fmt.Sprintf(" spaced / * ? 中文🙂 %d ", i), Text: "text", Metadata: facts[i]}
 			}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
 			if refreshErr := refreshNative(t.Context(), client, store.indexName); refreshErr != nil {
 				t.Fatal(refreshErr)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,13 +149,13 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 					t.Fatalf("native round trip changed %q", doc.ID)
 				}
 			}
-			if err = store.DeleteWhere(t.Context(), filter.IsNull("unused")); err != nil {
+			if err = store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err != nil {
 				t.Fatal(err)
 			}
 			if refreshErr := refreshNative(t.Context(), client, store.indexName); refreshErr != nil {
 				t.Fatal(refreshErr)
 			}
-			if response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"}); err != nil || len(response.Results) != 0 {
+			if response, err = fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}); err != nil || len(response.Results) != 0 {
 				t.Fatalf("conditional deletion retained documents: %#v, %v", response, err)
 			}
 		})
@@ -163,8 +163,8 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 }
 
 func TestLiveNativeEnvelope(t *testing.T) {
-	store, client := liveStore(t, "cosine", constantModel())
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+	store, client := liveStore(t, "cosine")
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
 	if err := refreshNative(t.Context(), client, store.indexName); err != nil {

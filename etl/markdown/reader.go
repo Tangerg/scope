@@ -14,19 +14,19 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/origin"
 )
 
 const (
 	MetadataHeading      = "markdown.heading"
 	MetadataHeadingLevel = "markdown.heading.level"
 	MetadataHeadingPath  = "markdown.heading.path"
-	MetadataSourceName   = "markdown.source"
 )
 
 // ReaderConfig controls Markdown extraction. HeadingSplitLevel emits one document
 // per section split on headings at or above that level (1 = H1, 2 = H1+H2).
 // Zero disables splitting; non-zero values must be in [1, 6]. Metadata is
-// cloned by NewReader and cannot contain the reader's heading or source keys.
+// cloned by NewReader and cannot contain the reader's heading keys.
 // A zero SourceBudget uses [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
 	HeadingSplitLevel int
@@ -59,7 +59,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("markdown reader: invalid metadata: %w", err)
 	}
-	for _, key := range [...]string{MetadataHeading, MetadataHeadingLevel, MetadataHeadingPath, MetadataSourceName} {
+	for _, key := range [...]string{MetadataHeading, MetadataHeadingLevel, MetadataHeadingPath} {
 		if _, exists := r.extraMetadata[key]; exists {
 			return nil, fmt.Errorf("markdown reader: metadata key %q is owned by the reader", key)
 		}
@@ -75,7 +75,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	raw, err := r.sourceBudget.ReadAll(ctx, r.source)
+	raw, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("markdown: read source: %w", err)
 	}
@@ -84,16 +84,20 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	}
 
 	if r.headingSplitLevel == 0 {
-		return r.readWhole(raw)
+		return r.readWhole(raw, p)
 	}
 	sections, err := r.collectSections(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	return r.sectionsToDocuments(ctx, sections)
+	docs, err := r.sectionsToDocuments(ctx, sections)
+	if err != nil {
+		return nil, err
+	}
+	return origin.Parts(ctx, p, docs)
 }
 
-func (r *Reader) readWhole(raw []byte) ([]*document.Document, error) {
+func (r *Reader) readWhole(raw []byte, p *document.Provenance) ([]*document.Document, error) {
 	body := string(raw)
 	if strings.TrimSpace(body) == "" {
 		return nil, nil
@@ -102,10 +106,8 @@ func (r *Reader) readWhole(raw []byte) ([]*document.Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("markdown: build document: %w", err)
 	}
-	doc.Metadata, err = r.baseMetadata()
-	if err != nil {
-		return nil, fmt.Errorf("markdown: encode metadata: %w", err)
-	}
+	doc.Metadata = r.extraMetadata.Clone()
+	doc.Provenance = origin.Span(p, 0, int64(len(raw)))
 	return []*document.Document{doc}, nil
 }
 
@@ -154,10 +156,7 @@ func (r *Reader) sectionsToDocuments(ctx context.Context, sections []*section) (
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		md, err := r.baseMetadata()
-		if err != nil {
-			return nil, fmt.Errorf("markdown: encode section metadata: %w", err)
-		}
+		md := r.extraMetadata.Clone()
 		doc, err := sec.document(md)
 		if err != nil {
 			return nil, fmt.Errorf("markdown: materialize section: %w", err)
@@ -189,16 +188,6 @@ func (*Reader) headingText(h *ast.Heading, raw []byte) string {
 		return ast.WalkContinue, nil
 	})
 	return b.String()
-}
-
-func (r *Reader) baseMetadata() (coremetadata.Map, error) {
-	md := r.extraMetadata.Clone()
-	if r.sourceName != "" {
-		if err := md.Set(MetadataSourceName, r.sourceName); err != nil {
-			return nil, err
-		}
-	}
-	return md, nil
 }
 
 type section struct {

@@ -1,7 +1,6 @@
 package typesense
 
 import (
-	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -16,7 +15,7 @@ import (
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -47,7 +46,7 @@ func TestConstructorBindsActualNativeSchema(t *testing.T) {
 			case "auto embedding":
 				fields[2].(map[string]any)["embed"] = map[string]any{"from": []string{"content"}, "model_config": map[string]string{"model_name": "native"}}
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, CollectionName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, CollectionName: "documents", Space: fixtureSpace})
 			if store != nil || !errors.Is(err, ErrIncompatibleCollection) {
 				t.Fatalf("constructor=%#v, error=%v", store, err)
 			}
@@ -62,12 +61,7 @@ func TestFullExportRejectsCorruptCurrentRecordsBeforeEmbedding(t *testing.T) {
 	for _, fault := range []string{"legacy metadata", "missing", "unknown", "dimension", "zero vector", "invalid key", "key alias", "whitespace ID", "corrupt metadata", "empty content", "duplicate"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			calls := 0
-			model := embedding.ModelFunc(func(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
-				calls++
-				return constantModel().Call(ctx, request)
-			})
-			store := fixture.store(model, 32)
+			store := fixture.store()
 			valid := nativeRecord(t, &document.Document{ID: "one", Text: "text"})
 			var broken map[string]any
 			if err := jsonv2.Unmarshal(valid, &broken); err != nil {
@@ -104,9 +98,9 @@ func TestFullExportRejectsCorruptCurrentRecordsBeforeEmbedding(t *testing.T) {
 				raw = string(valid) + "\n" + string(valid) + "\n"
 			}
 			fixture.exportOverride = &raw
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("unused")}})
-			if response != nil || err == nil || calls != 0 || len(fixture.queries) != 0 {
-				t.Fatalf("response=%#v, error=%v, model=%d, native=%d", response, err, calls, len(fixture.queries))
+			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
+			if response != nil || err == nil || len(fixture.queries) != 0 {
+				t.Fatalf("response=%#v, error=%v, native=%d", response, err, len(fixture.queries))
 			}
 			if fixture.responses.Load() != fixture.closed.Load() {
 				t.Fatal("export response leaked")
@@ -124,12 +118,12 @@ func TestSemanticPaginationValidatesEveryPage(t *testing.T) {
 	for _, fault := range []string{"none", "duplicate", "late corrupt", "count changed", "cutoff", "short page", "missing distance"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			docs := make([]*document.Document, 300)
 			for i := range docs {
 				docs[i] = &document.Document{ID: fmt.Sprintf("doc_%03d", i), Text: "text"}
 			}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
 			first, second := make([]any, 250), make([]any, 50)
@@ -158,7 +152,7 @@ func TestSemanticPaginationValidatesEveryPage(t *testing.T) {
 			if fault == "cutoff" {
 				fixture.searchScript[1] = mustJSON(t, map[string]any{"results": []any{map[string]any{"found": 300, "hits": second, "search_cutoff": true}}})
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 300, MinScore: 0.1}})
+			response, err := store.Query(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{TopK: 300, MinScore: 0.1}))
 			if fault != "none" {
 				if err == nil || response != nil {
 					t.Fatalf("partial success: %#v, %v", response, err)
@@ -180,17 +174,17 @@ func TestSemanticPaginationValidatesEveryPage(t *testing.T) {
 func TestHybridUsesNativeFusionAndRejectsPaginationBeforeIO(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	alpha := float32(0.8)
-	store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, CollectionName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}, HybridAlpha: &alpha})
+	store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, CollectionName: "documents", Space: fixtureSpace, HybridAlpha: &alpha})
 	if err != nil {
 		t.Fatal(err)
 	}
 	alpha = 0.1
 	doc := &document.Document{ID: "one", Text: "lexical"}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{doc})); err != nil {
 		t.Fatal(err)
 	}
 	fixture.searchScript = []json.RawMessage{searchReply(t, 1, []any{map[string]any{"document": nativeRecord(t, doc)}})}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "lexical", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}})
+	response, err := store.Query(t.Context(), fixtureQuery("lexical", vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}))
 	if err != nil || len(response.Results) != 1 || response.Results[0].Score != 1 {
 		t.Fatalf("lexical-only native fusion: %#v, %v", response, err)
 	}
@@ -198,12 +192,12 @@ func TestHybridUsesNativeFusionAndRejectsPaginationBeforeIO(t *testing.T) {
 		t.Fatal("hybrid native query changed configured weight or lexical evidence")
 	}
 	before := fixture.responses.Load()
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 251}})
+	response, err = store.Query(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, TopK: 251}))
 	if !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil || fixture.responses.Load() != before {
 		t.Fatalf("unsupported fusion pagination: %#v, %v", response, err)
 	}
 	for _, value := range []float32{float32(math.NaN()), float32(math.Inf(1)), -1, 2} {
-		if err = (StoreConfig{Client: fixture.client, EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}, HybridAlpha: &value}).Validate(); err == nil {
+		if err = (StoreConfig{Client: fixture.client, Space: fixtureSpace, HybridAlpha: &value}).Validate(); err == nil {
 			t.Fatal("invalid alpha accepted")
 		}
 	}
@@ -213,9 +207,9 @@ func TestNativeSearchRequiresCompleteAcknowledgmentAndMembership(t *testing.T) {
 	for _, fault := range []string{"missing count", "missing hits", "missing cutoff", "native error", "outside membership", "changed predicate", "extra hit", "invalid distance"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			doc := &document.Document{ID: "one", Text: "text"}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{doc})); err != nil {
 				t.Fatal(err)
 			}
 			hit := map[string]any{"document": nativeRecord(t, doc), "vector_distance": 0}
@@ -240,7 +234,7 @@ func TestNativeSearchRequiresCompleteAcknowledgmentAndMembership(t *testing.T) {
 				hit["vector_distance"] = 3
 			}
 			fixture.searchScript = []json.RawMessage{mustJSON(t, map[string]any{"results": []any{output}})}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
+			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}), fixtureBudget())
 			if err == nil || response != nil {
 				t.Fatalf("invalid native search succeeded: %#v, %v", response, err)
 			}
@@ -317,7 +311,7 @@ func TestResponseBoundaryOwnsBudgetClosureAndErrors(t *testing.T) {
 
 func TestExplicitDeletionPrevalidatesIDsAndAcknowledgments(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.deletes) != 0 {
 		t.Fatal("invalid trailing ID published deletion")
 	}
@@ -328,7 +322,7 @@ func TestExplicitDeletionPrevalidatesIDsAndAcknowledgments(t *testing.T) {
 		}
 	}
 	var nilClient *api.Client
-	if err := (StoreConfig{Client: nilClient, EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{}}).Validate(); err == nil {
+	if err := (StoreConfig{Client: nilClient, Space: fixtureSpace}).Validate(); err == nil {
 		t.Fatal("typed nil native client accepted")
 	}
 }

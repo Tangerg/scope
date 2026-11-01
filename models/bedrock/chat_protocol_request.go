@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 type preparedChatRequest struct {
@@ -200,7 +201,7 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 	}
 }
 
-func mapToolResultContent(output corechat.ToolOutput) ([]types.ToolResultContentBlock, error) {
+func mapToolResultContent(output toolcontract.Output) ([]types.ToolResultContentBlock, error) {
 	if len(output.Content) == 0 {
 		if len(output.Details) == 0 {
 			return []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{}}, nil
@@ -241,7 +242,7 @@ func mapToolResultContent(output corechat.ToolOutput) ([]types.ToolResultContent
 	return content, nil
 }
 
-func mapProtocolTools(definitions []corechat.ToolDefinition, choice *corechat.ToolChoice) (*types.ToolConfiguration, error) {
+func mapProtocolTools(definitions []toolcontract.Definition, choice *corechat.ToolChoice) (*types.ToolConfiguration, error) {
 	if len(definitions) == 0 {
 		return nil, nil
 	}

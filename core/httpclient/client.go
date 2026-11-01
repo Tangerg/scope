@@ -11,6 +11,9 @@ type Config struct {
 	// A nil Transport, including a typed nil, uses http.DefaultTransport.
 	HTTPClient *http.Client
 	BaseURL    string
+	// RejectRedirects binds resource-scoped requests to the original URL, even
+	// when a same-origin server redirects to a different tenant or resource.
+	RejectRedirects bool
 }
 
 // New copies the client value before applying origin restrictions, so SDK
@@ -27,5 +30,13 @@ func New(_ context.Context, config Config) (*http.Client, error) {
 		owned = *config.HTTPClient
 	}
 	origin.restrict(&owned)
+	if config.RejectRedirects {
+		owned.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+			if err := origin.ValidateRequest(req); err != nil {
+				return err
+			}
+			return http.ErrUseLastResponse
+		}
+	}
 	return &owned, nil
 }

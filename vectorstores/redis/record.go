@@ -2,6 +2,7 @@ package redis
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 // nativeMetric is the Redis vector distance metric parsed from FT.INFO; score
@@ -25,9 +27,10 @@ const (
 )
 
 type nativeSchema struct {
-	prefix     string
-	dimensions int
-	metric     nativeMetric
+	indexedTerms bool
+	prefix       string
+	dimensions   int
+	metric       nativeMetric
 }
 
 func (n nativeSchema) vector(values []float64) ([]byte, error) {
@@ -59,7 +62,7 @@ func (n nativeSchema) decode(key string, fields map[string]string) (*document.Do
 	if !strings.HasPrefix(key, n.prefix) || len(key) == len(n.prefix) {
 		return nil, errors.New("redis: native key is outside the document namespace")
 	}
-	if len(fields) != 3 {
+	if len(fields) != 4 {
 		return nil, errors.New("redis: HASH must contain exactly the current document fields")
 	}
 	text, textOK := fields[contentField]
@@ -78,12 +81,19 @@ func (n nativeSchema) decode(key string, fields map[string]string) (*document.Do
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
-	var values metadata.Map
-	if err := values.UnmarshalJSON([]byte(facts)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
 		return nil, err
 	}
-	doc := &document.Document{ID: strings.TrimPrefix(key, n.prefix), Text: text, Metadata: values}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	expected, err := tagValues(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	if got, ok := fields[termsField]; !ok || got != expected {
+		return nil, errors.New("redis: invalid derived metadata terms")
+	}
+	doc.ID, doc.Text = strings.TrimPrefix(key, n.prefix), text
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	return doc, nil
@@ -112,6 +122,19 @@ func (n nativeSchema) score(distance float64) (vectorstore.Score, error) {
 }
 
 type hashRecord struct {
-	key, content, metadata string
-	vector                 []byte
+	key, content, metadata, terms string
+	vector                        []byte
+}
+
+// Hex confines each term to lowercase ASCII independent of TAG case handling
+// and escaping. The comma separates whole tokens and cannot occur in a token.
+func tagValues(m metadata.Map) (string, error) {
+	terms, err := keyword.Project(m)
+	if err != nil {
+		return "", err
+	}
+	for i, t := range terms {
+		terms[i] = hex.EncodeToString([]byte(t))
+	}
+	return strings.Join(terms, ","), nil
 }

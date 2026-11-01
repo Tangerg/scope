@@ -6,7 +6,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -56,7 +55,7 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	return t, nil
 }
 
-func (r *ReadTool) Definition() chat.ToolDefinition {
+func (r *ReadTool) Definition() toolcontract.Definition {
 	return r.typed.Definition()
 }
 

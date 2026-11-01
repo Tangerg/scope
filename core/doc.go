@@ -36,8 +36,8 @@
 //
 // # Shared values
 //
-// The document, media, and metadata packages own the values the protocols embed:
-// the canonical Document, the Media container shared by every modality, and the
+// The content, document, media, and metadata packages own the values the protocols embed:
+// ordered text/media blocks and citations, the canonical Document, the Media container shared by every modality, and the
 // JSON-safe typed extension values. The timestamp package owns lossless JSON
 // admission for time.Time without introducing a competing time representation.
 // A protocol DTO never carries a closure,

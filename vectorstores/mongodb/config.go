@@ -11,7 +11,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -23,7 +22,7 @@ const (
 	idField                = "_id"
 	contentField           = "content"
 	metadataField          = "metadata_json"
-	embeddingField         = "embedding"
+	termsField             = "metadata_terms"
 	scoreField             = "score"
 	filterPageSize         = 128
 )
@@ -39,8 +38,7 @@ type DocumentCollection interface {
 type StoreConfig struct {
 	Collection      DocumentCollection
 	VectorIndexName string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Space           vectorstore.SpaceID
 	// NumCandidates is the native ANN recall floor, raised to cover TopK.
 	NumCandidates int
 }
@@ -49,11 +47,8 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.Collection) {
 		return errors.New("mongodb: Collection is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("mongodb: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("mongodb: DocumentBatcher is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(s.VectorIndexName) != s.VectorIndexName {
 		return errors.New("mongodb: VectorIndexName must not have surrounding whitespace")

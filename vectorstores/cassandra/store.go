@@ -13,9 +13,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -65,7 +62,7 @@ func (s SimilarityFunction) score(raw float64) (vectorstore.Score, error) {
 }
 
 // StoreConfig selects an exclusively owned table. Empty names use exported
-// defaults. Session, EmbeddingModel and DocumentBatcher are required.
+// defaults. Session and Space are required.
 type StoreConfig struct {
 	Session         Session
 	KeyspaceName    string
@@ -74,8 +71,7 @@ type StoreConfig struct {
 	ContentColumn   string
 	EmbeddingColumn string
 	MetadataColumn  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
+	Space           vectorstore.SpaceID
 	Similarity      SimilarityFunction
 	// CreateDimensions seeds a new vector column when InitializeSchema is true.
 	// Existing native schema always owns the width used by operations.
@@ -93,11 +89,8 @@ func (s StoreConfig) Validate() error {
 	if lo.IsNil(s.Session) {
 		return errors.New("cassandra: Session is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("cassandra: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("cassandra: DocumentBatcher is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("cassandra: unsupported Similarity %q", s.Similarity)
@@ -142,10 +135,8 @@ func (s *StoreConfig) applyDefaults() {
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 // Store uses Core JSON and filter semantics, native vector codecs and scalar
@@ -157,8 +148,7 @@ type Store struct {
 	contentColumn   string
 	embeddingColumn string
 	metadataColumn  string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
+	space           vectorstore.SpaceID
 	dimensions      int
 	similarity      SimilarityFunction
 }
@@ -168,15 +158,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{session: config.Session, fullTable: quoteIdentifier(config.KeyspaceName) + "." + quoteIdentifier(config.TableName), idColumn: config.IDColumn, contentColumn: config.ContentColumn, embeddingColumn: config.EmbeddingColumn, metadataColumn: config.MetadataColumn, embeddingClient: client, documentBatcher: config.DocumentBatcher, similarity: config.Similarity}
+	store := &Store{session: config.Session, fullTable: quoteIdentifier(config.KeyspaceName) + "." + quoteIdentifier(config.TableName), idColumn: config.IDColumn, contentColumn: config.ContentColumn, embeddingColumn: config.EmbeddingColumn, metadataColumn: config.MetadataColumn, space: config.Space, similarity: config.Similarity}
 	if config.InitializeSchema {
 		statements := []string{
 			fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s", quoteIdentifier(config.KeyspaceName), config.KeyspaceReplication),
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>)", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions),
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>) WITH comment = '%s'", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions, config.Space.StorageKey()),
 		}
 		for _, statement := range statements {
 			if err := store.session.Query(statement).ExecContext(ctx); err != nil {
@@ -190,6 +176,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
+	var binding string
+	if err := s.session.Query("SELECT comment FROM system_schema.tables WHERE keyspace_name=? AND table_name=?", keyspace, table).ScanContext(ctx, &binding); err != nil {
+		return err
+	}
+	if binding != s.space.StorageKey() {
+		return vectorstore.ErrIncompatibleSpace
+	}
 	iter := s.session.Query("SELECT * FROM " + s.fullTable + " LIMIT 1").IterContext(ctx)
 	columns := iter.Columns()
 	closeErr := iter.Close()
@@ -255,24 +248,27 @@ type storedRecord struct {
 }
 
 func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord, error) {
-	encoded, err := doc.Metadata.MarshalJSON()
+	encoded, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return storedRecord{}, err
 	}
-	narrowed := embedding.Float32Vector(vector)
+	narrowed := narrow(vector)
 	if err := validateStoredVector(narrowed); err != nil {
 		return storedRecord{}, err
 	}
 	return storedRecord{id: doc.ID, content: doc.Text, metadata: string(encoded), vector: narrowed}, nil
 }
 func decodeStoredRecord(record storedRecord) (*document.Document, error) {
-	var facts metadata.Map
-	if err := facts.UnmarshalJSON([]byte(record.metadata)); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata([]byte(record.metadata), doc); err != nil {
 		return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", record.id, err)
 	}
-	doc := &document.Document{ID: record.id, Text: record.content, Metadata: facts}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = record.id, record.content
+	if err := doc.Validate(); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(doc.ID) == "" {
+		return nil, vectorstore.ErrMissingDocumentID
 	}
 	if err := validateStoredVector(record.vector); err != nil {
 		return nil, err
@@ -280,11 +276,23 @@ func decodeStoredRecord(record storedRecord) (*document.Document, error) {
 	return doc, nil
 }
 func validateStoredVector(vector []float32) error {
-	projected := make([]float64, len(vector))
-	for i, value := range vector {
-		projected[i] = float64(value)
+	if len(vector) == 0 {
+		return vectorstore.ErrInvalidRequest
 	}
-	return (&embedding.Output{Embedding: projected}).Validate()
+	for _, v := range vector {
+		if math.IsInf(float64(v), 0) || math.IsNaN(float64(v)) {
+			return vectorstore.ErrInvalidRequest
+		}
+	}
+	return nil
+}
+
+func narrow(v []float64) []float32 {
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(x)
+	}
+	return out
 }
 
 type storedCandidate struct {
@@ -318,36 +326,25 @@ func (s *Store) validateNativeVector(ctx context.Context, vector []float32) erro
 	_, err := s.nativeSimilarity(ctx, vector, right)
 	return err
 }
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("cassandra: index: %w", err)
+func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
+	if err := request.ValidateFor(s.space); err != nil {
+		return err
 	}
-	for i, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("cassandra: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
+	records := make([]storedRecord, 0, len(request.Records))
+	ids := make([]string, 0, len(request.Records))
+	for _, r := range request.Records {
+		if r.Document.Media != nil {
+			return vectorstore.ErrInvalidDocument
 		}
-	}
-	batches, batchErr := request.Batch(ctx, s.documentBatcher)
-	if batchErr != nil {
-		return batchErr
-	}
-	records := make([]storedRecord, 0, len(request.Documents))
-	for _, batch := range batches {
-		texts, err := batch.Texts()
+		if len(r.Values) != s.dimensions {
+			return fmt.Errorf("cassandra: expected %d coordinates: %w", s.dimensions, vectorstore.ErrInvalidRequest)
+		}
+		row, err := encodeStoredRecord(r.Document, r.Values)
 		if err != nil {
 			return err
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("cassandra: embed documents: %w", err)
-		}
-		for i, doc := range batch.Documents {
-			record, err := encodeStoredRecord(doc, vectors[i])
-			if err != nil {
-				return err
-			}
-			records = append(records, record)
-		}
+		records = append(records, row)
+		ids = append(ids, r.Document.ID)
 	}
 	for _, record := range records {
 		if err := s.validateNativeVector(ctx, record.vector); err != nil {
@@ -355,16 +352,20 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 		}
 	}
 	query := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?)", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
-	for _, record := range records {
+	for i, record := range records {
+		if err := ctx.Err(); err != nil {
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}
+		}
 		if err := s.session.Query(query, record.id, record.content, record.metadata, record.vector).ExecContext(ctx); err != nil {
-			return fmt.Errorf("cassandra: index %q: %w", record.id, err)
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}
 		}
 	}
 	return nil
 }
-func (s *Store) selectCandidates(ctx context.Context, predicate filter.Predicate) (selected []storedCandidate, err error) {
+func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.Predicate) (selected []storedCandidate, err error) {
+	ctx := meter.Context()
 	query := fmt.Sprintf("SELECT %s,%s,%s,%s FROM %s", quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), s.fullTable)
-	iter := s.session.Query(query).IterContext(ctx)
+	iter := s.session.Query(query).PageSize(1).IterContext(ctx)
 	defer func() {
 		err = errors.Join(err, iter.Close())
 		if err != nil {
@@ -375,6 +376,9 @@ func (s *Store) selectCandidates(ctx context.Context, predicate filter.Predicate
 		var record storedRecord
 		if !iter.Scan(&record.id, &record.content, &record.metadata, &record.vector) {
 			break
+		}
+		if err := meter.Charge(int64(len(record.id)) + int64(len(record.content)) + int64(len(record.metadata)) + 4*int64(len(record.vector))); err != nil {
+			return nil, err
 		}
 		doc, decodeErr := decodeStoredRecord(record)
 		if decodeErr != nil {
@@ -400,8 +404,8 @@ func (s *Store) selectCandidates(ctx context.Context, predicate filter.Predicate
 	}
 	return selected, nil
 }
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = request.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -409,25 +413,30 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	candidates, err := s.selectCandidates(ctx, request.Options.Filter)
-	if err != nil {
-		return nil, err
+	if len(request.Values) != s.dimensions {
+		return nil, vectorstore.ErrInvalidRequest
 	}
-	if len(candidates) == 0 {
-		return &vectorstore.SearchResponse{}, nil
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	queryVector := embedding.Float32Vector(vector)
+	queryVector := narrow(request.Values)
 	if err = validateStoredVector(queryVector); err != nil {
+		return nil, err
+	}
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	if err = s.validateNativeVector(ctx, queryVector); err != nil {
+		return nil, err
+	}
+	candidates, err := s.selectCandidates(meter, request.Options.Filter)
+	if err != nil {
 		return nil, err
 	}
 	ranked := make([]rankedResult, 0, len(candidates))
@@ -461,14 +470,20 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	candidates, err := s.selectCandidates(ctx, predicate)
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	candidates, err := s.selectCandidates(meter, predicate)
 	if err != nil {
 		return err
 	}

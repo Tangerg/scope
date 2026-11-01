@@ -6,7 +6,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -46,7 +45,7 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 	return t, nil
 }
 
-func (w *WriteTool) Definition() chat.ToolDefinition {
+func (w *WriteTool) Definition() toolcontract.Definition {
 	return w.typed.Definition()
 }
 

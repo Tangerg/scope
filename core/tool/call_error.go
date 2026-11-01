@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 var ErrInvalidCallError = errors.New("tool: invalid call error")
@@ -15,7 +13,7 @@ var ErrInvalidCallError = errors.New("tool: invalid call error")
 // may acknowledge effects without establishing the invocation's final outcome.
 type CallErrorConfig struct {
 	Cause    error
-	Evidence chat.ToolOutput
+	Evidence Output
 }
 
 // CallError preserves evidence that would otherwise be lost when a Tool returns
@@ -27,7 +25,7 @@ type CallErrorConfig struct {
 // outcome. Runtimes must not infer retry safety from the presence of evidence.
 type CallError struct {
 	cause    error
-	evidence chat.ToolOutput
+	evidence Output
 }
 
 func NewCallError(config CallErrorConfig) (*CallError, error) {
@@ -64,9 +62,9 @@ func (c *CallError) Validate() error {
 
 // Evidence returns an independent snapshot of observations made before the
 // error. Missing observations do not prove that effects did not occur.
-func (c *CallError) Evidence() chat.ToolOutput {
+func (c *CallError) Evidence() Output {
 	if c == nil {
-		return chat.ToolOutput{}
+		return Output{}
 	}
 	return c.evidence.Clone()
 }

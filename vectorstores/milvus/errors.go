@@ -7,10 +7,6 @@ var (
 
 	ErrMissingCollectionName = errors.New("milvus: CollectionName is required")
 
-	ErrMissingEmbeddingModel = errors.New("milvus: EmbeddingModel is required")
-
-	ErrMissingDocumentBatcher = errors.New("milvus: DocumentBatcher is required")
-
 	// ErrSchemaMismatch means the existing collection cannot preserve this
 	// store's document, vector, or score contract.
 	ErrSchemaMismatch = errors.New("milvus: collection schema or vector index does not have the current policy")

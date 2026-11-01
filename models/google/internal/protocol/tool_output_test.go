@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestProtocolToolResultPreservesStructuredAndMediaContent(t *testing.T) {
-	response, parts, err := protocolToolResult(corechat.ToolOutput{Details: json.RawMessage(`{"value":4}`)}, false)
+	response, parts, err := protocolToolResult(toolcontract.Output{Details: json.RawMessage(`{"value":4}`)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +28,7 @@ func TestProtocolToolResultPreservesStructuredAndMediaContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, parts, err = protocolToolResult(corechat.ToolOutput{Content: []corechat.ToolContent{
+	response, parts, err = protocolToolResult(toolcontract.Output{Content: []corecontent.Block{
 		{Kind: corechat.PartText, Text: "caption"}, {Kind: corechat.PartMedia, Media: image},
 	}}, false)
 	if err != nil {
@@ -42,7 +44,7 @@ func TestProtocolToolResultRejectsUnsupportedReferenceMedia(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = protocolToolResult(corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: reference}}}, false)
+	_, _, err = protocolToolResult(toolcontract.Output{Content: []corecontent.Block{{Kind: corechat.PartMedia, Media: reference}}}, false)
 	if err == nil {
 		t.Fatal("protocolToolResult accepted provider reference media")
 	}

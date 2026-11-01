@@ -1,213 +1,106 @@
-// Package agent provides the Scope Agent Framework execution kernel.
-// [Definition] owns immutable behavior and creates serializable [Execution]
-// values. [Engine] owns Process lifecycle, Signal delivery, Effect dispatch,
-// child composition, resource bounds, observation, and tree recovery.
-// Strategy payloads remain opaque to the kernel.
+// Package agent composes a chat model, executable tools, and policies into a
+// [github.com/Tangerg/scope/agent/run.Program] with [Input] and [Output].
+// [Compile] freezes their identities. Use run.Runtime.Run for a foreground
+// call, or run.Runtime.Start with a stable StartID for a managed invocation.
+// Higher-level strategies use the same program as a child. Input and Output
+// carry core/chat values.
 //
-// # Execution and ownership
+// A Definition binds immutable model/Tool behavior, exact managed Delegates,
+// and an optional pure completion validator. Each execution owns its
+// serializable working context and state-machine progress. A Dispatcher owns
+// model I/O. A ToolSet binds ordinary executable Tools to a separate child
+// Program that the Definition binds; its scheduling retains only frozen
+// input validators and classifiers, never executable Tools or their backends.
+// Working context and model-call Effects carry only messages and options;
+// the Dispatcher projects executable Tool definitions from the Program.
+// Persisted requests that declare tools or tool_choice are rejected.
+// Hosts cover declaration identity in program digests. Direct model calls
+// remain available through package chatclient without an Interaction or Runtime.
 //
-// A root tree is the consistency, commit, and recovery unit. A Process isolates
-// lifecycle and Strategy state; a Step is the concurrency unit. Sibling Steps
-// may run concurrently, but one tree owner revalidates and adopts their results.
-// Independent commit throughput requires separate root trees.
+// Model-call and child work quotas default to unlimited; a finite zero
+// MaxModelCalls is rejected at construction. Model boundary errors, including
+// nil or structurally invalid responses, leave the Effect Unknown and require
+// explicit Host resolution; [chat.ClassifyFailure] reads a scoped [chat.CallFailure],
+// such as a safeguard input or output rejection, to settle a definite failure. A
+// structurally valid response that violates
+// Interaction constraints terminates with external /
+// interaction.model.invalid_response without retrying the model or committing
+// the rejected Step. Model preparation errors settle as definite host failures
+// before external work begins.
+// ModelObserver retains the whole invocation outcome as succeeded, failed,
+// not_executed, or unknown independently of durable settlement. Valid generation
+// and usage survive failed or uncertain middleware postprocessing; a response
+// never establishes that postprocessing succeeded. Only not_executed proves that
+// the provider performed no work. An unobserved outcome belongs to recordings
+// missing a callback and is never emitted by the Dispatcher.
 //
-// Execution.Step is cancellable, discardable candidate computation. It must
-// not perform external I/O, hide unbounded work, or start unowned goroutines.
-// External work is declared as an [Effect] and performed by a [Dispatcher].
-// These are cooperation contracts, not a sandbox: cancellation cannot forcibly
-// terminate a goroutine, and implementations must return in bounded time.
-// Expired Step attempts are discarded, including their errors; Execution is
-// rebuilt from the last adopted state. Before adoption, the Engine validates
-// that the Deployment can restore the candidate's Snapshot. Definitions own
-// state equivalence and deterministic continuation, verified by conformance cases.
+// Only FinishReasonToolCalls admits Tool and Delegate execution.
+// Length-truncated calls receive model-visible feedback for another model
+// attempt; calls accompanying other finish reasons fail the Process without
+// execution. Restored pending batches satisfy the same rule, and advertised
+// names must refer to bound deferred Tools.
 //
-// [Continue] permits further private candidate computation. [Checkpoint]
-// requires acknowledgment before another Step or Effect in that Process runs.
-// Pending commits and freezes block work that cannot cross their boundary;
-// inspection never drives execution. The owner services ready work in bounded
-// scheduling turns, while the Host owns storage deadlines.
+// Tool and Delegate children are requested only through Framework Effects. One
+// child-call batch owns start confirmations, wait identity, boundary
+// validation, and ordered results for both bindings. Tools refill their
+// bounded window after any child drains; Delegates await their entire batch.
+// Admission progress derives from the ordered invocation records, including
+// retained settlements, so recovery needs no separate scheduling cursor.
+// Each invocation is absent until its start is declared, then the same record
+// retains its start receipt and result without a parallel requested marker.
+// A rejected Tool child start terminates the Interaction with the original
+// Failure, because the ToolSet is required infrastructure. A rejected Delegate
+// start is a model-visible rejected result, because choosing another worker is
+// the model's delegation policy. A Tool child's Failure propagates unchanged
+// to the parent. A drained Delegate subtree with unresolved Effects fails the
+// parent without another model call. A canceled parent never resumes to
+// collect or publish children.
 //
-// # One commit protocol
+// Each Tool call owns one Effect, its result, and any input continuation.
+// Completed siblings retain their settlements when another call remains
+// unknown or waits for input. A valid tool.Failure produces its model-visible
+// error ToolResult and disposition; its Cause cannot turn it into
+// cancellation, input, or host control. Transparent single-cause wrappers
+// preserve that outcome; independent joined errors leave the invocation unknown.
+// Ordinary errors, invalid output,
+// cancellation, deadlines, and a panic from Tool.Call leave the Tool
+// Effect unknown until the Host settles it; terminating the Process retains
+// those identities without establishing that external work failed. A panic from
+// a tool's input validator is instead a definite failure classified before
+// Tool.Call runs: it fails the Step without reaching the model and leaves no
+// unknown Effect. Observer callbacks describe
+// attempts and never replace the Runtime's settlement boundary. A complete
+// round continues to the model or completes directly only after its
+// Checkpoint is acknowledged. Recovery never replays Tools or models: Hosts
+// settle investigated outcomes with [ToolSet.SettleToolResult], [SettlePreparedContext], or
+// [SettleModelResult], using requests retained by
+// [github.com/Tangerg/scope/agent/run.TreeSnapshot.EffectRequest], and submit them through
+// run.Handle.ResolveUnknownEffect. Model context receives complete results
+// in original call order.
+// AdvertisingTool projects a successful result through a pure callback. Live
+// declarations are sorted and deduplicated; persisted declarations must already
+// be canonical. An invalid declaration or callback failure retains the completed
+// Tool result and then fails the child with a contract Failure. It never makes
+// known external work unknown or permits replay.
 //
-// Every Engine requires an explicit [TreeCommitter]. [NewMemoryTreeCommitter]
-// supplies the same compare-and-swap, writer fencing, and deduplication protocol
-// with retention limited to that store instance's lifetime. Persistent adapters
-// provide their own storage transactions. No backend bypasses acknowledgment.
-// Checkpoints and Effects share an incarnation-scoped commit sequence, allocated
-// by the Engine and atomically retained with the stored head. Equal snapshot
-// content can recur; it never identifies a commit or permits historical replay.
-// [EffectBoundary], [TreeCheckpoint], and [TreeActivation] derive the canonical
-// commit Identity and ContentDigest used by both memory and persistent stores.
-// A Host stores these Scope facts alongside its own business write set, within
-// the same atomic head comparison. The [TreeCommitter] example also binds the
-// real storage call to a Host deadline and shutdown signal.
+// [SettledResults] projects exact known results from the authoritative tree;
+// it has no storage or acknowledgment role. [ToolCallRef] correlates one
+// logical call across [ToolInvocation.Reference], [RoundResults.Reference],
+// and [DelegateAttribution.Reference]; its ProcessID is the requesting
+// Interaction, not the Tool child. A Tool child's reference comes only from the
+// [ToolChildKey] its parent gave it, so a ToolSet run as a root or under any
+// other ChildKey has none.
 //
-// Start commits the initial head and writer identity before publishing the
-// Process, and every [TreeSnapshot] carries that identity. [Engine.RestoreTree]
-// activates a new writer against the supplied head; missing heads, stale
-// digests, and superseded writers fail.
-//
-// The runtime may hold a newer private candidate than its acknowledged head.
-// Signal admission, child publication, committed Events, terminal results, and
-// inspection snapshots become visible only after their tree commit succeeds.
-//
-// A failed acknowledgment stops the writer with a [RuntimeError], without
-// inventing a logical termination or overwriting an already published result.
-// The error carries its last acknowledged digest and uncertain Effect identities.
-// Recovery must load the store's authoritative head: a lost response or another
-// writer may have advanced storage beyond this runtime's knowledge.
-//
-// # External Effects and uncertainty
-//
-// Dispatcher Effects advance in declaration order through planned, pending,
-// and settled. The pending boundary commits the complete prospective tree before
-// dispatch starts. Settlement commits before continuation or publication. A
-// returned error means the external outcome is unknown; it is not definite
-// failure. A planned Effect that never dispatched cannot become unknown.
-// Direct-child controls perform no external I/O: recipient changes and their
-// definite settlement share one atomic tree checkpoint.
-//
-// A Dispatcher's [EffectPolicy] owns each of its Effects' required
-// capabilities; the Engine enforces them when preparing a Step, restoring a
-// dispatchable Effect, and replaying an Unknown.
-//
-// An interrupted pending attempt may replay only when its [ReplayPolicy]
-// establishes the same logical operation under the original identity. A settled
-// Unknown requires explicit Host reconciliation or [Process.ReplayUnknownEffect].
-// The existing Unknown remains authoritative throughout replay until a definite
-// resolution commits. Cancellation still collects already started external work.
-// Terminal snapshots retain actual settlements, unstarted tails, and unresolved
-// identities; restoration never silently turns uncertainty into success.
-//
-// # Signals, lifecycle, and bounds
-//
-// [Signal] is the only runtime input into Execution. [Process.DeliverSignals]
-// atomically admits an ordered batch and charges each identity once. Reusing an
-// identity with different immutable content conflicts. [SignalReceipt] exposes
-// acknowledged admission and consumption for delivery reconciliation. Waits and
-// child waits carry explicit identities; stale continuation input is rejected.
-// Candidate failure cannot permanently consume an input.
-//
-// Terminal intent still joins started work and required acknowledgments; a late
-// successful child initialization joins under that intent before running a
-// Step. Host cancellation never abandons a required acknowledgment. Terminal
-// Unknown settlements remain evidence of remote uncertainty.
-//
-// Each Process carries its own cumulative [Budget]; one [TreeLimits] per root
-// tree owns mailbox, snapshot, and structural capacity for every member.
-// Captured quotas survive restoration without new Engine defaults.
-// Unlimited execution still retains history and checks numeric identity overflow;
-// the Host chooses retention and resource policy. Default depth and active-child
-// bounds do not bound retained tree size or lifetime work. Hosts requiring bounded
-// lifetime growth must choose finite Steps, Effects, Signals, Process snapshot bytes, total
-// children, tree Processes, and tree snapshot bytes for their workload. See the
-// bounded configuration in the [Definition] example. These quotas do not cap the
-// committer ledger across trees or repeated control checkpoints; storage retention
-// has its own Host-owned lifetime.
-//
-// Defaults suit trees whose input sizes, lifetime work, and population are
-// bounded by the Host. They are not a memory budget or a latency guarantee.
-// A pending-Signal bound does not limit consumed deduplication history. Releasing
-// an Engine tree does not remove the committer's retained head or replay facts.
-//
-// Snapshot admission reserves bounded control and termination metadata with
-// worst-case JSON escaping. Admission of one cut does not authorize future
-// growth. An external result that cannot fit stops the runtime with its unresolved
-// identity; the Host reconciles the outcome from the acknowledged stored head.
-//
-// # Capacity measurements
-//
-// From this module, use the existing benchmark entry points for a local baseline:
-//
-//	go test -run '^$' -bench '^BenchmarkTreeSignalCommit$/[^/]+/batch_(1|64)$/' -benchmem -benchtime=1000x -count=3
-//	go test -run '^$' -bench '^BenchmarkTreeRecoveryBoundary$/(baseline|history_1024|active_batch_64|combined)$/(restore|parse_restore)$' -benchmem -benchtime=1000x -count=3
-//	go test -run '^$' -bench 'BenchmarkWaitingTreeCapture|BenchmarkMemoryTreeCommitterRetention|BenchmarkTreeCaptureGrowthReduction' -benchmem -benchtime=10x -count=3
-//
-// Signal commit samples run from DeliverSignals through checkpoint acknowledgment
-// on a fresh copy of the same paused tree. The default-width fixture retains
-// a root and DefaultTreeLimits().MaxActiveChildren completed children; expanded
-// fixtures explicitly raise limits. The mailbox-capacity fixtures distinguish
-// pending payloads from consumed identities. Prepared Effect counts include
-// requests not yet dispatched; unknown_effects counts actual uncertain outcomes.
-// TreeRecoveryBoundary/restore starts from a decoded snapshot; parse_restore
-// includes strict parsing. Both stop at RestoreTree return, including volatile
-// writer activation, before subsequent execution or remote reconciliation.
-//
-// p50/p95/p99 use nearest-rank serial, closed-loop samples. Read their sample
-// counts; the check runner's one-iteration smoke is not a tail-latency baseline.
-// Sample the mailbox-capacity and large-context cases separately at a fixed
-// count suited to their higher cost; report that count with their results.
-// Record the revision, Go version, CPU, concurrency, and repeated results on the
-// same machine. These fixtures exclude Host storage reads, database/network I/O,
-// model/tool latency, exporter I/O, and sustained competing arrivals. The 1 ms
-// acknowledgment delay models waiting only. Measure those Host costs under the
-// intended arrival rate before choosing quotas or a latency objective.
-//
-// MemoryTreeCommitterRetention reports the latest head's wire size, retained
-// replay key/digest payload bytes, and cumulative offered snapshot bytes. The
-// byte counts omit the additional decoded representation and Go object/map
-// overhead; B/op measures allocation churn, not retained heap.
-// TreeCaptureGrowthReduction measures full
-// snapshot traffic as opaque state grows and shrinks. Large synthetic tree and
-// context fixtures characterize scaling; they do not certify defaults for every
-// combination or authorize a different persistence or writer protocol.
-//
-// # Recovery and observation
-//
-// [TreeSnapshot] is the sole recovery representation, with one strict current
-// schema and no version envelopes, migration dispatch, or compatibility reads.
-// [ProcessSnapshot] is diagnostic state, not an independent recovery unit.
-// [ExecutionState] contains opaque Strategy-owned state; Hosts resolve an exact
-// [DeploymentRef] rather than interpreting Strategy kinds or control flow.
-//
-// Events describe attempts or committed facts; [Delta] is best-effort observation.
-// Neither substitutes for an acknowledged head. Event sequences restart with
-// each activation and do not impose ordering across writers. Wall timestamps
-// are diagnostic, not causal proofs. [EventListener] and [DeltaListener] own
-// their callback bounds and reentrancy rules.
-//
-// # Strategies
-//
-// Built-in strategies live under strategy/. Each concrete package implements
-// the public execution protocol; the directory itself defines no package or
-// runtime contract. Host-defined strategies use the same protocol.
-//
-// [github.com/Tangerg/scope/agent/strategy/interaction] implements ReAct-style
-// model and tool loops with working context, delegates, and artifacts.
-// [github.com/Tangerg/scope/agent/strategy/planning] owns goal-driven planning;
-// its goap subpackage supplies a quota-controlled search implementation selected by the
-// Host. [github.com/Tangerg/scope/agent/strategy/workflow] implements ordered
-// deterministic stages over a closed vocabulary, composing real child Processes.
-// [github.com/Tangerg/scope/agent/strategy/coordination] composes bounded input
-// gates, absolute deadlines, and first-success competition through the same
-// child and wait contracts.
-// [github.com/Tangerg/scope/agent/strategy/collaboration] runs coordinator
-// turns beside background workers. Decisions choose whether to continue while
-// workers run, wait for drained results, or complete. The Strategy retains
-// explicit working state and its Deployment binds the coordinator and workers;
-// the Engine starts the children from those bindings. Workflow child failures and collaboration coordinator
-// failures preserve their original Failure kind, code, and diagnostic.
-//
-// [github.com/Tangerg/scope/agent/messaging] delivers intermediate input through
-// a narrow Host-authorized port, retaining the original recipient and
-// Effect-derived Signal identity. Its sender and recipient acknowledge
-// separately; it does not provide the direct-child control's single tree commit.
-//
-// The Engine never imports or type-switches a concrete strategy. A new
-// strategy is admitted by implementing the waist, state codec, and safe
-// consumption boundary, and binding a dispatcher when it declares external Effects.
-//
-// # Host boundaries
-//
-// Hosts own product identity, transports, storage transactions, retention,
-// permissions, billing, deployment catalogs, and provider selection. The kernel
-// owns execution identities, state transitions, resource accounting, child
-// ownership, and the commit protocol. Successive bounded root trees require a
-// Host transaction for successor admission and input cutover; equal Start input
-// alone does not make admission idempotent.
-//
-// Database adapters belong to the consuming application or an independently
-// owned adapter. Package agenttest supplies Definition and TreeCommitter
-// conformance suites. Chat, tools, embeddings, history, and telemetry remain in
-// their own modules.
+// Descriptor.SignalSchema admits only steering envelopes as unaddressed input.
+// [NewSteerSignal] steering accepted during model or child work applies before
+// the next model call, after the current result batch; it never preempts a
+// model request or answers a Tool input wait. Tool answers address the Tool
+// child's wait through [PendingToolInputs]. The answer payload is the original
+// response JSON, validated against the unchanged response Schema by that wait;
+// its canonical bytes must also fit tool.MaxInputBytes. Both constraints persist
+// in the wait's opening contract, and a rejected answer leaves that wait open.
+// Schema resources and local references retain their original scope. A parent
+// Strategy delivers the same SignalRequest through run.NewChildSignalEffect.
+// Unsupported envelopes are rejected before admission; semantic protocol violations discard the Step
+// with a contract Failure, and a Step error never consumes input.
 package agent

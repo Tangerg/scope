@@ -1,21 +1,23 @@
 package conformancetest
 
 import (
+	startrand "crypto/rand"
+
 	"context"
 	"testing"
 	"time"
 
-	agent "github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // CheckDispatcherRejection verifies that malformed protocol input settles at
-// the Engine boundary and can be consumed without host adjudication.
-func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect agent.Effect) {
+// the Runtime boundary and can be consumed without host adjudication.
+func CheckDispatcherRejection(t *testing.T, dispatcher run.Dispatcher, effect run.Effect) {
 	t.Helper()
 	recorder := &rejectionDispatcher{next: dispatcher, outcome: make(chan dispatchOutcome, 1)}
 	deployment := newRejectionDeployment(t, recorder, effect)
-	engine, err := agent.NewEngine(agent.EngineConfig{TreeCommitter: agent.NewMemoryTreeCommitter()})
+	engine, err := run.New(context.Background(), run.Config{Store: run.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +28,11 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 			t.Error(closeErr)
 		}
 	}()
-	input, err := agent.EncodePayload(struct{}{})
+	input, err := run.EncodePayload(struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(ctx, deployment, input)
+	process, err := engine.Start(ctx, deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +54,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher agent.Dispatcher, effect 
 		t.Fatalf("local rejection settlement = %+v, error = %v; want definite failed settlement", outcome.settlement, outcome.err)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Termination().Status() != agent.StatusCompleted || len(result.Termination().UnresolvedEffectIDs()) != 0 || result.Usage().PreparedEffects != 1 {
+	if err != nil || result.Termination().Status() != run.StatusCompleted || len(result.Termination().UnresolvedEffectIDs()) != 0 || result.Usage().PreparedEffects != 1 {
 		t.Fatalf("rejection consumption = %+v, error = %v", result, err)
 	}
 }
@@ -62,21 +64,21 @@ const (
 	rejectionTimeout   = 5 * time.Second
 )
 
-func newRejectionDeployment(t *testing.T, dispatcher agent.Dispatcher, effect agent.Effect) agent.Deployment {
+func newRejectionDeployment(t *testing.T, dispatcher run.Dispatcher, effect run.Effect) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	schema, err := jsonschema.For[struct{}]()
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := agent.NewDescriptor(agent.DescriptorConfig{
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name: rejectionStateKind, Description: "Exercise a rejected dispatcher protocol.", InputSchema: schema, OutputSchema: schema,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := agent.NewDeployment(agent.DeploymentConfig{
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
 		Definition: rejectionDefinition{descriptor: descriptor, effect: effect}, Dispatcher: dispatcher,
-		ImplementationDigest: agent.ComputeDigest([]byte("dispatcher-rejection")), ConfigurationDigest: agent.ComputeDigest(effect.Payload()),
+		ImplementationDigest: run.ComputeDigest([]byte("dispatcher-rejection")), ConfigurationDigest: run.ComputeDigest(effect.Payload()),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,41 +87,43 @@ func newRejectionDeployment(t *testing.T, dispatcher agent.Dispatcher, effect ag
 }
 
 type dispatchOutcome struct {
-	settlement agent.Settlement
+	settlement run.Settlement
 	err        error
 }
 
 func (d dispatchOutcome) definiteFailure() bool {
 	return d.err == nil && d.settlement.Valid() &&
-		d.settlement.Status() == agent.SettlementStatusFailed
+		d.settlement.Status() == run.SettlementStatusFailed
 }
 
 type rejectionDispatcher struct {
-	next    agent.Dispatcher
+	next    run.Dispatcher
 	outcome chan dispatchOutcome
 }
 
-func (r *rejectionDispatcher) Policy(effect agent.Effect) agent.EffectPolicy {
+func (r *rejectionDispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return r.next.Policy(effect)
 }
-func (r *rejectionDispatcher) Dispatch(ctx context.Context, request agent.EffectRequest, emit agent.DeltaEmitter) (agent.Settlement, error) {
+func (r *rejectionDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	settlement, err := r.next.Dispatch(ctx, request, emit)
 	r.outcome <- dispatchOutcome{settlement: settlement, err: err}
 	return settlement, err
 }
 
 type rejectionDefinition struct {
-	descriptor agent.Descriptor
-	effect     agent.Effect
+	descriptor run.Descriptor
+	effect     run.Effect
 }
 
-func (r rejectionDefinition) Descriptor() agent.Descriptor { return r.descriptor }
+func (r rejectionDefinition) Descriptor() run.Descriptor { return r.descriptor }
 
-func (rejectionDefinition) ChildDeployments() []agent.Deployment { return nil }
-func (r rejectionDefinition) Start(_ agent.Payload) (agent.Execution, error) {
+func (rejectionDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+	return nil
+}
+func (r rejectionDefinition) Start(_ run.Payload) (run.Execution, error) {
 	return &rejectionExecution{effect: r.effect}, nil
 }
-func (r rejectionDefinition) Restore(ctx context.Context, state agent.ExecutionState) (agent.Execution, error) {
+func (r rejectionDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -131,21 +135,21 @@ func (r rejectionDefinition) Restore(ctx context.Context, state agent.ExecutionS
 }
 
 type rejectionExecution struct {
-	effect agent.Effect
+	effect run.Effect
 	sent   bool
 }
 
-func (r *rejectionExecution) Snapshot() (agent.ExecutionState, error) {
-	return agent.EncodeExecutionState(rejectionStateKind, r.sent)
+func (r *rejectionExecution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState(rejectionStateKind, r.sent)
 }
-func (r *rejectionExecution) Step(_ context.Context, signals []agent.Signal) (agent.Transition, error) {
+func (r *rejectionExecution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
 	if !r.sent {
 		r.sent = true
-		return agent.Continue(0, r.effect)
+		return run.Continue(0, r.effect)
 	}
-	output, err := agent.EncodePayload(struct{}{})
+	output, err := run.EncodePayload(struct{}{})
 	if err != nil {
-		return agent.Transition{}, err
+		return run.Transition{}, err
 	}
-	return agent.Complete(uint32(len(signals)), output)
+	return run.Complete(uint32(len(signals)), output)
 }

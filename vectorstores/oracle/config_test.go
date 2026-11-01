@@ -1,19 +1,13 @@
 package oracle
 
 import (
-	"context"
 	"strings"
 	"testing"
-
-	"github.com/Tangerg/scope/core/embedding"
 )
 
 func TestConfigValidationOwnsConstructionRequirements(t *testing.T) {
 	db, _ := closedDatabase(t)
-	model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
-	})
-	valid := StoreConfig{DB: db, EmbeddingModel: model, DocumentBatcher: offlineBatcher{}}
+	valid := StoreConfig{DB: db, Space: fixtureSpace}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("existing schema with inferred width is invalid: %v", err)
 	}
@@ -21,11 +15,8 @@ func TestConfigValidationOwnsConstructionRequirements(t *testing.T) {
 		name, want string
 		change     func(*StoreConfig)
 	}{
+		{"space", "space ID", func(c *StoreConfig) { c.Space = "" }},
 		{"database", "DB is required", func(config *StoreConfig) { config.DB = nil }},
-		{"model", "EmbeddingModel is required", func(config *StoreConfig) { config.EmbeddingModel = nil }},
-		{"typed_nil_model", "EmbeddingModel is required", func(config *StoreConfig) { config.EmbeddingModel = embedding.ModelFunc(nil) }},
-		{"batcher", "DocumentBatcher is required", func(config *StoreConfig) { config.DocumentBatcher = nil }},
-		{"typed_nil_batcher", "DocumentBatcher is required", func(config *StoreConfig) { config.DocumentBatcher = (*offlineBatcher)(nil) }},
 		{"negative_width", "Dimensions must be >= 0", func(config *StoreConfig) { config.Dimensions = -1 }},
 		{"creation_width", "Dimensions must be > 0", func(config *StoreConfig) { config.InitializeSchema = true }},
 		{"metric", "unsupported DistanceMetric", func(config *StoreConfig) { config.DistanceMetric = "unsupported" }},

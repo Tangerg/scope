@@ -72,7 +72,7 @@ func TestWholePage(t *testing.T) {
 	if got := metadataValue[string](t, docs[0].Metadata, html.MetadataCanonical); got != "https://example.com/test" {
 		t.Errorf("canonical: got %v", got)
 	}
-	if got := metadataValue[string](t, docs[0].Metadata, html.MetadataSourceName); got != "test.html" {
+	if got := docs[0].Provenance.Source; got != "test.html" {
 		t.Errorf("source: got %v", got)
 	}
 }

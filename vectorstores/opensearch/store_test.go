@@ -15,31 +15,36 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-type testBatcher struct{ size int }
+const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
-func (t testBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, max(t.size, 1))), nil
+func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: fixtureVector(doc.Text)})
+	}
+	return b
 }
-
-func constantModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 16 << 20, Timeout: time.Minute}
+}
+func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if q.Options.Filter != nil {
+		return s.Scan(ctx, q, fixtureBudget())
+	}
+	return s.Query(ctx, q)
 }
 
 type protocolFixture struct {
@@ -64,6 +69,7 @@ type protocolFixture struct {
 func newProtocolFixture(t *testing.T) *protocolFixture {
 	t.Helper()
 	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]storedDocument), scores: make(map[string]float64), mapping: nativeMapping{Dynamic: "strict", Properties: map[string]mappedField{contentField: {Type: "text"}, metadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, embeddingField: {Type: "knn_vector", Dimensions: 2, Method: &nativeMethod{Name: "hnsw", Engine: "lucene", SpaceType: "cosinesimil"}}}}, settings: nativeSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.knn": "true", "index.derived_source.enabled": "false", "index.knn.derived_source.enabled": "false", "index.search.default_pipeline": "_none", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
+	fixture.mapping.Meta.Space = string(fixtureSpace)
 	server := httptest.NewServer(fixture)
 	t.Cleanup(server.Close)
 	client, err := opensearchsdk.NewClient(opensearchsdk.Config{Addresses: []string{server.URL}, Transport: server.Client().Transport, DisableRetry: true, DiscoverNodesOnStart: new(false)})
@@ -80,9 +86,9 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	return fixture
 }
 
-func (p *protocolFixture) store(model embedding.Model, size int) *Store {
+func (p *protocolFixture) store() *Store {
 	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", EmbeddingModel: model, DocumentBatcher: testBatcher{size: size}})
+	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", Space: fixtureSpace})
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -258,14 +264,14 @@ func TestCoreFilterConformanceThroughNativeMembership(t *testing.T) {
 	for _, operation := range []string{"search", "delete"} {
 		t.Run(operation, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 32)
+			store := fixture.store()
 			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 				clear(fixture.rows)
-				if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
 				if operation == "delete" {
-					if err := store.DeleteWhere(ctx, predicate); err != nil {
+					if err := store.DeleteMatching(ctx, predicate, fixtureBudget()); err != nil {
 						return nil, err
 					}
 					var deleted []string
@@ -276,7 +282,7 @@ func TestCoreFilterConformanceThroughNativeMembership(t *testing.T) {
 					}
 					return deleted, nil
 				}
-				response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+				response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 				if err != nil {
 					return nil, err
 				}
@@ -292,14 +298,14 @@ func TestCoreFilterConformanceThroughNativeMembership(t *testing.T) {
 
 func TestMetadataRoundTripHasOneOpaqueRepresentation(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	for _, facts := range []metadata.Map{nil, {}, {"content": json.RawMessage(`"value"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}} {
 		clear(fixture.rows)
 		id := " spaced / * ? 中文🙂 "
-		if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: id, Text: "text", Metadata: facts}}}); err != nil {
+		if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: id, Text: "text", Metadata: facts}})); err != nil {
 			t.Fatal(err)
 		}
-		response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+		response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -313,7 +319,7 @@ func TestMetadataRoundTripHasOneOpaqueRepresentation(t *testing.T) {
 }
 
 func TestWholePreparationRejectsLateFailuresWithoutPublication(t *testing.T) {
-	for _, fault := range []string{"late model", "dimension", "overflow", "zero vector", "FP16", "metadata", "ID limit"} {
+	for _, fault := range []string{"dimension", "overflow", "zero vector", "FP16", "metadata", "ID limit"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 
@@ -324,29 +330,18 @@ func TestWholePreparationRejectsLateFailuresWithoutPublication(t *testing.T) {
 				field.Method.Parameters.Encoder = &nativeEncoder{Name: "sq"}
 				fixture.mapping.Properties[embeddingField] = field
 			}
-			calls := 0
-			cause := errors.New("late model failure")
-			model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 && fault == "late model" {
-					return nil, cause
-				}
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch fault {
-					case "dimension":
-						vector = []float64{1}
-					case "overflow":
-						vector = []float64{1e100, 0}
-					case "FP16":
-						vector = []float64{65505, 0}
-					case "zero vector":
-						vector = []float64{1e-50, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			})
-			store := fixture.store(model, 1)
+			vector := []float64{1, 0}
+			switch fault {
+			case "dimension":
+				vector = []float64{1}
+			case "overflow":
+				vector = []float64{1e100, 0}
+			case "FP16":
+				vector = []float64{65505, 0}
+			case "zero vector":
+				vector = []float64{1e-50, 0}
+			}
+			store := fixture.store()
 			docs := []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}}
 			if fault == "metadata" {
 				docs[1].Metadata = metadata.Map{"bad": json.RawMessage(`broken`)}
@@ -354,15 +349,11 @@ func TestWholePreparationRejectsLateFailuresWithoutPublication(t *testing.T) {
 			if fault == "ID limit" {
 				docs[1].ID = strings.Repeat("x", 513)
 			}
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs})
+			batch := fixtureBatch(docs)
+			batch.Records[1].Values = vector
+			err := store.Upsert(t.Context(), batch)
 			if err == nil || fixture.writes != 0 {
 				t.Fatalf("failure=%v, native writes=%d", err, fixture.writes)
-			}
-			if fault == "late model" && !errors.Is(err, cause) {
-				t.Fatal("lost model cause")
-			}
-			if (fault == "metadata" || fault == "ID limit") && calls != 0 {
-				t.Fatal("invalid document reached the model")
 			}
 		})
 	}
@@ -378,7 +369,7 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 				field.Method.Engine = "nmslib"
 			}
 			fixture.mapping.Properties[embeddingField] = field
-			store := fixture.store(constantModel(), 1)
+			store := fixture.store()
 			if store.schema.similarity != nativeSimilarity(metric) || store.schema.dimensions != 2 {
 				t.Fatalf("schema=%#v", store.schema)
 			}
@@ -417,7 +408,7 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 			case "source mode":
 				fixture.settings.Settings["index.derived_source.enabled"] = "true"
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{size: 1}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
 			if store != nil || !errors.Is(err, ErrIncompatibleIndex) {
 				t.Fatalf("incompatible policy accepted: %#v, %v", store, err)
 			}
@@ -427,8 +418,8 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 
 func TestConditionalDeletionReportsNativeConflict(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 1)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+	store := fixture.store()
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
 	fixture.beforeDelete = func() {
@@ -436,10 +427,10 @@ func TestConditionalDeletionReportsNativeConflict(t *testing.T) {
 		record.MetadataJSON = `{"value":"new"}`
 		fixture.rows["one"] = record
 	}
-	if err := store.DeleteWhere(t.Context(), filter.IsNull("unused")); err == nil || len(fixture.rows) != 1 {
+	if err := store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err == nil || len(fixture.rows) != 1 {
 		t.Fatalf("stale deletion: %v", err)
 	}
-	if err := store.DeleteWhere(t.Context(), filter.IsNull("unused")); err != nil || len(fixture.rows) != 0 {
+	if err := store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err != nil || len(fixture.rows) != 0 {
 		t.Fatalf("current deletion: %v", err)
 	}
 }
@@ -456,18 +447,18 @@ func TestNativeInnerProductScoreAndRawRanking(t *testing.T) {
 	field := fixture.mapping.Properties[embeddingField]
 	field.Method.SpaceType = "innerproduct"
 	fixture.mapping.Properties[embeddingField] = field
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store()
 	docs := make([]*document.Document, 513)
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("%04d", i), Text: "text"}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	for i, doc := range docs {
 		fixture.scores[doc.ID] = 1e30 + float64(i)*1e29
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
 	if err != nil {
 		t.Fatal(err)
 	}

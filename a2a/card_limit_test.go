@@ -19,7 +19,6 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -229,7 +228,7 @@ func TestAgentCardLimitDoesNotBoundRPCResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

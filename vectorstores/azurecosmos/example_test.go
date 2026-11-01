@@ -4,24 +4,16 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"slices"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/vectorstores/azurecosmos"
 )
-
-type exampleBatcher struct{}
-
-func (e exampleBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, 32)), nil
-}
 
 func ExampleNewStore() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -41,24 +33,17 @@ func ExampleNewStore() {
 	if err != nil {
 		panic(err)
 	}
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	store, err := azurecosmos.NewStore(ctx, azurecosmos.StoreConfig{Container: container, PartitionKey: "library", EmbeddingModel: model, DocumentBatcher: exampleBatcher{}})
+	store, err := azurecosmos.NewStore(ctx, azurecosmos.StoreConfig{Container: container, PartitionKey: "library", Space: "manual-v1"})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "example"}}}); err != nil {
+	if err = store.Upsert(ctx, &vectorstore.Batch{Space: "manual-v1", Records: []vectorstore.Record{{Document: &document.Document{ID: "one", Text: "example"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "example"}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: "manual-v1", Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
-	if err = store.DeleteWhere(ctx, filter.IsNull("unused")); err != nil {
+	if err = store.DeleteMatching(ctx, azurecosmos.ScanConfig{Budget: vectorstore.ScanBudget{MaxRecords: 100, MaxBytes: 1 << 20, Timeout: time.Second}, Filter: filter.IsNull("unused")}); err != nil {
 		panic(err)
 	}
 }

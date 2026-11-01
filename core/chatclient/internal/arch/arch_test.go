@@ -24,8 +24,8 @@ func TestClientKeepsFocusedCallSurface(t *testing.T) {
 	if methods := declaredMethods(t, "StreamClient"); !slices.Equal(methods, []string{"Stream"}) {
 		t.Fatalf("StreamClient methods = %v, want [Stream]", methods)
 	}
-	if methods := reflectedMethods(reflect.TypeFor[chatclient.OutputFormat[string]]()); !slices.Equal(methods, []string{"Decode"}) {
-		t.Fatalf("OutputFormat methods = %v, want [Decode]", methods)
+	if methods := reflectedMethods(reflect.TypeFor[chatclient.Format[string]]()); !slices.Equal(methods, []string{"Contract", "Decode"}) {
+		t.Fatalf("Format methods = %v, want [Contract Decode]", methods)
 	}
 }
 

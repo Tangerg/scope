@@ -1,13 +1,10 @@
 package chat
 
 import (
-	"bytes"
-	"encoding/json"
-	"encoding/json/jsontext"
-	jsonv2 "encoding/json/v2"
 	"fmt"
-	"strings"
 	"unicode/utf8"
+
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 // ToolCall is one complete, untrusted model proposal to invoke a named tool.
@@ -33,120 +30,28 @@ func (t ToolCallDelta) Validate() error {
 	return ToolCall(t).Validate()
 }
 
-// ToolOutput is the provider-neutral value produced by a Tool. Content is the
-// model-visible ordered text/media representation. Details is optional JSON
-// for structured consumers; providers use its encoded JSON as the model-visible
-// fallback only when Content is empty.
-type ToolOutput struct {
-	Content []ToolContent   `json:"content,omitempty"`
-	Details json.RawMessage `json:"details,omitzero"`
-}
-
-// NewTextToolOutput returns a text output. Empty text is represented by the
-// valid zero ToolOutput rather than an invalid empty text Part.
-func NewTextToolOutput(text string) ToolOutput {
-	if text == "" {
-		return ToolOutput{}
-	}
-	return ToolOutput{Content: []ToolContent{{Kind: PartText, Text: text}}}
-}
-
-// NewJSONToolOutput returns a structured output whose exact JSON encoding is
-// preserved. The value must be one complete RFC 7493 JSON document.
-func NewJSONToolOutput(value json.RawMessage) (ToolOutput, error) {
-	if len(value) == 0 {
-		return ToolOutput{}, fmt.Errorf("%w: details must not be empty", ErrInvalidToolOutput)
-	}
-	output := ToolOutput{Details: bytes.Clone(value)}
-	if err := output.Validate(); err != nil {
-		return ToolOutput{}, err
-	}
-	return output, nil
-}
-
-func (t ToolOutput) Clone() ToolOutput {
-	clone := ToolOutput{Details: bytes.Clone(t.Details)}
-	if t.Content != nil {
-		clone.Content = make([]ToolContent, len(t.Content))
-		for index := range t.Content {
-			clone.Content[index] = t.Content[index].Clone()
-		}
-	}
-	return clone
-}
-
-func (t ToolOutput) MarshalJSON() ([]byte, error) {
-	if err := t.Validate(); err != nil {
-		return nil, err
-	}
-	return jsonv2.Marshal(wireToolOutput(t), jsonv2.Deterministic(true))
-}
-
-func (t *ToolOutput) UnmarshalJSON(data []byte) error {
-	if t == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidToolOutput)
-	}
-	var decoded wireToolOutput
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return fmt.Errorf("%w: decode: %w", ErrInvalidToolOutput, err)
-	}
-	candidate := ToolOutput(decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*t = candidate
-	return nil
-}
-
-func (t ToolOutput) Validate() error {
-	for index := range t.Content {
-		part := t.Content[index]
-		if err := part.Validate(); err != nil {
-			return fmt.Errorf("%w: content[%d]: %w", ErrInvalidToolOutput, index, err)
-		}
-	}
-	if len(t.Details) != 0 && !jsontext.Value(t.Details).IsValid() {
-		return fmt.Errorf("%w: details must be one valid RFC 7493 JSON document", ErrInvalidToolOutput)
-	}
-	return nil
-}
-
-// Text returns the lossless text projection used by providers whose tool
-// result protocol accepts only strings. It reports false when Content contains
-// media so adapters cannot silently discard it. Details is encoded only when
-// Content is empty.
-func (t ToolOutput) Text() (string, bool) {
-	if len(t.Content) == 0 {
-		return string(t.Details), true
-	}
-	var projected strings.Builder
-	for index := range t.Content {
-		if t.Content[index].Kind != PartText {
-			return "", false
-		}
-		projected.WriteString(t.Content[index].Text)
-	}
-	return projected.String(), true
+func (t ToolCall) Request() toolcontract.Request {
+	return toolcontract.Request{Name: t.Name, Arguments: t.Arguments}
 }
 
 func (t ToolCall) Validate() error {
 	if t.ID == "" {
 		return fmt.Errorf("%w: ID must not be empty", ErrInvalidToolCall)
 	}
-	if t.Name == "" {
-		return fmt.Errorf("%w: name must not be empty", ErrInvalidToolCall)
+	if !utf8.ValidString(t.ID) {
+		return fmt.Errorf("%w: ID must be valid UTF-8", ErrInvalidToolCall)
 	}
-	if !utf8.ValidString(t.ID) || !utf8.ValidString(t.Name) || !utf8.ValidString(t.Arguments) {
-		return fmt.Errorf("%w: ID, name, and arguments must be valid UTF-8", ErrInvalidToolCall)
+	if err := t.Request().Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidToolCall, err)
 	}
 	return nil
 }
 
 type ToolResult struct {
-	ID      string     `json:"id"`
-	Name    string     `json:"name"`
-	Output  ToolOutput `json:"output"`
-	IsError bool       `json:"is_error,omitzero"`
+	ID      string              `json:"id"`
+	Name    string              `json:"name"`
+	Output  toolcontract.Output `json:"output"`
+	IsError bool                `json:"is_error,omitzero"`
 }
 
 func (t ToolResult) Clone() ToolResult {
@@ -170,7 +75,3 @@ func (t ToolResult) Validate() error {
 	}
 	return nil
 }
-
-type wireToolOutput ToolOutput
-
-func (ToolOutput) JSONSchemaModel() any { return wireToolOutput{} }

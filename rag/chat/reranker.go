@@ -168,7 +168,7 @@ func (r *Reranker) encodeCandidates(ctx context.Context, candidates rag.Candidat
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		content, err := r.formatter.Format(candidate.Document)
+		content, err := r.formatter.Format(candidate.Document.Clone())
 		if err != nil {
 			return "", fmt.Errorf("%w: format candidate %d: %w", rag.ErrInvalidReranking, index, err)
 		}

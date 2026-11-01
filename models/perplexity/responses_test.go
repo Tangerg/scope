@@ -12,6 +12,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/perplexity"
 )
 
@@ -37,7 +38,7 @@ func TestAgentResponsesPreservesNativeSearchAndUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("question"))}, Options: corechat.Options{ReasoningEffort: "low"}}
-	request.Tools = []corechat.ToolDefinition{{Name: "local", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+	request.Tools = []toolcontract.Definition{{Name: "local", InputSchema: json.RawMessage(`{"type":"object"}`)}}
 	if setErr := request.Options.Extensions.Set(perplexity.RequestExtensionKey, perplexity.RequestOptions{Effort: "high@latest", MaxSteps: new(int64(4)), Store: new(false), Tools: []json.RawMessage{json.RawMessage(`{"type":"web_search","filters":{"search_domain_filter":["example.com"]}}`)}}); setErr != nil {
 		t.Fatal(setErr)
 	}

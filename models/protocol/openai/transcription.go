@@ -21,6 +21,9 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) Validate() error {
+	if err := requireBindingEndpoint(t.Provider, t.BaseURL); err != nil {
+		return err
+	}
 	if err := validateProvider(t.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}

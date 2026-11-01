@@ -3,19 +3,21 @@ package redis
 import (
 	"cmp"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
+	"unicode/utf8"
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 const (
@@ -25,209 +27,220 @@ const (
 
 var ErrIncompatibleIndex = errors.New("redis: native index is incompatible")
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
-	client          RedisClient
-	indexName       string
-	schema          nativeSchema
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
+	client         RedisClient
+	indexName      string
+	schema         nativeSchema
+	space          vectorstore.SpaceID
+	writeBatchSize int
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	embeddingClient, err := embeddingclient.New(config.EmbeddingModel)
+	s := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), space: config.Space, writeBatchSize: cmp.Or(config.WriteBatchSize, DefaultWriteBatchSize)}
+	var err error
+	s.schema, err = s.readSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), embeddingClient: embeddingClient, documentBatcher: config.DocumentBatcher}
-	raw, err := store.client.Do(ctx, "FT.INFO", store.indexName).Result()
+	return s, nil
+}
+func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error) {
+	raw, err := s.client.Do(ctx, "FT.INFO", s.indexName).Result()
 	if err != nil {
-		return nil, err
+		return schema, err
 	}
 	info, err := parseIndexInfo(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
+		return schema, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
 	}
-	if info.name != store.indexName || info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
-		return nil, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
+	if info.name != s.indexName || info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
+		return schema, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
+	}
+	if !strings.HasSuffix(info.prefixes[0], s.space.StorageKey()+":") {
+		return schema, vectorstore.ErrIncompatibleSpace
 	}
 	var vectorFound bool
 	for _, attribute := range info.attributes {
 		if attribute.Identifier != attribute.Attribute {
-			return nil, fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
+			return schema, fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
+		}
+		if attribute.Attribute == termsField && attribute.Type == "TAG" {
+			schema.indexedTerms = true
+			continue
 		}
 		if attribute.Attribute == contentField && attribute.Type == "TEXT" {
 			continue
 		}
 		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
-			return nil, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
+			return schema, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
 		}
 		switch nativeMetric(attribute.DistanceMetric) {
 		case metricCosine, metricL2, metricIP:
 		default:
-			return nil, fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
+			return schema, fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
 		}
-		store.schema = nativeSchema{prefix: info.prefixes[0], dimensions: attribute.Dim, metric: nativeMetric(attribute.DistanceMetric)}
+		schema.prefix = info.prefixes[0]
+		schema.dimensions = attribute.Dim
+		schema.metric = nativeMetric(attribute.DistanceMetric)
 		vectorFound = true
 	}
 	if !vectorFound {
-		return nil, fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
+		return schema, fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
 	}
-	return store, nil
+	return schema, nil
 }
 
-func (s *Store) matchingRecords(ctx context.Context, predicate filter.Predicate) (map[string]string, error) {
-	selected := make(map[string]string)
-	seen := make(map[string]struct{})
-	var mu sync.Mutex
-	scan := func(ctx context.Context, client hashScanner) error {
-		var cursor uint64
-		pattern := strings.NewReplacer("\\", "\\\\", "*", "\\*", "?", "\\?", "[", "\\[", "]", "\\]").Replace(s.schema.prefix) + "*"
-		for {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			keys, next, err := client.Scan(ctx, cursor, pattern, filterPageSize).Result()
-			if err != nil {
-				return err
-			}
-			for _, key := range keys {
-				if !strings.HasPrefix(key, s.schema.prefix) || len(key) == len(s.schema.prefix) {
-					return errors.New("redis: SCAN returned a key outside the document namespace")
-				}
-				mu.Lock()
-				_, duplicate := seen[key]
-				seen[key] = struct{}{}
-				mu.Unlock()
-				if duplicate {
-					continue
-				}
-				fields, err := client.HGetAll(ctx, key).Result()
-				if err != nil {
-					return err
-				}
-				if len(fields) == 0 {
-					continue
-				}
-				doc, err := s.schema.decode(key, fields)
-				if err != nil {
-					return err
-				}
-				if predicate != nil {
-					values, err := doc.Metadata.Values()
-					if err != nil {
-						return err
-					}
-					matched, err := filter.Match(predicate, values)
-					if err != nil {
-						return err
-					}
-					if !matched {
-						continue
-					}
-				}
-				mu.Lock()
-				selected[key] = fields[metadataField]
-				mu.Unlock()
-			}
-			if next == 0 {
-				return nil
-			}
-			cursor = next
-		}
-	}
-	if cluster, ok := s.client.(*goredis.ClusterClient); ok {
-		if err := cluster.ForEachMaster(ctx, func(ctx context.Context, client *goredis.Client) error { return scan(ctx, client) }); err != nil {
-			return nil, err
-		}
-	} else if err := scan(ctx, s.client); err != nil {
-		return nil, err
-	}
-	return selected, nil
-}
-
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return err
-	}
-	records := make(map[string]hashRecord, len(request.Documents))
-	for _, doc := range request.Documents {
-		if doc.Media != nil {
-			return vectorstore.ErrInvalidDocument
-		}
-		facts, err := doc.Metadata.MarshalJSON()
-		if err != nil {
-			return err
-		}
-		records[doc.ID] = hashRecord{key: s.schema.prefix + doc.ID, content: doc.Text, metadata: string(facts)}
-	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
+func (s *Store) verify(ctx context.Context) error {
+	schema, err := s.readSchema(ctx)
 	if err != nil {
 		return err
 	}
-	var prepared [][]hashRecord
-	for _, batch := range batches {
-		texts, err := batch.Texts()
-		if err != nil {
-			return err
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return err
-		}
-		rows := make([]hashRecord, len(batch.Documents))
-		for i, doc := range batch.Documents {
-			vector, err := s.schema.vector(vectors[i])
-			if err != nil {
-				return err
-			}
-			rows[i] = records[doc.ID]
-			rows[i].vector = vector
-		}
-		prepared = append(prepared, rows)
-	}
-	for _, rows := range prepared {
-		pipe := s.client.Pipeline()
-		for _, row := range rows {
-			pipe.Eval(ctx, replaceDocumentHash, []string{row.key}, contentField, row.content, embeddingField, row.vector, metadataField, row.metadata)
-		}
-		commands, err := pipe.Exec(ctx)
-		if err != nil {
-			return err
-		}
-		if len(commands) != len(rows) {
-			return errors.New("redis: HASH writes did not acknowledge every record")
-		}
-		for _, command := range commands {
-			ack, ok := command.(*goredis.Cmd)
-			if !ok {
-				return errors.New("redis: HASH replacement returned an invalid acknowledgment")
-			}
-			value, err := ack.Int64()
-			if err != nil {
-				return err
-			}
-			if value != 1 {
-				return errors.New("redis: HASH replacement was not acknowledged")
-			}
-		}
+	if schema != s.schema {
+		return fmt.Errorf("%w: index shape changed", vectorstore.ErrIncompatibleSpace)
 	}
 	return nil
 }
-
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if doc.Media != nil {
+			return vectorstore.ErrInvalidDocument
+		}
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
+	if err := b.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	rows := make([]hashRecord, len(b.Records))
+	ids := make([]string, len(rows))
+	for i, r := range b.Records {
+		doc := r.Document
+		if doc.Media != nil {
+			return vectorstore.ErrInvalidDocument
+		}
+		facts, err := document.MarshalStoredMetadata(doc)
+		if err != nil {
+			return err
+		}
+		terms, err := tagValues(doc.Metadata)
+		if err != nil {
+			return err
+		}
+		vector, err := s.schema.vector(r.Values)
+		if err != nil {
+			return err
+		}
+		ids[i] = doc.ID
+		rows[i] = hashRecord{key: s.schema.prefix + doc.ID, content: doc.Text, metadata: string(facts), terms: terms, vector: vector}
+	}
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	offset := 0
+	for group := range slices.Chunk(rows, s.writeBatchSize) {
+		pipe := s.client.Pipeline()
+		for _, r := range group {
+			pipe.Eval(ctx, replaceDocumentHash, []string{r.key}, contentField, r.content, embeddingField, r.vector, metadataField, r.metadata, termsField, r.terms)
+		}
+		commands, err := pipe.Exec(ctx)
+		w := &vectorstore.WriteError{Err: err}
+		if len(commands) != len(group) {
+			w.Err = errors.Join(w.Err, errors.New("redis: incomplete pipeline reply"))
+		}
+		for i := range group {
+			var confirmed bool
+			if i < len(commands) {
+				if c, ok := commands[i].(*goredis.Cmd); ok && c != nil {
+					n, e := c.Int64()
+					confirmed = e == nil && n == 1
+					if e != nil {
+						w.Err = errors.Join(w.Err, e)
+					}
+				}
+			}
+			if confirmed {
+				w.Acknowledged = append(w.Acknowledged, ids[offset+i])
+			} else {
+				w.Unconfirmed = append(w.Unconfirmed, ids[offset+i])
+			}
+		}
+		if w.Err != nil || len(w.Unconfirmed) != 0 {
+			if w.Err == nil {
+				w.Err = errors.New("redis: HASH replacement not acknowledged")
+			}
+			w.Acknowledged = append(slices.Clone(ids[:offset]), w.Acknowledged...)
+			w.Unattempted = slices.Clone(ids[offset+len(group):])
+			return w
+		}
+		offset += len(group)
+	}
+	return nil
+}
+func (s *Store) queryPrefix(p filter.Predicate) (string, error) {
+	if p == nil {
+		return "*", nil
+	}
+	if !s.schema.indexedTerms {
+		return "", vectorstore.ErrUnsupportedFilter
+	}
+	t, err := keyword.EqualString(p)
+	if err != nil {
+		return "", err
+	}
+	return "(@" + termsField + ":{" + hex.EncodeToString([]byte(t)) + "})", nil
+}
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if _, err := s.queryPrefix(opts.Filter); err != nil {
+		return err
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	return s.rank(ctx, q, nil)
+}
+func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, b vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := q.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
+	if q.Options.Filter == nil {
+		return nil, vectorstore.ErrMissingFilter
+	}
+	meter, err := b.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	return s.rank(meter.Context(), q, &scanGrant{meter: meter, grant: b})
+}
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scanGrant) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -235,45 +248,48 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	var records map[string]string
-	if request.Options.Filter != nil {
-		records, err = s.matchingRecords(ctx, request.Options.Filter)
+	query, err := s.schema.vector(request.Values)
+	if err != nil {
+		return nil, err
+	}
+	prefix := "*"
+	if scan == nil {
+		prefix, err = s.queryPrefix(request.Options.Filter)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := s.verify(ctx); err != nil {
+		return nil, err
+	}
+	groups := [][]string{nil}
+	if scan != nil {
+		records, err := scan.selectRecords(ctx, s, request.Options.Filter)
 		if err != nil {
 			return nil, err
 		}
 		if len(records) == 0 {
-			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
+			return &vectorstore.SearchResponse{}, nil
 		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	query, err := s.schema.vector(vector)
-	if err != nil {
-		return nil, err
-	}
-	groups := [][]string{nil}
-	if request.Options.Filter != nil {
 		groups = slices.Collect(slices.Chunk(slices.Sorted(maps.Keys(records)), filterPageSize))
 	}
 	var ranked []rankedHit
 	seen := make(map[string]struct{})
 	for _, group := range groups {
-		args := []any{"FT.SEARCH", s.indexName, fmt.Sprintf("*=>[KNN %d @%s $%s AS %s]", request.Options.ResultLimit(), embeddingField, vectorParamName, distanceFieldName)}
+		args := []any{"FT.SEARCH", s.indexName, fmt.Sprintf("%s=>[KNN %d @%s $%s AS %s]", prefix, request.Options.ResultLimit(), embeddingField, vectorParamName, distanceFieldName)}
 		if len(group) > 0 {
 			args = append(args, "INKEYS", len(group))
 			for _, key := range group {
 				args = append(args, key)
 			}
 		}
-		args = append(args, "RETURN", 4, contentField, embeddingField, metadataField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, request.Options.ResultLimit(), "PARAMS", 2, vectorParamName, query, "DIALECT", redisSearchDialectVersion)
+		args = append(args, "RETURN", 5, contentField, embeddingField, metadataField, termsField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, request.Options.ResultLimit(), "PARAMS", 2, vectorParamName, query, "DIALECT", redisSearchDialectVersion)
 		raw, err := s.client.Do(ctx, args...).Result()
 		if err != nil {
 			return nil, err
@@ -301,7 +317,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 				return nil, err
 			}
 			if request.Options.Filter != nil {
-				if !slices.Contains(group, hit.ID) {
+				if scan != nil && !slices.Contains(group, hit.ID) {
 					return nil, errors.New("redis: native hit is outside Core membership")
 				}
 				values, decodeErr := doc.Metadata.Values()
@@ -351,7 +367,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	var keys []string
 	seen := make(map[string]struct{})
 	for _, id := range ids {
-		if id == "" {
+		if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
 			return vectorstore.ErrMissingDocumentID
 		}
 		key := s.schema.prefix + id
@@ -359,6 +375,12 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			seen[key] = struct{}{}
 			keys = append(keys, key)
 		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := s.verify(ctx); err != nil {
+		return err
 	}
 	for group := range slices.Chunk(keys, filterPageSize) {
 		pipe := s.client.Pipeline()
@@ -385,14 +407,23 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, b vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	records, err := s.matchingRecords(ctx, predicate)
+	meter, err := b.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	if verifyErr := s.verify(ctx); verifyErr != nil {
+		return verifyErr
+	}
+	records, err := (&scanGrant{meter: meter, grant: b}).selectRecords(ctx, s, predicate)
 	if err != nil {
 		return err
 	}

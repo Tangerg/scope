@@ -230,9 +230,8 @@ func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
 		if chunk.ID == "" {
 			t.Fatalf("chunk %d has no generated ID", index)
 		}
-		parent, ok, err := chunk.Metadata.Decode[string](etl.MetadataKeyParentID)
-		if err != nil || !ok || parent != "source" {
-			t.Fatalf("chunk %d parent = %q, %v, %v", index, parent, ok, err)
+		if chunk.Provenance == nil || len(chunk.Provenance.Chunks) == 0 || chunk.Provenance.Chunks[0].Parent != doc.ID {
+			t.Fatalf("chunk parent: %+v", chunk.Provenance)
 		}
 	}
 }

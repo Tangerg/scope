@@ -4,6 +4,7 @@ package postgres_test
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"slices"
 	"testing"
@@ -24,7 +25,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 				if err := fixture.install(t.Context(), docs); err != nil {
 					t.Fatal(err)
 				}
-				response, err := fixture.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+				response, err := fixture.store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})
 				if err != nil || len(response.Results) != len(docs) {
 					t.Fatalf("native binary results: response=%v error=%v", response, err)
 				}
@@ -51,7 +52,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 				if _, err := fixture.pool.Exec(t.Context(), "INSERT INTO "+fixture.table+"(id,content,facts,embedding) VALUES($1,'text',$2,'[-1,0]'::vector)", []byte{}, []byte("{}")); err != nil {
 					t.Fatal(err)
 				}
-				response, err := fixture.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "text", Options: vectorstore.SearchOptions{MinScore: 0.5}})
+				response, err := fixture.store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{MinScore: 0.5}})
 				if err == nil || response != nil {
 					t.Fatalf("corrupt low-score identity hidden: response=%v error=%v", response, err)
 				}
@@ -65,7 +66,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 					return []float64{1, 0}
 				}
 				docs := []*document.Document{{ID: "first", Text: "first"}, {ID: "late", Text: "late"}}
-				if err := fixture.store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err == nil {
+				if err := fixture.upsert(t.Context(), docs); err == nil {
 					t.Fatal("unrepresentable late vector accepted")
 				}
 				ids, err := fixture.ids(t.Context())
@@ -79,7 +80,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 					t.Fatal(err)
 				}
 				docs := []*document.Document{{ID: "first", Text: "first"}, {ID: "late", Text: "forbidden"}}
-				if err := fixture.store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err == nil {
+				if err := fixture.upsert(t.Context(), docs); err == nil {
 					t.Fatal("native failure hidden")
 				}
 				ids, err := fixture.ids(t.Context())
@@ -108,7 +109,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 					if err := fixture.install(t.Context(), docs); err != nil {
 						t.Fatal(err)
 					}
-					response, err := fixture.store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+					response, err := fixture.store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1}})
 					if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "z-winner" {
 						t.Fatalf("%s native rank: response=%v error=%v", metric, response, err)
 					}
@@ -120,18 +121,16 @@ func TestLiveCurrentOwners(t *testing.T) {
 					t.Fatal(err)
 				}
 				predicate := nativePredicate(t, `absent == 'never'`)
-				if _, err := fixture.search(t.Context(), predicate, 1); err == nil {
-					t.Fatal("bad source hidden by predicate")
+				if _, err := fixture.search(t.Context(), predicate, 1); !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
+					t.Fatal(err)
 				}
-				if err := fixture.store.DeleteWhere(t.Context(), predicate); err == nil {
-					t.Fatal("bad source ignored during deletion")
-				}
-				if err := fixture.store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "new", Text: "text"}}}); err == nil {
-					t.Fatal("bad source ignored during upsert")
+				// Upserting a valid record must not enumerate unrelated corrupt rows.
+				if err := fixture.upsert(t.Context(), []*document.Document{{ID: "new", Text: "text"}}); err != nil {
+					t.Fatal(err)
 				}
 				ids, err := fixture.ids(t.Context())
-				if err != nil || !slices.Equal(ids, []string{"bad"}) {
-					t.Fatalf("bad source caused effects: ids=%v error=%v", ids, err)
+				if err != nil || !slices.Equal(ids, []string{"bad", "new"}) {
+					t.Fatalf("IDs: %v, %v", ids, err)
 				}
 			})
 			t.Run("current_schema_rejects_JSONB", func(t *testing.T) {
@@ -142,7 +141,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 				if _, err := fixture.pool.Exec(t.Context(), "ALTER TABLE "+fixture.table+" ADD COLUMN facts JSONB NOT NULL"); err != nil {
 					t.Fatal(err)
 				}
-				if err := fixture.store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err == nil {
+				if err := fixture.upsert(t.Context(), []*document.Document{{ID: "one", Text: "text"}}); err == nil {
 					t.Fatal("superseded JSONB schema accepted")
 				}
 			})
@@ -162,7 +161,7 @@ func TestLiveCurrentOwners(t *testing.T) {
 					filter.EQ(filter.Index("root", "nul\x00key"), "match"),
 				} {
 					ids, queryErr := fixture.search(t.Context(), predicate, 1)
-					if queryErr != nil || !slices.Equal(ids, []string{"one"}) {
+					if !errors.Is(queryErr, vectorstore.ErrUnsupportedFilter) || len(ids) != 0 {
 						t.Fatalf("Core filter %s: ids=%v error=%v", predicate, ids, queryErr)
 					}
 				}

@@ -13,6 +13,7 @@ import (
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
@@ -160,12 +161,12 @@ func TestServingEmbeddedResourceCannotReclassifyURI(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			part := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: linked}}}
+			part := tool.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: linked}}}
 			if err := part.Content[0].Metadata.Set(scopemcp.ContentMetadataKey, map[string]any{"type": "resource", "resource": map[string]any{"uri": uri}}); err != nil {
 				t.Fatal(err)
 			}
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "invalid-source"}, nil)
-			executable := testTool{definition: chat.ToolDefinition{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, call: func(context.Context, tool.Invocation) (chat.ToolOutput, error) { return part, nil }}
+			executable := testTool{definition: tool.Definition{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, call: func(context.Context, tool.Invocation) (tool.Output, error) { return part, nil }}
 			if err := scopemcp.Register(server, executable); err != nil {
 				t.Fatal(err)
 			}

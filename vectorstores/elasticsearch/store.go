@@ -15,24 +15,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
 	client           APIClient
 	indexName        string
 	schema           nativeSchema
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
+	space            vectorstore.SpaceID
+	maxBulkBytes     int
 	maxResponseBytes int64
 }
 
@@ -40,46 +39,63 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	model, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), embeddingClient: model, documentBatcher: config.DocumentBatcher, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
-	raw, err := store.request(ctx, http.MethodGet, "/"+store.indexName+"/_mapping", nil, nil)
-	if err != nil {
-		if failure, ok := errors.AsType[*httpFailure](err); ok && failure.status == http.StatusNotFound {
-			return nil, fmt.Errorf("%w: %w", ErrIndexMissing, err)
-		}
-		return nil, err
-	}
-	var mappings map[string]mappedIndex
-	if err = jsonv2.Unmarshal(raw, &mappings); err != nil {
-		return nil, err
-	}
-	mapping, exists := mappings[store.indexName]
-	if !exists || len(mappings) != 1 {
-		return nil, fmt.Errorf("%w: requires one concrete index without aliases", ErrIncompatibleIndex)
-	}
-	raw, err = store.request(ctx, http.MethodGet, "/"+store.indexName+"/_settings", url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {"index.mapping.source.mode,index.default_pipeline,index.final_pipeline,index.max_result_window"}}, nil)
-	if err != nil {
-		return nil, err
-	}
-	var settings map[string]nativeSettings
-	if err = jsonv2.Unmarshal(raw, &settings); err != nil {
-		return nil, err
-	}
-	native, exists := settings[store.indexName]
-	if !exists || len(settings) != 1 {
-		return nil, fmt.Errorf("%w: settings do not describe the concrete index", ErrIncompatibleIndex)
-	}
-	store.schema, err = mapping.Mappings.schema(native)
+	store := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), space: config.Space, maxBulkBytes: cmp.Or(config.MaxBulkBytes, DefaultMaxBulkBytes), maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
+	var err error
+	store.schema, err = store.readSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) request(ctx context.Context, method, path string, query url.Values, body []byte) (raw []byte, err error) {
+func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
+	raw, err := s.request(ctx, http.MethodGet, "/"+s.indexName+"/_mapping", nil, nil)
+	if err != nil {
+		if failure, ok := errors.AsType[*httpFailure](err); ok && failure.status == http.StatusNotFound {
+			return nativeSchema{}, fmt.Errorf("%w: %w", ErrIndexMissing, err)
+		}
+		return nativeSchema{}, err
+	}
+	var mappings map[string]mappedIndex
+	if err = jsonv2.Unmarshal(raw, &mappings); err != nil {
+		return nativeSchema{}, err
+	}
+	mapping, exists := mappings[s.indexName]
+	if !exists || len(mappings) != 1 {
+		return nativeSchema{}, fmt.Errorf("%w: requires one concrete index without aliases", ErrIncompatibleIndex)
+	}
+	raw, err = s.request(ctx, http.MethodGet, "/"+s.indexName+"/_settings", url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {"index.mapping.source.mode,index.default_pipeline,index.final_pipeline,index.max_result_window"}}, nil)
+	if err != nil {
+		return nativeSchema{}, err
+	}
+	var settings map[string]nativeSettings
+	if err = jsonv2.Unmarshal(raw, &settings); err != nil {
+		return nativeSchema{}, err
+	}
+	native, exists := settings[s.indexName]
+	if !exists || len(settings) != 1 {
+		return nativeSchema{}, fmt.Errorf("%w: settings do not describe the concrete index", ErrIncompatibleIndex)
+	}
+	if mapping.Mappings.Meta.Space != string(s.space) {
+		return nativeSchema{}, vectorstore.ErrIncompatibleSpace
+	}
+	return mapping.Mappings.schema(native)
+}
+func (s *Store) verify(ctx context.Context) error {
+	current, err := s.readSchema(ctx)
+	if err != nil {
+		return err
+	}
+	if current != s.schema {
+		return ErrIncompatibleIndex
+	}
+	return nil
+}
+
+func (s *Store) request(ctx context.Context, method, path string, query url.Values, body []byte) ([]byte, error) {
+	return s.read(ctx, method, path, query, body, s.maxResponseBytes)
+}
+func (s *Store) read(ctx context.Context, method, path string, query url.Values, body []byte, limit int64) (raw []byte, err error) {
 	endpoint := (&url.URL{Path: path, RawQuery: query.Encode()}).String()
 	request, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -102,11 +118,14 @@ func (s *Store) request(ctx context.Context, method, path string, query url.Valu
 		return nil, errors.New("elasticsearch: native client returned no response body")
 	}
 	defer func() { err = errors.Join(err, response.Body.Close()) }()
-	raw, err = io.ReadAll(io.LimitReader(response.Body, s.maxResponseBytes+1))
+	raw, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return raw, err
 	}
-	if int64(len(raw)) > s.maxResponseBytes {
+	if int64(len(raw)) > limit {
+		if limit < s.maxResponseBytes {
+			return nil, vectorstore.ErrScanBudget
+		}
 		return nil, errors.New("elasticsearch: native response exceeds MaxResponseBytes")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -115,84 +134,155 @@ func (s *Store) request(ctx context.Context, method, path string, query url.Valu
 	return raw, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) checkDocument(d *document.Document) error {
+	if d.Media != nil {
+		return vectorstore.ErrInvalidDocument
+	}
+	if len(d.ID) > nativeMaximumIDBytes {
+		return errors.New("elasticsearch: document ID exceeds native 512-byte limit")
+	}
+	return nil
+}
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	records := make(map[string]storedDocument, len(request.Documents))
-	for _, doc := range request.Documents {
-		if doc.Media != nil {
-			return vectorstore.ErrInvalidDocument
-		}
-		if len(doc.ID) > nativeMaximumIDBytes {
-			return errors.New("elasticsearch: document ID exceeds native 512-byte limit")
-		}
-		facts, err := doc.Metadata.MarshalJSON()
-		if err != nil {
-			return err
-		}
-		records[doc.ID] = storedDocument{Content: doc.Text, MetadataJSON: string(facts)}
-	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
+	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	var prepared []bulkPublication
-	for _, batch := range batches {
-		texts, err := batch.Texts()
-		if err != nil {
-			return err
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return err
-		}
-		var publication bulkPublication
-		for i, doc := range batch.Documents {
-			vector, err := s.schema.vector(vectors[i])
-			if err != nil {
-				return err
-			}
-			record := records[doc.ID]
-			record.Embedding = vector
-			action := bulkAction{Index: &bulkActionTarget{Index: s.indexName, ID: doc.ID}}
-			publication.body, err = appendBulkLine(publication.body, action)
-			if err != nil {
-				return err
-			}
-			publication.body, err = appendBulkLine(publication.body, record)
-			if err != nil {
-				return err
-			}
-			publication.ids = append(publication.ids, doc.ID)
-		}
-		prepared = append(prepared, publication)
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
 	}
-	for _, publication := range prepared {
-		if err := s.publish(ctx, publication, bulkOperationIndex, false); err != nil {
+	for _, d := range docs {
+		if err := s.checkDocument(d); err != nil {
 			return err
+		}
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var groups []bulkPublication
+	var pending bulkPublication
+	for _, r := range batch.Records {
+		doc := r.Document
+		if err := s.checkDocument(doc); err != nil {
+			return err
+		}
+		coords, err := s.schema.vector(r.Values)
+		if err != nil {
+			return err
+		}
+		facts, err := document.MarshalStoredMetadata(doc)
+		if err != nil {
+			return err
+		}
+		item, err := appendBulkLine(nil, bulkAction{Index: &bulkActionTarget{Index: s.indexName, ID: doc.ID}})
+		if err != nil {
+			return err
+		}
+		item, err = appendBulkLine(item, storedDocument{Content: doc.Text, MetadataJSON: string(facts), Embedding: coords})
+		if err != nil {
+			return err
+		}
+		if len(item) > s.maxBulkBytes {
+			return fmt.Errorf("elasticsearch: encoded record %q exceeds MaxBulkBytes", doc.ID)
+		}
+		if len(item) > s.maxBulkBytes-len(pending.body) {
+			groups = append(groups, pending)
+			pending = bulkPublication{}
+		}
+		pending.ids = append(pending.ids, doc.ID)
+		pending.body = append(pending.body, item...)
+	}
+	groups = append(groups, pending)
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	for i, g := range groups {
+		if err := s.publish(ctx, g, bulkOperationIndex, false); err != nil {
+			w, ok := errors.AsType[*vectorstore.WriteError](err)
+			if !ok {
+				w = &vectorstore.WriteError{Err: err, Unconfirmed: slices.Clone(g.ids)}
+			}
+			for _, prior := range groups[:i] {
+				w.Acknowledged = append(w.Acknowledged, prior.ids...)
+			}
+			for _, later := range groups[i+1:] {
+				w.Unattempted = append(w.Unattempted, later.ids...)
+			}
+			return w
 		}
 	}
 	return nil
 }
-
 func (s *Store) publish(ctx context.Context, publication bulkPublication, operation bulkOperation, allowMissing bool) error {
 	raw, err := s.request(ctx, http.MethodPost, "/_bulk", nil, publication.body)
 	if err != nil {
 		return err
 	}
 	var response bulkResponse
-	if err := jsonv2.Unmarshal(raw, &response); err != nil {
+	if decodeErr := jsonv2.Unmarshal(raw, &response); decodeErr != nil {
+		return decodeErr
+	}
+	err = response.validate(operation, s.indexName, publication.ids, allowMissing)
+	if err == nil || operation != bulkOperationIndex {
 		return err
 	}
-	return response.validate(operation, s.indexName, publication.ids, allowMissing)
+	return response.writeFailure(s.indexName, publication.ids, err)
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	if opts.ResultLimit() > s.schema.resultWindow {
+		return vectorstore.ErrInvalidOptions
+	}
+	return s.verify(ctx)
+}
+func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if err := q.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
+	if q.Options.Filter != nil {
+		return nil, vectorstore.ErrUnsupportedFilter
+	}
+	return s.rank(ctx, q, nil)
+}
+func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := q.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
+	if q.Options.Filter == nil {
+		return nil, vectorstore.ErrMissingFilter
+	}
+	if err := budget.Validate(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
+	return s.rank(ctx, q, &budget)
+}
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -201,9 +291,12 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if request.Options.ResultLimit() > s.schema.resultWindow {
 		return nil, fmt.Errorf("%w: TopK exceeds native result window %d", vectorstore.ErrInvalidOptions, s.schema.resultWindow)
 	}
+	if verifyErr := s.verify(ctx); verifyErr != nil {
+		return nil, verifyErr
+	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
@@ -211,7 +304,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}()
 	var matches map[string]searchHit
 	if request.Options.Filter != nil {
-		matches, err = s.selectMatches(ctx, request.Options.Filter)
+		matches, err = s.selectMatches(ctx, request.Options.Filter, *budget)
 		if err != nil {
 			return nil, err
 		}
@@ -219,11 +312,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			return &vectorstore.SearchResponse{}, nil
 		}
 	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	query, err := s.schema.vector(vector)
+	query, err := s.schema.vector(request.Values)
 	if err != nil {
 		return nil, err
 	}
@@ -312,12 +401,13 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (selected map[string]searchHit, err error) {
-	body, err := jsonv2.Marshal(searchRequest{Size: filterBatchSize, Source: true, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}})
+func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (selected map[string]searchHit, err error) {
+	body, err := jsonv2.Marshal(searchRequest{Size: min(filterBatchSize, budget.MaxRecords), Source: true, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}})
 	if err != nil {
 		return nil, err
 	}
-	raw, callErr := s.request(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {"1m"}, "allow_partial_search_results": {"false"}}, body)
+	bytesLeft := budget.MaxBytes
+	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {"1m"}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
 	scrollID := ""
 	defer func() {
 		if scrollID == "" {
@@ -354,6 +444,7 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (
 	var total int64 = -1
 	for {
 		var page searchResponse
+		bytesLeft -= int64(len(raw))
 		decodeErr := jsonv2.Unmarshal(raw, &page)
 		if page.ScrollID != "" {
 			scrollID = page.ScrollID
@@ -366,6 +457,9 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (
 		}
 		if total < 0 {
 			total = *page.Hits.Total.Value
+			if total > int64(budget.MaxRecords) {
+				return nil, vectorstore.ErrScanBudget
+			}
 		}
 		if total != *page.Hits.Total.Value || page.ScrollID == "" {
 			return nil, errors.New("elasticsearch: native scroll lost its total or cursor")
@@ -412,7 +506,10 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate) (
 		if encodeErr != nil {
 			return nil, encodeErr
 		}
-		raw, callErr = s.request(ctx, http.MethodPost, "/_search/scroll", nil, payload)
+		if bytesLeft <= 0 {
+			return nil, vectorstore.ErrScanBudget
+		}
+		raw, callErr = s.read(ctx, http.MethodPost, "/_search/scroll", nil, payload, min(bytesLeft, s.maxResponseBytes))
 	}
 }
 
@@ -430,6 +527,12 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			seen[id] = struct{}{}
 			unique = append(unique, id)
 		}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	if err := s.verify(ctx); err != nil {
+		return err
 	}
 	var prepared []bulkPublication
 	for group := range slices.Chunk(unique, filterBatchSize) {
@@ -451,14 +554,22 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
+	if err := budget.Validate(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	matches, err := s.selectMatches(ctx, predicate)
+	if err := s.verify(ctx); err != nil {
+		return err
+	}
+	matches, err := s.selectMatches(ctx, predicate, budget)
 	if err != nil {
 		return err
 	}

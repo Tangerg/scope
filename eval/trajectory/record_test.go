@@ -5,7 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"testing"
 
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -19,11 +19,11 @@ func TestCallOutcomesProjectTheirSettlementFacts(t *testing.T) {
 	model := recorded.ModelCalls()[0]
 	response := model.Response
 	model.Response = nil
-	model.Outcome = interaction.ModelOutcomeUnobserved
+	model.Outcome = agent.ModelOutcomeUnobserved
 	if model.Validate() != nil {
 		t.Fatal("an absent model settlement became a result")
 	}
-	model.Outcome = interaction.ModelOutcomeUnknown
+	model.Outcome = agent.ModelOutcomeUnknown
 	if model.Validate() != nil {
 		t.Fatal("explicit model uncertainty was lost")
 	}

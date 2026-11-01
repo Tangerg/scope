@@ -48,7 +48,7 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	// reference calls "deprecated, use max_completion_tokens".
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	dialect.PrepareRequest = prepareOpenAIRequest
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient,
 		Headers: providerHeaders(config.AppURL, config.AppTitle),
@@ -73,7 +73,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct OpenAI-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }
 
 type MessagesConfig struct {
@@ -95,14 +95,14 @@ func (m MessagesConfig) Validate() error {
 	return nil
 }
 
-func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Messages, error) {
+func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	headers := providerHeaders(config.AppURL, config.AppTitle)
 	headers[headerAnthropicAPIKey] = nil
 	headers.Set(headerAuthorization, bearerAuthPrefix+config.APIKey)
-	protocol, err := anthropic.NewCompatibleMessages(ctx, anthropic.MessagesConfig{
+	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient,
 		Headers: headers,
@@ -110,7 +110,7 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*anthropic.Message
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct Anthropic-compatible chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }
 
 func providerHeaders(appURL, appTitle string) http.Header {

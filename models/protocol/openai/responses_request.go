@@ -11,6 +11,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func projectResponsesInputTokenCount(params *responses.ResponseNewParams) (*responses.InputTokenCountParams, error) {
@@ -94,7 +95,7 @@ func mapResponsesOutputFormat(format *corechat.OutputFormat) (responses.Response
 	}
 }
 
-func mapResponsesTools(definitions []corechat.ToolDefinition) ([]responses.ToolUnionParam, error) {
+func mapResponsesTools(definitions []toolcontract.Definition) ([]responses.ToolUnionParam, error) {
 	tools := make([]responses.ToolUnionParam, 0, len(definitions))
 	for index := range definitions {
 		var encodedSchema metadata.Map
@@ -251,7 +252,7 @@ func mapResponsesToolResults(parts []corechat.Part) ([]responses.ResponseInputIt
 	return items, nil
 }
 
-func mapResponsesToolOutput(output corechat.ToolOutput) (responses.ResponseInputItemFunctionCallOutputOutputUnionParam, error) {
+func mapResponsesToolOutput(output toolcontract.Output) (responses.ResponseInputItemFunctionCallOutputOutputUnionParam, error) {
 	if len(output.Content) == 0 {
 		return responses.ResponseInputItemFunctionCallOutputOutputUnionParam{OfString: openaisdk.String(string(output.Details))}, nil
 	}

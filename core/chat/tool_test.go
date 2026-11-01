@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolCallValidate(t *testing.T) {
@@ -51,7 +53,7 @@ func TestToolResultValidate(t *testing.T) {
 }
 
 func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
-	structured, err := chat.NewJSONToolOutput(json.RawMessage(`{"ok":true}`))
+	structured, err := toolcontract.NewJSONOutput(json.RawMessage(`{"ok":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +61,7 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 		t.Fatalf("structured Text = %q, %v", text, ok)
 	}
 
-	mediaOutput := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: mustImage(t)}}}
+	mediaOutput := toolcontract.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: mustImage(t)}}}
 	if err := mediaOutput.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -67,32 +69,32 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 		t.Fatal("media output reported a lossless text projection")
 	}
 
-	invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartToolCall}}}
+	invalid := toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Kind(chat.PartToolCall)}}}
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("nested tool call was accepted as Tool output content")
 	}
-	if _, err := chat.NewJSONToolOutput(json.RawMessage(`{`)); err == nil {
+	if _, err := toolcontract.NewJSONOutput(json.RawMessage(`{`)); err == nil {
 		t.Fatal("malformed structured details were accepted")
 	}
 }
 
 func TestJSONToolOutputRequiresDocument(t *testing.T) {
 	for _, raw := range []json.RawMessage{nil, {}, []byte(" ")} {
-		if _, err := chat.NewJSONToolOutput(raw); !errors.Is(err, chat.ErrInvalidToolOutput) {
+		if _, err := toolcontract.NewJSONOutput(raw); !errors.Is(err, toolcontract.ErrInvalidOutput) {
 			t.Errorf("NewJSONToolOutput(%q) error = %v", raw, err)
 		}
 	}
-	output, err := chat.NewJSONToolOutput([]byte(`null`))
+	output, err := toolcontract.NewJSONOutput([]byte(`null`))
 	if err != nil || string(output.Details) != "null" {
 		t.Fatalf("null output = %#v, error = %v", output, err)
 	}
-	if err := (chat.ToolOutput{}).Validate(); err != nil {
+	if err := (toolcontract.Output{}).Validate(); err != nil {
 		t.Fatalf("zero output: %v", err)
 	}
 }
 
 func TestToolOutputJSONOwnsValidation(t *testing.T) {
-	original, err := chat.NewJSONToolOutput(json.RawMessage(`{"ok":true}`))
+	original, err := toolcontract.NewJSONOutput(json.RawMessage(`{"ok":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +102,7 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var decoded chat.ToolOutput
+	var decoded toolcontract.Output
 	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
 		t.Fatal(err)
 	}
@@ -108,22 +110,22 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 		t.Fatalf("round-trip Text = %q, %v", text, ok)
 	}
 
-	invalid := chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartToolCall}}}
-	if _, err := jsonv2.Marshal(invalid); !errors.Is(err, chat.ErrInvalidToolOutput) {
+	invalid := toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Kind(chat.PartToolCall)}}}
+	if _, err := jsonv2.Marshal(invalid); !errors.Is(err, toolcontract.ErrInvalidOutput) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidToolOutput", err)
 	}
 
 	decoded = original
 	malformed := []byte(`{"content":[{"kind":"tool_call","tool_call":{"id":"call","name":"tool"}}]}`)
-	if err := jsonv2.Unmarshal(malformed, &decoded); !errors.Is(err, chat.ErrInvalidToolOutput) {
+	if err := jsonv2.Unmarshal(malformed, &decoded); !errors.Is(err, toolcontract.ErrInvalidOutput) {
 		t.Fatalf("Unmarshal error = %v, want ErrInvalidToolOutput", err)
 	}
 	if text, ok := decoded.Text(); !ok || text != `{"ok":true}` {
 		t.Fatalf("failed Unmarshal mutated receiver: Text = %q, %v", text, ok)
 	}
 
-	var nilOutput *chat.ToolOutput
-	if err := nilOutput.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, chat.ErrInvalidToolOutput) {
+	var nilOutput *toolcontract.Output
+	if err := nilOutput.UnmarshalJSON([]byte(`{}`)); !errors.Is(err, toolcontract.ErrInvalidOutput) {
 		t.Fatalf("nil receiver error = %v, want ErrInvalidToolOutput", err)
 	}
 }
@@ -131,7 +133,7 @@ func TestToolOutputJSONOwnsValidation(t *testing.T) {
 func TestToolOutputPreservesEmptyJSONValues(t *testing.T) {
 	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
 		t.Run(raw, func(t *testing.T) {
-			output, err := chat.NewJSONToolOutput(json.RawMessage(raw))
+			output, err := toolcontract.NewJSONOutput(json.RawMessage(raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -139,7 +141,7 @@ func TestToolOutputPreservesEmptyJSONValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var restored chat.ToolOutput
+			var restored toolcontract.Output
 			if err := jsonv2.Unmarshal(data, &restored); err != nil {
 				t.Fatal(err)
 			}

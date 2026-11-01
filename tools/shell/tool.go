@@ -9,7 +9,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/content"
 	"github.com/Tangerg/scope/tools/internal/toolresult"
@@ -25,8 +24,8 @@ type Request struct {
 type Response struct {
 	Stdout               content.Content `json:"stdout"`
 	Stderr               content.Content `json:"stderr"`
-	StdoutTruncated      bool            `json:"stdout_truncated,omitzero"`
-	StderrTruncated      bool            `json:"stderr_truncated,omitzero"`
+	StdoutDroppedBytes   uint64          `json:"stdout_dropped_bytes,omitzero"`
+	StderrDroppedBytes   uint64          `json:"stderr_dropped_bytes,omitzero"`
 	ExitCode             int             `json:"exit_code"`
 	CancellationObserved bool            `json:"cancellation_observed,omitzero"`
 	Duration             string          `json:"duration"`
@@ -56,7 +55,7 @@ func NewTool(config Config) (*Tool, error) {
 	typed, err := toolcontract.NewFunc[Request, Response](
 		toolcontract.FuncConfig{
 			Name:        "shell",
-			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Each stream contains encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes. Use timeout_ms when the command needs a hard deadline."),
+			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Each stream contains encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes. Dropped byte counts report omitted bytes; only the raw prefix is available. Use timeout_ms when the command needs a hard deadline."),
 		},
 		t.run,
 	)
@@ -67,7 +66,7 @@ func NewTool(config Config) (*Tool, error) {
 	return t, nil
 }
 
-func (t *Tool) Definition() chat.ToolDefinition {
+func (t *Tool) Definition() toolcontract.Definition {
 	return t.typed.Definition()
 }
 
@@ -83,8 +82,8 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	response := Response{
 		Stdout:               content.New(res.Stdout),
 		Stderr:               content.New(res.Stderr),
-		StdoutTruncated:      res.StdoutTruncated,
-		StderrTruncated:      res.StderrTruncated,
+		StdoutDroppedBytes:   res.StdoutDroppedBytes,
+		StderrDroppedBytes:   res.StderrDroppedBytes,
 		ExitCode:             res.ExitCode,
 		CancellationObserved: res.CancellationObserved,
 		Duration:             res.Duration.String(),
@@ -97,7 +96,7 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	if !containsFailure && !containsEvidence && (errors.Is(err, ErrEmptyCommand) || errors.Is(err, ErrInvalidInput)) {
 		cause := fmt.Errorf("shell.tool: run: %w", err)
 		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{
-			Kind: toolcontract.FailureKindFailed, Cause: cause, Output: chat.NewTextToolOutput(cause.Error()),
+			Kind: toolcontract.FailureKindFailed, Cause: cause, Output: toolcontract.NewTextOutput(cause.Error()),
 		})
 		if failureErr != nil {
 			return Response{}, errors.Join(cause, failureErr)

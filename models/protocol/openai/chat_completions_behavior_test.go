@@ -47,7 +47,8 @@ func newOpenAIBehaviorChat(t *testing.T, baseURL string) *scopeopenai.ChatComple
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 		BaseURL:        baseURL,
-	})
+	}, testChatDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewChatCompletions: %v", err)
 	}

@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 var ErrInvalidFailure = errors.New("tool: invalid failure")
@@ -27,7 +25,7 @@ const (
 // Output and retains Cause only for explicit diagnostic inspection.
 type FailureConfig struct {
 	Kind   FailureKind
-	Output chat.ToolOutput
+	Output Output
 	Cause  error
 }
 
@@ -39,7 +37,7 @@ type FailureConfig struct {
 type Failure struct {
 	kind   FailureKind
 	cause  error
-	output chat.ToolOutput
+	output Output
 }
 
 // NewFailure snapshots public output. Failed outcomes require a cause; rejection
@@ -103,9 +101,9 @@ func (f *Failure) Validate() error {
 }
 
 // Output returns an independent copy of the complete failure output.
-func (f *Failure) Output() chat.ToolOutput {
+func (f *Failure) Output() Output {
 	if f == nil {
-		return chat.ToolOutput{}
+		return Output{}
 	}
 	return f.output.Clone()
 }

@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -21,7 +23,8 @@ func newResponsesModel(t *testing.T, baseURL, modelID string) *openai.Responses 
 		APIKey:         "test-key",
 		DefaultOptions: chat.Options{Model: modelID},
 		BaseURL:        baseURL,
-	})
+	}, testResponsesDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewResponses: %v", err)
 	}
@@ -145,7 +148,7 @@ func TestResponsesChatCountsTheSameMultimodalInput(t *testing.T) {
 			chat.NewTextPart("inspect"),
 			chat.NewMediaPart(image),
 		)},
-		Tools: []chat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "inspect_image", Description: "Inspect an image",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		}},
@@ -209,7 +212,7 @@ func TestResponsesChatReplaysProviderIssuedReasoningItem(t *testing.T) {
 		userMessage,
 		message,
 		chat.NewToolMessage(chat.ToolResult{
-			ID: "call_w", Name: "weather", Output: chat.NewTextToolOutput("sunny"),
+			ID: "call_w", Name: "weather", Output: toolcontract.NewTextOutput("sunny"),
 		}),
 	}}); err != nil {
 		t.Fatalf("second Call: %v", err)
@@ -261,7 +264,7 @@ func TestResponsesChatMapsPortableToolChoice(t *testing.T) {
 	model := newResponsesModel(t, server.URL, "gpt-5")
 	request := &chat.Request{
 		Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("weather"))},
-		Tools: []chat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "weather", InputSchema: json.RawMessage(`{"type":"object"}`),
 		}},
 		ToolChoice: &chat.ToolChoice{
@@ -343,12 +346,12 @@ func TestRemoteCountsRequirePresentNonnegativeInputTokens(t *testing.T) {
 func TestResponsesProjectsEveryCitationThroughStreamAndCall(t *testing.T) {
 	for _, sample := range []struct {
 		annotation, value string
-		kind              chat.CitationSourceKind
+		kind              corecontent.CitationSourceKind
 	}{
-		{`{"type":"url_citation","url":"https://example.com","title":"Source","start_index":0,"end_index":5}`, "https://example.com", chat.CitationSourceURI},
-		{`{"type":"file_citation","file_id":"file-1","filename":"paper.pdf","index":0}`, "file-1", chat.CitationSourceReference},
-		{`{"type":"container_file_citation","container_id":"container","file_id":"file-2","filename":"result.txt","start_index":0,"end_index":5}`, "file-2", chat.CitationSourceReference},
-		{`{"type":"file_path","file_id":"file-3","index":0}`, "file-3", chat.CitationSourceReference},
+		{`{"type":"url_citation","url":"https://example.com","title":"Source","start_index":0,"end_index":5}`, "https://example.com", corecontent.CitationSourceURI},
+		{`{"type":"file_citation","file_id":"file-1","filename":"paper.pdf","index":0}`, "file-1", corecontent.CitationSourceReference},
+		{`{"type":"container_file_citation","container_id":"container","file_id":"file-2","filename":"result.txt","start_index":0,"end_index":5}`, "file-2", corecontent.CitationSourceReference},
+		{`{"type":"file_path","file_id":"file-3","index":0}`, "file-3", corecontent.CitationSourceReference},
 	} {
 		t.Run(sample.value, func(t *testing.T) {
 			item := `{"type":"message","id":"msg","role":"assistant","status":"completed","content":[{"type":"output_text","text":"claim","annotations":[` + sample.annotation + `]}]}`

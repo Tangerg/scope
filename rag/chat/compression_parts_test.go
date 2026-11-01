@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	ragchat "github.com/Tangerg/scope/rag/chat"
 )
 
@@ -23,9 +25,9 @@ func TestCompressionPreservesPublicHistoryAndOmitsReasoning(t *testing.T) {
 		chat.NewUserMessage(chat.NewTextPart("inspect"), chat.NewMediaPart(image)),
 		chat.NewAssistantMessage(chat.NewReasoningPart("private reasoning", nil), chat.NewRefusalPart("declined")),
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "read", Name: "lookup", Arguments: `{}`})),
-		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "read", Name: "lookup", Output: chat.NewTextToolOutput("public result")})}},
+		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "read", Name: "lookup", Output: toolcontract.NewTextOutput("public result")})}},
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "image", Name: "picture", Arguments: `{}`})),
-		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "image", Name: "picture", Output: chat.ToolOutput{Content: []chat.ToolContent{{Kind: chat.PartMedia, Media: image}}}})}},
+		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "image", Name: "picture", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: image}}}})}},
 	})
 	if err != nil {
 		t.Fatal(err)

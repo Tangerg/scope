@@ -47,7 +47,8 @@ func newAnthropicBehaviorChat(t *testing.T, baseURL string) *anthropic.Messages 
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "claude-opus-4-6"},
 		BaseURL:        baseURL,
-	})
+	}, testMessagesDialect(),
+	)
 	if err != nil {
 		t.Fatalf("NewMessages: %v", err)
 	}

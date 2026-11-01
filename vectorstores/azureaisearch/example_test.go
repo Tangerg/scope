@@ -4,20 +4,11 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"slices"
 	"time"
 
-	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/azureaisearch"
 )
-
-type exampleBatcher struct{}
-
-func (e exampleBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, 32)), nil
-}
 
 type exampleAuthentication struct {
 	key  string
@@ -40,21 +31,14 @@ func ExampleNewStore() {
 		Timeout:       10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
 	store, err := azureaisearch.NewStore(ctx, azureaisearch.StoreConfig{
 		Endpoint: "https://example.search.windows.net", IndexName: "documents", HTTPClient: client,
-		EmbeddingModel: model, DocumentBatcher: exampleBatcher{},
+		Space: "manual-v1",
 	})
 	if err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "example", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}); err != nil {
+	if _, err = store.Query(ctx, &vectorstore.Query{Space: "manual-v1", Values: []float64{1, 0}, LexicalText: "example", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}); err != nil {
 		panic(err)
 	}
 	if err = store.DeleteIDs(ctx, []string{"document-key"}); err != nil {

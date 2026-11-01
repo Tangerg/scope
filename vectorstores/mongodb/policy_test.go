@@ -1,7 +1,6 @@
 package mongodb
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -9,18 +8,16 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 func TestConstructionReadsNativePolicyAndRejectsInvalidIndexes(t *testing.T) {
 	for _, metric := range []string{"cosine", "euclidean", "dotProduct"} {
 		collection := &filterCollection{policy: []any{nativeIndexPolicy(DefaultVectorIndexName, metric, 3)}}
-		store, err := NewStore(t.Context(), StoreConfig{Collection: collection, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}})
+		store, err := NewStore(t.Context(), StoreConfig{Collection: collection, Space: fixtureSpace})
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}})
+		err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}}))
 		if err == nil || collection.writes != 0 {
 			t.Fatal("native dimension did not constrain index publication")
 		}
@@ -48,18 +45,14 @@ func TestConstructionReadsNativePolicyAndRejectsInvalidIndexes(t *testing.T) {
 			index := nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)
 			mutate(index)
 			collection := &filterCollection{policy: []any{index}}
-			model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				t.Fatal("construction called the model")
-				return nil, nil
-			})
-			store, err := NewStore(t.Context(), StoreConfig{Collection: collection, EmbeddingModel: model, DocumentBatcher: upsertBatcher{}})
+			store, err := NewStore(t.Context(), StoreConfig{Collection: collection, Space: fixtureSpace})
 			if err == nil || store != nil {
 				t.Fatal("invalid native policy produced a store")
 			}
 		})
 	}
 	for _, policy := range [][]any{nil, {nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2), nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}} {
-		store, err := NewStore(t.Context(), StoreConfig{Collection: &filterCollection{policy: policy}, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}})
+		store, err := NewStore(t.Context(), StoreConfig{Collection: &filterCollection{policy: policy}, Space: fixtureSpace})
 		if err == nil || store != nil {
 			t.Fatal("missing or ambiguous native policy produced a store")
 		}
@@ -67,11 +60,11 @@ func TestConstructionReadsNativePolicyAndRejectsInvalidIndexes(t *testing.T) {
 }
 
 func TestConstructionRejectsTypedNilWithoutReadingCollection(t *testing.T) {
-	config := StoreConfig{Collection: &filterCollection{policy: []any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}}, EmbeddingModel: constantModel{}, DocumentBatcher: upsertBatcher{}}
+	config := StoreConfig{Collection: &filterCollection{policy: []any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}}, Space: fixtureSpace}
 	for _, mutate := range []func(*StoreConfig){
 		func(candidate *StoreConfig) { candidate.Collection = (*mongo.Collection)(nil) },
-		func(candidate *StoreConfig) { candidate.EmbeddingModel = (*constantModel)(nil) },
-		func(candidate *StoreConfig) { candidate.DocumentBatcher = (*upsertBatcher)(nil) },
+		func(c *StoreConfig) { c.Space = "" },
+		func(c *StoreConfig) { c.Space = " padded" },
 		func(candidate *StoreConfig) { candidate.NumCandidates = -1 },
 		func(candidate *StoreConfig) { candidate.VectorIndexName = " index " },
 	} {

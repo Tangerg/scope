@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/anthropic"
 )
 
@@ -32,14 +33,14 @@ func (n *numericTransport) RoundTrip(request *http.Request) (*http.Response, err
 
 func TestToolSchemaAndRestoredArgumentsKeepExactNumbers(t *testing.T) {
 	boundary := &numericTransport{}
-	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}})
+	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
 	messages := []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("lookup")),
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993,"ratio":12345678901234567890.0123456789}`})),
-		chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: chat.NewTextToolOutput("found")}),
+		chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.NewTextOutput("found")}),
 	}
 	stored, err := jsonv2.Marshal(messages)
 	if err != nil {
@@ -54,7 +55,7 @@ func TestToolSchemaAndRestoredArgumentsKeepExactNumbers(t *testing.T) {
 		t.Fatal(err)
 	}
 	const schema = `{"type":"object","properties":{"id":{"const":9007199254740993}},"required":["id"]}`
-	request.Tools = []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
+	request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
 	format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "answer", Schema: json.RawMessage(schema)})
 	if err != nil {
 		t.Fatal(err)

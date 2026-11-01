@@ -16,40 +16,34 @@ func TestSearchResultRequiresCompleteIndexedDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A media-only document is individually valid but is not a complete indexed
-	// document: a store rejects it at write, so a search result must reject it too.
 	mediaOnly := &document.Document{ID: "doc-1", Media: image}
-	if docErr := mediaOnly.Validate(); docErr != nil {
-		t.Fatalf("media-only document is individually valid: %v", docErr)
+	if err := vectorstore.ValidateDocuments([]*document.Document{mediaOnly}); err != nil {
+		t.Fatal(err)
 	}
-	if _, resErr := vectorstore.NewSearchResult(mediaOnly, 0.8); !errors.Is(resErr, vectorstore.ErrInvalidResponse) {
-		t.Fatalf("NewSearchResult accepted a document without text: %v", resErr)
-	}
-	// The same rule rejects it at index admission, confirming one shared owner.
-	if _, reqErr := vectorstore.NewIndexRequest([]*document.Document{mediaOnly}); !errors.Is(reqErr, vectorstore.ErrInvalidRequest) {
-		t.Fatalf("NewIndexRequest accepted a document without text: %v", reqErr)
+	if _, err := vectorstore.NewSearchResult(mediaOnly, 0.8); err != nil {
+		t.Fatalf("media-only result with prepared coordinates: %v", err)
 	}
 }
 
-func TestSearchRequestValidate(t *testing.T) {
+func TestQueryValidate(t *testing.T) {
 	cases := []struct {
 		name string
-		req  vectorstore.SearchRequest
+		req  vectorstore.Query
 		ok   bool
 	}{
-		{"empty query", vectorstore.SearchRequest{Options: vectorstore.SearchOptions{TopK: 5}}, false},
-		{"default topk", vectorstore.SearchRequest{Query: "hi"}, true},
-		{"negative topk", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{TopK: -1}}, false},
-		{"out-of-range minscore", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{TopK: 5, MinScore: 1.5}}, false},
-		{"nan minscore", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{TopK: 5, MinScore: vectorstore.Score(math.NaN())}}, false},
-		{"unknown mode", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{Mode: "magic"}}, false},
-		{"hybrid threshold", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, MinScore: 0.5}}, false},
-		{"hybrid", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, true},
-		{"valid", vectorstore.SearchRequest{Query: "hi", Options: vectorstore.SearchOptions{TopK: 5, MinScore: 0.5}}, true},
+		{"empty query", vectorstore.Query{Space: "fixture", Options: vectorstore.SearchOptions{TopK: 5}}, false},
+		{"default topk", vectorstore.Query{Space: "fixture", Values: []float64{1}}, true},
+		{"negative topk", vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: -1}}, false},
+		{"out-of-range minscore", vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: 5, MinScore: 1.5}}, false},
+		{"nan minscore", vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: 5, MinScore: vectorstore.Score(math.NaN())}}, false},
+		{"unknown mode", vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{Mode: "magic"}}, false},
+		{"hybrid threshold", vectorstore.Query{Space: "fixture", Values: []float64{1}, LexicalText: "hi", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid, MinScore: 0.5}}, false},
+		{"hybrid", vectorstore.Query{Space: "fixture", Values: []float64{1}, LexicalText: "hi", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, true},
+		{"valid", vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: 5, MinScore: 0.5}}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.req.Validate()
+			err := tc.req.ValidateFor("fixture")
 			if tc.ok && err != nil {
 				t.Fatalf("expected ok, got %v", err)
 			}
@@ -92,13 +86,13 @@ func TestSearchOptionsZeroValueUsesDefaultLimit(t *testing.T) {
 }
 
 func TestSearchResponseValidate(t *testing.T) {
-	request := vectorstore.SearchRequest{Query: "scope", Options: vectorstore.SearchOptions{TopK: 2, MinScore: 0.5}}
+	request := vectorstore.Query{Space: "fixture", Values: []float64{1}, Options: vectorstore.SearchOptions{TopK: 2, MinScore: 0.5}}
 	first, _ := document.NewDocument("first", nil)
 	second, _ := document.NewDocument("second", nil)
 	first.ID = "first"
 	second.ID = "second"
 	valid := []*vectorstore.SearchResult{{Document: first, Score: 0.9}, {Document: second, Score: 0.5}}
-	if err := (&vectorstore.SearchResponse{Results: valid}).ValidateFor(&request); err != nil {
+	if err := request.ValidateResponse(&vectorstore.SearchResponse{Results: valid}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,7 +110,7 @@ func TestSearchResponseValidate(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := (&vectorstore.SearchResponse{Results: test.results}).ValidateFor(&request); err == nil {
+			if err := request.ValidateResponse(&vectorstore.SearchResponse{Results: test.results}); err == nil {
 				t.Fatal("SearchResponse.Validate accepted invalid output")
 			}
 		})
@@ -129,8 +123,8 @@ func TestCapabilityInterfacesStayMinimal(t *testing.T) {
 		typeOf reflect.Type
 		method string
 	}{
-		{"Indexer", reflect.TypeFor[vectorstore.Indexer](), "Index"},
-		{"Searcher", reflect.TypeFor[vectorstore.Searcher](), "Search"},
+		{"Upserter", reflect.TypeFor[vectorstore.Upserter](), "Upsert"},
+		{"Querier", reflect.TypeFor[vectorstore.Querier](), "Query"},
 		{"IDDeleter", reflect.TypeFor[vectorstore.IDDeleter](), "DeleteIDs"},
 		{"FilterDeleter", reflect.TypeFor[vectorstore.FilterDeleter](), "DeleteWhere"},
 	}

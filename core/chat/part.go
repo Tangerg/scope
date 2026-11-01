@@ -6,6 +6,7 @@ import (
 	"slices"
 	"unicode/utf8"
 
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -13,8 +14,8 @@ import (
 type PartKind string
 
 const (
-	PartText       PartKind = "text"
-	PartMedia      PartKind = "media"
+	PartText                = corecontent.Text
+	PartMedia               = corecontent.Media
 	PartReasoning  PartKind = "reasoning"
 	PartToolCall   PartKind = "tool_call"
 	PartToolResult PartKind = "tool_result"
@@ -35,14 +36,14 @@ func (p PartKind) Valid() bool {
 // annotate only text parts. Metadata retains JSON-safe, part-scoped provider
 // state without weakening the common semantic payload.
 type Part struct {
-	Kind           PartKind     `json:"kind"`
-	Text           string       `json:"text,omitempty"`
-	Media          *media.Media `json:"media,omitzero"`
-	ReasoningState []byte       `json:"reasoning_state,omitempty"`
-	ToolCall       *ToolCall    `json:"tool_call,omitzero"`
-	ToolResult     *ToolResult  `json:"tool_result,omitzero"`
-	Citations      []Citation   `json:"citations,omitempty"`
-	Metadata       metadata.Map `json:"metadata,omitzero"`
+	Kind           PartKind               `json:"kind"`
+	Text           string                 `json:"text,omitempty"`
+	Media          *media.Media           `json:"media,omitzero"`
+	ReasoningState []byte                 `json:"reasoning_state,omitempty"`
+	ToolCall       *ToolCall              `json:"tool_call,omitzero"`
+	ToolResult     *ToolResult            `json:"tool_result,omitzero"`
+	Citations      []corecontent.Citation `json:"citations,omitempty"`
+	Metadata       metadata.Map           `json:"metadata,omitzero"`
 }
 
 type partPayload uint8
@@ -101,6 +102,16 @@ func NewRefusalPart(text string) Part {
 }
 
 func (p Part) Validate() error {
+	if p.Kind == PartText || p.Kind == PartMedia {
+		if len(p.ReasoningState) > 0 || p.ToolCall != nil || p.ToolResult != nil {
+			return fmt.Errorf("%w: content cannot carry chat control payloads", ErrInvalidPart)
+		}
+		block := corecontent.Block{Kind: corecontent.Kind(p.Kind), Text: p.Text, Media: p.Media, Citations: p.Citations, Metadata: p.Metadata}
+		if err := block.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidPart, err)
+		}
+		return nil
+	}
 	if !utf8.ValidString(p.Text) {
 		return fmt.Errorf("%w: text is not valid UTF-8", ErrInvalidPart)
 	}
@@ -116,10 +127,6 @@ func (p Part) Validate() error {
 
 	payload := p.payload()
 	switch p.Kind {
-	case PartText:
-		return p.validateTextPayload(payload)
-	case PartMedia:
-		return p.validateMediaPayload(payload)
 	case PartReasoning:
 		return p.validateReasoningPayload(payload)
 	case PartToolCall:
@@ -150,28 +157,6 @@ func (p Part) payload() partPayload {
 		payload |= payloadToolResult
 	}
 	return payload
-}
-
-func (p Part) validateTextPayload(payload partPayload) error {
-	if payload != payloadText {
-		return fmt.Errorf("%w: kind %q requires non-empty text and no other payload", ErrInvalidPart, p.Kind)
-	}
-	for index := range p.Citations {
-		if err := p.Citations[index].Validate(); err != nil {
-			return fmt.Errorf("%w: citations[%d]: %w", ErrInvalidPart, index, err)
-		}
-	}
-	return nil
-}
-
-func (p Part) validateMediaPayload(payload partPayload) error {
-	if payload != payloadMedia {
-		return fmt.Errorf("%w: kind %q requires media and no other payload", ErrInvalidPart, p.Kind)
-	}
-	if err := p.Media.Validate(); err != nil {
-		return fmt.Errorf("%w: media: %w", ErrInvalidPart, err)
-	}
-	return nil
 }
 
 func (p Part) validateReasoningPayload(payload partPayload) error {

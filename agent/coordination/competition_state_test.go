@@ -1,0 +1,283 @@
+package coordination
+
+import (
+	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
+	"maps"
+	"slices"
+	"testing"
+
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
+	"github.com/Tangerg/scope/agent/run"
+)
+
+func TestCompetitionRetainsStartDeclarationThroughRecovery(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 2)
+	source := competitionExecution(t, starts)
+	input, err := run.EncodePayload(source.state.Candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := source.definition.Start(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, expected := range [][]string{{"candidates"}, {"candidates", "results"}, {"candidates", "results"}} {
+		state, snapshotErr := execution.Snapshot()
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		var fields map[string]json.RawMessage
+		if decodeErr := jsonv2.Unmarshal(state.Payload(), &fields); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if got := slices.Sorted(maps.Keys(fields)); !slices.Equal(got, expected) {
+			t.Fatalf("progress %d fields = %v, want %v", index, got, expected)
+		}
+		if index == 1 && string(fields["results"]) != "[null,null]" {
+			t.Fatalf("declaration before first receipt = %s, want one empty result per candidate", fields["results"])
+		}
+		execution, err = source.definition.Restore(t.Context(), state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var signals []run.Signal
+		if index > 0 {
+			if _, err := execution.Step(t.Context(), nil); !errors.Is(err, ErrInvalidProtocol) {
+				t.Fatalf("declared starts were reissued without receipts: %v", err)
+			}
+			data, encodeErr := jsonv2.Marshal(struct {
+				ID      string               `json:"id"`
+				Payload run.ChildStartResult `json:"payload"`
+			}{"signal:engine:start", starts[index-1]})
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			var signal run.Signal
+			if decodeErr := jsonv2.Unmarshal(data, &signal); decodeErr != nil {
+				t.Fatal(decodeErr)
+			}
+			signals = []run.Signal{signal}
+		}
+		transition, stepErr := execution.Step(t.Context(), signals)
+		if stepErr != nil {
+			t.Fatal(stepErr)
+		}
+		wantEffects, wantConsumed := 2, uint32(0)
+		if index > 0 {
+			wantEffects, wantConsumed = index-1, 1
+		}
+		if transition.Kind() != run.TransitionKindContinue || transition.ConsumedSignals() != wantConsumed || len(transition.Effects()) != wantEffects {
+			t.Fatalf("progress %d transition = %v", index, transition)
+		}
+	}
+}
+
+func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 6)
+	execution := competitionExecution(t, starts)
+	var transition run.Transition
+	for _, batch := range [][]run.ChildOutcome{
+		{outcomes[1], outcomes[3], outcomes[5]},
+		{outcomes[0], outcomes[2], outcomes[4]},
+	} {
+		execution.state.WaitID = new(competitionWaitID(t))
+		signal := competitionCompletion(t, execution.state, batch)
+		var err error
+		if transition, err = execution.Step(t.Context(), []run.Signal{signal}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	output, completed := transition.Output()
+	if !completed {
+		t.Fatalf("competition did not complete: %v", transition)
+	}
+	report, err := output.Decode[FirstSuccessResult]()
+	if err != nil || !report.Valid() {
+		t.Fatalf("complete competition result is invalid: %v", err)
+	}
+	var merged []run.ChildOutcome
+	for _, candidate := range report.Candidates {
+		merged = append(merged, *candidate.Outcome)
+	}
+	if !slices.EqualFunc(merged, outcomes, sameOutcome) {
+		t.Fatal("merged outcomes changed candidate order or contents")
+	}
+	if !execution.state.Completed || len(execution.state.Results) != 0 {
+		t.Fatal("completed competition state repeats its Output")
+	}
+}
+
+func TestCompetitionRejectsInvalidOutcomeBatchesAtomically(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 4)
+	for name, test := range map[string]struct {
+		outcomes []run.ChildOutcome
+		cause    error
+	}{
+		"empty":            {nil, run.ErrInvalidChildWait},
+		"duplicate":        {[]run.ChildOutcome{outcomes[0], outcomes[0]}, run.ErrInvalidChildWait},
+		"already observed": {[]run.ChildOutcome{outcomes[0], outcomes[1]}, ErrInvalidProtocol},
+		"unordered":        {[]run.ChildOutcome{outcomes[2], outcomes[0]}, ErrInvalidProtocol},
+		"foreign":          {[]run.ChildOutcome{outcomes[0], outcomes[3]}, ErrInvalidProtocol},
+	} {
+		t.Run(name, func(t *testing.T) {
+			execution := competitionExecution(t, starts[:3])
+			execution.state.Results[1] = &CandidateResult{Outcome: &outcomes[1]}
+			before, err := execution.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			signal := competitionCompletion(t, execution.state, test.outcomes)
+			if transition, stepErr := execution.Step(t.Context(), []run.Signal{signal}); !errors.Is(stepErr, test.cause) || transition.Valid() {
+				t.Fatalf("invalid completion returned %v, %v; want %v", transition, stepErr, test.cause)
+			}
+			after, err := execution.Snapshot()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after.Payload()) != string(before.Payload()) {
+				t.Fatal("rejected batch changed execution state")
+			}
+		})
+	}
+}
+
+func TestCompetitionRejectsDuplicatedChildrenOnRestore(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 2)
+	execution := competitionExecution(t, starts)
+	execution.state.Results[0] = &CandidateResult{Outcome: &outcomes[1]}
+	snapshot, err := execution.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := execution.definition.Restore(t.Context(), snapshot); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("an outcome naming another candidate's child was accepted on restore: %v", err)
+	}
+}
+
+func competitionExecution(t *testing.T, starts []run.ChildStartResult) *firstSuccessExecution {
+	t.Helper()
+	definition, err := NewFirstSuccess(FirstSuccessConfig{
+		Name: "test.competition", Description: "Exercise ordered outcome adoption.", MaxCandidates: uint32(len(starts)),
+		Accept: func(_ context.Context, _ run.ChildKey, _ run.ChildOutcome) (bool, error) { return false, nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := firstSuccessState{Results: startSlots(starts), WaitID: new(competitionWaitID(t))}
+	for index := range starts {
+		payload, err := run.EncodePayload("input")
+		if err != nil {
+			t.Fatal(err)
+		}
+		state.Candidates = append(state.Candidates, run.ChildSpec{Key: candidateKey(t, index), ProgramRef: benchmarkProgramRef(t), Input: payload, Budget: run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Signals: run.NewQuota(16)}})
+	}
+	if err := state.validate(t.Context(), definition.maxCandidates); err != nil {
+		t.Fatal(err)
+	}
+	return &firstSuccessExecution{definition: definition, state: state}
+}
+
+func competitionWaitID(t *testing.T) run.WaitID {
+	t.Helper()
+	id, err := run.ParseWaitID("competition.wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []run.ChildOutcome) run.Signal {
+	t.Helper()
+	payload := struct {
+		Operation string             `json:"operation"`
+		Outcomes  []run.ChildOutcome `json:"outcomes"`
+	}{"child_wait_satisfied", outcomes}
+	data, err := jsonv2.Marshal(struct {
+		ID      string     `json:"id"`
+		WaitID  run.WaitID `json:"wait_id"`
+		Payload any        `json:"payload"`
+	}{"signal:engine:competition", *state.WaitID, payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signal run.Signal
+	if err := jsonv2.Unmarshal(data, &signal); err != nil {
+		t.Fatal(err)
+	}
+	return signal
+}
+
+func sameOutcome(left, right run.ChildOutcome) bool {
+	return left.Result().ProcessID() == right.Result().ProcessID() &&
+		left.Result().Termination().Status() == right.Result().Termination().Status()
+}
+
+func TestRestoreStopsBetweenCandidates(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 2)
+	execution := competitionExecution(t, starts)
+	state := execution.state
+	state.Candidates[1] = run.ChildSpec{}
+	ctx, cancel := conformancetest.CancelAfterCheck(t.Context(), 2)
+	defer cancel()
+	if err := state.validate(ctx, 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("candidate validation = %v, want cancellation before malformed second candidate", err)
+	}
+}
+
+func startSlots(starts []run.ChildStartResult) []*CandidateResult {
+	results := make([]*CandidateResult, len(starts))
+	for index := range starts {
+		results[index] = &CandidateResult{Start: &starts[index]}
+	}
+	return results
+}
+
+func TestCompetitionStartSlotsMatchCandidatesInOrder(t *testing.T) {
+	starts, _ := competitionOutcomes(t, 3)
+	execution := competitionExecution(t, starts)
+	for name, slots := range map[string][]*CandidateResult{
+		"missing slot":           startSlots(starts)[:2],
+		"receipt after gap":      {{Start: &starts[0]}, nil, {Start: &starts[2]}},
+		"declared without slots": {},
+	} {
+		state := execution.state
+		state.Results, state.WaitID = slots, nil
+		err := state.validate(t.Context(), execution.definition.maxCandidates)
+		if name == "declared without slots" {
+			if err != nil || state.phase() != competitionReady {
+				t.Fatalf("empty slots must mean an undeclared competition: phase=%d err=%v", state.phase(), err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrInvalidExecutionState) {
+			t.Fatalf("%s accepted: %v", name, err)
+		}
+	}
+}
+
+func TestCompetitionResultRejectsContradictoryCandidateFacts(t *testing.T) {
+	starts, outcomes := competitionOutcomes(t, 2)
+	for _, report := range []FirstSuccessResult{
+		{},
+		{Candidates: []CandidateResult{{}}},
+		{Candidates: []CandidateResult{{Start: &starts[0], Outcome: &outcomes[0]}}},
+		{Candidates: []CandidateResult{{Start: &starts[0]}}},
+		{Winner: new(uint32(1)), Candidates: []CandidateResult{{Outcome: &outcomes[0]}}},
+		{Winner: new(uint32(0)), Candidates: []CandidateResult{{Start: &starts[0]}, {Outcome: &outcomes[1]}}},
+	} {
+		if report.Valid() {
+			t.Fatalf("incomplete or contradictory competition result was accepted: %+v", report)
+		}
+	}
+	for _, report := range []FirstSuccessResult{
+		{Candidates: []CandidateResult{{Outcome: &outcomes[0]}, {Outcome: &outcomes[1]}}},
+		{Winner: new(uint32(0)), Candidates: []CandidateResult{{Outcome: &outcomes[0]}, {Start: &starts[1]}}},
+	} {
+		if !report.Valid() {
+			t.Fatalf("complete result or winner with a pending competitor was rejected: %+v", report)
+		}
+	}
+}

@@ -9,12 +9,13 @@ import (
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 	request := &corechat.Request{
 		Messages:   []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))},
-		Tools:      []corechat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		Tools:      []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}},
 		ToolChoice: &corechat.ToolChoice{Mode: corechat.ToolChoiceAuto},
 	}
 	dialect := Dialect{Provider: "compatible", PrepareRequest: func(resolved *corechat.Request, fields map[string]any) error {

@@ -11,12 +11,12 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3vectors"
-	s3vdoc "github.com/aws/aws-sdk-go-v2/service/s3vectors/document"
+
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors/types"
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -27,7 +27,6 @@ const (
 	MaxResultsPerQueryPage = 100
 	MaxVectorsPerWrite     = 500
 	maxRequestBytes        = 20 * 1024 * 1024
-	maxQueryKeys           = 1000
 )
 
 var ErrIncompatibleIndex = errors.New("s3vectors: index is incompatible")
@@ -44,8 +43,7 @@ type StoreConfig struct {
 	Client           VectorClient
 	VectorBucketName string
 	IndexName        string
-	EmbeddingModel   embedding.Model
-	DocumentBatcher  vectorstore.Batcher
+	Space            vectorstore.SpaceID
 }
 
 func (s StoreConfig) Validate() error {
@@ -58,18 +56,12 @@ func (s StoreConfig) Validate() error {
 	if s.IndexName == "" {
 		return errors.New("s3vectors: IndexName is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("s3vectors: EmbeddingModel is required")
-	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("s3vectors: DocumentBatcher is required")
-	}
-	return nil
+	return s.Space.Validate()
 }
 
 var (
-	_ vectorstore.Indexer   = (*Store)(nil)
-	_ vectorstore.Searcher  = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.Querier   = (*Store)(nil)
 	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
@@ -77,8 +69,7 @@ type Store struct {
 	client           VectorClient
 	vectorBucketName string
 	indexName        string
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
+	space            vectorstore.SpaceID
 	schema           indexSchema
 }
 
@@ -86,72 +77,98 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
+	store := &Store{client: config.Client, vectorBucketName: config.VectorBucketName, indexName: config.IndexName, space: config.Space}
+	schema, err := store.readSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
-	output, err := config.Client.GetIndex(ctx, &awss3.GetIndexInput{VectorBucketName: aws.String(config.VectorBucketName), IndexName: aws.String(config.IndexName)})
-	if err != nil {
-		return nil, fmt.Errorf("s3vectors: GetIndex: %w", err)
-	}
-	if output == nil {
-		return nil, fmt.Errorf("%w: GetIndex returned no response", ErrIncompatibleIndex)
-	}
-	schema, err := newIndexSchema(output.Index, config.VectorBucketName, config.IndexName)
-	if err != nil {
-		return nil, err
-	}
-	store := &Store{client: config.Client, vectorBucketName: config.VectorBucketName, indexName: config.IndexName, embeddingClient: client, documentBatcher: config.DocumentBatcher, schema: schema}
+	store.schema = schema
 	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return err
+func (s *Store) readSchema(ctx context.Context) (indexSchema, error) {
+	output, err := s.client.GetIndex(ctx, &awss3.GetIndexInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName)})
+	if err != nil {
+		return indexSchema{}, fmt.Errorf("s3vectors: GetIndex: %w", err)
 	}
-	encoded := make(map[string]s3vdoc.Interface, len(request.Documents))
-	for _, doc := range request.Documents {
-		metadata, err := encodeDocument(doc)
-		if err != nil {
-			return err
-		}
-		encoded[doc.ID] = metadata
+	if output == nil {
+		return indexSchema{}, fmt.Errorf("%w: GetIndex returned no response", ErrIncompatibleIndex)
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
+	return newIndexSchema(output.Index, s.vectorBucketName, s.indexName, s.space)
+}
+func (s *Store) checkBinding(ctx context.Context) error {
+	got, err := s.readSchema(ctx)
 	if err != nil {
 		return err
 	}
-	var records []types.PutInputVector
-	for _, batch := range batches {
-		texts, textErr := batch.Texts()
-		if textErr != nil {
-			return textErr
+	if got != s.schema {
+		return ErrIncompatibleIndex
+	}
+	return nil
+}
+
+// CheckDocuments verifies metadata budgets, media support and the physical
+// index binding before a composition requests remote embeddings.
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		vectors, embedErr := s.embeddingClient.EmbedTexts(ctx, texts)
-		if embedErr != nil {
-			return embedErr
+		if _, err := encodeDocument(doc); err != nil {
+			return err
 		}
-		for i, doc := range batch.Documents {
-			vector, vectorErr := s.schema.narrow(vectors[i])
-			if vectorErr != nil {
-				return fmt.Errorf("s3vectors: document %s: %w", doc.ID, vectorErr)
-			}
-			records = append(records, types.PutInputVector{Key: aws.String(doc.ID), Data: &types.VectorDataMemberFloat32{Value: vector}, Metadata: encoded[doc.ID]})
+	}
+	return s.checkBinding(ctx)
+}
+
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	records := make([]types.PutInputVector, len(batch.Records))
+	for i, r := range batch.Records {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+		data, err := s.schema.narrow(r.Values)
+		if err != nil {
+			return err
+		}
+		md, err := encodeDocument(r.Document)
+		if err != nil {
+			return err
+		}
+		records[i] = types.PutInputVector{Key: aws.String(r.Document.ID), Data: &types.VectorDataMemberFloat32{Value: data}, Metadata: md}
 	}
 	requests, err := s.putRequests(records)
 	if err != nil {
 		return err
 	}
-	for _, input := range requests {
-		output, err := s.client.PutVectors(ctx, input)
-		if err != nil {
-			return fmt.Errorf("s3vectors: PutVectors: %w", err)
-		}
-		if output == nil {
-			return errors.New("s3vectors: PutVectors returned no acknowledgment")
-		}
+	if err = s.checkBinding(ctx); err != nil {
+		return err
 	}
+	keys := make([]string, len(records))
+	for i, v := range records {
+		keys[i] = *v.Key
+	}
+	offset := 0
+	for _, req := range requests {
+		out, err := s.client.PutVectors(ctx, req)
+		if err != nil || out == nil {
+			if err == nil {
+				err = errors.New("s3vectors: missing put acknowledgment")
+			}
+			return incompleteWrite(keys, offset, len(req.Vectors), err)
+		}
+		offset += len(req.Vectors)
+	}
+
 	return nil
 }
 
@@ -190,11 +207,29 @@ func (s *Store) putRequests(records []types.PutInputVector) ([]*awss3.PutVectors
 	return requests, nil
 }
 
-func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([]string, error) {
-	var keys []string
+// Scan evaluates predicate over pages the caller is authorized to enumerate.
+// MaxBytes counts returned key, encoded metadata and float32 coordinates;
+// service pagination provides no snapshot isolation. No partial result is returned.
+func (s *Store) Scan(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) ([]*document.Document, error) {
+	if err := budget.Validate(); err != nil {
+		return nil, err
+	}
+	if predicate != nil {
+		if err := predicate.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
+	defer cancel()
+	if err := s.checkBinding(ctx); err != nil {
+		return nil, err
+	}
+	var docs []*document.Document
+	var scanned int
+	remaining := budget.MaxBytes
 	seenKeys := make(map[string]struct{})
 	seenTokens := make(map[string]struct{})
-	input := &awss3.ListVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), MaxResults: aws.Int32(1000), ReturnMetadata: true, ReturnData: true}
+	input := &awss3.ListVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), MaxResults: aws.Int32(int32(min(1000, budget.MaxRecords+1))), ReturnMetadata: true, ReturnData: true}
 	for {
 		page, err := s.client.ListVectors(ctx, input)
 		if err != nil {
@@ -211,6 +246,10 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([
 				return nil, errors.New("s3vectors: ListVectors repeated a vector key")
 			}
 			seenKeys[*row.Key] = struct{}{}
+			scanned++
+			if scanned > budget.MaxRecords {
+				return nil, vectorstore.ErrScanBudget
+			}
 			doc, err := decodeDocument(*row.Key, row.Metadata)
 			if err != nil {
 				return nil, err
@@ -222,6 +261,15 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([
 			if err = s.schema.validateVector(data.Value); err != nil {
 				return nil, err
 			}
+			raw, err := row.Metadata.MarshalSmithyDocument()
+			if err != nil {
+				return nil, err
+			}
+			weight := int64(len(raw)) + int64(len(*row.Key)) + 4*int64(len(data.Value))
+			if weight > remaining {
+				return nil, vectorstore.ErrScanBudget
+			}
+			remaining -= weight
 			if predicate != nil {
 				values, err := doc.Metadata.Values()
 				if err != nil {
@@ -235,10 +283,10 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate) ([
 					continue
 				}
 			}
-			keys = append(keys, doc.ID)
+			docs = append(docs, doc)
 		}
 		if page.NextToken == nil || *page.NextToken == "" {
-			return keys, nil
+			return docs, nil
 		}
 		if _, repeated := seenTokens[*page.NextToken]; repeated {
 			return nil, errors.New("s3vectors: ListVectors repeated a continuation token")
@@ -253,63 +301,57 @@ type rankedResult struct {
 	result   *vectorstore.SearchResult
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.ResultLimit() > MaxTopK {
+		return fmt.Errorf("s3vectors: %w: TopK exceeds %d", vectorstore.ErrInvalidOptions, MaxTopK)
+	}
+	if opts.Filter != nil && !allowFilter {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return nil
+}
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := s.checkOptions(opts, false); err != nil {
+		return err
+	}
+	return s.checkBinding(ctx)
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = s.CheckQuery(ctx, request.Space, request.Options); err != nil {
 		return nil, err
-	}
-	if request.Options.ResultLimit() > MaxTopK {
-		return nil, fmt.Errorf("s3vectors: %w: TopK exceeds %d", vectorstore.ErrInvalidOptions, MaxTopK)
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	var keys []string
-	if request.Options.Filter != nil {
-		keys, err = s.matchingKeys(ctx, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(keys) == 0 {
-			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
-		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	query, err := s.schema.narrow(request.Values)
 	if err != nil {
 		return nil, err
 	}
-	query, err := s.schema.narrow(vector)
-	if err != nil {
-		return nil, err
-	}
-	var groups [][]string
-	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(keys, maxQueryKeys))
-	} else {
-		groups = [][]string{nil}
-	}
+
 	var ranked []rankedResult
 	seen := make(map[string]struct{})
-	for _, keys := range groups {
+	{
 		input := &awss3.QueryVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), QueryVector: &types.VectorDataMemberFloat32{Value: query}, TopK: aws.Int32(int32(request.Options.ResultLimit())), ReturnDistance: true, ReturnMetadata: true}
-		allowed := make(map[string]struct{}, len(keys))
-		if keys != nil {
-			for _, key := range keys {
-				allowed[key] = struct{}{}
-			}
-			input.TopK = aws.Int32(int32(min(len(keys), request.Options.ResultLimit())))
-			input.Filter = s3vdoc.NewLazyDocument(map[string]any{idMetaKey: map[string]any{"$in": keys}})
-		}
 		seenTokens := make(map[string]struct{})
 		for {
 			page, err := s.client.QueryVectors(ctx, input)
@@ -330,27 +372,9 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 					return nil, errors.New("s3vectors: QueryVectors repeated a vector key")
 				}
 				seen[*row.Key] = struct{}{}
-				if keys != nil {
-					if _, exists := allowed[*row.Key]; !exists {
-						return nil, errors.New("s3vectors: native query returned a key outside Core membership")
-					}
-				}
 				doc, err := decodeDocument(*row.Key, row.Metadata)
 				if err != nil {
 					return nil, err
-				}
-				if request.Options.Filter != nil {
-					values, decodeErr := doc.Metadata.Values()
-					if decodeErr != nil {
-						return nil, decodeErr
-					}
-					matched, matchErr := filter.Match(request.Options.Filter, values)
-					if matchErr != nil {
-						return nil, matchErr
-					}
-					if !matched {
-						return nil, errors.New("s3vectors: native result changed Core membership during search")
-					}
 				}
 				distance := float64(*row.Distance)
 				score, err := s.schema.score(distance)
@@ -404,14 +428,26 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			keys = append(keys, id)
 		}
 	}
+	if len(keys) == 0 {
+		return nil
+	}
+	if err := s.checkBinding(ctx); err != nil {
+		return err
+	}
+	offset := 0
 	for chunk := range slices.Chunk(keys, MaxVectorsPerWrite) {
 		output, err := s.client.DeleteVectors(ctx, &awss3.DeleteVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), Keys: chunk})
 		if err != nil {
-			return fmt.Errorf("s3vectors: DeleteVectors: %w", err)
+			return incompleteWrite(keys, offset, len(chunk), fmt.Errorf("s3vectors: DeleteVectors: %w", err))
 		}
 		if output == nil {
-			return errors.New("s3vectors: DeleteVectors returned no acknowledgment")
+			return incompleteWrite(keys, offset, len(chunk), errors.New("s3vectors: DeleteVectors returned no acknowledgment"))
 		}
+		offset += len(chunk)
 	}
 	return nil
+}
+
+func incompleteWrite(keys []string, begin, n int, cause error) error {
+	return &vectorstore.WriteError{Err: cause, Acknowledged: slices.Clone(keys[:begin]), Unconfirmed: slices.Clone(keys[begin : begin+n]), Unattempted: slices.Clone(keys[begin+n:])}
 }

@@ -3,6 +3,7 @@ package rag
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -74,12 +75,33 @@ func (c Candidates) Validate() error {
 	return nil
 }
 
-func (c Candidates) uniqueBest() Candidates {
-	positions := make(map[string]int, len(c))
+// A store ID is relative to its source revision and location. The wire
+// projection keeps nested chunk paths and unknown ranges distinct without
+// treating raw text, scores or mutable business metadata as identity.
+type documentKey struct{ id, origin string }
+
+func (c Candidate) documentKey() (documentKey, error) {
+	k := documentKey{id: c.Document.ID}
+	if k.id == "" || c.Document.Provenance == nil {
+		return k, nil
+	}
+	origin, err := jsonv2.Marshal(c.Document.Provenance)
+	if err != nil {
+		return documentKey{}, fmt.Errorf("%w: encode provenance: %w", ErrInvalidCandidate, err)
+	}
+	k.origin = string(origin)
+	return k, nil
+}
+
+func (c Candidates) uniqueBest() (Candidates, error) {
+	positions := make(map[documentKey]int, len(c))
 	unique := make(Candidates, 0, len(c))
 	for _, candidate := range c {
-		id := candidate.Document.ID
-		if id == "" {
+		id, err := candidate.documentKey()
+		if err != nil {
+			return nil, err
+		}
+		if id.id == "" {
 			unique = append(unique, candidate.Clone())
 			continue
 		}
@@ -93,7 +115,7 @@ func (c Candidates) uniqueBest() Candidates {
 			unique[position] = candidate.Clone()
 		}
 	}
-	return unique
+	return unique, nil
 }
 
 // sortByScore sorts in place, so the caller must own the receiver.

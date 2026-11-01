@@ -7,7 +7,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
@@ -107,7 +106,7 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	return t, nil
 }
 
-func (g *GrepTool) Definition() chat.ToolDefinition {
+func (g *GrepTool) Definition() toolcontract.Definition {
 	return g.typed.Definition()
 }
 

@@ -1,0 +1,106 @@
+package run
+
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// childStartPreparation either plans a start or records why it failed.
+type childStartPreparation struct {
+	plan    *childStartPlan
+	failure Failure
+}
+
+type childStartPlan struct {
+	admitter         ProcessAdmitter
+	acknowledger     ProcessInitializationAcknowledger
+	resolver         ProgramResolver
+	parentDeployment Program[Payload, Payload]
+	spec             ChildSpec
+	relation         ProcessRelation
+	// incarnation is the tree incarnation this attempt runs under. It identifies
+	// the physical attempt in the admission outcome, so a retry after recovery,
+	// which runs under a new incarnation, is distinguishable from this one.
+	incarnation TreeIncarnationID
+}
+
+func (c *childStartPlan) childID() ProcessID { return c.relation.ProcessID() }
+
+func (c *childStartPlan) parentID() ProcessID {
+	parentID, _ := c.relation.ParentID()
+	return parentID
+}
+
+// childStartJobResult carries the failure of an unsuccessful start; a started
+// child's identity follows from the Effect, not from this result. The child's
+// start time is stamped at publication, so it is not carried here.
+type childStartJobResult struct {
+	failure    Failure
+	deployment Program[Payload, Payload]
+	execution  Execution
+	state      ExecutionState
+}
+
+func (childStartJobResult) jobKind() processJobKind { return processJobChildStart }
+
+// started is the absence of a failure; execute supplies the initialized
+// child exactly when it reports none.
+func (c childStartJobResult) started() bool { return !c.failure.Valid() }
+
+func (c *childStartPlan) execute(ctx context.Context) childStartJobResult {
+	deployment, resolveErr := c.resolveDeployment()
+	if resolveErr != nil {
+		return childStartJobResult{failure: newEngineFailure(failureKindForError(resolveErr, FailureKindExternal), failureCodeEngineChildDeploymentUnavailable, resolveErr)}
+	}
+	if validateErr := deployment.Descriptor().ValidateInput(c.spec.Input); validateErr != nil {
+		return childStartJobResult{failure: newEngineFailure(FailureKindContract, failureCodeEngineChildInputInvalid, validateErr)}
+	}
+	admission := newProcessAdmission(c.relation, deployment, c.spec.Budget, c.spec.Capabilities)
+	if admissionErr := requestProcessAdmission(ctx, c.admitter, admission); admissionErr != nil {
+		return childStartJobResult{failure: newEngineFailure(failureKindForError(admissionErr, FailureKindExternal), failureCodeEngineChildAdmissionRejected, admissionErr)}
+	}
+	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), c.spec.Input)
+	if err != nil {
+		acknowledgeErr := acknowledgeProcessInitialization(ctx, c.acknowledger, failedProcessInitializationOutcome(admission, c.incarnation, failure))
+		return childStartJobResult{failure: newEngineFailure(failure.Kind(), failure.Code(), errors.Join(err, acknowledgeErr))}
+	}
+	if err := acknowledgeProcessInitialization(ctx, c.acknowledger, initializedProcessOutcome(admission, c.incarnation)); err != nil {
+		return childStartJobResult{failure: newEngineFailure(failureKindForError(err, FailureKindExternal), failureCodeEngineChildInitializationOutcomeUnacknowledged, err)}
+	}
+	return childStartJobResult{
+		deployment: deployment, execution: execution, state: state,
+	}
+}
+
+func (c *childStartPlan) resolveDeployment() (Program[Payload, Payload], error) {
+	reference := c.spec.ProgramRef
+	if reference == c.parentDeployment.ProgramRef() {
+		return c.parentDeployment, c.parentDeployment.validateDefinition()
+	}
+	if bound, found := c.parentDeployment.boundChild(reference); found {
+		return bound, bound.validateDefinition()
+	}
+	if c.resolver == nil {
+		return Program[Payload, Payload]{}, fmt.Errorf("%w: no resolver for %s", ErrInvalidProgram, reference.Name())
+	}
+	return resolveDeployment(c.resolver, reference)
+}
+
+func resolveDeployment(resolver ProgramResolver, reference ProgramRef) (Program[Payload, Payload], error) {
+	deployment, err := invokeCallback("ProgramResolver.Resolve", func() (Program[Payload, Payload], error) {
+		return resolver.Resolve(reference)
+	})
+	if err != nil {
+		return Program[Payload, Payload]{}, err
+	}
+	if err := deployment.validateDefinition(); err != nil {
+		return Program[Payload, Payload]{}, err
+	}
+	if deployment.ProgramRef() != reference {
+		return Program[Payload, Payload]{}, fmt.Errorf(
+			"%w: resolver answered %s with a different binding", ErrInvalidProgram, reference.Name(),
+		)
+	}
+	return deployment, nil
+}

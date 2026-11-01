@@ -2,44 +2,26 @@ package vespa_test
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/vectorstores/vespa"
 )
 
-type documentBatcher struct{}
-
-func (d documentBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
-
 func ExampleNewStore() {
 	ctx := context.Background()
-	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for index := range outputs {
-			outputs[index] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
-	// Deploy the current application schema described in package GoDoc first.
-	store, err := vespa.NewStore(ctx, vespa.StoreConfig{Endpoint: os.Getenv("SCOPE_VESPA_ENDPOINT"), SchemaName: "scope", RankingProfile: "scope_rank", EmbeddingModel: model, DocumentBatcher: documentBatcher{}, HTTPClient: &http.Client{Timeout: 30 * time.Second}})
+	const space vectorstore.SpaceID = "manuals/v1"
+	store, err := vespa.NewStore(ctx, vespa.StoreConfig{Endpoint: os.Getenv("SCOPE_VESPA_ENDPOINT"), SchemaName: "scope", RankingProfile: "scope_rank", Space: space, Dimensions: 2})
 	if err != nil {
 		panic(err)
 	}
-	if err = store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "current record"}}}); err != nil {
+	if err = store.Upsert(ctx, &vectorstore.Batch{Space: space, Records: []vectorstore.Record{{Document: &document.Document{ID: "guide", Text: "hello"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	if _, err = store.Search(ctx, &vectorstore.SearchRequest{Query: "current"}); err != nil {
-		panic(err)
-	}
-	if err = store.DeleteWhere(ctx, filter.IsNull("tenant")); err != nil {
+	_, err = store.Scan(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}}, vectorstore.ScanBudget{MaxRecords: 1000, MaxBytes: 4 << 20, Timeout: time.Second})
+	if err != nil {
 		panic(err)
 	}
 }

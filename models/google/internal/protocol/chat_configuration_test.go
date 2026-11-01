@@ -8,6 +8,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestProtocolConfigRejectsCoreOwnedFields(t *testing.T) {
@@ -88,7 +89,7 @@ func TestProtocolConfigPreservesNativeCapabilitiesAlongsideCore(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			request.Tools = []chat.ToolDefinition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}
+			request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}
 			request.ToolChoice = &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup"}
 			request.Options = chat.Options{Temperature: new(0.0), MaxOutputTokens: new(int64(64)), ReasoningEffort: "high", Stop: []string{"end"}}
 			if extensionErr := request.Options.Extensions.Set(protocolKey(provider, "request"), json.RawMessage(`{

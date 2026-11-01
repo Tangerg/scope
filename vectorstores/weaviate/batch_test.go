@@ -2,10 +2,13 @@ package weaviate
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/entities/models"
+
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 func batchResult(status string, failure error) *models.ObjectsGetResponseAO2Result {
@@ -107,3 +110,18 @@ func TestIndexRequiresEveryObjectAcknowledgment(t *testing.T) {
 }
 
 var errTestShardDown = errors.New("shard is not ready")
+
+func TestPerIDReceiptsRemainInspectableWhenOneItemFails(t *testing.T) {
+	objects := []*models.Object{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	rows := []models.ObjectsGetResponse{
+		{Object: *objects[1], Result: batchResult(models.ObjectsGetResponseAO2ResultStatusFAILED, errTestShardDown)},
+		{Object: *objects[0], Result: batchResult(models.ObjectsGetResponseAO2ResultStatusSUCCESS, nil)},
+		{Object: *objects[2], Result: batchResult(models.ObjectsGetResponseAO2ResultStatusSUCCESS, nil)},
+		{Object: *objects[2], Result: batchResult(models.ObjectsGetResponseAO2ResultStatusFAILED, errTestShardDown)},
+	}
+	var w *vectorstore.WriteError
+	err := checkBatchAcknowledgments(objects, rows)
+	if !errors.As(err, &w) || !slices.Equal(w.Acknowledged, []string{"a"}) || !slices.Equal(w.Rejected, []string{"b"}) || !slices.Equal(w.Unconfirmed, []string{"c", "d"}) || len(w.Unattempted) != 0 {
+		t.Fatalf("receipt=%+v", w)
+	}
+}

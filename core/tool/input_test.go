@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -28,7 +27,7 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "marked", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, cause) {
+		if _, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, cause) {
 			t.Fatalf("Prepare did not preserve the admission failure: %v", err)
 		}
 	}
@@ -54,7 +53,7 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "marked", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) || !strings.Contains(err.Error(), "validation failed") {
+			if _, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) || !strings.Contains(err.Error(), "validation failed") {
 				t.Fatalf("Prepare = %v", err)
 			}
 		})
@@ -74,7 +73,7 @@ func TestInputValidationPanicPreservesDiagnosticCause(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = binding.Contract().Prepare(chat.ToolCall{ID: "call", Name: "marked", Arguments: `{}`}, nil)
+			_, err = binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, nil)
 			if !errors.Is(err, tool.ErrInvalidInvocation) {
 				t.Fatalf("lost rejection: %v", err)
 			}

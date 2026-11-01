@@ -9,12 +9,12 @@ import (
 )
 
 func TestUnfilteredSearchDoesNotAuditUnreturnedRecords(t *testing.T) {
-	store, service := nativeStore(t, entity.COSINE, nil)
+	store, service := nativeStore(t, entity.COSINE)
 	if service.queries != 0 {
 		t.Fatal("construction queried stored rows")
 	}
 	service.records = []fixtureRecord{{id: "one", text: "text", metadata: "null", vector: []float32{1, 0}}, {id: "unrelated", text: "text", metadata: "broken", vector: []float32{0, 1}}}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "one" {
 		t.Fatalf("native query = %v, %v", response, err)
 	}

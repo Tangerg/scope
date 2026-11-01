@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -17,11 +17,8 @@ import (
 
 func indexDocuments(t *testing.T, store *inmemory.Store, documents ...*document.Document) {
 	t.Helper()
-	request, err := vectorstore.NewIndexRequest(documents)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Index(t.Context(), request); err != nil {
+	request := batch(documents)
+	if err := store.Upsert(t.Context(), request); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -41,10 +38,7 @@ func TestStoreClearRemovesEveryRecord(t *testing.T) {
 	if store.Len() != 0 {
 		t.Fatalf("Len after Clear = %d, want 0", store.Len())
 	}
-	request, err := vectorstore.NewSearchRequest("alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
+	request := queryFor("alpha")
 	results, err := search(store, t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -64,12 +58,12 @@ func TestStoreClearKeepsTheStoreUsable(t *testing.T) {
 	}
 }
 
-func TestNewStoreRejectsAMissingEmbeddingModel(t *testing.T) {
-	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
-		t.Fatalf("NewStore error = %v, want ErrMissingEmbeddingModel", err)
+func TestNewStoreRejectsAMissingSpace(t *testing.T) {
+	if _, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("NewStore error = %v, want vectorstore.ErrIncompatibleSpace", err)
 	}
-	if err := (inmemory.StoreConfig{}).Validate(); !errors.Is(err, inmemory.ErrMissingEmbeddingModel) {
-		t.Fatalf("Validate error = %v, want ErrMissingEmbeddingModel", err)
+	if err := (inmemory.StoreConfig{}).Validate(); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("Validate error = %v, want vectorstore.ErrIncompatibleSpace", err)
 	}
 }
 
@@ -78,8 +72,8 @@ func TestNewStoreAcceptsACustomSimilarity(t *testing.T) {
 		return 1 - inmemory.CosineSimilarity(left, right)
 	}
 	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{
-		EmbeddingModel: fakeEmbeddingModel{},
-		Similarity:     inverted,
+		Space: testSpace, Dimensions: 4,
+		Similarity: inverted,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,10 +83,7 @@ func TestNewStoreAcceptsACustomSimilarity(t *testing.T) {
 		mustDoc(t, "far", "zulu zulu zulu", nil),
 	)
 
-	request, err := vectorstore.NewSearchRequest("alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
+	request := queryFor("alpha")
 	results, err := search(store, t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +101,7 @@ func TestStoreRejectsInvalidScoresBeforeSelection(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			badCoordinate := vectorFor("bad")[0]
 			store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{
-				EmbeddingModel: fakeEmbeddingModel{},
+				Space: testSpace, Dimensions: 4,
 				Similarity: func(left, right []float64) vectorstore.Score {
 					if left[0] == badCoordinate || right[0] == badCoordinate {
 						return invalid
@@ -122,8 +113,8 @@ func TestStoreRejectsInvalidScoresBeforeSelection(t *testing.T) {
 				t.Fatal(err)
 			}
 			indexDocuments(t, store, mustDoc(t, "good", "good", nil), mustDoc(t, "bad", "bad", nil))
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{
-				Query: "good", Options: vectorstore.SearchOptions{TopK: 1, MinScore: 0.1},
+			response, err := store.Query(t.Context(), &vectorstore.Query{
+				Space: testSpace, Values: vectorFor("good"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 0.1},
 			})
 			if !errors.Is(err, vectorstore.ErrInvalidScore) || response != nil {
 				t.Fatalf("search = %#v, %v; want nil, ErrInvalidScore", response, err)
@@ -136,52 +127,22 @@ func TestStoreRejectsInvalidScoresBeforeSelection(t *testing.T) {
 	}
 }
 
-type failingEmbeddingModel struct{ err error }
-
-func (f failingEmbeddingModel) Call(context.Context, *embedding.Request) (*embedding.Response, error) {
-	return nil, f.err
-}
-
-func TestIndexAndSearchReportEmbeddingFailures(t *testing.T) {
-	boom := errors.New("boom")
-	store, err := inmemory.NewStore(t.Context(), inmemory.StoreConfig{EmbeddingModel: failingEmbeddingModel{err: boom}})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	indexRequest, err := vectorstore.NewIndexRequest([]*document.Document{mustDoc(t, "1", "alpha", nil)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = store.Index(t.Context(), indexRequest); !errors.Is(err, boom) {
-		t.Fatalf("Index error = %v, want %v", err, boom)
-	}
-
-	searchRequest, err := vectorstore.NewSearchRequest("alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Search(t.Context(), searchRequest); !errors.Is(err, boom) {
-		t.Fatalf("Search error = %v, want %v", err, boom)
-	}
-}
-
 func TestIndexRejectsInvalidRequests(t *testing.T) {
 	store := newStore(t)
-	if err := store.Index(t.Context(), nil); err == nil {
+	if err := store.Upsert(t.Context(), nil); err == nil {
 		t.Fatal("Index accepted a nil request")
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{}); err == nil {
+	if err := store.Upsert(t.Context(), &vectorstore.Batch{}); err == nil {
 		t.Fatal("Index accepted an empty request")
 	}
 }
 
 func TestSearchRejectsInvalidRequests(t *testing.T) {
 	store := newStore(t)
-	if _, err := store.Search(t.Context(), nil); err == nil {
+	if _, err := store.Query(t.Context(), nil); err == nil {
 		t.Fatal("Search accepted a nil request")
 	}
-	if _, err := store.Search(t.Context(), &vectorstore.SearchRequest{}); err == nil {
+	if _, err := store.Query(t.Context(), &vectorstore.Query{}); err == nil {
 		t.Fatal("Search accepted an empty query")
 	}
 }
@@ -244,15 +205,8 @@ func TestSearchAndDeleteReportUndecodableMetadata(t *testing.T) {
 		Text:     "alpha",
 		Metadata: coremetadata.Map{"broken": json.RawMessage(`{`)},
 	}
-	request, err := vectorstore.NewIndexRequest([]*document.Document{corrupt})
-	if err != nil {
-		if !errors.Is(err, vectorstore.ErrInvalidDocument) {
-			t.Fatalf("NewIndexRequest error = %v", err)
-		}
-		return
-	}
-	if err = store.Index(t.Context(), request); err == nil {
-		t.Fatal("Index accepted a document with undecodable metadata")
+	if err := store.Upsert(t.Context(), batch([]*document.Document{corrupt})); err == nil {
+		t.Fatal("accepted corrupt document metadata")
 	}
 }
 
@@ -260,12 +214,9 @@ func TestSearchReportsMalformedFilters(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store, mustDoc(t, "1", "alpha", map[string]any{"name": "alpha"}))
 
-	request, err := vectorstore.NewSearchRequest("alpha")
-	if err != nil {
-		t.Fatal(err)
-	}
+	request := queryFor("alpha")
 	request.Options.Filter = filter.GT("name", 1)
-	if _, err := store.Search(t.Context(), request); err == nil {
+	if _, err := store.Query(t.Context(), request); err == nil {
 		t.Fatal("Search accepted a predicate that cannot evaluate")
 	}
 

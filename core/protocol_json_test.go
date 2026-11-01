@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/core/moderation"
 	"github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/core/speech"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
@@ -52,8 +53,8 @@ func TestProtocolJSONRejectsUnknownMembersWithoutChangingReceiver(t *testing.T) 
 		{"speech response", &speech.Response{Output: &speech.Output{Audio: []byte{1}}}},
 		{"transcription request", &transcription.Request{Audio: audioMedia}},
 		{"transcription response", &transcription.Response{Output: &transcription.Output{Text: "text"}}},
-		{"index request", &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "doc", Text: "text"}}}},
-		{"search request", &vectorstore.SearchRequest{Query: "query"}},
+		{"vector batch", &vectorstore.Batch{Space: "fixture", Records: []vectorstore.Record{{Document: &document.Document{ID: "doc", Text: "text"}, Values: []float64{1}}}}},
+		{"vector query", &vectorstore.Query{Space: "fixture", Values: []float64{1}}},
 		{"search options", &vectorstore.SearchOptions{TopK: 1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -90,7 +91,7 @@ func TestProtocolJSONPreservesOpenPayloads(t *testing.T) {
 	if err != nil || !present || string(extension) != opaque {
 		t.Fatalf("extension = %s, %t, %v", extension, present, err)
 	}
-	var output chat.ToolOutput
+	var output toolcontract.Output
 	if err := jsonv2.Unmarshal([]byte(`{"details":`+opaque+`}`), &output); err != nil {
 		t.Fatal(err)
 	}

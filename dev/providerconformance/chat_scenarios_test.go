@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/dev/providerconformance/internal/chatcheck"
 	"github.com/Tangerg/scope/models/anthropic"
 	"github.com/Tangerg/scope/models/google"
@@ -111,7 +112,7 @@ func runChatToolRoundTrip(t *testing.T, ctx context.Context, construct func(*tes
 			model, streamer := construct(t)
 			request := chatScenarioRequest(t, "text")
 			request.Messages = []chat.Message{chat.NewUserMessage(chat.NewTextPart("Use scope_probe with nonce scope_nonce_719. Then reply with only the token returned by the tool."))}
-			request.Tools = []chat.ToolDefinition{{Name: "scope_probe", Description: "Return a local test token", InputSchema: json.RawMessage(`{"type":"object","properties":{"nonce":{"type":"string"}},"required":["nonce"],"additionalProperties":false}`)}}
+			request.Tools = []toolcontract.Definition{{Name: "scope_probe", Description: "Return a local test token", InputSchema: json.RawMessage(`{"type":"object","properties":{"nonce":{"type":"string"}},"required":["nonce"],"additionalProperties":false}`)}}
 			request.ToolChoice = &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "scope_probe"}
 			invoke := func(request *chat.Request) *chat.Response {
 				if mode == "call" {
@@ -155,7 +156,7 @@ func runChatToolRoundTrip(t *testing.T, ctx context.Context, construct func(*tes
 			if err := jsonv2.Unmarshal([]byte(calls[0].Arguments), &arguments, jsonv2.RejectUnknownMembers(true)); err != nil || arguments.Nonce != "scope_nonce_719" {
 				t.Fatal("tool arguments changed")
 			}
-			request.Messages = append(request.Messages, response.Output.Message.Clone(), chat.NewToolMessage(chat.ToolResult{ID: calls[0].ID, Name: calls[0].Name, Output: chat.NewTextToolOutput("SCOPE_REPLAY_831")}))
+			request.Messages = append(request.Messages, response.Output.Message.Clone(), chat.NewToolMessage(chat.ToolResult{ID: calls[0].ID, Name: calls[0].Name, Output: toolcontract.NewTextOutput("SCOPE_REPLAY_831")}))
 			request.ToolChoice = &chat.ToolChoice{Mode: chat.ToolChoiceNone}
 			final := invoke(request)
 			if final == nil || final.Validate() != nil || final.Output.FinishReason != chat.FinishReasonStop || strings.TrimSpace(final.Text()) != "SCOPE_REPLAY_831" {

@@ -1,14 +1,12 @@
 package a2a
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -18,35 +16,21 @@ func (textProjection) userMessage(text string) *sdka2a.Message {
 	return sdka2a.NewMessage(sdka2a.MessageRoleUser, sdka2a.NewTextPart(text))
 }
 
-// A2A has richer content than the text-only Agent boundary. Preserve text and
-// render SDK-decoded data; represent binary or unsupported content with markers.
-func (textProjection) parts(parts sdka2a.ContentParts) string {
-	if len(parts) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, part := range parts {
+// The text adapter accepts only plain text. A URL is not the referenced file,
+// and a display marker cannot stand in for a binary artifact.
+func (textProjection) parts(parts sdka2a.ContentParts) (string, error) {
+	var out strings.Builder
+	for index, part := range parts {
 		if part == nil {
-			continue
+			return "", fmt.Errorf("%w: nil part %d", ErrInvalidResult, index)
 		}
-		switch content := part.Content.(type) {
-		case sdka2a.Text:
-			b.WriteString(string(content))
-		case sdka2a.Data:
-			// Decoded data holds Go maps; deterministic encoding keeps the
-			// rendered text stable across identical requests.
-			if raw, err := jsonv2.Marshal(content.Value, jsonv2.Deterministic(true)); err == nil {
-				b.Write(raw)
-			} else {
-				b.WriteString("[unrenderable data]")
-			}
-		case sdka2a.URL:
-			b.WriteString(string(content))
-		case sdka2a.Raw:
-			fmt.Fprintf(&b, "[binary content, %d bytes]", len(content))
+		text, ok := part.Content.(sdka2a.Text)
+		if !ok || part.Filename != "" || len(part.Metadata) > 0 || (part.MediaType != "" && part.MediaType != "text/plain") {
+			return "", fmt.Errorf("%w at part %d (%T)", ErrUnsupportedContent, index, part.Content)
 		}
+		out.WriteString(string(text))
 	}
-	return b.String()
+	return out.String(), nil
 }
 
 // Successful tasks prefer artifacts over their status message. A task that ended
@@ -58,18 +42,19 @@ func (t textProjection) result(result sdka2a.SendMessageResult) (string, error) 
 		if r == nil {
 			return "", fmt.Errorf("%w: nil message", ErrInvalidResult)
 		}
-		return t.parts(r.Parts), nil
+		return t.parts(r.Parts)
 	case *sdka2a.Task:
 		if r == nil {
 			return "", fmt.Errorf("%w: nil task", ErrInvalidResult)
 		}
 		switch r.Status.State {
 		case sdka2a.TaskStateCompleted:
-			return t.task(r), nil
+			return t.task(r)
 		case sdka2a.TaskStateFailed, sdka2a.TaskStateCanceled, sdka2a.TaskStateRejected:
 			return "", t.failure(r)
 		default:
-			return "", &RemoteAgentError{State: r.Status.State, Detail: t.status(r)}
+			detail, err := t.status(r)
+			return "", errors.Join(&RemoteAgentError{State: r.Status.State, Detail: detail}, err)
 		}
 	default:
 		return "", fmt.Errorf("%w: unexpected %T", ErrInvalidResult, result)
@@ -79,13 +64,18 @@ func (t textProjection) result(result sdka2a.SendMessageResult) (string, error) 
 // failure keeps the artifacts the task published before it ended, because the
 // model can act on partial work only if it sees it.
 func (t textProjection) failure(task *sdka2a.Task) error {
-	cause := &RemoteAgentError{State: task.Status.State, Detail: t.status(task)}
+	detail, detailErr := t.status(task)
+	cause := &RemoteAgentError{State: task.Status.State, Detail: detail}
 	text := cause.Error()
-	if artifacts := t.artifacts(task); artifacts != "" {
+	artifacts, artifactErr := t.artifacts(task)
+	if artifacts != "" {
 		text += "\n\nOutput published before the task ended:\n" + artifacts
 	}
+	if detailErr != nil || artifactErr != nil {
+		text += "\nThe task returned content that the text adapter cannot represent."
+	}
 	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind: toolcontract.FailureKindFailed, Cause: cause, Output: corechat.NewTextToolOutput(text),
+		Kind: toolcontract.FailureKindFailed, Cause: errors.Join(cause, detailErr, artifactErr), Output: toolcontract.NewTextOutput(text),
 	})
 	if err != nil {
 		return errors.Join(cause, err)
@@ -93,26 +83,30 @@ func (t textProjection) failure(task *sdka2a.Task) error {
 	return failure
 }
 
-func (t textProjection) task(task *sdka2a.Task) string {
-	if artifacts := t.artifacts(task); artifacts != "" {
-		return artifacts
+func (t textProjection) task(task *sdka2a.Task) (string, error) {
+	parts, err := t.artifacts(task)
+	if err != nil || parts != "" {
+		return parts, err
 	}
 	return t.status(task)
 }
-
-func (t textProjection) artifacts(task *sdka2a.Task) string {
+func (t textProjection) artifacts(task *sdka2a.Task) (string, error) {
 	var b strings.Builder
-	for _, artifact := range task.Artifacts {
-		if artifact != nil {
-			b.WriteString(t.parts(artifact.Parts))
+	for _, a := range task.Artifacts {
+		if a == nil {
+			return "", fmt.Errorf("%w: nil artifact", ErrInvalidResult)
 		}
+		text, err := t.parts(a.Parts)
+		if err != nil {
+			return "", err
+		}
+		b.WriteString(text)
 	}
-	return b.String()
+	return b.String(), nil
 }
-
-func (t textProjection) status(task *sdka2a.Task) string {
+func (t textProjection) status(task *sdka2a.Task) (string, error) {
 	if task.Status.Message == nil {
-		return ""
+		return "", nil
 	}
 	return t.parts(task.Status.Message.Parts)
 }

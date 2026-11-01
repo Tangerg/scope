@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestResponsesToolOutputPreservesStructuredAndMultimodalContent(t *testing.T) {
-	structured, err := mapResponsesToolOutput(corechat.ToolOutput{Details: json.RawMessage(`{"count":2}`)})
+	structured, err := mapResponsesToolOutput(toolcontract.Output{Details: json.RawMessage(`{"count":2}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +29,7 @@ func TestResponsesToolOutputPreservesStructuredAndMultimodalContent(t *testing.T
 		t.Fatal(err)
 	}
 	file.Name = "evidence.pdf"
-	mapped, err := mapResponsesToolOutput(corechat.ToolOutput{Content: []corechat.ToolContent{
+	mapped, err := mapResponsesToolOutput(toolcontract.Output{Content: []corecontent.Block{
 		{Kind: corechat.PartText, Text: "summary"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: file},
 	}})
 	if err != nil {
@@ -53,7 +55,7 @@ func TestOpenAIChatToolOutputRejectsMediaInsteadOfDroppingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := corechat.NewToolMessage(corechat.ToolResult{
-		ID: "call", Name: "inspect", Output: corechat.ToolOutput{Content: []corechat.ToolContent{{Kind: corechat.PartMedia, Media: image}}},
+		ID: "call", Name: "inspect", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corechat.PartMedia, Media: image}}},
 	})
 	if _, err := mapRequestMessage(message); err == nil || !strings.Contains(err.Error(), "does not support media Tool output") {
 		t.Fatalf("mapRequestMessage error = %v", err)

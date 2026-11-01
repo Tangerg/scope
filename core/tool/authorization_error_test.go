@@ -8,14 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 	inner, err := tool.NewFailure(tool.FailureConfig{
 		Kind: tool.FailureKindRejected, Cause: errors.New("private policy detail"),
-		Output: chat.NewTextToolOutput("private dependency output"),
+		Output: tool.NewTextOutput("private dependency output"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +44,7 @@ func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`}, nil)
+				invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -84,7 +83,7 @@ func TestGuardDoesNotExecuteAfterPolicyCancelsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "current", Name: "search", Arguments: `{"query":"scope"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
@@ -232,7 +233,7 @@ func TestNativeCitationAdmission(t *testing.T) {
 					t.Run("call", func(t *testing.T) {
 						response, callErr := model.Call(t.Context(), request)
 						if sample.invalid {
-							if response != nil || !errors.Is(callErr, chat.ErrInvalidCitation) {
+							if response != nil || !errors.Is(callErr, corecontent.ErrInvalidCitation) {
 								t.Fatalf("invalid citation: response = %#v, error = %v", response, callErr)
 							}
 							return
@@ -260,7 +261,7 @@ func TestNativeCitationAdmission(t *testing.T) {
 							}
 						}
 						if sample.invalid {
-							if errorsObserved != 1 || !errors.Is(streamErr, chat.ErrInvalidCitation) {
+							if errorsObserved != 1 || !errors.Is(streamErr, corecontent.ErrInvalidCitation) {
 								t.Fatalf("invalid citation: errors = %d, error = %v", errorsObserved, streamErr)
 							}
 							if response, completeErr := accumulator.Response(); completeErr == nil || response != nil {

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -21,9 +20,7 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "test-call", Name: binding.Contract().Definition().Name, Arguments: arguments,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +87,7 @@ func TestReadToolUsesConcurrentReaderContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "read", Name: "read", Arguments: `{"path":"file.txt"}`}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: "read", Arguments: `{"path":"file.txt"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

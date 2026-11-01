@@ -21,6 +21,9 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
+	if err := requireBindingEndpoint(e.Provider, e.BaseURL); err != nil {
+		return err
+	}
 	if err := validateProvider(e.Provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}

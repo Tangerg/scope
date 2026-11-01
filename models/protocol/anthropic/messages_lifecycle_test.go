@@ -153,7 +153,7 @@ func newLifecycleMessages(t *testing.T, events []string) *Messages {
 		}
 	}))
 	t.Cleanup(server.Close)
-	model, err := NewMessages(t.Context(), MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "claude-test"}})
+	model, err := NewMessages(t.Context(), MessagesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "claude-test"}}, testMessagesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}

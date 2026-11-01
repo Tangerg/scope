@@ -15,8 +15,7 @@ import (
 	"github.com/milvus-io/milvus/client/v3/entity"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
+
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -35,7 +34,7 @@ func mustPredicate(t *testing.T, source string) filter.Predicate {
 func TestNativeFilterConformance(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		store, service := indexedStore(t, entity.COSINE, docs, nil)
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}})
+		response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +63,7 @@ func TestNativeMetadataAndIdentitiesRoundTrip(t *testing.T) {
 		{ID: "quoted\"\\🙂", Text: "native", Metadata: metadata.Map{"huge": json.RawMessage(`1e1000`), "exact": json.RawMessage(`1.00000000000000001`), "$native.key": json.RawMessage(`{"nested":[null,{},9007199254740993]}`), "id": json.RawMessage(`"business ID"`)}},
 	}
 	store, service := indexedStore(t, entity.IP, docs, nil)
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: len(docs)}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +75,7 @@ func TestNativeMetadataAndIdentitiesRoundTrip(t *testing.T) {
 		}
 	}
 	replacement := &document.Document{ID: docs[2].ID, Text: "replacement", Metadata: metadata.Map{"new": json.RawMessage(`true`)}}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{replacement}}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{replacement})); err != nil {
 		t.Fatal(err)
 	}
 	if len(service.records) != 3 {
@@ -96,7 +95,7 @@ func TestNativePolicyOwnsScoresAndRejectsBadSchema(t *testing.T) {
 			store, service := indexedStore(t, metric, []*document.Document{{ID: "one", Text: "one"}}, nil)
 			service.metric = entity.IP
 			service.records[0].vector = []float32{8, 0}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+			response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")})
 			if err != nil || len(response.Results) != 1 || response.Results[0].Score != vectorstore.ScoreFromInnerProduct(8) {
 				t.Fatalf("native policy changed: %v %v", response, err)
 			}
@@ -127,7 +126,7 @@ func TestNativePolicyOwnsScoresAndRejectsBadSchema(t *testing.T) {
 			case "unknown metric":
 				service.metric = entity.MetricType("unknown")
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: nativeClient(t, service), CollectionName: "documents", EmbeddingModel: fixtureModel(nil), DocumentBatcher: testBatcher{}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: nativeClient(t, service), CollectionName: "documents", Space: fixtureSpace})
 			if store != nil || !errors.Is(err, ErrSchemaMismatch) {
 				t.Fatalf("invalid native schema accepted: %v %v", store, err)
 			}
@@ -135,7 +134,7 @@ func TestNativePolicyOwnsScoresAndRejectsBadSchema(t *testing.T) {
 	}
 }
 
-func TestInvalidSourceIsRejectedOutsidePredicateAndBeforePublication(t *testing.T) {
+func TestExplicitScanChecksAllRowsWithoutMakingWritesEnumerate(t *testing.T) {
 	for _, corrupt := range []string{"JSON duplicate", "JSON array", "JSON malformed", "empty ID", "empty text", "infinite vector", "zero cosine vector"} {
 		t.Run(corrupt, func(t *testing.T) {
 			store, service := indexedStore(t, entity.COSINE, []*document.Document{{ID: "one", Text: "one"}}, nil)
@@ -155,13 +154,15 @@ func TestInvalidSourceIsRejectedOutsidePredicateAndBeforePublication(t *testing.
 			case "zero cosine vector":
 				service.records[0].vector = []float32{0, 0}
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: mustPredicate(t, "x == 'absent'")}})
+			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: mustPredicate(t, "x == 'absent'")}}, fixtureBudget())
 			if err == nil || response != nil || service.searches != 0 {
 				t.Fatalf("invalid source hidden: %v %v", response, err)
 			}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "new", Text: "new"}}}); err == nil || service.writes != 1 {
-				t.Fatalf("invalid source permitted publication: %v writes=%d", err, service.writes)
+			reads := service.queries
+			if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "two", Text: "clean"}})); err != nil || service.queries != reads || service.writes != 2 {
+				t.Fatalf("raw write enumerated or depended on unrelated records: err=%v reads=%d writes=%d", err, service.queries-reads, service.writes)
 			}
+
 		})
 	}
 }
@@ -194,7 +195,7 @@ func TestLowScoreDoesNotHideInvalidNativeHits(t *testing.T) {
 					rows.FieldsData = rows.FieldsData[:3]
 				}
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{MinScore: 0.8, Filter: mustPredicate(t, "x == 1")}})
+			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 0.8, Filter: mustPredicate(t, "x == 1")}}, fixtureBudget())
 			if err == nil || response != nil {
 				t.Fatalf("invalid low-score hit hidden: %v %v", response, err)
 			}
@@ -217,7 +218,7 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 		}
 		return []float64{1e10, 0}
 	})
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}})
+	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}, fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[128].ID {
 		t.Fatalf("native rank changed: %v %v", response, err)
 	}
@@ -230,49 +231,27 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 	service.queryHook = func(response *milvuspb.QueryResults) {
 		response.FieldsData[0].GetScalars().GetStringData().Data[0] = docs[0].ID
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
+	response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}}, fixtureBudget())
 	if err == nil || response != nil {
 		t.Fatalf("nonadvancing native source accepted: %v %v", response, err)
 	}
 }
 
-func TestIndexPreparesAllBatchesBeforeNativeWrites(t *testing.T) {
-	for _, failure := range []string{"model", "width", "FLOAT32 overflow", "cosine underflow"} {
-		t.Run(failure, func(t *testing.T) {
-			store, service := nativeStore(t, entity.COSINE, nil)
-			calls := 0
-			model, err := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				calls++
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch failure {
-					case "model":
-						return nil, errors.New("late model failure")
-					case "width":
-						vector = []float64{1}
-					case "FLOAT32 overflow":
-						vector = []float64{math.MaxFloat64, 0}
-					case "cosine underflow":
-						vector = []float64{math.SmallestNonzeroFloat64, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			store.embeddingClient, store.documentBatcher = model, testBatcher{singleton: true}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}, {ID: "two", Text: "two"}}}); err == nil || service.writes != 0 || calls != 2 {
-				t.Fatalf("late input published prefix: %v writes=%d calls=%d", err, service.writes, calls)
-			}
-		})
+func TestUpsertPreparesAllCoordinatesBeforeNativeWrite(t *testing.T) {
+	for _, values := range [][]float64{{1}, {math.MaxFloat64, 0}, {math.SmallestNonzeroFloat64, 0}} {
+		store, service := nativeStore(t, entity.COSINE)
+		batch := fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}})
+		batch.Records[1].Values = values
+		if err := store.Upsert(t.Context(), batch); err == nil || service.writes != 0 {
+			t.Fatalf("published an invalid batch: %v", err)
+		}
 	}
 }
 
 func TestIndexRequiresExactNativeAcknowledgment(t *testing.T) {
 	for _, failure := range []string{"short count", "surplus", "wrong ID", "missing IDs"} {
 		t.Run(failure, func(t *testing.T) {
-			store, service := nativeStore(t, entity.COSINE, nil)
+			store, service := nativeStore(t, entity.COSINE)
 			service.upsertHook = func(response *milvuspb.MutationResult) {
 				switch failure {
 				case "short count":
@@ -285,7 +264,7 @@ func TestIndexRequiresExactNativeAcknowledgment(t *testing.T) {
 					response.IDs = nil
 				}
 			}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}}}); err == nil || service.writes != 1 {
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "one"}})); err == nil || service.writes != 1 {
 				t.Fatalf("bad acknowledgment became success: %v", err)
 			}
 		})
@@ -293,13 +272,13 @@ func TestIndexRequiresExactNativeAcknowledgment(t *testing.T) {
 }
 
 func TestNativeCapacitiesAndFailuresAreNotOverridden(t *testing.T) {
-	store, service := nativeStore(t, entity.IP, nil)
+	store, service := nativeStore(t, entity.IP)
 	for _, field := range service.schema.Fields {
 		if field.Name == fieldID {
 			field.TypeParams[0].Value = "3"
 		}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "fits", Text: "one"}}}); !errors.Is(err, ErrDocumentIDTooLong) || service.writes != 0 {
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "fits", Text: "one"}})); !errors.Is(err, ErrDocumentIDTooLong) || service.writes != 0 {
 		t.Fatalf("native capacity overridden: %v", err)
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", "long"}); err == nil || service.deletions != 0 {
@@ -308,12 +287,8 @@ func TestNativeCapacitiesAndFailuresAreNotOverridden(t *testing.T) {
 	if err := store.DeleteIDs(t.Context(), []string{"one", " "}); err == nil || service.deletions != 0 {
 		t.Fatal("blank late ID deleted prefix")
 	}
-	store.documentBatcher = testBatcher{err: errors.New("batcher failed")}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "one"}}}); err == nil || service.writes != 0 {
-		t.Fatal("batcher failure published data")
-	}
 	service.nativeError = errors.New("native transport failed")
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "q"})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q")})
 	if response != nil || err == nil || !strings.Contains(err.Error(), "native transport failed") {
 		t.Fatalf("native failure hidden: %v %v", response, err)
 	}

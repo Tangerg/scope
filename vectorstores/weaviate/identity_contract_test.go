@@ -21,16 +21,16 @@ func TestIndexRejectsUUIDAliasesBeforeIO(t *testing.T) {
 	} {
 		t.Run(alias, func(t *testing.T) {
 			fixture := &nativeFixture{}
-			store, embeddings := newNativeStore(t, fixture)
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{
+			store := newNativeStore(t, fixture)
+			err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{
 				{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "canonical"},
 				{ID: alias, Text: "alias"},
-			}})
+			}))
 			if !errors.Is(err, ErrInvalidObjectID) {
 				t.Fatalf("Index error = %v, want ErrInvalidObjectID", err)
 			}
-			if embeddings.Load() != 0 || fixture.batches.Load() != 0 {
-				t.Fatalf("rejected batch performed I/O: embeddings=%d, batches=%d", embeddings.Load(), fixture.batches.Load())
+			if fixture.batches.Load() != 0 || fixture.scans != 0 {
+				t.Fatalf("rejected batch performed I/O: scans=%d, batches=%d", fixture.scans, fixture.batches.Load())
 			}
 		})
 	}
@@ -45,7 +45,7 @@ func TestDeleteIDsRejectsUUIDAliasesBeforeIO(t *testing.T) {
 	} {
 		t.Run(alias, func(t *testing.T) {
 			fixture := &nativeFixture{}
-			store, _ := newNativeStore(t, fixture)
+			store := newNativeStore(t, fixture)
 			if err := store.DeleteIDs(t.Context(), []string{"12345678-1234-1234-1234-123456789012", alias}); !errors.Is(err, ErrInvalidObjectID) {
 				t.Errorf("DeleteIDs error = %v, want ErrInvalidObjectID", err)
 			}
@@ -81,11 +81,11 @@ func TestIndexAcknowledgmentsIdentifyEveryRequestedObject(t *testing.T) {
 		}},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
-			store, _ := newNativeStore(t, &nativeFixture{acknowledge: sample.acknowledge})
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{
+			store := newNativeStore(t, &nativeFixture{acknowledge: sample.acknowledge})
+			err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{
 				{ID: "12345678-1234-1234-1234-123456789012", Text: "first"},
 				{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "second"},
-			}})
+			}))
 			if (err != nil) != sample.wantError {
 				t.Fatalf("Index error = %v, want error %v", err, sample.wantError)
 			}
@@ -101,13 +101,13 @@ func TestSearchRejectsNonCanonicalObjectIDs(t *testing.T) {
 		"{f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4}",
 	} {
 		t.Run(id, func(t *testing.T) {
-			store, _ := newNativeStore(t, &nativeFixture{queryID: &id})
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{
+			store := newNativeStore(t, &nativeFixture{queryID: &id})
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{
 				{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "canonical"},
-			}}); err != nil {
+			})); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}})
 			if !errors.Is(err, ErrInvalidObjectID) || response != nil {
 				t.Fatalf("Search = %v, error %v, want nil response and ErrInvalidObjectID", response, err)
 			}
@@ -116,15 +116,15 @@ func TestSearchRejectsNonCanonicalObjectIDs(t *testing.T) {
 }
 
 func TestIndexAndSearchPreserveCanonicalObjectIDs(t *testing.T) {
-	store, _ := newNativeStore(t, &nativeFixture{})
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{
+	store := newNativeStore(t, &nativeFixture{})
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{
 		{ID: "12345678-1234-1234-1234-123456789012", Text: "first"},
 		{ID: "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4", Text: "second"},
-	}}); err != nil {
+	})); err != nil {
 		t.Fatal(err)
 	}
-	request := &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 2}}
-	response, err := store.Search(t.Context(), request)
+	request := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 2}}
+	response, err := store.Query(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestIndexAndSearchPreserveCanonicalObjectIDs(t *testing.T) {
 	if deleteErr := store.DeleteIDs(t.Context(), []string{"12345678-1234-1234-1234-123456789012", "f9168c5e-ceb2-4faa-b6bf-329bf39fa1e4"}); deleteErr != nil {
 		t.Fatal(deleteErr)
 	}
-	response, err = store.Search(t.Context(), request)
+	response, err = store.Query(t.Context(), request)
 	if err != nil || len(response.Results) != 0 {
 		t.Fatalf("Search after DeleteIDs = %v, error %v", response, err)
 	}

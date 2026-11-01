@@ -3,7 +3,7 @@
 //
 // Command chat uses only Core for an ordinary structured call. Command
 // agent/direct_vs_managed contrasts ordinary calls with an Interaction under
-// an Engine, whose explicit MemoryTreeCommitter lasts only for that instance.
+// a Runtime, whose explicit MemoryStore lasts only for that instance.
 // Both are offline consumers; Agent is absent from chat's dependency closure.
 //
 // Command agent/reconciliation restores an Interaction with an uncertain remote
@@ -13,6 +13,12 @@
 // go.mod, without local replacements or a separate consumer manifest.
 // Run MODULE=examples scripts/check.sh isolate from the repository root for
 // module hygiene and every consumer's behavior against those dependencies.
+//
+// Command rag/citations takes a named source through ETL, indexes its stable
+// chunks and queries two in-memory indexes with one encoding. The prepared
+// model request excludes an oversized passage. Its surviving marker resolves
+// to the original source revision without inventing a byte offset.
+//
 // Command agent/context_reduction compares a deterministic duplicate-output
 // policy with unchanged context using paired eval/trajectory task evidence.
 // Its fixed quality and context-size gates include restoration without replay.

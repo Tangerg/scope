@@ -1,23 +1,11 @@
 package qdrant
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/qdrant/go-client/qdrant"
-
-	"github.com/Tangerg/scope/core/document"
 )
-
-type visibilityBatcher struct{}
-
-func (visibilityBatcher) Batch(
-	ctx context.Context,
-	documents []*document.Document,
-) ([][]*document.Document, error) {
-	return [][]*document.Document{documents}, nil
-}
 
 // Qdrant acknowledges an update once it reaches the write-ahead log, so a
 // request that does not wait lets a following Search observe stale points.

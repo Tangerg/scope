@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/rag"
@@ -30,9 +29,7 @@ func ExampleRetrieval() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{
-		ID: "search-1", Name: "search", Arguments: `{"query":"Go design"}`,
-	}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"Go design"}`}, nil)
 	if err != nil {
 		panic(err)
 	}

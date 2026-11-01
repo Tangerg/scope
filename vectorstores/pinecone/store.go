@@ -5,30 +5,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
+	_ vectorstore.Upserter      = (*Store)(nil)
+	_ vectorstore.Querier       = (*Store)(nil)
 	_ vectorstore.IDDeleter     = (*Store)(nil)
 	_ vectorstore.FilterDeleter = (*Store)(nil)
 	_ vectorstore.Closer        = (*Store)(nil)
 )
 
+type indexPolicy interface {
+	DescribeIndex(context.Context, string) (*pineconesdk.Index, error)
+}
+
 type indexConnection interface {
 	UpsertVectors(context.Context, []*pineconesdk.Vector) (uint32, error)
 	QueryByVectorValues(context.Context, *pineconesdk.QueryByVectorValuesRequest) (*pineconesdk.QueryVectorsResponse, error)
-	ListVectors(context.Context, *pineconesdk.ListVectorsRequest) (*pineconesdk.ListVectorsResponse, error)
-	FetchVectors(context.Context, []string) (*pineconesdk.FetchVectorsResponse, error)
 	DeleteVectorsById(context.Context, []string) error
 	DeleteVectorsByFilter(context.Context, *pineconesdk.MetadataFilter) error
 	Namespace() string
@@ -36,23 +37,24 @@ type indexConnection interface {
 }
 
 type Store struct {
-	index           indexConnection
-	schema          nativeSchema
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
+	index   indexConnection
+	schema  nativeSchema
+	space   vectorstore.SpaceID
+	control indexPolicy
+	name    string
+	host    string
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	model, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
 	native, err := config.Client.DescribeIndex(ctx, config.IndexName)
 	if err != nil {
 		return nil, fmt.Errorf("pinecone: describe native index: %w", err)
+	}
+	if native == nil || native.Tags == nil || (*native.Tags)[SpaceTag] != string(config.Space) {
+		return nil, vectorstore.ErrIncompatibleSpace
 	}
 	var schema nativeSchema
 	if err = schema.read(native, config.IndexName); err != nil {
@@ -68,62 +70,124 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	// Construction verifies connectivity and schema compatibility; it does not
 	// audit every record. Full-source integrity is an explicit maintenance concern,
 	// not an implicit cost of opening the store.
-	store := &Store{index: index, schema: schema, embeddingClient: model, documentBatcher: config.DocumentBatcher}
+	store := &Store{index: index, schema: schema, space: config.Space, control: config.Client, name: config.IndexName, host: native.Host}
 	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return err
-	}
-	records := make(map[string]*pineconesdk.Vector, len(request.Documents))
-	for _, doc := range request.Documents {
-		record, err := encodeRecord(doc)
-		if err != nil {
-			return err
-		}
-		records[doc.ID] = record
-	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
+func (s *Store) verifyIndex(ctx context.Context) error {
+	native, err := s.control.DescribeIndex(ctx, s.name)
 	if err != nil {
 		return err
 	}
-	var prepared [][]*pineconesdk.Vector
-	for _, batch := range batches {
-		texts, err := batch.Texts()
-		if err != nil {
-			return err
-		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return err
-		}
-		points := make([]*pineconesdk.Vector, len(batch.Documents))
-		for i, doc := range batch.Documents {
-			vector, err := s.schema.vector(vectors[i])
-			if err != nil {
-				return err
-			}
-			point := records[doc.ID]
-			point.Values = &vector
-			points[i] = point
-		}
-		prepared = append(prepared, slices.Collect(slices.Chunk(points, MaxVectorsPerUpsert))...)
+	if native == nil || native.Tags == nil || (*native.Tags)[SpaceTag] != string(s.space) {
+		return vectorstore.ErrIncompatibleSpace
 	}
-	for _, points := range prepared {
-		accepted, err := s.index.UpsertVectors(ctx, points)
+	var schema nativeSchema
+	if err := schema.read(native, s.name); err != nil {
+		return err
+	}
+	if native.Host != s.host || schema != s.schema {
+		return ErrIncompatibleIndex
+	}
+	return nil
+}
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if _, err := encodeRecord(doc); err != nil {
+			return err
+		}
+	}
+	return s.verifyIndex(ctx)
+}
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	points := make([]*pineconesdk.Vector, len(batch.Records))
+	for i, record := range batch.Records {
+		point, err := encodeRecord(record.Document)
 		if err != nil {
 			return err
 		}
-		if uint64(accepted) != uint64(len(points)) {
-			return fmt.Errorf("pinecone: native upsert acknowledged %d of %d vectors", accepted, len(points))
+		values, err := s.schema.vector(record.Values)
+		if err != nil {
+			return err
 		}
+		point.Values = &values
+		points[i] = point
+	}
+	if err := s.verifyIndex(ctx); err != nil {
+		return err
+	}
+	prepared := slices.Collect(slices.Chunk(points, MaxVectorsPerUpsert))
+	for batchIndex, points := range prepared {
+		accepted, err := s.index.UpsertVectors(ctx, points)
+		if err == nil && uint64(accepted) == uint64(len(points)) {
+			continue
+		}
+		failure := &vectorstore.WriteError{
+			Acknowledged: vectorIDs(prepared[:batchIndex]),
+			Unconfirmed:  vectorIDs(prepared[batchIndex : batchIndex+1]),
+			Unattempted:  vectorIDs(prepared[batchIndex+1:]),
+			Err:          err,
+		}
+		if err == nil {
+			failure.Err = fmt.Errorf("pinecone: native upsert acknowledged %d of %d vectors", accepted, len(points))
+			// A malformed overcount cannot certify even an aggregate acknowledgment.
+			if uint64(accepted) < uint64(len(points)) {
+				failure.AcknowledgedCount = new(int(accepted))
+			}
+		}
+		return failure
 	}
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
-	if err = request.Validate(); err != nil {
+func vectorIDs(groups [][]*pineconesdk.Vector) []string {
+	var ids []string
+	for _, group := range groups {
+		for _, vector := range group {
+			ids = append(ids, vector.Id)
+		}
+	}
+	return ids
+}
+
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if opts.ResultLimit() > MaxTopK {
+		return fmt.Errorf("%w: TopK exceeds %d", vectorstore.ErrInvalidOptions, MaxTopK)
+	}
+	if _, err := nativeFilter(opts.Filter); err != nil {
+		return err
+	}
+	return s.verifyIndex(ctx)
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, contextErr
+	}
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
@@ -134,45 +198,28 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	defer func() {
 		if err == nil {
-			err = response.ValidateFor(request)
+			err = request.ValidateResponse(response)
 		}
 		if err != nil {
 			response = nil
 		}
 	}()
-	// Without a predicate the native query alone computes the result, so an
-	// unfiltered Search neither lists-and-fetches the whole namespace nor validates
-	// records outside the ranked result. A filtered Search still reads the source
-	// because Core filter.Match owns predicate semantics the native query lacks.
-	var values []string
-	if request.Options.Filter != nil {
-		values, err = s.selectMetadata(ctx, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(values) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	where, err := nativeFilter(request.Options.Filter)
 	if err != nil {
 		return nil, err
 	}
-	query, err := s.schema.vector(vector)
+	query, err := s.schema.vector(request.Values)
 	if err != nil {
 		return nil, err
 	}
-	groups := [][]string{nil}
-	if request.Options.Filter != nil {
-		groups = slices.Collect(slices.Chunk(values, filterGroupSize))
+	if err := s.verifyIndex(ctx); err != nil {
+		return nil, err
 	}
 	var ranked []scoredDocument
 	seen := make(map[string]struct{})
-	for _, group := range groups {
+	{
 		queryReq := &pineconesdk.QueryByVectorValuesRequest{Vector: query, TopK: uint32(request.Options.ResultLimit()), IncludeMetadata: true, IncludeValues: true}
-		if group != nil {
-			queryReq.MetadataFilter = metadataSelection(group)
-		}
+		queryReq.MetadataFilter = where
 		page, err := s.index.QueryByVectorValues(ctx, queryReq)
 		if err != nil {
 			return nil, err
@@ -184,7 +231,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			if hit == nil {
 				return nil, errors.New("pinecone: native query omitted a scored record")
 			}
-			doc, payload, err := s.schema.decode(hit.Vector)
+			doc, _, err := s.schema.decode(hit.Vector)
 			if err != nil {
 				return nil, err
 			}
@@ -192,22 +239,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 				return nil, errors.New("pinecone: native query repeated an identity")
 			}
 			seen[doc.ID] = struct{}{}
-			if group != nil {
-				if !slices.Contains(group, payload) {
-					return nil, errors.New("pinecone: native hit is outside selected metadata values")
-				}
-				facts, decodeErr := doc.Metadata.Values()
-				if decodeErr != nil {
-					return nil, decodeErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, facts)
-				if matchErr != nil {
-					return nil, matchErr
-				}
-				if !matched {
-					return nil, errors.New("pinecone: native hit changed Core membership")
-				}
-			}
+
 			raw := float64(hit.Score)
 			score, err := s.schema.score(raw)
 			if err != nil {
@@ -240,75 +272,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	return response, nil
 }
 
-func (s *Store) selectMetadata(ctx context.Context, predicate filter.Predicate) ([]string, error) {
-	var token *string
-	tokens := make(map[string]struct{})
-	idsSeen := make(map[string]struct{})
-	selected := make(map[string]struct{})
-	for {
-		page, err := s.index.ListVectors(ctx, &pineconesdk.ListVectorsRequest{Limit: new(metadataListPageSize), PaginationToken: token})
-		if err != nil {
-			return nil, err
-		}
-		if page == nil || page.Namespace != s.index.Namespace() || len(page.VectorIds) > int(metadataListPageSize) {
-			return nil, errors.New("pinecone: native list omitted the namespace acknowledgment")
-		}
-		var ids []string
-		for _, id := range page.VectorIds {
-			if id == nil || *id == "" {
-				return nil, errors.New("pinecone: native list omitted an ID")
-			}
-			if _, duplicate := idsSeen[*id]; duplicate {
-				return nil, errors.New("pinecone: native list repeated an ID")
-			}
-			idsSeen[*id] = struct{}{}
-			ids = append(ids, *id)
-		}
-		if len(ids) > 0 {
-			fetched, err := s.index.FetchVectors(ctx, ids)
-			if err != nil {
-				return nil, err
-			}
-			if fetched == nil || fetched.Namespace != s.index.Namespace() || len(fetched.Vectors) != len(ids) {
-				return nil, errors.New("pinecone: native fetch did not acknowledge every selected ID")
-			}
-			for _, id := range ids {
-				point := fetched.Vectors[id]
-				if point == nil || point.Id != id {
-					return nil, errors.New("pinecone: native fetch changed a selected identity")
-				}
-				doc, payload, err := s.schema.decode(point)
-				if err != nil {
-					return nil, err
-				}
-				matched := true
-				if predicate != nil {
-					facts, decodeErr := doc.Metadata.Values()
-					if decodeErr != nil {
-						return nil, decodeErr
-					}
-					matched, err = filter.Match(predicate, facts)
-					if err != nil {
-						return nil, err
-					}
-				}
-				if matched {
-					selected[payload] = struct{}{}
-				}
-			}
-		}
-		if page.NextPaginationToken == nil || *page.NextPaginationToken == "" {
-			return slices.Sorted(maps.Keys(selected)), nil
-		}
-		next := *page.NextPaginationToken
-		if _, duplicate := tokens[next]; duplicate {
-			return nil, errors.New("pinecone: native list repeated a pagination token")
-		}
-		tokens[next] = struct{}{}
-		token = new(next)
-	}
-}
-
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
@@ -316,16 +279,14 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	values, err := s.selectMetadata(ctx, predicate)
+	where, err := nativeFilter(predicate)
 	if err != nil {
 		return err
 	}
-	for group := range slices.Chunk(values, filterGroupSize) {
-		if err := s.index.DeleteVectorsByFilter(ctx, metadataSelection(group)); err != nil {
-			return err
-		}
+	if err := s.verifyIndex(ctx); err != nil {
+		return err
 	}
-	return nil
+	return s.index.DeleteVectorsByFilter(ctx, where)
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
@@ -339,6 +300,12 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			seen[id] = struct{}{}
 			unique = append(unique, id)
 		}
+	}
+	if len(unique) == 0 {
+		return nil
+	}
+	if err := s.verifyIndex(ctx); err != nil {
+		return err
 	}
 	for group := range slices.Chunk(unique, maximumIDsPerDelete) {
 		if err := s.index.DeleteVectorsById(ctx, group); err != nil {

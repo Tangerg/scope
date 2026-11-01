@@ -28,7 +28,7 @@ func TestCapabilitiesOfReportsTheWholeSet(t *testing.T) {
 	t.Parallel()
 
 	want := storetest.Capabilities{
-		Indexer: true, Searcher: true, IDDeleter: true, FilterDeleter: true,
+		Upserter: true, Querier: true, IDDeleter: true, FilterDeleter: true,
 	}
 	if got := storetest.CapabilitiesOf(validatingCapabilities{}); got != want {
 		t.Fatalf("CapabilitiesOf() = %+v, want %+v", got, want)

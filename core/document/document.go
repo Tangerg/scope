@@ -23,6 +23,8 @@ type Document struct {
 	Media *media.Media `json:"media,omitzero"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
+
+	Provenance *Provenance `json:"provenance,omitzero"`
 }
 
 func (d *Document) Clone() *Document {
@@ -32,6 +34,7 @@ func (d *Document) Clone() *Document {
 	clone := *d
 	clone.Media = d.Media.Clone()
 	clone.Metadata = d.Metadata.Clone()
+	clone.Provenance = d.Provenance.Clone()
 	return &clone
 }
 
@@ -91,6 +94,9 @@ func (d *Document) Validate() error {
 		if err := d.Media.Validate(); err != nil {
 			return fmt.Errorf("%w: media: %w", ErrInvalidDocument, err)
 		}
+	}
+	if err := d.Provenance.Validate(); err != nil {
+		return err
 	}
 	if err := d.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidDocument, err)

@@ -2,10 +2,12 @@ package pgstore_test
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,7 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/postgres"
 	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
@@ -22,6 +24,7 @@ import (
 
 type searchPeer struct {
 	queries int
+	facts   []byte
 }
 
 func (s *searchPeer) serve(conn net.Conn) error {
@@ -69,6 +72,9 @@ func (s *searchPeer) serve(conn net.Conn) error {
 				backend.Send(&pgproto3.DataRow{Values: values})
 			}
 			tag = "SELECT 4"
+		case strings.Contains(query.String, "SELECT conname FROM pg_constraint"):
+			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("conname"), DataTypeOID: pgtype.TextOID}}})
+			backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte(vectorstore.SpaceID("test").StorageKey())}})
 		case strings.Contains(query.String, "FROM pg_constraint"):
 			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("conkey"), DataTypeOID: pgtype.Int2ArrayOID}}})
 			backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte("{1}")}})
@@ -91,7 +97,7 @@ func (s *searchPeer) serve(conn net.Conn) error {
 				{Name: []byte("facts"), DataTypeOID: pgtype.ByteaOID}, {Name: []byte("embedding"), DataTypeOID: pgtype.TextOID},
 				{Name: []byte("distance"), DataTypeOID: pgtype.Float8OID},
 			}})
-			backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte(`\x6f6e65`), []byte("text"), []byte(`\x6e756c6c`), []byte("[1,0]"), []byte("0")}})
+			backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte(`\x6f6e65`), []byte("text"), []byte(`\x` + hex.EncodeToString(s.facts)), []byte("[1,0]"), []byte("0")}})
 		default:
 			return fmt.Errorf("unexpected query: %s", query.String)
 		}
@@ -105,7 +111,13 @@ func (s *searchPeer) serve(conn net.Conn) error {
 
 func TestUnfilteredSearchUsesNativeRankingWithoutSourceEnumeration(t *testing.T) {
 	client, server := net.Pipe()
-	peer := &searchPeer{}
+	original := document.NewProvenance("source://book", []byte("version 1"))
+	original.Page = 2
+	facts, err := document.MarshalStoredMetadata(&document.Document{Provenance: original})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &searchPeer{facts: facts}
 	done := make(chan error, 1)
 	go func() { done <- peer.serve(server) }()
 	config, err := pgxpool.ParseConfig("postgres://scope@localhost/scope?sslmode=disable")
@@ -130,15 +142,16 @@ func TestUnfilteredSearchUsesNativeRankingWithoutSourceEnumeration(t *testing.T)
 			t.Errorf("ranking queries = %d", peer.queries)
 		}
 	})
-	model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
-	})
-	store, err := pgstore.New(t.Context(), pgstore.Config{Provider: "pgvector", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", EmbeddingModel: model, DocumentBatcher: singleDocumentBatcher{}, DistanceMetric: postgres.DistanceCosine})
+	store, err := pgstore.New(t.Context(), pgstore.Config{Provider: "pgvector", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: "test", Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "one" || response.Results[0].Score != 1 {
 		t.Fatalf("native query = %v, %v", response, err)
+	}
+	got := response.Results[0].Document
+	if got.Metadata != nil || !reflect.DeepEqual(got.Provenance, original) {
+		t.Fatalf("retrieved SQL facts discarded or exposed provenance: %+v", got)
 	}
 }

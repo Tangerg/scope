@@ -5,7 +5,10 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
+
+	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 func TestRun(t *testing.T) {
@@ -68,5 +71,83 @@ func TestParallelSectionsAndVotingPreserveDeclarationOrder(t *testing.T) {
 	}
 	if !maps.Equal(evidence.Deployments, want) {
 		t.Fatalf("deployments=%#v, want %#v", evidence.Deployments, want)
+	}
+}
+
+func TestIncompleteEvidenceCannotBeRoutedOrTurnedIntoAVote(t *testing.T) {
+	ctx := t.Context()
+	report, evidence, err := execute(ctx, patternRequest{Text: "  "})
+	if err == nil || report.Normalized != "" || evidence.ProcessCount() != 0 {
+		t.Fatal("empty request produced a partial report", report, evidence, err)
+	}
+	if summary, err := summarizeChain(ctx, chainState{Normalized: "X", Summary: "forged"}); summary.Summary != "" || err == nil {
+		t.Fatal("overwrote an already-owned summary")
+	}
+	if route, err := selectPatternRoute(ctx, chainState{Normalized: "X"}); route != "" || err == nil {
+		t.Fatal("routed incomplete evidence", route)
+	}
+	for _, votes := range [][]ballot{nil, {{Choice: ballotChoice("abstain")}}} {
+		report, err := reduceBallots(ctx, findingBundle{}, votes)
+		if err == nil || report.TotalVotes != 0 || report.DecisionVotes != 0 {
+			t.Fatalf("invalid vote report=%v err=%v", report, err)
+		}
+	}
+}
+func TestWorkflowChildrenRejectInvalidPolicyAndIncompleteUpstreamRecords(t *testing.T) {
+	ctx := t.Context()
+	rt, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if e := rt.Close(ctx); e != nil {
+			t.Error(e)
+		}
+	}()
+	if p, routeDeploymentErr := routeDeployment("typo"); p.Valid() || routeDeploymentErr == nil {
+		t.Fatal("unknown route accepted")
+	}
+	if p, findingDeploymentErr := findingDeployment("unknown"); p.Valid() || findingDeploymentErr == nil {
+		t.Fatal("unknown section accepted")
+	}
+	if p, ballotDeploymentErr := ballotDeployment("invalid", ballotChoice("maybe")); p.Valid() || ballotDeploymentErr == nil {
+		t.Fatal("unknown vote accepted")
+	}
+	route, err := routeDeployment(standardRouteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, err := findingDeployment(factsSectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ballotChild, err := ballotDeployment(approveFirstBallotID, ballotApprove)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		child agentrun.Program[agentrun.Payload, agentrun.Payload]
+		input any
+		want  string
+	}{{route, chainState{Normalized: "X"}, "incomplete chain"}, {section, routedState{Summary: "Y"}, "incomplete routed"}, {ballotChild, findingBundle{Findings: []finding{{Section: factsSectionID, Content: ""}}}, "every parallel section"}} {
+		payload, e := agentrun.EncodePayload(row.input)
+		if e != nil {
+			t.Fatal(e)
+		}
+		h, e := rt.Start(ctx, row.child, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "validation", Key: row.child.Descriptor().Name()}, Input: payload})
+		if e != nil {
+			t.Fatal(e)
+		}
+		result, e := h.Await(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if e = h.Join(ctx); e != nil {
+			t.Fatal(e)
+		}
+		failure, ok := result.Termination().Failure()
+		if !ok || !strings.Contains(failure.Message(), row.want) {
+			t.Fatalf("child=%s failed as %v", row.child.Descriptor().Name(), failure)
+		}
 	}
 }

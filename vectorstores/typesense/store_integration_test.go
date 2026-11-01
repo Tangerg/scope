@@ -41,7 +41,7 @@ func nativeFixture(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	name := fmt.Sprintf("scope_test_%x", rand.Text())
-	response, err := client.CreateCollection(t.Context(), api.CollectionSchema{Name: name, Fields: []api.Field{{Name: "content", Type: "string"}, {Name: "metadata", Type: "string", Index: new(false)}, {Name: "embedding", Type: "float[]", NumDim: new(2), VecDist: new("cosine")}}})
+	response, err := client.CreateCollection(t.Context(), api.CollectionSchema{Name: name, Fields: []api.Field{SpaceField(fixtureSpace), {Name: "content", Type: "string"}, {Name: "metadata", Type: "string", Index: new(false)}, {Name: "embedding", Type: "float[]", NumDim: new(2), VecDist: new("cosine")}}})
 	checkNativeResponse(t, response, err, http.StatusCreated)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -49,7 +49,7 @@ func nativeFixture(t *testing.T) *Store {
 		deleted, deleteErr := client.DeleteCollection(ctx, name)
 		checkNativeResponse(t, deleted, deleteErr, http.StatusOK)
 	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, EmbeddingModel: constantModel(), DocumentBatcher: testBatcher{size: 32}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, CollectionName: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,10 +83,10 @@ func TestNativeFilterConformance(t *testing.T) {
 		for _, doc := range docs {
 			previous = append(previous, doc.ID)
 		}
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "filter conformance", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := store.Scan(ctx, fixtureQuery("filter conformance", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -109,12 +109,12 @@ func TestNativeMetadataIdentityPaginationAndReplacement(t *testing.T) {
 	}
 	docs[0].Metadata = nil
 	docs[1].Metadata = metadata.Map{}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid} {
 		for _, predicate := range []filter.Predicate{nil, filter.IsNull("unused")} {
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "searchable", Options: vectorstore.SearchOptions{TopK: len(docs), Mode: mode, Filter: predicate}})
+			response, err := store.Scan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{TopK: len(docs), Mode: mode, Filter: predicate}), fixtureBudget())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -134,14 +134,14 @@ func TestNativeMetadataIdentityPaginationAndReplacement(t *testing.T) {
 		}
 	}
 	replacement := &document.Document{ID: docs[0].ID, Text: "replacement", Metadata: metadata.Map{"updated": json.RawMessage(`true`)}}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{replacement}}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{replacement})); err != nil {
 		t.Fatal(err)
 	}
 	predicate, err := filter.Parse("updated == true")
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "replacement", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+	response, err := store.Scan(t.Context(), fixtureQuery("replacement", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != replacement.ID || response.Results[0].Document.Text != replacement.Text {
 		t.Fatalf("native replacement: response=%#v, error=%v", response, err)
 	}
@@ -152,7 +152,7 @@ func TestNativeMetadataIdentityPaginationAndReplacement(t *testing.T) {
 	if err = store.DeleteIDs(t.Context(), ids); err != nil {
 		t.Fatal(err)
 	}
-	response, err = store.Search(t.Context(), &vectorstore.SearchRequest{Query: "searchable"})
+	response, err = store.Query(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("searchable")})
 	if err != nil || len(response.Results) != 0 {
 		t.Fatalf("native deletion: response=%#v, error=%v", response, err)
 	}
@@ -164,7 +164,7 @@ func TestNativePaginationPreservesRanking(t *testing.T) {
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("doc_%03d", i), Text: "searchable text"}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic} {
@@ -228,7 +228,7 @@ func TestNativePaginationPreservesRanking(t *testing.T) {
 				}
 				seen[id] = true
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "searchable", Options: vectorstore.SearchOptions{Mode: mode, TopK: 300, Filter: predicate}})
+			response, err := store.Scan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{Mode: mode, TopK: 300, Filter: predicate}), fixtureBudget())
 			if err != nil {
 				t.Fatalf("mode=%s, filtered=%v: %v", mode, filtered, err)
 			}

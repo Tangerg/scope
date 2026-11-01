@@ -19,7 +19,7 @@
 //   - history: history store and conversation listing.
 //   - vectorstore: the vector-store capabilities.
 //   - agent: managed Process activation, Step, and Effect, through an Observer
-//     bound as an agent.EventListener. WrapDispatcher propagates Effect spans
+//     bound as a run.EventListener. WrapDispatcher propagates actual dispatch spans
 //     into downstream calls. Agent and tool durations use gen_ai.invoke_agent.duration
 //     and gen_ai.execute_tool.duration, matching their invocation spans.
 //   - slog: development exporters that write all three signals to log/slog.

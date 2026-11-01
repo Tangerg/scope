@@ -3,6 +3,7 @@ package pgstore
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
 	"strings"
@@ -12,108 +13,121 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvec "github.com/pgvector/pgvector-go"
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 type Config struct {
-	Provider        string
-	Pool            *pgxpool.Pool
-	SchemaName      string
-	TableName       string
-	MetadataColumn  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
-	DistanceMetric  postgres.DistanceMetric
+	Provider       string
+	Pool           *pgxpool.Pool
+	SchemaName     string
+	TableName      string
+	MetadataColumn string
+	Space          vectorstore.SpaceID
+	DistanceMetric postgres.DistanceMetric
 }
 
 type Store struct {
-	provider        string
-	pool            *pgxpool.Pool
-	fullTable       string
-	metadataColumn  string
-	metadataName    string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	distanceMetric  postgres.DistanceMetric
+	provider       string
+	pool           *pgxpool.Pool
+	fullTable      string
+	metadataColumn string
+	metadataName   string
+	space          vectorstore.SpaceID
+	distanceMetric postgres.DistanceMetric
 }
 
 func New(ctx context.Context, config Config) (Store, error) {
-	if config.Pool == nil || lo.IsNil(config.DocumentBatcher) || !config.DistanceMetric.Valid() {
+	if config.Pool == nil || !config.DistanceMetric.Valid() {
 		return Store{}, errors.New("pgstore: incomplete construction dependencies")
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
+	if err := config.Space.Validate(); err != nil {
 		return Store{}, err
 	}
-	store := Store{provider: config.Provider, pool: config.Pool, fullTable: pgx.Identifier{config.SchemaName, config.TableName}.Sanitize(), metadataColumn: pgx.Identifier{config.MetadataColumn}.Sanitize(), metadataName: config.MetadataColumn, embeddingClient: client, documentBatcher: config.DocumentBatcher, distanceMetric: config.DistanceMetric}
+	store := Store{provider: config.Provider, pool: config.Pool, fullTable: pgx.Identifier{config.SchemaName, config.TableName}.Sanitize(), metadataColumn: pgx.Identifier{config.MetadataColumn}.Sanitize(), metadataName: config.MetadataColumn, space: config.Space, distanceMetric: config.DistanceMetric}
 	if _, err := store.readSchema(ctx, config.Pool); err != nil {
 		return Store{}, err
 	}
 	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("%s.Store.Index: %w", s.provider, err)
-		}
-	}()
-	if err = request.Validate(); err != nil {
+func validateText(doc *document.Document) error {
+	if doc.Media != nil || strings.ContainsRune(doc.Text, 0) {
+		return fmt.Errorf("%w: PostgreSQL requires text without NUL and does not support media", vectorstore.ErrInvalidDocument)
+	}
+	return nil
+}
+
+func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	for _, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("%w: media is unsupported", vectorstore.ErrInvalidDocument)
-		}
-		if strings.ContainsRune(doc.Text, 0) {
-			return fmt.Errorf("%w: PostgreSQL text cannot contain NUL", vectorstore.ErrInvalidDocument)
+	if err := vectorstore.ValidateDocuments(docs); err != nil {
+		return err
+	}
+	for _, doc := range docs {
+		if err := validateText(doc); err != nil {
+			return err
 		}
 	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
+	if err := space.Require(s.space); err != nil {
 		return err
+	}
+	_, err := s.readSchema(ctx, s.pool)
+	return err
+}
+
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error) {
+	if err = batch.ValidateFor(s.space); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	for _, r := range batch.Records {
+		if err = validateText(r.Document); err != nil {
+			return err
+		}
 	}
 	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
 	}
-	defer s.finishTransaction(ctx, transaction, &err)
+	defer func() {
+		if err == nil {
+			if commitErr := transaction.Commit(ctx); errors.Is(commitErr, pgx.ErrTxCommitRollback) {
+				err = commitErr
+			} else if commitErr != nil {
+				ids := make([]string, len(batch.Records))
+				for i, r := range batch.Records {
+					ids[i] = r.Document.ID
+				}
+				err = &vectorstore.WriteError{Unconfirmed: ids, Err: commitErr}
+			}
+		}
+		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			err = errors.Join(err, rollbackErr)
+		}
+	}()
 	width, err := s.readSchema(ctx, transaction)
 	if err != nil {
 		return err
 	}
-	if _, err = s.readSource(ctx, transaction, width, false); err != nil {
-		return err
-	}
 	prepared := &pgx.Batch{}
 	statement := fmt.Sprintf("INSERT INTO %s (id,content,%s,embedding) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET content=EXCLUDED.content,%s=EXCLUDED.%s,embedding=EXCLUDED.embedding", s.fullTable, s.metadataColumn, s.metadataColumn, s.metadataColumn)
-	for _, batch := range batches {
-		texts, err := batch.Texts()
+	for _, record := range batch.Records {
+		doc := record.Document
+		facts, err := document.MarshalStoredMetadata(doc)
 		if err != nil {
 			return err
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
+		coords, err := s.distanceMetric.Vector(record.Values, width)
 		if err != nil {
 			return err
 		}
-		for index, doc := range batch.Documents {
-			facts, err := doc.Metadata.MarshalJSON()
-			if err != nil {
-				return err
-			}
-			vector, err := s.distanceMetric.Vector(vectors[index], width)
-			if err != nil {
-				return err
-			}
-			prepared.Queue(statement, []byte(doc.ID), doc.Text, facts, vector)
-		}
+		prepared.Queue(statement, []byte(doc.ID), doc.Text, facts, coords)
 	}
 	results := transaction.SendBatch(ctx, prepared)
 	for range prepared.Len() {
@@ -128,19 +142,43 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) (e
 	return results.Close()
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (response *vectorstore.SearchResponse, err error) {
+// Metadata is stored as opaque Core JSON bytes. Without an equivalent native
+// predicate, rejecting the request preserves tenant isolation and global top K.
+func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
+	if err := s.validateQuery(ctx, space, options); err != nil {
+		return err
+	}
+	_, err := s.readSchema(ctx, s.pool)
+	return err
+}
+func (s *Store) validateQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	if options.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
+	}
+	return nil
+}
+func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("%s.Store.Search: %w", s.provider, err)
+			err = fmt.Errorf("%s.Store.Query: %w", s.provider, err)
 		}
 	}()
-	if err = request.Validate(); err != nil {
+	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = s.validateQuery(ctx, request.Space, request.Options); err != nil {
 		return nil, err
 	}
 	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})
@@ -158,36 +196,12 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		return nil, err
 	}
 	response = &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}
-	var ids [][]byte
-	if request.Options.Filter != nil {
-		records, readErr := s.readSource(ctx, transaction, width, false)
-		if readErr != nil {
-			return nil, readErr
-		}
-		ids, err = selectIDs(records, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(ids) == 0 {
-			return response, nil
-		}
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
+	queryVector, err := s.distanceMetric.Vector(request.Values, width)
 	if err != nil {
 		return nil, err
 	}
-	queryVector, err := s.distanceMetric.Vector(vector, width)
-	if err != nil {
-		return nil, err
-	}
-	where := ""
-	arguments := []any{queryVector, request.Options.ResultLimit()}
-	if ids != nil {
-		where = " WHERE id=ANY($3)"
-		arguments = append(arguments, ids)
-	}
-	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $1 AS distance FROM %s%s ORDER BY distance,id LIMIT $2", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable, where)
-	rows, err := transaction.Query(ctx, statement, arguments...)
+	statement := fmt.Sprintf("SELECT id,content,%s,embedding,embedding %s $1 AS distance FROM %s ORDER BY distance,id LIMIT $2", s.metadataColumn, s.distanceMetric.Operator(), s.fullTable)
+	rows, err := transaction.Query(ctx, statement, queryVector, request.Options.ResultLimit())
 	if err != nil {
 		return nil, err
 	}
@@ -219,52 +233,10 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
-	if err = response.ValidateFor(request); err != nil {
+	if err = request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil
-}
-
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("%s.Store.DeleteWhere: %w", s.provider, err)
-		}
-	}()
-	if predicate == nil {
-		return vectorstore.ErrMissingFilter
-	}
-	if err = predicate.Validate(); err != nil {
-		return err
-	}
-	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return err
-	}
-	defer s.finishTransaction(ctx, transaction, &err)
-	width, err := s.readSchema(ctx, transaction)
-	if err != nil {
-		return err
-	}
-	records, err := s.readSource(ctx, transaction, width, true)
-	if err != nil {
-		return err
-	}
-	ids, err := selectIDs(records, predicate)
-	if err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	tag, err := transaction.Exec(ctx, "DELETE FROM "+s.fullTable+" WHERE id=ANY($1)", ids)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() != int64(len(ids)) {
-		return errors.New("pgstore: deletion did not acknowledge every locked identity")
-	}
-	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
@@ -358,14 +330,75 @@ func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
 	if len(keys) != 1 || int(keys[0]) != idNumber || primary.Next() {
 		return 0, errors.New("pgstore: native primary key must be only the binary ID")
 	}
-	return width, primary.Err()
+	if err = primary.Err(); err != nil {
+		return 0, err
+	}
+	primary.Close()
+	// Read every space marker: multiple bindings cannot authorize mixed spaces.
+	binding, err := query.Query(ctx, `SELECT conname FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='c' AND left(conname,3)='sv_'`, s.fullTable)
+	if err != nil {
+		return 0, err
+	}
+	defer binding.Close()
+	if !binding.Next() {
+		if err := binding.Err(); err != nil {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%w: table has no space constraint", vectorstore.ErrIncompatibleSpace)
+	}
+	var name string
+	if err := binding.Scan(&name); err != nil {
+		return 0, err
+	}
+	if name != s.space.StorageKey() || binding.Next() {
+		return 0, fmt.Errorf("%w: wrong or ambiguous collection binding", vectorstore.ErrIncompatibleSpace)
+	}
+	if err := binding.Err(); err != nil {
+		return 0, err
+	}
+	return width, nil
 }
 
-func (s *Store) readSource(ctx context.Context, transaction pgx.Tx, width int, lock bool) ([]*document.Document, error) {
-	statement := fmt.Sprintf("SELECT id,content,%s,embedding FROM %s ORDER BY id", s.metadataColumn, s.fullTable)
-	if lock {
-		statement += " FOR UPDATE"
+// Scan never returns partial membership. Preflight is performed in the same
+// snapshot as the read, before the client receives any document payload.
+func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) (result []*document.Document, err error) {
+	if err = config.Validate(); err != nil {
+		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, config.Budget.Timeout)
+	defer cancel()
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		s.finishTransaction(ctx, tx, &err)
+		if err != nil {
+			result = nil
+		}
+	}()
+	width, err := s.readSchema(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	var fits bool
+	stmt := fmt.Sprintf("SELECT count(*) <= $2 AND COALESCE(sum(n),0) <= $3 FROM (SELECT octet_length(id)::bigint + octet_length(content) + octet_length(%s) + 4::bigint * $4 AS n FROM %s LIMIT $1) AS bounded", s.metadataColumn, s.fullTable)
+	if err = tx.QueryRow(ctx, stmt, config.Budget.MaxRecords+1, config.Budget.MaxRecords, config.Budget.MaxBytes, width).Scan(&fits); err != nil {
+		return nil, err
+	}
+	if !fits {
+		return nil, vectorstore.ErrScanBudget
+	}
+	docs, err := s.readSource(ctx, tx, width)
+	if err != nil {
+		return nil, err
+	}
+	return selectRecords(ctx, docs, config.Filter)
+}
+
+func (s *Store) readSource(ctx context.Context, transaction pgx.Tx, width int) ([]*document.Document, error) {
+	statement := fmt.Sprintf("SELECT id,content,%s,embedding FROM %s ORDER BY id", s.metadataColumn, s.fullTable)
+
 	rows, err := transaction.Query(ctx, statement)
 	if err != nil {
 		return nil, err
@@ -415,12 +448,12 @@ type rowQuerier interface {
 }
 
 func decodeDocument(id []byte, text string, facts []byte) (*document.Document, error) {
-	var meta metadata.Map
-	if err := meta.UnmarshalJSON(facts); err != nil {
+	doc := new(document.Document)
+	if err := document.UnmarshalStoredMetadata(facts, doc); err != nil {
 		return nil, err
 	}
-	doc := &document.Document{ID: string(id), Text: text, Metadata: meta}
-	if err := (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	doc.ID, doc.Text = string(id), text
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	if strings.ContainsRune(text, 0) {
@@ -429,9 +462,12 @@ func decodeDocument(id []byte, text string, facts []byte) (*document.Document, e
 	return doc, nil
 }
 
-func selectIDs(docs []*document.Document, predicate filter.Predicate) ([][]byte, error) {
-	ids := make([][]byte, 0, len(docs))
+func selectRecords(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]*document.Document, error) {
+	ids := make([]*document.Document, 0, len(docs))
 	for _, doc := range docs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if predicate != nil {
 			values, err := doc.Metadata.Values()
 			if err != nil {
@@ -445,7 +481,7 @@ func selectIDs(docs []*document.Document, predicate filter.Predicate) ([][]byte,
 				continue
 			}
 		}
-		ids = append(ids, []byte(doc.ID))
+		ids = append(ids, doc)
 	}
 	return ids, nil
 }

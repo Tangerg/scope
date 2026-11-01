@@ -1,0 +1,257 @@
+package run_test
+
+import (
+	startrand "crypto/rand"
+
+	"context"
+	jsonv2 "encoding/json/v2"
+	"fmt"
+	"sync/atomic"
+
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/jsonschema"
+)
+
+type echoInput struct {
+	Value string `json:"value"`
+}
+
+type echoOutput struct {
+	Value string `json:"value"`
+}
+
+type echoDefinition struct {
+	descriptor run.Descriptor
+}
+
+const echoStateKind = "example.echo"
+
+type echoPhase string
+
+const (
+	echoPhaseReady        echoPhase = "ready"
+	echoPhaseAwaitingEcho echoPhase = "awaiting_echo"
+	echoPhaseCompleted    echoPhase = "completed"
+)
+
+var errEchoFailed = run.NewClassifiedError(run.FailureKindExternal, "example.echo.failed", "Echo dispatcher did not succeed.")
+
+type echoState struct {
+	Phase echoPhase `json:"phase"`
+	Value string    `json:"value"`
+}
+
+func (e echoDefinition) Descriptor() run.Descriptor { return e.descriptor }
+
+func (echoDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+
+func (e echoDefinition) Start(input run.Payload) (run.Execution, error) {
+	if err := e.descriptor.ValidateInput(input); err != nil {
+		return nil, err
+	}
+	value, err := input.Decode[echoInput]()
+	if err != nil {
+		return nil, err
+	}
+	return &echoExecution{state: echoState{Phase: echoPhaseReady, Value: value.Value}}, nil
+}
+
+func (echoDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+	value, err := state.Decode[echoState](echoStateKind)
+	if err != nil {
+		return nil, err
+	}
+	switch value.Phase {
+	case echoPhaseReady, echoPhaseAwaitingEcho, echoPhaseCompleted:
+		return &echoExecution{state: value}, nil
+	default:
+		return nil, run.ErrInvalidExecutionState
+	}
+}
+
+type echoExecution struct {
+	state echoState
+}
+
+func (e *echoExecution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
+	if err := ctx.Err(); err != nil {
+		return run.Transition{}, err
+	}
+	switch e.state.Phase {
+	case echoPhaseReady:
+		if len(signals) != 0 {
+			return run.Transition{}, run.ErrInvalidSignal
+		}
+		payload, err := jsonv2.Marshal(echoInput{Value: e.state.Value})
+		if err != nil {
+			return run.Transition{}, err
+		}
+		effect, err := run.NewDispatcherEffect(payload)
+		if err != nil {
+			return run.Transition{}, err
+		}
+		e.state.Phase = echoPhaseAwaitingEcho
+		return run.Continue(0, effect)
+	case echoPhaseAwaitingEcho:
+		if len(signals) != 1 {
+			return run.Transition{}, run.ErrInvalidSignal
+		}
+		settlement, err := run.ParseSettlement(signals[0])
+		if err != nil {
+			return run.Transition{}, err
+		}
+		if settlement.Status() != run.SettlementStatusSucceeded {
+			return run.Transition{}, errEchoFailed
+		}
+		var result echoOutput
+		if decodeErr := jsonv2.Unmarshal(settlement.Payload(), &result, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+			return run.Transition{}, decodeErr
+		}
+		output, err := run.EncodePayload(result)
+		if err != nil {
+			return run.Transition{}, err
+		}
+		e.state.Phase = echoPhaseCompleted
+		return run.Complete(1, output)
+	default:
+		return run.Transition{}, run.ErrInvalidExecutionState
+	}
+}
+
+func (e *echoExecution) Snapshot() (run.ExecutionState, error) {
+	payload, err := jsonv2.Marshal(e.state)
+	if err != nil {
+		return run.ExecutionState{}, err
+	}
+	return run.ParseExecutionState(echoStateKind, payload)
+}
+
+func newEchoDefinition() (echoDefinition, error) {
+	inputSchema, err := jsonschema.For[echoInput]()
+	if err != nil {
+		return echoDefinition{}, err
+	}
+	outputSchema, err := jsonschema.For[echoOutput]()
+	if err != nil {
+		return echoDefinition{}, err
+	}
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
+		Name: echoStateKind, Description: "Echoes a value through an Engine-managed Effect.",
+		InputSchema: inputSchema, OutputSchema: outputSchema,
+	})
+	if err != nil {
+		return echoDefinition{}, err
+	}
+	return echoDefinition{descriptor: descriptor}, nil
+}
+
+// echoDispatcher has no external mutation, so repeating an identity is safe.
+type echoDispatcher struct{}
+
+func (echoDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
+	if err := ctx.Err(); err != nil {
+		return run.Settlement{}, err
+	}
+	payload := request.Effect().Payload()
+	if emit != nil {
+		emit(payload)
+	}
+	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
+}
+
+func (echoDispatcher) Policy(run.Effect) run.EffectPolicy {
+	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
+}
+
+// countingDispatcher counts attempts, including replay, rather than logical operations.
+type countingDispatcher struct {
+	next     run.Dispatcher
+	attempts atomic.Int64
+}
+
+func (c *countingDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
+	c.attempts.Add(1)
+	return c.next.Dispatch(ctx, request, emit)
+}
+
+func (c *countingDispatcher) Policy(effect run.Effect) run.EffectPolicy {
+	return c.next.Policy(effect)
+}
+
+// An independently authored Definition binds through the same Program and
+// Runtime contracts as built-in strategies. TestExternalPackageCanComposeAndRunDefinition
+// checks this implementation with agenttest.RunDefinitionConformance.
+func ExampleDefinition() {
+	ctx := context.Background()
+	definition, err := newEchoDefinition()
+	if err != nil {
+		panic(err)
+	}
+	dispatcher := &countingDispatcher{next: echoDispatcher{}}
+	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
+		Definition: definition, Dispatcher: dispatcher,
+		ImplementationDigest: run.ComputeDigest([]byte("example-echo-implementation")),
+		ConfigurationDigest:  run.ComputeDigest([]byte("example-echo-configuration")),
+	})
+	if err != nil {
+		panic(err)
+	}
+	// These are Host-selected bounds for this small episode, not universal defaults.
+	// The ledger lifetime is this invocation; ReleaseTree does not erase it.
+	engine, err := run.New(context.Background(), run.Config{
+		Store:  run.NewMemoryStore(),
+		Budget: run.Budget{Steps: run.NewQuota(100), Effects: run.NewQuota(100), Signals: run.NewQuota(200)},
+		TreeLimits: run.TreeLimits{
+			MaxDepth: 4, MaxActiveChildren: 4, MaxChildren: run.NewQuota(16),
+			MaxTreeProcesses: run.NewQuota(32), MaxSnapshotBytes: run.NewQuota(32 << 20),
+			MaxProcessSnapshotBytes: run.NewQuota(1 << 20), MaxPendingSignals: 64,
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if closeErr := engine.Close(ctx); closeErr != nil {
+			panic(closeErr)
+		}
+	}()
+	input, err := definition.Descriptor().EncodeInput(echoInput{Value: "hello"})
+	if err != nil {
+		panic(err)
+	}
+	process, err := engine.Start(ctx, deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	if err != nil {
+		panic(err)
+	}
+	result, err := process.Await(ctx)
+	if err != nil {
+		panic(err)
+	}
+	if joinErr := process.Join(ctx); joinErr != nil {
+		panic(joinErr)
+	}
+	output, ok := result.Termination().Output()
+	if !ok {
+		panic("completed Result has no Output")
+	}
+	value, err := definition.Descriptor().DecodeOutput[echoOutput](output)
+	if err != nil {
+		panic(err)
+	}
+	inspection, err := engine.InspectTree(ctx, result.ProcessID())
+	if err != nil {
+		panic(err)
+	}
+	report, found := inspection.Process(result.ProcessID())
+	if !found {
+		panic("completed Process is absent from its tree")
+	}
+	if err := engine.ReleaseTree(context.Background(), result.ProcessID()); err != nil {
+		panic(err)
+	}
+	fmt.Println(result.Termination().Status(), value.Value, dispatcher.attempts.Load())
+	fmt.Println("inspected:", report.Snapshot.Status(), report.Snapshot.Usage().PreparedEffects)
+	// Output:
+	// completed hello 1
+	// inspected: completed 1
+}

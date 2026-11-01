@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 )
 
 func TestCitationSourceURIIdentity(t *testing.T) {
@@ -17,12 +18,12 @@ func TestCitationSourceURIIdentity(t *testing.T) {
 		"custom:/evidence",
 	} {
 		t.Run(value, func(t *testing.T) {
-			citation := chat.Citation{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: value}}
+			citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: value}}
 			if err := citation.Validate(); err != nil {
 				t.Fatal(err)
 			}
 			part := chat.NewTextPart("evidence")
-			part.Citations = []chat.Citation{citation}
+			part.Citations = []corecontent.Citation{citation}
 			if err := part.Validate(); err != nil {
 				t.Fatal(err)
 			}
@@ -49,8 +50,8 @@ func TestCitationSourceURIIdentity(t *testing.T) {
 		"urn:a\u00a0b", "urn:\xff",
 	} {
 		t.Run(value, func(t *testing.T) {
-			source := chat.CitationSource{Kind: chat.CitationSourceURI, Value: value}
-			if err := source.Validate(); !errors.Is(err, chat.ErrInvalidCitation) {
+			source := corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: value}
+			if err := source.Validate(); !errors.Is(err, corecontent.ErrInvalidCitation) {
 				t.Fatalf("Validate() = %v; want ErrInvalidCitation", err)
 			}
 		})

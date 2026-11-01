@@ -10,6 +10,7 @@ import (
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 )
 
 const (
@@ -159,15 +160,15 @@ func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider, kind str
 	return nil
 }
 
-func mapProtocolTextCitation(citation anthropicsdk.TextCitationUnion) (corechat.Citation, bool, error) {
+func mapProtocolTextCitation(citation anthropicsdk.TextCitationUnion) (corecontent.Citation, bool, error) {
 	return mapProtocolCitation(citation.AsAny())
 }
 
-func mapProtocolDeltaCitation(citation anthropicsdk.CitationsDeltaCitationUnion) (corechat.Citation, bool, error) {
+func mapProtocolDeltaCitation(citation anthropicsdk.CitationsDeltaCitationUnion) (corecontent.Citation, bool, error) {
 	return mapProtocolCitation(citation.AsAny())
 }
 
-func mapProtocolCitation(value any) (corechat.Citation, bool, error) {
+func mapProtocolCitation(value any) (corecontent.Citation, bool, error) {
 	switch citation := value.(type) {
 	case anthropicsdk.CitationCharLocation:
 		return protocolDocumentCitation(citation.FileID, citation.DocumentTitle, citation.CitedText)
@@ -176,37 +177,37 @@ func mapProtocolCitation(value any) (corechat.Citation, bool, error) {
 	case anthropicsdk.CitationContentBlockLocation:
 		return protocolDocumentCitation(citation.FileID, citation.DocumentTitle, citation.CitedText)
 	case anthropicsdk.CitationsWebSearchResultLocation:
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceURI, Value: citation.URL},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: citation.URL},
 			Title:  citation.Title,
 			Quote:  citation.CitedText,
 		}, true, nil
 	case anthropicsdk.CitationsSearchResultLocation:
 		if citation.Source == "" {
-			return corechat.Citation{}, false, errors.New("search result citation lacks source")
+			return corecontent.Citation{}, false, errors.New("search result citation lacks source")
 		}
-		return corechat.Citation{
-			Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: citation.Source},
+		return corecontent.Citation{
+			Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: citation.Source},
 			Title:  citation.Title,
 			Quote:  citation.CitedText,
 		}, true, nil
 	case nil:
-		return corechat.Citation{}, false, nil
+		return corecontent.Citation{}, false, nil
 	default:
-		return corechat.Citation{}, false, fmt.Errorf("unsupported citation %T", citation)
+		return corecontent.Citation{}, false, fmt.Errorf("unsupported citation %T", citation)
 	}
 }
 
-func protocolDocumentCitation(fileID, title, quote string) (corechat.Citation, bool, error) {
+func protocolDocumentCitation(fileID, title, quote string) (corecontent.Citation, bool, error) {
 	reference := fileID
 	if reference == "" {
 		reference = title
 	}
 	if reference == "" {
-		return corechat.Citation{}, false, errors.New("document citation lacks an identity")
+		return corecontent.Citation{}, false, errors.New("document citation lacks an identity")
 	}
-	return corechat.Citation{
-		Source: corechat.CitationSource{Kind: corechat.CitationSourceReference, Value: reference},
+	return corecontent.Citation{
+		Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: reference},
 		Title:  title,
 		Quote:  quote,
 	}, true, nil

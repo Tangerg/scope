@@ -29,12 +29,12 @@ func (c ChatCompletionsConfig) Validate() error {
 	return err
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openai.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	endpoint, err := config.resolve()
 	if err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewCompatibleChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
 		Provider: protocolProvider,
 		// Azure documents that reasoning models "will only work with the
 		// max_completion_tokens parameter when using the Chat Completions
@@ -50,5 +50,5 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	if err != nil {
 		return nil, fmt.Errorf("azureopenai: construct chat: %w", err)
 	}
-	return protocol, nil
+	return corechat.NewStreamModel(protocol)
 }

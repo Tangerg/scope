@@ -12,9 +12,10 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-func mapToolDefinitions(definitions []corechat.ToolDefinition) ([]openaisdk.ChatCompletionToolUnionParam, error) {
+func mapToolDefinitions(definitions []toolcontract.Definition) ([]openaisdk.ChatCompletionToolUnionParam, error) {
 	tools := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(definitions))
 	for i := range definitions {
 		var encodedSchema metadata.Map

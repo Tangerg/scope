@@ -17,7 +17,7 @@ func TestUnfilteredSearchDoesNotEnumerateSource(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 	}
 	store := fixture.store()
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1}})
+	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "one" {
 		t.Fatalf("native query = %v, %v", response, err)
 	}

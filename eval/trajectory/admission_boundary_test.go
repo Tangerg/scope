@@ -9,8 +9,10 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent"
-	"github.com/Tangerg/scope/agent/strategy/interaction"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -18,13 +20,13 @@ func TestExpectationRejectsInvalidAssertionsBeforeEvaluation(t *testing.T) {
 	invalidArguments := trajectory.ToolArguments(`{"value":`)
 	for _, expected := range []trajectory.Expectation{
 		{},
-		{Status: agent.StatusFailed, Output: recordedOutput(t, runTrajectory(t))},
-		{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: " "}}}},
-		{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "tool", Arguments: &invalidArguments}}}},
-		{Status: agent.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "tool", Outcome: "unsupported"}}}},
-		{Status: agent.StatusCompleted, Baseline: new(trajectory.Trajectory)},
-		{Status: agent.StatusCompleted, Limits: trajectory.Limits{TotalTokens: new(int64(-1))}},
-		{Status: agent.StatusCompleted, Limits: trajectory.Limits{Elapsed: new(-time.Nanosecond)}},
+		{Status: run.StatusFailed, Output: recordedOutput(t, runTrajectory(t))},
+		{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: " "}}}},
+		{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "tool", Arguments: &invalidArguments}}}},
+		{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "tool", Outcome: "unsupported"}}}},
+		{Status: run.StatusCompleted, Baseline: new(trajectory.Trajectory)},
+		{Status: run.StatusCompleted, Limits: trajectory.Limits{TotalTokens: new(int64(-1))}},
+		{Status: run.StatusCompleted, Limits: trajectory.Limits{Elapsed: new(-time.Nanosecond)}},
 	} {
 		if err := expected.Validate(); !errors.Is(err, trajectory.ErrInvalidSample) {
 			t.Errorf("invalid expectation admitted: %+v, %v", expected, err)
@@ -37,16 +39,16 @@ func TestTrajectoryProjectionFailuresRemainErrors(t *testing.T) {
 	projectionErr := errors.New("output projection unavailable")
 	for _, test := range []struct {
 		name       string
-		projection func(agent.Payload) (json.RawMessage, error)
+		projection func(run.Payload) (json.RawMessage, error)
 		want       error
 	}{
-		{"projection failure", func(agent.Payload) (json.RawMessage, error) { return nil, projectionErr }, projectionErr},
-		{"invalid JSON", func(agent.Payload) (json.RawMessage, error) { return json.RawMessage(`{"value":`), nil }, trajectory.ErrInvalidSample},
-		{"duplicate member", func(agent.Payload) (json.RawMessage, error) { return json.RawMessage(`{"value":1,"value":2}`), nil }, trajectory.ErrInvalidSample},
+		{"projection failure", func(run.Payload) (json.RawMessage, error) { return nil, projectionErr }, projectionErr},
+		{"invalid JSON", func(run.Payload) (json.RawMessage, error) { return json.RawMessage(`{"value":`), nil }, trajectory.ErrInvalidSample},
+		{"duplicate member", func(run.Payload) (json.RawMessage, error) { return json.RawMessage(`{"value":1,"value":2}`), nil }, trajectory.ErrInvalidSample},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := (trajectory.Evaluator{OutputProjection: test.projection}).Evaluate(t.Context(), trajectory.Sample{
-				Actual: actual, Expected: trajectory.Expectation{Status: agent.StatusCompleted, Baseline: &actual},
+				Actual: actual, Expected: trajectory.Expectation{Status: run.StatusCompleted, Baseline: &actual},
 			})
 			if !errors.Is(err, test.want) || report.Metric.Name() != "" {
 				t.Fatalf("projection failure became a verdict: %+v, %v", report, err)
@@ -63,7 +65,7 @@ func TestRecordedCallsRejectInvalidRequestsAndResults(t *testing.T) {
 	}{
 		{"missing request", func(call *trajectory.ModelCall) { call.Request = nil }},
 		{"invalid request", func(call *trajectory.ModelCall) { call.Request = new(chat.Request) }},
-		{"unobserved response", func(call *trajectory.ModelCall) { call.Outcome = interaction.ModelOutcomeUnobserved }},
+		{"unobserved response", func(call *trajectory.ModelCall) { call.Outcome = agent.ModelOutcomeUnobserved }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call := recorded.ModelCalls()[0]
@@ -88,7 +90,7 @@ func TestRecordedCallsRejectInvalidRequestsAndResults(t *testing.T) {
 		{"wrong result owner", func(call *trajectory.ToolCall) { call.Result.ID = "another-call" }},
 		{"invalid evidence", func(call *trajectory.ToolCall) {
 			call.Result, call.Unknown = nil, true
-			call.Evidence = new(chat.ToolOutput{Content: []chat.ToolContent{{}}})
+			call.Evidence = new(toolcontract.Output{Content: []corecontent.Block{{}}})
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,7 +111,7 @@ func TestRecordedCallsRejectInvalidRequestsAndResults(t *testing.T) {
 func TestTrajectoryRejectsForeignModelOwnershipAndTokenOverflow(t *testing.T) {
 	recorded := coveredInteraction(t)
 	config := trajectoryConfig(recorded)
-	foreign, err := agent.ParseProcessID("process:foreign")
+	foreign, err := run.ParseProcessID("process:foreign")
 	if err != nil {
 		t.Fatal(err)
 	}

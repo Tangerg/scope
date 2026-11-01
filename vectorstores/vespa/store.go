@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -22,11 +22,7 @@ import (
 
 const queryGroupSize = 128
 
-var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-)
+var _ vectorstore.Upserter = (*Store)(nil)
 
 type Store struct {
 	endpoint         string
@@ -35,8 +31,8 @@ type Store struct {
 	fields           schemaFields
 	queryTensorName  string
 	rankingProfile   string
-	embeddingClient  embeddingclient.Client
-	documentBatcher  vectorstore.Batcher
+	space            vectorstore.SpaceID
+	dimensions       int
 	httpClient       *http.Client
 	maxResponseBytes int64
 }
@@ -48,28 +44,26 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
+	ownedHTTP, err := httpclient.New(ctx, httpclient.Config{RejectRedirects: true, HTTPClient: config.HTTPClient, BaseURL: config.Endpoint})
 	if err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, err
-	}
-	return &Store{endpoint: strings.TrimRight(config.Endpoint, "/"), schemaName: config.SchemaName, namespace: config.Namespace,
+	return &Store{endpoint: strings.TrimRight(config.Endpoint, "/"), schemaName: config.SchemaName, namespace: config.DocumentNamespace(),
 		fields: schemaFields{content: config.ContentField, embedding: config.EmbeddingField}, queryTensorName: config.QueryTensorName,
-		rankingProfile: config.RankingProfile, embeddingClient: client, documentBatcher: config.DocumentBatcher,
+		rankingProfile: config.RankingProfile, space: config.Space, dimensions: config.Dimensions,
 		httpClient: ownedHTTP, maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
 		return err
 	}
-	records := make([]nativeRecord, len(request.Documents))
-	for index, doc := range request.Documents {
+	records := make([]nativeRecord, 0, len(batch.Records))
+	ids := make([]string, 0, len(batch.Records))
+	for _, r := range batch.Records {
+		doc := r.Document
 		if doc.Media != nil {
-			return fmt.Errorf("%w: media is unsupported", vectorstore.ErrInvalidDocument)
+			return vectorstore.ErrInvalidDocument
 		}
 		if err := validateText(doc.ID); err != nil {
 			return err
@@ -77,67 +71,55 @@ func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) er
 		if err := validateText(doc.Text); err != nil {
 			return err
 		}
-		facts, err := doc.Metadata.MarshalJSON()
+		facts, err := document.MarshalStoredMetadata(doc)
 		if err != nil {
 			return err
 		}
-		records[index] = nativeRecord{document: doc, metadata: string(facts)}
-	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return err
-	}
-	_, width, err := s.readSource(ctx)
-	if err != nil {
-		return err
-	}
-	position := 0
-	for _, batch := range batches {
-		texts, err := batch.Texts()
+		values, err := floatVector(r.Values, s.dimensions)
 		if err != nil {
 			return err
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return err
-		}
-		for _, vector := range vectors {
-			narrowed, err := floatVector(vector, width)
-			if err != nil {
-				return err
-			}
-			if width == 0 {
-				width = len(narrowed)
-			}
-			records[position].vector = narrowed
-			position++
-		}
+		records = append(records, nativeRecord{document: doc, metadata: string(facts), vector: values})
+		ids = append(ids, doc.ID)
 	}
-	for _, record := range records {
+	for i, record := range records {
+		if err := ctx.Err(); err != nil {
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}
+		}
 		fields := map[string]any{s.fields.content: record.document.Text, metadataField: record.metadata, s.fields.embedding: struct {
 			Values []float32 `json:"values"`
 		}{record.vector}}
 		raw, status, err := s.sendJSON(ctx, http.MethodPost, s.documentPath(record.document.ID), struct {
 			Fields map[string]any `json:"fields"`
 		}{fields})
+		if err == nil {
+			err = s.mutationAcknowledgment(raw, status, record.document.ID)
+		}
 		if err != nil {
-			return err
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}
 		}
-		if err := s.mutationAcknowledgment(raw, status, record.document.ID); err != nil {
-			return err
-		}
+
 	}
 	return nil
 }
 
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
-	if err := request.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, err
 	}
-	records, width, err := s.readSource(ctx)
+	narrowed, err := floatVector(request.Values, s.dimensions)
+	if err != nil {
+		return nil, err
+	}
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	records, width, err := s.readSource(meter)
 	if err != nil {
 		return nil, err
 	}
@@ -147,14 +129,6 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	}
 	if len(selected) == 0 {
 		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
-	}
-	vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-	if err != nil {
-		return nil, err
-	}
-	narrowed, err := floatVector(vector, width)
-	if err != nil {
-		return nil, err
 	}
 	results := make([]*vectorstore.SearchResult, 0, len(selected))
 	for start := 0; start < len(selected); start += queryGroupSize {
@@ -174,7 +148,7 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 			"input.query(" + s.queryTensorName + ")": struct {
 				Values []float32 `json:"values"`
 			}{narrowed}}
-		hits, err := s.query(ctx, body)
+		hits, err := s.query(meter, body)
 		if err != nil {
 			return nil, err
 		}
@@ -221,20 +195,26 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 	slices.SortStableFunc(results, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
 	results = results[:min(len(results), request.Options.ResultLimit())]
 	response := &vectorstore.SearchResponse{Results: results}
-	if err := response.ValidateFor(request); err != nil {
+	if err := request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
 		return err
 	}
-	records, _, err := s.readSource(ctx)
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	records, _, err := s.readSource(meter)
 	if err != nil {
 		return err
 	}
@@ -262,14 +242,14 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	return nil
 }
 
-func (s *Store) readSource(ctx context.Context) ([]nativeRecord, int, error) {
+func (s *Store) readSource(meter *vectorstore.ScanMeter) ([]nativeRecord, int, error) {
 	records := make([]nativeRecord, 0)
 	seenIDs := make(map[string]bool)
 	seenTokens := make(map[string]bool)
-	width := 0
+	width := s.dimensions
 	parameters := url.Values{"fieldSet": {"[document]"}, "wantedDocumentCount": {"128"}}
 	for {
-		raw, status, err := s.sendJSON(ctx, http.MethodGet, s.documentPath("")+"?"+parameters.Encode(), nil)
+		raw, status, err := s.wire(meter.Context(), http.MethodGet, s.documentPath("")+"?"+parameters.Encode(), nil, meter)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -282,6 +262,9 @@ func (s *Store) readSource(ctx context.Context) ([]nativeRecord, int, error) {
 		}
 		if response.DocumentCount == nil || *response.DocumentCount != len(response.Documents) {
 			return nil, 0, errors.New("vespa: visit count and documents disagree")
+		}
+		if err := meter.ChargePage(len(response.Documents), 0); err != nil {
+			return nil, 0, err
 		}
 		for _, item := range response.Documents {
 			id, err := s.documentID(item.ID)
@@ -313,8 +296,8 @@ func (s *Store) readSource(ctx context.Context) ([]nativeRecord, int, error) {
 	}
 }
 
-func (s *Store) query(ctx context.Context, body map[string]any) ([]queryHit, error) {
-	raw, status, err := s.sendJSON(ctx, http.MethodPost, "/search/", body)
+func (s *Store) query(meter *vectorstore.ScanMeter, body map[string]any) ([]queryHit, error) {
+	raw, status, err := s.wire(meter.Context(), http.MethodPost, "/search/", body, meter)
 	if err != nil {
 		return nil, err
 	}
@@ -344,6 +327,16 @@ func (s *Store) query(ctx context.Context, body map[string]any) ([]queryHit, err
 }
 
 func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, int, error) {
+	return s.wire(ctx, method, path, body, nil)
+}
+func (s *Store) wire(ctx context.Context, method, path string, body any, meter *vectorstore.ScanMeter) ([]byte, int, error) {
+	maximum := cmp.Or(s.maxResponseBytes, DefaultMaxResponseBytes)
+	if meter != nil {
+		maximum = min(maximum, meter.RemainingBytes())
+		if maximum == 0 {
+			return nil, 0, vectorstore.ErrScanBudget
+		}
+	}
 	var reader io.Reader
 	if body != nil {
 		encoded, err := jsonv2.Marshal(body)
@@ -363,10 +356,14 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 		return nil, 0, err
 	}
 	defer response.Body.Close()
-	maximum := cmp.Or(s.maxResponseBytes, DefaultMaxResponseBytes)
 	raw, err := io.ReadAll(io.LimitReader(response.Body, maximum+1))
 	if err != nil {
 		return nil, 0, err
+	}
+	if meter != nil {
+		if err := meter.ChargePage(0, int64(len(raw))); err != nil {
+			return nil, 0, err
+		}
 	}
 	if int64(len(raw)) > maximum {
 		return nil, 0, fmt.Errorf("vespa: response exceeds %d-byte limit", maximum)
@@ -397,7 +394,11 @@ func (s *Store) nativeID(id string) string {
 	return "id:" + s.namespace + ":" + s.schemaName + "::" + id
 }
 func (s *Store) documentPath(id string) string {
-	return "/document/v1/" + url.PathEscape(s.namespace) + "/" + url.PathEscape(s.schemaName) + "/docid/" + url.PathEscape(id)
+	segment := url.PathEscape(id)
+	if segment == "." || segment == ".." {
+		segment = strings.ReplaceAll(segment, ".", "%2E")
+	}
+	return "/document/v1/" + url.PathEscape(s.namespace) + "/" + url.PathEscape(s.schemaName) + "/docid/" + segment
 }
 func (s *Store) documentID(raw string) (string, error) {
 	id, present := strings.CutPrefix(raw, s.nativeID(""))

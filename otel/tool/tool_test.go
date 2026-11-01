@@ -15,7 +15,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/Tangerg/scope/core/chat"
 	coretool "github.com/Tangerg/scope/core/tool"
 	toolotel "github.com/Tangerg/scope/otel/tool"
 )
@@ -28,8 +27,8 @@ type testTool struct {
 	called bool
 }
 
-func (*testTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{
+func (*testTool) Definition() coretool.Definition {
+	return coretool.Definition{
 		Name: "lookup", Description: "Look up one value.",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}
@@ -37,7 +36,7 @@ func (*testTool) Definition() chat.ToolDefinition {
 
 func (t *testTool) Call(ctx context.Context, invocation coretool.Invocation) (coretool.Result, error) {
 	t.called = trace.SpanFromContext(ctx).SpanContext().IsValid() && string(invocation.Arguments()) == `{"key":"secret"}`
-	return coretool.Result{Output: chat.NewTextToolOutput(t.result)}, t.err
+	return coretool.Result{Output: coretool.NewTextOutput(t.result)}, t.err
 }
 
 func (*testTool) Marked() {}
@@ -77,7 +76,7 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{"key":"secret"}`}, nil)
+	invocation, err := binding.Contract().Prepare(coretool.Request{Name: "lookup", Arguments: `{"key":"secret"}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +127,7 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(chat.ToolCall{ID: "test", Name: "lookup", Arguments: `{}`}, nil)
+	invocation, err := binding.Contract().Prepare(coretool.Request{Name: "lookup", Arguments: `{}`}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

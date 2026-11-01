@@ -7,6 +7,7 @@ import (
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 func TestToolReplayPreservesCurrentCoreIdentity(t *testing.T) {
@@ -33,7 +34,7 @@ func TestToolReplayPreservesCurrentCoreIdentity(t *testing.T) {
 					restored.Parts[0].ToolCall.ID = id
 					_, contents, err := mapProtocolMessages(provider, []corechat.Message{
 						restored,
-						corechat.NewToolMessage(corechat.ToolResult{ID: id, Name: "lookup", Output: corechat.NewTextToolOutput("found")}),
+						corechat.NewToolMessage(corechat.ToolResult{ID: id, Name: "lookup", Output: toolcontract.NewTextOutput("found")}),
 					})
 					if err != nil {
 						t.Fatal(err)

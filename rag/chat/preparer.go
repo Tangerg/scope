@@ -143,10 +143,10 @@ type Evidence struct {
 	Citations  rag.Citations
 }
 
-// Evidence returns independently owned candidates and their ordered citations.
+// Evidence returns an owned candidate snapshot and the immutable prompt citations.
 // Complete documents are never added to model response metadata implicitly.
 func (p PreparedRequest) Evidence() Evidence {
-	return Evidence{Candidates: p.candidates.Clone(), Citations: p.citations.Clone()}
+	return Evidence{Candidates: p.candidates.Clone(), Citations: p.citations}
 }
 
 func NewPreparer(config PreparerConfig) (*Preparer, error) {
@@ -207,7 +207,7 @@ func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corech
 	if lo.IsNil(next) {
 		return nil, errors.New("rag: chat model is nil")
 	}
-	response, err := next.Call(ctx, p.request)
+	response, err := next.Call(ctx, p.request.Clone())
 	if response == nil {
 		if err != nil {
 			return nil, err
@@ -230,7 +230,7 @@ func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) ite
 			yield(nil, errors.New("rag: chat streamer is nil"))
 			return
 		}
-		sequence := next.Stream(ctx, p.request)
+		sequence := next.Stream(ctx, p.request.Clone())
 		if sequence == nil {
 			yield(nil, ErrNilStreamSequence)
 			return

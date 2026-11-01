@@ -8,13 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/couchbase/gocb/v2"
-	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -22,12 +20,11 @@ import (
 const Provider = "Couchbase"
 
 const (
-	DefaultScopeName          = "_default"
-	DefaultCollectionName     = "_default"
+	DefaultScopeName = "_default"
+
 	DefaultSimilarity         = SimilarityDotProduct
 	rankingBatchSize          = 512
 	maximumCollectionKeyBytes = 246
-	maximumDefaultKeyBytes    = 250
 )
 
 type Similarity string
@@ -58,33 +55,38 @@ func (s Similarity) score(distance float64) vectorstore.Score {
 // StoreConfig wires a host-owned SDK cluster and an exclusively managed document
 // collection. The host owns connecting and closing the cluster.
 type StoreConfig struct {
-	Cluster         *gocb.Cluster
-	BucketName      string
-	ScopeName       string
-	CollectionName  string
-	EmbeddingModel  embedding.Model
-	DocumentBatcher vectorstore.Batcher
-	Similarity      Similarity
+	Cluster    *gocb.Cluster
+	BucketName string
+	ScopeName  string
+	Space      vectorstore.SpaceID
+	Dimensions int
+	Similarity Similarity
 	// InitializeSchema creates the collection's default primary query index;
 	// the bucket, scope and collection must already exist.
 	InitializeSchema bool
 }
 
+// CollectionName returns the actual collection the host must provision in its
+// chosen bucket and scope. Changing coordinate space or width selects another
+// physical collection and cannot mix vectors in an existing one.
+func (s StoreConfig) CollectionName() string {
+	return s.Space.StorageKey() + "_" + strconv.Itoa(s.Dimensions)
+}
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	if s.Cluster == nil {
 		return errors.New("couchbase: Cluster is required")
 	}
-	if lo.IsNil(s.EmbeddingModel) {
-		return errors.New("couchbase: EmbeddingModel is required")
+	if err := s.Space.Validate(); err != nil {
+		return err
 	}
-	if lo.IsNil(s.DocumentBatcher) {
-		return errors.New("couchbase: DocumentBatcher is required")
+	if s.Dimensions <= 0 {
+		return errors.New("couchbase: positive Dimensions required")
 	}
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("couchbase: unsupported Similarity %q", s.Similarity)
 	}
-	for _, field := range []struct{ name, value string }{{"BucketName", s.BucketName}, {"ScopeName", s.ScopeName}, {"CollectionName", s.CollectionName}} {
+	for _, field := range []struct{ name, value string }{{"BucketName", s.BucketName}, {"ScopeName", s.ScopeName}, {"CollectionName", s.CollectionName()}} {
 		if err := identifier(field.value).validate(field.name); err != nil {
 			return err
 		}
@@ -94,25 +96,22 @@ func (s StoreConfig) Validate() error {
 
 func (s *StoreConfig) applyDefaults() {
 	s.ScopeName = cmp.Or(s.ScopeName, DefaultScopeName)
-	s.CollectionName = cmp.Or(s.CollectionName, DefaultCollectionName)
+
 	s.Similarity = cmp.Or(s.Similarity, DefaultSimilarity)
 }
 
 var (
-	_ vectorstore.Indexer       = (*Store)(nil)
-	_ vectorstore.Searcher      = (*Store)(nil)
-	_ vectorstore.FilterDeleter = (*Store)(nil)
-	_ vectorstore.IDDeleter     = (*Store)(nil)
+	_ vectorstore.Upserter  = (*Store)(nil)
+	_ vectorstore.IDDeleter = (*Store)(nil)
 )
 
 type Store struct {
-	scope           *gocb.Scope
-	collection      *gocb.Collection
-	keyspace        string
-	embeddingClient embeddingclient.Client
-	documentBatcher vectorstore.Batcher
-	similarity      Similarity
-	maximumKeyBytes int
+	scope      *gocb.Scope
+	collection *gocb.Collection
+	keyspace   string
+	space      vectorstore.SpaceID
+	dimensions int
+	similarity Similarity
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
@@ -123,19 +122,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	client, err := embeddingclient.New(config.EmbeddingModel)
-	if err != nil {
-		return nil, fmt.Errorf("couchbase: create embedding client: %w", err)
-	}
 	scope := config.Cluster.Bucket(config.BucketName).Scope(config.ScopeName)
 	store := &Store{
-		scope: scope, collection: scope.Collection(config.CollectionName),
-		keyspace:        fmt.Sprintf("`%s`.`%s`.`%s`", config.BucketName, config.ScopeName, config.CollectionName),
-		embeddingClient: client, documentBatcher: config.DocumentBatcher, similarity: config.Similarity,
-		maximumKeyBytes: maximumCollectionKeyBytes,
-	}
-	if config.ScopeName == DefaultScopeName && config.CollectionName == DefaultCollectionName {
-		store.maximumKeyBytes = maximumDefaultKeyBytes
+		scope: scope, collection: scope.Collection(config.CollectionName()),
+		keyspace: fmt.Sprintf("`%s`.`%s`.`%s`", config.BucketName, config.ScopeName, config.CollectionName()),
+		space:    config.Space, dimensions: config.Dimensions, similarity: config.Similarity,
 	}
 	if config.InitializeSchema {
 		if err := store.collection.QueryIndexes().CreatePrimaryIndex(&gocb.CreatePrimaryQueryIndexOptions{Context: ctx, IgnoreIfExists: true}); err != nil {
@@ -166,64 +157,68 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
-func (s *Store) Index(ctx context.Context, request *vectorstore.IndexRequest) error {
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("couchbase.Store.Index: %w", err)
+// Upsert preflights the entire raw vector batch before individually acknowledged KV writes.
+func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
+	if err := batch.ValidateFor(s.space); err != nil {
+		return err
 	}
-	for i, doc := range request.Documents {
-		if doc.Media != nil {
-			return fmt.Errorf("couchbase.Store.Index: %w: documents[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
+	payloads := make([][]byte, 0, len(batch.Records))
+	ids := make([]string, 0, len(batch.Records))
+	for _, r := range batch.Records {
+		d := r.Document
+		if d.Media != nil {
+			return vectorstore.ErrInvalidDocument
 		}
-		if err := s.validateKey(doc.ID); err != nil {
+		if err := validateKey(d.ID); err != nil {
 			return err
 		}
-	}
-	batches, err := request.Batch(ctx, s.documentBatcher)
-	if err != nil {
-		return fmt.Errorf("couchbase: batch documents: %w", err)
-	}
-	for _, batch := range batches {
-		texts, err := batch.Texts()
+		if len(r.Values) != s.dimensions {
+			return vectorstore.ErrInvalidRequest
+		}
+		payload, err := encodeStoredDocument(d, r.Values)
 		if err != nil {
 			return err
 		}
-		vectors, err := s.embeddingClient.EmbedTexts(ctx, texts)
-		if err != nil {
-			return fmt.Errorf("couchbase: embed documents: %w", err)
+		payloads = append(payloads, payload)
+		ids = append(ids, d.ID)
+	}
+	for i, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}
 		}
-		payloads := make([][]byte, len(batch.Documents))
-		for i, doc := range batch.Documents {
-			payloads[i], err = encodeStoredDocument(texts[i], doc.Metadata, vectors[i])
-			if err != nil {
-				return fmt.Errorf("couchbase: encode %s: %w", doc.ID, err)
+		result, err := s.collection.Upsert(id, payloads[i], &gocb.UpsertOptions{Context: ctx, Transcoder: gocb.NewRawJSONTranscoder()})
+		if err != nil || result == nil || result.Cas() == 0 {
+			if err == nil {
+				err = errors.New("couchbase: missing mutation acknowledgment")
 			}
-		}
-		for i, doc := range batch.Documents {
-			if _, err := s.collection.Upsert(doc.ID, payloads[i], &gocb.UpsertOptions{Context: ctx, Transcoder: gocb.NewRawJSONTranscoder()}); err != nil {
-				return fmt.Errorf("couchbase: upsert %s: %w", doc.ID, errors.Join(err, ctx.Err()))
-			}
+			return &vectorstore.WriteError{Err: errors.Join(err, ctx.Err()), Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}
 		}
 	}
 	return nil
 }
-
-func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) (*vectorstore.SearchResponse, error) {
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
+func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+	if err := request.ValidateFor(s.space); err != nil {
+		return nil, fmt.Errorf("couchbase.Store.Scan: %w", err)
 	}
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("couchbase.Store.Search: %w", err)
+		return nil, fmt.Errorf("couchbase.Store.Scan: %w", err)
 	}
-	candidates, err := s.selectDocuments(ctx, request.Options.Filter)
+	if len(request.Values) != s.dimensions {
+		return nil, vectorstore.ErrInvalidRequest
+	}
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	candidates, err := s.selectDocuments(ctx, request.Options.Filter, meter, budget.MaxRecords+1)
 	if err != nil {
 		return nil, err
 	}
 	var ranked []rankedResult
 	if len(candidates) != 0 {
-		vector, err := s.embeddingClient.EmbedText(ctx, request.Query)
-		if err != nil {
-			return nil, fmt.Errorf("couchbase: embed query: %w", err)
-		}
+		vector := request.Values
 		for batch := range slices.Chunk(candidates, rankingBatchSize) {
 			projections := make([]vectorProjection, len(batch))
 			for i, candidate := range batch {
@@ -265,20 +260,26 @@ func (s *Store) Search(ctx context.Context, request *vectorstore.SearchRequest) 
 		results[i] = hit.result
 	}
 	response := &vectorstore.SearchResponse{Results: results}
-	if err := response.ValidateFor(request); err != nil {
+	if err := request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
 // selectDocuments captures each complete KV record once. Filtering, ranking and
-// returned content use that same projection even if embedding causes a write.
-func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate) ([]storedCandidate, error) {
+// returned content use that same projection even if another writer replaces it.
+func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate, meter *vectorstore.ScanMeter, readLimit int) ([]storedCandidate, error) {
 	var candidates []storedCandidate
-	err := s.runStatement(ctx, "SELECT META(c).id AS id, META(c).cas AS cas, c AS record FROM "+s.keyspace+" AS c", nil, func(raw json.RawMessage) error {
+	err := s.runStatement(ctx, "SELECT META(c).id AS id, META(c).cas AS cas, c AS record FROM "+s.keyspace+" AS c LIMIT $readLimit", map[string]any{"readLimit": readLimit}, func(raw json.RawMessage) error {
+		if err := meter.Charge(int64(len(raw))); err != nil {
+			return err
+		}
 		candidate, err := decodeStoredRow(raw)
 		if err != nil {
 			return err
+		}
+		if len(candidate.embedding) != s.dimensions {
+			return errors.New("couchbase: foreign coordinate width")
 		}
 		if predicate != nil {
 			values, err := candidate.document.Metadata.Values()
@@ -333,14 +334,20 @@ func (s *Store) runStatement(ctx context.Context, stmt string, params map[string
 
 // DeleteWhere preflights the entire collection before the first mutation. CAS
 // prevents deletion of a replacement that was never evaluated by Core.
-func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
 	if err := predicate.Validate(); err != nil {
-		return fmt.Errorf("couchbase.Store.DeleteWhere: %w", err)
+		return fmt.Errorf("couchbase.Store.DeleteMatching: %w", err)
 	}
-	candidates, err := s.selectDocuments(ctx, predicate)
+	meter, err := budget.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	candidates, err := s.selectDocuments(ctx, predicate, meter, budget.MaxRecords+1)
 	if err != nil {
 		return err
 	}
@@ -357,7 +364,7 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	for _, id := range ids {
-		if err := s.validateKey(id); err != nil {
+		if err := validateKey(id); err != nil {
 			return err
 		}
 	}
@@ -379,9 +386,9 @@ func compareResults(left, right rankedResult) int {
 	return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
 }
 
-func (s *Store) validateKey(id string) error {
-	if id == "" || len(id) > s.maximumKeyBytes || !utf8.ValidString(id) {
-		return fmt.Errorf("couchbase: %w: KV key must contain 1..%d bytes", vectorstore.ErrInvalidDocument, s.maximumKeyBytes)
+func validateKey(id string) error {
+	if id == "" || len(id) > maximumCollectionKeyBytes || !utf8.ValidString(id) {
+		return fmt.Errorf("couchbase: %w: KV key must contain 1..%d bytes", vectorstore.ErrInvalidDocument, maximumCollectionKeyBytes)
 	}
 	return nil
 }

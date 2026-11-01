@@ -47,7 +47,7 @@ func TestNativeS3Vectors(t *testing.T) {
 				t.Fatal(randomErr)
 			}
 			name := "scope-test-" + hex.EncodeToString(suffix[:])
-			if _, createErr := client.CreateIndex(ctx, &awss3.CreateIndexInput{VectorBucketName: aws.String(bucket), IndexName: aws.String(name), DataType: types.DataTypeFloat32, Dimension: aws.Int32(2), DistanceMetric: metric, MetadataConfiguration: &types.MetadataConfiguration{NonFilterableMetadataKeys: []string{contentMetaKey, metadataMetaKey}}}); createErr != nil {
+			if _, createErr := client.CreateIndex(ctx, &awss3.CreateIndexInput{VectorBucketName: aws.String(bucket), IndexName: aws.String(name), DataType: types.DataTypeFloat32, Dimension: aws.Int32(2), DistanceMetric: metric, MetadataConfiguration: &types.MetadataConfiguration{NonFilterableMetadataKeys: NonFilterableKeys(fixtureSpace)}}); createErr != nil {
 				t.Fatal(createErr)
 			}
 			t.Cleanup(func() {
@@ -57,7 +57,7 @@ func TestNativeS3Vectors(t *testing.T) {
 					t.Error(deleteErr)
 				}
 			})
-			store, storeErr := NewStore(ctx, StoreConfig{Client: client, VectorBucketName: bucket, IndexName: name, EmbeddingModel: constantEmbeddingModel(), DocumentBatcher: testBatcher{size: 32}})
+			store, storeErr := NewStore(ctx, StoreConfig{Client: client, VectorBucketName: bucket, IndexName: name, Space: fixtureSpace})
 			if storeErr != nil {
 				t.Fatal(storeErr)
 			}
@@ -75,30 +75,30 @@ func TestNativeS3Vectors(t *testing.T) {
 						queryErr = errors.Join(queryErr, waitForNativeKeys(cleanup, store, 0))
 					}
 				}()
-				if queryErr = store.Index(queryCtx, &vectorstore.IndexRequest{Documents: docs}); queryErr != nil {
+				if queryErr = store.Upsert(queryCtx, fixtureBatch(docs)); queryErr != nil {
 					return nil, queryErr
 				}
 				if queryErr = waitForNativeKeys(queryCtx, store, len(keys)); queryErr != nil {
 					return nil, queryErr
 				}
-				response, queryErr := store.Search(queryCtx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+				response, queryErr := store.Scan(queryCtx, predicate, scanBudget())
 				if queryErr != nil {
 					return nil, queryErr
 				}
-				for _, result := range response.Results {
-					ids = append(ids, result.Document.ID)
+				for _, result := range response {
+					ids = append(ids, result.ID)
 				}
 				return ids, nil
 			}})
 			for i, source := range []metadata.Map{nil, {}, {"n": json.RawMessage(`9007199254740993`), "nested": json.RawMessage(`{"n":1.0000000000000000001,"huge":1e1000}`)}} {
 				doc := &document.Document{ID: "roundtrip", Text: "text", Metadata: source}
-				if indexErr := store.Index(ctx, &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); indexErr != nil {
+				if indexErr := store.Upsert(ctx, fixtureBatch([]*document.Document{doc})); indexErr != nil {
 					t.Fatal(indexErr)
 				}
 				if visibleErr := waitForNativeKeys(ctx, store, 1); visibleErr != nil {
 					t.Fatal(visibleErr)
 				}
-				response, searchErr := store.Search(ctx, &vectorstore.SearchRequest{Query: "query"})
+				response, searchErr := store.Query(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
 				if searchErr != nil {
 					t.Fatal(searchErr)
 				}
@@ -122,7 +122,7 @@ func waitForNativeKeys(ctx context.Context, store *Store, count int) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		keys, err := store.matchingKeys(deadline, nil)
+		keys, err := store.Scan(deadline, nil, scanBudget())
 		if err != nil {
 			return err
 		}

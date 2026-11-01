@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/vectorstore"
+
 	"github.com/Tangerg/scope/vectorstores/postgres"
 
 	"github.com/jackc/pgx/v5"
@@ -96,12 +98,15 @@ func TestNativeSchemaOwnsRequiredShape(t *testing.T) {
 			primary := &fixtureRows{rows: [][]any{{[]int16{1}}}}
 			alter(columns, primary)
 			query := fixtureQuery{query: func(statement string) (pgx.Rows, error) {
+				if strings.Contains(statement, "SELECT conname FROM pg_constraint") {
+					return &fixtureRows{rows: [][]any{{vectorstore.SpaceID("test").StorageKey()}}}, nil
+				}
 				if strings.Contains(statement, "pg_constraint") {
 					return primary, nil
 				}
 				return columns, nil
 			}}
-			store := Store{metadataName: "facts", fullTable: `"scope"."documents"`}
+			store := Store{space: "test", metadataName: "facts", fullTable: `"scope"."documents"`}
 			width, err := store.readSchema(t.Context(), query)
 			if name == "current" {
 				if err != nil || width != 2 {
@@ -136,13 +141,13 @@ func TestNativeSourceValidatedBeforeSelection(t *testing.T) {
 			rows := &fixtureRows{rows: [][]any{{[]byte("one"), "text", []byte("null"), pgvec.NewVector([]float32{1, 0})}}}
 			alter(rows)
 			transaction := &fixtureTransaction{query: func(statement string) (pgx.Rows, error) {
-				if !strings.HasSuffix(statement, " FOR UPDATE") {
-					t.Error("source is not locked")
+				if strings.Contains(statement, "FOR UPDATE") {
+					t.Error("read-only scan attempted row locking")
 				}
 				return rows, nil
 			}}
 			store := Store{distanceMetric: postgres.DistanceCosine, metadataColumn: "facts", fullTable: "documents"}
-			docs, err := store.readSource(t.Context(), transaction, 2, true)
+			docs, err := store.readSource(t.Context(), transaction, 2)
 			if name == "current" {
 				if err != nil || len(docs) != 1 || docs[0].Metadata != nil {
 					t.Fatalf("native source: docs=%v error=%v", docs, err)

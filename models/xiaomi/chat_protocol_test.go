@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
@@ -61,7 +62,7 @@ func TestChatUsesMiMoThinkingAndToolReasoningContract(t *testing.T) {
 			corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "lookup", Arguments: `{}`}),
 		),
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "call-1", Name: "lookup", Output: corechat.NewTextToolOutput("found"),
+			ID: "call-1", Name: "lookup", Output: toolcontract.NewTextOutput("found"),
 		}),
 	}}
 	if setExtensionErr := request.Options.Extensions.Set(xiaomi.RequestExtensionKey, xiaomi.ChatRequestOptions{Thinking: xiaomi.ThinkingEnabled}); setExtensionErr != nil {

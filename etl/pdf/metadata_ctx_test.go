@@ -27,7 +27,7 @@ func TestRead_HonorsContextCancellation(t *testing.T) {
 }
 
 func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
-	for _, key := range []string{pdf.MetadataPageIndex, pdf.MetadataPagesTotal, pdf.MetadataSourceName} {
+	for _, key := range []string{pdf.MetadataPagesTotal} {
 		metadata, err := coremetadata.FromValues(map[string]any{key: "forged"})
 		if err != nil {
 			t.Fatal(err)

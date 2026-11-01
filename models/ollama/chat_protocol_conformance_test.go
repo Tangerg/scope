@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/modeltest"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/ollama"
 )
 
@@ -164,7 +165,7 @@ func TestChatRejectsToolChoiceAndDuplicateExtensionOptions(t *testing.T) {
 	}
 	request := &corechat.Request{
 		Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))},
-		Tools: []corechat.ToolDefinition{{
+		Tools: []toolcontract.Definition{{
 			Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`),
 		}},
 		ToolChoice: &corechat.ToolChoice{Mode: corechat.ToolChoiceAuto},
@@ -201,7 +202,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 			corechat.NewToolCallPart(corechat.ToolCall{ID: "ollama/0/2", Name: "inspect", Arguments: `{"detail":true}`}),
 		),
 		corechat.NewToolMessage(corechat.ToolResult{
-			ID: "ollama/0/2", Name: "inspect", Output: corechat.NewTextToolOutput("blue square"),
+			ID: "ollama/0/2", Name: "inspect", Output: toolcontract.NewTextOutput("blue square"),
 		}),
 	)
 	if err != nil {
@@ -223,7 +224,7 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 		TopK:             &topK,
 		TopP:             &topP,
 	}
-	request.Tools = []corechat.ToolDefinition{{
+	request.Tools = []toolcontract.Definition{{
 		Name:        "inspect",
 		Description: "Inspect image details",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"detail":{"type":"boolean"}}}`),

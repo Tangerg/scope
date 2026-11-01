@@ -9,36 +9,53 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
+	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-type writeTestBatcher struct{ single bool }
+const testSpace vectorstore.SpaceID = "native-test-v1"
 
-func (w writeTestBatcher) Batch(_ context.Context, documents []*document.Document) ([][]*document.Document, error) {
-	if !w.single {
-		return [][]*document.Document{documents}, nil
+func testBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: testSpace}
+	for _, d := range docs {
+		v := []float64{1, 0}
+		if d.Text == "opposite" {
+			v[0] = -1
+		}
+		b.Records = append(b.Records, vectorstore.Record{Document: d, Values: v})
 	}
-	batches := make([][]*document.Document, len(documents))
-	for i, doc := range documents {
-		batches[i] = []*document.Document{doc}
+	return b
+}
+
+func testScan(p filter.Predicate) ScanConfig {
+	return ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: 8 * time.Second}}
+}
+
+func scanIDs(ctx context.Context, s *Store, p filter.Predicate) ([]string, error) {
+	docs, err := s.Scan(ctx, testScan(p))
+	if err != nil {
+		return nil, err
 	}
-	return batches, nil
+	ids := make([]string, len(docs))
+	for i, d := range docs {
+		ids[i] = d.ID
+	}
+	return ids, nil
 }
 
 type protocolFixture struct {
-	mu                    sync.Mutex
-	t                     *testing.T
-	schema                string
-	rows                  map[string]metadata.Map
-	bodies                []metadata.Map
-	writes                [][]metadata.Map
-	modelCalls            atomic.Int32
-	model                 embedding.Model
+	mu     sync.Mutex
+	t      *testing.T
+	schema string
+	rows   map[string]metadata.Map
+	bodies []metadata.Map
+	writes [][]metadata.Map
+
 	server                *httptest.Server
 	pageSize              int
 	expectedAuthorization string
@@ -50,14 +67,6 @@ type protocolFixture struct {
 func newProtocolFixture(t *testing.T) *protocolFixture {
 	t.Helper()
 	fixture := &protocolFixture{t: t, schema: nativeSchema("cosine"), rows: make(map[string]metadata.Map), pageSize: maximumResultsPerPage}
-	fixture.model = embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		fixture.modelCalls.Add(1)
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
 	fixture.server = httptest.NewServer(http.HandlerFunc(fixture.serveHTTP))
 	t.Cleanup(fixture.server.Close)
 	return fixture
@@ -67,13 +76,13 @@ func nativeSchema(metric string) string {
 	return fmt.Sprintf(`{"fields":[
  {"name":"id","type":"Edm.String","key":true,"filterable":true,"sortable":true,"searchable":false},
  {"name":"content","type":"Edm.String","searchable":true},
- {"name":"contentVector","type":"Collection(Edm.Single)","searchable":true,"filterable":false,"sortable":false,"facetable":false,"dimensions":2,"vectorSearchProfile":"p"},
+ {"name":%q,"type":"Collection(Edm.Single)","searchable":true,"filterable":false,"sortable":false,"facetable":false,"dimensions":2,"vectorSearchProfile":"p"},
  {"name":"scope_metadata","type":"Edm.String","searchable":false,"filterable":false,"sortable":false,"facetable":false}],
- "vectorSearch":{"profiles":[{"name":"p","algorithm":"a"}],"algorithms":[{"name":"a","kind":"hnsw","hnswParameters":{"metric":%q}}]}}`, metric)
+ "vectorSearch":{"profiles":[{"name":"p","algorithm":"a"}],"algorithms":[{"name":"a","kind":"hnsw","hnswParameters":{"metric":%q}}]}}`, testSpace.StorageKey(), metric)
 }
 
 func (p *protocolFixture) config() StoreConfig {
-	return StoreConfig{Endpoint: p.server.URL, IndexName: "documents", HTTPClient: p.server.Client(), EmbeddingModel: p.model, DocumentBatcher: writeTestBatcher{}}
+	return StoreConfig{Endpoint: p.server.URL, IndexName: "documents", HTTPClient: p.server.Client(), Space: testSpace}
 }
 
 func (p *protocolFixture) store() *Store {
@@ -94,7 +103,7 @@ func (p *protocolFixture) put(docs ...*document.Document) {
 		if err != nil {
 			p.t.Fatal(err)
 		}
-		row, err := metadata.FromValues(map[string]any{"id": doc.ID, "content": doc.Text, "contentVector": []float32{1, 0}, "scope_metadata": string(encoded), "@search.score": 1})
+		row, err := metadata.FromValues(map[string]any{"id": doc.ID, "content": doc.Text, testSpace.StorageKey(): []float32{1, 0}, "scope_metadata": string(encoded), "@search.score": 1})
 		if err != nil {
 			p.t.Fatal(err)
 		}

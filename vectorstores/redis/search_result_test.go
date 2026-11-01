@@ -11,11 +11,11 @@ import (
 
 func TestUnfilteredSearchOmitsNativeKeyRestriction(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 2)
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}}}); err != nil {
+	store := fixture.store(2)
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query"})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
 	if err != nil || len(response.Results) != 2 {
 		t.Fatalf("unfiltered search: %#v, %v", response, err)
 	}
@@ -25,16 +25,16 @@ func TestNativeSearchEnvelopeRejectsPartialOrDamagedOutput(t *testing.T) {
 	for _, fault := range []string{"RESP2", "warning missing", "warning malformed", "timeout", "format", "count missing", "count negative", "count lossy", "count incomplete", "results missing", "result malformed", "hit error", "field malformed", "late hit", "repeated key", "bad distance", "missing distance", "changed membership"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 1)
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+			store := fixture.store(1)
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 				t.Fatal(err)
 			}
 			fields := make(map[string]any)
-			for key, value := range fixture.rows["embedding:one"] {
+			for key, value := range fixture.rows[fixturePrefix+"one"] {
 				fields[key] = value
 			}
 			fields[distanceFieldName] = "0"
-			hit := map[string]any{"id": "embedding:one", "extra_attributes": fields}
+			hit := map[string]any{"id": fixturePrefix + "one", "extra_attributes": fields}
 			reply := map[string]any{"format": "STRING", "warning": []any{}, "total_results": int64(1), "results": []any{hit}}
 			fixture.searchReply = reply
 			switch fault {
@@ -66,7 +66,7 @@ func TestNativeSearchEnvelopeRejectsPartialOrDamagedOutput(t *testing.T) {
 				fields[metadataField] = nil
 			case "late hit":
 				reply["total_results"] = int64(2)
-				reply["results"] = []any{hit, map[string]any{"id": "embedding:two", "extra_attributes": map[string]any{contentField: "text"}}}
+				reply["results"] = []any{hit, map[string]any{"id": fixturePrefix + "two", "extra_attributes": map[string]any{contentField: "text"}}}
 			case "repeated key":
 				reply["total_results"] = int64(2)
 				reply["results"] = []any{hit, hit}
@@ -75,13 +75,13 @@ func TestNativeSearchEnvelopeRejectsPartialOrDamagedOutput(t *testing.T) {
 			case "missing distance":
 				delete(fields, distanceFieldName)
 			case "changed membership":
-				hit["id"] = "embedding:outside"
+				hit["id"] = fixturePrefix + "outside"
 			}
 			options := vectorstore.SearchOptions{TopK: 2}
 			if fault == "changed membership" {
 				options.Filter = filter.IsNull("unused")
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: options})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
 			if err == nil || response != nil {
 				t.Fatalf("damaged native response succeeded: %#v, %v", response, err)
 			}

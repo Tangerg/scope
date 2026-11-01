@@ -26,7 +26,7 @@ func TestCloudNativeConditionalDeleteRetainsChangedMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, IndexName: name, Namespace: "scope-test-" + rand.Text(), EmbeddingModel: fixtureModel(), DocumentBatcher: fixtureBatcher{}})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, IndexName: name, Namespace: "scope-test-" + rand.Text(), Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestCloudNativeConditionalDeleteRetainsChangedMetadata(t *testing.T) {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 		for {
-			page, queryErr := native.QueryByVectorValues(visible, &pineconesdk.QueryByVectorValuesRequest{Vector: []float32{1, 0}, TopK: 2, MetadataFilter: metadataSelection([]string{`{"value":"b"}`}), IncludeMetadata: true})
+			page, queryErr := native.QueryByVectorValues(visible, &pineconesdk.QueryByVectorValuesRequest{Vector: []float32{1, 0}, TopK: 2, MetadataFilter: mustNativeFilter(t, filter.EQ("value", "b")), IncludeMetadata: true})
 			if queryErr != nil {
 				return queryErr
 			}
@@ -102,4 +102,13 @@ func waitForCloudRecords(t *testing.T, native *pineconesdk.IndexConnection, expe
 		case <-ticker.C:
 		}
 	}
+}
+
+func mustNativeFilter(t *testing.T, p filter.Predicate) *pineconesdk.MetadataFilter {
+	t.Helper()
+	f, err := nativeFilter(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
 }

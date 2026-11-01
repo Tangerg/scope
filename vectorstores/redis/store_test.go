@@ -11,30 +11,42 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-type ownershipBatcher struct{ size int }
+const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
-func (o ownershipBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*document.Document, error) {
-	return slices.Collect(slices.Chunk(docs, max(o.size, 1))), nil
+var fixturePrefix = "embedding:" + fixtureSpace.StorageKey() + ":"
+
+func fixtureVector(text string) []float64 {
+	if text == "far" {
+		return []float64{0, 1}
+	}
+	return []float64{1, 0}
 }
-func constantModel() embedding.Model {
-	return embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
-		outputs := make([]*embedding.Output, len(request.Texts))
-		for i := range outputs {
-			outputs[i] = &embedding.Output{Embedding: []float64{1, 0}}
-		}
-		return embedding.NewResponse(outputs, nil)
-	})
+func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
+	b := &vectorstore.Batch{Space: fixtureSpace}
+	for _, doc := range docs {
+		b.Records = append(b.Records, vectorstore.Record{Document: doc, Values: fixtureVector(doc.Text)})
+	}
+	return b
+}
+func fixtureBudget() vectorstore.ScanBudget {
+	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
+}
+func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if q.Options.Filter != nil {
+		return store.Scan(ctx, q, fixtureBudget())
+	}
+	return store.Query(ctx, q)
 }
 
 type protocolFixture struct {
@@ -48,12 +60,17 @@ type protocolFixture struct {
 	beforeDelete, beforeSearch func()
 	searchReply                any
 	ackOverride                *int64
+	scans, payloads            int
+	scanErr                    error
+	uncertainKey               string
 }
 
 func newProtocolFixture(t *testing.T) *protocolFixture {
 	t.Helper()
-	fixture := &protocolFixture{t: t, rows: make(map[string]map[string]string), distances: make(map[string]string), info: map[string]any{"index_name": "documents", "index_options": []any{}, "index_definition": map[string]any{"key_type": "HASH", "prefixes": []any{"embedding:"}}, "attributes": []any{map[string]any{"identifier": embeddingField, "attribute": embeddingField, "type": "VECTOR", "data_type": "FLOAT32", "distance_metric": "COSINE", "dim": int64(2)}}}}
-	fixture.client = goredis.NewClient(&goredis.Options{Addr: "unused"})
+	fixture := &protocolFixture{t: t, rows: make(map[string]map[string]string), distances: make(map[string]string), info: map[string]any{"index_name": "documents", "index_options": []any{}, "index_definition": map[string]any{"key_type": "HASH", "prefixes": []any{fixturePrefix}}, "attributes": []any{map[string]any{"identifier": embeddingField, "attribute": embeddingField, "type": "VECTOR", "data_type": "FLOAT32", "distance_metric": "COSINE", "dim": int64(2)}, map[string]any{"identifier": termsField, "attribute": termsField, "type": "TAG", "SEPARATOR": ","}}}}
+	// The SDK classifies hostnames with DNS before installing command hooks.
+	// A loopback literal keeps this protocol fixture independent of any resolver.
+	fixture.client = goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:0"})
 	fixture.client.AddHook(fixture)
 	t.Cleanup(func() {
 		if err := fixture.client.Close(); err != nil {
@@ -89,7 +106,59 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 	case "hgetall":
 		command.(*goredis.MapStringStringCmd).SetVal(maps.Clone(p.rows[args[1].(string)]))
 	case "eval":
-		script, key := args[1].(string), args[3].(string)
+		script := args[1].(string)
+		if script == scanKeyPage {
+			p.scans++
+			if p.scanErr != nil {
+				return p.scanErr
+			}
+			keys := []any{}
+			n := 0
+			for _, k := range slices.Sorted(maps.Keys(p.rows)) {
+				keys = append(keys, k)
+				n += len(k)
+			}
+			if len(keys) > args[6].(int) || int64(n) > args[7].(int64) {
+				command.(*goredis.Cmd).SetVal([]any{int64(-1)})
+			} else {
+				command.(*goredis.Cmd).SetVal([]any{"0", keys})
+			}
+			return nil
+		}
+		key := args[3].(string)
+		if script == readHash {
+			f := p.rows[key]
+			if len(f) == 0 {
+				command.(*goredis.Cmd).SetVal(int64(0))
+				return nil
+			}
+			if len(f) != 4 {
+				command.(*goredis.Cmd).SetVal(int64(-1))
+				return nil
+			}
+			n := int64(len(key))
+			values := []any{}
+			for _, k := range args[5:] {
+				k := k.(string)
+				n += int64(len(k) + len(f[k]))
+				v, ok := f[k]
+				if !ok {
+					values = append(values, nil)
+				} else {
+					values = append(values, v)
+				}
+			}
+			switch args[4] {
+			case "measure":
+				command.(*goredis.Cmd).SetVal(n)
+			case n:
+				p.payloads++
+				command.(*goredis.Cmd).SetVal(values)
+			default:
+				command.(*goredis.Cmd).SetVal(int64(-1))
+			}
+			return nil
+		}
 		switch script {
 		case replaceDocumentHash:
 			fields := make(map[string]string)
@@ -108,6 +177,9 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 			p.rows[key] = fields
 			p.writes++
 			value := int64(1)
+			if p.uncertainKey == key {
+				value = 0
+			}
 			if p.ackOverride != nil {
 				value = *p.ackOverride
 			}
@@ -165,6 +237,12 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 		p.queries = append(p.queries, len(selected))
 		var hits []goredis.Document
 		for key, fields := range p.rows {
+			if base, ok := strings.CutPrefix(args[2].(string), "(@"+termsField+":{"); ok {
+				term, _, _ := strings.Cut(base, "})")
+				if !slices.Contains(strings.Split(fields[termsField], ","), term) {
+					continue
+				}
+			}
 			if keysRestricted && !slices.Contains(selected, key) {
 				continue
 			}
@@ -202,9 +280,9 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 	}
 	return nil
 }
-func (p *protocolFixture) store(model embedding.Model, size int) *Store {
+func (p *protocolFixture) store(size int) *Store {
 	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", EmbeddingModel: model, DocumentBatcher: ownershipBatcher{size: size}})
+	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", Space: fixtureSpace, WriteBatchSize: size})
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -213,13 +291,13 @@ func (p *protocolFixture) store(model embedding.Model, size int) *Store {
 
 func TestCoreFilterConformanceThroughNativeKeySelection(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store(32)
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		clear(fixture.rows)
-		if err := store.Index(ctx, &vectorstore.IndexRequest{Documents: docs}); err != nil {
+		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Search(ctx, &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
+		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
 		if err != nil {
 			return nil, err
 		}
@@ -233,18 +311,18 @@ func TestCoreFilterConformanceThroughNativeKeySelection(t *testing.T) {
 
 func TestCoreMetadataHasOnlyOneHASHRepresentation(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store(32)
 	for _, facts := range []metadata.Map{nil, {}, {"content": json.RawMessage(`"user content"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}} {
 		for _, id := range []string{"one", " spaced ", "*?[]\\", "中文🙂"} {
 			clear(fixture.rows)
 			doc := &document.Document{ID: id, Text: "text", Metadata: facts}
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{doc}}); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{doc})); err != nil {
 				t.Fatal(err)
 			}
-			if len(fixture.rows["embedding:"+id]) != 3 {
+			if len(fixture.rows[fixturePrefix+id]) != 4 {
 				t.Fatal("metadata created shadow HASH fields")
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("unused")}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("unused")}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -262,46 +340,27 @@ func TestCoreMetadataHasOnlyOneHASHRepresentation(t *testing.T) {
 }
 
 func TestWholeIndexPreparationBeforePublication(t *testing.T) {
-	for _, fault := range []string{"late model", "dimension", "overflow", "underflow", "metadata"} {
+	for _, fault := range []string{"dimension", "overflow", "underflow", "metadata"} {
 		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			calls := 0
-			cause := errors.New("late model failure")
-			model := embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
-				calls++
-				if calls == 2 && fault == "late model" {
-					return nil, cause
-				}
-				vector := []float64{1, 0}
-				if calls == 2 {
-					switch fault {
-					case "dimension":
-						vector = []float64{1}
-					case "overflow":
-						vector = []float64{1e100, 0}
-					case "underflow":
-						vector = []float64{1e-100, 0}
-					}
-				}
-				return embedding.NewResponse([]*embedding.Output{{Embedding: vector}}, nil)
-			})
-			store := fixture.store(model, 1)
-			docs := []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}}
-			if fault == "metadata" {
-				docs[1].Metadata = metadata.Map{"bad": json.RawMessage(`broken`)}
+			f := newProtocolFixture(t)
+			s := f.store(1)
+			b := fixtureBatch([]*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})
+			switch fault {
+			case "dimension":
+				b.Records[1].Values = []float64{1}
+			case "overflow":
+				b.Records[1].Values = []float64{1e100, 0}
+			case "underflow":
+				b.Records[1].Values = []float64{1e-100, 0}
+			case "metadata":
+				b.Records[1].Document.Metadata = metadata.Map{"bad": json.RawMessage("invalid")}
 			}
-			err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs})
-			if err == nil || fixture.writes != 0 {
-				t.Fatalf("error=%v, published=%d", err, fixture.writes)
-			}
-			if fault == "late model" && !errors.Is(err, cause) {
-				t.Fatal("lost model cause")
-			}
-			if fault == "metadata" && calls != 0 {
-				t.Fatal("bad metadata reached model")
+			if err := s.Upsert(t.Context(), b); err == nil || f.writes != 0 {
+				t.Fatalf("err=%v writes=%d", err, f.writes)
 			}
 		})
 	}
+
 }
 
 func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
@@ -310,8 +369,8 @@ func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fields := fixture.info["attributes"].([]any)[0].(map[string]any)
 			fields["distance_metric"] = string(metric)
-			store := fixture.store(constantModel(), 32)
-			if store.schema.metric != metric || store.schema.dimensions != 2 || store.schema.prefix != "embedding:" {
+			store := fixture.store(32)
+			if store.schema.metric != metric || store.schema.dimensions != 2 || store.schema.prefix != fixturePrefix {
 				t.Fatalf("schema=%#v", store.schema)
 			}
 		})
@@ -327,9 +386,9 @@ func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
 			case "all keys":
 				fixture.info["index_definition"] = map[string]any{"key_type": "HASH", "prefixes": []any{""}}
 			case "JSON":
-				fixture.info["index_definition"] = map[string]any{"key_type": "JSON", "prefixes": []any{"embedding:"}}
+				fixture.info["index_definition"] = map[string]any{"key_type": "JSON", "prefixes": []any{fixturePrefix}}
 			case "filter":
-				fixture.info["index_definition"] = map[string]any{"key_type": "HASH", "prefixes": []any{"embedding:"}, "filter": "@value=='x'"}
+				fixture.info["index_definition"] = map[string]any{"key_type": "HASH", "prefixes": []any{fixturePrefix}, "filter": "@value=='x'"}
 			case "extra field":
 				fixture.info["attributes"] = append(attributes, map[string]any{"identifier": "value", "attribute": "value", "type": "TAG"})
 			case "aliased vector":
@@ -341,7 +400,7 @@ func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
 			case "missing dimension":
 				field["dim"] = 0
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", EmbeddingModel: constantModel(), DocumentBatcher: ownershipBatcher{}})
+			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
 			if store != nil || !errors.Is(err, ErrIncompatibleIndex) {
 				t.Fatalf("store=%#v, error=%v", store, err)
 			}
@@ -353,11 +412,11 @@ func TestReadRejectsMissingFactsAndInvalidNativeDistances(t *testing.T) {
 	for _, fault := range []string{"metadata", "embedding", "unknown", "bad metadata", "short vector", "zero vector", "whitespace ID"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			store := fixture.store(constantModel(), 32)
-			if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text"}}}); err != nil {
+			store := fixture.store(32)
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 				t.Fatal(err)
 			}
-			fields := fixture.rows["embedding:one"]
+			fields := fixture.rows[fixturePrefix+"one"]
 			switch fault {
 			case "metadata":
 				delete(fields, metadataField)
@@ -372,10 +431,10 @@ func TestReadRejectsMissingFactsAndInvalidNativeDistances(t *testing.T) {
 			case "zero vector":
 				fields[embeddingField] = string(float32sToBytes([]float32{0, 0}))
 			case "whitespace ID":
-				delete(fixture.rows, "embedding:one")
-				fixture.rows["embedding: "] = fields
+				delete(fixture.rows, fixturePrefix+"one")
+				fixture.rows[fixturePrefix+" "] = fields
 			}
-			response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
+			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
 			if err == nil || response != nil || len(fixture.queries) != 0 {
 				t.Fatalf("corrupt record succeeded: %#v, %v", response, err)
 			}
@@ -390,19 +449,27 @@ func TestReadRejectsMissingFactsAndInvalidNativeDistances(t *testing.T) {
 
 func TestConditionalDeleteReportsChangedMetadata(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store(32)
 	facts, err := metadata.FromValues(map[string]any{"value": "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = store.Index(t.Context(), &vectorstore.IndexRequest{Documents: []*document.Document{{ID: "one", Text: "text", Metadata: facts}}}); err != nil {
+	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text", Metadata: facts}})); err != nil {
 		t.Fatal(err)
 	}
-	fixture.beforeDelete = func() { fixture.rows["embedding:one"][metadataField] = `{"value":"y"}` }
-	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "x")); err == nil || fixture.deleted != 0 {
+	fixture.beforeDelete = func() {
+		facts := metadata.Map{"value": json.RawMessage(`"y"`)}
+		tags, tagErr := tagValues(facts)
+		if tagErr != nil {
+			t.Fatal(tagErr)
+		}
+		fixture.rows[fixturePrefix+"one"][metadataField] = `{"value":"y"}`
+		fixture.rows[fixturePrefix+"one"][termsField] = tags
+	}
+	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "x"), fixtureBudget()); err == nil || fixture.deleted != 0 {
 		t.Fatalf("stale deletion=%v, deleted=%d", err, fixture.deleted)
 	}
-	if err = store.DeleteWhere(t.Context(), filter.EQ("value", "y")); err != nil || fixture.deleted != 1 {
+	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "y"), fixtureBudget()); err != nil || fixture.deleted != 1 {
 		t.Fatalf("current deletion=%v, deleted=%d", err, fixture.deleted)
 	}
 }
@@ -410,22 +477,76 @@ func TestConditionalDeleteReportsChangedMetadata(t *testing.T) {
 func TestFilteredGroupsPreserveRawDistanceRanking(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	fixture.info["attributes"].([]any)[0].(map[string]any)["distance_metric"] = "IP"
-	store := fixture.store(constantModel(), 32)
+	store := fixture.store(32)
 	docs := make([]*document.Document, 257)
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("%04d", i), Text: "text"}
 	}
-	if err := store.Index(t.Context(), &vectorstore.IndexRequest{Documents: docs}); err != nil {
+	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 	for i, doc := range docs {
-		fixture.distances["embedding:"+doc.ID] = strconv.FormatFloat(-1e30-float64(i)*1e29, 'g', -1, 64)
+		fixture.distances[fixturePrefix+doc.ID] = strconv.FormatFloat(-1e30-float64(i)*1e29, 'g', -1, 64)
 	}
-	response, err := store.Search(t.Context(), &vectorstore.SearchRequest{Query: "query", Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "0256" {
 		t.Fatalf("raw native rank changed: %#v, %v", response, err)
 	}
 	if !slices.Equal(fixture.queries, []int{256, 1}) {
 		t.Fatalf("native groups=%v", fixture.queries)
+	}
+}
+
+func TestNativeTagQueryNeedsNoScanGrant(t *testing.T) {
+	f := newProtocolFixture(t)
+	s := f.store(2)
+	f.scanErr = errors.New("scan forbidden")
+	m := func(v string) metadata.Map { return metadata.Map{"tag": json.RawMessage(v)} }
+	b := fixtureBatch([]*document.Document{{ID: "scalar", Text: "text", Metadata: m(`"X|{x},"`)}, {ID: "array", Text: "text", Metadata: m(`["X|{x},"]`)}, {ID: "case", Text: "text", Metadata: m(`"x|{x},"`)}})
+	if err := s.Upsert(t.Context(), b); err != nil {
+		t.Fatal(err)
+	}
+	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.EQ("tag", "X|{x},")}}
+	r, err := s.Query(t.Context(), q)
+	if err != nil || len(r.Results) != 1 || r.Results[0].Document.ID != "scalar" || f.scans != 0 {
+		t.Fatalf("native result=%v err=%v scans=%d", r, err, f.scans)
+	}
+	q.Options.Filter = filter.EQ("tag", 2)
+	if r, err = s.Query(t.Context(), q); !errors.Is(err, vectorstore.ErrUnsupportedFilter) || r != nil || f.scans != 0 {
+		t.Fatalf("unsupported=%v err=%v scans=%d", r, err, f.scans)
+	}
+}
+func TestPipelineEvidenceSeparatesSentAndUnsent(t *testing.T) {
+	f := newProtocolFixture(t)
+	s := f.store(2)
+	f.uncertainKey = fixturePrefix + "b"
+	b := fixtureBatch([]*document.Document{{ID: "a", Text: "text"}, {ID: "b", Text: "text"}, {ID: "c", Text: "text"}})
+	err := s.Upsert(t.Context(), b)
+	var w *vectorstore.WriteError
+	if !errors.As(err, &w) || !slices.Equal(w.Acknowledged, []string{"a"}) || !slices.Equal(w.Unconfirmed, []string{"b"}) || !slices.Equal(w.Unattempted, []string{"c"}) || f.writes != 2 {
+		t.Fatalf("evidence=%+v writes=%d", w, f.writes)
+	}
+}
+func TestGrantDebitedBeforeTransferringHashPayload(t *testing.T) {
+	f := newProtocolFixture(t)
+	s := f.store(1)
+	if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: strings.Repeat("x", 1024)}})); err != nil {
+		t.Fatal(err)
+	}
+	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}}
+	b := vectorstore.ScanBudget{MaxRecords: 1, MaxBytes: 256, Timeout: time.Second}
+	if r, err := s.Scan(t.Context(), q, b); !errors.Is(err, vectorstore.ErrScanBudget) || r != nil || f.payloads != 0 {
+		t.Fatalf("got=%v err=%v transferred=%d", r, err, f.payloads)
+	}
+	if err := s.DeleteMatching(t.Context(), q.Options.Filter, b); !errors.Is(err, vectorstore.ErrScanBudget) || f.deleted != 0 {
+		t.Fatalf("deleted=%d err=%v", f.deleted, err)
+	}
+}
+func TestSameWidthSpaceRebindingPreventsMutation(t *testing.T) {
+	f := newProtocolFixture(t)
+	s := f.store(1)
+	f.info["index_definition"].(map[string]any)["prefixes"] = []any{vectorstore.SpaceID("different").StorageKey() + ":"}
+	if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "x"}})); !errors.Is(err, vectorstore.ErrIncompatibleSpace) || f.writes != 0 {
+		t.Fatalf("writes=%d err=%v", f.writes, err)
 	}
 }

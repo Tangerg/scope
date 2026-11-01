@@ -12,17 +12,21 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl"
+	"github.com/Tangerg/scope/etl/internal/origin"
 )
 
 // Reader consumes source once within its configured memory budget.
 type Reader struct {
 	source       io.Reader
+	sourceName   string
 	sourceBudget etl.SourceBudget
 }
 
 // ReaderConfig controls the whole-source memory budget. The zero budget uses
 // [etl.DefaultMaxSourceBytes].
 type ReaderConfig struct {
+	// SourceName identifies the original input; empty means anonymous.
+	SourceName   string
 	SourceBudget etl.SourceBudget
 }
 
@@ -30,7 +34,7 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("text reader: source must not be nil")
 	}
-	return &Reader{source: source, sourceBudget: config.SourceBudget}, nil
+	return &Reader{source: source, sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
 }
 
 // Read consumes the source and returns one document containing its text. Blank
@@ -39,7 +43,7 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	data, err := r.sourceBudget.ReadAll(ctx, r.source)
+	data, p, err := origin.Read(ctx, r.source, r.sourceBudget, r.sourceName)
 	if err != nil {
 		return nil, fmt.Errorf("text reader: read source: %w", err)
 	}
@@ -55,5 +59,6 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("text reader: build document: %w", err)
 	}
+	doc.Provenance = origin.Span(p, 0, int64(len(data)))
 	return []*document.Document{doc}, nil
 }

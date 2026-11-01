@@ -1,65 +1,21 @@
-// Package qdrant adapts existing Qdrant collections to Core Indexer, Searcher,
-// IDDeleter and FilterDeleter capabilities. The host provisions the collection
-// and owns the native SDK client, credentials, transport and client lifetime.
-// Store owns no resource and does not implement Closer.
+// Package qdrant stores and ranks precomputed coordinates in one concrete native
+// collection. Provision one unnamed dense float32 vector and place its immutable
+// encoder space ID in the collection metadata under SpaceMetadataKey. Width,
+// metric and space are checked against the native collection; the Host must
+// coordinate reprovisioning because schema checks and point RPCs are separate.
 //
-// NewStore binds a concrete collection name from native ListCollections, then
-// reads its policy through GetCollectionInfo. Aliases, named or sparse vectors,
-// multivectors, custom sharding and storage other than native FLOAT32 are not
-// supported. The unnamed dense vector's native dimension and distance own policy;
-// native default datatype means FLOAT32. Cosine, dot, Euclid and Manhattan are
-// normalized solely through Core score functions. Keep the bound collection's
-// lifecycle stable while Store is in use; replacing it requires a new Store.
+// A complete point owns its native ID, text and lossless metadata_json. The
+// metadata_terms keyword array is derived in the same write and has no independent
+// write API. Provision a keyword payload index on metadata_terms when required by
+// native indexing policy. Previously stored two-field payloads need reindexing.
 //
-// The current point payload has exactly two string fields: content and
-// metadata_json. Core metadata.Map encodes and decodes the complete JSON value,
-// including exact numbers, nested values, arbitrary keys and nil versus empty
-// metadata. No business metadata is expanded into native payload fields. The
-// native point ID alone owns document identity. IDs must be canonical decimal
-// uint64 values or lowercase hyphenated UUIDs; other spellings are rejected
-// before model or mutation I/O. Native dense vector output uses the current
-// protobuf dense representation without a legacy vector-data fallback.
-// Documents containing media are rejected before indexing I/O.
-//
-// An unfiltered Search issues the native query alone: it neither enumerates the
-// collection nor validates records outside the ranked result, so a stored record
-// a result never includes cannot fail it. A filtered Search still scrolls the
-// collection with payload and vectors, because Core filter.Match owns predicate
-// semantics the native query cannot express; records a predicate selects are
-// validated and constrain native metadata_json string membership in bounded
-// groups. Keeping every record valid is the write boundary's and an explicit
-// maintenance scan's concern, not an ordinary Search. Both paths use native
-// ranking, merge raw native scores before TopK, then apply Core normalization and
-// MinScore. There is no inverse score formula or native relevance threshold
-// hiding malformed results. The adapter supports semantic search only. A filtered
-// scan requires O(N) reads and identity and metadata tracking; query merging
-// holds up to O(groups * TopK) hits.
-//
-// DeleteWhere completes Core selection, then deletes through native payload
-// conditions on the selected metadata_json values. A point with a different
-// current native payload value is excluded. These operations provide no shared
-// read snapshot, revision CAS or per-record deletion counts: concurrent records
-// with the same selected metadata may be deleted, and newly matching values
-// outside selection may remain. Hosts needing a snapshot must coordinate writers.
-// DeleteIDs validates all IDs and deduplicates before explicit identity deletion;
-// empty input and unknown identities are idempotent.
-//
-// Index validates and encodes every record and completes every model batch and
-// FLOAT32 validation before publishing one native upsert. Every mutation sets
-// Wait and requires UpdateStatus_Completed. Acknowledged, WaitTimeout,
-// ClockRejected and missing results remain explicit failures. Native request,
-// transport and strict-mode limits remain provider errors; Store does not retry
-// or claim transactional publication or a cross-request snapshot.
-//
-// Breaking replacement: remove DistanceMetric and its enum, Dimensions and
-// InitializeSchema. Provision through the native host API, then supply Client,
-// CollectionName, EmbeddingModel and DocumentBatcher. Rebuild expanded legacy
-// payloads into the two current strings; there are no old-format reads, numeric
-// adapters, schema creation, configuration arbitration or migration branches.
-// Native payload indexes and operational policy remain host-owned.
-//
-// Default tests are offline. Integration tests require SCOPE_QDRANT_ADDR in
-// host:port form, with optional SCOPE_QDRANT_API_KEY and SCOPE_QDRANT_TLS=true.
-// They create isolated native collections, exercise all four distance metrics
-// and the Core filter corpus, then delete those collections and close clients.
+// Top-level string equality/inequality, null tests and their Boolean combinations
+// are compiled into native conditions before global TopK. Scalar strings remain
+// distinct from arrays, missing keys and null. Other expressions (including
+// numeric ordering and positional array access) return vectorstore.ErrUnsupportedFilter;
+// neither Query nor DeleteWhere enumerates the collection. Returned rows are
+// checked against canonical metadata rather than filtered after TopK. Writes
+// validate the entire batch, request native wait-for-application and preserve
+// unconfirmed identities if a definitive acknowledgment is lost. The Host owns
+// the client and controls direct access to this physical collection.
 package qdrant

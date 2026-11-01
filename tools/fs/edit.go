@@ -6,7 +6,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -51,7 +50,7 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 	return t, nil
 }
 
-func (e *EditTool) Definition() chat.ToolDefinition {
+func (e *EditTool) Definition() toolcontract.Definition {
 	return e.typed.Definition()
 }
 

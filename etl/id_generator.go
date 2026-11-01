@@ -27,7 +27,7 @@ type IDGenerator interface {
 }
 
 // SHA256IDGenerator builds a content-addressable identifier from a document's
-// text, media, and metadata. The existing ID is deliberately excluded so the
+// text, media, metadata and known provenance. The existing ID is deliberately excluded so the
 // digest remains stable before and after assignment.
 type SHA256IDGenerator struct {
 	salt []byte
@@ -59,13 +59,14 @@ func (s SHA256IDGenerator) Generate(ctx context.Context, doc *document.Document)
 		_, _ = hasher.Write([]byte{0})
 	}
 	projection := struct {
-		Text     string       `json:"text,omitempty"`
-		Media    *media.Media `json:"media,omitzero"`
-		Metadata metadata.Map `json:"metadata,omitzero"`
+		Text       string               `json:"text,omitempty"`
+		Media      *media.Media         `json:"media,omitzero"`
+		Metadata   metadata.Map         `json:"metadata,omitzero"`
+		Provenance *document.Provenance `json:"provenance,omitzero"`
 	}{
 		Text:     doc.Text,
 		Media:    doc.Media,
-		Metadata: doc.Metadata,
+		Metadata: doc.Metadata, Provenance: doc.Provenance,
 	}
 	encoded, err := jsonv2.Marshal(projection)
 	if err != nil {

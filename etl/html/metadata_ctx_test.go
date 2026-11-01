@@ -34,7 +34,7 @@ func TestConfigMetadataAppliedToEveryDocument(t *testing.T) {
 }
 
 func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
-	for _, key := range []string{html.MetadataTitle, html.MetadataDescription, html.MetadataCanonical, html.MetadataSelector, html.MetadataSourceName} {
+	for _, key := range []string{html.MetadataTitle, html.MetadataDescription, html.MetadataCanonical, html.MetadataSelector} {
 		reader, err := html.NewReader(strings.NewReader("<p>Content without page information</p>"), html.ReaderConfig{
 			Metadata: mustMetadata(t, map[string]any{key: "forged"}),
 		})

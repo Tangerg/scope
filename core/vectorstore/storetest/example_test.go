@@ -7,7 +7,7 @@ import (
 )
 
 func Example() {
-	capabilities := storetest.Capabilities{Indexer: true, Searcher: true}
-	fmt.Println(capabilities.Indexer, capabilities.Searcher)
+	capabilities := storetest.Capabilities{Upserter: true, Querier: true}
+	fmt.Println(capabilities.Upserter, capabilities.Querier)
 	// Output: true true
 }

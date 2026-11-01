@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -142,23 +143,23 @@ func TestPartRejectsMetadataOnlyTextCarrier(t *testing.T) {
 }
 
 func TestCitationValidate(t *testing.T) {
-	valid := []chat.Citation{
-		{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "https://example.com/source"}},
-		{Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "document-7"}, Quote: "evidence"},
+	valid := []corecontent.Citation{
+		{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"}},
+		{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "document-7"}, Quote: "evidence"},
 	}
 	for _, citation := range valid {
 		if err := citation.Validate(); err != nil {
 			t.Errorf("Validate(%+v): %v", citation, err)
 		}
 	}
-	invalid := []chat.Citation{
+	invalid := []corecontent.Citation{
 		{},
-		{Source: chat.CitationSource{Kind: chat.CitationSourceURI, Value: "/relative"}},
-		{Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: " reference "}},
-		{Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "reference"}, Title: " title "},
+		{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "/relative"}},
+		{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: " reference "}},
+		{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "reference"}, Title: " title "},
 	}
 	for _, citation := range invalid {
-		if err := citation.Validate(); !errors.Is(err, chat.ErrInvalidCitation) {
+		if err := citation.Validate(); !errors.Is(err, corecontent.ErrInvalidCitation) {
 			t.Errorf("Validate(%+v) error = %v, want ErrInvalidCitation", citation, err)
 		}
 	}
@@ -171,8 +172,8 @@ func TestCitationsBelongOnlyToText(t *testing.T) {
 		chat.NewToolResultPart(chat.ToolResult{ID: "call", Name: "tool"}),
 	} {
 		t.Run(string(part.Kind), func(t *testing.T) {
-			for _, citation := range []chat.Citation{{}, {Source: chat.CitationSource{Kind: chat.CitationSourceReference, Value: "source"}}} {
-				part.Citations = []chat.Citation{citation}
+			for _, citation := range []corecontent.Citation{{}, {Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "source"}}} {
+				part.Citations = []corecontent.Citation{citation}
 				if err := part.Validate(); !errors.Is(err, chat.ErrInvalidPart) {
 					t.Fatalf("Validate = %v", err)
 				}

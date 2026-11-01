@@ -22,9 +22,9 @@
 // The Host selects the original source/remote identity before exposing tools.
 // Its frozen Tool binding includes the expert artifact digest, model-visible
 // Core Contract, and authorization grant. Contract supplies canonical schema
-// bytes rather than the SDK's map encoding. NewDeployment owns transitive child
+// bytes rather than the SDK's map encoding. run.Bind incorporates transitive child
 // binding identity; the parent does not copy child references into its config.
-// A replacement session requires rediscovery and an exact Deployment binding.
+// A replacement session requires rediscovery and an exact program binding.
 // Changing a grant refuses restoration before writer activation. The same
 // trusted expert artifact must remain available; these checks are not a
 // general remote-service version or compatibility mechanism.

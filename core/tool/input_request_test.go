@@ -7,19 +7,18 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 type confirmingTool struct{}
 
-func (confirmingTool) Definition() chat.ToolDefinition {
-	return chat.ToolDefinition{Name: "confirm", InputSchema: json.RawMessage(`{"type":"object"}`)}
+func (confirmingTool) Definition() tool.Definition {
+	return tool.Definition{Name: "confirm", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 func (confirmingTool) Call(_ context.Context, invocation tool.Invocation) (tool.Result, error) {
 	if continuation, resumed := invocation.Continuation(); resumed {
-		return tool.Result{Output: chat.NewTextToolOutput(string(continuation.State()) + ":" + string(continuation.Response()))}, nil
+		return tool.Result{Output: tool.NewTextOutput(string(continuation.State()) + ":" + string(continuation.Response()))}, nil
 	}
 	schema, err := jsonschema.Parse([]byte(`{"const":9007199254740993}`))
 	if err != nil {
@@ -34,7 +33,7 @@ func TestExplicitContinuationSurvivesWireAndIsFrozenAtPrepare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := chat.ToolCall{ID: "confirm-1", Name: "confirm", Arguments: `{}`}
+	call := tool.Request{Name: "confirm", Arguments: `{}`}
 	initial, err := binding.Contract().Prepare(call, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +83,7 @@ func TestExplicitContinuationSurvivesWireAndIsFrozenAtPrepare(t *testing.T) {
 	if _, err := binding.Contract().Prepare(call, &continuation); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("zero continuation=%v", err)
 	}
-	if err := (tool.Result{Output: chat.NewTextToolOutput("complete"), InputRequest: &request}).Validate(); !errors.Is(err, tool.ErrInvalidResult) {
+	if err := (tool.Result{Output: tool.NewTextOutput("complete"), InputRequest: &request}).Validate(); !errors.Is(err, tool.ErrInvalidResult) {
 		t.Fatalf("ambiguous result=%v", err)
 	}
 }

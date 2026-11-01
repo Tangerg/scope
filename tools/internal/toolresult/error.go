@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -27,7 +26,7 @@ func WithEvidence(operation string, response any, cause error) error {
 	if err != nil {
 		return errors.Join(cause, fmt.Errorf("encode execution evidence: %w", err))
 	}
-	evidence, err := chat.NewJSONToolOutput(encoded)
+	evidence, err := tool.NewJSONOutput(encoded)
 	if err != nil {
 		return errors.Join(cause, fmt.Errorf("build execution evidence: %w", err))
 	}

@@ -4,18 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
-type nativeSchema struct{ dimensions int }
+type nativeSchema struct {
+	dimensions   int
+	similarity   string
+	vectorPath   string
+	indexedTerms bool
+}
 
-func (n *nativeSchema) read(raw bson.Raw, name string) error {
+func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID) error {
 	var index struct {
 		Name       string `bson:"name"`
 		Type       string `bson:"type"`
@@ -40,11 +46,19 @@ func (n *nativeSchema) read(raw bson.Raw, name string) error {
 	for _, field := range index.Definition.Fields {
 		switch field.Type {
 		case "filter":
+			if field.Path == termsField {
+				n.indexedTerms = true
+			}
 			if field.Path == idField {
 				identity = true
 			}
 		case "vector":
-			if field.Path != embeddingField || field.Dimensions <= 0 {
+			if field.Path != space.StorageKey() {
+				return vectorstore.ErrIncompatibleSpace
+			}
+			n.vectorPath = field.Path
+			n.similarity = field.Similarity
+			if field.Dimensions <= 0 {
 				return errors.New("mongodb: requires one embedding vector with a native dimension")
 			}
 			switch field.Similarity {
@@ -93,7 +107,7 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 	for _, element := range elements {
 		key := element.Key()
 		switch key {
-		case idField, contentField, metadataField, embeddingField:
+		case idField, contentField, metadataField, n.vectorPath, termsField:
 		case scoreField:
 			if !scored {
 				return nil, "", errors.New("mongodb: source contains a query score")
@@ -106,7 +120,7 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 		}
 		fields[key] = element.Value()
 	}
-	want := 4
+	want := 5
 	if scored {
 		want++
 	}
@@ -116,7 +130,7 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 	id, idOK := fields[idField].StringValueOK()
 	text, textOK := fields[contentField].StringValueOK()
 	facts, factsOK := fields[metadataField].StringValueOK()
-	array, vectorOK := fields[embeddingField].ArrayOK()
+	array, vectorOK := fields[n.vectorPath].ArrayOK()
 	if !idOK || !textOK || !factsOK || !vectorOK {
 		return nil, "", errors.New("mongodb: identity, content, metadata_json and embedding have invalid native types")
 	}
@@ -135,12 +149,20 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 	if err = n.validateVector(vector); err != nil {
 		return nil, "", err
 	}
-	var decoded metadata.Map
-	if err = decoded.UnmarshalJSON([]byte(facts)); err != nil {
+	doc := new(document.Document)
+	if err = document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
 		return nil, "", err
 	}
-	doc := &document.Document{ID: id, Text: text, Metadata: decoded}
-	if err = (&vectorstore.IndexRequest{Documents: []*document.Document{doc}}).Validate(); err != nil {
+	expected, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, "", err
+	}
+	var reported []string
+	if decodeErr := fields[termsField].Unmarshal(&reported); decodeErr != nil || !slices.Equal(reported, expected) {
+		return nil, "", errors.New("mongodb: malformed derived metadata terms")
+	}
+	doc.ID, doc.Text = id, text
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nil, "", err
 	}
 	return doc, facts, nil
@@ -150,11 +172,15 @@ func encodeRecord(doc *document.Document) (bson.M, error) {
 	if doc.Media != nil {
 		return nil, vectorstore.ErrInvalidDocument
 	}
-	facts, err := doc.Metadata.MarshalJSON()
+	facts, err := document.MarshalStoredMetadata(doc)
 	if err != nil {
 		return nil, err
 	}
-	return bson.M{idField: doc.ID, contentField: doc.Text, metadataField: string(facts)}, nil
+	terms, err := keyword.Project(doc.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	return bson.M{idField: doc.ID, contentField: doc.Text, metadataField: string(facts), termsField: terms}, nil
 }
 
 type selectedDocument struct{ id, metadataJSON string }

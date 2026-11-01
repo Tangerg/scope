@@ -54,10 +54,9 @@ func TestConfigRejectsNumCandidatesAboveCeiling(t *testing.T) {
 	t.Parallel()
 
 	config := StoreConfig{
-		Collection:      &countingCollection{},
-		EmbeddingModel:  constantModel{},
-		DocumentBatcher: upsertBatcher{},
-		NumCandidates:   MaxNumCandidates + 1,
+		Collection:    &countingCollection{},
+		Space:         fixtureSpace,
+		NumCandidates: MaxNumCandidates + 1,
 	}
 	err := config.Validate()
 	if err == nil || !strings.Contains(err.Error(), "NumCandidates must be in [0, 10000]") {
