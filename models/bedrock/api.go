@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -68,11 +69,28 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	}
 
 	client := bedrockruntime.NewFromConfig(awsCfg, func(options *bedrockruntime.Options) {
+		options.HTTPClient = requestBodyClient{client: options.HTTPClient}
 		if config.BaseURL != "" {
 			options.BaseEndpoint = aws.String(config.BaseURL)
 		}
 	})
 	return &api{client: client}, nil
+}
+
+type requestBodyClient struct {
+	client aws.HTTPClient
+}
+
+func (r requestBodyClient) Do(request *http.Request) (*http.Response, error) {
+	if request.Body == nil || request.Body == http.NoBody {
+		return r.client.Do(request)
+	}
+	// Smithy's closed WriterTo returns EOF where io.Copy expects nil. The
+	// transport can finish copying after response headers arrive, so expose
+	// only Read/Close to keep that EOF from closing the live response connection.
+	clone := request.Clone(request.Context())
+	clone.Body = struct{ io.ReadCloser }{request.Body}
+	return r.client.Do(clone)
 }
 
 // converseStream returns the event stream rather than the output envelope,
