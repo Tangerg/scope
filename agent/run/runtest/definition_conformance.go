@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	errConformanceValuesDiffer         = errors.New("agenttest: conformance values differ")
-	errConformanceExecutionsShareState = errors.New("agenttest: executions share mutable state")
+	errConformanceValuesDiffer         = errors.New("runtest: conformance values differ")
+	errConformanceExecutionsShareState = errors.New("runtest: executions share mutable state")
 )
 
 // DefinitionConformanceConfig supplies representative cases, not a proof that
@@ -98,13 +98,13 @@ func RunDefinitionConformance(t *testing.T, config DefinitionConformanceConfig) 
 
 func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) error {
 	if lo.IsNil(config.Definition) {
-		return errors.New("agenttest: Definition conformance Definition is nil")
+		return errors.New("runtest: Definition conformance Definition is nil")
 	}
 	if !config.Input.Valid() {
-		return errors.New("agenttest: Definition conformance Input is invalid")
+		return errors.New("runtest: Definition conformance Input is invalid")
 	}
 	if err := validateConformanceSignals(config.InitialSignals, config.FollowingSignals...); err != nil {
-		return fmt.Errorf("agenttest: Definition conformance fresh Signals: %w", err)
+		return fmt.Errorf("runtest: Definition conformance fresh Signals: %w", err)
 	}
 	restored := conformanceCaseNames{kind: "restored"}
 	for index, sample := range config.RestoredCases {
@@ -112,7 +112,7 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 			return err
 		}
 		if err := validateConformanceSignals(sample.Signals, sample.FollowingSignals...); err != nil {
-			return fmt.Errorf("agenttest: Definition conformance restored case %q Signals: %w", sample.Name, err)
+			return fmt.Errorf("runtest: Definition conformance restored case %q Signals: %w", sample.Name, err)
 		}
 	}
 	rejected := conformanceCaseNames{kind: "rejected"}
@@ -121,10 +121,10 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 			return err
 		}
 		if err := validateConformanceSignals(sample.Signals); err != nil {
-			return fmt.Errorf("agenttest: Definition conformance rejected case %q Signals: %w", sample.Name, err)
+			return fmt.Errorf("runtest: Definition conformance rejected case %q Signals: %w", sample.Name, err)
 		}
 		if !sample.FailureKind.Valid() || !run.ValidQualifiedName(sample.FailureCode) {
-			return fmt.Errorf("agenttest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
+			return fmt.Errorf("runtest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
 		}
 	}
 	return nil
@@ -137,17 +137,17 @@ type conformanceCaseNames struct {
 
 func (c *conformanceCaseNames) claim(index int, name string, state run.ExecutionState) error {
 	if name == "" || strings.TrimSpace(name) != name {
-		return fmt.Errorf("agenttest: Definition conformance %s case %d has an invalid name", c.kind, index)
+		return fmt.Errorf("runtest: Definition conformance %s case %d has an invalid name", c.kind, index)
 	}
 	if _, exists := c.names[name]; exists {
-		return fmt.Errorf("agenttest: Definition conformance %s case name %q is duplicated", c.kind, name)
+		return fmt.Errorf("runtest: Definition conformance %s case name %q is duplicated", c.kind, name)
 	}
 	if c.names == nil {
 		c.names = make(map[string]struct{})
 	}
 	c.names[name] = struct{}{}
 	if !state.Valid() {
-		return fmt.Errorf("agenttest: Definition conformance %s case %q has an invalid state", c.kind, name)
+		return fmt.Errorf("runtest: Definition conformance %s case %q has an invalid state", c.kind, name)
 	}
 	return nil
 }
@@ -168,20 +168,20 @@ func verifyRejectedStep(
 		transition, stepErr := callStep(ctx, execution, slices.Clone(sample.Signals))
 		if stepErr == nil {
 			return fmt.Errorf(
-				"agenttest: rejected case %q attempt %d returned Transition %v instead of a classified Failure",
+				"runtest: rejected case %q attempt %d returned Transition %v instead of a classified Failure",
 				sample.Name, attempt, transition,
 			)
 		}
 		failure, classified := run.StepFailure(stepErr)
 		if !classified {
 			return fmt.Errorf(
-				"agenttest: rejected case %q attempt %d returned an unclassified error, which the Engine records as execution.step.failed: %w",
+				"runtest: rejected case %q attempt %d returned an unclassified error, which the Engine records as execution.step.failed: %w",
 				sample.Name, attempt, stepErr,
 			)
 		}
 		if failure.Kind() != sample.FailureKind || failure.Code() != sample.FailureCode {
 			return fmt.Errorf(
-				"agenttest: rejected case %q attempt %d classified as %s/%s, want %s/%s",
+				"runtest: rejected case %q attempt %d classified as %s/%s, want %s/%s",
 				sample.Name, attempt,
 				failure.Kind(), failure.Code(),
 				sample.FailureKind, sample.FailureCode,
@@ -227,7 +227,7 @@ func verifyDescriptorStability(definition run.Definition) error {
 		return err
 	}
 	if !bytes.Equal(encoded[0], encoded[1]) {
-		return fmt.Errorf("agenttest: concurrent Descriptor results differ:\nfirst:  %s\nsecond: %s", encoded[0], encoded[1])
+		return fmt.Errorf("runtest: concurrent Descriptor results differ:\nfirst:  %s\nsecond: %s", encoded[0], encoded[1])
 	}
 	return nil
 }
@@ -238,7 +238,7 @@ func verifyFreshExecutions(ctx context.Context, config DefinitionConformanceConf
 		return descriptorErr
 	}
 	if validationErr := descriptorBefore.ValidateInput(config.Input); validationErr != nil {
-		return fmt.Errorf("agenttest: conformance Input does not satisfy Descriptor: %w", validationErr)
+		return fmt.Errorf("runtest: conformance Input does not satisfy Descriptor: %w", validationErr)
 	}
 	executions, err := callConcurrently(func() (run.Execution, error) {
 		return callStart(config.Definition, config.Input)
@@ -303,7 +303,7 @@ func verifyExecutionStep(
 	signals []run.Signal,
 ) error {
 	if lo.IsNil(left) || lo.IsNil(right) {
-		return errors.New("agenttest: Definition returned a nil Execution")
+		return errors.New("runtest: Definition returned a nil Execution")
 	}
 	leftBefore, rightBefore, err := snapshotEquivalentPair("initial Execution state", left, right)
 	if err != nil {
@@ -412,11 +412,11 @@ func verifyExactRestore(ctx context.Context, definition run.Definition, state ru
 
 func validateTransition(transition run.Transition, signalCount int) error {
 	if !transition.Valid() {
-		return errors.New("agenttest: Step returned an invalid Transition")
+		return errors.New("runtest: Step returned an invalid Transition")
 	}
 	if uint64(transition.ConsumedSignals()) > uint64(signalCount) {
 		return fmt.Errorf(
-			"agenttest: Step consumed %d Signals from a prefix of %d",
+			"runtest: Step consumed %d Signals from a prefix of %d",
 			transition.ConsumedSignals(), signalCount,
 		)
 	}
@@ -426,11 +426,11 @@ func validateTransition(transition run.Transition, signalCount int) error {
 func requireEquivalent(label string, left, right any) error {
 	leftData, err := jsonv2.Marshal(left, jsonv2.Deterministic(true))
 	if err != nil {
-		return fmt.Errorf("agenttest: encode first %s: %w", label, err)
+		return fmt.Errorf("runtest: encode first %s: %w", label, err)
 	}
 	rightData, err := jsonv2.Marshal(right, jsonv2.Deterministic(true))
 	if err != nil {
-		return fmt.Errorf("agenttest: encode second %s: %w", label, err)
+		return fmt.Errorf("runtest: encode second %s: %w", label, err)
 	}
 	if !bytes.Equal(leftData, rightData) {
 		return fmt.Errorf("%w: %s:\nfirst:  %s\nsecond: %s", errConformanceValuesDiffer, label, leftData, rightData)
@@ -446,7 +446,7 @@ func callDescriptor(definition run.Definition) (descriptor run.Descriptor, err e
 	}()
 	descriptor = definition.Descriptor()
 	if !descriptor.Valid() {
-		return run.Descriptor{}, errors.New("agenttest: Definition.Descriptor returned an invalid Descriptor")
+		return run.Descriptor{}, errors.New("runtest: Definition.Descriptor returned an invalid Descriptor")
 	}
 	return descriptor, nil
 }
@@ -459,10 +459,10 @@ func callStart(definition run.Definition, input run.Payload) (execution run.Exec
 	}()
 	execution, err = definition.Start(input)
 	if err != nil {
-		return nil, fmt.Errorf("agenttest: Definition.Start: %w", err)
+		return nil, fmt.Errorf("runtest: Definition.Start: %w", err)
 	}
 	if lo.IsNil(execution) {
-		return nil, errors.New("agenttest: Definition.Start returned a nil Execution")
+		return nil, errors.New("runtest: Definition.Start returned a nil Execution")
 	}
 	return execution, nil
 }
@@ -475,10 +475,10 @@ func callRestore(ctx context.Context, definition run.Definition, state run.Execu
 	}()
 	execution, err = definition.Restore(ctx, state)
 	if err != nil {
-		return nil, fmt.Errorf("agenttest: Definition.Restore: %w", err)
+		return nil, fmt.Errorf("runtest: Definition.Restore: %w", err)
 	}
 	if lo.IsNil(execution) {
-		return nil, errors.New("agenttest: Definition.Restore returned a nil Execution")
+		return nil, errors.New("runtest: Definition.Restore returned a nil Execution")
 	}
 	return execution, nil
 }
@@ -493,7 +493,7 @@ func callStep(ctx context.Context, execution run.Execution, signals []run.Signal
 	}()
 	transition, err = execution.Step(ctx, signals)
 	if err != nil {
-		return run.Transition{}, fmt.Errorf("agenttest: Execution.Step: %w", err)
+		return run.Transition{}, fmt.Errorf("runtest: Execution.Step: %w", err)
 	}
 	return transition, nil
 }
@@ -506,10 +506,10 @@ func callSnapshot(execution run.Execution) (state run.ExecutionState, err error)
 	}()
 	state, err = execution.Snapshot()
 	if err != nil {
-		return run.ExecutionState{}, fmt.Errorf("agenttest: Execution.Snapshot: %w", err)
+		return run.ExecutionState{}, fmt.Errorf("runtest: Execution.Snapshot: %w", err)
 	}
 	if !state.Valid() {
-		return run.ExecutionState{}, errors.New("agenttest: Execution.Snapshot returned an invalid state")
+		return run.ExecutionState{}, errors.New("runtest: Execution.Snapshot returned an invalid state")
 	}
 	return state, nil
 }

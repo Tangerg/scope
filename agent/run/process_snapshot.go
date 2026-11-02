@@ -16,7 +16,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidSnapshot = errors.New("agent: invalid process snapshot")
+var ErrInvalidSnapshot = errors.New("run: invalid process snapshot")
 
 // WaitKind identifies who may answer the current wait.
 type WaitKind string
@@ -54,8 +54,9 @@ func (w WaitKind) String() string {
 // owns the TreeLimits it must satisfy.
 // [Runtime.InspectTree] identifies the acknowledged head of its durable captures.
 type ProcessSnapshot struct {
-	data  json.RawMessage
-	state processSnapshotWire
+	data   json.RawMessage
+	digest Digest
+	state  processSnapshotWire
 	// awaitedWaitID projects the restored mailbox's answer to the entered
 	// wait, so status reads one rule with the live Process.
 	awaitedWaitID WaitID
@@ -166,7 +167,7 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 	if err != nil {
 		return ProcessSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidSnapshot, err)
 	}
-	snapshot := ProcessSnapshot{data: normalized, state: wire, awaitedWaitID: mailbox.awaited(lo.FromPtr(wire.CurrentWaitID))}
+	snapshot := ProcessSnapshot{data: normalized, digest: ComputeDigest(normalized), state: wire, awaitedWaitID: mailbox.awaited(lo.FromPtr(wire.CurrentWaitID))}
 	// A terminal Process's waits end with it; its mailbox only closes the
 	// waits it consumed.
 	if !wire.terminal() {
@@ -177,6 +178,10 @@ func processSnapshotFromWire(wire processSnapshotWire) (ProcessSnapshot, error) 
 
 // JSON returns an independently owned snapshot representation.
 func (p ProcessSnapshot) JSON() json.RawMessage { return bytes.Clone(p.data) }
+
+// Digest identifies the canonical record bytes independently of its enclosing
+// tree. An unchanged member can be retained across tree commits.
+func (p ProcessSnapshot) Digest() Digest { return p.digest }
 
 // SignalReceipts returns admitted Signal facts in mailbox arrival order. The
 // committed cursor distinguishes consumption from admission, including inputs
@@ -456,7 +461,7 @@ func (p processSnapshotWire) validateContract() error {
 		return fmt.Errorf("%w: Process identity is invalid", ErrInvalidSnapshot)
 	}
 	if !p.ProgramRef.Valid() {
-		return fmt.Errorf("%w: Deployment reference is invalid", ErrInvalidSnapshot)
+		return fmt.Errorf("%w: Program reference is invalid", ErrInvalidSnapshot)
 	}
 	if p.StartedAt.IsZero() {
 		return fmt.Errorf("%w: Process start time is missing", ErrInvalidSnapshot)

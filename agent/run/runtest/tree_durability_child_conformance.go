@@ -299,7 +299,7 @@ type crashTreeDefinition struct {
 
 func (c *crashTreeDefinition) Descriptor() run.Descriptor { return c.descriptor }
 
-func (*crashTreeDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*crashTreeDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -350,18 +350,18 @@ func (c *crashTreeExecution) stepRoot(signals []run.Signal) (run.Transition, err
 	case crashTreePhaseRootWaitOpening:
 		return c.enterRootChildWait(signals)
 	case crashTreePhaseRootWaiting:
-		return c.complete(signals, "agenttest: child completion is missing", func(signal run.Signal) error {
-			_, err := run.ParseChildWaitSatisfied(signal)
+		return c.complete(signals, "runtest: child completion is missing", func(signal run.Signal) error {
+			_, err := signal.Frame[run.ChildWaitSatisfied]()
 			return err
 		})
 	default:
-		return run.Transition{}, errors.New("agenttest: root cannot advance from its current phase")
+		return run.Transition{}, errors.New("runtest: root cannot advance from its current phase")
 	}
 }
 
 func (c *crashTreeExecution) startRootChild(signals []run.Signal) (run.Transition, error) {
 	if len(signals) != 0 {
-		return run.Transition{}, errors.New("agenttest: root received an unexpected initial Signal")
+		return run.Transition{}, errors.New("runtest: root received an unexpected initial Signal")
 	}
 	input, err := c.definition.descriptor.EncodeInput(crashTreeInput{Role: crashTreeRoleChild})
 	if err != nil {
@@ -384,15 +384,15 @@ func (c *crashTreeExecution) startRootChild(signals []run.Signal) (run.Transitio
 
 func (c *crashTreeExecution) openRootChildWait(signals []run.Signal) (run.Transition, error) {
 	if len(signals) != 1 {
-		return run.Transition{}, errors.New("agenttest: child start result is missing")
+		return run.Transition{}, errors.New("runtest: child start result is missing")
 	}
-	started, err := run.ParseChildStartResult(signals[0])
+	started, err := signals[0].Frame[run.ChildStartResult]()
 	if err != nil {
 		return run.Transition{}, err
 	}
 	childID, ok := started.ProcessID()
 	if !ok {
-		return run.Transition{}, errors.New("agenttest: child did not start")
+		return run.Transition{}, errors.New("runtest: child did not start")
 	}
 	key, err := run.ParseWaitKey(crashTreeRootWaitKey)
 	if err != nil {
@@ -411,9 +411,9 @@ func (c *crashTreeExecution) openRootChildWait(signals []run.Signal) (run.Transi
 
 func (c *crashTreeExecution) enterRootChildWait(signals []run.Signal) (run.Transition, error) {
 	if len(signals) != 1 {
-		return run.Transition{}, errors.New("agenttest: child wait acknowledgement is missing")
+		return run.Transition{}, errors.New("runtest: child wait acknowledgement is missing")
 	}
-	opened, err := run.ParseChildWaitOpened(signals[0])
+	opened, err := signals[0].Frame[run.ChildWaitOpened]()
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -427,24 +427,24 @@ func (c *crashTreeExecution) stepChild(signals []run.Signal) (run.Transition, er
 		return c.openChildWait(signals)
 	case crashTreePhaseChildWaitOpening:
 		if len(signals) != 1 {
-			return run.Transition{}, errors.New("agenttest: external wait acknowledgement is missing")
+			return run.Transition{}, errors.New("runtest: external wait acknowledgement is missing")
 		}
 		waitID, addressed := signals[0].WaitID()
 		if !addressed {
-			return run.Transition{}, errors.New("agenttest: external wait acknowledgement has no WaitID")
+			return run.Transition{}, errors.New("runtest: external wait acknowledgement has no WaitID")
 		}
 		c.state.WaitID = waitID.String()
 		return run.Wait(1, waitID)
 	case crashTreePhaseChildWaiting:
-		return c.complete(signals, "agenttest: external wait response is missing", nil)
+		return c.complete(signals, "runtest: external wait response is missing", nil)
 	default:
-		return run.Transition{}, errors.New("agenttest: child cannot advance from its current phase")
+		return run.Transition{}, errors.New("runtest: child cannot advance from its current phase")
 	}
 }
 
 func (c *crashTreeExecution) openChildWait(signals []run.Signal) (run.Transition, error) {
 	if len(signals) != 0 {
-		return run.Transition{}, errors.New("agenttest: child received an unexpected initial Signal")
+		return run.Transition{}, errors.New("runtest: child received an unexpected initial Signal")
 	}
 	key, err := run.ParseWaitKey(crashTreeChildWaitKey)
 	if err != nil {

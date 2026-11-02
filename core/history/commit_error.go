@@ -14,7 +14,7 @@ import (
 // retains it behind a chat.CallFailure scoped to the complete invocation.
 type CommitError struct {
 	conversationID ConversationID
-	messages       []chat.Message
+	messages       historyMessages
 	outcome        WriteOutcome
 	cause          error
 }
@@ -31,9 +31,5 @@ func (c *CommitError) Outcome() WriteOutcome { return c.outcome }
 
 // Messages returns an independently owned copy of the complete attempted batch.
 func (c *CommitError) Messages() []chat.Message {
-	messages := make([]chat.Message, len(c.messages))
-	for index := range c.messages {
-		messages[index] = c.messages[index].Clone()
-	}
-	return messages
+	return c.messages.clone()
 }

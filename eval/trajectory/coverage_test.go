@@ -283,7 +283,7 @@ type coverageReplayDefinition struct{ descriptor run.Descriptor }
 
 func (c coverageReplayDefinition) Descriptor() run.Descriptor { return c.descriptor }
 
-func (coverageReplayDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (coverageReplayDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -324,10 +324,14 @@ func (c *coverageReplayExecution) Step(_ context.Context, signals []run.Signal) 
 		c.Issued = true
 		return run.Continue(0, effect)
 	}
-	if len(signals) != 1 || !signals[0].EngineOwned() {
+	if len(signals) != 1 {
 		return run.Transition{}, run.ErrInvalidExecutionState
 	}
-	output, err := run.ParsePayload(signals[0].Payload())
+	settlement, err := signals[0].Frame[run.Settlement]()
+	if err != nil {
+		return run.Transition{}, err
+	}
+	output, err := run.ParsePayload(settlement.Payload())
 	if err != nil {
 		return run.Transition{}, err
 	}

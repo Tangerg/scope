@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"strconv"
 	"time"
@@ -62,7 +65,7 @@ func New(ctx context.Context, config Config) (*Store, error) {
 	tables := newRelations(schema)
 	probe, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
-	rows, err := config.Pool.Query(probe, "SELECT h.root_id,h.snapshot,h.sequence,f.identity,f.scope_content,f.business_content,s.scope,s.start_key,s.intent,s.root_id FROM "+tables.heads+" h,"+tables.facts+" f,"+tables.starts+" s LIMIT 0")
+	rows, err := config.Pool.Query(probe, "SELECT h.root_id,h.digest,h.incarnation,h.limits,h.sequence,p.root_id,p.process_id,p.snapshot,f.identity,f.scope_content,f.business_content,s.scope,s.start_key,s.intent,s.root_id FROM "+tables.heads+" h,"+tables.processes+" p,"+tables.facts+" f,"+tables.starts+" s LIMIT 0")
 	if err != nil {
 		return nil, fmt.Errorf("postgres: validate store relations: %w", err)
 	}
@@ -93,20 +96,51 @@ func (s *Store) LoadTree(ctx context.Context, id run.ProcessID) (run.TreeSnapsho
 	}
 	op, done := s.operation(ctx)
 	defer done()
-	var data []byte
-	err := s.pool.QueryRow(op, "SELECT snapshot FROM "+s.tables.heads+" WHERE root_id=$1", id.String()).Scan(&data)
+	var digest, writer string
+	var encodedLimits []byte
+	var keys []string
+	var records [][]byte
+	// Ordering both arrays by the same primary key keeps each opaque record
+	// paired with its physical address within one MVCC snapshot.
+	err := s.pool.QueryRow(op, "SELECT h.digest,h.incarnation,h.limits,m.keys,m.records FROM "+s.tables.heads+" h CROSS JOIN LATERAL (SELECT array_agg(p.process_id ORDER BY p.process_id),array_agg(p.snapshot ORDER BY p.process_id) FROM "+s.tables.processes+" p WHERE p.root_id=h.root_id) m(keys,records) WHERE h.root_id=$1", id.String()).Scan(&digest, &writer, &encodedLimits, &keys, &records)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return run.TreeSnapshot{}, false, nil
 	}
 	if err != nil {
 		return run.TreeSnapshot{}, false, err
 	}
-	head, err := run.ParseTreeSnapshot(data)
-	if err == nil && head.RootID() != id {
+	var incarnation run.TreeIncarnationID
+	if err = incarnation.UnmarshalText([]byte(writer)); err != nil {
+		return run.TreeSnapshot{}, false, err
+	}
+	var limits run.TreeLimits
+	if err = jsonv2.Unmarshal(encodedLimits, &limits); err != nil {
+		return run.TreeSnapshot{}, false, err
+	}
+	members := make([]json.RawMessage, len(records))
+	for i, record := range records {
+		members[i] = record
+	}
+	head, err := run.AssembleTreeSnapshot(incarnation, limits, members)
+	if err == nil && (head.RootID() != id || head.Digest().String() != digest) {
 		err = run.ErrInvalidTreeSnapshot
 	}
 	if err != nil {
 		return run.TreeSnapshot{}, false, err
+	}
+	// A record under the wrong key has the same tree digest but would receive
+	// another member's next incremental update. Verify the indexed bytes, too.
+	if len(keys) != len(records) {
+		return run.TreeSnapshot{}, false, run.ErrInvalidTreeSnapshot
+	}
+	indexed := make(map[string]run.Digest, len(records))
+	for i, key := range keys {
+		indexed[key] = run.ComputeDigest(records[i])
+	}
+	for _, member := range head.ProcessSnapshots() {
+		if indexed[member.Relation().ProcessID().String()] != member.Digest() {
+			return run.TreeSnapshot{}, false, run.ErrInvalidTreeSnapshot
+		}
 	}
 	return head, true, nil
 }
@@ -146,6 +180,7 @@ func (s *Store) lookupStart(ctx context.Context, query rowReader, id run.StartID
 
 // Commit is the frozen tree change whose Host write set will share its transaction.
 type Commit struct {
+	changes  iter.Seq2[run.ProcessID, run.ProcessSnapshot]
 	identity string
 	content  run.Digest
 	snapshot run.TreeSnapshot
@@ -164,7 +199,7 @@ func (s *Store) ActivateTree(ctx context.Context, a run.TreeActivation) error {
 	if err != nil {
 		return err
 	}
-	return s.commit(ctx, Commit{identity: a.Identity(), content: content, snapshot: a.TreeSnapshot(), previous: a.PreviousTreeDigest(), writer: a.PreviousIncarnationID()})
+	return s.commit(ctx, Commit{changes: a.ChangedProcesses(), identity: a.Identity(), content: content, snapshot: a.TreeSnapshot(), previous: a.PreviousTreeDigest(), writer: a.PreviousIncarnationID()})
 }
 
 func (s *Store) CommitEffect(ctx context.Context, b run.EffectBoundary) error {
@@ -172,7 +207,7 @@ func (s *Store) CommitEffect(ctx context.Context, b run.EffectBoundary) error {
 	if err != nil {
 		return err
 	}
-	return s.commit(ctx, Commit{identity: b.Identity(), content: content, snapshot: b.TreeSnapshot(), previous: b.PreviousTreeDigest(), writer: b.TreeSnapshot().IncarnationID(), sequence: b.Sequence()})
+	return s.commit(ctx, Commit{changes: b.ChangedProcesses(), identity: b.Identity(), content: content, snapshot: b.TreeSnapshot(), previous: b.PreviousTreeDigest(), writer: b.TreeSnapshot().IncarnationID(), sequence: b.Sequence()})
 }
 
 func (s *Store) CommitCheckpoint(ctx context.Context, c run.TreeCheckpoint) error {
@@ -180,7 +215,7 @@ func (s *Store) CommitCheckpoint(ctx context.Context, c run.TreeCheckpoint) erro
 	if err != nil {
 		return err
 	}
-	p := Commit{identity: c.Identity(), content: content, snapshot: c.TreeSnapshot(), previous: c.PreviousTreeDigest(), writer: c.TreeSnapshot().IncarnationID(), sequence: c.Sequence()}
+	p := Commit{changes: c.ChangedProcesses(), identity: c.Identity(), content: content, snapshot: c.TreeSnapshot(), previous: c.PreviousTreeDigest(), writer: c.TreeSnapshot().IncarnationID(), sequence: c.Sequence()}
 	if receipt, ok := c.Start(); ok {
 		p.start = &receipt
 	}
@@ -261,36 +296,28 @@ func (s *Store) admitStart(ctx context.Context, tx pgx.Tx, receipt run.StartRece
 }
 
 func (s *Store) install(ctx context.Context, tx pgx.Tx, p Commit, business run.Digest) (bool, error) {
-	var encoded []byte
-	var sequenceText string
+	var digest, writer, sequenceText string
 	root := p.snapshot.RootID()
-	err := tx.QueryRow(ctx, "SELECT snapshot,sequence::text FROM "+s.tables.heads+" WHERE root_id=$1", root.String()).Scan(&encoded, &sequenceText)
+	err := tx.QueryRow(ctx, "SELECT digest,incarnation,sequence::text FROM "+s.tables.heads+" WHERE root_id=$1", root.String()).Scan(&digest, &writer, &sequenceText)
 	exists := !errors.Is(err, pgx.ErrNoRows)
-	var head run.TreeSnapshot
 	var sequence uint64
 	if exists {
 		if err != nil {
 			return false, err
-		}
-		head, err = run.ParseTreeSnapshot(encoded)
-		if err != nil {
-			return false, err
-		}
-		if head.RootID() != root {
-			return false, run.ErrInvalidTreeSnapshot
 		}
 		sequence, err = strconv.ParseUint(sequenceText, 10, 64)
 		if err != nil {
 			return false, err
 		}
 	}
-	if p.sequence > 0 && p.previous.Valid() && (!exists || head.IncarnationID() != p.writer) {
+	if p.sequence > 0 && p.previous.Valid() && (!exists || writer != p.writer.String()) {
 		return false, run.ErrTreeIncarnationConflict
 	}
+
 	var content, savedBusiness string
 	err = tx.QueryRow(ctx, "SELECT scope_content,business_content FROM "+s.tables.facts+" WHERE identity=$1", p.identity).Scan(&content, &savedBusiness)
 	if err == nil {
-		if content == p.content.String() && savedBusiness == business.String() && exists && sequence == p.sequence && head.Digest() == p.snapshot.Digest() {
+		if content == p.content.String() && savedBusiness == business.String() && exists && sequence == p.sequence && digest == p.snapshot.Digest().String() {
 			return true, nil
 		}
 		return false, run.ErrCommitConflict
@@ -302,12 +329,43 @@ func (s *Store) install(ctx context.Context, tx pgx.Tx, p Commit, business run.D
 		if exists {
 			return false, run.ErrTreeIncarnationConflict
 		}
-	} else if !exists || head.Digest() != p.previous || head.IncarnationID() != p.writer || (p.sequence > 0 && (sequence == math.MaxUint64 || p.sequence != sequence+1)) {
+	} else if !exists || digest != p.previous.String() || writer != p.writer.String() || (p.sequence > 0 && (sequence == math.MaxUint64 || p.sequence != sequence+1)) {
 		return false, run.ErrTreeIncarnationConflict
 	}
 	if _, err = tx.Exec(ctx, "INSERT INTO "+s.tables.facts+"(identity,scope_content,business_content) VALUES($1,$2,$3)", p.identity, p.content.String(), business.String()); err != nil {
 		return false, err
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO "+s.tables.heads+"(root_id,snapshot,sequence) VALUES($1,$2,$3::text::numeric) ON CONFLICT(root_id) DO UPDATE SET snapshot=excluded.snapshot,sequence=excluded.sequence", root.String(), p.snapshot.JSON(), strconv.FormatUint(p.sequence, 10))
-	return false, err
+	limits, err := jsonv2.Marshal(p.snapshot.Limits())
+	if err != nil {
+		return false, err
+	}
+	_, err = tx.Exec(ctx, "INSERT INTO "+s.tables.heads+"(root_id,digest,incarnation,limits,sequence) VALUES($1,$2,$3,$4,$5::text::numeric) ON CONFLICT(root_id) DO UPDATE SET digest=excluded.digest,incarnation=excluded.incarnation,limits=excluded.limits,sequence=excluded.sequence", root.String(), p.snapshot.Digest().String(), p.snapshot.IncarnationID().String(), limits, strconv.FormatUint(p.sequence, 10))
+	if err != nil {
+		return false, err
+	}
+	return false, s.writeProcesses(ctx, tx, p)
+}
+
+func (s *Store) writeProcesses(ctx context.Context, tx pgx.Tx, commit Commit) error {
+	root := commit.snapshot.RootID().String()
+	var changed, removed []string
+	var records [][]byte
+	for id, member := range commit.changes {
+		if !member.Valid() {
+			removed = append(removed, id.String())
+			continue
+		}
+		changed = append(changed, id.String())
+		records = append(records, member.JSON())
+	}
+	if len(removed) > 0 {
+		if _, err := tx.Exec(ctx, "DELETE FROM "+s.tables.processes+" WHERE root_id=$1 AND process_id=ANY($2::text[])", root, removed); err != nil {
+			return err
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	_, err := tx.Exec(ctx, "INSERT INTO "+s.tables.processes+"(root_id,process_id,snapshot) SELECT $1,p.id,p.data FROM unnest($2::text[],$3::bytea[]) p(id,data) ON CONFLICT(root_id,process_id) DO UPDATE SET snapshot=excluded.snapshot", root, changed, records)
+	return err
 }

@@ -33,17 +33,19 @@ func TestSignalReceiptsReconcileOnlyExternalAdmissions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			answerID := "signal:answer"
-			if !test.external {
-				answerID = "signal:engine:answer"
-			}
-			answer := mustMailboxSignal(t, answerID, waitID, []byte(`{"value":"answer"}`))
-			source := signalSourceExternal
-			if !test.external {
+			var answer Signal
+			var source signalSource
+			switch {
+			case test.external:
+				answer = mustMailboxSignal(t, "signal:answer", waitID, []byte(`{"value":"answer"}`))
+				source = signalSourceExternal
+			case test.wait:
+				answer = childAnswerFixture(t, waitID)
+				source = signalSourceChildWait
+			default:
+				id := controlValue(ParseSignalID("signal:engine:answer"))
+				answer = controlValue(NewSettlementSignal(id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`{"value":"answer"}`)))))
 				source = signalSourceSettlement
-				if test.wait {
-					source = signalSourceChildWait
-				}
 			}
 			if accepted, err := mailbox.enqueue(StatusRunning, answer, source); !accepted || err != nil {
 				t.Fatalf("admission = %t, %v", accepted, err)

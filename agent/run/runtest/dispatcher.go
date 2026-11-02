@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	ErrInvalidDispatchScript = errors.New("agenttest: invalid dispatch script")
-	ErrUnexpectedDispatch    = errors.New("agenttest: unexpected dispatch")
-	ErrEffectMismatch        = errors.New("agenttest: effect does not match script")
+	ErrInvalidDispatchScript = errors.New("runtest: invalid dispatch script")
+	ErrUnexpectedDispatch    = errors.New("runtest: unexpected dispatch")
+	ErrEffectMismatch        = errors.New("runtest: effect does not match script")
 )
 
 // ScriptedCall describes one expected Dispatcher call and its deterministic

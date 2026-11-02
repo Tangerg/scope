@@ -62,7 +62,7 @@ func newPlanningDelegateRoot(
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name:        "review_with_planning",
 		Description: "Use goal-directed planning to complete one review task.",
-		Deployment:  planningWorker,
+		Program:     planningWorker,
 		Budget:      budget,
 	})
 	if err != nil {

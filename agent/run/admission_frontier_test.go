@@ -21,8 +21,8 @@ type admissionFrontierDefinition struct {
 	first      atomic.Bool
 }
 
-func (a *admissionFrontierDefinition) Descriptor() Descriptor                      { return a.descriptor }
-func (*admissionFrontierDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (a *admissionFrontierDefinition) Descriptor() Descriptor                   { return a.descriptor }
+func (*admissionFrontierDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 func (a *admissionFrontierDefinition) Start(input Payload) (Execution, error) {
 	root, err := input.Decode[bool]()
 	if err != nil {

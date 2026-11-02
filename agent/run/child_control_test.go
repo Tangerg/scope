@@ -79,7 +79,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 				t.Fatal(err)
 			}
 			signal := controlValue(NewSignal(controlValue(ParseSignalID("signal:engine:receipt")), WaitID{}, payload))
-			if got, err := ParseChildControlResult(signal); err != nil || got != result {
+			if got, err := signal.Frame[ChildControlResult](); err != nil || got != result {
 				t.Fatal(err)
 			}
 			id := child.effectID(1, 0)
@@ -118,7 +118,7 @@ func TestChildControlCodecAndExactSettlement(t *testing.T) {
 	if _, err := NewChildCancelEffect(ProcessID{}, "stop"); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatal(err)
 	}
-	if _, err := ParseChildControlResult(Signal{}); !errors.Is(err, ErrInvalidSignal) {
+	if _, err := (Signal{}).Frame[ChildControlResult](); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatal(err)
 	}
 	if result := (ChildControlResult{}); !result.Valid() || string(controlValue(jsonv2.Marshal(result))) != `{"operation":"child_control_settled"}` {
@@ -293,20 +293,20 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 			altered := child
 			altered.Mailbox.Signals = []signalRecordWire{receipt}
 			mutate(&altered)
-			validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: altered}}
+			validation := treeSnapshotValidation{processes: map[ProcessID]*processSnapshotWire{childID: &altered}}
 			if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err == nil {
 				t.Fatal("one-sided control accepted")
 			}
 		})
 	}
-	validation := treeSnapshotValidation{processes: map[ProcessID]processSnapshotWire{childID: child}}
+	validation := treeSnapshotValidation{processes: map[ProcessID]*processSnapshotWire{childID: &child}}
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
 	child.Mailbox.Signals[0].PayloadDigest = new(ComputeDigest(child.Mailbox.Signals[0].Payload))
 	child.Mailbox.Signals[0].Payload = nil
 	child.Mailbox.SignalCursor = 1
-	validation.processes[childID] = child
+	validation.processes[childID] = &child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("consumed receipt lost proof", err)
 	}
@@ -318,13 +318,13 @@ func TestControlSnapshotRequiresRecipientSideEvidence(t *testing.T) {
 		t.Fatal("cancellation without intent accepted")
 	}
 	child.PendingControl.Cancellation = &cancellationIntentWire{Owner: cancellationOwnerParent, Reason: "stop"}
-	validation.processes[childID] = child
+	validation.processes[childID] = &child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal(err)
 	}
 	child.PendingControl.Cancellation = nil
 	child.Finish = &processFinish{Termination: Termination{output: controlValue(EncodePayload(childTestOutput{}))}}
-	validation.processes[childID] = child
+	validation.processes[childID] = &child
 	if err := controlValue(decodeFrameworkOperation(record.Effect.Payload())).validateTree(&validation, parentID, record); err != nil {
 		t.Fatal("terminal cancellation rejected", err)
 	}
@@ -345,8 +345,7 @@ func TestDescriptorParticipatesInTypedWireSchemas(t *testing.T) {
 func TestSignalChildRejectsEngineSignalIdentity(t *testing.T) {
 	childID := newProcessID()
 	waitID := childID.effectID(1, 0).waitID()
-	internal := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, []byte(`"done"`)))
-	if _, err := NewChildSignalEffect(childID, SignalRequest{id: internal.id, waitID: internal.waitID, payload: internal.payload}); !errors.Is(err, ErrInvalidChildControl) {
+	if _, err := NewChildSignalEffect(childID, SignalRequest{id: waitID.childWaitSignalID(), waitID: waitID, payload: []byte(`"done"`)}); !errors.Is(err, ErrInvalidChildControl) {
 		t.Fatalf("child control accepted Engine identity: %v", err)
 	}
 }

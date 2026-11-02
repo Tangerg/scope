@@ -40,7 +40,7 @@ func TestChildOutcomeRequiresUsageFacts(t *testing.T) {
 	}
 }
 
-func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
+func TestFrameworkFramesRejectCallerOwnedSignals(t *testing.T) {
 	effectID := controlValue(ParseProcessID("process:framework")).effectID(1, 0)
 	childID := effectID.childProcessID()
 	waitID := effectID.waitID()
@@ -55,10 +55,10 @@ func TestFrameworkParsersRejectCallerOwnedSignals(t *testing.T) {
 		signal Signal
 		parse  func(Signal) error
 	}{
-		{"start", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(start.MarshalJSON()))), func(signal Signal) error { _, err := ParseChildStartResult(signal); return err }},
-		{"control", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(jsonv2.Marshal(control)))), func(signal Signal) error { _, err := ParseChildControlResult(signal); return err }},
-		{"opening", controlValue(NewSignal(effectID.settlementSignalID(), waitID, childWaitOpenedPayload())), func(signal Signal) error { _, err := ParseChildWaitOpened(signal); return err }},
-		{"completion", completed, func(signal Signal) error { _, err := ParseChildWaitSatisfied(signal); return err }},
+		{"start", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(start.MarshalJSON()))), func(signal Signal) error { _, err := signal.Frame[ChildStartResult](); return err }},
+		{"control", controlValue(NewSignal(effectID.settlementSignalID(), WaitID{}, controlValue(jsonv2.Marshal(control)))), func(signal Signal) error { _, err := signal.Frame[ChildControlResult](); return err }},
+		{"opening", controlValue(NewSignal(effectID.settlementSignalID(), waitID, childWaitOpenedPayload())), func(signal Signal) error { _, err := signal.Frame[ChildWaitOpened](); return err }},
+		{"completion", completed, func(signal Signal) error { _, err := signal.Frame[ChildWaitSatisfied](); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := test.parse(test.signal); err != nil {
@@ -323,12 +323,49 @@ func TestChildWaitSatisfiedMatchesObservedEvidenceToItsWait(t *testing.T) {
 		if drained {
 			outcome.descendantUnresolvedEffects = new([]UnresolvedEffect{})
 		}
-		satisfied := controlValue(ParseChildWaitSatisfied(controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{outcome}))))
+		satisfied := controlValue(controlValue(encodeChildWaitSatisfied(waitID, []ChildOutcome{outcome})).Frame[ChildWaitSatisfied]())
 		for _, boundary := range []ChildWaitBoundary{ChildWaitBoundaryResult, ChildWaitBoundaryDrained} {
 			spec := ChildWaitSpec{Key: key, Children: []ProcessID{childID}, Boundary: boundary, Condition: AllChildren()}
 			if got, want := satisfied.Matches(waitID, spec), drained == (boundary == ChildWaitBoundaryDrained); got != want {
 				t.Fatalf("drained=%t boundary=%s matches=%t, want %t", drained, boundary, got, want)
 			}
 		}
+	}
+}
+
+func TestDispatcherOutputCannotBecomeAFrameworkDelivery(t *testing.T) {
+	id := controlValue(ParseProcessID("process:frames")).effectID(1, 0).settlementSignalID()
+	output := controlValue(jsonv2.Marshal(ChildControlResult{}))
+	wire := controlValue(NewSettlementSignal(id, controlValue(NewSettlement(SettlementStatusSucceeded, output))))
+	var restored Signal
+	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(wire)), &restored); err != nil {
+		t.Fatal(err)
+	}
+	for _, signal := range []Signal{wire, restored} {
+		if _, err := signal.Frame[ChildControlResult](); !errors.Is(err, ErrInvalidSignal) {
+			t.Fatalf("dispatcher data was accepted as a control receipt: %v", err)
+		}
+		settlement := controlValue(signal.Frame[Settlement]())
+		if settlement.Status() != SettlementStatusSucceeded || !bytes.Equal(settlement.Payload(), output) {
+			t.Fatalf("dispatcher settlement changed: %s", settlement.Payload())
+		}
+	}
+}
+
+func TestMalformedFrameworkBodyIsRejectedAtAdmission(t *testing.T) {
+	id := controlValue(ParseSignalID("signal:engine:receipt"))
+	body := json.RawMessage(`{"operation":"undocumented"}`)
+	if signal, err := NewSignal(id, WaitID{}, body); signal.Valid() || !errors.Is(err, ErrInvalidSignal) {
+		t.Fatalf("constructed unknown frame: valid=%t err=%v", signal.Valid(), err)
+	}
+	original := controlValue(NewSignal(controlValue(ParseSignalID("signal:host")), WaitID{}, []byte("42")))
+	decoded := original
+	data := controlValue(jsonv2.Marshal(signalWire{ID: id, Payload: body}))
+	if err := jsonv2.Unmarshal(data, &decoded); !errors.Is(err, ErrInvalidSignal) || decoded.ID() != original.ID() {
+		t.Fatalf("wire admitted malformed evidence: id=%v err=%v", decoded.ID(), err)
+	}
+	record := signalRecordWire{ID: id, Payload: body}
+	if _, err := record.restore(false); !errors.Is(err, ErrInvalidSignal) {
+		t.Fatalf("stored mailbox admitted unknown frame: %v", err)
 	}
 }

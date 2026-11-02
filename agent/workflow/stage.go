@@ -97,9 +97,9 @@ type CallConfig struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	// Deployment is the exact child program. The Workflow owns it as
-	// one of its ChildDeployments.
-	Deployment run.Program[run.Payload, run.Payload]
+	// Program is the exact child program. The Workflow owns it as
+	// one of its ChildPrograms.
+	Program run.Program[run.Payload, run.Payload]
 
 	// Budget is permanently allocated from the parent when the child starts.
 	Budget run.Budget
@@ -153,11 +153,11 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // Call constructs one managed child-Process Stage. No child Process is created
 // until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
-	binding, valid := newChildBinding(config.Deployment, config.Budget, config.Capabilities)
+	binding, valid := newChildBinding(config.Program, config.Budget, config.Capabilities)
 	if !run.ValidQualifiedName(config.ID) || !valid {
 		return Stage{}, ErrInvalidStage
 	}
-	descriptor := config.Deployment.Descriptor()
+	descriptor := config.Program.Descriptor()
 	return Stage{
 		id: config.ID, kind: StageKindCall,
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(),

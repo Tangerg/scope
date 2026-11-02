@@ -263,7 +263,7 @@ func TestCompiledBindingsRequireDeclaredOpaqueIdentitiesWithoutCallingCollaborat
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"no build", "no model revision", "unidentified tool", "identity without tools", "unidentified context", "context identity without callback", "duplicate tools", "invalid definition", "missing model"} {
+	for _, mode := range []string{"no build", "no model revision", "unidentified context", "context identity without callback", "invalid definition", "missing model"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := base
 			switch mode {
@@ -271,17 +271,10 @@ func TestCompiledBindingsRequireDeclaredOpaqueIdentitiesWithoutCallingCollaborat
 				cfg.BuildIdentity = run.Digest{}
 			case "no model revision":
 				cfg.ModelIdentity = run.Digest{}
-			case "unidentified tool":
-				cfg.Tools = []tool.Tool{echo}
-			case "identity without tools":
-				cfg.ToolIdentity = run.ComputeDigest([]byte("echo settings"))
 			case "unidentified context":
 				cfg.ContextProcessor = uncertainPreparation{&toolCalls}
 			case "context identity without callback":
 				cfg.ContextIdentity = run.ComputeDigest([]byte("unbound"))
-			case "duplicate tools":
-				cfg.Tools = []tool.Tool{echo, echo}
-				cfg.ToolIdentity = run.ComputeDigest([]byte("echo settings"))
 			case "invalid definition":
 				cfg.Name = ""
 			case "missing model":
@@ -298,14 +291,28 @@ func TestCompiledBindingsRequireDeclaredOpaqueIdentitiesWithoutCallingCollaborat
 	if p, compileErr := agent.Compile(canceled, base); p.Valid() || !errors.Is(compileErr, context.Canceled) {
 		t.Fatal(p, compileErr)
 	}
+	tools := agent.ToolSetConfig{
+		Name: "test.tools", Description: "Exercise bound tool identity.", Tools: []tool.Tool{echo},
+		ImplementationDigest: run.ComputeDigest([]byte("tool implementation")),
+	}
+	if set, setErr := agent.NewToolSet(tools); !errors.Is(setErr, agent.ErrInvalidToolSet) || set.Configured() {
+		t.Fatalf("missing tool configuration digest: %v", setErr)
+	}
 	cfg := base
-	cfg.Tools = []tool.Tool{echo}
-	cfg.ToolIdentity = run.ComputeDigest([]byte("echo settings:v1"))
+	tools.ConfigurationDigest = run.ComputeDigest([]byte("echo settings:v1"))
+	cfg.Tools, err = agent.NewToolSet(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
 	v1, err := agent.Compile(t.Context(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ToolIdentity = run.ComputeDigest([]byte("echo settings:v2"))
+	tools.ConfigurationDigest = run.ComputeDigest([]byte("echo settings:v2"))
+	cfg.Tools, err = agent.NewToolSet(tools)
+	if err != nil {
+		t.Fatal(err)
+	}
 	v2, err := agent.Compile(t.Context(), cfg)
 	if err != nil || v1.ProgramRef() == v2.ProgramRef() || toolCalls.Load() != 0 || modelCalls.Load() != 0 {
 		t.Fatalf("refs=%v %v calls=%d,%d err=%v", v1.ProgramRef(), v2.ProgramRef(), toolCalls.Load(), modelCalls.Load(), err)

@@ -17,7 +17,7 @@ func TestCoordinationRejectsIncompleteDefinitions(t *testing.T) {
 		(*coordination.InputGate)(nil), &coordination.InputGate{},
 		(*coordination.FirstSuccess)(nil), &coordination.FirstSuccess{},
 	} {
-		if definition.Descriptor().Valid() || len(definition.ChildDeployments()) != 0 {
+		if definition.Descriptor().Valid() || len(definition.ChildPrograms()) != 0 {
 			t.Fatalf("unconfigured %T exposed a usable contract", definition)
 		}
 		if execution, err := definition.Start(run.Payload{}); execution != nil || !errors.Is(err, coordination.ErrInvalidConfig) {

@@ -10,7 +10,15 @@
 // The reference implementation lives in core/history/inmemory.
 //
 // MiddlewareConfig freezes one validated ConversationID at construction. The
-// Host selects the partition by assembling the appropriate model binding.
+// Host selects the partition by assembling the appropriate model binding. The
+// Store supplies completed turns. Each request supplies its current system
+// prefix and one open turn beginning with a user message. On a tool follow-up,
+// resubmit that turn's user message, assistant tool calls and tool results.
+// A successfully completed invocation writes its final assistant and the open
+// turn in one batch. The next user turn can have identical content.
+// Callers supplying their own complete transcript use the undecorated model.
+// Invalid turns fail with [github.com/Tangerg/scope/core/chat.ErrInvalidRequest]
+// before store or provider I/O.
 //
 // Writes preserve message order within one call. Conversation listing is an
 // optional capability and returns unique IDs in lexical order. Concurrent

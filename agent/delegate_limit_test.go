@@ -16,7 +16,7 @@ func TestDelegateAtModelLimit(t *testing.T) {
 		return delegateResponse(in), nil
 	})
 	budget := run.Budget{Steps: run.NewQuota(20), Effects: run.NewQuota(20), Signals: run.NewQuota(20)}
-	delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "worker", Description: "Return one value.", Deployment: child, Budget: budget})
+	delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "worker", Description: "Return one value.", Program: child, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

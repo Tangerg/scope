@@ -615,7 +615,7 @@ type testDefinition struct {
 
 func (t testDefinition) Descriptor() run.Descriptor { return t.descriptor }
 
-func (testDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (testDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (testDefinition) Start(input run.Payload) (run.Execution, error) {
 	value, err := input.Decode[testInput]()

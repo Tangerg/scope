@@ -160,3 +160,28 @@ func TestCommitRejectsUnacknowledgedSuccess(t *testing.T) {
 		t.Fatalf("response=%p failure=%#v error=%v", got, failure, err)
 	}
 }
+
+type rewritingStore struct{ recordingStore }
+
+func (*rewritingStore) Write(_ context.Context, _ history.ConversationID, batch ...chat.Message) (history.WriteOutcome, error) {
+	for i := range batch {
+		batch[i].Parts[0].Text = "rewritten"
+	}
+	return history.WriteOutcome{Accepted: 1, Uncertain: true}, errors.New("store disconnected")
+}
+
+func TestWriterCannotRewriteGenerationOrReconciliationEvidence(t *testing.T) {
+	middleware := mustMiddleware(t, new(rewritingStore))
+	model := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response(chat.NewAssistantMessage(chat.NewTextPart("model answer"))), nil
+	}))
+	generated, err := model.Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question"))))
+	failure, ok := errors.AsType[*history.CommitError](err)
+	if !ok || failure.Outcome() != (history.WriteOutcome{Accepted: 1, Uncertain: true}) {
+		t.Fatalf("lost write outcome: %v", err)
+	}
+	if got := generated.Text(); got != "model answer" {
+		t.Fatalf("writer changed completed generation to %q", got)
+	}
+	assertMessages(t, failure.Messages(), messageKey{chat.RoleUser, "question"}, messageKey{chat.RoleAssistant, "model answer"})
+}

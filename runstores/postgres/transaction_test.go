@@ -240,3 +240,70 @@ func TestBlockedStorageDeadlineAndShutdown(t *testing.T) {
 		})
 	}
 }
+
+func TestActivationRetainsUnchangedProcessRecord(t *testing.T) {
+	ctx := t.Context()
+	fixture := newPostgresFixture(t)
+	store := fixture.committer
+	first, program, payload := newProbeRuntime(t, store, fixture)
+	root, err := first.Start(ctx, program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = root.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	head, found, err := store.LoadTree(ctx, root.ID())
+	if err != nil || !found {
+		t.Fatalf("initial head: found=%t error=%v", found, err)
+	}
+	revision := func() string {
+		var xmin string
+		if queryErr := store.pool.QueryRow(ctx, "SELECT xmin::text FROM tree_processes WHERE root_id=$1 AND process_id=$1", root.ID().String()).Scan(&xmin); queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		return xmin
+	}
+	before := revision()
+	next, _, _ := newProbeRuntime(t, store, fixture)
+	recovered, err := next.Recover(ctx, program, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = recovered.Join(ctx); err != nil {
+		t.Fatal(err)
+	}
+	restored, found, err := store.LoadTree(ctx, root.ID())
+	if err != nil || !found || restored.Digest() == head.Digest() || restored.IncarnationID() != recovered.TreeIncarnationID() {
+		t.Fatalf("recovery head: found=%t error=%v", found, err)
+	}
+	if after := revision(); after != before {
+		t.Fatalf("unchanged Process rewritten by writer activation: %s -> %s", before, after)
+	}
+	misplaced := "misindexed-physical-row"
+	if _, err = store.pool.Exec(ctx, "UPDATE tree_processes SET process_id=$2 WHERE root_id=$1 AND process_id=$1", root.ID().String(), misplaced); err != nil {
+		t.Fatal(err)
+	}
+	if bad, found, loadErr := store.LoadTree(ctx, root.ID()); bad.Valid() || found || !errors.Is(loadErr, run.ErrInvalidTreeSnapshot) {
+		t.Fatalf("misindexed member accepted: found=%t error=%v", found, loadErr)
+	}
+	if _, err = store.pool.Exec(ctx, "UPDATE tree_processes SET process_id=$1 WHERE root_id=$1 AND process_id=$2", root.ID().String(), misplaced); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = store.pool.Exec(ctx, "UPDATE tree_heads SET digest=$2 WHERE root_id=$1", root.ID().String(), head.Digest().String()); err != nil {
+		t.Fatal(err)
+	}
+	if bad, found, loadErr := store.LoadTree(ctx, root.ID()); bad.Valid() || found || !errors.Is(loadErr, run.ErrInvalidTreeSnapshot) {
+		t.Fatalf("corrupt head accepted: found=%t error=%v", found, loadErr)
+	}
+	if _, err = store.pool.Exec(ctx, "UPDATE tree_heads SET digest=$2 WHERE root_id=$1", root.ID().String(), restored.Digest().String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, "UPDATE tree_processes SET snapshot=$2 WHERE root_id=$1", root.ID().String(), []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if bad, found, err := store.LoadTree(ctx, root.ID()); bad.Valid() || found || !errors.Is(err, run.ErrInvalidTreeSnapshot) {
+		t.Fatalf("corrupt member accepted: found=%t error=%v", found, err)
+	}
+}

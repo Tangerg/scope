@@ -125,7 +125,7 @@ func acknowledgeProcessInitialization(
 		return acknowledger.Acknowledge(context.WithoutCancel(RequireContext(ctx)), outcome)
 	})
 	if err != nil {
-		return fmt.Errorf("agent: acknowledge Process initialization: %w", err)
+		return fmt.Errorf("run: acknowledge Process initialization: %w", err)
 	}
 	return nil
 }

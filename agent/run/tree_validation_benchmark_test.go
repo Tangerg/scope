@@ -194,7 +194,7 @@ func BenchmarkMemoryStoreRetention(b *testing.B) {
 					if index%2 != 0 {
 						next = second
 					}
-					checkpoint := controlValue(newTreeCheckpoint(uint64(index+2), checkpointCauseCut, previous.Digest(), next))
+					checkpoint := controlValue(newTreeCheckpoint(uint64(index+2), checkpointCauseCut, previous, next))
 					if err := store.CommitCheckpoint(b.Context(), checkpoint); err != nil {
 						b.Fatal(err)
 					}

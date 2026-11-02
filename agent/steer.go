@@ -49,17 +49,29 @@ func (s *steerBatch) appendSignal(signal run.Signal, messages []chat.Message) er
 }
 
 func (s *steerBatch) collectSignal(signal run.Signal) (bool, error) {
-	envelope, err := decodeSignal(signal.Payload())
+	frame, err := signal.Frame[run.SignalFrame]()
 	if err != nil {
 		return false, nil
 	}
+	input, external := frame.(run.ExternalInput)
+	if !external {
+		return false, nil
+	}
+	return true, s.collectInput(signal, input)
+}
+
+func (s *steerBatch) collectInput(signal run.Signal, input run.ExternalInput) error {
+	envelope, err := decodeSignal(input.Payload())
+	if err != nil {
+		return err
+	}
 	if envelope.operation() != operationSteer {
-		return true, fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.operation())
+		return fmt.Errorf("%w: unexpected Interaction %q Signal", ErrInvalidExecutionState, envelope.operation())
 	}
 	if err := s.appendSignal(signal, envelope.Steer.Messages); err != nil {
-		return true, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	return true, nil
+	return nil
 }
 
 func validateSteerSignalIDs(ids []run.SignalID) error {

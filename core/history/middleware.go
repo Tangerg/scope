@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -55,11 +56,7 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 		if err := response.Validate(); err != nil {
 			return response, fmt.Errorf("history: middleware: model response: %w", err)
 		}
-		assistant, persist := m.persistableAssistant(response)
-		if !persist {
-			return response, nil
-		}
-		if err := m.persist(ctx, fresh, assistant); err != nil {
+		if err := m.persist(ctx, fresh, response.Output.Message); err != nil {
 			return response, err
 		}
 		return response, nil
@@ -104,11 +101,7 @@ func (m Middleware) stream(
 		yield(nil, fmt.Errorf("history: middleware: complete stream: %w", err))
 		return
 	}
-	assistant, persist := m.persistableAssistant(response)
-	if !persist {
-		return
-	}
-	if err := m.persist(ctx, fresh, assistant); err != nil {
+	if err := m.persist(ctx, fresh, response.Output.Message); err != nil {
 		yield(nil, err)
 	}
 }
@@ -145,10 +138,14 @@ func (h *historyStream) stop(response *chat.ResponseDelta, err error) bool {
 func (m Middleware) prepare(
 	ctx context.Context,
 	request *chat.Request,
-) (*chat.Request, []chat.Message, error) {
+) (*chat.Request, historyMessages, error) {
 	prepared, err := m.snapshotRequest(request)
 	if err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: prepare request: %w", err)
+	}
+	systems, fresh, err := historyMessages(prepared.Messages).openTurn()
+	if err != nil {
+		return nil, nil, err
 	}
 	stored, err := m.store.Read(ctx, m.conversationID)
 	if err != nil {
@@ -160,11 +157,7 @@ func (m Middleware) prepare(
 		}
 	}
 
-	systems, fresh := historyMessages(prepared.Messages).split()
-	freshSnapshot := make([]chat.Message, len(fresh))
-	for index := range fresh {
-		freshSnapshot[index] = fresh[index].Clone()
-	}
+	freshSnapshot := fresh.clone()
 	prepared.Messages = make([]chat.Message, 0, len(systems)+len(stored)+len(fresh))
 	prepared.Messages = append(prepared.Messages, systems...)
 	for _, message := range stored {
@@ -181,13 +174,16 @@ func (m Middleware) prepare(
 
 func (m Middleware) persist(
 	ctx context.Context,
-	fresh []chat.Message,
-	assistant chat.Message,
+	fresh historyMessages,
+	assistant *chat.Message,
 ) error {
-	messages := make([]chat.Message, 0, len(fresh)+1)
-	messages = append(messages, fresh...)
-	messages = append(messages, assistant)
-	outcome, err := m.store.Write(ctx, m.conversationID, messages...)
+	if !completesTurn(assistant) {
+		return nil
+	}
+	// A failed or partial write is reconciled against the submitted batch,
+	// including when an adapter reuses or rewrites its argument buffers.
+	messages := append(fresh, assistant.Clone())
+	outcome, err := m.store.Write(ctx, m.conversationID, messages.clone()...)
 	if invalid := outcome.ValidateFor(len(messages), err); invalid != nil {
 		err = errors.Join(err, invalid)
 		// Contradictory adapter facts cannot authorize a retry of any message.
@@ -195,7 +191,6 @@ func (m Middleware) persist(
 	}
 	if err != nil {
 		failure := &CommitError{conversationID: m.conversationID, messages: messages, outcome: outcome, cause: err}
-		failure.messages = failure.Messages()
 		kind := chat.CallFailureFailed
 		if outcome.Uncertain {
 			kind = chat.CallFailureUnknown
@@ -215,29 +210,39 @@ func (m Middleware) snapshotRequest(request *chat.Request) (*chat.Request, error
 	return request.Clone(), nil
 }
 
-func (m Middleware) persistableAssistant(response *chat.Response) (chat.Message, bool) {
-	if response.Output.Message == nil {
-		return chat.Message{}, false
+// A tool-calling assistant leaves the turn open. The caller supplies its tool
+// exchange until a final assistant closes the turn and the store owns it.
+func completesTurn(message *chat.Message) bool {
+	if message == nil || message.Role != chat.RoleAssistant {
+		return false
 	}
-	for _, part := range response.Output.Message.Parts {
+	for _, part := range message.Parts {
 		if part.Kind == chat.PartToolCall {
-			return chat.Message{}, false
+			return false
 		}
 	}
-	return *response.Output.Message, true
+	return true
 }
 
 type historyMessages []chat.Message
 
-func (h historyMessages) split() (systems, nonSystems historyMessages) {
-	systems = make([]chat.Message, 0, len(h))
-	nonSystems = make([]chat.Message, 0, len(h))
-	for _, message := range h {
-		if message.Role == chat.RoleSystem {
-			systems = append(systems, message)
-		} else {
-			nonSystems = append(nonSystems, message)
+func (h historyMessages) clone() historyMessages {
+	messages := make(historyMessages, len(h))
+	for i := range h {
+		messages[i] = h[i].Clone()
+	}
+	return messages
+}
+
+func (h historyMessages) openTurn() (systems, fresh historyMessages, err error) {
+	start := slices.IndexFunc(h, func(message chat.Message) bool { return message.Role != chat.RoleSystem })
+	if start < 0 || h[start].Role != chat.RoleUser {
+		return nil, nil, fmt.Errorf("%w: history requires one current user-led turn after the system prefix", chat.ErrInvalidRequest)
+	}
+	for i := start + 1; i < len(h); i++ {
+		if h[i].Role == chat.RoleUser || completesTurn(&h[i]) {
+			return nil, nil, fmt.Errorf("%w: history owns prior turns; messages[%d] is outside the current open turn", chat.ErrInvalidRequest, i)
 		}
 	}
-	return systems, nonSystems
+	return h[:start], h[start:], nil
 }

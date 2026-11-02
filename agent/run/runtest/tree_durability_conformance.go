@@ -38,8 +38,8 @@ type TreeCommitterConformanceDriver interface {
 // Each factory call must return an empty isolated store so prior head ownership
 // cannot mask a missing compare-and-swap or idempotency check:
 //
-//	agenttest.RunTreeCommitterConformance(t, func() agenttest.TreeCommitterConformanceDriver {
-//		return agent.NewMemoryStore()
+//	runtest.RunTreeCommitterConformance(t, func() runtest.TreeCommitterConformanceDriver {
+//		return run.NewMemoryStore()
 //	})
 //
 // Runtime operations inherit the test context; storage calls detach its
@@ -493,7 +493,7 @@ func conformanceDescriptor(t *testing.T, name, description string) run.Descripto
 
 func (c *conformanceDefinition) Descriptor() run.Descriptor { return c.descriptor }
 
-func (*conformanceDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*conformanceDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -537,12 +537,12 @@ func (c *conformanceExecution) Step(
 		return c.stepEffect(signals)
 	case conformanceModePause:
 		if c.state.Phase != conformancePhaseReady || len(signals) != 0 {
-			return run.Transition{}, errors.New("agenttest: paused execution cannot advance")
+			return run.Transition{}, errors.New("runtest: paused execution cannot advance")
 		}
 		c.state.Phase = conformancePhaseFinished
 		return run.Pause(0, "committer conformance parked state")
 	default:
-		return run.Transition{}, errors.New("agenttest: invalid conformance mode")
+		return run.Transition{}, errors.New("runtest: invalid conformance mode")
 	}
 }
 
@@ -564,11 +564,11 @@ func (c *conformanceExecution) stepWait(signals []run.Signal) (run.Transition, e
 		return run.Continue(0, effect)
 	}
 	if c.state.Phase != conformancePhaseAwaitingEffect || len(signals) != 1 {
-		return run.Transition{}, errors.New("agenttest: missing wait opening signal")
+		return run.Transition{}, errors.New("runtest: missing wait opening signal")
 	}
 	waitID, ok := signals[0].WaitID()
 	if !ok {
-		return run.Transition{}, errors.New("agenttest: missing wait identity")
+		return run.Transition{}, errors.New("runtest: missing wait identity")
 	}
 	c.state.Phase = conformancePhaseFinished
 	return run.Wait(1, waitID)
@@ -591,7 +591,7 @@ func (c *conformanceExecution) stepEffect(signals []run.Signal) (run.Transition,
 	switch c.state.Phase {
 	case conformancePhaseReady:
 		if len(signals) != 0 {
-			return run.Transition{}, errors.New("agenttest: unexpected initial Signal")
+			return run.Transition{}, errors.New("runtest: unexpected initial Signal")
 		}
 		c.state.Phase = conformancePhaseAwaitingEffect
 		payload, err := jsonv2.Marshal(conformanceInput{Value: c.state.Value})
@@ -605,7 +605,7 @@ func (c *conformanceExecution) stepEffect(signals []run.Signal) (run.Transition,
 		return run.Continue(0, effect)
 	case conformancePhaseAwaitingEffect:
 		if len(signals) != 1 {
-			return run.Transition{}, errors.New("agenttest: settlement Signal is missing")
+			return run.Transition{}, errors.New("runtest: settlement Signal is missing")
 		}
 		var output conformanceOutput
 		if err := jsonv2.Unmarshal(signals[0].Payload(), &output); err != nil {
@@ -618,7 +618,7 @@ func (c *conformanceExecution) stepEffect(signals []run.Signal) (run.Transition,
 		}
 		return run.Complete(1, encoded)
 	default:
-		return run.Transition{}, errors.New("agenttest: completed execution cannot advance")
+		return run.Transition{}, errors.New("runtest: completed execution cannot advance")
 	}
 }
 

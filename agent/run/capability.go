@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidCapability = errors.New("agent: invalid capability")
+var ErrInvalidCapability = errors.New("run: invalid capability")
 
 // Capability is one stable qualified authority name understood by a
 // Program's dispatcher or another external boundary. The Framework only

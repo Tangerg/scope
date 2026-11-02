@@ -51,10 +51,10 @@ func TestToolChildFailuresRetainRestorableParentState(t *testing.T) {
 			}
 			config := run.Config{Store: run.NewMemoryStore()}
 			wantCode, wantCalls := "engine.limit.steps", int32(1)
-			wantKind, wantMessage := run.FailureKindExecution, "agent: resource limit exceeded"
+			wantKind, wantMessage := run.FailureKindExecution, "run: resource limit exceeded"
 			if stage == "start" {
 				wantCode, wantCalls = "engine.child.admission.rejected", 0
-				wantKind, wantMessage = run.FailureKindExternal, "agent: process admission rejected: child admission rejected"
+				wantKind, wantMessage = run.FailureKindExternal, "run: process admission rejected: child admission rejected"
 				config.ProcessAdmitter = run.ProcessAdmitterFunc(func(_ context.Context, admission run.ProcessAdmission) error {
 					if !admission.Relation().IsRoot() {
 						return errors.New("child admission rejected")
@@ -105,7 +105,7 @@ func TestChildAdmissionFailurePolicyDistinguishesToolsAndDelegates(t *testing.T)
 			config := agent.DefinitionConfig{Name: "test.admission_policy", Description: "Exercise child admission policy.", MaxModelCalls: run.NewQuota(2)}
 			toolConfig := agent.ToolSetConfig{}
 			if delegated {
-				delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "work", Description: "Run delegated work.", Deployment: child})
+				delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "work", Description: "Run delegated work.", Program: child})
 				if err != nil {
 					t.Fatal(err)
 				}

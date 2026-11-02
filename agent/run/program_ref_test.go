@@ -34,7 +34,7 @@ func TestProgramRefBindsContractImplementationAndConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	if reference.Digest() == changedImplementation.Digest() || reference.Digest() == changedConfiguration.Digest() {
-		t.Fatal("Deployment digest did not change with exact implementation or configuration")
+		t.Fatal("Program digest did not change with exact implementation or configuration")
 	}
 }
 

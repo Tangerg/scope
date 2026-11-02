@@ -19,7 +19,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 		}),
 	), "child")
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "managed_child", Deployment: child, Budget: mustBudget(t),
+		ID: "managed_child", Program: child, Budget: mustBudget(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 		}),
 	), "failing-child")
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "failing_child", Deployment: child, Budget: mustBudget(t),
+		ID: "failing_child", Program: child, Budget: mustBudget(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "test.workflow.call_target",
 		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "call-target")
-	_, err := workflow.Call(workflow.CallConfig{ID: "child", Deployment: child})
+	_, err := workflow.Call(workflow.CallConfig{ID: "child", Program: child})
 	if err != nil {
 		t.Fatalf("Call error = %v", err)
 	}
@@ -162,19 +162,19 @@ func mustDeployment(t *testing.T, definition run.Definition, identity string) ru
 func TestDefinitionChildBindingsDistinguishDeployments(t *testing.T) {
 	identity := func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }
 	root := func(child run.Program[run.Payload, run.Payload]) run.Program[run.Payload, run.Payload] {
-		stage, err := workflow.Call(workflow.CallConfig{ID: "child", Deployment: child})
+		stage, err := workflow.Call(workflow.CallConfig{ID: "child", Program: child})
 		if err != nil {
 			t.Fatal(err)
 		}
 		definition := mustDefinition(t, "test.workflow.binding_root", stage)
-		if bindings := definition.ChildDeployments(); len(bindings) != 1 || bindings[0].ProgramRef() != child.ProgramRef() {
-			t.Fatalf("ChildDeployments = %v, want the Call binding", bindings)
+		if bindings := definition.ChildPrograms(); len(bindings) != 1 || bindings[0].ProgramRef() != child.ProgramRef() {
+			t.Fatalf("ChildPrograms = %v, want the Call binding", bindings)
 		}
 		return mustDeployment(t, definition, "binding-root")
 	}
 	first := mustDeployment(t, mustDefinition(t, "test.workflow.first_child", mustTransform(t, "identity", identity)), "first-child")
 	second := mustDeployment(t, mustDefinition(t, "test.workflow.second_child", mustTransform(t, "identity", identity)), "second-child")
 	if root(first).ProgramRef() == root(second).ProgramRef() {
-		t.Fatal("Workflows bound to different children share one Deployment identity")
+		t.Fatal("Workflows bound to different children share one Program identity")
 	}
 }

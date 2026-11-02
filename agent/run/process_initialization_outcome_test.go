@@ -498,10 +498,19 @@ func assertNoPendingProcessStarts(t *testing.T, engine *Runtime) {
 	t.Helper()
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
-	if len(engine.startReservations) != 0 || len(engine.childStartReservations) != 0 {
-		t.Fatalf(
-			"pending starts = %d, pending children = %d",
-			len(engine.startReservations), len(engine.childStartReservations),
-		)
+	children := 0
+	for id, entry := range engine.registry.entries {
+		if entry.handle == nil {
+			t.Fatalf("process %s still has a pending reservation", id)
+		}
+		if identity, child := entry.handle.relation.childIdentity(); child {
+			children++
+			if _, indexed := engine.registry.children[identity]; !indexed {
+				t.Fatalf("published child %v is missing its reserved key", identity)
+			}
+		}
+	}
+	if len(engine.registry.children) != children {
+		t.Fatalf("registered %d child keys for %d published children", len(engine.registry.children), children)
 	}
 }

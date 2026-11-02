@@ -308,7 +308,7 @@ func (e *execution) acceptFanoutStarts(signals []run.Signal) (run.Transition, er
 	}
 	starts := make([]run.ChildStartResult, count)
 	for index := range starts {
-		starts[index], err = run.ParseChildStartResult(signals[index])
+		starts[index], err = signals[index].Frame[run.ChildStartResult]()
 		if err != nil {
 			return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
@@ -351,7 +351,7 @@ func (e *execution) acceptFanoutWaitOpen(signals []run.Signal) (run.Transition, 
 	if len(signals) == 0 {
 		return run.Transition{}, ErrInvalidProtocol
 	}
-	opened, err := run.ParseChildWaitOpened(signals[0])
+	opened, err := signals[0].Frame[run.ChildWaitOpened]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -371,7 +371,7 @@ func (e *execution) acceptFanoutCompletion(ctx context.Context, signals []run.Si
 	if len(signals) == 0 {
 		return run.Transition{}, ErrInvalidProtocol
 	}
-	completed, err := run.ParseChildWaitSatisfied(signals[0])
+	completed, err := signals[0].Frame[run.ChildWaitSatisfied]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}

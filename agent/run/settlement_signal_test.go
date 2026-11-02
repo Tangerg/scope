@@ -14,11 +14,11 @@ func TestSettlementSignalCarriesTheStatusThatOwnsSuccess(t *testing.T) {
 	if err := jsonv2.Unmarshal(controlValue(jsonv2.Marshal(signal)), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	settlement, err := ParseSettlement(decoded)
+	settlement, err := decoded.Frame[Settlement]()
 	if err != nil || !settlement.equal(failed) {
 		t.Fatalf("settlement = %+v, %v; want %+v", settlement, err, failed)
 	}
-	if _, err := ParseSettlement(controlValue(NewSignal(id, WaitID{}, []byte(`"refused"`)))); !errors.Is(err, ErrInvalidSettlement) {
+	if _, err := NewSignal(id, WaitID{}, []byte(`"refused"`)); !errors.Is(err, ErrInvalidSignal) {
 		t.Fatalf("Signal without a status parsed as a settlement: %v", err)
 	}
 	unknown := controlValue(NewSettlement(SettlementStatusUnknown, []byte(`{}`)))

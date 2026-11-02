@@ -31,7 +31,7 @@ func TestDeploymentBindsExactDefinitionAndDispatcher(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !deployment.Valid() || deployment.ProgramRef().ContractDigest() != definition.Descriptor().Digest() || deployment.Definition() != definition {
-		t.Fatalf("Deployment = %+v", deployment)
+		t.Fatalf("Program = %+v", deployment)
 	}
 
 	effect, err := NewDispatcherEffect(json.RawMessage(`{"operation":"test"}`))
@@ -191,7 +191,7 @@ type boundDefinition struct {
 	children []Program[Payload, Payload]
 }
 
-func (b *boundDefinition) ChildDeployments() []Program[Payload, Payload] { return b.children }
+func (b *boundDefinition) ChildPrograms() []Program[Payload, Payload] { return b.children }
 
 func TestDeploymentIdentityCoversChildBindings(t *testing.T) {
 	leaf := newEngineTestDefinition(t, "test.binding.leaf", "complete")
@@ -208,14 +208,14 @@ func TestDeploymentIdentityCoversChildBindings(t *testing.T) {
 	one := controlValue(deploy(first))
 	both := controlValue(deploy(first, second))
 	if unbound.ProgramRef() == one.ProgramRef() || one.ProgramRef() == both.ProgramRef() {
-		t.Fatal("different child bindings produced the same Deployment identity")
+		t.Fatal("different child bindings produced the same Program identity")
 	}
 	if unbound.ProgramRef().ConfigurationDigest() != both.ProgramRef().ConfigurationDigest() {
 		t.Fatal("child bindings leaked into the Host configuration digest")
 	}
 	reordered := controlValue(deploy(second, first, second))
 	if reordered.ProgramRef() != both.ProgramRef() || len(reordered.children) != 2 {
-		t.Fatal("binding order or repetition changed the Deployment identity")
+		t.Fatal("binding order or repetition changed the Program identity")
 	}
 	if _, err := deploy(first, Program[Payload, Payload]{}); !errors.Is(err, ErrInvalidProgram) {
 		t.Fatalf("invalid child binding error = %v", err)

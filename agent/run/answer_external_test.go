@@ -24,7 +24,7 @@ func TestRootAnswersExactChildWaitAndReconcilesAfterTerminal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call, err := workflow.Call(workflow.CallConfig{ID: "approval", Deployment: gate.Erase()})
+	call, err := workflow.Call(workflow.CallConfig{ID: "approval", Program: gate.Erase()})
 	if err != nil {
 		t.Fatal(err)
 	}

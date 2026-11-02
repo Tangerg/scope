@@ -12,7 +12,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidEffect = errors.New("agent: invalid effect")
+var ErrInvalidEffect = errors.New("run: invalid effect")
 
 // EffectTarget identifies which of the two execution boundaries owns an Effect.
 // Framework Effects are interpreted by the Runtime; Dispatcher Effects remain
@@ -57,23 +57,13 @@ func NewDispatcherEffect(payload json.RawMessage) (Effect, error) {
 
 // NewWaitEffect creates the Framework Effect that asks the Runtime to mint one
 // WaitID for the spec's key and to enforce the spec's acceptance contract on
-// every external answer. ParseWaitOpened reads the minted WaitID from the Signal
+// every external answer. Signal.Frame[WaitOpened] reads the minted WaitID from the Signal
 // that acknowledges it; the Execution keeps whatever the wait is about.
 func NewWaitEffect(spec ExternalWaitSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, fmt.Errorf("%w: wait spec: %w", ErrInvalidEffect, ErrInvalidExternalWait)
 	}
 	return newFrameworkEffect(waitRequestWire{Operation: frameworkOperationWait, Spec: spec.wire()})
-}
-
-// ParseWaitOpened returns the WaitID that a NewWaitEffect settlement Signal
-// acknowledges, verifying its Runtime-owned identity and fixed payload.
-func ParseWaitOpened(signal Signal) (WaitID, error) {
-	waitID, addressed := signal.WaitID()
-	if !signal.EngineOwned() || !addressed || !bytes.Equal(signal.Payload(), waitOpenedPayload()) {
-		return WaitID{}, fmt.Errorf("%w: not a wait opening", ErrInvalidSignal)
-	}
-	return waitID, nil
 }
 
 // waitOpenedPayload is the normalized payload of every external wait opening.

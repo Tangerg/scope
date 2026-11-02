@@ -534,3 +534,77 @@ func TestMiddlewareBindsOneValidatedPartition(t *testing.T) {
 		}
 	}
 }
+
+func TestMiddlewareRejectsCompletedOrMultipleTurnsBeforeIO(t *testing.T) {
+	user := chat.NewUserMessage(chat.NewTextPart("again"))
+	answer := chat.NewAssistantMessage(chat.NewTextPart("done"))
+	result := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: toolcontract.NewTextOutput("sunny")})
+	for _, messages := range [][]chat.Message{
+		{user, answer, user},
+		{user, answer},
+		{user, user},
+		{result},
+		{chat.NewSystemMessage("instruction")},
+	} {
+		request := mustRequest(t, messages...)
+		store := new(recordingStore)
+		middleware := mustMiddleware(t, store)
+		call := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			t.Fatal("model called with an invalid turn")
+			return nil, nil
+		}))
+		if got, err := call.Call(t.Context(), request); got != nil || !errors.Is(err, chat.ErrInvalidRequest) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted {
+			t.Fatalf("invalid turn: response=%v error=%v", got, err)
+		}
+		stream := middleware.Stream(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+			t.Fatal("streamer called with an invalid turn")
+			return nil
+		}))
+		failures := 0
+		for delta, err := range stream.Stream(t.Context(), request) {
+			failures++
+			if delta != nil || !errors.Is(err, chat.ErrInvalidRequest) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted {
+				t.Fatalf("invalid streaming turn: delta=%v error=%v", delta, err)
+			}
+		}
+		if reads, writes := store.counts(); failures != 1 || reads != 0 || writes != 0 {
+			t.Fatalf("failures=%d reads=%d writes=%d", failures, reads, writes)
+		}
+	}
+}
+
+func TestIdenticalUserTurnsRemainDistinctThroughToolContinuation(t *testing.T) {
+	store := new(inmemory.Store)
+	middleware := mustMiddleware(t, store)
+	user := chat.NewUserMessage(chat.NewTextPart("again"))
+	answer := chat.NewAssistantMessage(chat.NewTextPart("done"))
+	ask := mustRequest(t, user)
+	if _, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response(answer), nil
+	})).Call(t.Context(), ask); err != nil {
+		t.Fatal(err)
+	}
+	call := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call-1", Name: "weather", Arguments: "{}"}))
+	if _, err := middleware.Call(chat.ModelFunc(func(_ context.Context, input *chat.Request) (*chat.Response, error) {
+		assertMessages(t, input.Messages, messageKey{chat.RoleUser, "again"}, messageKey{chat.RoleAssistant, "done"}, messageKey{chat.RoleUser, "again"})
+		return response(call), nil
+	})).Call(t.Context(), ask); err != nil {
+		t.Fatal(err)
+	}
+	tool := chat.NewToolMessage(chat.ToolResult{ID: "call-1", Name: "weather", Output: toolcontract.NewTextOutput("sunny")})
+	want := []messageKey{{chat.RoleUser, "again"}, {chat.RoleAssistant, "done"}, {chat.RoleUser, "again"}, {chat.RoleAssistant, ""}, {chat.RoleTool, ""}}
+	stream := middleware.Stream(chat.StreamerFunc(func(_ context.Context, input *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		assertMessages(t, input.Messages, want...)
+		return func(yield func(*chat.ResponseDelta, error) bool) { yield(chunk("sunny", chat.FinishReasonStop), nil) }
+	}))
+	for _, err := range stream.Stream(t.Context(), mustRequest(t, user, call, tool)) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	stored, err := store.Read(t.Context(), "conversation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMessages(t, stored, append(want, messageKey{chat.RoleAssistant, "sunny"})...)
+}

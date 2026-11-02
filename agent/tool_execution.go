@@ -97,7 +97,7 @@ func newToolDefinition(name, description string) (*toolDefinition, error) {
 
 func (t *toolDefinition) Descriptor() run.Descriptor { return t.descriptor }
 
-func (*toolDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (*toolDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (t *toolDefinition) Start(input run.Payload) (run.Execution, error) {
 	call, err := input.Decode[toolCall]()
@@ -152,7 +152,11 @@ func (t *toolExecution) Step(ctx context.Context, signals []run.Signal) (run.Tra
 	}
 	switch t.state.phase() {
 	case toolAwaitingResult:
-		envelope, hostFailure, err := decodeSettlement(signal)
+		settlement, err := signal.Frame[run.Settlement]()
+		if err != nil {
+			return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		}
+		envelope, hostFailure, err := decodeSettlement(settlement)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -168,22 +172,24 @@ func (t *toolExecution) Step(ctx context.Context, signals []run.Signal) (run.Tra
 }
 
 func (t *toolExecution) acceptWaitOpened(signal run.Signal) (run.Transition, error) {
-	waitID, err := run.ParseWaitOpened(signal)
+	opening, err := signal.Frame[run.WaitOpened]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
+	waitID := opening.WaitID()
 	t.state.WaitID = &waitID
 	return run.Wait(1, waitID)
 }
 
 func (t *toolExecution) acceptInputResponse(signal run.Signal) (run.Transition, error) {
 	waitID, addressed := signal.WaitID()
-	if !signal.Valid() || signal.EngineOwned() || !addressed || waitID != *t.state.WaitID {
+	input, err := signal.Frame[run.ExternalInput]()
+	if err != nil || !addressed || waitID != *t.state.WaitID {
 		return run.Transition{}, ErrInvalidExecutionState
 	}
 	return t.request(1, toolDispatchRequest{
 		Invocation: t.state.Call,
-		Resume:     &toolResume{InputRequest: *t.state.InputRequest, InputResponse: signal.Payload()},
+		Resume:     &toolResume{InputRequest: *t.state.InputRequest, InputResponse: input.Payload()},
 	})
 }
 

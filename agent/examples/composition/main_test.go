@@ -438,10 +438,10 @@ func childWaitSamples(t *testing.T, samples []runtest.ExecutionConformanceCase) 
 		if len(sample.Signals) == 0 {
 			continue
 		}
-		if _, err := agentrun.ParseChildWaitOpened(sample.Signals[0]); err == nil {
+		if _, err := sample.Signals[0].Frame[agentrun.ChildWaitOpened](); err == nil {
 			opening = sample
 		}
-		if _, err := agentrun.ParseChildWaitSatisfied(sample.Signals[0]); err == nil {
+		if _, err := sample.Signals[0].Frame[agentrun.ChildWaitSatisfied](); err == nil {
 			completion = sample
 		}
 	}

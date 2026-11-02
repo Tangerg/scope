@@ -16,9 +16,9 @@ type definitionProbe struct {
 	restore  func(context.Context, run.ExecutionState) (run.Execution, error)
 }
 
-func (d *definitionProbe) Descriptor() run.Descriptor                              { return d.describe() }
-func (*definitionProbe) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
-func (d *definitionProbe) Start(input run.Payload) (run.Execution, error)          { return d.start(input) }
+func (d *definitionProbe) Descriptor() run.Descriptor                           { return d.describe() }
+func (*definitionProbe) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+func (d *definitionProbe) Start(input run.Payload) (run.Execution, error)       { return d.start(input) }
 func (d *definitionProbe) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	return d.restore(ctx, state)
 }

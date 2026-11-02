@@ -353,7 +353,7 @@ type fixtureDefinition struct{ descriptor run.Descriptor }
 
 func (f fixtureDefinition) Descriptor() run.Descriptor { return f.descriptor }
 
-func (fixtureDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (fixtureDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (fixtureDefinition) Start(input run.Payload) (run.Execution, error) {
 	value, err := input.Decode[fixtureInput]()

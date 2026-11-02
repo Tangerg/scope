@@ -37,7 +37,7 @@ const (
 	EventDeltaDropped   = "agent.delta.dropped"
 )
 
-var ErrInvalidEvent = errors.New("agent: invalid event")
+var ErrInvalidEvent = errors.New("run: invalid event")
 
 // EventPhase distinguishes runtime observations from facts supported by
 // authoritative Process state. Runtimes publish committed facts only after
@@ -135,7 +135,7 @@ func (e eventDraft) phase() EventPhase { return frameworkEventContracts[e.name].
 
 func (e eventDraft) publish(sequence uint64) Event {
 	if sequence == 0 || e.name == "" {
-		panic("agent: invalid Event publication")
+		panic("run: invalid Event publication")
 	}
 	return Event{eventDraft: e, processSequence: sequence}
 }

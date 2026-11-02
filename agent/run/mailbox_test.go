@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMailboxConsumptionDropsPayloadOnlyFromAdoptedCandidate(t *testing.T) {
@@ -265,7 +266,7 @@ func TestMailboxCommitClosesOnlyConsumedChildWaits(t *testing.T) {
 	mailbox := newSignalMailbox()
 	waitID, _ := ParseWaitID("wait:children")
 	openTestChildWait(t, &mailbox, waitID, testChildWaitSpec(t, "children"))
-	answer := mustMailboxSignal(t, "signal:engine:answer", waitID, json.RawMessage(`{}`))
+	answer := childAnswerFixture(t, waitID)
 	if _, err := mailbox.enqueue(StatusRunning, answer, signalSourceChildWait); err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +331,7 @@ func TestChildWaitOpeningContentFollowsItsSpec(t *testing.T) {
 	mailbox := newSignalMailbox()
 	waitID := controlValue(ParseWaitID("wait:announced"))
 	spec := testChildWaitSpec(t, "announced")
-	unannounced := mustMailboxSignal(t, "signal:engine:announced", waitID, json.RawMessage(`{}`))
+	unannounced := childAnswerFixture(t, waitID)
 	if err := mailbox.openChildWait(spec, unannounced); !errors.Is(err, errWaitState) {
 		t.Fatalf("opening that does not announce its spec error = %v", err)
 	}
@@ -373,11 +374,12 @@ func TestMailboxRestoresWaitLifecycleAtEveryBoundary(t *testing.T) {
 				if err := mailbox.enterWait(id); err != nil || mailbox.waits[id].answer != nil {
 					t.Fatalf("unanswered wait answered=%t error=%v", mailbox.waits[id].answer != nil, err)
 				}
-				answerID := "signal:answer-" + strconv.Itoa(index)
+				var answer Signal
 				if kind == WaitKindChildren {
-					answerID = "signal:engine:answer-" + strconv.Itoa(index)
+					answer = childAnswerFixture(t, id)
+				} else {
+					answer = mustMailboxSignal(t, "signal:answer-"+strconv.Itoa(index), id, json.RawMessage(`{}`))
 				}
-				answer := mustMailboxSignal(t, answerID, id, json.RawMessage(`{}`))
 				if accepted, err := mailbox.enqueue(StatusRunning, answer, source); err != nil || !accepted {
 					t.Fatalf("answer accepted=%t error=%v", accepted, err)
 				}
@@ -484,7 +486,7 @@ func TestMailboxRejectsConflictingWaitOpeningsAtomically(t *testing.T) {
 		{name: "invalid wait contract", signal: opening},
 		{name: "missing wait address", spec: spec, signal: mustMailboxSignal(t, "signal:opening", WaitID{}, waitOpenedPayload())},
 		{name: "external opening identity", spec: spec, signal: mustMailboxSignal(t, "signal:opening", waitID, waitOpenedPayload())},
-		{name: "unexpected opening content", spec: spec, signal: controlValue(NewSignal(waitID.openingSignalID(), waitID, []byte(`{}`)))},
+		{name: "child opening for external wait", spec: spec, signal: controlValue(NewSignal(waitID.openingSignalID(), waitID, childWaitOpenedPayload()))},
 		{name: "duplicate wait identity", spec: spec, signal: opening, prepare: func(mailbox *signalMailbox) {
 			if err := mailbox.openWait(spec, opening); err != nil {
 				t.Fatal(err)
@@ -531,4 +533,14 @@ func TestMailboxRestoreRejectsUnownedWaitAndSettlementEvidence(t *testing.T) {
 			}
 		})
 	}
+}
+
+func childAnswerFixture(t testing.TB, wait WaitID) Signal {
+	t.Helper()
+	now := time.Unix(1, 0).UTC()
+	result := Result[Payload]{
+		processID: newProcessID(), startedAt: now, finishedAt: now,
+		termination: Termination{output: controlValue(EncodePayload("done"))},
+	}
+	return controlValue(encodeChildWaitSatisfied(wait, []ChildOutcome{{result: result}}))
 }

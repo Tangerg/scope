@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	ErrInvalidConfig         = errors.New("agent: invalid engine configuration")
-	ErrClosed                = errors.New("agent: engine is closed")
-	ErrQuiescenceUnavailable = errors.New("agent: engine cannot become quiescent")
-	ErrActiveProcesses       = errors.New("agent: engine has active processes")
-	ErrProcessAlreadyExists  = errors.New("agent: process identity already exists")
+	ErrInvalidConfig         = errors.New("run: invalid runtime configuration")
+	ErrClosed                = errors.New("run: runtime is closed")
+	ErrQuiescenceUnavailable = errors.New("run: runtime cannot become quiescent")
+	ErrActiveProcesses       = errors.New("run: runtime has active processes")
+	ErrProcessAlreadyExists  = errors.New("run: process identity already exists")
 	// ErrTreeNotFound reports that this Runtime has no registered root tree with
 	// the requested identity, including after ReleaseTree removed it.
-	ErrTreeNotFound = errors.New("agent: tree not found")
+	ErrTreeNotFound = errors.New("run: tree not found")
 )
 
 // Config keeps scheduling and authority policy outside Programs so a
@@ -39,7 +39,7 @@ type Config struct {
 
 	// ProgramResolver binds the exact child references a Program does
 	// not own: children named by runtime input. A program referring to itself and
-	// children a Program binds through Definition.ChildDeployments need no
+	// children a Program binds through Definition.ChildPrograms need no
 	// resolver. Nil rejects every other child reference.
 	ProgramResolver ProgramResolver
 
@@ -78,7 +78,7 @@ type Config struct {
 
 // Runtime keeps admission, publication, and execution under one owner because
 // resource reservations and recoverable tree state must describe the same
-// lifecycle. Construct it with New; its zero value is not usable. An
+// lifecycle. Construct it with New; its zero value is not usable. A
 // Runtime must not be copied because doing so shares its registries while
 // duplicating their synchronization. Operations on a nil Runtime report
 // ErrInvalidConfig; read accessors return zero values.
@@ -102,17 +102,8 @@ type Runtime struct {
 
 	// Registry and reservation changes share this lock so publication cannot
 	// expose a Process whose admission still appears unreserved.
-	mu                      sync.RWMutex
-	processes               map[ProcessID]*processHandle
-	startReservations       map[ProcessID]struct{}
-	treeRestoreReservations map[ProcessID]*treeRestoration
-	// These indexes project the same reservation and change only under mu.
-	restoredProcesses map[ProcessID]*treeRestoration
-	restoredChildren  map[childIdentity]*treeRestoration
-	// children indexes the parent-scoped keys of published Processes so key
-	// uniqueness is checked under e.mu without reading tree-owned membership.
-	children               map[childIdentity]struct{}
-	childStartReservations map[childIdentity]struct{}
+	mu       sync.RWMutex
+	registry processRegistry
 	// One channel closes admission at allocation and joins completion on close,
 	// avoiding separate shutdown flags that could disagree.
 	closeDone chan struct{}
@@ -208,13 +199,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 		capabilities:               config.Capabilities,
 		submissions:                make(map[StartID]chan struct{}),
 		treeOperations:             make(map[ProcessID]*treeOperation),
-		processes:                  make(map[ProcessID]*processHandle),
-		startReservations:          make(map[ProcessID]struct{}),
-		treeRestoreReservations:    make(map[ProcessID]*treeRestoration),
-		restoredProcesses:          make(map[ProcessID]*treeRestoration),
-		restoredChildren:           make(map[childIdentity]*treeRestoration),
-		children:                   make(map[childIdentity]struct{}),
-		childStartReservations:     make(map[childIdentity]struct{}),
+		registry:                   newProcessRegistry(),
 	}, nil
 }
 
@@ -261,7 +246,7 @@ func (r *Runtime) startTree(ctx, workCtx context.Context, deployment Program[Pay
 	// can be re-attempted under a new incarnation.
 	if err != nil {
 		acknowledgeErr := acknowledgeProcessInitialization(ctx, r.initializationAcknowledger, failedProcessInitializationOutcome(admission, TreeIncarnationID{}, failure))
-		return nil, errors.Join(fmt.Errorf("agent: initialize Process: %w", err), acknowledgeErr)
+		return nil, errors.Join(fmt.Errorf("run: initialize Process: %w", err), acknowledgeErr)
 	}
 	if acknowledgeErr := acknowledgeProcessInitialization(ctx, r.initializationAcknowledger, initializedProcessOutcome(admission, TreeIncarnationID{})); acknowledgeErr != nil {
 		return nil, acknowledgeErr
@@ -343,9 +328,6 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 	}
 	intent := startIntent(program.ProgramRef(), in)
 	accepted := func(receipt StartReceipt) (*Handle[O], error) {
-		if !receipt.Valid() || receipt.ID != req.ID {
-			return nil, ErrInvalidStart
-		}
 		if receipt.Intent != intent {
 			return nil, &StartConflictError{Receipt: receipt}
 		}
@@ -363,22 +345,18 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 		}
 		return nil, &StartAcceptedError{Receipt: receipt}
 	}
-	{
-		var receipt StartReceipt
-		var found bool
-		if lookupErr := invokeCallbackErr("Store.LookupStart", func() error {
-			var storeErr error
-			receipt, found, storeErr = r.committer.LookupStart(ctx, req.ID)
-			return storeErr
-		}); lookupErr != nil {
-			return nil, lookupErr
-		}
-		if found {
-			return accepted(receipt)
-		}
+	receipt, found, err := req.ID.lookup(ctx, r.committer)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return accepted(receipt)
 	}
 	p, err := r.startTree(ctx, context.WithoutCancel(ctx), program.Erase(), in, req.ID)
 	if old, ok := errors.AsType[*StartAcceptedError](err); ok {
+		if !old.Receipt.matches(req.ID) {
+			return nil, ErrInvalidStart
+		}
 		return accepted(old.Receipt)
 	}
 	if err != nil {
@@ -449,9 +427,9 @@ func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
 		return nil, false
 	}
 	r.mu.RLock()
-	handle, exists := r.processes[id]
+	handle := r.registry.entries[id].handle
 	r.mu.RUnlock()
-	if !exists {
+	if handle == nil {
 		return nil, false
 	}
 	return &Handle[Payload]{handle: handle}, true
@@ -495,10 +473,11 @@ func (r *Runtime) startClose() (<-chan struct{}, error) {
 	if r.closeDone != nil {
 		return r.closeDone, nil
 	}
-	if len(r.startReservations) != 0 || len(r.treeRestoreReservations) != 0 {
-		return nil, fmt.Errorf("%w: Process publication is pending", ErrActiveProcesses)
-	}
-	for _, handle := range r.processes {
+	for _, entry := range r.registry.entries {
+		handle := entry.handle
+		if handle == nil {
+			return nil, fmt.Errorf("%w: Process publication is pending", ErrActiveProcesses)
+		}
 		select {
 		case <-handle.bookkeepingDone:
 		default:
@@ -508,7 +487,7 @@ func (r *Runtime) startClose() (<-chan struct{}, error) {
 			)
 		}
 	}
-	for rootID := range r.processes {
+	for rootID := range r.registry.entries {
 		if runtime := r.rootRuntime(rootID); runtime != nil && runtime.ownsActiveWork() {
 			return nil, fmt.Errorf(
 				"%w: tree %s still owns active work",
@@ -536,85 +515,22 @@ func (r *Runtime) reserveProcessStart(relation ProcessRelation) error {
 	if r.closeDone != nil {
 		return ErrClosed
 	}
-	if r.processIdentityTaken(relation.ProcessID()) {
-		return ErrProcessAlreadyExists
-	}
-	if relation.IsRoot() {
-		r.startReservations[relation.ProcessID()] = struct{}{}
-		return nil
-	}
-	return r.reserveChildStart(relation)
-}
-
-// processIdentityTaken and childIdentityTaken require e.mu. Published,
-// starting, and restoring Processes reserve the same identity space.
-func (r *Runtime) processIdentityTaken(processID ProcessID) bool {
-	_, published := r.processes[processID]
-	_, starting := r.startReservations[processID]
-	return published || starting || r.restoredProcesses[processID] != nil
-}
-
-func (r *Runtime) childIdentityTaken(identity childIdentity) bool {
-	_, published := r.children[identity]
-	_, starting := r.childStartReservations[identity]
-	return published || starting || r.restoredChildren[identity] != nil
-}
-
-// The tree owner admits resources and depth; e.mu reserves global identities
-// atomically.
-func (r *Runtime) reserveChildStart(relation ProcessRelation) error {
-	identity, isChild := relation.childIdentity()
-	if !isChild {
-		return ErrInvalidProcessRelation
-	}
-	if r.childIdentityTaken(identity) {
-		return ErrInvalidChildStart
-	}
-	if r.processes[identity.parent] == nil {
-		return ErrInvalidProcessRelation
-	}
-	r.startReservations[relation.ProcessID()] = struct{}{}
-	r.childStartReservations[identity] = struct{}{}
-	return nil
+	return r.registry.reserve(relation, nil)
 }
 
 func (r *Runtime) discardProcessStart(relation ProcessRelation) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, reserved := r.startReservations[relation.ProcessID()]; !reserved {
-		return
-	}
-	delete(r.startReservations, relation.ProcessID())
-	if identity, child := relation.childIdentity(); child {
-		delete(r.childStartReservations, identity)
-	}
+	r.registry.discard(relation, nil)
 }
 
 func (r *Runtime) publishProcessStart(handle *processHandle) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, reserved := r.startReservations[handle.processID()]
-	if !reserved || r.closeDone != nil ||
-		r.processes[handle.processID()] != nil {
-		panic("agent: invalid Process start reservation")
+	if r.closeDone != nil || handle.treeRuntime() == nil {
+		panic("run: invalid Process start reservation")
 	}
-	identity, isChild := handle.relation.childIdentity()
-	if isChild {
-		_, childReserved := r.childStartReservations[identity]
-		if _, published := r.children[identity]; !childReserved || published ||
-			r.processes[identity.parent] == nil {
-			panic("agent: invalid child Process start reservation")
-		}
-	}
-	if handle.treeRuntime() == nil {
-		panic("agent: Process start has no tree runtime")
-	}
-	delete(r.startReservations, handle.processID())
-	r.processes[handle.processID()] = handle
-	if isChild {
-		delete(r.childStartReservations, identity)
-		r.children[identity] = struct{}{}
-	}
+	r.registry.publish(handle, nil)
 }
 
 // InspectTree samples a registered root tree without freezing it or waiting
@@ -720,11 +636,8 @@ func (r *Runtime) ReleaseTree(ctx context.Context, rootID ProcessID) error {
 	if r.rootRuntime(rootID) != runtime {
 		return ErrTreeNotFound
 	}
-	for processID, process := range runtime.members.all() {
-		if identity, child := process.handle.relation.childIdentity(); child {
-			delete(r.children, identity)
-		}
-		delete(r.processes, processID)
+	for _, process := range runtime.members.all() {
+		r.registry.release(process.handle)
 	}
 	runtime.binding.Store(nil)
 	return nil
@@ -836,7 +749,7 @@ func (r *Runtime) newRestoration(
 	}
 	rootSnapshot := wire.processSnapshot(wire.rootID())
 	if !rootSnapshot.Valid() || rootSnapshot.ProgramRef() != rootDeployment.ProgramRef() {
-		return nil, fmt.Errorf("%w: exact root Deployment does not match", ErrInvalidTreeSnapshot)
+		return nil, fmt.Errorf("%w: exact root Program does not match", ErrInvalidTreeSnapshot)
 	}
 	restoration := &treeRestoration{engine: r, wire: wire, deployments: make(map[ProgramRef]Program[Payload, Payload])}
 	if err := restoration.bind(rootDeployment); err != nil {
@@ -873,69 +786,45 @@ func (r *Runtime) reserveRestoredTree(restoration *treeRestoration) error {
 	if r.closeDone != nil {
 		return ErrClosed
 	}
-	rootID := restoration.wire.rootID()
-	if r.treeRestoreReservations[rootID] != nil || r.rootRuntime(rootID) != nil {
-		return ErrProcessAlreadyExists
-	}
-	for _, process := range restoration.wire.ProcessSnapshots {
-		if r.processIdentityTaken(process.Relation().ProcessID()) {
-			return ErrProcessAlreadyExists
-		}
-		if identity, child := process.Relation().childIdentity(); child && r.childIdentityTaken(identity) {
-			return ErrInvalidChildStart
-		}
-	}
-	r.treeRestoreReservations[rootID] = restoration
-	for _, process := range restoration.wire.ProcessSnapshots {
-		r.restoredProcesses[process.Relation().ProcessID()] = restoration
-		if identity, child := process.Relation().childIdentity(); child {
-			r.restoredChildren[identity] = restoration
+	for index, process := range restoration.wire.ProcessSnapshots {
+		if err := r.registry.reserve(process.Relation(), restoration); err != nil {
+			for _, claimed := range restoration.wire.ProcessSnapshots[:index] {
+				r.registry.discard(claimed.Relation(), restoration)
+			}
+			return err
 		}
 	}
 	return nil
 }
 
-// releaseRestoredTree requires mu and retires one reservation with both indexes.
-func (r *Runtime) releaseRestoredTree(restoration *treeRestoration) {
-	for _, process := range restoration.wire.ProcessSnapshots {
-		delete(r.restoredProcesses, process.Relation().ProcessID())
-		if identity, child := process.Relation().childIdentity(); child {
-			delete(r.restoredChildren, identity)
-		}
-	}
-	delete(r.treeRestoreReservations, restoration.wire.rootID())
-}
-
 func (r *Runtime) discardRestoredTree(restoration *treeRestoration) {
+	if restoration == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if restoration != nil && r.treeRestoreReservations[restoration.wire.rootID()] == restoration {
-		r.releaseRestoredTree(restoration)
+	for _, process := range restoration.wire.ProcessSnapshots {
+		r.registry.discard(process.Relation(), restoration)
 	}
 }
 
 func (r *Runtime) publishRestoredTree(restoration *treeRestoration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rootID := restoration.wire.rootID()
-	if r.closeDone != nil || r.treeRestoreReservations[rootID] != restoration {
-		panic("agent: invalid restored tree reservation")
-	}
 	runtime := restoration.runtime
-	if runtime == nil || runtime.rootID != rootID || r.rootRuntime(rootID) != nil {
-		panic("agent: invalid restored tree runtime")
+	if r.closeDone != nil || runtime == nil || runtime.rootID != restoration.wire.rootID() ||
+		runtime.members.len() != len(restoration.wire.ProcessSnapshots) {
+		panic("run: invalid restored tree runtime")
+	}
+	// Verify the whole set before making any handle visible.
+	for _, process := range runtime.members.all() {
+		if !r.registry.reserved(process.handle.relation, restoration) {
+			panic("run: restored Process reservation changed")
+		}
 	}
 	for _, process := range runtime.members.all() {
-		handle := process.handle
-		if _, reserved := r.startReservations[handle.processID()]; reserved || r.processes[handle.processID()] != nil {
-			panic("agent: restored Process reservation changed")
-		}
-		r.processes[handle.processID()] = handle
-		if identity, child := handle.relation.childIdentity(); child {
-			r.children[identity] = struct{}{}
-		}
+		r.registry.publish(process.handle, restoration)
 	}
-	r.releaseRestoredTree(restoration)
 }
 
 // CaptureTree quiesces the tree at Strategy-safe boundaries, commits the cut,
@@ -982,9 +871,9 @@ func (r *Runtime) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
 	return runtime, nil
 }
 
-// rootRuntime requires e.mu. A registered root handle owns its tree's runtime.
+// rootRuntime requires r.mu. A registered root handle owns its tree's runtime.
 func (r *Runtime) rootRuntime(rootID ProcessID) *treeRuntime {
-	root := r.processes[rootID]
+	root := r.registry.entries[rootID].handle
 	if root == nil || !root.relation.IsRoot() {
 		return nil
 	}

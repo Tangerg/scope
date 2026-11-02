@@ -15,6 +15,23 @@ type StartID struct {
 
 func (s StartID) Valid() bool { return validIdentity(s.Scope) && validIdentity(s.Key) }
 
+func (s StartID) lookup(ctx context.Context, reader StartReader) (StartReceipt, bool, error) {
+	var receipt StartReceipt
+	found, err := invokeCallback("Store.LookupStart", func() (bool, error) {
+		var ok bool
+		var lookupErr error
+		receipt, ok, lookupErr = reader.LookupStart(ctx, s)
+		return ok, lookupErr
+	})
+	if err != nil || !found {
+		return StartReceipt{}, false, err
+	}
+	if !receipt.matches(s) {
+		return StartReceipt{}, false, ErrInvalidStart
+	}
+	return receipt, true, nil
+}
+
 // StartReceipt is the durable association installed with the first tree head.
 // The backend must retain it across subsequent commits and writer activations.
 type StartReceipt struct {
@@ -24,6 +41,8 @@ type StartReceipt struct {
 }
 
 func (s StartReceipt) Valid() bool { return s.ID.Valid() && s.Intent.Valid() && s.RootID.Valid() }
+
+func (s StartReceipt) matches(id StartID) bool { return s.Valid() && s.ID == id }
 
 func (s StartReceipt) loadHead(ctx context.Context, reader HeadReader) (TreeSnapshot, error) {
 	return invokeCallback("HeadReader.LoadTree", func() (TreeSnapshot, error) {
@@ -72,7 +91,7 @@ func startIntent(ref ProgramRef, input Payload) Digest {
 }
 
 func newStartCheckpoint(snapshot TreeSnapshot, receipt StartReceipt) (TreeCheckpoint, error) {
-	c := TreeCheckpoint{sequence: 1, cause: checkpointCauseCut, treeSnapshot: snapshot, start: receipt}
+	c := TreeCheckpoint{sequence: 1, cause: checkpointCauseCut, treeUpdate: treeUpdate{treeSnapshot: snapshot}, start: receipt}
 	if !c.Valid() {
 		return TreeCheckpoint{}, ErrInvalidStart
 	}

@@ -29,7 +29,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
 				return workflow.Switch(workflow.SwitchConfig[numberInput]{
 					ID: "work", Select: canceledWorkflowCallback[numberInput, string](entered),
-					Cases: []workflow.SwitchCase{{ID: "child", Deployment: child, Budget: mustBudget(t)}},
+					Cases: []workflow.SwitchCase{{ID: "child", Program: child, Budget: mustBudget(t)}},
 				})
 			},
 		},
@@ -38,7 +38,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
 				return workflow.Fork(workflow.ForkConfig[numberInput, numberInput, numberInput]{
 					ID: "work", WindowSize: 1,
-					Branches: []workflow.ForkBranch{{ID: "child", Deployment: child, Budget: mustBudget(t)}},
+					Branches: []workflow.ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}},
 					Reduce: func(ctx context.Context, _ numberInput, outputs []numberInput) (numberInput, error) {
 						return canceledWorkflowCallback[[]numberInput, numberInput](entered)(ctx, outputs)
 					},

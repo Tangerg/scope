@@ -188,7 +188,7 @@ func newTreeRuntimeTestDeployment(t testing.TB) (Program[Payload, Payload], *tre
 
 func (t *treeRuntimeTestDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (*treeRuntimeTestDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*treeRuntimeTestDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (t *treeRuntimeTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[treeRuntimeTestInput]()

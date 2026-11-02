@@ -4,6 +4,10 @@
 // the pool or the durable history.
 //
 // The head, commit identity and optional Host mutation share a transaction.
+// Each Process occupies one row. A commit compares member digests and writes
+// only changed records; replacing a writer alone need not rewrite any Process.
+// A read assembles the complete portable tree from one database snapshot and
+// verifies its digest against the acknowledged head.
 // A scoped start receipt survives head advancement. Reloading either never
 // takes over a writer. A lost database acknowledgment requires reconciliation;
 // it cannot establish the outcome of an external tool operation.

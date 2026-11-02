@@ -9,13 +9,13 @@ import (
 )
 
 // ErrResourceLimitExceeded reports a designed execution bound, not a Runtime defect.
-var ErrResourceLimitExceeded = errors.New("agent: resource limit exceeded")
+var ErrResourceLimitExceeded = errors.New("run: resource limit exceeded")
 
 // ErrCounterExhausted reports exhausted numeric identity or accounting space,
 // independently of the Host's quota policy. Work stops before a counter wraps.
 // Strategies exhausting their own counters report this same sentinel.
 var ErrCounterExhausted = NewClassifiedError(
-	FailureKindExecution, failureCodeEngineCounterExhausted, "agent: counter exhausted",
+	FailureKindExecution, failureCodeEngineCounterExhausted, "run: counter exhausted",
 )
 
 const (
@@ -45,7 +45,7 @@ type Usage struct {
 
 func (u *Usage) UnmarshalJSON(data []byte) error {
 	if u == nil {
-		return errors.New("agent: nil usage receiver")
+		return errors.New("run: nil usage receiver")
 	}
 	type wire Usage
 	value, err := jsonwire.Decode[wire](data)
@@ -73,7 +73,7 @@ type Budget struct {
 
 func (b *Budget) UnmarshalJSON(data []byte) error {
 	if b == nil {
-		return errors.New("agent: nil budget receiver")
+		return errors.New("run: nil budget receiver")
 	}
 	type wire Budget
 	value, err := jsonwire.Decode[wire](data)
@@ -185,7 +185,7 @@ type TreeLimits struct {
 
 func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 	if t == nil {
-		return errors.New("agent: nil tree limits receiver")
+		return errors.New("run: nil tree limits receiver")
 	}
 	type wire TreeLimits
 	value, err := jsonwire.Decode[wire](data)

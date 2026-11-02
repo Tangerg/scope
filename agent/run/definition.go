@@ -13,7 +13,7 @@ type Definition interface {
 	// return an equivalent value; runtime configuration and mutable state do not
 	// belong in the descriptor.
 	Descriptor() Descriptor
-	// ChildDeployments returns every Program this definition binds in its
+	// ChildPrograms returns every Program this definition binds in its
 	// own configuration to start as a child. The Program owns these
 	// bindings: Bind folds their references into the ProgramRef,
 	// so a definition bound to different children is a different Program,
@@ -21,7 +21,7 @@ type Definition interface {
 	// themselves. Only children named by runtime input are left to the
 	// ProgramResolver. Repeated and concurrent calls must return the same
 	// set; a leaf definition returns none.
-	ChildDeployments() []Program[Payload, Payload]
+	ChildPrograms() []Program[Payload, Payload]
 	// Start validates input against Descriptor and creates a fresh, isolated
 	// Execution without performing external I/O. It takes no context because it
 	// only initializes local state and must return promptly.

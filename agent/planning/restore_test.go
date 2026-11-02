@@ -206,7 +206,7 @@ func TestRestoreKeepsSingleChildProgressWithinItsAction(t *testing.T) {
 		executors: map[string]planning.ActionExecutor{"finish": world.apply(action)}, sensor: world,
 	})
 	binding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: action, Deployment: child, Budget: run.Budget{Steps: run.NewQuota(32), Effects: run.NewQuota(32), Signals: run.NewQuota(64)},
+		Action: action, Program: child, Budget: run.Budget{Steps: run.NewQuota(32), Effects: run.NewQuota(32), Signals: run.NewQuota(64)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestRestoreRequiresEvidenceThatTheCurrentActionWasApplicable(t *testing.T) 
 		goal: mustGoal(t, done), bindings: []planning.ActionBinding{mustDispatcherBinding(t, action)},
 		executors: map[string]planning.ActionExecutor{"finish": world.apply(action)}, sensor: world,
 	})
-	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: child})
+	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: child})
 	if err != nil {
 		t.Fatal(err)
 	}

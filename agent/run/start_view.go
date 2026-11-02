@@ -22,17 +22,10 @@ func (s *StartedTrees) Load(ctx context.Context, id StartID) (TreeSnapshot, bool
 	if !id.Valid() {
 		return TreeSnapshot{}, false, ErrInvalidStart
 	}
-	receipt, ok, err := s.starts.LookupStart(ctx, id)
+	receipt, ok, err := id.lookup(ctx, s.starts)
 	if err != nil || !ok {
 		return TreeSnapshot{}, false, err
 	}
-	if !receipt.Valid() || receipt.ID != id {
-		return TreeSnapshot{}, false, ErrInvalidStart
-	}
 	head, err := receipt.loadHead(ctx, s.heads)
 	return head, err == nil, err
-}
-
-func answerRequest(wait WaitID, answer Payload) (SignalRequest, error) {
-	return NewSignalRequest(SignalID{deriveIdentity("signal:answer:", "external-answer", wait.String())}, wait, answer.JSON())
 }

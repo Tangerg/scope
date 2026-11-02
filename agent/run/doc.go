@@ -2,7 +2,10 @@
 // [Definition] owns immutable behavior and creates serializable [Execution]
 // values. [Runtime] owns Process lifecycle, Signal delivery, Effect dispatch,
 // child composition, resource bounds, observation, and tree recovery.
-// Strategy payloads remain opaque to the kernel.
+// Strategy payloads remain opaque to the kernel. Inside Execution.Step, a
+// strategy reads [Signal.Frame] with the expected concrete type, or selects
+// [SignalFrame] for a type switch over a mixed inbox. [ExternalInput] and
+// [Settlement] keep sender data separate from typed child and wait receipts.
 //
 // # Running a typed program
 //

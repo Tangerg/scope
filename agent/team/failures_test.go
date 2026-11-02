@@ -66,7 +66,7 @@ func TestCoordinatorFailuresAndFiniteBoundsStopCollaboration(t *testing.T) {
 			definition := require(NewDefinition(config))
 			engineConfig := agentrun.Config{Store: agentrun.NewMemoryStore()}
 			if mode == "start" {
-				engineConfig.ProcessAdmitter = refuseChildren(config.Coordinator.Deployment.Descriptor().Name())
+				engineConfig.ProcessAdmitter = refuseChildren(config.Coordinator.Program.Descriptor().Name())
 			}
 			_, process := runWith(t, definition, engineConfig)
 			result := require(process.Await(t.Context()))

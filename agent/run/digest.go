@@ -10,7 +10,7 @@ import (
 
 const digestPrefix = "sha256:"
 
-var ErrInvalidDigest = errors.New("agent: invalid digest")
+var ErrInvalidDigest = errors.New("run: invalid digest")
 
 // Digest is a canonical SHA-256 content identity. Its zero value is invalid.
 type Digest struct{ identity }
@@ -34,7 +34,11 @@ func ParseDigest(value string) (Digest, error) {
 // encoding and its digest together, so durable stores use Digest without rehashing.
 func ComputeDigest(data []byte) Digest {
 	sum := sha256.Sum256(data)
-	return Digest{identity{value: digestPrefix + hex.EncodeToString(sum[:])}}
+	return digestFromSum(sum[:])
+}
+
+func digestFromSum(sum []byte) Digest {
+	return Digest{identity{value: digestPrefix + hex.EncodeToString(sum)}}
 }
 
 func (d Digest) hex() string {

@@ -15,12 +15,12 @@ import (
 )
 
 var (
-	ErrSignalRejected = errors.New("agent: signal rejected")
+	ErrSignalRejected = errors.New("run: signal rejected")
 	// ErrSignalConflict reports a repeated SignalID within one batch or reuse
 	// of an accepted identity with different immutable content or WaitID.
-	ErrSignalConflict = errors.New("agent: conflicting signal identity")
-	errMailboxCursor  = errors.New("agent: invalid signal cursor")
-	errWaitState      = errors.New("agent: invalid wait state")
+	ErrSignalConflict = errors.New("run: conflicting signal identity")
+	errMailboxCursor  = errors.New("run: invalid signal cursor")
+	errWaitState      = errors.New("run: invalid wait state")
 )
 
 // signalRecord's arrival sequence is its one-based position in the mailbox
@@ -29,15 +29,12 @@ var (
 // A pending record keeps its payload; consumption replaces it with the
 // digest that remains its only content, so exactly one of the two is set.
 type signalRecord struct {
-	id             SignalID
-	waitID         WaitID
-	payload        json.RawMessage
+	Signal
 	consumedDigest Digest
-	status         SettlementStatus
 }
 
 func newSignalRecord(signal Signal) signalRecord {
-	return signalRecord{id: signal.id, waitID: signal.waitID, payload: signal.payload, status: signal.status}
+	return signalRecord{Signal: signal}
 }
 
 // opensWait follows from identity: only the Runtime's acknowledgement of a
@@ -210,7 +207,7 @@ func (s *signalMailbox) validateRecord(status Status, record signalRecord) (bool
 	// Consumed history retains only a digest. Every retained answer payload
 	// must satisfy its wait during both live admission and restoration.
 	if wait.external != nil && record.payload != nil {
-		signal := Signal{id: record.id, waitID: record.waitID, payload: record.payload, status: record.status}
+		signal := record.Signal
 		if err := wait.external.admits(signal); err != nil {
 			return false, err
 		}
@@ -331,7 +328,7 @@ func (s *signalMailbox) pending() []Signal {
 	for index := range pending {
 		record := pending[index]
 		// Admission already normalized these immutable, mailbox-owned bytes.
-		signals[index] = Signal{id: record.id, waitID: record.waitID, payload: record.payload, status: record.status}
+		signals[index] = record.Signal
 	}
 	return signals
 }
@@ -346,6 +343,7 @@ func (s *signalMailbox) commit(consumedSignals uint32) error {
 		// content agreement, and wait facts after that boundary.
 		record := &s.records[index]
 		record.consumedDigest, record.payload = record.payloadDigest(), nil
+		record.frame = nil
 	}
 	s.signalCursor += uint64(consumedSignals)
 	return nil
@@ -489,7 +487,7 @@ type mailboxDocument struct {
 // silently reinterpret consumed Signals as pending; an explicit zero is valid.
 func (m *mailboxDocument) UnmarshalJSON(data []byte) error {
 	if m == nil {
-		return errors.New("agent: nil mailbox document receiver")
+		return errors.New("run: nil mailbox document receiver")
 	}
 	type wire mailboxDocument
 	value, err := jsonwire.Decode[wire](data)
@@ -550,7 +548,7 @@ func (m mailboxWire) document() (mailboxDocument, error) {
 		if err != nil {
 			return mailboxDocument{}, err
 		}
-		satisfied, err := ParseChildWaitSatisfied(signal)
+		satisfied, err := signal.Frame[ChildWaitSatisfied]()
 		if err != nil {
 			return mailboxDocument{}, err
 		}
@@ -624,7 +622,7 @@ func renderChildWaitAnswer(record signalRecordWire, opening childWaitSpecWire, a
 func (m mailboxWire) settlementCount() uint64 {
 	var count uint64
 	for _, signal := range m.Signals {
-		if (signalRecord{id: signal.ID, waitID: lo.FromPtr(signal.WaitID)}).source() == signalSourceSettlement {
+		if (signalRecord{Signal: Signal{id: signal.ID, waitID: lo.FromPtr(signal.WaitID)}}).source() == signalSourceSettlement {
 			count++
 		}
 	}
@@ -811,15 +809,20 @@ func (s signalRecordWire) restore(consumed bool) (signalRecord, error) {
 	if err != nil {
 		return signalRecord{}, err
 	}
-	record := signalRecord{id: s.ID, waitID: lo.FromPtr(s.WaitID), payload: payload, status: s.Status}
-	if s.Status != SettlementStatusInvalid && !deliversSettlement(s.ID, lo.FromPtr(s.WaitID), s.Status) {
-		return signalRecord{}, fmt.Errorf("%w: only a delivered Dispatcher settlement has a status", errMailboxCursor)
+	wait := lo.FromPtr(s.WaitID)
+	if s.Status != SettlementStatusInvalid && !deliversSettlement(s.ID, wait, s.Status) {
+		return signalRecord{}, fmt.Errorf("%w: only a delivered dispatcher settlement has a status", errMailboxCursor)
+	}
+	record := signalRecord{Signal: Signal{id: s.ID, waitID: wait, status: s.Status}, consumedDigest: digest}
+	if !consumed {
+		signal, err := materializeSignal(s.ID, wait, payload, s.Status)
+		if err != nil {
+			return signalRecord{}, fmt.Errorf("%w: %w", errMailboxCursor, err)
+		}
+		record = newSignalRecord(signal)
 	}
 	if record.opensWait() != (s.Opens != nil) {
 		return signalRecord{}, fmt.Errorf("%w: only a wait's acknowledgement opens it", errWaitState)
-	}
-	if payload == nil {
-		record.consumedDigest = digest
 	}
 	return record, nil
 }

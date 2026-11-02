@@ -13,7 +13,7 @@ func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 	child := mustDeployment(t, mustDefinition(t, "workflow.child",
 		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
 	), "typed-child")
-	branches := []workflow.ForkBranch{{ID: "branch", Deployment: child}}
+	branches := []workflow.ForkBranch{{ID: "branch", Program: child}}
 	for _, construct := range []func() (workflow.Stage, error){
 		func() (workflow.Stage, error) {
 			return workflow.Transform("bad_input", func(context.Context, chan int) (int, error) { return 0, nil })
@@ -22,7 +22,7 @@ func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 			return workflow.Transform("bad_output", func(context.Context, int) (chan int, error) { return nil, nil })
 		},
 		func() (workflow.Stage, error) {
-			return workflow.Switch(workflow.SwitchConfig[chan int]{ID: "switch", Cases: []workflow.SwitchCase{{ID: "case", Deployment: child}}, Select: func(context.Context, chan int) (string, error) { return "case", nil }})
+			return workflow.Switch(workflow.SwitchConfig[chan int]{ID: "switch", Cases: []workflow.SwitchCase{{ID: "case", Program: child}}, Select: func(context.Context, chan int) (string, error) { return "case", nil }})
 		},
 		func() (workflow.Stage, error) {
 			return workflow.Fork(workflow.ForkConfig[chan int, int, int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(context.Context, chan int, []int) (int, error) { return 0, nil }})
@@ -34,10 +34,10 @@ func TestWorkflowRejectsUnrepresentableTypedContracts(t *testing.T) {
 			return workflow.Fork(workflow.ForkConfig[int, int, chan int]{ID: "fork", Branches: branches, WindowSize: 1, Reduce: func(context.Context, int, []int) (chan int, error) { return nil, nil }})
 		},
 		func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[chan int, int]{ID: "map", Deployment: child, WindowSize: 1, MaxItems: 1})
+			return workflow.Map(workflow.MapConfig[chan int, int]{ID: "map", Program: child, WindowSize: 1, MaxItems: 1})
 		},
 		func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[int, chan int]{ID: "map", Deployment: child, WindowSize: 1, MaxItems: 1})
+			return workflow.Map(workflow.MapConfig[int, chan int]{ID: "map", Program: child, WindowSize: 1, MaxItems: 1})
 		},
 		func() (workflow.Stage, error) {
 			return workflow.Loop(workflow.LoopConfig[chan int]{ID: "loop", Body: child, Predicate: func(context.Context, chan int) (bool, error) { return false, nil }})
@@ -58,9 +58,9 @@ func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 	), "wrong-branch")
 	for _, branches := range [][]workflow.ForkBranch{
 		{{ID: "missing"}},
-		{{ID: "invalid name", Deployment: child}},
-		{{ID: "duplicate", Deployment: child}, {ID: "duplicate", Deployment: child}},
-		{{ID: "wrong_contract", Deployment: wrong}},
+		{{ID: "invalid name", Program: child}},
+		{{ID: "duplicate", Program: child}, {ID: "duplicate", Program: child}},
+		{{ID: "wrong_contract", Program: wrong}},
 	} {
 		stage, err := workflow.Fork(workflow.ForkConfig[int, int, int]{
 			ID: "fork", Branches: branches, WindowSize: 1,
@@ -91,5 +91,24 @@ func TestWorkflowRejectsUnconfiguredDefinitionsAndInputs(t *testing.T) {
 	}
 	if execution, err := mustDefinition(t, "workflow.input", stage).Start(input); execution != nil || !errors.Is(err, run.ErrInvalidPayload) {
 		t.Fatalf("input outside the first stage contract = %v, %v", execution, err)
+	}
+}
+
+func TestMapCompilesWithOnlyItsChildIdentity(t *testing.T) {
+	child := mustDeployment(t, mustDefinition(t, "workflow.child",
+		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
+	), "typed-child")
+	stage, err := workflow.Map(workflow.MapConfig[int, int]{ID: "items", Program: child, WindowSize: 1, MaxItems: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := workflow.Config{Name: "workflow.map", Description: "Map a bound program.", Stages: []workflow.Stage{stage}, BuildIdentity: run.ComputeDigest([]byte("workflow build"))}
+	program, err := workflow.Compile[[]int, []int](t.Context(), cfg)
+	if err != nil || !program.Valid() {
+		t.Fatalf("a declarative map requires no callback identity: %v", err)
+	}
+	cfg.CallbackIdentity = run.ComputeDigest([]byte("unbound callback"))
+	if _, err := workflow.Compile[[]int, []int](t.Context(), cfg); !errors.Is(err, run.ErrInvalidProgram) {
+		t.Fatalf("accepted an identity for a callback that does not exist: %v", err)
 	}
 }

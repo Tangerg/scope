@@ -70,7 +70,7 @@ func (f *freezeBarrier) cancellation() <-chan struct{} {
 func (f *freezeBarrier) begin(acquisition *treeFreezeAcquisition, freeze *treeFreeze) {
 	active := &activeTreeFreeze{acquisition: acquisition, freeze: freeze, canceled: acquisition.canceled}
 	if !f.active.CompareAndSwap(nil, active) {
-		panic("agent: concurrent tree freeze")
+		panic("run: concurrent tree freeze")
 	}
 }
 

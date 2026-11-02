@@ -39,8 +39,8 @@ type definition struct {
 	starts     *atomic.Int64
 }
 
-func (d definition) Descriptor() run.Descriptor                                { return d.descriptor }
-func (d definition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (d definition) Descriptor() run.Descriptor                             { return d.descriptor }
+func (d definition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 func (d definition) Start(in run.Payload) (run.Execution, error) {
 	d.starts.Add(1)
 	return &execution{wait: d.wait}, nil
@@ -75,10 +75,11 @@ func (e *execution) Step(_ context.Context, signals []run.Signal) (run.Transitio
 		if len(signals) != 1 {
 			return run.Transition{}, run.ErrInvalidSignal
 		}
-		key, err := run.ParseWaitOpened(signals[0])
+		opening, err := signals[0].Frame[run.WaitOpened]()
 		if err != nil {
 			return run.Transition{}, err
 		}
+		key := opening.WaitID()
 		e.state = state{Phase: 2, Wait: key}
 		return run.Wait(1, key)
 	case 2:
@@ -103,7 +104,7 @@ func program(ctx context.Context, starts *atomic.Int64) run.Program[request, dec
 	answer := must(jsonschema.Parse([]byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}`)))
 	d := definition{descriptor: must(run.NewDescriptor(run.DescriptorConfig{Name: "test.form", Description: "Select a city.", InputSchema: input, OutputSchema: must(jsonschema.For[decision]())})), wait: must(run.NewExternalWaitSpec(run.ExternalWaitSpecConfig{Key: must(run.ParseWaitKey("city")), Question: json.RawMessage(`"Which city?"`), AnswerSchema: answer})), starts: starts}
 	child := must(run.Bind[request, decision](run.BindingConfig{Definition: d, ImplementationDigest: run.ComputeDigest([]byte("test.child")), ConfigurationDigest: run.ComputeDigest([]byte("city"))}))
-	stage := must(workflow.Call(workflow.CallConfig{ID: "ask", Deployment: child.Erase()}))
+	stage := must(workflow.Call(workflow.CallConfig{ID: "ask", Program: child.Erase()}))
 	return must(workflow.Compile[request, decision](ctx, workflow.Config{Name: "test.booking", Description: "Confirm a booking.", Stages: []workflow.Stage{stage}, BuildIdentity: run.ComputeDigest([]byte("test.workflow"))}))
 }
 

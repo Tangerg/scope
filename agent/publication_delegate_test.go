@@ -37,7 +37,7 @@ func TestRoundResultsCoversMixedToolAndDelegatePaths(t *testing.T) {
 	})
 	var delegates []agent.Delegate
 	for name, deployment := range map[string]run.Program[run.Payload, run.Payload]{"delegate": worker, "unavailable": unavailable} {
-		delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: name, Description: "Publish delegated outcomes.", Deployment: deployment, Budget: run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(8), Signals: run.NewQuota(8)}})
+		delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: name, Description: "Publish delegated outcomes.", Program: deployment, Budget: run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(8), Signals: run.NewQuota(8)}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +158,7 @@ func TestDelegatePublicationSurvivesUnresolvedSibling(t *testing.T) {
 	})}, agent.ToolSetConfig{Tools: executables})
 	var delegates []agent.Delegate
 	for name, child := range map[string]run.Program[run.Payload, run.Payload]{"known": nested.Program, "unknown": sibling.Program} {
-		delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: name, Description: "Delegate work.", Deployment: child})
+		delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: name, Description: "Delegate work.", Program: child})
 		if err != nil {
 			t.Fatal(err)
 		}

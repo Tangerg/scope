@@ -82,13 +82,13 @@ func TestCoordinatorWaitIncludesResultsArrivingDuringItsModelCall(t *testing.T) 
 					render := require(workflow.Transform("render", func(_ context.Context, turn Turn) (agent.Input, error) {
 						return agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(string(require(jsonv2.Marshal(turn)))))}}, nil
 					}))
-					call := require(workflow.Call(workflow.CallConfig{ID: "call", Deployment: model, Budget: agentrun.Budget{Steps: agentrun.NewQuota(16), Effects: agentrun.NewQuota(8), Signals: agentrun.NewQuota(16)}}))
+					call := require(workflow.Call(workflow.CallConfig{ID: "call", Program: model, Budget: agentrun.Budget{Steps: agentrun.NewQuota(16), Effects: agentrun.NewQuota(8), Signals: agentrun.NewQuota(16)}}))
 					decode := require(workflow.Transform("decode", func(_ context.Context, output agent.Output) (Decision, error) {
 						return chatclient.JSON[Decision]().Decode(output.ModelResponse)
 					}))
 					coordinator := binding(require(workflow.NewDefinition(workflow.DefinitionConfig{Name: "test.model_coordinator", Description: "Adapt a model decision.", Stages: []workflow.Stage{render, call, decode}})))
 					config := fixtureConfig(func(_ context.Context, turn Turn) (Decision, error) { return finish(turn, "unused"), nil }, gate())
-					config.Coordinator = WorkerConfig{Deployment: coordinator, Budget: agentrun.Budget{Steps: agentrun.NewQuota(64), Effects: agentrun.NewQuota(32), Signals: agentrun.NewQuota(64)}}
+					config.Coordinator = WorkerConfig{Program: coordinator, Budget: agentrun.Budget{Steps: agentrun.NewQuota(64), Effects: agentrun.NewQuota(32), Signals: agentrun.NewQuota(64)}}
 					definition := require(NewDefinition(config))
 					store := agentrun.NewMemoryStore()
 					var committer agentrun.Store = store

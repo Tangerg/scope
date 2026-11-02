@@ -100,7 +100,7 @@ func retainedWaitsSnapshotFixture(t testing.TB, count int) TreeSnapshot {
 	root := wire.ProcessSnapshots[0].state
 	original := wire.ProcessSnapshots[0].openChildWaits[0]
 	originalSignal := root.Mailbox.Signals[1]
-	outcomes := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(originalSignal.ID, original.waitID, originalSignal.Payload)))).Outcomes()
+	outcomes := controlValue(controlValue(NewSignal(originalSignal.ID, original.waitID, originalSignal.Payload)).Frame[ChildWaitSatisfied]()).Outcomes()
 	root.Budget = Budget{}
 	mailbox := newSignalMailbox()
 	for index := range count {
@@ -157,7 +157,7 @@ func TestTreeSnapshotRendersEachAnswerFromItsOwnWait(t *testing.T) {
 	drained := make(map[string]bool)
 	for _, receipt := range parsed.ProcessSnapshots()[0].SignalReceipts() {
 		if pending, ok := receipt.PendingSignal(); ok {
-			satisfied := controlValue(ParseChildWaitSatisfied(pending))
+			satisfied := controlValue(pending.Frame[ChildWaitSatisfied]())
 			_, drained[keys[satisfied.WaitID()]] = satisfied.Outcomes()[0].SubtreeUnresolvedEffects()
 		}
 	}
@@ -182,7 +182,7 @@ func TestDrainedSnapshotAcceptsOrderedQuorumSubset(t *testing.T) {
 	root.Mailbox.Signals = slices.Clone(root.Mailbox.Signals)
 	reopenTestChildWait(t, &root.Mailbox.Signals[0], spec)
 	record := &root.Mailbox.Signals[1]
-	satisfied := controlValue(ParseChildWaitSatisfied(controlValue(NewSignal(record.ID, wait.waitID, record.Payload))))
+	satisfied := controlValue(controlValue(NewSignal(record.ID, wait.waitID, record.Payload)).Frame[ChildWaitSatisfied]())
 	signal := controlValue(encodeChildWaitSatisfied(wait.waitID, []ChildOutcome{satisfied.outcomes[1], satisfied.outcomes[3]}))
 	record.Payload = signal.Payload()
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(root))

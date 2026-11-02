@@ -268,13 +268,13 @@ func newPatternChildren() (patternChildren, error) {
 
 func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workflow.Stage, error) {
 	normalize, err := workflow.Call(workflow.CallConfig{
-		ID: "normalize", Deployment: children.normalizer, Budget: budget,
+		ID: "normalize", Program: children.normalizer, Budget: budget,
 	})
 	if err != nil {
 		return nil, err
 	}
 	summarize, err := workflow.Call(workflow.CallConfig{
-		ID: "summarize", Deployment: children.summarizer, Budget: budget,
+		ID: "summarize", Program: children.summarizer, Budget: budget,
 	})
 	if err != nil {
 		return nil, err
@@ -283,16 +283,16 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 		ID:     "route",
 		Select: selectPatternRoute,
 		Cases: []workflow.SwitchCase{
-			{ID: urgentRouteID, Deployment: children.urgent, Budget: budget},
-			{ID: standardRouteID, Deployment: children.standard, Budget: budget},
+			{ID: urgentRouteID, Program: children.urgent, Budget: budget},
+			{ID: standardRouteID, Program: children.standard, Budget: budget},
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
 	sections := []workflow.ForkBranch{
-		{ID: factsSectionID, Deployment: children.facts, Budget: budget},
-		{ID: risksSectionID, Deployment: children.risks, Budget: budget},
+		{ID: factsSectionID, Program: children.facts, Budget: budget},
+		{ID: risksSectionID, Program: children.risks, Budget: budget},
 	}
 	section, err := workflow.Fork(workflow.ForkConfig[routedState, sectionContent, findingBundle]{
 		ID: "section", Branches: sections, WindowSize: sectionWindowSize,
@@ -311,10 +311,10 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	vote, err := workflow.Fork(workflow.ForkConfig[findingBundle, ballot, patternReport]{
 		ID: "vote",
 		Branches: []workflow.ForkBranch{
-			{ID: approveFirstBallotID, Deployment: children.approveFirst, Budget: budget},
-			{ID: rejectFirstBallotID, Deployment: children.rejectFirst, Budget: budget},
-			{ID: rejectSecondBallotID, Deployment: children.rejectSecond, Budget: budget},
-			{ID: approveSecondBallotID, Deployment: children.approveSecond, Budget: budget},
+			{ID: approveFirstBallotID, Program: children.approveFirst, Budget: budget},
+			{ID: rejectFirstBallotID, Program: children.rejectFirst, Budget: budget},
+			{ID: rejectSecondBallotID, Program: children.rejectSecond, Budget: budget},
+			{ID: approveSecondBallotID, Program: children.approveSecond, Budget: budget},
 		},
 		WindowSize: voteWindowSize,
 		Reduce:     reduceBallots,

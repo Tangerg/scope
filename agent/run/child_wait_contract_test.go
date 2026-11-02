@@ -58,7 +58,7 @@ func TestChildWaitResponsesRejectIncompleteAndContradictoryOutcomes(t *testing.T
 		Outcomes:  []childOutcomeWire{{Result: result.wire(), DescendantUnresolvedEffects: new([]UnresolvedEffect{})}},
 	}
 	valid := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, controlValue(jsonv2.Marshal(base))))
-	if satisfied := controlValue(ParseChildWaitSatisfied(valid)); !satisfied.Valid() || !satisfied.Outcomes()[0].SubtreeResolved() {
+	if satisfied := controlValue(valid.Frame[ChildWaitSatisfied]()); !satisfied.Valid() || !satisfied.Outcomes()[0].SubtreeResolved() {
 		t.Fatal("complete drained evidence was rejected")
 	}
 	for _, test := range []struct {
@@ -82,9 +82,8 @@ func TestChildWaitResponsesRejectIncompleteAndContradictoryOutcomes(t *testing.T
 			wire := base
 			wire.Outcomes = append([]childOutcomeWire(nil), base.Outcomes...)
 			test.mutate(&wire)
-			signal := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, controlValue(jsonv2.Marshal(wire))))
-			if satisfaction, err := ParseChildWaitSatisfied(signal); satisfaction.Valid() || !errors.Is(err, ErrInvalidChildWait) {
-				t.Fatalf("invalid completion = %v, %v", satisfaction, err)
+			if signal, err := NewSignal(waitID.childWaitSignalID(), waitID, controlValue(jsonv2.Marshal(wire))); signal.Valid() || !errors.Is(err, ErrInvalidChildWait) {
+				t.Fatalf("invalid completion admitted: %v, %v", signal, err)
 			}
 			if len(wire.Outcomes) == 1 && wire.Operation == childWaitSignalSatisfied {
 				accepted := ChildOutcome{result: result}
@@ -96,12 +95,8 @@ func TestChildWaitResponsesRejectIncompleteAndContradictoryOutcomes(t *testing.T
 		})
 	}
 	for _, payload := range []json.RawMessage{json.RawMessage(`{}`), json.RawMessage(`{"operation":"other"}`)} {
-		signal := controlValue(NewSignal(waitID.childWaitSignalID(), waitID, payload))
-		if _, err := ParseChildWaitSatisfied(signal); !errors.Is(err, ErrInvalidChildWait) {
-			t.Fatal(err)
-		}
-		if _, err := ParseChildWaitOpened(signal); !errors.Is(err, ErrInvalidChildWait) {
-			t.Fatal(err)
+		if signal, err := NewSignal(waitID.childWaitSignalID(), waitID, payload); signal.Valid() || !errors.Is(err, ErrInvalidChildWait) {
+			t.Fatalf("unknown wait frame admitted: %v, %v", signal, err)
 		}
 	}
 }

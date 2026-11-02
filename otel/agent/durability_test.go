@@ -23,16 +23,13 @@ func TestObservedTreeCommitterPreservesConformance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return observedDurabilityDriver{MemoryStore: store, observed: observed}
+		driver, ok := observed.(runtest.TreeCommitterConformanceDriver)
+		if !ok {
+			t.Fatal("observation dropped the store's head reader")
+		}
+		return driver
 	})
 }
-
-type observedDurabilityDriver struct {
-	*run.MemoryStore
-	observed run.Store
-}
-
-func (o observedDurabilityDriver) TreeCommitter() run.Store { return o.observed }
 
 func TestObservedTreeCommitterRecordsAcknowledgedBoundaries(t *testing.T) {
 	harness := newObserverHarness(t)

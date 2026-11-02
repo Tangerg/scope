@@ -22,7 +22,7 @@ func pausedWorker() agentrun.Program[agentrun.Payload, agentrun.Payload] {
 }
 func (p *pausedDefinition) Descriptor() agentrun.Descriptor { return p.descriptor }
 
-func (*pausedDefinition) ChildDeployments() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+func (*pausedDefinition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	return nil
 }
 func (p *pausedDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {

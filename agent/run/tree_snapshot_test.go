@@ -9,6 +9,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"maps"
+	"os"
 	"slices"
 	"testing"
 	"testing/synctest"
@@ -614,7 +615,7 @@ func assertNoChildWaitRegistrations(t *testing.T, engine *Runtime) {
 	t.Helper()
 	engine.mu.RLock()
 	var runtimes []*treeRuntime
-	for rootID := range engine.processes {
+	for rootID := range engine.registry.entries {
 		if runtime := engine.rootRuntime(rootID); runtime != nil {
 			runtimes = append(runtimes, runtime)
 		}
@@ -688,6 +689,17 @@ func TestRestoreReservationAdmissionIsAtomicAndReleasesEveryIdentity(t *testing.
 		t.Fatal(err)
 	}
 	checkStarts(ErrProcessAlreadyExists)
+	stale := &treeRestoration{wire: restoration.wire}
+	engine.discardRestoredTree(stale)
+	checkStarts(ErrProcessAlreadyExists)
+	for _, snapshot := range restoration.wire.ProcessSnapshots {
+		if _, visible := engine.Process(snapshot.Relation().ProcessID()); visible {
+			t.Fatal("restoration exposed an unpublished handle")
+		}
+	}
+	if err := engine.Close(t.Context()); !errors.Is(err, ErrActiveProcesses) {
+		t.Fatalf("Close while restoration is pending = %v", err)
+	}
 	engine.discardRestoredTree(restoration)
 	checkStarts(nil)
 	if err := engine.reserveRestoredTree(restoration); err != nil {
@@ -856,4 +868,29 @@ func encoderDocument(wire treeSnapshotWire) treeSnapshotDocument {
 		document.ProcessSnapshots = append(document.ProcessSnapshots, snapshot.data)
 	}
 	return document
+}
+
+func TestAssembledRecordsHonorRawSnapshotByteQuota(t *testing.T) {
+	data, err := os.ReadFile("testdata/tree_commit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document treeSnapshotDocument
+	if err = jsonv2.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	limit := uint64(2 * len(data))
+	document.TreeLimits.MaxSnapshotBytes = NewQuota(limit)
+	initial, err := AssembleTreeSnapshot(document.IncarnationID, document.TreeLimits, document.ProcessSnapshots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	portable, err := ParseTreeSnapshot(initial.JSON())
+	if err != nil || portable.Digest() != initial.Digest() {
+		t.Fatalf("portable tree changed: %v", err)
+	}
+	document.ProcessSnapshots[0] = append(document.ProcessSnapshots[0], bytes.Repeat([]byte(" "), int(limit))...)
+	if _, err := AssembleTreeSnapshot(document.IncarnationID, document.TreeLimits, document.ProcessSnapshots); !errors.Is(err, ErrInvalidTreeSnapshot) {
+		t.Fatalf("raw bytes exceeded quota: %v", err)
+	}
 }

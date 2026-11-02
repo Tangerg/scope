@@ -10,12 +10,12 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidSignal = errors.New("agent: invalid signal")
+var ErrInvalidSignal = errors.New("run: invalid signal")
 
 // Signal is the immutable input envelope delivered by the Runtime to an
 // Execution. Dispatcher and ordinary wait payloads belong exclusively to the
 // Strategy; Framework composition payloads are decoded only through their
-// public typed helpers. SignalID identifies delivery, while an optional WaitID
+// typed frames. SignalID identifies delivery, while an optional WaitID
 // identifies the Runtime-created wait target.
 type Signal struct {
 	id      SignalID
@@ -24,6 +24,7 @@ type Signal struct {
 	// status is present exactly on a Dispatcher settlement, whose status owns
 	// whether its Effect succeeded; the payload owns only the result data.
 	status SettlementStatus
+	frame  SignalFrame
 }
 
 // NewSignal builds one delivery envelope with a canonical payload for
@@ -31,6 +32,10 @@ type Signal struct {
 // deliver it: at runtime the Runtime mints every Signal, and
 // Handle.DeliverSignals accepts only a SignalRequest.
 func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, error) {
+	return newSignal(id, waitID, payload, SettlementStatusInvalid)
+}
+
+func newSignal(id SignalID, waitID WaitID, payload json.RawMessage, status SettlementStatus) (Signal, error) {
 	if !id.Valid() {
 		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, ErrInvalidIdentity)
 	}
@@ -38,7 +43,7 @@ func NewSignal(id SignalID, waitID WaitID, payload json.RawMessage) (Signal, err
 	if err != nil {
 		return Signal{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignal, err)
 	}
-	return Signal{id: id, waitID: waitID, payload: normalized}, nil
+	return materializeSignal(id, waitID, normalized, status)
 }
 
 // deliversSettlement reports whether status may accompany a delivery: only an
@@ -55,28 +60,74 @@ func NewSettlementSignal(id SignalID, settlement Settlement) (Signal, error) {
 	if !settlement.Valid() || !deliversSettlement(id, WaitID{}, settlement.status) {
 		return Signal{}, fmt.Errorf("%w: settlement delivery requires an Engine identity and a definite settlement", ErrInvalidSignal)
 	}
-	signal, err := NewSignal(id, WaitID{}, settlement.payload)
-	if err != nil {
-		return Signal{}, err
+	return materializeSignal(id, WaitID{}, settlement.payload, settlement.status)
+}
+
+// Frame returns the selected, immutable delivery variant. Use SignalFrame itself
+// for a type switch over a mixed inbox. Dispatcher output and external input
+// remain opaque even when their JSON resembles a framework operation.
+func (s Signal) Frame[T SignalFrame]() (T, error) {
+	var zero T
+	if !s.Valid() {
+		return zero, ErrInvalidSignal
 	}
-	signal.status = settlement.status
+	value, ok := s.frame.(T)
+	if !ok {
+		return zero, fmt.Errorf("%w: got %T, want %T", ErrInvalidSignal, s.frame, zero)
+	}
+	return value, nil
+}
+
+func materializeSignal(id SignalID, wait WaitID, payload json.RawMessage, status SettlementStatus) (Signal, error) {
+	signal := Signal{id: id, waitID: wait, payload: payload, status: status}
+	frame, err := signal.decodeFrame()
+	if err != nil {
+		return Signal{}, fmt.Errorf("%w: %w", ErrInvalidSignal, err)
+	}
+	signal.frame = frame
 	return signal, nil
+}
+
+func (s Signal) decodeFrame() (SignalFrame, error) {
+	if !s.id.engineOwned() {
+		return ExternalInput{payload: s.payload}, nil
+	}
+	if s.status != SettlementStatusInvalid {
+		return Settlement{status: s.status, payload: s.payload}, nil
+	}
+	if s.waitID.Valid() {
+		switch {
+		case bytes.Equal(s.payload, waitOpenedPayload()):
+			return WaitOpened{waitID: s.waitID}, nil
+		case bytes.Equal(s.payload, childWaitOpenedPayload()):
+			return ChildWaitOpened{waitID: s.waitID}, nil
+		default:
+			return decodeChildWaitSatisfied(s.waitID, s.payload)
+		}
+	}
+	var header frameworkOperationHeader
+	if err := jsonv2.Unmarshal(s.payload, &header); err != nil {
+		return nil, fmt.Errorf("%w: framework delivery: %w", ErrInvalidSignal, err)
+	}
+	switch header.Operation {
+	case frameworkOperationStartChild:
+		return decodeChildStartResult(s.payload)
+	case childControlSettledOperation:
+		return decodeChildControlResult(s.payload)
+	default:
+		return nil, fmt.Errorf("%w: unknown framework delivery %q", ErrInvalidSignal, header.Operation)
+	}
 }
 
 // ID returns the stable delivery and deduplication identity.
 func (s Signal) ID() SignalID { return s.id }
 
-// EngineOwned reports whether the Runtime produced this Signal as execution
-// evidence. Ordinary delivery cannot use this authority. Like all restored
-// execution facts, a decoded Signal is trustworthy only from trusted storage.
-func (s Signal) EngineOwned() bool { return s.Valid() && s.id.engineOwned() }
-
 // Settles reports whether the Runtime minted this delivery for effectID's
 // settlement, without exposing the private delivery identity. A wait opening
-// is identified by the WaitID it addresses instead. As with EngineOwned,
-// decoded Signals must come from trusted storage.
+// is identified by the WaitID it addresses instead. Decoded signals must come
+// from trusted storage.
 func (s Signal) Settles(effectID EffectID) bool {
-	return s.EngineOwned() && effectID.Valid() && s.id == effectID.settlementSignalID()
+	return s.Valid() && effectID.Valid() && s.id == effectID.settlementSignalID()
 }
 
 // WaitID returns the addressed wait and true, or a zero WaitID and false for a
@@ -85,10 +136,10 @@ func (s Signal) WaitID() (WaitID, bool) { return s.waitID, s.waitID.Valid() }
 
 // Payload returns an independently owned copy. Strategy-owned payloads are
 // interpreted only by their Strategy; Framework-owned payloads should be read
-// through the corresponding typed parser rather than decoded ad hoc.
+// through Frame.
 func (s Signal) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
-func (s Signal) Valid() bool { return s.id.Valid() && len(s.payload) > 0 }
+func (s Signal) Valid() bool { return s.frame != nil }
 
 func (s Signal) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
@@ -117,15 +168,12 @@ func (s *Signal) UnmarshalJSON(data []byte) error {
 	if wire.WaitID != nil {
 		waitID = *wire.WaitID
 	}
-	value, err := NewSignal(wire.ID, waitID, wire.Payload)
+	if wire.Status != SettlementStatusInvalid && !deliversSettlement(wire.ID, waitID, wire.Status) {
+		return fmt.Errorf("%w: only an engine delivery of a definite settlement has a status", ErrInvalidSignal)
+	}
+	value, err := newSignal(wire.ID, waitID, wire.Payload, wire.Status)
 	if err != nil {
 		return err
-	}
-	if wire.Status != SettlementStatusInvalid {
-		if !deliversSettlement(wire.ID, waitID, wire.Status) {
-			return fmt.Errorf("%w: only an Engine delivery of a definite settlement has a status", ErrInvalidSignal)
-		}
-		value.status = wire.Status
 	}
 	*s = value
 	return nil

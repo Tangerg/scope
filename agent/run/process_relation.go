@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-var ErrInvalidProcessRelation = errors.New("agent: invalid process relation")
+var ErrInvalidProcessRelation = errors.New("run: invalid process relation")
 
 // ProcessRelation is the immutable location of one Process in a Runtime-owned
 // tree. Roots identify themselves as RootID at depth zero. Children have one

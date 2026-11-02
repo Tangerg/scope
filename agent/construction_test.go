@@ -31,7 +31,7 @@ func TestInteractionConstructionRejectsUnboundToolPolicyAndInvalidDelegates(t *t
 		})
 	}
 	for _, definition := range []*Definition{nil, {}} {
-		if definition.Descriptor().Valid() || len(definition.ChildDeployments()) != 0 {
+		if definition.Descriptor().Valid() || len(definition.ChildPrograms()) != 0 {
 			t.Fatal("absent definition exposed a binding")
 		}
 		if _, err := definition.Start(run.Payload{}); !errors.Is(err, ErrInvalidDefinitionConfig) {

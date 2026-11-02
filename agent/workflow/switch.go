@@ -18,7 +18,7 @@ type SwitchCase struct {
 	// ID is unique within this Switch Stage and stable across restoration.
 	ID string
 
-	Deployment run.Program[run.Payload, run.Payload]
+	Program run.Program[run.Payload, run.Payload]
 
 	// Budget is permanently allocated from the parent when selected.
 	Budget run.Budget
@@ -88,7 +88,7 @@ func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []Sw
 	seen := make(map[string]struct{}, len(declared))
 	var outputSchema jsonschema.Schema
 	for index, candidate := range declared {
-		binding, valid := newChildBinding(candidate.Deployment, candidate.Budget, candidate.Capabilities)
+		binding, valid := newChildBinding(candidate.Program, candidate.Budget, candidate.Capabilities)
 		if !run.ValidQualifiedName(candidate.ID) || !valid {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
 		}
@@ -96,7 +96,7 @@ func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []Sw
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, stageID, candidate.ID)
 		}
 		seen[candidate.ID] = struct{}{}
-		descriptor := candidate.Deployment.Descriptor()
+		descriptor := candidate.Program.Descriptor()
 		if !inputSchema.Equal(descriptor.InputSchema()) {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}

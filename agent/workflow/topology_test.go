@@ -63,7 +63,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		return numberOutput(input), nil
 	})
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "call", Deployment: numberChild, Budget: budget, Capabilities: capabilities,
+		ID: "call", Program: numberChild, Budget: budget, Capabilities: capabilities,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		ID:     "switch",
 		Select: func(context.Context, numberInput) (string, error) { return "primary", nil },
 		Cases: []workflow.SwitchCase{
-			{ID: "primary", Deployment: numberChild, Budget: budget, Capabilities: capabilities},
-			{ID: "fallback", Deployment: alternateNumberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "primary", Program: numberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "fallback", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
 	})
 	if err != nil {
@@ -82,8 +82,8 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	fork, err := workflow.Fork(workflow.ForkConfig[numberInput, numberOutput, numberOutput]{
 		ID: "fork",
 		Branches: []workflow.ForkBranch{
-			{ID: "left", Deployment: numberChild, Budget: budget, Capabilities: capabilities},
-			{ID: "right", Deployment: alternateNumberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "left", Program: numberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "right", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
 		WindowSize: 1,
 		Reduce: func(_ context.Context, _ numberInput, outputs []numberOutput) (numberOutput, error) {
@@ -94,7 +94,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	mapper, err := workflow.Map[numberInput, numberOutput](workflow.MapConfig[numberInput, numberOutput]{
-		ID: "map", Deployment: numberChild, Budget: budget, Capabilities: capabilities,
+		ID: "map", Program: numberChild, Budget: budget, Capabilities: capabilities,
 		WindowSize: 2, MaxItems: 4,
 	})
 	if err != nil {
@@ -213,8 +213,8 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 		ID:     "route",
 		Select: func(context.Context, numberInput) (string, error) { return "first", nil },
 		Cases: []workflow.SwitchCase{
-			{ID: "first", Deployment: child, Budget: mustBudget(t)},
-			{ID: "second", Deployment: child, Budget: mustBudget(t)},
+			{ID: "first", Program: child, Budget: mustBudget(t)},
+			{ID: "second", Program: child, Budget: mustBudget(t)},
 		},
 	})
 	if err != nil {

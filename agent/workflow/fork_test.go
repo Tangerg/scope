@@ -41,7 +41,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	for _, id := range []string{"first", "second", "third"} {
 		deployment := newManagedBranchDeployment(t, id, tracker)
 		branches = append(branches, workflow.ForkBranch{
-			ID: id, Deployment: deployment, Budget: mustBudget(t),
+			ID: id, Program: deployment, Budget: mustBudget(t),
 		})
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
@@ -116,7 +116,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
-		branches = append(branches, workflow.ForkBranch{ID: id, Deployment: child, Budget: mustBudget(t)})
+		branches = append(branches, workflow.ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
@@ -159,7 +159,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 						return numberOutput(input), nil
 					}),
 				), "admission-"+id)
-				branches = append(branches, workflow.ForkBranch{ID: id, Deployment: child, Budget: mustBudget(t)})
+				branches = append(branches, workflow.ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
 			}
 			stage, err := workflow.Fork(workflow.ForkConfig[forkInput, numberOutput, numberOutput]{
 				ID: "workers", Branches: branches, WindowSize: 2,
@@ -200,7 +200,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			}
 			failure, failed := result.Termination().Failure()
 			if result.Termination().Status() != run.StatusFailed || !failed || failure.Kind() != run.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" ||
-				failure.Message() != "agent: process admission rejected: branch refused" {
+				failure.Message() != "run: process admission rejected: branch refused" {
 				t.Fatalf("failed admission lost its cause: %#v", failure)
 			}
 			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
@@ -222,7 +222,7 @@ func TestForkRequiresExplicitValidWindowAndContracts(t *testing.T) {
 			return branchOutput{Branch: "valid", Value: input.Value}, nil
 		}),
 	), "fork-valid")
-	validBranch := workflow.ForkBranch{ID: "valid", Deployment: child, Budget: mustBudget(t)}
+	validBranch := workflow.ForkBranch{ID: "valid", Program: child, Budget: mustBudget(t)}
 	for name, config := range map[string]workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
 		"empty": {ID: "workers", WindowSize: 1, Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
 		"zero window size": {
@@ -312,7 +312,7 @@ func (m *managedBranchDefinition) Descriptor() run.Descriptor {
 	return m.descriptor
 }
 
-func (*managedBranchDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*managedBranchDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 

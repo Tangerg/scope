@@ -61,7 +61,7 @@ func Adapt[I, O any](ctx context.Context, config AdapterConfig[I, O]) (run.Progr
 	}
 	buildInput, buildErr := workflow.Transform(stageBuildInput, config.BuildInput)
 	invoke, runErr := workflow.Call(workflow.CallConfig{
-		ID: stageRun, Deployment: config.Interaction.Erase(), Budget: config.Budget, Capabilities: config.Capabilities,
+		ID: stageRun, Program: config.Interaction.Erase(), Budget: config.Budget, Capabilities: config.Capabilities,
 	})
 	decodeOutput, decodeErr := workflow.Transform(stageDecodeOutput, config.DecodeOutput)
 	if err := errors.Join(buildErr, runErr, decodeErr); err != nil {

@@ -10,7 +10,7 @@ const (
 	treeIncarnationRandomBytes = 16
 )
 
-var ErrInvalidTreeIncarnationID = errors.New("agent: invalid tree incarnation identity")
+var ErrInvalidTreeIncarnationID = errors.New("run: invalid tree incarnation identity")
 
 // TreeIncarnationID identifies the one active writer generation of a durable
 // Process tree. Its zero value is invalid.

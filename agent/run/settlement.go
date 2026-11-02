@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidSettlement = errors.New("agent: invalid effect settlement")
+var ErrInvalidSettlement = errors.New("run: invalid effect settlement")
 
 // SettlementStatus records whether an Effect definitely succeeded, definitely
 // failed, or has an unknown external result. Unknown never implies safe retry.
@@ -45,7 +45,7 @@ func (s SettlementStatus) String() string {
 // Effect definitely succeeded, definitely failed, or remains unknown; a
 // Dispatcher payload carries only the result or diagnostic, never a second
 // success flag. The Runtime delivers a definite Dispatcher settlement to the
-// next Step, where ParseSettlement reads both.
+// next Step, where Signal.Frame exposes both.
 type Settlement struct {
 	status  SettlementStatus
 	payload json.RawMessage
@@ -74,16 +74,6 @@ func (s Settlement) Payload() json.RawMessage { return bytes.Clone(s.payload) }
 
 func (s Settlement) Valid() bool {
 	return s.status.Valid() && len(s.payload) > 0
-}
-
-// ParseSettlement reads a Dispatcher settlement delivered to an Execution.
-// Its Status owns whether the Effect succeeded; its Payload carries the
-// Dispatcher's result or diagnostic.
-func ParseSettlement(signal Signal) (Settlement, error) {
-	if signal.status == SettlementStatusInvalid {
-		return Settlement{}, fmt.Errorf("%w: Signal does not deliver a Dispatcher settlement", ErrInvalidSettlement)
-	}
-	return Settlement{status: signal.status, payload: bytes.Clone(signal.payload)}, nil
 }
 
 func (s Settlement) MarshalJSON() ([]byte, error) {
@@ -117,3 +107,5 @@ type settlementWire struct {
 	Status  SettlementStatus `json:"status"`
 	Payload json.RawMessage  `json:"payload"`
 }
+
+func (Settlement) signalFrame() {}

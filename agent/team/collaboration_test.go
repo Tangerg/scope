@@ -35,7 +35,7 @@ func transformed[I, O any](name string, transform func(context.Context, I) (O, e
 }
 
 func workerConfig(deployment agentrun.Program[agentrun.Payload, agentrun.Payload]) WorkerConfig {
-	return WorkerConfig{Deployment: deployment, Budget: agentrun.Budget{Steps: agentrun.NewQuota(32), Effects: agentrun.NewQuota(16), Signals: agentrun.NewQuota(32)}}
+	return WorkerConfig{Program: deployment, Budget: agentrun.Budget{Steps: agentrun.NewQuota(32), Effects: agentrun.NewQuota(16), Signals: agentrun.NewQuota(32)}}
 }
 
 func fixture(coordinator func(context.Context, Turn) (Decision, error), workers ...agentrun.Program[agentrun.Payload, agentrun.Payload]) *Definition {

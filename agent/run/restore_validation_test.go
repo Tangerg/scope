@@ -128,7 +128,7 @@ func TestValidateRestorableTreeRejectsUnusableInput(t *testing.T) {
 		t.Fatalf("nil Engine = %v", err)
 	}
 	if err := engine.ValidateRestorableTree(t.Context(), Program[Payload, Payload]{}, tree); !errors.Is(err, ErrInvalidProgram) {
-		t.Fatalf("invalid Deployment = %v", err)
+		t.Fatalf("invalid Program = %v", err)
 	}
 	if err := engine.ValidateRestorableTree(t.Context(), deployment, TreeSnapshot{}); !errors.Is(err, ErrInvalidTreeSnapshot) {
 		t.Fatalf("invalid snapshot = %v", err)

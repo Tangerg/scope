@@ -13,7 +13,7 @@ import (
 )
 
 func TestModelRequestCannotDeclareToolAuthority(t *testing.T) {
-	definition, err := NewDefinition(DefinitionConfig{Name: "model.authority", Description: "Keep tool authority in the Deployment."})
+	definition, err := NewDefinition(DefinitionConfig{Name: "model.authority", Description: "Keep tool authority in the Program."})
 	if err != nil {
 		t.Fatal(err)
 	}

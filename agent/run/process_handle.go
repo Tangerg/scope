@@ -76,7 +76,7 @@ func (p *processHandle) finishBookkeeping() {
 	select {
 	case <-p.outcomePublished:
 	default:
-		panic("agent: bookkeeping cannot precede outcome publication")
+		panic("run: bookkeeping cannot precede outcome publication")
 	}
 	select {
 	case <-p.bookkeepingDone:
@@ -92,7 +92,7 @@ func (p *processHandle) finishJoin(err *RuntimeError) {
 	select {
 	case <-p.bookkeepingDone:
 	default:
-		panic("agent: join cannot precede bookkeeping")
+		panic("run: join cannot precede bookkeeping")
 	}
 	select {
 	case <-p.joined:

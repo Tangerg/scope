@@ -494,7 +494,7 @@ func (t *treeRuntime) allocateAttempt(process *processState) (processAttempt, bo
 
 func (t *treeRuntime) setProcessJob(processID ProcessID, job *processJob) {
 	if t.members.get(processID) == nil {
-		panic("agent: owned work requires a tree member")
+		panic("run: owned work requires a tree member")
 	}
 	t.jobs.start(processID, job)
 }
@@ -867,7 +867,7 @@ func (t *treeRuntime) stageTerminal(process *processState) {
 func (t *treeRuntime) stageCommittedEvent(event eventDraft) {
 	if event.phase() != EventPhaseCommitted || event.relation.RootID() != t.rootID ||
 		t.members.get(event.processID()) == nil {
-		panic("agent: invalid committed Event")
+		panic("run: invalid committed Event")
 	}
 	t.publications.stage(event)
 }
@@ -893,13 +893,13 @@ func (t *treeRuntime) publishAcknowledgedChanges() {
 		}
 		result, terminal := snapshot.Result()
 		if !terminal {
-			panic("agent: terminal publication requires an acknowledged outcome")
+			panic("run: terminal publication requires an acknowledged outcome")
 		}
 		process.handle.publishResult(result)
 		t.finishProcessBookkeeping(process)
 	}
 	if len(t.publications) != 0 {
-		panic("agent: staged facts outlived the acknowledged tree cut")
+		panic("run: staged facts outlived the acknowledged tree cut")
 	}
 }
 
@@ -912,7 +912,7 @@ func (t *treeRuntime) failRuntime(
 		return
 	}
 	if !t.writer.head().Valid() {
-		panic("agent: committer failure requires an acknowledged tree")
+		panic("run: committer failure requires an acknowledged tree")
 	}
 	t.fault = cause
 	unresolvedByProcess := t.unresolvedEffectsAtFailure(processID, effectID)
@@ -1075,7 +1075,7 @@ func (t *treeRuntime) applyProcessCommand(process *processState, request process
 		t.replayUnknownEffect(process, request.effectID, reply)
 		return
 	default:
-		panic("agent: unhandled Process request")
+		panic("run: unhandled Process request")
 	}
 	t.scheduleControl(process)
 }
@@ -1531,7 +1531,7 @@ func (t *treeRuntime) startPreparedEffect(process *processState, index int, reco
 		case childControlOperation:
 			t.controlChild(process, record, operation.request, observation)
 		default:
-			panic("agent: unhandled framework operation")
+			panic("run: unhandled framework operation")
 		}
 		return
 	}
@@ -1669,7 +1669,7 @@ func (t *treeRuntime) startDispatch(
 func (t *treeRuntime) applyCompletion(completion treeJobCompletion) {
 	process := t.members.get(completion.processID)
 	if process == nil && t.jobs.get(completion.processID) != nil {
-		panic("agent: owned work requires a tree member")
+		panic("run: owned work requires a tree member")
 	}
 	job, current := t.jobs.matching(completion)
 	if !current {
@@ -1952,7 +1952,7 @@ func (t *treeRuntime) applyDispatchCompletion(
 	// revoke, or resolve that Effect while the job runs.
 	index, record, nextErr := process.prepared.nextEffect()
 	if nextErr != nil || record == nil || record.ID != job.effectID {
-		panic("agent: dispatch completion does not answer the Effect frontier")
+		panic("run: dispatch completion does not answer the Effect frontier")
 	}
 	settlement := result.settlement
 	if record.unknown() {
@@ -2118,7 +2118,7 @@ func (t *treeRuntime) notifyChildWaits(processID ProcessID, boundary ChildWaitBo
 func (t *treeRuntime) addProcess(process *processState) {
 	if t == nil || process == nil || process.handle == nil ||
 		process.handle.relation.RootID() != t.rootID {
-		panic("agent: invalid tree Process")
+		panic("run: invalid tree Process")
 	}
 	t.members.add(process)
 	process.handle.incarnationID = t.writer.incarnation()
@@ -2132,7 +2132,7 @@ func (t *treeRuntime) addProcess(process *processState) {
 // Only unpublished children can be removed while the owner is running.
 func (t *treeRuntime) removeProcess(processID ProcessID) {
 	if t.jobs.get(processID) != nil {
-		panic("agent: cannot remove a Process with owned work")
+		panic("run: cannot remove a Process with owned work")
 	}
 	t.members.remove(processID)
 	delete(t.joinCandidates, processID)

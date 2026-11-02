@@ -30,7 +30,7 @@ func (r *RuntimeError) clone() *RuntimeError {
 }
 
 func (r *RuntimeError) Error() string {
-	return fmt.Sprintf("agent: runtime for Process %s stopped: %v", r.processID, r.cause)
+	return fmt.Sprintf("run: runtime for Process %s stopped: %v", r.processID, r.cause)
 }
 
 // Unwrap preserves the capacity or committer failure, including ownership and

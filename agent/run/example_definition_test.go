@@ -43,7 +43,7 @@ type echoState struct {
 
 func (e echoDefinition) Descriptor() run.Descriptor { return e.descriptor }
 
-func (echoDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (echoDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (e echoDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err := e.descriptor.ValidateInput(input); err != nil {
@@ -96,7 +96,7 @@ func (e *echoExecution) Step(ctx context.Context, signals []run.Signal) (run.Tra
 		if len(signals) != 1 {
 			return run.Transition{}, run.ErrInvalidSignal
 		}
-		settlement, err := run.ParseSettlement(signals[0])
+		settlement, err := signals[0].Frame[run.Settlement]()
 		if err != nil {
 			return run.Transition{}, err
 		}

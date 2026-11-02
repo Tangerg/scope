@@ -52,7 +52,7 @@ func NewInputGate(config InputGateConfig) (*InputGate, error) {
 	return &InputGate{descriptor: descriptor, answerSchema: config.AnswerSchema}, nil
 }
 
-func (*InputGate) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (*InputGate) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (i *InputGate) Descriptor() run.Descriptor {
 	if i == nil {
@@ -145,7 +145,8 @@ func (i inputGateState) validate(ctx context.Context, definition *InputGate) err
 // classifies a failure as a protocol violation.
 func (i inputGateState) acceptsAnswer(signal run.Signal) error {
 	waitID, addressed := signal.WaitID()
-	if !signal.Valid() || signal.EngineOwned() || i.WaitID == nil || !addressed || waitID != *i.WaitID {
+	_, err := signal.Frame[run.ExternalInput]()
+	if err != nil || i.WaitID == nil || !addressed || waitID != *i.WaitID {
 		return errors.New("answer does not address the input gate")
 	}
 	return nil
@@ -203,10 +204,11 @@ func (i *inputGateExecution) acceptOpening(signals []run.Signal) (run.Transition
 	if len(signals) == 0 {
 		return run.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
 	}
-	waitID, err := run.ParseWaitOpened(signals[0])
+	opening, err := signals[0].Frame[run.WaitOpened]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: input gate opening: %w", ErrInvalidProtocol, err)
 	}
+	waitID := opening.WaitID()
 	i.state.WaitID = &waitID
 	return run.Wait(1, waitID)
 }

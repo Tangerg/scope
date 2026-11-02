@@ -387,13 +387,8 @@ func failedSettlement(cause error) (run.Settlement, error) {
 	return run.NewSettlement(run.SettlementStatusFailed, payload)
 }
 
-// decodeSettlement reads a Dispatcher settlement Signal. A failed settlement
-// returns its diagnostic instead of a result envelope.
-func decodeSettlement(signal run.Signal) (signalEnvelope, string, error) {
-	settlement, err := run.ParseSettlement(signal)
-	if err != nil {
-		return signalEnvelope{}, "", fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
+// A failed dispatcher settlement retains its diagnostic separately from an interaction result.
+func decodeSettlement(settlement run.Settlement) (signalEnvelope, string, error) {
 	if settlement.Status() == run.SettlementStatusFailed {
 		diagnostic, decodeErr := jsonwire.Decode[string](settlement.Payload())
 		if decodeErr != nil || !run.ValidDiagnostic(diagnostic) {

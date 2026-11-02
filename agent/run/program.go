@@ -12,7 +12,7 @@ import (
 	"github.com/samber/lo"
 )
 
-var ErrInvalidProgram = errors.New("agent: invalid deployment")
+var ErrInvalidProgram = errors.New("run: invalid program")
 
 // BindingConfig contains the complete behavior binding for one Program.
 // The digests must cover the exact code artifact and all frozen dispatcher or
@@ -31,7 +31,7 @@ type BindingConfig struct {
 	// and Dispatcher configuration, including each finite or unlimited Strategy
 	// quota. Quota JSON preserves that distinction for configuration hashing.
 	// Child bindings are not restated here: Bind folds the ones the
-	// Definition reports through ChildDeployments into the ProgramRef.
+	// Definition reports through ChildPrograms into the ProgramRef.
 	ConfigurationDigest Digest
 }
 
@@ -151,8 +151,8 @@ func (p Program[I, O]) validateDefinition() error {
 }
 
 func definitionBindings(definition Definition) ([]Program[Payload, Payload], Digest, error) {
-	reported, err := invokeCallback("Definition.ChildDeployments", func() ([]Program[Payload, Payload], error) {
-		return definition.ChildDeployments(), nil
+	reported, err := invokeCallback("Definition.ChildPrograms", func() ([]Program[Payload, Payload], error) {
+		return definition.ChildPrograms(), nil
 	})
 	if err != nil {
 		return nil, Digest{}, fmt.Errorf("%w: %w", ErrInvalidProgram, err)

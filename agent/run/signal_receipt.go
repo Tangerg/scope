@@ -3,6 +3,8 @@ package run
 import (
 	"bytes"
 	"encoding/json"
+
+	"github.com/samber/lo"
 )
 
 // SignalReceipt is an immutable admission and consumption fact from a
@@ -40,7 +42,8 @@ func (s SignalReceipt) PendingSignal() (Signal, bool) {
 	if s.pendingPayload == nil {
 		return Signal{}, false
 	}
-	return Signal{id: s.id, waitID: s.waitID, payload: bytes.Clone(s.pendingPayload), status: s.status}, true
+	// Only a validated mailbox can issue a receipt.
+	return lo.Must(materializeSignal(s.id, s.waitID, bytes.Clone(s.pendingPayload), s.status)), true
 }
 
 // Matches reports whether this receipt proves admission of the external request.

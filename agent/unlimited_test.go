@@ -40,7 +40,7 @@ func TestUnlimitedRootChildAndToolGrandchildrenRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	worker := configuredInteraction(t, agent.DefinitionConfig{Name: "interaction.unlimited", Description: "Run until the model completes."}, agent.DispatcherConfig{Model: client}, agent.ToolSetConfig{Tools: []tool.Tool{tick}})
-	call, err := workflow.Call(workflow.CallConfig{ID: "worker", Deployment: worker.Program})
+	call, err := workflow.Call(workflow.CallConfig{ID: "worker", Program: worker.Program})
 	if err != nil {
 		t.Fatal(err)
 	}

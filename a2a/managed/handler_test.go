@@ -25,8 +25,8 @@ import (
 
 type definition struct{ descriptor run.Descriptor }
 
-func (d definition) Descriptor() run.Descriptor                                { return d.descriptor }
-func (d definition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (d definition) Descriptor() run.Descriptor                             { return d.descriptor }
+func (d definition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 func (d definition) Start(p run.Payload) (run.Execution, error) {
 	text, err := p.Decode[string]()
 	return &execution{Text: text}, err

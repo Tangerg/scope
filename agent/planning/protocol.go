@@ -127,11 +127,10 @@ func failedSettlement(failure settlementFailure) (run.Settlement, error) {
 // operation. A failed settlement returns its explanation instead of a result.
 func decodeSettlement[T any](signals []run.Signal) (T, *settlementFailure, error) {
 	var result T
-	// ParseSettlement owns the settlement's Runtime origin.
 	if len(signals) != 1 {
 		return result, nil, fmt.Errorf("%w: exactly one settlement Signal is required", ErrInvalidProtocol)
 	}
-	settlement, err := run.ParseSettlement(signals[0])
+	settlement, err := signals[0].Frame[run.Settlement]()
 	if err != nil {
 		return result, nil, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}

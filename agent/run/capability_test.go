@@ -94,7 +94,7 @@ func newCapabilityTestDefinition(t *testing.T) *capabilityTestDefinition {
 
 func (c *capabilityTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (*capabilityTestDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*capabilityTestDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
 	return &capabilityTestExecution{}, nil

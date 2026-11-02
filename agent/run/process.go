@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	ErrProcessFinished       = errors.New("agent: process has finished")
-	ErrEffectNotPending      = errors.New("agent: effect does not require resolution")
-	ErrEffectReplayForbidden = errors.New("agent: effect cannot be replayed under the same identity")
-	ErrEffectOutcomeUnknown  = errors.New("agent: effect outcome remains unknown")
-	ErrInvalidProcessControl = errors.New("agent: invalid process control request")
-	ErrNilContext            = errors.New("agent: nil Context")
+	ErrProcessFinished       = errors.New("run: process has finished")
+	ErrEffectNotPending      = errors.New("run: effect does not require resolution")
+	ErrEffectReplayForbidden = errors.New("run: effect cannot be replayed under the same identity")
+	ErrEffectOutcomeUnknown  = errors.New("run: effect outcome remains unknown")
+	ErrInvalidProcessControl = errors.New("run: invalid process control request")
+	ErrNilContext            = errors.New("run: nil Context")
 )
 
 // The capacity is an internal burst allowance, not a Process or Signal quota:

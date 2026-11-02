@@ -17,16 +17,16 @@ type resolverTestDefinition struct{ descriptor run.Descriptor }
 
 func (r resolverTestDefinition) Descriptor() run.Descriptor { return r.descriptor }
 
-func (resolverTestDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (resolverTestDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
 func (r resolverTestDefinition) Start(run.Payload) (run.Execution, error) {
-	return nil, errors.New("agenttest: resolver fixture does not execute")
+	return nil, errors.New("runtest: resolver fixture does not execute")
 }
 
 func (r resolverTestDefinition) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
-	return nil, errors.New("agenttest: resolver fixture does not execute")
+	return nil, errors.New("runtest: resolver fixture does not execute")
 }
 
 func resolverTestDeployment(t *testing.T, name string) run.Program[run.Payload, run.Payload] {
@@ -60,7 +60,7 @@ type exactResolver struct {
 func (e exactResolver) Resolve(reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
 	deployment, found := e.bindings[reference]
 	if !found {
-		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("agenttest: no binding for %s", reference)
+		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding for %s", reference)
 	}
 	return deployment, nil
 }
@@ -74,7 +74,7 @@ type nameFallbackResolver struct {
 func (n nameFallbackResolver) Resolve(reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
 	deployment, found := n.bindings[reference.Name()]
 	if !found {
-		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("agenttest: no binding named %s", reference.Name())
+		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding named %s", reference.Name())
 	}
 	return deployment, nil
 }
@@ -98,11 +98,11 @@ func (s *statefulResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 	}
 	s.seen[reference] = struct{}{}
 	if len(s.seen) > 1 {
-		return run.Program[run.Payload, run.Payload]{}, errors.New("agenttest: resolver retained caller state")
+		return run.Program[run.Payload, run.Payload]{}, errors.New("runtest: resolver retained caller state")
 	}
 	deployment, found := s.bindings[reference]
 	if !found {
-		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("agenttest: no binding for %s", reference)
+		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding for %s", reference)
 	}
 	return deployment, nil
 }
@@ -110,7 +110,7 @@ func (s *statefulResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 type panickingResolver struct{}
 
 func (panickingResolver) Resolve(run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
-	panic("agenttest: resolver panicked")
+	panic("runtest: resolver panicked")
 }
 
 func resolverConformanceFixture(t *testing.T) (first, second run.Program[run.Payload, run.Payload], exact exactResolver) {
@@ -217,7 +217,7 @@ func TestProgramResolverConformanceRejectsAnUnusableConfig(t *testing.T) {
 		want   string
 	}{
 		{"nil resolver", ProgramResolverConformanceConfig{Resolvable: []run.Program[run.Payload, run.Payload]{first}}, "Resolver is nil"},
-		{"no bindings", ProgramResolverConformanceConfig{Resolver: exact}, "at least one resolvable Deployment"},
+		{"no bindings", ProgramResolverConformanceConfig{Resolver: exact}, "at least one resolvable Program"},
 		{
 			"invalid binding",
 			ProgramResolverConformanceConfig{Resolver: exact, Resolvable: []run.Program[run.Payload, run.Payload]{{}}},

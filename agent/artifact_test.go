@@ -25,7 +25,7 @@ func TestCompletionValidatorUsesOrderedTypedDelegateArtifacts(t *testing.T) {
 	budget := run.Budget{Steps: run.NewQuota(20), Effects: run.NewQuota(20), Signals: run.NewQuota(20)}
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "delegate_artifact", Description: "Produce one typed artifact for completion validation.",
-		Deployment: child, Budget: budget,
+		Program: child, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -9,7 +9,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidChildControl = errors.New("agent: invalid child control")
+var ErrInvalidChildControl = errors.New("run: invalid child control")
 
 // NewChildSignalEffect declares delivery through the child's ordinary mailbox contract.
 // It cannot release an unrelated wait or preempt in-flight external work.
@@ -86,18 +86,6 @@ func (c *ChildControlResult) UnmarshalJSON(data []byte) error {
 
 func (ChildControlResult) JSONSchemaModel() any { return childControlResultWire{} }
 
-// ParseChildControlResult decodes an unaddressed Framework control settlement
-// carrying a Runtime-owned Signal identity.
-func ParseChildControlResult(signal Signal) (ChildControlResult, error) {
-	if !signal.EngineOwned() {
-		return ChildControlResult{}, ErrInvalidSignal
-	}
-	if _, addressed := signal.WaitID(); addressed {
-		return ChildControlResult{}, ErrInvalidChildControl
-	}
-	return decodeChildControlResult(signal.Payload())
-}
-
 type childControlEffectWire struct {
 	Operation frameworkOperationKind `json:"operation"`
 	ChildID   ProcessID              `json:"child_id"`
@@ -161,3 +149,5 @@ func decodeChildControlResult(payload json.RawMessage) (ChildControlResult, erro
 	}
 	return result, nil
 }
+
+func (ChildControlResult) signalFrame() {}

@@ -94,13 +94,13 @@ func BenchmarkReleaseTreeAmongRetainedProcesses(b *testing.B) {
 				handle.publishResult(result)
 				handle.finishBookkeeping()
 				handle.finishJoin(nil)
-				engine.processes[id] = handle
+				engine.registry.entries[id] = processRegistration{handle: handle}
 			}
 			b.ReportAllocs()
 			for b.Loop() {
 				b.StopTimer()
 				runtime.binding.Store(runtime)
-				engine.processes[runtime.rootID] = runtime.members.get(runtime.rootID).handle
+				engine.registry.entries[runtime.rootID] = processRegistration{handle: runtime.members.get(runtime.rootID).handle}
 				b.StartTimer()
 				if err := engine.ReleaseTree(b.Context(), runtime.rootID); err != nil {
 					b.Fatal(err)
@@ -125,7 +125,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 					b.Error(err)
 				}
 			})
-			engine.processes[parent.handle.processID()] = parent.handle
+			engine.registry.entries[parent.handle.processID()] = processRegistration{handle: parent.handle}
 			runtime := newTreeRuntime(engine, parent.handle.processID(), engine.treeLimits, b.Context(), parent)
 			for range retained {
 				id := newProcessID()
@@ -133,7 +133,7 @@ func BenchmarkChildAdmissionAmongRetainedRoots(b *testing.B) {
 					parent.handle.budget, parent.handle.capabilities, parent.handle.startedAt)
 				handle.publishRuntimeFailure(&RuntimeError{processID: id, cause: context.Canceled})
 				handle.finishBookkeeping()
-				engine.processes[id] = handle
+				engine.registry.entries[id] = processRegistration{handle: handle}
 			}
 			key := controlValue(ParseChildKey("worker"))
 			input := controlValue(EncodePayload(engineTestInput{Value: "child"}))

@@ -15,7 +15,7 @@ const schemaMarker = "$schema"
 //go:embed schema.sql
 var schemaTemplate string
 
-type relations struct{ heads, facts, starts string }
+type relations struct{ heads, processes, facts, starts string }
 
 func namespace(name string) (string, error) {
 	if name == "" || len(name) > maxIdentifierBytes || !utf8.ValidString(name) || strings.ContainsRune(name, 0) {
@@ -25,7 +25,7 @@ func namespace(name string) (string, error) {
 }
 
 func newRelations(schema string) relations {
-	return relations{heads: schema + ".tree_heads", facts: schema + ".commit_facts", starts: schema + ".start_receipts"}
+	return relations{heads: schema + ".tree_heads", processes: schema + ".tree_processes", facts: schema + ".commit_facts", starts: schema + ".start_receipts"}
 }
 
 // SchemaSQL returns strict DDL for an existing, Host-owned namespace. There is

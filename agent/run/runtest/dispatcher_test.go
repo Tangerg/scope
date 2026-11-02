@@ -170,7 +170,7 @@ func (s *scriptedEffectDefinition) Descriptor() run.Descriptor {
 	return s.descriptor
 }
 
-func (*scriptedEffectDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*scriptedEffectDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 

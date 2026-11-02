@@ -13,7 +13,7 @@ func TestExternalDeliveryCannotClaimEngineSignalIdentity(t *testing.T) {
 	effectID := process.handle.processID().effectID(1, 0)
 	for _, id := range []SignalID{effectID.settlementSignalID(), effectID.waitID().childWaitSignalID()} {
 		t.Run(id.String(), func(t *testing.T) {
-			signal := controlValue(NewSignal(id, WaitID{}, []byte(`"forged"`)))
+			signal := controlValue(NewSignal(id, WaitID{}, controlValue(jsonv2.Marshal(ChildControlResult{}))))
 			if accepted, err := admitTestSignals(process, admissionTestLimits(), []Signal{signal}, signalSourceExternal); accepted || !errors.Is(err, ErrSignalRejected) {
 				t.Errorf("external admission claimed Engine identity: %t, %v", accepted, err)
 			}
@@ -52,7 +52,16 @@ func TestSignalAuthorityFollowsIdentityFacts(t *testing.T) {
 		{id: "signal:engine:answer", waitID: waitID, source: signalSourceSettlement},
 		{id: "signal:engine:settled", source: signalSourceChildWait},
 	} {
-		signal := mustMailboxSignal(t, test.id, test.waitID, []byte(`null`))
+		id := controlValue(ParseSignalID(test.id))
+		var signal Signal
+		switch {
+		case id.engineOwned() && test.waitID.Valid():
+			signal = controlValue(NewSignal(id, test.waitID, childWaitOpenedPayload()))
+		case id.engineOwned():
+			signal = controlValue(NewSignal(id, WaitID{}, controlValue(jsonv2.Marshal(ChildControlResult{}))))
+		default:
+			signal = controlValue(NewSignal(id, test.waitID, []byte(`null`)))
+		}
 		if _, err := newAdmissionRecord(signal, test.source); (err == nil) != test.allowed {
 			t.Errorf("%s addressed=%t through %s: error=%v", test.id, test.waitID.Valid(), test.source, err)
 		}

@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-var errInvalidEffectPolicy = errors.New("agent: invalid Dispatcher Effect policy")
+var errInvalidEffectPolicy = errors.New("run: invalid Dispatcher Effect policy")
 
 func dispatcherEffectPolicy(dispatcher Dispatcher, effect Effect) (EffectPolicy, error) {
 	policy, err := invokeCallback("Dispatcher.Policy", func() (EffectPolicy, error) {

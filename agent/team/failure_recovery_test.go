@@ -17,10 +17,10 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 			switch mode {
 			case "start":
 				kind = agentrun.FailureKindExternal
-				code, message = "engine.child.admission.rejected", "agent: process admission rejected: coordinator refused"
+				code, message = "engine.child.admission.rejected", "run: process admission rejected: coordinator refused"
 			case "panic":
 				kind = agentrun.FailureKindPanic
-				message = "agent: Execution.Step panicked: " + strings.Repeat("x", 4096-len("agent: Execution.Step panicked: "))
+				message = "run: Execution.Step panicked: " + strings.Repeat("x", 4096-len("run: Execution.Step panicked: "))
 			case "execution":
 				const prefix = `transform "test.coordinator.transform": `
 				message = prefix + strings.Repeat("x", 4096-len(prefix))
@@ -30,7 +30,7 @@ func TestCoordinatorFailureSurvivesRecoveryAndDrainsWorkers(t *testing.T) {
 					return Decision{Mode: ModeContinue, State: turn.State, Tasks: []TaskRequest{request("background", "test.gate", "wait")}}, nil
 				}
 				if mode == "panic" {
-					panic(strings.TrimPrefix(message, "agent: Execution.Step panicked: "))
+					panic(strings.TrimPrefix(message, "run: Execution.Step panicked: "))
 				}
 				return Decision{}, errors.New(strings.TrimPrefix(message, `transform "test.coordinator.transform": `))
 			}, gate())

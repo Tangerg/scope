@@ -77,7 +77,7 @@ func (e *execution) acceptTurnStart(signals []agentrun.Signal) (agentrun.Transit
 	if len(signals) == 0 {
 		return agentrun.Transition{}, ErrInvalidProtocol
 	}
-	started, err := agentrun.ParseChildStartResult(signals[0])
+	started, err := signals[0].Frame[agentrun.ChildStartResult]()
 	if err != nil {
 		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -114,7 +114,7 @@ func (e *execution) acceptOpening(signals []agentrun.Signal) (agentrun.Transitio
 	if len(signals) == 0 {
 		return agentrun.Transition{}, ErrInvalidProtocol
 	}
-	opened, err := agentrun.ParseChildWaitOpened(signals[0])
+	opened, err := signals[0].Frame[agentrun.ChildWaitOpened]()
 	if err != nil {
 		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -134,7 +134,7 @@ func (e *execution) acceptOutcomes(ctx context.Context, signals []agentrun.Signa
 	if len(signals) == 0 {
 		return agentrun.Transition{}, ErrInvalidProtocol
 	}
-	satisfied, err := agentrun.ParseChildWaitSatisfied(signals[0])
+	satisfied, err := signals[0].Frame[agentrun.ChildWaitSatisfied]()
 	if err != nil {
 		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
@@ -232,7 +232,7 @@ func (e *execution) acceptTaskStarts(signals []agentrun.Signal) (consumed uint32
 	}
 	starts := make([]agentrun.ChildStartResult, count)
 	for index := range starts {
-		starts[index], err = agentrun.ParseChildStartResult(signals[index])
+		starts[index], err = signals[index].Frame[agentrun.ChildStartResult]()
 		if err != nil {
 			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 		}
@@ -256,7 +256,7 @@ func (e *execution) acceptControlResults(signals []agentrun.Signal, consumed uin
 		if int(consumed) == len(signals) {
 			return consumed, false, nil
 		}
-		result, parseErr := agentrun.ParseChildControlResult(signals[consumed])
+		result, parseErr := signals[consumed].Frame[agentrun.ChildControlResult]()
 		if parseErr != nil {
 			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, parseErr)
 		}

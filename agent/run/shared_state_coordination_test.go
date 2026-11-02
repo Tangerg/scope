@@ -33,7 +33,7 @@ type revisionExecution struct {
 
 func (r revisionDefinition) Descriptor() run.Descriptor { return r.descriptor }
 
-func (revisionDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (revisionDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 func (r revisionDefinition) Start(input run.Payload) (run.Execution, error) {

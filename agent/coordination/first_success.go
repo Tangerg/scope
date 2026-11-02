@@ -68,7 +68,7 @@ func NewFirstSuccess(config FirstSuccessConfig) (*FirstSuccess, error) {
 	return &FirstSuccess{descriptor: descriptor, maxCandidates: config.MaxCandidates, accept: config.Accept}, nil
 }
 
-func (*FirstSuccess) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (*FirstSuccess) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (f *FirstSuccess) Descriptor() run.Descriptor {
 	if f == nil {
@@ -154,7 +154,7 @@ func (f *firstSuccessExecution) acceptStarts(signals []run.Signal) (run.Transiti
 	count := min(len(signals), f.state.batch().PendingStarts())
 	starts := make([]run.ChildStartResult, count)
 	for index := range starts {
-		started, err := run.ParseChildStartResult(signals[index])
+		started, err := signals[index].Frame[run.ChildStartResult]()
 		if err != nil {
 			return run.Transition{}, fmt.Errorf("%w: child start result: %w", ErrInvalidProtocol, err)
 		}
@@ -178,7 +178,7 @@ func (f *firstSuccessExecution) acceptWaitOpen(signals []run.Signal) (run.Transi
 	if len(signals) == 0 {
 		return run.Transition{}, fmt.Errorf("%w: competition wait opening is missing", ErrInvalidProtocol)
 	}
-	opened, err := run.ParseChildWaitOpened(signals[0])
+	opened, err := signals[0].Frame[run.ChildWaitOpened]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, err)
 	}
@@ -194,7 +194,7 @@ func (f *firstSuccessExecution) acceptOutcomes(ctx context.Context, signals []ru
 	if len(signals) == 0 || f.state.WaitID == nil {
 		return run.Transition{}, fmt.Errorf("%w: competition wait satisfaction is missing", ErrInvalidProtocol)
 	}
-	satisfied, err := run.ParseChildWaitSatisfied(signals[0])
+	satisfied, err := signals[0].Frame[run.ChildWaitSatisfied]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: child wait satisfaction: %w", ErrInvalidProtocol, err)
 	}

@@ -84,8 +84,10 @@ func TestCompetitionMergesOutcomesInCandidateOrder(t *testing.T) {
 		{outcomes[0], outcomes[2], outcomes[4]},
 	} {
 		execution.state.WaitID = new(competitionWaitID(t))
-		signal := competitionCompletion(t, execution.state, batch)
-		var err error
+		signal, err := competitionCompletion(t, execution.state, batch)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if transition, err = execution.Step(t.Context(), []run.Signal{signal}); err != nil {
 			t.Fatal(err)
 		}
@@ -129,8 +131,12 @@ func TestCompetitionRejectsInvalidOutcomeBatchesAtomically(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			signal := competitionCompletion(t, execution.state, test.outcomes)
-			if transition, stepErr := execution.Step(t.Context(), []run.Signal{signal}); !errors.Is(stepErr, test.cause) || transition.Valid() {
+			signal, stepErr := competitionCompletion(t, execution.state, test.outcomes)
+			var transition run.Transition
+			if stepErr == nil {
+				transition, stepErr = execution.Step(t.Context(), []run.Signal{signal})
+			}
+			if !errors.Is(stepErr, test.cause) || transition.Valid() {
 				t.Fatalf("invalid completion returned %v, %v; want %v", transition, stepErr, test.cause)
 			}
 			after, err := execution.Snapshot()
@@ -189,7 +195,7 @@ func competitionWaitID(t *testing.T) run.WaitID {
 	return id
 }
 
-func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []run.ChildOutcome) run.Signal {
+func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []run.ChildOutcome) (run.Signal, error) {
 	t.Helper()
 	payload := struct {
 		Operation string             `json:"operation"`
@@ -204,10 +210,8 @@ func competitionCompletion(t *testing.T, state firstSuccessState, outcomes []run
 		t.Fatal(err)
 	}
 	var signal run.Signal
-	if err := jsonv2.Unmarshal(data, &signal); err != nil {
-		t.Fatal(err)
-	}
-	return signal
+	err = jsonv2.Unmarshal(data, &signal)
+	return signal, err
 }
 
 func sameOutcome(left, right run.ChildOutcome) bool {

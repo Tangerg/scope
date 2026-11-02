@@ -109,7 +109,7 @@ func (j *jobTable) empty() bool { return len(j.jobs) == 0 }
 
 func (j *jobTable) start(processID ProcessID, job *processJob) {
 	if !processID.Valid() || job == nil || j.jobs[processID] != nil {
-		panic("agent: invalid concurrent Process job")
+		panic("run: invalid concurrent Process job")
 	}
 	j.jobs[processID] = job
 	j.active.Add(1)

@@ -31,8 +31,8 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 		ID:     "choose",
 		Select: func(_ context.Context, input switchInput) (string, error) { return input.Case, nil },
 		Cases: []workflow.SwitchCase{
-			{ID: "left", Deployment: left, Budget: mustBudget(t)},
-			{ID: "right", Deployment: right, Budget: mustBudget(t)},
+			{ID: "left", Program: left, Budget: mustBudget(t)},
+			{ID: "right", Program: right, Budget: mustBudget(t)},
 		},
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 	), "switch-known")
 	stage, err := workflow.Switch(workflow.SwitchConfig[switchInput]{
 		ID: "choose", Select: func(context.Context, switchInput) (string, error) { return "missing", nil },
-		Cases: []workflow.SwitchCase{{ID: "known", Deployment: child, Budget: mustBudget(t)}},
+		Cases: []workflow.SwitchCase{{ID: "known", Program: child, Budget: mustBudget(t)}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -132,15 +132,15 @@ func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 	for name, cases := range map[string][]workflow.SwitchCase{
 		"empty":                 nil,
 		"missing deployment":    {{ID: "missing"}},
-		"invalid case identity": {{ID: "invalid name", Deployment: valid}},
+		"invalid case identity": {{ID: "invalid name", Program: valid}},
 		"duplicate": {
-			{ID: "same", Deployment: valid, Budget: mustBudget(t)},
-			{ID: "same", Deployment: valid, Budget: mustBudget(t)},
+			{ID: "same", Program: valid, Budget: mustBudget(t)},
+			{ID: "same", Program: valid, Budget: mustBudget(t)},
 		},
-		"input mismatch": {{ID: "wrong", Deployment: wrongInput, Budget: mustBudget(t)}},
+		"input mismatch": {{ID: "wrong", Program: wrongInput, Budget: mustBudget(t)}},
 		"output mismatch": {
-			{ID: "valid", Deployment: valid},
-			{ID: "wrong", Deployment: wrongOutput},
+			{ID: "valid", Program: valid},
+			{ID: "wrong", Program: wrongOutput},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

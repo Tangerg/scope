@@ -41,7 +41,7 @@ func TestStartRejectsUnrepresentableSnapshotBeforePublication(t *testing.T) {
 					if process != nil || !errors.Is(err, ErrResourceLimitExceeded) {
 						t.Fatalf("unrepresentable Start = %v, %v", process, err)
 					}
-					if len(engine.processes) != 0 || len(store.treeCheckpoints()) != 0 {
+					if len(engine.registry.entries) != 0 || len(store.treeCheckpoints()) != 0 {
 						t.Fatal("rejected Start published a Process or committed head")
 					}
 					assertNoPendingProcessStarts(t, engine)
@@ -240,7 +240,7 @@ func TestRestoreRejectsSnapshotWithoutLifecycleCapacityBeforeActivation(t *testi
 				if process != nil || !errors.Is(err, ErrResourceLimitExceeded) {
 					t.Fatalf("under-reserved restoration = %v, %v", process, err)
 				}
-				if len(engine.processes) != 0 || len(engine.restoredProcesses) != 0 || len(engine.restoredChildren) != 0 || len(store.treeActivations()) != 0 {
+				if len(engine.registry.entries) != 0 || len(engine.registry.children) != 0 || len(store.treeActivations()) != 0 {
 					t.Fatal("rejected restoration published Processes or activated a writer")
 				}
 			})

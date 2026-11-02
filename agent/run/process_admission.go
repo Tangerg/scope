@@ -7,7 +7,7 @@ import (
 )
 
 // ErrProcessAdmissionRejected marks failure at the policy boundary before execution starts.
-var ErrProcessAdmissionRejected = errors.New("agent: process admission rejected")
+var ErrProcessAdmissionRejected = errors.New("run: process admission rejected")
 
 // ProcessAdmission is the immutable Framework-owned information supplied to a
 // ProcessAdmitter immediately before one root or child Process starts. It does

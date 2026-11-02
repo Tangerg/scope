@@ -18,7 +18,7 @@ const (
 	engineSignalIDPrefix = "signal:engine:"
 )
 
-var ErrInvalidIdentity = errors.New("agent: invalid identity")
+var ErrInvalidIdentity = errors.New("run: invalid identity")
 
 type identity struct {
 	value string

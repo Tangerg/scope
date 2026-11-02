@@ -44,7 +44,7 @@ func TestEventSeparatesAttemptFromCommittedFacts(t *testing.T) {
 		t.Fatalf("decoded Event = %+v", decoded)
 	}
 	if decoded.ProgramRef() != deployment.ProgramRef() || decoded.Relation() != relation {
-		t.Fatalf("decoded Deployment = %s, relation = %#v", decoded.ProgramRef(), decoded.Relation())
+		t.Fatalf("decoded Program = %s, relation = %#v", decoded.ProgramRef(), decoded.Relation())
 	}
 	if got, ok := decoded.EffectID(); !ok || got != effectID {
 		t.Fatalf("decoded EffectID = %v, %t", got, ok)

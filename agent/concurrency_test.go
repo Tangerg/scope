@@ -75,9 +75,12 @@ func TestConcurrentToolsRespectLimitAndCommitInModelOrder(t *testing.T) {
 }
 
 func TestToolSetRejectsPanickingConcurrencyDeclaration(t *testing.T) {
-	_, err := agent.NewToolSet(agent.ToolSetConfig{Tools: []tool.Tool{
-		panickingConcurrencyTool{scheduledTool: &scheduledTool{name: "read"}},
-	}})
+	revision := run.ComputeDigest([]byte("concurrency declaration"))
+	_, err := agent.NewToolSet(agent.ToolSetConfig{
+		Name: "test.concurrency", Description: "Read a tool concurrency declaration.",
+		ImplementationDigest: revision, ConfigurationDigest: revision,
+		Tools: []tool.Tool{panickingConcurrencyTool{scheduledTool: &scheduledTool{name: "read"}}},
+	})
 	if !errors.Is(err, agent.ErrInvalidToolSet) || !strings.Contains(err.Error(), "policy unavailable") {
 		t.Fatalf("invalid scheduling declaration = %v", err)
 	}

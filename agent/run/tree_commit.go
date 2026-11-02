@@ -5,15 +5,53 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"strconv"
 )
 
 const treeCommitIdentityPrefix = "commit:"
 
 var (
-	ErrCommitConflict          = errors.New("agent: committer boundary conflicts with committed content")
-	ErrTreeIncarnationConflict = errors.New("agent: tree incarnation conflict")
+	ErrCommitConflict          = errors.New("run: committer boundary conflicts with committed content")
+	ErrTreeIncarnationConflict = errors.New("run: tree incarnation conflict")
 )
+
+// A tree update binds the changed Process records to the same immutable
+// predecessor that the store must compare before applying them.
+type treeUpdate struct {
+	previous, treeSnapshot TreeSnapshot
+}
+
+func (t treeUpdate) PreviousTreeDigest() Digest { return t.previous.Digest() }
+
+func (t treeUpdate) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
+
+// ChangedProcesses yields new or modified records and a zero ProcessSnapshot
+// for each deletion. It is valid to apply these only to PreviousTreeDigest.
+func (t treeUpdate) ChangedProcesses() iter.Seq2[ProcessID, ProcessSnapshot] {
+	return func(yield func(ProcessID, ProcessSnapshot) bool) {
+		prior := make(map[ProcessID]Digest, len(t.previous.state.ProcessSnapshots))
+		for i := range t.previous.state.ProcessSnapshots {
+			p := &t.previous.state.ProcessSnapshots[i]
+			prior[p.Relation().ProcessID()] = p.Digest()
+		}
+		for i := range t.treeSnapshot.state.ProcessSnapshots {
+			p := &t.treeSnapshot.state.ProcessSnapshots[i]
+			id := p.Relation().ProcessID()
+			digest := prior[id]
+			delete(prior, id)
+			if digest != p.Digest() && !yield(id, *p) {
+				return
+			}
+		}
+		for i := range t.previous.state.ProcessSnapshots {
+			id := t.previous.state.ProcessSnapshots[i].Relation().ProcessID()
+			if _, removed := prior[id]; removed && !yield(id, ProcessSnapshot{}) {
+				return
+			}
+		}
+	}
+}
 
 // EffectBoundaryKind is closed because recovery needs a defined continuation
 // for every acknowledged external Effect boundary.
@@ -53,12 +91,11 @@ func (e EffectBoundaryKind) String() string {
 // The prospective tree owns the Effect's request and settlement; the boundary
 // names the Effect and adds only whether its settlement resolved an Unknown.
 type EffectBoundary struct {
-	sequence           uint64
-	resolution         bool
-	processID          ProcessID
-	effectID           EffectID
-	previousTreeDigest Digest
-	treeSnapshot       TreeSnapshot
+	sequence   uint64
+	resolution bool
+	processID  ProcessID
+	effectID   EffectID
+	treeUpdate
 }
 
 func newEffectBoundary(
@@ -66,14 +103,13 @@ func newEffectBoundary(
 	resolution bool,
 	processID ProcessID,
 	effectID EffectID,
-	previousTreeDigest Digest,
+	previous TreeSnapshot,
 	treeSnapshot TreeSnapshot,
 ) (EffectBoundary, error) {
 	boundary := EffectBoundary{
 		sequence: sequence, resolution: resolution,
 		processID: processID, effectID: effectID,
-		previousTreeDigest: previousTreeDigest,
-		treeSnapshot:       treeSnapshot,
+		treeUpdate: treeUpdate{previous: previous, treeSnapshot: treeSnapshot},
 	}
 	if !boundary.Valid() {
 		return EffectBoundary{}, errors.New("invalid durable Effect boundary")
@@ -117,10 +153,6 @@ func (e EffectBoundary) Settlement() (Settlement, bool) {
 	return record.settlement().clone(), true
 }
 
-func (e EffectBoundary) PreviousTreeDigest() Digest { return e.previousTreeDigest }
-
-func (e EffectBoundary) TreeSnapshot() TreeSnapshot { return e.treeSnapshot }
-
 // Identity is the opaque storage key for this root, Effect, and boundary kind.
 // It survives writer activation; attempts, incarnation, and sequence do not
 // create a second permission or settlement for the same logical Effect stage.
@@ -141,7 +173,7 @@ func (e EffectBoundary) Identity() string {
 // sequence.
 func (e EffectBoundary) ContentDigest() (Digest, error) {
 	if !e.Valid() {
-		return Digest{}, errors.New("agent: invalid Effect boundary")
+		return Digest{}, errors.New("run: invalid Effect boundary")
 	}
 	encoded, err := jsonv2.Marshal(struct {
 		Sequence  uint64
@@ -150,16 +182,16 @@ func (e EffectBoundary) ContentDigest() (Digest, error) {
 		EffectID  EffectID
 		Previous  Digest
 		Snapshot  Digest
-	}{e.sequence, e.Kind(), e.processID, e.effectID, e.previousTreeDigest, e.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
+	}{e.sequence, e.Kind(), e.processID, e.effectID, e.PreviousTreeDigest(), e.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
 	if err != nil {
-		return Digest{}, fmt.Errorf("agent: encode Effect boundary content: %w", err)
+		return Digest{}, fmt.Errorf("run: encode Effect boundary content: %w", err)
 	}
 	return ComputeDigest(encoded), nil
 }
 
 func (e EffectBoundary) Valid() bool {
-	return e.sequence != 0 && e.previousTreeDigest.Valid() && e.treeSnapshot.Valid() &&
-		e.previousTreeDigest != e.treeSnapshot.Digest() && e.Kind().Valid()
+	return e.sequence != 0 && e.PreviousTreeDigest().Valid() && e.treeSnapshot.Valid() &&
+		e.PreviousTreeDigest() != e.treeSnapshot.Digest() && e.Kind().Valid()
 }
 
 // TreeCheckpointKind distinguishes absent-head creation from writer-fenced
@@ -212,22 +244,21 @@ const (
 // Input, child, and progress cuts can coexist with sibling jobs because those
 // jobs expose only committed Execution state or already recorded Effect intent.
 type TreeCheckpoint struct {
-	start              StartReceipt
-	sequence           uint64
-	cause              checkpointCause
-	previousTreeDigest Digest
-	treeSnapshot       TreeSnapshot
+	start    StartReceipt
+	sequence uint64
+	cause    checkpointCause
+	treeUpdate
 }
 
 func newTreeCheckpoint(
 	sequence uint64,
 	cause checkpointCause,
-	previousTreeDigest Digest,
+	previous TreeSnapshot,
 	treeSnapshot TreeSnapshot,
 ) (TreeCheckpoint, error) {
 	checkpoint := TreeCheckpoint{
 		sequence: sequence,
-		cause:    cause, previousTreeDigest: previousTreeDigest, treeSnapshot: treeSnapshot,
+		cause:    cause, treeUpdate: treeUpdate{previous: previous, treeSnapshot: treeSnapshot},
 	}
 	if !checkpoint.Valid() {
 		return TreeCheckpoint{}, errors.New("invalid durable tree checkpoint")
@@ -249,7 +280,7 @@ func (t TreeCheckpoint) Kind() TreeCheckpointKind {
 	switch {
 	case t.cause == checkpointCauseInvalid || !t.treeSnapshot.Valid():
 		return TreeCheckpointKindInvalid
-	case t.previousTreeDigest == (Digest{}):
+	case t.PreviousTreeDigest() == (Digest{}):
 		if t.cause != checkpointCauseCut {
 			return TreeCheckpointKindInvalid
 		}
@@ -275,10 +306,6 @@ func (t TreeCheckpoint) Kind() TreeCheckpointKind {
 	return kind
 }
 
-func (t TreeCheckpoint) PreviousTreeDigest() Digest { return t.previousTreeDigest }
-
-func (t TreeCheckpoint) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
-
 // Identity is the opaque storage key for this root, writer, and sequence.
 // Repeated snapshot content cannot identify a checkpoint because execution may
 // return to an earlier recovery cut. Invalid checkpoints have an empty identity.
@@ -297,21 +324,21 @@ func (t TreeCheckpoint) Identity() string {
 // write-set digest separately and check both within the same transaction.
 func (t TreeCheckpoint) ContentDigest() (Digest, error) {
 	if !t.Valid() {
-		return Digest{}, errors.New("agent: invalid tree checkpoint")
+		return Digest{}, errors.New("run: invalid tree checkpoint")
 	}
 	encoded, err := jsonv2.Marshal(struct {
 		Kind     TreeCheckpointKind
 		Previous string
 		Snapshot Digest
 		Start    *StartReceipt `json:",omitzero"`
-	}{t.Kind(), t.previousTreeDigest.String(), t.treeSnapshot.Digest(), func() *StartReceipt {
+	}{t.Kind(), t.PreviousTreeDigest().String(), t.treeSnapshot.Digest(), func() *StartReceipt {
 		if t.start.Valid() {
 			return &t.start
 		}
 		return nil
 	}()}, jsonv2.Deterministic(true))
 	if err != nil {
-		return Digest{}, fmt.Errorf("agent: encode tree checkpoint content: %w", err)
+		return Digest{}, fmt.Errorf("run: encode tree checkpoint content: %w", err)
 	}
 	return ComputeDigest(encoded), nil
 }
@@ -325,26 +352,21 @@ func (t TreeCheckpoint) Valid() bool {
 		snapshots := t.treeSnapshot.state.ProcessSnapshots
 		return t.start.Valid() && t.start.RootID == t.treeSnapshot.RootID() && t.sequence == 1 && len(snapshots) == 1 && snapshots[0].Status() == StatusRunning
 	}
-	return t.start == (StartReceipt{}) && t.previousTreeDigest.Valid() && t.previousTreeDigest != t.treeSnapshot.Digest()
+	return t.start == (StartReceipt{}) && t.PreviousTreeDigest().Valid() && t.PreviousTreeDigest() != t.treeSnapshot.Digest()
 }
 
 // TreeActivation changes writer identity and recovery state together so the
 // previous Runtime cannot continue committing after restoration takes ownership.
 type TreeActivation struct {
-	previousIncarnationID TreeIncarnationID
-	previousTreeDigest    Digest
-	treeSnapshot          TreeSnapshot
+	treeUpdate
 }
 
 func newTreeActivation(
-	previousIncarnationID TreeIncarnationID,
-	previousTreeDigest Digest,
+	previous TreeSnapshot,
 	treeSnapshot TreeSnapshot,
 ) (TreeActivation, error) {
 	activation := TreeActivation{
-		previousIncarnationID: previousIncarnationID,
-		previousTreeDigest:    previousTreeDigest,
-		treeSnapshot:          treeSnapshot,
+		treeUpdate: treeUpdate{previous: previous, treeSnapshot: treeSnapshot},
 	}
 	if !activation.Valid() {
 		return TreeActivation{}, errors.New("invalid durable tree activation")
@@ -353,12 +375,8 @@ func newTreeActivation(
 }
 
 func (t TreeActivation) PreviousIncarnationID() TreeIncarnationID {
-	return t.previousIncarnationID
+	return t.previous.IncarnationID()
 }
-
-func (t TreeActivation) PreviousTreeDigest() Digest { return t.previousTreeDigest }
-
-func (t TreeActivation) TreeSnapshot() TreeSnapshot { return t.treeSnapshot }
 
 // Identity is the opaque storage key for this root and proposed writer.
 // Invalid activations have an empty identity. Persist the returned key verbatim.
@@ -375,22 +393,22 @@ func (t TreeActivation) Identity() string {
 // content conflict even when the proposed writer and snapshot are unchanged.
 func (t TreeActivation) ContentDigest() (Digest, error) {
 	if !t.Valid() {
-		return Digest{}, errors.New("agent: invalid tree activation")
+		return Digest{}, errors.New("run: invalid tree activation")
 	}
 	encoded, err := jsonv2.Marshal(struct {
 		PreviousIncarnationID TreeIncarnationID
 		PreviousTreeDigest    Digest
 		Snapshot              Digest
-	}{t.previousIncarnationID, t.previousTreeDigest, t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
+	}{t.previous.IncarnationID(), t.PreviousTreeDigest(), t.treeSnapshot.Digest()}, jsonv2.Deterministic(true))
 	if err != nil {
-		return Digest{}, fmt.Errorf("agent: encode tree activation content: %w", err)
+		return Digest{}, fmt.Errorf("run: encode tree activation content: %w", err)
 	}
 	return ComputeDigest(encoded), nil
 }
 
 func (t TreeActivation) Valid() bool {
-	return t.previousIncarnationID.Valid() && t.previousTreeDigest.Valid() &&
-		t.treeSnapshot.Valid() && t.previousIncarnationID != t.TreeSnapshot().IncarnationID()
+	return t.previous.IncarnationID().Valid() && t.PreviousTreeDigest().Valid() &&
+		t.treeSnapshot.Valid() && t.previous.IncarnationID() != t.TreeSnapshot().IncarnationID()
 }
 
 // TreeCommitter keeps all recoverable state on one authoritative head so a

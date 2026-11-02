@@ -1,6 +1,7 @@
 // Package agent composes a chat model, executable tools, and policies into a
 // [github.com/Tangerg/scope/agent/run.Program] with [Input] and [Output].
-// [Compile] freezes their identities. Use run.Runtime.Run for a foreground
+// [Compile] binds the [ToolSet] supplied in [Config.Tools]. Retain that same
+// ToolSet to settle investigated tool outcomes after recovery. Use run.Runtime.Run for a foreground
 // call, or run.Runtime.Start with a stable StartID for a managed invocation.
 // Higher-level strategies use the same program as a child. Input and Output
 // carry core/chat values.

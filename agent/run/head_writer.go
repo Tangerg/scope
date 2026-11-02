@@ -59,7 +59,7 @@ func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, wire t
 	if err != nil {
 		return TreeSnapshot{}, err
 	}
-	activation, err := newTreeActivation(previous.IncarnationID(), previous.Digest(), snapshot)
+	activation, err := newTreeActivation(previous, snapshot)
 	if err != nil {
 		return TreeSnapshot{}, err
 	}
@@ -72,7 +72,7 @@ func (h *headWriter) activate(ctx context.Context, previous TreeSnapshot, wire t
 
 func (h *headWriter) establish(snapshot TreeSnapshot) {
 	if !snapshot.Valid() {
-		panic("agent: durable tree head is invalid")
+		panic("run: durable tree head is invalid")
 	}
 	h.acknowledged = snapshot
 	h.stream.acknowledged(snapshot)
@@ -83,10 +83,10 @@ func (h *headWriter) establish(snapshot TreeSnapshot) {
 // cancellation, because the Host owns storage deadlines.
 func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit) error {
 	if commit == nil || !commit.processID.Valid() {
-		panic("agent: invalid tree Effect commit")
+		panic("run: invalid tree Effect commit")
 	}
 	boundary, err := newEffectBoundary(h.sequence+1, commit.kind == treeCommitEffectResolved,
-		commit.processID, commit.effectID, h.acknowledged.Digest(), commit.snapshot)
+		commit.processID, commit.effectID, h.acknowledged, commit.snapshot)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (h *headWriter) commitEffect(ctx context.Context, commit *treeCommit) error
 }
 
 func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, cause checkpointCause) error {
-	checkpoint, err := newTreeCheckpoint(h.sequence+1, cause, h.acknowledged.Digest(), commit.snapshot)
+	checkpoint, err := newTreeCheckpoint(h.sequence+1, cause, h.acknowledged, commit.snapshot)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (h *headWriter) commitCheckpoint(ctx context.Context, commit *treeCommit, c
 
 func (h *headWriter) launch(commit *treeCommit, call func() error) {
 	if commit == nil || !h.inFlight.CompareAndSwap(nil, commit) {
-		panic("agent: invalid concurrent tree commit")
+		panic("run: invalid concurrent tree commit")
 	}
 	go func() {
 		h.done <- treeCommitCompletion{commit: commit, err: call()}

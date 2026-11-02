@@ -322,13 +322,13 @@ func newIterationDeployment(
 		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Signals: agentrun.NewQuota(workerBudgetSignals),
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
-		ID: "optimize", Deployment: optimizer, Budget: workerBudget,
+		ID: "optimize", Program: optimizer, Budget: workerBudget,
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	evaluate, err := workflow.Call(workflow.CallConfig{
-		ID: "evaluate", Deployment: evaluator, Budget: workerBudget,
+		ID: "evaluate", Program: evaluator, Budget: workerBudget,
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err

@@ -116,7 +116,7 @@ func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewRe
 		Steps: agentrun.NewQuota(workflowChildBudgetUnits), Effects: agentrun.NewQuota(workflowChildBudgetUnits), Signals: agentrun.NewQuota(workflowChildBudgetUnits),
 	}
 	normalize, err := workflow.Call(workflow.CallConfig{
-		ID: "normalize", Deployment: normalizer, Budget: budget,
+		ID: "normalize", Program: normalizer, Budget: budget,
 	})
 	if err != nil {
 		return agentrun.Program[request, reviewReport]{}, err
@@ -127,7 +127,7 @@ func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewRe
 		if reviewerErr != nil {
 			return agentrun.Program[request, reviewReport]{}, reviewerErr
 		}
-		branches = append(branches, workflow.ForkBranch{ID: reviewer, Deployment: deployment, Budget: budget})
+		branches = append(branches, workflow.ForkBranch{ID: reviewer, Program: deployment, Budget: budget})
 	}
 	reviewStage, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, verdict, reviewReport]{
 		ID: "review", Branches: branches, WindowSize: uint32(len(reviewers)),

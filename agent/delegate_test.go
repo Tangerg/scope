@@ -41,7 +41,7 @@ func TestManagedDelegatePreservesMixedToolCallOrder(t *testing.T) {
 	capabilities, _ := run.NewCapabilitySet(capability)
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "delegate_uppercase", Description: "Delegate text that must be converted to uppercase.",
-		Deployment: child, Budget: budget, Capabilities: capabilities,
+		Program: child, Budget: budget, Capabilities: capabilities,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	budget := run.Budget{Steps: run.NewQuota(10), Effects: run.NewQuota(10), Signals: run.NewQuota(10)}
 	if _, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "primitive", Description: "Delegate one primitive value.",
-		Deployment: primitive, Budget: budget,
+		Program: primitive, Budget: budget,
 	}); !errors.Is(err, agent.ErrInvalidDelegate) {
 		t.Fatalf("primitive Delegate error = %v", err)
 	}
@@ -110,13 +110,13 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	})
 	for name, config := range map[string]agent.DelegateConfig{
 		"blank description": {
-			Name: "invalid_blank", Deployment: child, Budget: budget,
+			Name: "invalid_blank", Program: child, Budget: budget,
 		},
 		"untrimmed description": {
-			Name: "invalid_description", Description: " untrimmed", Deployment: child, Budget: budget,
+			Name: "invalid_description", Description: " untrimmed", Program: child, Budget: budget,
 		},
 		"invalid name": {
-			Name: "invalid/name", Description: "Use an invalid model capability name.", Deployment: child, Budget: budget,
+			Name: "invalid/name", Description: "Use an invalid model capability name.", Program: child, Budget: budget,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -127,7 +127,7 @@ func TestDelegateRejectsNonObjectInputAndToolNameCollision(t *testing.T) {
 	}
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "same_name", Description: "Delegate a value to the exact worker.",
-		Deployment: child, Budget: budget,
+		Program: child, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestDelegateDescriptionContract(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			delegate, err := agent.NewDelegate(agent.DelegateConfig{
-				Name: "worker", Description: test.description, Deployment: child,
+				Name: "worker", Description: test.description, Program: child,
 			})
 			if test.valid {
 				if err != nil || !delegate.Valid() {
@@ -197,7 +197,7 @@ func TestManagedDelegateReturnsArgumentAndStartFailuresToModel(t *testing.T) {
 	budget := run.Budget{Steps: run.NewQuota(10), Effects: run.NewQuota(10), Signals: run.NewQuota(10)}
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "delegate_unavailable", Description: "Delegate work to an exact worker that may be unavailable.",
-		Deployment: child, Budget: budget,
+		Program: child, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -254,7 +254,7 @@ func newDelegateRestoreFixture(t *testing.T) delegateRestoreFixture {
 	budget := run.Budget{Steps: run.NewQuota(20), Effects: run.NewQuota(20), Signals: run.NewQuota(20)}
 	delegate, err := agent.NewDelegate(agent.DelegateConfig{
 		Name: "delegate_paused", Description: "Delegate work that may pause before producing its result.",
-		Deployment: child, Budget: budget,
+		Program: child, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -562,7 +562,7 @@ func (p *pausingDelegateDefinition) Descriptor() run.Descriptor {
 	return p.descriptor
 }
 
-func (*pausingDelegateDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*pausingDelegateDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 

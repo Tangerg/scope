@@ -95,8 +95,8 @@ func (d *Definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
-// ChildDeployments returns the exact child binding of every Stage.
-func (d *Definition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+// ChildPrograms returns the exact child binding of every Stage.
+func (d *Definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	if !d.valid() {
 		return nil
 	}

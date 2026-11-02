@@ -80,14 +80,14 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 				{Key: contractValue(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: contractValue(run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})), Budget: childBudget},
 			}
 			prepare := contractValue(workflow.Transform("candidates", func(context.Context, struct{}) ([]run.ChildSpec, error) { return candidates, nil }))
-			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Deployment: race, Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Signals: run.NewQuota(64)}}))
+			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Program: race, Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Signals: run.NewQuota(64)}}))
 			delegate := contractDeployment(contractValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "contract.composite", Description: "Reject unsafe competition output.", Stages: []workflow.Stage{prepare, call}})), nil)
 			var rootCalls atomic.Int32
 			var root run.Program[run.Payload, run.Payload]
 			var input run.Payload
 			delegateBudget := run.Budget{Steps: run.NewQuota(96), Effects: run.NewQuota(80), Signals: run.NewQuota(96)}
 			if strategy == "interaction" {
-				binding := contractValue(agent.NewDelegate(agent.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Deployment: delegate, Budget: delegateBudget}))
+				binding := contractValue(agent.NewDelegate(agent.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Program: delegate, Budget: delegateBudget}))
 				root = contractInteraction(agent.DefinitionConfig{Name: "contract.parent", Description: "Reject unresolved delegate subtrees.", MaxModelCalls: run.NewQuota(2), Delegates: []agent.Delegate{binding}}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					if rootCalls.Add(1) == 1 {
 						return contractToolCall("delegate", `{}`), nil
@@ -98,7 +98,7 @@ func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
 			} else {
 				done := contractValue(planning.NewCondition("world.done", planning.TruthTrue))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
-				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Deployment: delegate, Budget: delegateBudget}))
+				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: delegate, Budget: delegateBudget}))
 				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(jsonschema.For[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: run.NewQuota(2)}))
 				dispatcher := contractValue(planning.NewDispatcher(definition, planning.DispatcherConfig{Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
 					rootCalls.Add(1)

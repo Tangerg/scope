@@ -194,7 +194,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 		t.Fatal(err)
 	}
 	budget := run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(8), Signals: run.NewQuota(8)}
-	call, err := Call(CallConfig{ID: "child", Deployment: child, Budget: budget})
+	call, err := Call(CallConfig{ID: "child", Program: child, Budget: budget})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func protocolTestDefinitions(t testing.TB) (*Definition, *Definition) {
 	}
 	fanout, err := Fork(ForkConfig[stateFixture, stateFixture, stateFixture]{
 		ID:         "fanout",
-		Branches:   []ForkBranch{{ID: "only", Deployment: child, Budget: budget}},
+		Branches:   []ForkBranch{{ID: "only", Program: child, Budget: budget}},
 		WindowSize: 1,
 		Reduce: func(_ context.Context, _ stateFixture, values []stateFixture) (stateFixture, error) {
 			return values[0], nil

@@ -92,6 +92,16 @@ func TestToolSetDecorateDispatcherGuardsConstruction(t *testing.T) {
 		ImplementationDigest: run.ComputeDigest([]byte("guard")), ConfigurationDigest: run.ComputeDigest([]byte("guard")),
 	}
 
+	invalid := base
+	invalid.ConfigurationDigest = run.Digest{}
+	invalid.DecorateDispatcher = func(run.Dispatcher) (run.Dispatcher, error) {
+		t.Fatal("decorated a tool set without an opaque configuration identity")
+		return nil, nil
+	}
+	if _, err := agent.NewToolSet(invalid); !errors.Is(err, agent.ErrInvalidToolSet) || !errors.Is(err, run.ErrInvalidDigest) {
+		t.Fatal(err)
+	}
+
 	failing := base
 	failing.DecorateDispatcher = func(run.Dispatcher) (run.Dispatcher, error) { return nil, errors.New("boom") }
 	if _, err := agent.NewToolSet(failing); !errors.Is(err, agent.ErrInvalidToolSet) {

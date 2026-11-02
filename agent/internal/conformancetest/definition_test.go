@@ -12,7 +12,7 @@ type recordingFailureDefinition struct{ cause error }
 
 func (r recordingFailureDefinition) Descriptor() run.Descriptor { return run.Descriptor{} }
 
-func (recordingFailureDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (recordingFailureDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 func (r recordingFailureDefinition) Start(run.Payload) (run.Execution, error) {

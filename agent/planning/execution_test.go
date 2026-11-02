@@ -359,13 +359,13 @@ func TestManagedPlanningExecutesChildProcessAction(t *testing.T) {
 		executors: map[string]planning.ActionExecutor{"action.child_finish": world.apply(childAction)},
 	})
 	delegate := mustAction(t, planning.ActionConfig{
-		Name: "action.delegate", Description: "Delegate completion to an exact child Deployment.",
+		Name: "action.delegate", Description: "Delegate completion to an exact child Program.",
 		Effects: []planning.Condition{done},
 	})
 	budget := run.Budget{Steps: run.NewQuota(32), Effects: run.NewQuota(32), Signals: run.NewQuota(64)}
 	var inputCalls int
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: delegate, Deployment: childDeployment, Budget: budget,
+		Action: delegate, Program: childDeployment, Budget: budget,
 		Input: func(input run.Payload, observed planning.WorldState) (run.Payload, error) {
 			inputCalls++
 			if !input.Valid() || observed.Truth("world.done") != planning.TruthUnknown {
@@ -399,7 +399,7 @@ func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 	})
 	budget := run.Budget{Steps: run.NewQuota(32), Effects: run.NewQuota(32), Signals: run.NewQuota(64)}
 	childBinding, err := planning.NewChildBinding(planning.ChildBindingConfig{
-		Action: delegate, Deployment: rejected, Budget: budget,
+		Action: delegate, Program: rejected, Budget: budget,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -420,7 +420,7 @@ func TestManagedPlanningRecordsRejectedChildStartAsFailedAttempt(t *testing.T) {
 	output := managedOutput(t, result)
 	if output.Outcome != planning.OutcomeStuck || output.PlanningPasses() != 2 || len(output.Attempts) != 1 ||
 		output.Attempts[0].ActionName != "action.delegate" || output.Attempts[0].Status != planning.AttemptFailed ||
-		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: agent: process admission rejected: child refused" || world.truth("world.done") != planning.TruthUnknown {
+		output.Attempts[0].Diagnostic != "engine.child.admission.rejected: run: process admission rejected: child refused" || world.truth("world.done") != planning.TruthUnknown {
 		t.Fatalf("output = %#v", output)
 	}
 }

@@ -64,7 +64,7 @@ type rejectedStepDefinition struct {
 
 func (r *rejectedStepDefinition) Descriptor() Descriptor { return r.descriptor }
 
-func (*rejectedStepDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*rejectedStepDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 func (r *rejectedStepDefinition) Start(Payload) (Execution, error) {
 	return &rejectedStepExecution{err: r.err}, nil
 }

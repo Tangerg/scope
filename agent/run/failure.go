@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidFailure = errors.New("agent: invalid failure")
+var ErrInvalidFailure = errors.New("run: invalid failure")
 
 // FailureKind stays independent of retryability so classifying a failure
 // cannot silently select a recovery or business policy.

@@ -57,7 +57,7 @@ func TestInitializationRestoreHonorsCallerCancellation(t *testing.T) {
 		if err := <-completed; !errors.Is(err, context.Canceled) {
 			t.Fatalf("initialization error = %v, want cancellation", err)
 		}
-		if len(engine.startReservations) != 0 || len(engine.processes) != 0 {
+		if len(engine.registry.entries) != 0 {
 			t.Fatal("canceled restoration retained initialization state")
 		}
 	})

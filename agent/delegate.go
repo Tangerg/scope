@@ -18,9 +18,9 @@ type DelegateConfig struct {
 
 	Description string
 
-	// Deployment is the exact child program. An Interaction
-	// configured with this Delegate owns it as one of its ChildDeployments.
-	Deployment run.Program[run.Payload, run.Payload]
+	// Program is the exact child program. An Interaction
+	// configured with this Delegate owns it as one of its ChildPrograms.
+	Program run.Program[run.Payload, run.Payload]
 
 	// Budget is permanently allocated from the parent for each invocation.
 	Budget run.Budget
@@ -41,10 +41,10 @@ type Delegate struct {
 // NewDelegate fixes the target at construction; model selection cannot change
 // its Program, budget, or capabilities.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
-	if !config.Deployment.Valid() || !run.ValidDescription(config.Description) {
+	if !config.Program.Valid() || !run.ValidDescription(config.Description) {
 		return Delegate{}, ErrInvalidDelegate
 	}
-	descriptor := config.Deployment.Descriptor()
+	descriptor := config.Program.Descriptor()
 	if err := chat.ValidateToolName(config.Name); err != nil {
 		return Delegate{}, fmt.Errorf("%w: %w", ErrInvalidDelegate, err)
 	}
@@ -56,7 +56,7 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 		return Delegate{}, fmt.Errorf("%w: model contract: %w", ErrInvalidDelegate, err)
 	}
 	return Delegate{
-		definition: definition, deployment: config.Deployment,
+		definition: definition, deployment: config.Program,
 		budget:       config.Budget,
 		capabilities: config.Capabilities,
 	}, nil

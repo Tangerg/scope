@@ -64,7 +64,7 @@ func (m *MemoryStore) ActivateTree(
 	activation TreeActivation,
 ) error {
 	if m == nil {
-		return errors.New("agent: invalid tree activation")
+		return errors.New("run: invalid tree activation")
 	}
 	content, err := activation.ContentDigest()
 	if err != nil {
@@ -98,7 +98,7 @@ func (m *MemoryStore) CommitEffect(
 	boundary EffectBoundary,
 ) error {
 	if m == nil {
-		return errors.New("agent: invalid Effect boundary")
+		return errors.New("run: invalid Effect boundary")
 	}
 	prospective := boundary.TreeSnapshot()
 	content, err := boundary.ContentDigest()
@@ -118,7 +118,7 @@ func (m *MemoryStore) CommitCheckpoint(
 	checkpoint TreeCheckpoint,
 ) error {
 	if m == nil {
-		return errors.New("agent: invalid tree checkpoint")
+		return errors.New("run: invalid tree checkpoint")
 	}
 	prospective := checkpoint.TreeSnapshot()
 	content, err := checkpoint.ContentDigest()

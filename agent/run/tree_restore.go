@@ -58,7 +58,7 @@ func (t *treeRestoration) deployment(reference ProgramRef) (Program[Payload, Pay
 	deployment, err := resolveDeployment(t.engine.resolver, reference)
 	if err != nil {
 		return Program[Payload, Payload]{}, fmt.Errorf(
-			"%w: resolve exact Deployment %s: %w", ErrInvalidTreeSnapshot, reference.Name(), err,
+			"%w: resolve exact Program %s: %w", ErrInvalidTreeSnapshot, reference.Name(), err,
 		)
 	}
 	if err := t.bind(deployment); err != nil {
@@ -79,7 +79,7 @@ func (t *treeRestoration) bind(deployment Program[Payload, Payload]) error {
 			continue
 		}
 		if err := child.validateDefinition(); err != nil {
-			return fmt.Errorf("%w: bound Deployment %s: %w", ErrInvalidTreeSnapshot, child.reference.Name(), err)
+			return fmt.Errorf("%w: bound Program %s: %w", ErrInvalidTreeSnapshot, child.reference.Name(), err)
 		}
 		if err := t.bind(child); err != nil {
 			return err

@@ -18,7 +18,7 @@ func TestFanoutRestoreRejectsInvalidWindowState(t *testing.T) {
 		}),
 	), "window-child")
 	stage, err := workflow.Map(workflow.MapConfig[forkInput, numberOutput]{
-		ID: "items", Deployment: child, Budget: mustBudget(t), WindowSize: 2, MaxItems: 3,
+		ID: "items", Program: child, Budget: mustBudget(t), WindowSize: 2, MaxItems: 3,
 	})
 	if err != nil {
 		t.Fatal(err)

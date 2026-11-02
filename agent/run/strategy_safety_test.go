@@ -55,7 +55,7 @@ type safetyCompetition struct {
 
 func (s *safetyCompetition) Descriptor() run.Descriptor { return s.descriptor }
 
-func (*safetyCompetition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*safetyCompetition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 func (s *safetyCompetition) Start(input run.Payload) (run.Execution, error) {
@@ -233,9 +233,9 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 			after = safetyValue(workflow.Transform("after", failAfter))
 			switch test.kind {
 			case "call":
-				stage = safetyValue(workflow.Call(workflow.CallConfig{ID: test.kind, Deployment: child, Budget: budget}))
+				stage = safetyValue(workflow.Call(workflow.CallConfig{ID: test.kind, Program: child, Budget: budget}))
 			case "switch":
-				stage = safetyValue(workflow.Switch(workflow.SwitchConfig[string]{ID: test.kind, Select: func(context.Context, string) (string, error) { return "chosen", nil }, Cases: []workflow.SwitchCase{{ID: "chosen", Deployment: child, Budget: budget}}}))
+				stage = safetyValue(workflow.Switch(workflow.SwitchConfig[string]{ID: test.kind, Select: func(context.Context, string) (string, error) { return "chosen", nil }, Cases: []workflow.SwitchCase{{ID: "chosen", Program: child, Budget: budget}}}))
 			case "loop":
 				stage = safetyValue(workflow.Loop(workflow.LoopConfig[string]{ID: test.kind, Body: child, Budget: budget, MaxIterations: run.NewQuota(2), Predicate: func(context.Context, string) (bool, error) {
 					predicateCalls.Add(1)
@@ -246,12 +246,12 @@ func TestWorkflowRejectsUnresolvedFirstSuccessSubtrees(t *testing.T) {
 					return "", errors.New("next stage ran")
 				}))
 			case "fork":
-				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: test.kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Deployment: child, Budget: budget}, {ID: "second", Deployment: child, Budget: budget}}, Reduce: func(context.Context, string, []string) (string, error) {
+				stage = safetyValue(workflow.Fork(workflow.ForkConfig[string, string, string]{ID: test.kind, WindowSize: 1, Branches: []workflow.ForkBranch{{ID: "first", Program: child, Budget: budget}, {ID: "second", Program: child, Budget: budget}}, Reduce: func(context.Context, string, []string) (string, error) {
 					reducerCalls.Add(1)
 					return "", errors.New("fanout reduced unsafe output")
 				}}))
 			case "map":
-				stage = safetyValue(workflow.Map(workflow.MapConfig[string, string]{ID: test.kind, Deployment: child, Budget: budget, WindowSize: 1, MaxItems: 2}))
+				stage = safetyValue(workflow.Map(workflow.MapConfig[string, string]{ID: test.kind, Program: child, Budget: budget, WindowSize: 1, MaxItems: 2}))
 				input = safetyValue(run.EncodePayload([]string{"one", "two"}))
 				after = safetyValue(workflow.Transform("after", func(context.Context, []string) (string, error) {
 					afterCalls.Add(1)
@@ -281,7 +281,7 @@ func TestCollaborationRejectsUnresolvedCoordinatorDecision(t *testing.T) {
 			}
 			child, resolver := safetyChild[team.Turn](decision)
 			resolver[worker.ProgramRef()] = worker
-			definition := safetyValue(team.NewDefinition(team.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: team.WorkerConfig{Deployment: child, Budget: run.Budget{Steps: run.NewQuota(128), Effects: run.NewQuota(128), Signals: run.NewQuota(128)}}, Workers: []team.WorkerConfig{{Deployment: worker, Budget: run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(16), Signals: run.NewQuota(16)}}}, StateSchema: safetyValue(jsonschema.For[string]()), OutputSchema: safetyValue(jsonschema.For[string]()), MaxTurns: run.NewQuota(2), MaxTasks: run.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
+			definition := safetyValue(team.NewDefinition(team.DefinitionConfig{Name: "safety.collaboration", Description: "Reject unsafe coordinator decisions.", Coordinator: team.WorkerConfig{Program: child, Budget: run.Budget{Steps: run.NewQuota(128), Effects: run.NewQuota(128), Signals: run.NewQuota(128)}}, Workers: []team.WorkerConfig{{Program: worker, Budget: run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(16), Signals: run.NewQuota(16)}}}, StateSchema: safetyValue(jsonschema.For[string]()), OutputSchema: safetyValue(jsonschema.For[string]()), MaxTurns: run.NewQuota(2), MaxTasks: run.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 2}))
 			state := assertSafetyFailure(t, safetyBinding(definition, nil), resolver, safetyValue(run.EncodePayload("initial")), "collaboration.coordinator.unresolved_effects", func() {})
 			var wire map[string]json.RawMessage
 			if err := jsonv2.Unmarshal(state.Payload(), &wire); err != nil {
@@ -324,7 +324,7 @@ func TestPlanningRejectsUnresolvedChildAction(t *testing.T) {
 			}))
 			var senseCalls, planCalls, inputCalls, actionCalls atomic.Int32
 			binding := safetyValue(planning.NewChildBinding(planning.ChildBindingConfig{
-				Action: delegate, Deployment: child,
+				Action: delegate, Program: child,
 				Budget: run.Budget{Steps: run.NewQuota(128), Effects: run.NewQuota(128), Signals: run.NewQuota(128)},
 				Input: func(input run.Payload, _ planning.WorldState) (run.Payload, error) {
 					inputCalls.Add(1)

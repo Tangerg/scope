@@ -48,7 +48,7 @@ func TestBatchAdoptsOnlyCorrelatedOrderedResponses(t *testing.T) {
 	if err != nil || len(spec.Children) != 2 || spec.Children[0].String() != "child" || spec.Children[1].String() != "second-child" {
 		t.Fatalf("wait = %+v, %v", spec, err)
 	}
-	opened, err := run.ParseChildWaitOpened(openingSignal(t, "wait"))
+	opened, err := openingSignal(t, "wait").Frame[run.ChildWaitOpened]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestBatchRejectsMalformedAndOutOfPhaseProgress(t *testing.T) {
 	if _, err := pending.AcceptStarts([]run.ChildStartResult{duplicate}); err == nil {
 		t.Fatal("prior Process identity reused")
 	}
-	opened, err := run.ParseChildWaitOpened(openingSignal(t, "wait"))
+	opened, err := openingSignal(t, "wait").Frame[run.ChildWaitOpened]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +168,7 @@ func TestBatchRejectsMalformedAndOutOfPhaseProgress(t *testing.T) {
 
 func batchStart(t *testing.T, signal run.Signal) run.ChildStartResult {
 	t.Helper()
-	start, err := run.ParseChildStartResult(signal)
+	start, err := signal.Frame[run.ChildStartResult]()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func batchCompletion(t *testing.T, waitID string, drained bool, processIDs ...st
 	t.Helper()
 	var outcomes []run.ChildOutcome
 	for _, processID := range processIDs {
-		value, err := run.ParseChildWaitSatisfied(completionSignal(t, waitID, drained, processID))
+		value, err := completionSignal(t, waitID, drained, processID).Frame[run.ChildWaitSatisfied]()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,7 +234,7 @@ func batchCompletion(t *testing.T, waitID string, drained bool, processIDs ...st
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, err := run.ParseChildWaitSatisfied(signal(t, waitID, json.RawMessage(data)))
+	value, err := signal(t, waitID, json.RawMessage(data)).Frame[run.ChildWaitSatisfied]()
 	if err != nil {
 		t.Fatal(err)
 	}

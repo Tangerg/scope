@@ -12,7 +12,7 @@ type quotaLoopDefinition struct{ descriptor Descriptor }
 
 func (q quotaLoopDefinition) Descriptor() Descriptor { return q.descriptor }
 
-func (quotaLoopDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (quotaLoopDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (q quotaLoopDefinition) Start(input Payload) (Execution, error) {
 	remaining, err := input.Decode[uint64]()

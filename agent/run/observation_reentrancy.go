@@ -9,7 +9,7 @@ import (
 // active event callback. Derived contexts retain this restriction
 // until the callback returns. Replacing the context does not remove the
 // listener's obligation to avoid waiting for itself.
-var ErrListenerReentrancy = errors.New("agent: operation would wait for its active listener")
+var ErrListenerReentrancy = errors.New("run: operation would wait for its active listener")
 
 // The Runtime's observation bus distinguishes independent restorations of the
 // same root. Different keys also preserve active ancestors through nested

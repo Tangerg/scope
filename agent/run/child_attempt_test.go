@@ -16,7 +16,7 @@ func TestChildStartCapacityRejectionFinishesFailedAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner.engine.publishProcessStart(parent.handle)
-	t.Cleanup(func() { delete(owner.engine.processes, parent.handle.processID()) })
+	t.Cleanup(func() { owner.engine.registry.release(parent.handle) })
 	var events []Event
 	owner.events.observation = newObservationBus([]EventListener{EventListenerFunc(func(_ context.Context, event Event) {
 		events = append(events, event)

@@ -28,12 +28,12 @@ const nullJSON = "null"
 // reading, so equal instants encode, and therefore digest, identically.
 func canonicalTime(instant time.Time) time.Time { return instant.Round(0).UTC() }
 
-var ErrInvalidPayload = errors.New("agent: invalid payload")
+var ErrInvalidPayload = errors.New("run: invalid payload")
 
 // ErrPayloadTooLarge reports an encoding over MaxPayloadBytes, letting a caller
 // that reuses this encoding as an admission bound tell an undeliverable payload
 // from an otherwise invalid one.
-var ErrPayloadTooLarge = errors.New("agent: payload exceeds the maximum encoded size")
+var ErrPayloadTooLarge = errors.New("run: payload exceeds the maximum encoded size")
 
 // Payload is an immutable canonical JSON value. Its zero value is invalid.
 // ParsePayload and EncodePayload copy and normalize their input. Descriptor

@@ -311,7 +311,7 @@ func definiteDispatcherPayloads(snapshot run.TreeSnapshot, process run.ProcessSn
 		if !pending {
 			continue
 		}
-		if settlement, err := run.ParseSettlement(signal); err == nil && settlement.Status() == run.SettlementStatusSucceeded {
+		if settlement, err := signal.Frame[run.Settlement](); err == nil && settlement.Status() == run.SettlementStatusSucceeded {
 			payloads = append(payloads, settlement.Payload())
 		}
 	}
@@ -366,7 +366,7 @@ func delegateStartRefusals(snapshot run.TreeSnapshot, process run.ProcessSnapsho
 		}
 		// The parent also retains model, steer and child-wait Signals. Only the
 		// Framework's strict child-start decoder accepts a start settlement.
-		start, err := run.ParseChildStartResult(signal)
+		start, err := signal.Frame[run.ChildStartResult]()
 		if err != nil {
 			continue
 		}

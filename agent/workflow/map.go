@@ -21,7 +21,7 @@ type MapConfig[I, O any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	Deployment run.Program[run.Payload, run.Payload]
+	Program run.Program[run.Payload, run.Payload]
 
 	// Budget is permanently allocated from the parent for each started item.
 	Budget run.Budget
@@ -83,7 +83,7 @@ func (m mapSource) topology(_ jsonschema.Schema, outputSchema jsonschema.Schema)
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
-	binding, valid := newChildBinding(config.Deployment, config.Budget, config.Capabilities)
+	binding, valid := newChildBinding(config.Program, config.Budget, config.Capabilities)
 	if !run.ValidQualifiedName(config.ID) || !valid ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
@@ -92,7 +92,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 	if err != nil {
 		return Stage{}, err
 	}
-	descriptor := config.Deployment.Descriptor()
+	descriptor := config.Program.Descriptor()
 	if !schemas.itemInput.Equal(descriptor.InputSchema()) ||
 		!schemas.itemOutput.Equal(descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)

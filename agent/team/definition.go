@@ -15,19 +15,19 @@ const stateKind = "collaboration"
 // WorkerConfig freezes a child binding and its permanently allocated grants.
 // Workers are selected by Program.Descriptor().Name(), never by routing or
 // a model-supplied ProgramRef, budget, or capability grant.
-// The Definition owns the bound Programs as its ChildDeployments.
+// The Definition owns the bound Programs as its ChildPrograms.
 type WorkerConfig struct {
-	Deployment   agentrun.Program[agentrun.Payload, agentrun.Payload]
+	Program      agentrun.Program[agentrun.Payload, agentrun.Payload]
 	Budget       agentrun.Budget
 	Capabilities agentrun.CapabilitySet
 }
 
 func (w WorkerConfig) valid() bool {
-	return w.Deployment.Valid()
+	return w.Program.Valid()
 }
 
 func (w WorkerConfig) binding() childBinding {
-	return childBinding{deployment: w.Deployment, budget: w.Budget, capabilities: w.Capabilities}
+	return childBinding{deployment: w.Program, budget: w.Budget, capabilities: w.Capabilities}
 }
 
 type childBinding struct {
@@ -63,7 +63,7 @@ func (c childBinding) spec(key agentrun.ChildKey, input agentrun.Payload) agentr
 // MaxTasks counts all attempts, including rejected starts. MaxConcurrentTasks
 // counts admitted tasks until their drained outcomes have been observed.
 // The Program configuration digest must cover every field; the coordinator
-// and worker bindings enter the Program identity through ChildDeployments.
+// and worker bindings enter the Program identity through ChildPrograms.
 type DefinitionConfig struct {
 	Name         string
 	Description  string
@@ -138,8 +138,8 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 	return workers, nil
 }
 
-// ChildDeployments reports the coordinator and every worker binding.
-func (d *Definition) ChildDeployments() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+// ChildPrograms reports the coordinator and every worker binding.
+func (d *Definition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	if d == nil {
 		return nil
 	}

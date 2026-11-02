@@ -11,7 +11,7 @@ const (
 	effectAttemptRandomBytes = 16
 )
 
-var ErrInvalidEffectAttemptID = errors.New("agent: invalid Effect attempt identity")
+var ErrInvalidEffectAttemptID = errors.New("run: invalid Effect attempt identity")
 
 // EffectAttemptID identifies one actual Effect invocation, including replay and
 // invocations after restore. It is observation metadata, not recovery state.

@@ -40,8 +40,8 @@ func ExampleDefinition() {
 	})), nil)
 	root := exampleValue(team.Compile[string, string](ctx, team.Config{BuildIdentity: run.ComputeDigest([]byte("example team")),
 		Name: "example.collaboration", Description: "Run model decisions alongside background work.",
-		Coordinator: team.WorkerConfig{Deployment: coordinator, Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(32), Signals: run.NewQuota(64)}},
-		Workers:     []team.WorkerConfig{{Deployment: gate, Budget: budget}, {Deployment: worker, Budget: budget}},
+		Coordinator: team.WorkerConfig{Program: coordinator, Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(32), Signals: run.NewQuota(64)}},
+		Workers:     []team.WorkerConfig{{Program: gate, Budget: budget}, {Program: worker, Budget: budget}},
 		MaxTurns:    run.NewQuota(4), MaxTasks: run.NewQuota(2), MaxConcurrentTasks: 2, MaxControlsPerTurn: 1,
 	}))
 

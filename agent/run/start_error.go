@@ -39,7 +39,7 @@ func (s *StartError) Unwrap() error { return s.err }
 
 func (s *StartError) Error() string {
 	return fmt.Sprintf(
-		"agent: start commit unacknowledged for root %s (incarnation %s, sequence %d, digest %s): %v",
+		"run: start commit unacknowledged for root %s (incarnation %s, sequence %d, digest %s): %v",
 		s.rootID, s.incarnation, s.sequence, s.digest, s.err,
 	)
 }

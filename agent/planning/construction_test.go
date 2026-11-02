@@ -114,7 +114,7 @@ func TestPlanningDefinitionRequiresAnExactExecutableContract(t *testing.T) {
 		}
 	}
 	for _, definition := range []*planning.Definition{nil, {}} {
-		if definition.Descriptor().Valid() || len(definition.ChildDeployments()) != 0 {
+		if definition.Descriptor().Valid() || len(definition.ChildPrograms()) != 0 {
 			t.Fatal("unconfigured planning exposed a usable contract")
 		}
 		if execution, startErr := definition.Start(run.Payload{}); execution != nil || !errors.Is(startErr, planning.ErrInvalidDefinitionConfig) {

@@ -11,7 +11,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 	initial := runtime.writer.head()
 	process.pause = pause{reason: "review"}
 	paused := controlValue(runtime.captureTree())
-	checkpoint := controlValue(newTreeCheckpoint(2, checkpointCauseCut, initial.Digest(), paused))
+	checkpoint := controlValue(newTreeCheckpoint(2, checkpointCauseCut, initial, paused))
 	if checkpoint.Kind() != TreeCheckpointKindParked {
 		t.Fatalf("paused cut kind = %s, want parked", checkpoint.Kind())
 	}
@@ -30,7 +30,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 		change func(*TreeCheckpoint)
 	}{
 		{"kind", func(c *TreeCheckpoint) { c.cause = checkpointCauseSignals }},
-		{"predecessor", func(c *TreeCheckpoint) { c.previousTreeDigest = ComputeDigest([]byte("different predecessor")) }},
+		{"predecessor", func(c *TreeCheckpoint) { c.previous.digest = ComputeDigest([]byte("different predecessor")) }},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
 			conflict := checkpoint
@@ -44,7 +44,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 		})
 	}
 	// Returning to the initial content must not make the old creation current.
-	running := controlValue(newTreeCheckpoint(3, checkpointCauseCut, paused.Digest(), initial))
+	running := controlValue(newTreeCheckpoint(3, checkpointCauseCut, paused, initial))
 	if running.Kind() != TreeCheckpointKindProgress {
 		t.Fatalf("running cut kind = %s, want progress", running.Kind())
 	}
@@ -67,7 +67,7 @@ func TestMemoryCommitSequenceRejectsConflictsWithoutAdvancingHead(t *testing.T) 
 func TestCommitSequenceValidation(t *testing.T) {
 	runtime, _ := newChildCompletionTestProcess(t)
 	for _, sequence := range []uint64{0, 2} {
-		if _, err := newTreeCheckpoint(sequence, checkpointCauseCut, Digest{}, runtime.writer.head()); err == nil {
+		if _, err := newTreeCheckpoint(sequence, checkpointCauseCut, TreeSnapshot{}, runtime.writer.head()); err == nil {
 			t.Fatalf("start accepted sequence %d", sequence)
 		}
 	}
@@ -79,7 +79,7 @@ func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
 	wire := controlValue(runtime.writer.head().wire())
 	wire.IncarnationID = newTreeIncarnationID()
 	prospective := controlValue(newTreeSnapshot(wire))
-	activation := controlValue(newTreeActivation(runtime.writer.head().IncarnationID(), runtime.writer.head().Digest(), prospective))
+	activation := controlValue(newTreeActivation(runtime.writer.head(), prospective))
 	for range 2 {
 		if err := store.ActivateTree(t.Context(), activation); err != nil {
 			t.Fatal(err)
@@ -89,8 +89,8 @@ func TestActivationRejectsChangedPreconditionsAtCurrentHead(t *testing.T) {
 		name   string
 		change func(*TreeActivation)
 	}{
-		{"previous writer", func(a *TreeActivation) { a.previousIncarnationID = newTreeIncarnationID() }},
-		{"previous head", func(a *TreeActivation) { a.previousTreeDigest = ComputeDigest([]byte("another predecessor")) }},
+		{"previous writer", func(a *TreeActivation) { a.previous.state.IncarnationID = newTreeIncarnationID() }},
+		{"previous head", func(a *TreeActivation) { a.previous.digest = ComputeDigest([]byte("another predecessor")) }},
 	} {
 		t.Run(mutation.name, func(t *testing.T) {
 			changed := activation

@@ -9,7 +9,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidChildStart = errors.New("agent: invalid child process start")
+var ErrInvalidChildStart = errors.New("run: invalid child process start")
 
 // ProgramResolver performs one bounded, deterministic, context-free lookup
 // of an exact immutable Program for a child named by runtime input; the
@@ -48,7 +48,7 @@ type ChildSpec struct {
 // the JSON value null, and its zero value is already rejected by Valid.
 func (c *ChildSpec) UnmarshalJSON(data []byte) error {
 	if c == nil {
-		return errors.New("agent: nil child spec receiver")
+		return errors.New("run: nil child spec receiver")
 	}
 	type wire ChildSpec
 	value, err := jsonwire.Decode[wire](data)
@@ -141,18 +141,6 @@ func (c *ChildStartResult) UnmarshalJSON(data []byte) error {
 
 func (ChildStartResult) JSONSchemaModel() any { return childStartResultWire{} }
 
-// ParseChildStartResult decodes a Framework-owned child-start settlement
-// Signal. The Signal must carry a Runtime-owned identity and must not address a wait.
-func ParseChildStartResult(signal Signal) (ChildStartResult, error) {
-	if !signal.EngineOwned() {
-		return ChildStartResult{}, ErrInvalidSignal
-	}
-	if _, addressed := signal.WaitID(); addressed {
-		return ChildStartResult{}, fmt.Errorf("%w: child-start Signal addresses a wait", ErrInvalidChildStart)
-	}
-	return decodeChildStartResult(signal.Payload())
-}
-
 type childStartEffectWire struct {
 	Operation frameworkOperationKind `json:"operation"`
 	Spec      ChildSpec              `json:"spec"`
@@ -194,3 +182,5 @@ func decodeChildStartResult(payload json.RawMessage) (ChildStartResult, error) {
 	}
 	return result, nil
 }
+
+func (ChildStartResult) signalFrame() {}

@@ -15,7 +15,7 @@ import (
 
 const maxDeltaBytes = 1 << 20
 
-var ErrInvalidDelta = errors.New("agent: invalid delta")
+var ErrInvalidDelta = errors.New("run: invalid delta")
 
 // Delta is a bounded, best-effort stream increment from one Effect attempt.
 // EffectSequence preserves emitter admission order. Delta is never replayed from a

@@ -366,7 +366,11 @@ func TestTreeProcessLimitBoundsRecursiveBinaryExpansion(t *testing.T) {
 	engine.mu.RLock()
 	processCount := 0
 	var deepest uint32
-	for _, handle := range engine.processes {
+	for _, entry := range engine.registry.entries {
+		handle := entry.handle
+		if handle == nil {
+			continue
+		}
 		if handle.relation.RootID() == root.Relation().ProcessID() {
 			processCount++
 			deepest = max(deepest, handle.relation.Depth())
@@ -632,7 +636,7 @@ func TestChildCompletionDeliveriesAreOrderedByWaitIdentity(t *testing.T) {
 		}
 		openTestChildWait(t, &mailbox, waitID, spec)
 	}
-	duplicate := mustMailboxSignal(t, "signal:engine:duplicate", controlValue(ParseWaitID("wait:a")), json.RawMessage(`{}`))
+	duplicate := childAnswerFixture(t, controlValue(ParseWaitID("wait:a")))
 	if err := mailbox.openChildWait(testChildWaitSpec(t, "duplicate"), duplicate); !errors.Is(err, errWaitState) {
 		t.Fatalf("duplicate WaitID opened twice: %v", err)
 	}
@@ -776,7 +780,7 @@ func newChildTestDeploymentWithDispatcher(t testing.TB, dispatcher Dispatcher) P
 
 func (c *childTestDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (*childTestDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*childTestDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (c *childTestDefinition) Start(input Payload) (Execution, error) {
 	decoded, err := input.Decode[childTestInput]()
@@ -1030,7 +1034,7 @@ func (c *childTestExecution) acceptChildStarts(signals []Signal) (Transition, er
 	}
 	output := childTestOutput{}
 	for index, signal := range signals {
-		result, err := ParseChildStartResult(signal)
+		result, err := signal.Frame[ChildStartResult]()
 		if err != nil {
 			return Transition{}, err
 		}
@@ -1085,7 +1089,7 @@ func (c *childTestExecution) acceptChildWait(signals []Signal) (Transition, erro
 	if len(signals) == 0 {
 		return Transition{}, errors.New("child wait-opened Signal is required")
 	}
-	opened, err := ParseChildWaitOpened(signals[0])
+	opened, err := signals[0].Frame[ChildWaitOpened]()
 	if err != nil {
 		return Transition{}, err
 	}
@@ -1145,7 +1149,7 @@ func (c *childTestExecution) completeChildren(signals []Signal, consumedSignals 
 	if len(signals) == 0 {
 		return Transition{}, errors.New("children-completed Signal is required")
 	}
-	completed, err := ParseChildWaitSatisfied(signals[len(signals)-1])
+	completed, err := signals[len(signals)-1].Frame[ChildWaitSatisfied]()
 	if err != nil {
 		return Transition{}, err
 	}
@@ -1316,7 +1320,11 @@ func directChildIDs(t *testing.T, engine *Runtime, parentID ProcessID) []string 
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
 	var ids []string
-	for _, handle := range engine.processes {
+	for _, entry := range engine.registry.entries {
+		handle := entry.handle
+		if handle == nil {
+			continue
+		}
 		actualParent, child := handle.relation.ParentID()
 		if child && actualParent == parentID {
 			ids = append(ids, handle.processID().String())

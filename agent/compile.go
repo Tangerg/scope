@@ -11,8 +11,8 @@ import (
 )
 
 // Config declares a model-and-tool loop. BuildIdentity identifies the exact
-// executable code; ModelIdentity and ToolIdentity identify opaque collaborator
-// settings. Declared policies, manifests and child bindings are hashed here.
+// executable code and ModelIdentity identifies the model configuration.
+// A bound ToolSet owns its tool manifest, execution and recovery identity.
 type Config struct {
 	ContextPolicy    ContextPolicy
 	ContextProcessor ContextProcessor
@@ -24,9 +24,7 @@ type Config struct {
 	ModelIdentity   run.Digest
 	Model           chat.Model
 	Streamer        chat.Streamer
-	Tools           []tool.Tool
-	DeferredTools   []tool.Tool
-	ToolIdentity    run.Digest
+	Tools           ToolSet
 	// MaxModelCalls is unlimited by default; a finite zero cannot call a model.
 	MaxModelCalls run.Quota
 	// ToolBudget grants authority to each ordinary tool child.
@@ -45,25 +43,12 @@ func Compile(ctx context.Context, cfg Config) (run.Program[Input, Output], error
 		return zero, err
 	}
 	if !cfg.BuildIdentity.Valid() || !cfg.ModelIdentity.Valid() {
-		return zero, fmt.Errorf("agent: BuildIdentity and ModelIdentity are required")
-	}
-	var tools ToolSet
-	var err error
-	if len(cfg.Tools)+len(cfg.DeferredTools) > 0 {
-		if !cfg.ToolIdentity.Valid() {
-			return zero, fmt.Errorf("agent: ToolIdentity is required for opaque tool configuration")
-		}
-		tools, err = NewToolSet(ToolSetConfig{Name: cfg.Name + ".tools", Description: "Execute the bound tools for " + cfg.Name + ".", Tools: cfg.Tools, DeferredTools: cfg.DeferredTools, ImplementationDigest: cfg.BuildIdentity, ConfigurationDigest: cfg.ToolIdentity})
-		if err != nil {
-			return zero, err
-		}
-	} else if cfg.ToolIdentity.Valid() {
-		return zero, fmt.Errorf("agent: ToolIdentity requires tools")
+		return zero, fmt.Errorf("%w: BuildIdentity and ModelIdentity are required", run.ErrInvalidProgram)
 	}
 	if (cfg.ContextPolicy != nil || cfg.ContextProcessor != nil) != cfg.ContextIdentity.Valid() {
-		return zero, fmt.Errorf("agent: ContextIdentity must identify the configured context callbacks")
+		return zero, fmt.Errorf("%w: ContextIdentity must identify the configured context callbacks", run.ErrInvalidProgram)
 	}
-	definition, err := NewDefinition(DefinitionConfig{MaxResponseBytes: cfg.MaxResponseBytes, ContextPolicy: cfg.ContextPolicy, PrepareContext: cfg.ContextProcessor != nil, Name: cfg.Name, Description: cfg.Description, MaxModelCalls: cfg.MaxModelCalls, Tools: tools, ToolBudget: cfg.ToolBudget, ToolCapabilities: cfg.ToolCapabilities, MaxConcurrentToolCalls: cfg.MaxConcurrentToolCalls, Delegates: cfg.Delegates})
+	definition, err := NewDefinition(DefinitionConfig{MaxResponseBytes: cfg.MaxResponseBytes, ContextPolicy: cfg.ContextPolicy, PrepareContext: cfg.ContextProcessor != nil, Name: cfg.Name, Description: cfg.Description, MaxModelCalls: cfg.MaxModelCalls, Tools: cfg.Tools, ToolBudget: cfg.ToolBudget, ToolCapabilities: cfg.ToolCapabilities, MaxConcurrentToolCalls: cfg.MaxConcurrentToolCalls, Delegates: cfg.Delegates})
 	if err != nil {
 		return zero, err
 	}

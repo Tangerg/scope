@@ -60,16 +60,19 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 				return textResponse("recovered"), nil
 			})
 			tools := testToolSet(t, agent.ToolSetConfig{Tools: []tool.Tool{first, uncertain, last}})
-			deployment := configuredInteraction(t, agent.DefinitionConfig{
+			program, err := agent.Compile(ctx, agent.Config{
 				Name: "interaction.tool-recovery", Description: "Recover individual Tool effects.",
-				MaxModelCalls: run.NewQuota(2), MaxConcurrentToolCalls: concurrency, Tools: tools,
-			}, agent.DispatcherConfig{Model: model}, agent.ToolSetConfig{})
-			deployment = toolInteractionDeployment(deployment.Program, tools)
+				BuildIdentity: run.ComputeDigest([]byte("interaction implementation")), ModelIdentity: run.ComputeDigest([]byte("recovery model")),
+				Model: model, MaxModelCalls: run.NewQuota(2), MaxConcurrentToolCalls: concurrency, Tools: tools,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			engine, err := run.New(t.Context(), run.Config{Store: gate})
 			if err != nil {
 				t.Fatal(err)
 			}
-			root, err := engine.Start(ctx, deployment.Program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: interactionInput(t, "recover")})
+			root, err := engine.Start(ctx, program, run.StartRequest[agent.Input]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("recover"))}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -108,7 +111,7 @@ func TestToolRecoveryPreservesIndependentSettlementsAfterLostAcknowledgment(t *t
 			if err != nil {
 				t.Fatal(err)
 			}
-			restored, err := restoredEngine.Recover(ctx, deployment.Program, head)
+			restored, err := restoredEngine.Recover(ctx, program, head)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -36,7 +36,7 @@ func newRestorableForkFixture(t *testing.T) restorableForkFixture {
 	for _, id := range []string{"first", "second", "third"} {
 		deployment := newPausingBranchDeployment(t, id)
 		branches = append(branches, workflow.ForkBranch{
-			ID: id, Deployment: deployment, Budget: mustBudget(t),
+			ID: id, Program: deployment, Budget: mustBudget(t),
 		})
 	}
 	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
@@ -179,7 +179,7 @@ func assertRestoredForkResult(t *testing.T, engine *run.Runtime, root *run.Handl
 func TestWorkflowCancellationPropagatesToPausedChild(t *testing.T) {
 	childDeployment := newPausingBranchDeployment(t, "only")
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "child", Deployment: childDeployment, Budget: mustBudget(t),
+		ID: "child", Program: childDeployment, Budget: mustBudget(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestCallCannotEscalateBudgetOrCapabilities(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			call, err := workflow.Call(workflow.CallConfig{
-				ID: "child", Deployment: child, Budget: test.budget, Capabilities: test.capabilities,
+				ID: "child", Program: child, Budget: test.budget, Capabilities: test.capabilities,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -364,7 +364,7 @@ func (p *pausingBranchDefinition) Descriptor() run.Descriptor {
 	return p.descriptor
 }
 
-func (*pausingBranchDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*pausingBranchDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 

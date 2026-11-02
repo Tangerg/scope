@@ -35,7 +35,7 @@ func prepareRestoredProcess(
 	}
 	for _, receipt := range snapshot.SignalReceipts() {
 		signal, pending := receipt.PendingSignal()
-		if !pending || signal.EngineOwned() {
+		if !pending || signal.id.engineOwned() {
 			continue
 		}
 		if _, addressed := signal.WaitID(); addressed {

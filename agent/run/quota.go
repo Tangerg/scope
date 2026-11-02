@@ -46,7 +46,7 @@ func (q Quota) MarshalJSON() ([]byte, error) {
 
 func (q *Quota) UnmarshalJSON(data []byte) error {
 	if q == nil {
-		return errors.New("agent: nil quota receiver")
+		return errors.New("run: nil quota receiver")
 	}
 	wire, err := jsonwire.Decode[struct {
 		Maximum json.RawMessage `json:"maximum"`
@@ -55,7 +55,7 @@ func (q *Quota) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if len(wire.Maximum) == 0 {
-		return errors.New("agent: quota maximum is required")
+		return errors.New("run: quota maximum is required")
 	}
 	if bytes.Equal(bytes.TrimSpace(wire.Maximum), []byte(nullJSON)) {
 		*q = Quota{}

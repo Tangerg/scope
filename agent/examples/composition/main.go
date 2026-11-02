@@ -146,7 +146,7 @@ func newUppercaseDeployment() (agentrun.Program[agentrun.Payload, agentrun.Paylo
 
 func (u *uppercaseDefinition) Descriptor() agentrun.Descriptor { return u.descriptor }
 
-func (*uppercaseDefinition) ChildDeployments() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+func (*uppercaseDefinition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	return nil
 }
 
@@ -255,8 +255,8 @@ func newCompositionDeployment(local agentrun.Program[agentrun.Payload, agentrun.
 		Signals: agentrun.NewQuota(compositionBranchBudgetSignals),
 	}
 	branches := []workflow.ForkBranch{
-		compositionLocalIndex: {ID: "local", Deployment: localBranch, Budget: branchBudget},
-		compositionModelIndex: {ID: "model", Deployment: modelBranch.Erase(), Budget: branchBudget},
+		compositionLocalIndex: {ID: "local", Program: localBranch, Budget: branchBudget},
+		compositionModelIndex: {ID: "model", Program: modelBranch.Erase(), Budget: branchBudget},
 	}
 	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
 		ID: "compose", WindowSize: uint32(len(branches)), Branches: branches,
@@ -274,7 +274,7 @@ func newLocalBranch(local agentrun.Program[agentrun.Payload, agentrun.Payload], 
 	input, inputErr := workflow.Transform("build_input", func(_ context.Context, input compositionInput) (textInput, error) {
 		return textInput{Text: input.Prompt}, nil
 	})
-	call, callErr := workflow.Call(workflow.CallConfig{ID: "run", Deployment: local, Budget: budget})
+	call, callErr := workflow.Call(workflow.CallConfig{ID: "run", Program: local, Budget: budget})
 	output, outputErr := workflow.Transform("decode_output", func(_ context.Context, output textOutput) (string, error) {
 		return output.Text, nil
 	})

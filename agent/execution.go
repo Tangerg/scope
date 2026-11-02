@@ -414,15 +414,12 @@ func (e *execution) finishToolCallBatch(
 func collectSteerSignals(signals []run.Signal) (steerBatch, uint32, error) {
 	var batch steerBatch
 	for _, signal := range signals {
-		envelope, err := decodeSignal(signal.Payload())
+		recognized, err := batch.collectSignal(signal)
 		if err != nil {
 			return steerBatch{}, 0, err
 		}
-		if envelope.operation() != operationSteer {
-			return steerBatch{}, 0, fmt.Errorf("%w: unexpected %q Signal", ErrInvalidExecutionState, envelope.operation())
-		}
-		if err := batch.appendSignal(signal, envelope.Steer.Messages); err != nil {
-			return steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		if !recognized {
+			return steerBatch{}, 0, fmt.Errorf("%w: expected external steering input", ErrInvalidExecutionState)
 		}
 	}
 	return batch, uint32(len(signals)), nil
@@ -436,12 +433,16 @@ func collectEffectResult(signals []run.Signal, expected operation) (signalEnvelo
 	var found bool
 	var steer steerBatch
 	for _, signal := range signals {
-		// ParseSettlement owns the settlement's Runtime origin.
-		if _, settles := run.ParseSettlement(signal); settles == nil {
+		frame, err := signal.Frame[run.SignalFrame]()
+		if err != nil {
+			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		}
+		switch body := frame.(type) {
+		case run.Settlement:
 			if found {
 				return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: duplicate %q Signal", ErrInvalidExecutionState, expected)
 			}
-			envelope, diagnostic, err := decodeSettlement(signal)
+			envelope, diagnostic, err := decodeSettlement(body)
 			if err != nil {
 				return signalEnvelope{}, "", steerBatch{}, 0, err
 			}
@@ -449,17 +450,12 @@ func collectEffectResult(signals []run.Signal, expected operation) (signalEnvelo
 				return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), expected)
 			}
 			found, result, hostFailure = true, envelope, diagnostic
-			continue
-		}
-		envelope, err := decodeSignal(signal.Payload())
-		if err != nil {
-			return signalEnvelope{}, "", steerBatch{}, 0, err
-		}
-		if envelope.operation() != operationSteer {
-			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: got %q while awaiting %q", ErrInvalidExecutionState, envelope.operation(), expected)
-		}
-		if err := steer.appendSignal(signal, envelope.Steer.Messages); err != nil {
-			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		case run.ExternalInput:
+			if err := steer.collectInput(signal, body); err != nil {
+				return signalEnvelope{}, "", steerBatch{}, 0, err
+			}
+		default:
+			return signalEnvelope{}, "", steerBatch{}, 0, fmt.Errorf("%w: unexpected %T while awaiting %q", ErrInvalidExecutionState, frame, expected)
 		}
 	}
 	if !found {

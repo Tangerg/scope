@@ -12,7 +12,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidSignalRequest = errors.New("agent: invalid signal request")
+var ErrInvalidSignalRequest = errors.New("run: invalid signal request")
 
 // SignalRequest is an immutable request to deliver Strategy-owned input to a
 // Process. ID supplies caller-stable deduplication. WaitID is zero for ordinary
@@ -35,6 +35,10 @@ func NewSignalRequest(id SignalID, waitID WaitID, payload json.RawMessage) (Sign
 		return SignalRequest{}, fmt.Errorf("%w: payload: %w", ErrInvalidSignalRequest, err)
 	}
 	return SignalRequest{id: id, waitID: waitID, payload: normalized}, nil
+}
+
+func answerRequest(wait WaitID, answer Payload) (SignalRequest, error) {
+	return NewSignalRequest(SignalID{deriveIdentity("signal:answer:", "external-answer", wait.String())}, wait, answer.JSON())
 }
 
 // ID returns the stable delivery and deduplication identity.

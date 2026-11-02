@@ -139,7 +139,7 @@ func TestEngineBypassesResolverForSameDeploymentChild(t *testing.T) {
 	var calls atomic.Uint32
 	resolver := programResolverFunc(func(ProgramRef) (Program[Payload, Payload], error) {
 		calls.Add(1)
-		return Program[Payload, Payload]{}, errors.New("same Deployment unexpectedly resolved")
+		return Program[Payload, Payload]{}, errors.New("same Program unexpectedly resolved")
 	})
 	engine, err := New(t.Context(), Config{Store: NewMemoryStore(), ProgramResolver: resolver})
 	if err != nil {
@@ -152,16 +152,16 @@ func TestEngineBypassesResolverForSameDeploymentChild(t *testing.T) {
 	}
 	output := childTestResult(t, mustAwait(t, parent))
 	if len(output.ChildIDs) != 1 || output.Failures != 0 {
-		t.Fatalf("same-Deployment output = %#v", output)
+		t.Fatalf("same-Program output = %#v", output)
 	}
 	childID, _ := ParseProcessID(output.ChildIDs[0])
 	child, found := engine.Process(childID)
 	if !found {
-		t.Fatal("same-Deployment child is missing")
+		t.Fatal("same-Program child is missing")
 	}
 	_ = mustAwait(t, child)
 	if got := calls.Load(); got != 0 {
-		t.Fatalf("same-Deployment resolver calls = %d, want 0", got)
+		t.Fatalf("same-Program resolver calls = %d, want 0", got)
 	}
 	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func newCrossParent(t *testing.T, definition *crossParentDefinition) Program[Pay
 
 func (c *crossParentDefinition) Descriptor() Descriptor { return c.descriptor }
 
-func (c *crossParentDefinition) ChildDeployments() []Program[Payload, Payload] { return c.bound }
+func (c *crossParentDefinition) ChildPrograms() []Program[Payload, Payload] { return c.bound }
 
 func (c *crossParentDefinition) Start(Payload) (Execution, error) {
 	return &crossParentExecution{target: c.target}, nil
@@ -264,7 +264,7 @@ func (c *crossParentExecution) Step(_ context.Context, signals []Signal) (Transi
 	if c.phase != 1 || len(signals) != 1 {
 		return Transition{}, errors.New("cross-parent expected one child-start result")
 	}
-	start, err := ParseChildStartResult(signals[0])
+	start, err := signals[0].Frame[ChildStartResult]()
 	if err != nil {
 		return Transition{}, err
 	}

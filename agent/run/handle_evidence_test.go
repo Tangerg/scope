@@ -147,7 +147,7 @@ func TestStartedTreeEvidenceFailsClosedOnLostOrCrossScopedState(t *testing.T) {
 	id := StartID{Scope: "tenant-A", Key: "same-key"}
 	receipt := StartReceipt{ID: id, Intent: ComputeDigest([]byte("intent")), RootID: head.RootID()}
 	fault := errors.New("head service offline")
-	for _, mode := range []string{"wrong scope", "bad receipt", "missing head", "invalid head", "other root", "lookup timeout", "head timeout", "head fault", "invalid key"} {
+	for _, mode := range []string{"wrong scope", "bad receipt", "missing head", "invalid head", "other root", "lookup timeout", "lookup panic", "head timeout", "head fault", "invalid key"} {
 		t.Run(mode, func(t *testing.T) {
 			reads := 0
 			st := evidenceReadStore{Store: NewMemoryStore(), acceptance: func(ctx context.Context, asked StartID) (StartReceipt, bool, error) {
@@ -162,6 +162,8 @@ func TestStartedTreeEvidenceFailsClosedOnLostOrCrossScopedState(t *testing.T) {
 					r.Intent = Digest{}
 				case "other root":
 					r.RootID = controlValue(ParseProcessID("proc-other"))
+				case "lookup panic":
+					panic(fault)
 				case "lookup timeout":
 					return StartReceipt{}, false, ctx.Err()
 				}
@@ -201,6 +203,11 @@ func TestStartedTreeEvidenceFailsClosedOnLostOrCrossScopedState(t *testing.T) {
 			case "lookup timeout", "head timeout":
 				if !errors.Is(err, context.DeadlineExceeded) {
 					t.Fatal(err)
+				}
+			case "lookup panic":
+				callback, ok := errors.AsType[*CallbackPanicError](err)
+				if !ok || callback.Operation != "Store.LookupStart" || reads != 0 || !errors.Is(err, fault) {
+					t.Fatalf("lookup panic escaped its boundary: reads=%d err=%v", reads, err)
 				}
 			case "head fault":
 				if !errors.Is(err, fault) {

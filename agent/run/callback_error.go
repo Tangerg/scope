@@ -42,7 +42,7 @@ func sealCallbackError(err error) error {
 
 func callbackPanic(operation string, value any) error {
 	captured, _ := panicinfo.Capture(value)
-	message := "agent: " + operation + " panicked: " + captured
+	message := "run: " + operation + " panicked: " + captured
 	cause := &CallbackPanicError{Operation: operation, Value: value}
 	return &callbackError{
 		cause: cause, message: message, panicked: true,

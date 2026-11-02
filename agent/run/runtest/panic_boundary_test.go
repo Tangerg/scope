@@ -11,7 +11,7 @@ import (
 type panickingCallbacks struct{ cause error }
 
 func (p panickingCallbacks) Descriptor() run.Descriptor { panic(p.cause) }
-func (p panickingCallbacks) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (p panickingCallbacks) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	panic(p.cause)
 }
 func (p panickingCallbacks) Start(run.Payload) (run.Execution, error) { panic(p.cause) }

@@ -9,7 +9,7 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-var ErrInvalidEventPredicate = errors.New("agenttest: invalid event predicate")
+var ErrInvalidEventPredicate = errors.New("runtest: invalid event predicate")
 
 // ObservationRecorder is a concurrency-safe EventListener and DeltaListener.
 // Its zero value is ready for use.

@@ -35,12 +35,19 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
+	build := agentrun.ComputeDigest([]byte("example-autonomous-implementation"))
+	tools, err := agent.NewToolSet(agent.ToolSetConfig{
+		Name: "example.arithmetic", Description: "Execute arithmetic tools.", Tools: []tool.Tool{additionTool{}},
+		ImplementationDigest: build, ConfigurationDigest: agentrun.ComputeDigest([]byte("example addition settings")),
+	})
+	if err != nil {
+		return err
+	}
 	program, err := agent.Compile(ctx, agent.Config{
 		Name: "example.autonomous_calculator", Description: "Use available tools to complete the requested calculation.",
-		Model: client, Tools: []tool.Tool{additionTool{}}, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
-		BuildIdentity: agentrun.ComputeDigest([]byte("example-autonomous-implementation")),
+		Model: client, Tools: tools, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
+		BuildIdentity: build,
 		ModelIdentity: agentrun.ComputeDigest([]byte("example calculator model")),
-		ToolIdentity:  agentrun.ComputeDigest([]byte("example addition settings")),
 		ToolBudget:    agentrun.Budget{Steps: agentrun.NewQuota(8), Effects: agentrun.NewQuota(4), Signals: agentrun.NewQuota(8)},
 	})
 	if err != nil {

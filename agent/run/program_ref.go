@@ -8,7 +8,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidProgramRef = errors.New("agent: invalid deployment reference")
+var ErrInvalidProgramRef = errors.New("run: invalid program reference")
 
 const invalidProgramRefText = "<invalid-program-ref>"
 
@@ -67,7 +67,7 @@ func (p ProgramRef) ImplementationDigest() Digest { return p.implementationDiges
 func (p ProgramRef) ConfigurationDigest() Digest { return p.configurationDigest }
 
 // BindingsDigest identifies the child Programs the definition binds, as
-// reported by Definition.ChildDeployments.
+// reported by Definition.ChildPrograms.
 func (p ProgramRef) BindingsDigest() Digest { return p.bindingsDigest }
 
 func (p ProgramRef) Digest() Digest { return p.digest }

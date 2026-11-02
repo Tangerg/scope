@@ -144,7 +144,7 @@ func TestChildSignalFailuresPreserveProtocolCause(t *testing.T) {
 	_, _, _, startErr := collectChildStarts(signals)
 	_, _, _, openedErr := collectChildWaitOpened(signals)
 	_, _, _, completedErr := collectChildWaitSatisfied(signals)
-	for _, test := range []struct{ err, cause error }{{startErr, run.ErrInvalidSignal}, {openedErr, run.ErrInvalidChildWait}, {completedErr, run.ErrInvalidChildWait}} {
+	for _, test := range []struct{ err, cause error }{{startErr, run.ErrInvalidSignal}, {openedErr, run.ErrInvalidSignal}, {completedErr, run.ErrInvalidSignal}} {
 		if !errors.Is(test.err, ErrInvalidExecutionState) || !errors.Is(test.err, test.cause) {
 			t.Fatalf("protocol cause lost: %v", test.err)
 		}

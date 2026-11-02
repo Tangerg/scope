@@ -96,7 +96,7 @@ func (p *processState) awaitedWaitID() WaitID { return p.mailbox.awaited(p.curre
 
 func (p *processState) adoptCandidate(candidate *processState) {
 	if candidate.handle != p.handle {
-		panic("agent: candidate belongs to another Process")
+		panic("run: candidate belongs to another Process")
 	}
 	*p = *candidate
 }

@@ -138,7 +138,7 @@ func TestDelegateEmptyJSONPreservesArtifact(t *testing.T) {
 	for _, raw := range []string{`null`, `{}`, `[]`, `""`} {
 		t.Run(raw, func(t *testing.T) {
 			child := delegateWorkflow(t, "test.empty_delegate", func(context.Context, struct{}) (json.RawMessage, error) { return json.RawMessage(raw), nil })
-			delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "empty", Description: "Return JSON.", Deployment: child, Budget: run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(8), Signals: run.NewQuota(8)}})
+			delegate, err := agent.NewDelegate(agent.DelegateConfig{Name: "empty", Description: "Return JSON.", Program: child, Budget: run.Budget{Steps: run.NewQuota(8), Effects: run.NewQuota(8), Signals: run.NewQuota(8)}})
 			if err != nil {
 				t.Fatal(err)
 			}

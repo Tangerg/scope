@@ -91,8 +91,8 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	}, nil
 }
 
-// ChildDeployments reports the child binding of every child Action.
-func (d *Definition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+// ChildPrograms reports the child binding of every child Action.
+func (d *Definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	if d == nil {
 		return nil
 	}

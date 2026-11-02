@@ -31,7 +31,7 @@ type DefinitionConfig struct {
 	MaxModelCalls run.Quota
 
 	// Tools is the frozen ordinary Tool authority. The Interaction owns its
-	// Program as one of its ChildDeployments.
+	// Program as one of its ChildPrograms.
 	Tools ToolSet
 
 	// ToolBudget is allocated from the parent for each ordinary Tool child.
@@ -173,9 +173,9 @@ func (d *Definition) toolWindow(ctx context.Context, remaining []chat.ToolCall) 
 	return d.tools.concurrentBatchEnd(ctx, remaining)
 }
 
-// ChildDeployments reports the Tool child binding, when Tools are configured,
+// ChildPrograms reports the Tool child binding, when Tools are configured,
 // and every Delegate binding.
-func (d *Definition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (d *Definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	if d == nil {
 		return nil
 	}

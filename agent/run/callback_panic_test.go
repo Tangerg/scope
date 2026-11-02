@@ -11,9 +11,9 @@ import (
 
 type panickingCallbacks struct{ cause error }
 
-func (p panickingCallbacks) Descriptor() Descriptor                        { panic(p.cause) }
-func (p panickingCallbacks) ChildDeployments() []Program[Payload, Payload] { panic(p.cause) }
-func (p panickingCallbacks) Start(Payload) (Execution, error)              { panic(p.cause) }
+func (p panickingCallbacks) Descriptor() Descriptor                     { panic(p.cause) }
+func (p panickingCallbacks) ChildPrograms() []Program[Payload, Payload] { panic(p.cause) }
+func (p panickingCallbacks) Start(Payload) (Execution, error)           { panic(p.cause) }
 func (p panickingCallbacks) Restore(context.Context, ExecutionState) (Execution, error) {
 	panic(p.cause)
 }
@@ -41,13 +41,16 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 	snapshot := preparedEngineTestSnapshot(t)
 	incarnation := newTreeIncarnationID()
 	tree := controlValue(newTreeSnapshot(treeSnapshotWire{TreeLimits: DefaultTreeLimits(), IncarnationID: incarnation, ProcessSnapshots: []ProcessSnapshot{snapshot}}))
-	activation := controlValue(newTreeActivation(newTreeIncarnationID(), ComputeDigest([]byte("old head")), tree))
+	prior := tree
+	prior.state.IncarnationID = newTreeIncarnationID()
+	prior.digest = ComputeDigest([]byte("old head"))
+	activation := controlValue(newTreeActivation(prior, tree))
 	for _, test := range []struct {
 		operation string
 		call      func() error
 	}{
 		{"Definition.Descriptor", func() error { _, err := definitionDescriptor(callbacks); return err }},
-		{"Definition.ChildDeployments", func() error { _, _, err := definitionBindings(callbacks); return err }},
+		{"Definition.ChildPrograms", func() error { _, _, err := definitionBindings(callbacks); return err }},
 		{"Definition.Start", func() error { _, err := startExecution(callbacks, Payload{}); return err }},
 		{"Definition.Restore", func() error { _, err := restoreExecution(t.Context(), callbacks, ExecutionState{}); return err }},
 		{"Execution.Step", func() error { _, err := stepExecution(t.Context(), callbacks, nil); return err }},
@@ -84,7 +87,7 @@ func TestCallbackPanicsPreserveTypedIdentityAndCause(t *testing.T) {
 		}
 	}
 	textPanic := &CallbackPanicError{Operation: "Execution.Step", Value: "boom"}
-	if textPanic.Unwrap() != nil || textPanic.Error() != "agent: Execution.Step panicked: boom" {
+	if textPanic.Unwrap() != nil || textPanic.Error() != "run: Execution.Step panicked: boom" {
 		t.Fatalf("non-error panic=%v", textPanic)
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidTransition = errors.New("agent: invalid transition")
+var ErrInvalidTransition = errors.New("run: invalid transition")
 
 type TransitionKind string
 

@@ -14,7 +14,7 @@ type CallbackPanicError struct {
 }
 
 func (c *CallbackPanicError) Error() string {
-	return fmt.Sprintf("agent: %s panicked: %v", c.Operation, c.Value)
+	return fmt.Sprintf("run: %s panicked: %v", c.Operation, c.Value)
 }
 
 func (c *CallbackPanicError) Unwrap() error {

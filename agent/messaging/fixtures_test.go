@@ -122,7 +122,7 @@ func newSender(t testing.TB) senderDefinition {
 
 func (s senderDefinition) Descriptor() run.Descriptor { return s.descriptor }
 
-func (senderDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (senderDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 func (s senderDefinition) Start(input run.Payload) (run.Execution, error) {
 	message, err := input.Decode[messaging.Message]()
 	if err != nil {

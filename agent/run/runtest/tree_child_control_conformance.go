@@ -31,19 +31,19 @@ const (
 var childControlReferences = sync.OnceValue(func() map[string]childControlOperation {
 	childID, err := run.ParseProcessID("process:child-control-reference")
 	if err != nil {
-		panic(fmt.Sprintf("agenttest: child control reference ProcessID: %v", err))
+		panic(fmt.Sprintf("runtest: child control reference ProcessID: %v", err))
 	}
 	request, err := newChildControlSignalRequest()
 	if err != nil {
-		panic(fmt.Sprintf("agenttest: child control reference SignalRequest: %v", err))
+		panic(fmt.Sprintf("runtest: child control reference SignalRequest: %v", err))
 	}
 	signal, err := run.NewChildSignalEffect(childID, request)
 	if err != nil {
-		panic(fmt.Sprintf("agenttest: child signal reference Effect: %v", err))
+		panic(fmt.Sprintf("runtest: child signal reference Effect: %v", err))
 	}
 	cancel, err := run.NewChildCancelEffect(childID, childControlCancelReason)
 	if err != nil {
-		panic(fmt.Sprintf("agenttest: child cancel reference Effect: %v", err))
+		panic(fmt.Sprintf("runtest: child cancel reference Effect: %v", err))
 	}
 	return map[string]childControlOperation{
 		frameworkOperationName(signal): childControlSignal,
@@ -514,7 +514,7 @@ type childControlDefinition struct {
 
 func (c *childControlDefinition) Descriptor() run.Descriptor { return c.descriptor }
 
-func (*childControlDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*childControlDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -554,7 +554,7 @@ func (c *childControlExecution) Step(ctx context.Context, signals []run.Signal) 
 	case childControlIssued:
 		return c.adoptReceipts(signals)
 	default:
-		return run.Transition{}, errors.New("agenttest: controlled parent unexpectedly resumed")
+		return run.Transition{}, errors.New("runtest: controlled parent unexpectedly resumed")
 	}
 }
 
@@ -564,7 +564,7 @@ func (c *childControlExecution) stepChild(signals []run.Signal) (run.Transition,
 		return run.Pause(0, "hold control input for independent inspection")
 	}
 	if len(signals) != 1 {
-		return run.Transition{}, errors.New("agenttest: child did not consume exactly one control signal")
+		return run.Transition{}, errors.New("runtest: child did not consume exactly one control signal")
 	}
 	output, err := run.EncodePayload(true)
 	if err != nil {
@@ -597,15 +597,15 @@ func (c *childControlExecution) startChild() (run.Transition, error) {
 // pre-control head before the Runtime commits the control boundary.
 func (c *childControlExecution) issueControl(ctx context.Context, signals []run.Signal) (run.Transition, error) {
 	if len(signals) != 1 {
-		return run.Transition{}, errors.New("agenttest: missing controlled child start")
+		return run.Transition{}, errors.New("runtest: missing controlled child start")
 	}
-	started, err := run.ParseChildStartResult(signals[0])
+	started, err := signals[0].Frame[run.ChildStartResult]()
 	if err != nil {
 		return run.Transition{}, err
 	}
 	childID, found := started.ProcessID()
 	if !found {
-		return run.Transition{}, errors.New("agenttest: controlled child did not start")
+		return run.Transition{}, errors.New("runtest: controlled child did not start")
 	}
 	select {
 	case <-c.definition.release:
@@ -625,12 +625,12 @@ func (c *childControlExecution) issueControl(ctx context.Context, signals []run.
 
 func (c *childControlExecution) adoptReceipts(signals []run.Signal) (run.Transition, error) {
 	if len(signals) == 0 {
-		return run.Transition{}, errors.New("agenttest: control receipt is missing")
+		return run.Transition{}, errors.New("runtest: control receipt is missing")
 	}
 	for _, signal := range signals {
-		result, err := run.ParseChildControlResult(signal)
+		result, err := signal.Frame[run.ChildControlResult]()
 		if err != nil {
-			return run.Transition{}, errors.New("agenttest: control receipt is invalid")
+			return run.Transition{}, errors.New("runtest: control receipt is invalid")
 		}
 		c.state.Results = append(c.state.Results, result)
 	}

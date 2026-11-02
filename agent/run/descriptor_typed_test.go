@@ -20,7 +20,7 @@ type typedFixtureDefinition struct {
 
 func (t *typedFixtureDefinition) Descriptor() Descriptor { return t.descriptor }
 
-func (*typedFixtureDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*typedFixtureDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (t *typedFixtureDefinition) Start(input Payload) (Execution, error) {
 	t.starts++

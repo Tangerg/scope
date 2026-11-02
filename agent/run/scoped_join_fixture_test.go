@@ -41,7 +41,7 @@ func newScopeJoinDeployment(t *testing.T, boundary ChildWaitBoundary, dispatcher
 
 func (s *scopeJoinDefinition) Descriptor() Descriptor { return s.descriptor }
 
-func (*scopeJoinDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*scopeJoinDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (s *scopeJoinDefinition) Start(input Payload) (Execution, error) {
 	role, err := input.Decode[string]()
@@ -107,7 +107,7 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 	}
 	if s.state.Phase == "started" {
 		// The scope child's start settles first, in declaration order.
-		result, err := ParseChildStartResult(signals[0])
+		result, err := signals[0].Frame[ChildStartResult]()
 		if err != nil {
 			return Transition{}, err
 		}
@@ -123,11 +123,11 @@ func (s *scopeJoinExecution) Step(_ context.Context, signals []Signal) (Transiti
 		return Continue(consumed, effect)
 	}
 	for _, signal := range signals {
-		if opened, err := ParseChildWaitOpened(signal); err == nil {
+		if opened, err := signal.Frame[ChildWaitOpened](); err == nil {
 			s.state.WaitID = opened.WaitID()
 			continue
 		}
-		satisfied, err := ParseChildWaitSatisfied(signal)
+		satisfied, err := signal.Frame[ChildWaitSatisfied]()
 		if err != nil || len(satisfied.Outcomes()) != 1 {
 			return Transition{}, errors.New("scope wait did not establish its requested boundary")
 		}

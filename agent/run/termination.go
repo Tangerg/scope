@@ -14,7 +14,7 @@ import (
 
 const maxTerminationReasonBytes = 4096
 
-var errInvalidTermination = errors.New("agent: invalid termination")
+var errInvalidTermination = errors.New("run: invalid termination")
 
 type deadlineOwner string
 
@@ -94,7 +94,7 @@ func (d deadlineIntent) termination() Termination {
 	case deadlineOwnerHost:
 		cause = TerminationCauseHostDeadline
 	default:
-		panic("agent: invalid deadline owner")
+		panic("run: invalid deadline owner")
 	}
 	return Termination{cause: cause, reason: d.reason}
 }

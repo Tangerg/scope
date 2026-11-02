@@ -63,7 +63,7 @@ func verifyExactResolution(config ProgramResolverConformanceConfig) error {
 		reference := deployment.ProgramRef()
 		resolved, err := callResolve(config.Resolver, reference)
 		if err != nil {
-			return fmt.Errorf("agenttest: resolver rejected its own binding %s: %w", reference.Name(), err)
+			return fmt.Errorf("runtest: resolver rejected its own binding %s: %w", reference.Name(), err)
 		}
 		if err := requireSameBinding(deployment, resolved); err != nil {
 			return err
@@ -81,7 +81,7 @@ func verifyNameCollisionRejected(config ProgramResolverConformanceConfig) error 
 		resolved, resolveErr := callResolve(config.Resolver, collision)
 		if resolveErr == nil {
 			return fmt.Errorf(
-				"agenttest: resolver answered %s by name; it returned %s for different frozen configuration",
+				"runtest: resolver answered %s by name; it returned %s for different frozen configuration",
 				collision.Name(), resolved.ProgramRef(),
 			)
 		}
@@ -94,7 +94,7 @@ func verifyUnknownReferencesRejected(config ProgramResolverConformanceConfig) er
 		resolved, err := callResolve(config.Resolver, reference)
 		if err == nil {
 			return fmt.Errorf(
-				"agenttest: resolver answered unknown reference %s with %s",
+				"runtest: resolver answered unknown reference %s with %s",
 				reference.Name(), resolved.ProgramRef(),
 			)
 		}
@@ -108,10 +108,10 @@ func verifyRepeatedResolution(config ProgramResolverConformanceConfig) error {
 			reference := deployment.ProgramRef()
 			resolved, err := callResolve(config.Resolver, reference)
 			if err != nil {
-				return fmt.Errorf("agenttest: round %d rejected %s: %w", round, reference.Name(), err)
+				return fmt.Errorf("runtest: round %d rejected %s: %w", round, reference.Name(), err)
 			}
 			if err := requireSameBinding(deployment, resolved); err != nil {
-				return fmt.Errorf("agenttest: round %d: %w", round, err)
+				return fmt.Errorf("runtest: round %d: %w", round, err)
 			}
 		}
 	}
@@ -129,7 +129,7 @@ func verifyConcurrentResolution(config ProgramResolverConformanceConfig) error {
 				reference := deployment.ProgramRef()
 				resolved, err := callResolve(config.Resolver, reference)
 				if err != nil {
-					failures <- fmt.Errorf("agenttest: concurrent lookup rejected %s: %w", reference.Name(), err)
+					failures <- fmt.Errorf("runtest: concurrent lookup rejected %s: %w", reference.Name(), err)
 					return
 				}
 				if err := requireSameBinding(deployment, resolved); err != nil {
@@ -149,29 +149,29 @@ func verifyConcurrentResolution(config ProgramResolverConformanceConfig) error {
 
 func validateProgramResolverConformanceConfig(config ProgramResolverConformanceConfig) error {
 	if lo.IsNil(config.Resolver) {
-		return errors.New("agenttest: ProgramResolver conformance Resolver is nil")
+		return errors.New("runtest: ProgramResolver conformance Resolver is nil")
 	}
 	if len(config.Resolvable) == 0 {
-		return errors.New("agenttest: ProgramResolver conformance requires at least one resolvable Deployment")
+		return errors.New("runtest: ProgramResolver conformance requires at least one resolvable Program")
 	}
 	seen := make(map[run.ProgramRef]struct{}, len(config.Resolvable))
 	for index, deployment := range config.Resolvable {
 		if !deployment.Valid() {
-			return fmt.Errorf("agenttest: ProgramResolver conformance Resolvable[%d] is invalid", index)
+			return fmt.Errorf("runtest: ProgramResolver conformance Resolvable[%d] is invalid", index)
 		}
 		reference := deployment.ProgramRef()
 		if _, duplicate := seen[reference]; duplicate {
-			return fmt.Errorf("agenttest: ProgramResolver conformance Resolvable[%d] repeats %s", index, reference)
+			return fmt.Errorf("runtest: ProgramResolver conformance Resolvable[%d] repeats %s", index, reference)
 		}
 		seen[reference] = struct{}{}
 	}
 	for index, reference := range config.Unresolvable {
 		if !reference.Valid() {
-			return fmt.Errorf("agenttest: ProgramResolver conformance Unresolvable[%d] is invalid", index)
+			return fmt.Errorf("runtest: ProgramResolver conformance Unresolvable[%d] is invalid", index)
 		}
 		if _, resolvable := seen[reference]; resolvable {
 			return fmt.Errorf(
-				"agenttest: ProgramResolver conformance Unresolvable[%d] is also listed as resolvable", index,
+				"runtest: ProgramResolver conformance Unresolvable[%d] is also listed as resolvable", index,
 			)
 		}
 	}
@@ -186,18 +186,18 @@ func nameCollisionReference(deployment run.Program[run.Payload, run.Payload]) (r
 		Definition:           deployment.Definition(),
 		ImplementationDigest: reference.ImplementationDigest(),
 		ConfigurationDigest: run.ComputeDigest(
-			[]byte("agenttest: deployment resolver name collision probe for " + reference.String()),
+			[]byte("runtest: deployment resolver name collision probe for " + reference.String()),
 		),
 	})
 	if err != nil {
 		return run.ProgramRef{}, fmt.Errorf(
-			"agenttest: derive a name collision for %s: %w", reference.Name(), err,
+			"runtest: derive a name collision for %s: %w", reference.Name(), err,
 		)
 	}
 	collision := probe.ProgramRef()
 	if collision == reference {
 		return run.ProgramRef{}, fmt.Errorf(
-			"agenttest: name collision probe for %s reproduced the original reference", reference.Name(),
+			"runtest: name collision probe for %s reproduced the original reference", reference.Name(),
 		)
 	}
 	return collision, nil
@@ -206,11 +206,11 @@ func nameCollisionReference(deployment run.Program[run.Payload, run.Payload]) (r
 func requireSameBinding(want, got run.Program[run.Payload, run.Payload]) error {
 	reference := want.ProgramRef()
 	if !got.Valid() {
-		return fmt.Errorf("agenttest: resolver returned an invalid Deployment for %s", reference.Name())
+		return fmt.Errorf("runtest: resolver returned an invalid Program for %s", reference.Name())
 	}
 	if got.ProgramRef() != reference {
 		return fmt.Errorf(
-			"agenttest: resolver answered %s with %s", reference, got.ProgramRef(),
+			"runtest: resolver answered %s with %s", reference, got.ProgramRef(),
 		)
 	}
 	return nil

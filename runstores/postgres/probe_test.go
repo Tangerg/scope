@@ -37,7 +37,7 @@ type probeDefinition struct {
 
 func (p probeDefinition) Descriptor() run.Descriptor { return p.descriptor }
 
-func (probeDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (probeDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (p probeDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err := p.descriptor.ValidateInput(input); err != nil {
@@ -93,7 +93,7 @@ func (p *probeExecution) Step(ctx context.Context, signals []run.Signal) (run.Tr
 		if len(signals) != 1 {
 			return run.Transition{}, run.ErrInvalidSignal
 		}
-		settlement, err := run.ParseSettlement(signals[0])
+		settlement, err := signals[0].Frame[run.Settlement]()
 		if err != nil || settlement.Status() != run.SettlementStatusSucceeded {
 			return run.Transition{}, run.ErrInvalidSignal
 		}

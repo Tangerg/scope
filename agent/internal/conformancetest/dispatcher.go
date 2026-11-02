@@ -117,7 +117,7 @@ type rejectionDefinition struct {
 
 func (r rejectionDefinition) Descriptor() run.Descriptor { return r.descriptor }
 
-func (rejectionDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (rejectionDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 func (r rejectionDefinition) Start(_ run.Payload) (run.Execution, error) {

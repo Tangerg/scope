@@ -115,7 +115,7 @@ func (c crashCommitObservation) durableDigest() agentrun.Digest {
 	return c.previousDigest
 }
 
-var errSimulatedHostCrash = errors.New("agenttest: simulated host crash")
+var errSimulatedHostCrash = errors.New("runtest: simulated host crash")
 
 // treeCommitterCommitGate cuts the callback itself, not a Runtime goroutine.
 // An after cut occurs after the delegate has advanced its authoritative head

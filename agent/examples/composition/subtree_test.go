@@ -103,7 +103,7 @@ func completedSubtreeDeployment(child agentrun.Program[agentrun.Payload, agentru
 
 func (c *completedSubtreeDefinition) Descriptor() agentrun.Descriptor { return c.descriptor }
 
-func (c *completedSubtreeDefinition) ChildDeployments() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+func (c *completedSubtreeDefinition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	return []agentrun.Program[agentrun.Payload, agentrun.Payload]{c.child}
 }
 
@@ -173,7 +173,7 @@ func (c *completedSubtreeExecution) Step(ctx context.Context, signals []agentrun
 		if len(signals) != 1 {
 			return agentrun.Transition{}, agentrun.ErrInvalidSignal
 		}
-		started, err := agentrun.ParseChildStartResult(signals[0])
+		started, err := signals[0].Frame[agentrun.ChildStartResult]()
 		if err != nil {
 			return agentrun.Transition{}, err
 		}

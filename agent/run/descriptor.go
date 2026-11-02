@@ -18,7 +18,7 @@ func ValidDescription(description string) bool {
 	return validBoundedText(description, MaxDescriptionBytes)
 }
 
-var ErrInvalidDescriptor = errors.New("agent: invalid descriptor")
+var ErrInvalidDescriptor = errors.New("run: invalid descriptor")
 
 // DescriptorConfig contains the complete static contract of a Definition.
 // Executable implementation and frozen configuration identity belong to a

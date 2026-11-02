@@ -3,16 +3,18 @@ package run
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
+var ErrInvalidTreeSnapshot = errors.New("run: invalid process tree snapshot")
 
 // TreeSnapshot is an immutable, portable capture of one complete Process tree.
 // It carries Framework execution facts, a canonical content digest, and a writer
@@ -21,9 +23,10 @@ var ErrInvalidTreeSnapshot = errors.New("agent: invalid process tree snapshot")
 // storage acknowledgment or current writer ownership. Persistence, transactions,
 // revisions, and cleanup policy remain Host responsibilities.
 type TreeSnapshot struct {
-	data   json.RawMessage
-	digest Digest
-	state  treeSnapshotWire
+	skeleton []byte
+	size     int
+	digest   Digest
+	state    treeSnapshotWire
 }
 
 // ParseTreeSnapshot strictly validates the current wire shape and domain
@@ -40,6 +43,30 @@ func ParseTreeSnapshot(data json.RawMessage) (TreeSnapshot, error) {
 	if !document.TreeLimits.MaxSnapshotBytes.Allows(uint64(len(data))) {
 		return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
 	}
+	return AssembleTreeSnapshot(document.IncarnationID, document.TreeLimits, document.ProcessSnapshots)
+}
+
+// AssembleTreeSnapshot validates independently stored Process records together,
+// since their parent links and child settlements can only be checked in the tree.
+func AssembleTreeSnapshot(incarnation TreeIncarnationID, limits TreeLimits, records []json.RawMessage) (TreeSnapshot, error) {
+	if _, finite := limits.MaxSnapshotBytes.Maximum(); finite {
+		wire := treeSnapshotWire{IncarnationID: incarnation, TreeLimits: limits}
+		skeleton, err := wire.encodingSkeleton()
+		if err != nil {
+			return TreeSnapshot{}, fmt.Errorf("%w: header: %w", ErrInvalidTreeSnapshot, err)
+		}
+		size := uint64(len(skeleton)) + uint64(max(0, len(records)-1))
+		if !limits.MaxSnapshotBytes.Allows(size) {
+			return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
+		}
+		for _, record := range records {
+			if !limits.MaxSnapshotBytes.Allows(size, uint64(len(record))) {
+				return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
+			}
+			size += uint64(len(record))
+		}
+	}
+	document := treeSnapshotDocument{IncarnationID: incarnation, TreeLimits: limits, ProcessSnapshots: records}
 	processes, err := document.processSnapshots()
 	if err != nil {
 		return TreeSnapshot{}, err
@@ -225,28 +252,38 @@ func treeSnapshotFromWire(wire treeSnapshotWire) (TreeSnapshot, error) {
 	if validateErr := validation.validate(); validateErr != nil {
 		return TreeSnapshot{}, validateErr
 	}
-	normalized, err := wire.encode()
+	skeleton, err := wire.encodingSkeleton()
 	if err != nil {
 		return TreeSnapshot{}, fmt.Errorf("%w: encode: %w", ErrInvalidTreeSnapshot, err)
 	}
-	if !wire.TreeLimits.MaxSnapshotBytes.Allows(uint64(len(normalized))) {
+	size := wire.encodedSize(skeleton)
+	if !wire.TreeLimits.MaxSnapshotBytes.Allows(uint64(size)) {
 		return TreeSnapshot{}, fmt.Errorf("%w: snapshot byte quota exceeded", ErrInvalidTreeSnapshot)
 	}
-	return TreeSnapshot{
-		data: normalized, digest: ComputeDigest(normalized), state: wire,
-	}, nil
+	hasher := sha256.New()
+	for fragment := range wire.fragments(skeleton) {
+		_, _ = hasher.Write(fragment)
+	}
+	return TreeSnapshot{skeleton: skeleton, size: size, digest: digestFromSum(hasher.Sum(nil)), state: wire}, nil
 }
 
 // JSON returns an independently owned tree snapshot representation.
-func (t TreeSnapshot) JSON() json.RawMessage { return bytes.Clone(t.data) }
+func (t TreeSnapshot) JSON() json.RawMessage {
+	if t.size == 0 {
+		return nil
+	}
+	return t.state.encodeFragments(t.skeleton, t.size)
+}
 
 // EncodedSize returns the canonical JSON byte length without copying the
 // snapshot. The zero value has size zero.
-func (t TreeSnapshot) EncodedSize() int { return len(t.data) }
+func (t TreeSnapshot) EncodedSize() int { return t.size }
 
 func (t TreeSnapshot) RootID() ProcessID { return t.state.rootID() }
 
 func (t TreeSnapshot) Digest() Digest { return t.digest }
+
+func (t TreeSnapshot) Limits() TreeLimits { return t.state.TreeLimits }
 
 func (t TreeSnapshot) IncarnationID() TreeIncarnationID {
 	return t.state.IncarnationID
@@ -314,7 +351,7 @@ func (t TreeSnapshot) effect(processID ProcessID, id EffectID) (EffectRequest, p
 }
 
 func (t TreeSnapshot) Valid() bool {
-	return len(t.data) > 0 && t.digest.Valid() && t.state.rootID().Valid() &&
+	return t.size > 0 && t.digest.Valid() && t.state.rootID().Valid() &&
 		t.state.IncarnationID.Valid() && len(t.state.ProcessSnapshots) > 0
 }
 
@@ -322,7 +359,7 @@ func (t TreeSnapshot) MarshalJSON() ([]byte, error) {
 	if !t.Valid() {
 		return nil, ErrInvalidTreeSnapshot
 	}
-	return bytes.Clone(t.data), nil
+	return t.JSON(), nil
 }
 
 func (t *TreeSnapshot) UnmarshalJSON(data []byte) error {
@@ -353,33 +390,56 @@ type treeSnapshotWire struct {
 	ProcessSnapshots []ProcessSnapshot
 }
 
-// encode produces the canonical compact encoding of the wire. Every Process
-// snapshot is already validated canonical JSON, so its bytes are spliced into
-// the document's encoding with an empty Process list: routing them through
-// the encoder would re-parse and re-format every Process on every capture.
-// The result is byte-identical to marshaling the document with each
-// snapshot's bytes as its value.
-func (t treeSnapshotWire) encode() ([]byte, error) {
-	skeleton, err := jsonv2.Marshal(treeSnapshotDocument{
+func (t treeSnapshotWire) encodingSkeleton() ([]byte, error) {
+	return jsonv2.Marshal(treeSnapshotDocument{
 		IncarnationID: t.IncarnationID, TreeLimits: t.TreeLimits, ProcessSnapshots: []json.RawMessage{},
 	}, jsonv2.Deterministic(true))
+}
+
+func (t treeSnapshotWire) encodedSize(skeleton []byte) int {
+	size := len(skeleton) + max(0, len(t.ProcessSnapshots)-1)
+	for i := range t.ProcessSnapshots {
+		size += len(t.ProcessSnapshots[i].data)
+	}
+	return size
+}
+
+// The empty Process list closes the canonical skeleton as `[]}`. Hashing and
+// exporting traverse the same bytes; sealing a tree never copies every member
+// into a second buffer just to establish its digest.
+func (t treeSnapshotWire) fragments(skeleton []byte) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		end := len(skeleton) - 2
+		if !yield(skeleton[:end]) {
+			return
+		}
+		comma := []byte{','}
+		for i := range t.ProcessSnapshots {
+			if i != 0 && !yield(comma) {
+				return
+			}
+			if !yield(t.ProcessSnapshots[i].data) {
+				return
+			}
+		}
+		yield(skeleton[end:])
+	}
+}
+
+func (t treeSnapshotWire) encodeFragments(skeleton []byte, size int) []byte {
+	result := make([]byte, 0, size)
+	for fragment := range t.fragments(skeleton) {
+		result = append(result, fragment...)
+	}
+	return result
+}
+
+func (t treeSnapshotWire) encode() ([]byte, error) {
+	skeleton, err := t.encodingSkeleton()
 	if err != nil {
 		return nil, err
 	}
-	// The empty Process list closes the skeleton as `[]}`.
-	open := skeleton[:len(skeleton)-len("]}")]
-	size := len(skeleton)
-	for _, snapshot := range t.ProcessSnapshots {
-		size += len(snapshot.data) + 1
-	}
-	encoded := append(make([]byte, 0, size), open...)
-	for index, snapshot := range t.ProcessSnapshots {
-		if index > 0 {
-			encoded = append(encoded, ',')
-		}
-		encoded = append(encoded, snapshot.data...)
-	}
-	return append(encoded, ']', '}'), nil
+	return t.encodeFragments(skeleton, t.encodedSize(skeleton)), nil
 }
 
 // rootID follows from the canonical order, in which the root comes first.
@@ -413,7 +473,7 @@ func (t *treeSnapshotWire) normalize() {
 
 type treeSnapshotValidation struct {
 	wire              treeSnapshotWire
-	processes         map[ProcessID]processSnapshotWire
+	processes         map[ProcessID]*processSnapshotWire
 	children          map[childIdentity]ProcessID
 	childCounts       map[ProcessID]uint64
 	activeChildCounts map[ProcessID]uint64
@@ -427,8 +487,9 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 	if err := wire.TreeLimits.validate(); err != nil {
 		return nil, fmt.Errorf("%w: TreeLimits: %w", ErrInvalidTreeSnapshot, err)
 	}
-	processes := make(map[ProcessID]processSnapshotWire, len(wire.ProcessSnapshots))
-	for _, snapshot := range wire.ProcessSnapshots {
+	processes := make(map[ProcessID]*processSnapshotWire, len(wire.ProcessSnapshots))
+	for i := range wire.ProcessSnapshots {
+		snapshot := &wire.ProcessSnapshots[i]
 		if !snapshot.Valid() {
 			return nil, fmt.Errorf("%w: Process: %w", ErrInvalidTreeSnapshot, ErrInvalidSnapshot)
 		}
@@ -439,7 +500,7 @@ func newTreeSnapshotValidation(wire treeSnapshotWire) (*treeSnapshotValidation, 
 		if _, duplicate := processes[processWire.processID()]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate ProcessID", ErrInvalidTreeSnapshot)
 		}
-		processes[processWire.processID()] = processWire
+		processes[processWire.processID()] = &snapshot.state
 	}
 	if !wire.ProcessSnapshots[0].Relation().IsRoot() || !wire.TreeLimits.admitsTreeSize(uint64(len(processes))) {
 		return nil, fmt.Errorf("%w: invalid root or tree size", ErrInvalidTreeSnapshot)

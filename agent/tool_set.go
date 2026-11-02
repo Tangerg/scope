@@ -53,6 +53,8 @@ func (t ToolSet) manifest() toolManifest {
 
 func (t ToolSetConfig) validate() error {
 	switch {
+	case !t.ImplementationDigest.Valid() || !t.ConfigurationDigest.Valid():
+		return fmt.Errorf("%w: implementation and configuration: %w", ErrInvalidToolSet, run.ErrInvalidDigest)
 	case len(t.Tools)+len(t.DeferredTools) == 0:
 		return fmt.Errorf("%w: at least one Tool is required", ErrInvalidToolSet)
 	case t.Observer != nil && lo.IsNil(t.Observer):
@@ -120,7 +122,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 
 // Program returns the exact child binding each Tool call runs under. An
 // Interaction configured with this ToolSet owns it as one of its
-// ChildDeployments.
+// ChildPrograms.
 func (t ToolSet) Program() run.Program[run.Payload, run.Payload] { return t.deployment }
 
 // SettleToolResult converts an investigated external outcome into the same
@@ -131,7 +133,7 @@ func (t ToolSet) Program() run.Program[run.Payload, run.Payload] { return t.depl
 // the binding; rejected and failed results cannot advertise Tools.
 func (t ToolSet) SettleToolResult(request run.EffectRequest, output tool.Output, disposition ResultDisposition, advertisedToolNames []string) (run.Settlement, error) {
 	if !t.Configured() || !request.Valid() || request.ProgramRef() != t.deployment.ProgramRef() {
-		return run.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Deployment request", ErrInvalidProtocol)
+		return run.Settlement{}, fmt.Errorf("%w: Tool recovery requires its exact Program request", ErrInvalidProtocol)
 	}
 	if !disposition.Valid() {
 		return run.Settlement{}, fmt.Errorf("%w: Tool recovery disposition is invalid", ErrInvalidProtocol)

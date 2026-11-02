@@ -46,7 +46,7 @@ func (d *definitionConformanceDefinition) Descriptor() run.Descriptor {
 	return d.descriptor
 }
 
-func (*definitionConformanceDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*definitionConformanceDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -307,7 +307,7 @@ func newRejectingDefinition(t *testing.T, err error) *rejectingDefinition {
 
 func (r *rejectingDefinition) Descriptor() run.Descriptor { return r.descriptor }
 
-func (*rejectingDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (*rejectingDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 
@@ -337,7 +337,7 @@ func (r *rejectingExecution) Snapshot() (run.ExecutionState, error) {
 }
 
 func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
-	declared := run.NewClassifiedError(run.FailureKindContract, "agenttest.rejected", "agenttest: rejected")
+	declared := run.NewClassifiedError(run.FailureKindContract, "agenttest.rejected", "runtest: rejected")
 	state, err := (&rejectingExecution{}).Snapshot()
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 		{"unclassified", errors.New("plain failure"), "unclassified error"},
 		{
 			"wrong classification",
-			run.NewClassifiedError(run.FailureKindExecution, "agenttest.other", "agenttest: other"),
+			run.NewClassifiedError(run.FailureKindExecution, "agenttest.other", "runtest: other"),
 			"want contract/agenttest.rejected",
 		},
 	} {

@@ -39,8 +39,8 @@ func TestEngineStartRejectsNilContextBeforePublication(t *testing.T) {
 	}
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
-	if len(engine.processes) != 0 || len(engine.startReservations) != 0 {
-		t.Fatalf("nil-context Start published state: processes=%d reservations=%d", len(engine.processes), len(engine.startReservations))
+	if len(engine.registry.entries) != 0 {
+		t.Fatalf("nil-context Start registered %d processes", len(engine.registry.entries))
 	}
 }
 
@@ -288,7 +288,7 @@ func newEngineTestDefinition(t testing.TB, name, mode string) *engineTestDefinit
 
 func (e *engineTestDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (*engineTestDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*engineTestDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (e *engineTestDefinition) Start(input Payload) (Execution, error) {
 	value, err := input.Decode[engineTestInput]()

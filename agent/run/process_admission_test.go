@@ -110,7 +110,7 @@ func TestProcessAdmitterRejectsBeforeDefinitionStarts(t *testing.T) {
 		t.Fatalf("Definition.Start calls = %d, want 0", got)
 	}
 	engine.mu.RLock()
-	processCount := len(engine.processes)
+	processCount := len(engine.registry.entries)
 	engine.mu.RUnlock()
 	if processCount != 0 {
 		t.Fatalf("published Processes = %d, want 0", processCount)
@@ -152,7 +152,7 @@ func TestProcessAdmitterRejectsChildWithoutPublishingIt(t *testing.T) {
 		t.Fatalf("admitter calls = %d, want root and child", got)
 	}
 	engine.mu.RLock()
-	processCount := len(engine.processes)
+	processCount := len(engine.registry.entries)
 	engine.mu.RUnlock()
 	if processCount != 1 {
 		t.Fatalf("published Processes = %d, want only parent", processCount)

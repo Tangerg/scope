@@ -54,7 +54,7 @@ func TestChildWaitCompletionAndTerminationRemainWithinParent(t *testing.T) {
 		if len(pending) != 1 {
 			t.Fatalf("parent received %d completion signals, want 1", len(pending))
 		}
-		completed, err := ParseChildWaitSatisfied(pending[0])
+		completed, err := pending[0].Frame[ChildWaitSatisfied]()
 		if err != nil {
 			t.Fatal(err)
 		}

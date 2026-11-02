@@ -62,16 +62,16 @@ func (t *treeMembers) descendantUnresolvedEffects(processID ProcessID) []Unresol
 func (t *treeMembers) add(process *processState) {
 	processID := process.handle.processID()
 	if t.byID[processID] != nil {
-		panic("agent: duplicate tree Process")
+		panic("run: duplicate tree Process")
 	}
 	if parentID, child := process.handle.relation.ParentID(); child {
 		parent := t.byID[parentID]
 		if parent == nil {
-			panic("agent: tree child requires its parent")
+			panic("run: tree child requires its parent")
 		}
 		debit, ok := parent.handle.budget.allocation(process.handle.budget)
 		if _, fits := t.childAllocation(parentID).add(debit); !ok || !fits {
-			panic("agent: child grant exceeds parent authority")
+			panic("run: child grant exceeds parent authority")
 		}
 		t.children[parentID] = append(t.children[parentID], processID)
 	}
@@ -87,7 +87,7 @@ func (t *treeMembers) remove(processID ProcessID) {
 		children := t.children[parentID]
 		index := slices.Index(children, processID)
 		if index < 0 {
-			panic("agent: tree child membership is missing")
+			panic("run: tree child membership is missing")
 		}
 		if children = slices.Delete(children, index, index+1); len(children) == 0 {
 			delete(t.children, parentID)

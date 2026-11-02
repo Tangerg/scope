@@ -7,7 +7,7 @@ import (
 
 const invalidEnumName = "invalid"
 
-var ErrInvalidStatus = errors.New("agent: invalid status")
+var ErrInvalidStatus = errors.New("run: invalid status")
 
 // Status is the complete common lifecycle state of a Process. Strategy-specific
 // conditions such as a Planning no-plan result do not add common statuses.

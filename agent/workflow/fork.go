@@ -20,7 +20,7 @@ type ForkBranch struct {
 	// ID is unique within this Fork Stage and stable across restoration.
 	ID string
 
-	Deployment run.Program[run.Payload, run.Payload]
+	Program run.Program[run.Payload, run.Payload]
 
 	// Budget is permanently allocated from the parent when the branch starts.
 	Budget run.Budget
@@ -49,14 +49,14 @@ func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, 
 	branches := make([]fanoutMember, 0, len(declared))
 	seen := make(map[string]struct{}, len(declared))
 	for index, branch := range declared {
-		binding, valid := newChildBinding(branch.Deployment, branch.Budget, branch.Capabilities)
+		binding, valid := newChildBinding(branch.Program, branch.Budget, branch.Capabilities)
 		if !run.ValidQualifiedName(branch.ID) || !valid {
 			return forkSource{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[branch.ID]; duplicate {
 			return forkSource{}, fmt.Errorf("%w: Fork %q has duplicate branch %q", ErrInvalidStage, stageID, branch.ID)
 		}
-		descriptor := branch.Deployment.Descriptor()
+		descriptor := branch.Program.Descriptor()
 		if !inputSchema.Equal(descriptor.InputSchema()) ||
 			!branchSchema.Equal(descriptor.OutputSchema()) {
 			return forkSource{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, stageID, branch.ID)

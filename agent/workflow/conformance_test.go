@@ -15,7 +15,7 @@ func TestDefinitionConformance(t *testing.T) {
 	})
 	child := mustDeployment(t, mustDefinition(t, "workflow.conformance.child", transform), "conformance-child")
 	call, err := workflow.Call(workflow.CallConfig{
-		ID: "increment_child", Deployment: child, Budget: mustBudget(t),
+		ID: "increment_child", Program: child, Budget: mustBudget(t),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -277,7 +277,7 @@ func TestChildInitializationCannotExceedTreeSnapshotCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.engine.publishProcessStart(root.handle)
-	t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID()) })
+	t.Cleanup(func() { runtime.engine.registry.release(root.handle) })
 	preparation := runtime.prepareChildStart(root, effectID, spec)
 	if preparation.plan == nil {
 		t.Fatalf("child preparation failed: %+v", preparation.failure)
@@ -332,7 +332,7 @@ func TestRejectedChildStartReleasesReservationAtCompletion(t *testing.T) {
 				t.Fatal(err)
 			}
 			runtime.engine.publishProcessStart(root.handle)
-			t.Cleanup(func() { delete(runtime.engine.processes, root.handle.processID()) })
+			t.Cleanup(func() { runtime.engine.registry.release(root.handle) })
 			{
 				runtime.writer.committer = &recordingTreeCommitter{}
 				runtime.writer.identity = newTreeIncarnationID()

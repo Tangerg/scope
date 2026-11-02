@@ -32,13 +32,13 @@ func Compile[I, O any](ctx context.Context, cfg Config) (run.Program[I, O], erro
 	}
 	callbacks := false
 	for _, stage := range def.stages {
-		if stage.kind != StageKindCall {
+		if stage.kind != StageKindCall && stage.kind != StageKindMap {
 			callbacks = true
 			break
 		}
 	}
-	if callbacks && !cfg.CallbackIdentity.Valid() {
-		return zero, fmt.Errorf("%w: stages with callbacks require CallbackIdentity", run.ErrInvalidProgram)
+	if callbacks != cfg.CallbackIdentity.Valid() {
+		return zero, fmt.Errorf("%w: CallbackIdentity must identify exactly the configured stage callbacks", run.ErrInvalidProgram)
 	}
 	wire, err := jsonv2.Marshal(struct {
 		Topology  Topology

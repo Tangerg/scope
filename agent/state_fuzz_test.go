@@ -137,7 +137,7 @@ func TestRestoreKeepsCompletionWithoutItsOutput(t *testing.T) {
 type fuzzWorkerDefinition struct{ descriptor run.Descriptor }
 
 func (f fuzzWorkerDefinition) Descriptor() run.Descriptor { return f.descriptor }
-func (fuzzWorkerDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
+func (fuzzWorkerDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
 func (fuzzWorkerDefinition) Start(run.Payload) (run.Execution, error) {

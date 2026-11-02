@@ -39,7 +39,7 @@ func NewDeadline(config DeadlineConfig) (*Deadline, error) {
 	return &Deadline{descriptor: descriptor}, nil
 }
 
-func (*Deadline) ChildDeployments() []run.Program[run.Payload, run.Payload] { return nil }
+func (*Deadline) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (d *Deadline) Descriptor() run.Descriptor {
 	if d == nil {
@@ -135,11 +135,10 @@ func (d *deadlineExecution) Step(ctx context.Context, signals []run.Signal) (run
 }
 
 func (d *deadlineExecution) acceptTimer(signals []run.Signal) (run.Transition, error) {
-	// ParseSettlement owns the settlement's Runtime origin.
 	if len(signals) != 1 {
 		return run.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
 	}
-	settlement, err := run.ParseSettlement(signals[0])
+	settlement, err := signals[0].Frame[run.Settlement]()
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}

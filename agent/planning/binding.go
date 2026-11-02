@@ -22,9 +22,9 @@ type DispatcherBindingConfig struct {
 // identity, explicit budget, and attenuated capabilities.
 type ChildBindingConfig struct {
 	Action Action
-	// Deployment is the exact child program; the planning Definition owns it
-	// as one of its ChildDeployments.
-	Deployment run.Program[run.Payload, run.Payload]
+	// Program is the exact child program; the planning Definition owns it
+	// as one of its ChildPrograms.
+	Program run.Program[run.Payload, run.Payload]
 	// Input deterministically derives child input; nil reuses Process input.
 	Input ChildInputFunc
 	// Budget is permanently allocated to each child attempt.
@@ -56,12 +56,12 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
-	if !config.Action.Valid() || !config.Deployment.Valid() {
+	if !config.Action.Valid() || !config.Program.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
 	return ActionBinding{
 		action:          config.Action,
-		childDeployment: config.Deployment, childBudget: config.Budget, childCapabilities: config.Capabilities,
+		childDeployment: config.Program, childBudget: config.Budget, childCapabilities: config.Capabilities,
 		childInput: config.Input,
 	}, nil
 }

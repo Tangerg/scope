@@ -111,8 +111,8 @@ type recordingDefinition struct {
 
 func (r *recordingDefinition) Descriptor() run.Descriptor { return r.definition.Descriptor() }
 
-func (r *recordingDefinition) ChildDeployments() []run.Program[run.Payload, run.Payload] {
-	return r.definition.ChildDeployments()
+func (r *recordingDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
+	return r.definition.ChildPrograms()
 }
 
 func (r *recordingDefinition) Start(input run.Payload) (run.Execution, error) {

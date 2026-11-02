@@ -9,7 +9,7 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-var ErrInvalidExternalWait = errors.New("agent: invalid external wait")
+var ErrInvalidExternalWait = errors.New("run: invalid external wait")
 
 // ExternalWaitSpec is the immutable, persistable acceptance contract of one
 // Host-answered wait. The mailbox that owns the wait validates every external

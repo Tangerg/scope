@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidExecutionState = errors.New("agent: invalid execution state")
+var ErrInvalidExecutionState = errors.New("run: invalid execution state")
 
 // ExecutionState is an immutable envelope owned by one Execution Strategy. The
 // Runtime persists and returns Payload without interpreting it. Its zero value

@@ -208,7 +208,7 @@ type externalWaitRestoreDefinition struct {
 
 func (e *externalWaitRestoreDefinition) Descriptor() Descriptor { return e.descriptor }
 
-func (*externalWaitRestoreDefinition) ChildDeployments() []Program[Payload, Payload] { return nil }
+func (*externalWaitRestoreDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 
 func (e *externalWaitRestoreDefinition) Start(Payload) (Execution, error) {
 	return &externalWaitRestoreExecution{wait: e.wait, state: externalWaitRestoreState{Phase: externalWaitRestoreReady}}, nil
@@ -268,10 +268,11 @@ func (e *externalWaitRestoreExecution) Step(_ context.Context, signals []Signal)
 		if len(signals) != 1 {
 			return Transition{}, errors.New("external wait requires its opening")
 		}
-		waitID, err := ParseWaitOpened(signals[0])
+		opening, err := signals[0].Frame[WaitOpened]()
 		if err != nil {
 			return Transition{}, err
 		}
+		waitID := opening.WaitID()
 		e.state = externalWaitRestoreState{Phase: externalWaitRestoreWaiting, WaitID: waitID}
 		return Wait(1, waitID)
 	case externalWaitRestoreWaiting:

@@ -103,9 +103,12 @@ func treeCommitIdentityFixture(t *testing.T) (EffectBoundary, TreeCheckpoint, Tr
 	}
 	previous := controlValue(ParseDigest("sha256:a8fda0511f82a72f80c26b5833804253ffc8e7e731c1c19db86732c42f5f6810"))
 	previousWriter := controlValue(parseTreeIncarnationID("incarnation:22222222222222222222222222222222"))
-	return controlValue(newEffectBoundary(2, false, request.Relation().ProcessID(), request.ID(), previous, snapshot)),
-		controlValue(newTreeCheckpoint(2, checkpointCauseCut, previous, snapshot)),
-		controlValue(newTreeActivation(previousWriter, previous, snapshot))
+	before := snapshot
+	before.digest = previous
+	before.state.IncarnationID = previousWriter
+	return controlValue(newEffectBoundary(2, false, request.Relation().ProcessID(), request.ID(), before, snapshot)),
+		controlValue(newTreeCheckpoint(2, checkpointCauseCut, before, snapshot)),
+		controlValue(newTreeActivation(before, snapshot))
 }
 
 func settledIdentityFixture(t *testing.T, boundary EffectBoundary, kind EffectBoundaryKind, settlement Settlement) EffectBoundary {
@@ -115,7 +118,7 @@ func settledIdentityFixture(t *testing.T, boundary EffectBoundary, kind EffectBo
 	process.Prepared.Effects[0].progress = &effectProgress{settlement: &settlement}
 	wire.ProcessSnapshots[0] = controlValue(newProcessSnapshot(process))
 	snapshot := controlValue(newTreeSnapshot(wire))
-	resolved := controlValue(newEffectBoundary(boundary.sequence+1, kind == EffectBoundaryKindResolved, boundary.processID, boundary.effectID, boundary.treeSnapshot.Digest(), snapshot))
+	resolved := controlValue(newEffectBoundary(boundary.sequence+1, kind == EffectBoundaryKindResolved, boundary.processID, boundary.effectID, boundary.treeSnapshot, snapshot))
 	if resolved.Kind() != kind {
 		t.Fatalf("boundary kind = %s, want %s", resolved.Kind(), kind)
 	}

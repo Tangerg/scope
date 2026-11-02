@@ -15,7 +15,7 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
-var ErrInvalidChildWait = errors.New("agent: invalid child wait")
+var ErrInvalidChildWait = errors.New("run: invalid child wait")
 
 // ChildWaitCondition identifies when a set of child Processes releases its
 // parent. It counts children at the requested boundary; it does not cancel
@@ -164,23 +164,6 @@ type ChildWaitOpened struct {
 func (c ChildWaitOpened) WaitID() WaitID { return c.waitID }
 
 func (c ChildWaitOpened) Valid() bool { return c.waitID.Valid() }
-
-// ParseChildWaitOpened decodes the settlement Signal produced by
-// NewChildWaitEffect and verifies its Runtime-owned Signal identity and attached WaitID.
-func ParseChildWaitOpened(signal Signal) (ChildWaitOpened, error) {
-	waitID, addressed := signal.WaitID()
-	if !signal.EngineOwned() || !addressed {
-		return ChildWaitOpened{}, ErrInvalidChildWait
-	}
-	wire, err := jsonwire.Decode[childWaitOpenedWire](signal.Payload())
-	if err != nil {
-		return ChildWaitOpened{}, fmt.Errorf("%w: decode opened Signal: %w", ErrInvalidChildWait, err)
-	}
-	if wire.Operation != childWaitSignalOpened {
-		return ChildWaitOpened{}, ErrInvalidChildWait
-	}
-	return ChildWaitOpened{waitID: waitID}, nil
-}
 
 // UnresolvedEffect identifies an unsettled external effect at a drained subtree
 // boundary. It is an observation; only the owning Process can settle the Effect.
@@ -344,14 +327,8 @@ func (c ChildWaitSatisfied) Matches(id WaitID, spec ChildWaitSpec) bool {
 	return true
 }
 
-// ParseChildWaitSatisfied decodes a Runtime-generated, WaitID-addressed child
-// wait-satisfaction Signal. Caller-owned Signal identities are rejected.
-func ParseChildWaitSatisfied(signal Signal) (ChildWaitSatisfied, error) {
-	waitID, addressed := signal.WaitID()
-	if !signal.EngineOwned() || !addressed {
-		return ChildWaitSatisfied{}, ErrInvalidChildWait
-	}
-	wire, err := jsonwire.Decode[childWaitSatisfiedWire](signal.Payload())
+func decodeChildWaitSatisfied(waitID WaitID, payload json.RawMessage) (ChildWaitSatisfied, error) {
+	wire, err := jsonwire.Decode[childWaitSatisfiedWire](payload)
 	if err != nil {
 		return ChildWaitSatisfied{}, fmt.Errorf("%w: decode completion Signal: %w", ErrInvalidChildWait, err)
 	}
@@ -499,3 +476,7 @@ func encodeChildWaitSatisfied(waitID WaitID, outcomes []ChildOutcome) (Signal, e
 	}
 	return NewSignal(waitID.childWaitSignalID(), waitID, payload)
 }
+
+func (ChildWaitOpened) signalFrame() {}
+
+func (ChildWaitSatisfied) signalFrame() {}

@@ -36,11 +36,11 @@ func (s Single) Window(signals []run.Signal) (run.Signal, error) {
 		return run.Signal{}, errors.New("childcall: unexpected handshake window size")
 	}
 	if len(signals) == 2 {
-		opened, err := run.ParseChildWaitOpened(signals[0])
+		opened, err := signals[0].Frame[run.ChildWaitOpened]()
 		if err != nil {
 			return run.Signal{}, err
 		}
-		completed, err := run.ParseChildWaitSatisfied(signals[1])
+		completed, err := signals[1].Frame[run.ChildWaitSatisfied]()
 		if err != nil || completed.WaitID() != opened.WaitID() {
 			return run.Signal{}, errors.New("childcall: opening suffix is not its completion")
 		}
@@ -68,7 +68,7 @@ func (s *Single) AcceptStart(signal run.Signal) (run.ChildStartResult, error) {
 	if s.Phase() != PhaseAwaitingStart {
 		return run.ChildStartResult{}, errors.New("childcall: start already settled")
 	}
-	result, err := run.ParseChildStartResult(signal)
+	result, err := signal.Frame[run.ChildStartResult]()
 	if err != nil {
 		return run.ChildStartResult{}, err
 	}
@@ -95,7 +95,7 @@ func (s *Single) AcceptOpening(signal run.Signal) (run.WaitID, error) {
 	if s.Phase() != PhaseAwaitingOpening {
 		return run.WaitID{}, errors.New("childcall: opening requires a started child without an open wait")
 	}
-	opened, err := run.ParseChildWaitOpened(signal)
+	opened, err := signal.Frame[run.ChildWaitOpened]()
 	if err != nil {
 		return run.WaitID{}, err
 	}
@@ -110,7 +110,7 @@ func (s Single) Complete(signal run.Signal, waitKey run.WaitKey, boundary run.Ch
 	if s.Phase() != PhaseAwaitingCompletion {
 		return run.ChildOutcome{}, errors.New("childcall: completion requires an open wait")
 	}
-	completed, err := run.ParseChildWaitSatisfied(signal)
+	completed, err := signal.Frame[run.ChildWaitSatisfied]()
 	if err != nil {
 		return run.ChildOutcome{}, err
 	}

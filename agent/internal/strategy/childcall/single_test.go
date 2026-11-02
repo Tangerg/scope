@@ -62,7 +62,7 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 		"process ID": completionSignal(t, "wait", true, "other"),
 	} {
 		t.Run("completion/"+name, func(t *testing.T) {
-			if _, err := run.ParseChildWaitSatisfied(signal); err != nil {
+			if _, err := signal.Frame[run.ChildWaitSatisfied](); err != nil {
 				t.Fatalf("invalid fixture: %v", err)
 			}
 			if _, err := progress.Complete(signal, waitKey, run.ChildWaitBoundaryDrained); err == nil {
@@ -85,7 +85,7 @@ func TestSingleRejectsMismatchedResponsesWithoutAdvancing(t *testing.T) {
 	}
 	extra.Outcomes = append(extra.Outcomes, other.Outcomes...)
 	extraSignal := signal(t, "wait", extra)
-	if _, err := run.ParseChildWaitSatisfied(extraSignal); err != nil {
+	if _, err := extraSignal.Frame[run.ChildWaitSatisfied](); err != nil {
 		t.Fatalf("invalid multi-outcome fixture: %v", err)
 	}
 	if _, err := progress.Complete(extraSignal, waitKey, run.ChildWaitBoundaryDrained); err == nil {
@@ -257,7 +257,7 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 			}
 		}
 		// The window owns cardinality; the phase's parser owns the origin.
-		if _, err := run.ParseChildStartResult(foreign); err == nil {
+		if _, err := foreign.Frame[run.ChildStartResult](); err == nil {
 			t.Fatal("a foreign Signal parsed as a child start")
 		}
 		switch phase {
@@ -276,9 +276,9 @@ func TestSingleOwnsWindowShape(t *testing.T) {
 	}
 }
 
-func TestSingleRejectsUndecodableResponsesWithoutAdvancing(t *testing.T) {
+func TestSingleRejectsUnexpectedFramesWithoutAdvancing(t *testing.T) {
 	waitKey := invocation(t)
-	foreign := signal(t, "", json.RawMessage(`{"operation":"unrelated"}`))
+	foreign := openingSignal(t, "other")
 	var progress childcall.Single
 	if _, err := progress.WaitEffect(waitKey, run.ChildWaitBoundaryDrained); err == nil {
 		t.Fatal("wait preceded the child start")
@@ -289,7 +289,7 @@ func TestSingleRejectsUndecodableResponsesWithoutAdvancing(t *testing.T) {
 	if _, err := progress.AcceptStart(startSignal(t, "child", nil)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := progress.AcceptOpening(signal(t, "wait", json.RawMessage(`{"operation":"unrelated"}`))); err == nil || progress.Phase() != childcall.PhaseAwaitingOpening {
+	if _, err := progress.AcceptOpening(startSignal(t, "other", nil)); err == nil || progress.Phase() != childcall.PhaseAwaitingOpening {
 		t.Fatal("undecodable opening advanced progress")
 	}
 	if _, err := progress.Complete(completionSignal(t, "wait", true, "child"), waitKey, run.ChildWaitBoundaryDrained); err == nil {
@@ -298,7 +298,7 @@ func TestSingleRejectsUndecodableResponsesWithoutAdvancing(t *testing.T) {
 	if _, err := progress.AcceptOpening(openingSignal(t, "wait")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := progress.Complete(signal(t, "wait", json.RawMessage(`{"operation":"unrelated"}`)), waitKey, run.ChildWaitBoundaryDrained); err == nil {
+	if _, err := progress.Complete(openingSignal(t, "other"), waitKey, run.ChildWaitBoundaryDrained); err == nil {
 		t.Fatal("undecodable completion returned a result")
 	}
 }
