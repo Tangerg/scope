@@ -5,6 +5,10 @@ import (
 	"unicode/utf8"
 )
 
+// emptyDiagnostic stands in for a cause with no printable text, because a
+// recorded Failure always carries a diagnostic.
+const emptyDiagnostic = "operation failed"
+
 const MaxDiagnosticBytes = 4096
 
 func ValidDiagnostic(message string) bool { return validBoundedText(message, MaxDiagnosticBytes) }
@@ -28,7 +32,7 @@ func NormalizeDiagnostic(message string) string {
 		message = strings.TrimSpace(message)
 	}
 	if message == "" {
-		return "operation failed"
+		return emptyDiagnostic
 	}
 	return message
 }

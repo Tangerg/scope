@@ -12,6 +12,13 @@ import (
 const treeCommandCapacity = 32
 const dispatchResultCapacity = 32
 
+// Reasons for the controls the runtime originates rather than a Host.
+const (
+	reasonParentCompleted         = "parent completed"
+	reasonContextCanceled         = "execution context canceled"
+	reasonContextDeadlineExceeded = "execution context deadline exceeded"
+)
+
 type treeRuntime struct {
 	runtime         *Runtime
 	state           *treeState
@@ -434,7 +441,7 @@ func (t *treeRuntime) finish(p *processState) error {
 		if child.exited != nil {
 			records = append(records, Reaped{Process: id})
 		} else if !child.terminal.Valid() {
-			records = append(records, ControlRequested{Process: id, Kind: ControlCancel, Reason: "parent completed", At: canonicalTime(time.Now())})
+			records = append(records, ControlRequested{Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: canonicalTime(time.Now())})
 		}
 	}
 	if len(records) > 0 {
@@ -863,11 +870,9 @@ func (t *treeRuntime) contextCanceled() error {
 	if t.host.Err() == nil {
 		return nil
 	}
-	kind := ControlCancel
-	reason := "execution context canceled"
+	kind, reason := ControlCancel, reasonContextCanceled
 	if errors.Is(t.host.Err(), context.DeadlineExceeded) {
-		kind = ControlDeadline
-		reason = "execution context deadline exceeded"
+		kind, reason = ControlDeadline, reasonContextDeadlineExceeded
 	}
 	if root := t.state.processes[t.state.root]; root == nil || root.exited != nil {
 		return nil

@@ -10,6 +10,10 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
+// rejectEverySchema is the JSON Schema no value satisfies; a Definition that
+// declares no Signal schema accepts no unaddressed input.
+const rejectEverySchema = "false"
+
 const MaxDescriptionBytes = 4096
 
 func ValidDescription(description string) bool {
@@ -69,7 +73,7 @@ func NewDescriptor(config DescriptorConfig) (Descriptor, error) {
 	}
 	if !config.SignalSchema.Valid() {
 		var err error
-		config.SignalSchema, err = jsonschema.Parse([]byte("false"))
+		config.SignalSchema, err = jsonschema.Parse([]byte(rejectEverySchema))
 		if err != nil {
 			return Descriptor{}, fmt.Errorf("%w: rejecting signal schema: %w", ErrInvalidDescriptor, err)
 		}
