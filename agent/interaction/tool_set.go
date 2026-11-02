@@ -52,6 +52,12 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 
 func (t ToolSet) Configured() bool { return t.dispatcher != nil }
 
+// replayPolicy belongs to the called tool; an unbound name is rejected before
+// dispatch, so it can never be replayed.
+func (t ToolSet) replayPolicy(name string) run.ReplayPolicy {
+	return t.manifest().entries[name].replayPolicy()
+}
+
 func (t ToolSet) configuration() toolConfiguration {
 	configuration := toolConfiguration{Revision: t.revision}
 	for name, entry := range t.manifest().entries {
