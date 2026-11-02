@@ -18,7 +18,7 @@
 // Hosts the same key when they reconcile an Unknown call.
 // A tool.InputRequest opens a local Wait; each later question receives a new
 // WaitKey so an old answer retry cannot answer a new question. [PendingToolInputs]
-// projects those waits from the authoritative Log. The process and WaitKey own
+// lists those waits from a run.TreeInspection, their only record. The process and WaitKey own
 // answer routing; tool call names and model call IDs do not.
 //
 // Delegate calls use Spawn and consume the child's Exit. An Exit establishes
@@ -46,6 +46,7 @@
 // must be deterministic, bounded, side-effect-free, and cancellation-aware.
 // External context processing belongs in its dispatcher Effect instead.
 //
-// [SettledResults] and [DelegateAttributions] are read projections of committed
-// facts. They own no acknowledgment, execution, persistence, or retry policy.
+// [SettledResults] and [DelegateAttributions] project the complete history that
+// run.Runtime.History reads, because a checkpoint does not keep settled rounds.
+// They own no acknowledgment, execution, persistence, or retry policy.
 package interaction
