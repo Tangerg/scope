@@ -3,6 +3,8 @@ package planning
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -59,8 +61,8 @@ func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor)
 		}
 		executors[binding.action.name] = executor
 	}
-	for name, executor := range supplied {
-		if !run.ValidQualifiedName(name) || lo.IsNil(executor) {
+	for _, name := range slices.Sorted(maps.Keys(supplied)) {
+		if executor := supplied[name]; !run.ValidQualifiedName(name) || lo.IsNil(executor) {
 			return nil, fmt.Errorf("%w: invalid executor %q", ErrInvalidDispatcherConfig, name)
 		}
 		if _, found := executors[name]; !found {

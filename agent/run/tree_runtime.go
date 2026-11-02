@@ -97,7 +97,7 @@ func (t *treeRuntime) wake(record Record) {
 		delete(t.emitters, settled.ID)
 	}
 	if control, ok := record.(ControlRequested); ok {
-		for id := range t.state.processes {
+		for _, id := range t.state.ordered() {
 			if control.Process.Contains(id) {
 				t.enqueue(id)
 			}
@@ -431,11 +431,8 @@ func (t *treeRuntime) finish(p *processState) error {
 		return nil
 	}
 	var records []Record
-	for id, child := range t.state.processes {
-		parent, ok := id.Parent()
-		if !ok || parent != p.started.Process {
-			continue
-		}
+	for _, id := range t.state.children(p.started.Process) {
+		child := t.state.processes[id]
 		if child.exited != nil {
 			records = append(records, Reaped{Process: id})
 		} else if !child.terminal.Valid() {

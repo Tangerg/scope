@@ -243,7 +243,7 @@ func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], 
 	}
 	handle := &Handle[O]{runtime: r, tree: tree, process: state.processes[root], id: root, program: program.ProgramRef(), epoch: state.epoch}
 	tree.recovering = true
-	for id := range state.processes {
+	for _, id := range state.ordered() {
 		tree.enqueue(id)
 	}
 	go tree.run()

@@ -335,6 +335,17 @@ func (t *treeState) terminate(control ControlRequested) {
 	}
 }
 
+// children lists parent's retained children in canonical order.
+func (t *treeState) children(parent ProcessID) []ProcessID {
+	var children []ProcessID
+	for _, id := range t.ordered() {
+		if owner, child := id.Parent(); child && owner == parent {
+			children = append(children, id)
+		}
+	}
+	return children
+}
+
 func (t *treeState) ordered() []ProcessID {
 	ids := make([]ProcessID, 0, len(t.processes))
 	for id := range t.processes {
