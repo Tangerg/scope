@@ -122,15 +122,16 @@ func (d *dispatcher) Dispatch(
 	}
 }
 
-// Model and context calls cannot safely replay; tools declare replay and grants
-// in their immutable binding.
+// Model and context calls cannot safely replay; each tool declares its own
+// replay safety in its immutable binding.
 func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
 	envelope, err := decodeEffect(effect.Payload())
-	if err == nil && envelope.operation() == operationToolCall && d.tools.Configured() {
-		policy.Replay = d.tools.replay
-		policy.RequiredCapabilities = d.requiredToolCapabilities
+	if err != nil || envelope.ToolCall == nil || !d.tools.Configured() {
+		return policy
 	}
+	policy.Replay = d.tools.manifest().entries[envelope.ToolCall.Invocation.Call.Name].replayPolicy()
+	policy.RequiredCapabilities = d.requiredToolCapabilities
 	return policy
 }
 

@@ -14,7 +14,6 @@ import (
 
 type ToolSetConfig struct {
 	Revision      string
-	Replay        run.ReplayPolicy
 	Tools         []tool.Tool
 	DeferredTools []tool.Tool
 }
@@ -24,7 +23,6 @@ type ToolSetConfig struct {
 type ToolSet struct {
 	dispatcher *toolDispatcher
 	revision   string
-	replay     run.ReplayPolicy
 }
 
 func (t ToolSet) manifest() toolManifest {
@@ -38,12 +36,6 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if config.Revision == "" || len(config.Tools)+len(config.DeferredTools) == 0 {
 		return ToolSet{}, fmt.Errorf("%w: Revision and at least one Tool are required", ErrInvalidToolSet)
 	}
-	if config.Replay == run.ReplayPolicyInvalid {
-		config.Replay = run.ReplayPolicyNever
-	}
-	if !config.Replay.Valid() {
-		return ToolSet{}, ErrInvalidToolSet
-	}
 	dispatcher := newToolDispatcher()
 	for index, executable := range config.Tools {
 		if err := dispatcher.bindTool(executable, false); err != nil {
@@ -55,17 +47,17 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
-	return ToolSet{dispatcher: dispatcher, revision: config.Revision, replay: config.Replay}, nil
+	return ToolSet{dispatcher: dispatcher, revision: config.Revision}, nil
 }
 
 func (t ToolSet) Configured() bool { return t.dispatcher != nil }
 
 func (t ToolSet) configuration() toolConfiguration {
-	configuration := toolConfiguration{Revision: t.revision, Replay: t.replay}
+	configuration := toolConfiguration{Revision: t.revision}
 	for name, entry := range t.manifest().entries {
 		configuration.Entries = append(configuration.Entries, toolConfigurationEntry{
 			Name: name, Contract: entry.contract.Definition(), Deferred: entry.deferred,
-			Direct: entry.direct, Concurrent: entry.concurrent != nil,
+			Direct: entry.direct, Idempotent: entry.idempotent, Concurrent: entry.concurrent != nil,
 			Advertises: t.dispatcher.advertisers[name] != nil,
 		})
 	}
@@ -75,16 +67,15 @@ func (t ToolSet) configuration() toolConfiguration {
 }
 
 type toolConfiguration struct {
-	Replay       run.ReplayPolicy
 	Revision     string
 	VisibleOrder []string
 	Entries      []toolConfigurationEntry
 }
 
 type toolConfigurationEntry struct {
-	Name                                     string
-	Contract                                 tool.Definition
-	Deferred, Direct, Concurrent, Advertises bool
+	Name                                                 string
+	Contract                                             tool.Definition
+	Deferred, Direct, Idempotent, Concurrent, Advertises bool
 }
 
 // toolManifest is the scheduling policy an Interaction retains: Tool
@@ -184,7 +175,15 @@ type toolManifestEntry struct {
 	// direct marks a Tool whose successful result completes the Interaction
 	// without another model call.
 	direct     bool
+	idempotent bool
 	concurrent func(tool.Invocation) (string, bool)
+}
+
+func (t toolManifestEntry) replayPolicy() run.ReplayPolicy {
+	if t.idempotent {
+		return run.ReplayPolicySameIdentity
+	}
+	return run.ReplayPolicyNever
 }
 
 func (t toolManifestEntry) modelDefinition() tool.Definition {

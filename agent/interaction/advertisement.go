@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -26,26 +25,6 @@ import (
 // defect fails the Interaction without retracting its already completed call.
 type AdvertisingTool interface {
 	AdvertiseDeferred(ctx context.Context, invocation tool.Invocation, result tool.Result) ([]string, error)
-}
-
-// advertisingCapability resolves the AdvertisingTool capability through the
-// Tool's wrapping chain. A capability-detection panic is an internal fault, not
-// a model-visible result, so it is classified and returned as an error.
-func advertisingCapability(executable tool.Tool) (advertiser AdvertisingTool, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			advertiser = nil
-			err = &run.CallbackPanicError{Operation: "AdvertisingTool capability", Value: recovered}
-		}
-	}()
-	capability, found, err := tool.Capability[AdvertisingTool](executable)
-	if err != nil {
-		return nil, fmt.Errorf("advertising capability: %w", err)
-	}
-	if !found {
-		return nil, nil
-	}
-	return capability, nil
 }
 
 func validateAdvertisedToolNames(names []string) error {

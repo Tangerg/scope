@@ -30,3 +30,14 @@ type ConcurrentTool interface {
 	// Its identity and captured configuration belong in the ToolSet Revision.
 	ConcurrencyPolicy() func(tool.Invocation) (key string, concurrent bool)
 }
+
+// IdempotentTool declares that repeating a call under its original
+// tool.Admission.IdempotencyKey cannot duplicate an external effect. Recovery
+// then redispatches an interrupted call instead of settling it Unknown, so the
+// declaration is a durability promise, not a performance hint: a Tool may make
+// it only when its backend deduplicates on the key or the call has no effect.
+type IdempotentTool interface {
+	// Idempotent is read once by NewToolSet; it must not depend on mutable
+	// state or perform I/O.
+	Idempotent() bool
+}

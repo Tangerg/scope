@@ -67,14 +67,17 @@ func (t *toolSettlementBarrier) Load(ctx context.Context, root run.ProcessID) (r
 }
 func (t *toolSettlementBarrier) stop() { t.once.Do(func() { close(t.release) }) }
 
-func TestToolSettlementCrashRespectsCommittedOutcomeAndReplayPolicy(t *testing.T) {
-	for _, policy := range []run.ReplayPolicy{run.ReplayPolicyNever, run.ReplayPolicySameIdentity} {
+func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T) {
+	for _, idempotent := range []bool{false, true} {
 		for _, committed := range []bool{false, true} {
-			name := policy.String() + "/before-append"
-			if committed {
-				name = policy.String() + "/after-append"
+			declaration, phase := "unreplayable", "before-append"
+			if idempotent {
+				declaration = "idempotent"
 			}
-			t.Run(name, func(t *testing.T) {
+			if committed {
+				phase = "after-append"
+			}
+			t.Run(declaration+"/"+phase, func(t *testing.T) {
 				store := run.NewMemoryStore()
 				barrier := &toolSettlementBarrier{store: store, committed: committed, reached: make(chan run.EffectID, 1), release: make(chan struct{})}
 				defer barrier.stop()
@@ -82,14 +85,14 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndReplayPolicy(t *testing.T
 				var toolCalls, modelCalls atomic.Int32
 				var idsMu sync.Mutex
 				var ids []run.EffectID
-				executable := scriptTool{name: "write", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
+				executable := scriptTool{name: "write", direct: true, idempotent: idempotent, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
 					toolCalls.Add(1)
 					idsMu.Lock()
 					ids = append(ids, invocationEffect(input))
 					idsMu.Unlock()
 					return tool.Result{Output: tool.NewTextOutput("verified")}, nil
 				}}
-				tools := mustValue(NewToolSet(ToolSetConfig{Revision: "idempotent-write", Replay: policy, Tools: []tool.Tool{executable}}))
+				tools := mustValue(NewToolSet(ToolSetConfig{Revision: "write", Tools: []tool.Tool{executable}}))
 				program := compileTest(t, original, Config{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					modelCalls.Add(1)
 					return callResponse(requested("write", "call")), nil
@@ -105,7 +108,7 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndReplayPolicy(t *testing.T
 				}
 				recoveredRuntime := conformancetest.Runtime(t, run.Config{Store: store})
 				recovered := mustValue(recoveredRuntime.Recover(ctx, program, handle.ID()))
-				if !committed && policy == run.ReplayPolicyNever {
+				if !committed && !idempotent {
 					log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
 						for _, entry := range log.Entries {
 							if settled, ok := entry.Record.(run.EffectSettled); ok && settled.ID == intended && settled.Outcome.Status() == run.SettlementStatusUnknown {
@@ -130,7 +133,7 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndReplayPolicy(t *testing.T
 					t.Fatal("tool output not recovered")
 				}
 				expected := int32(1)
-				if !committed && policy == run.ReplayPolicySameIdentity {
+				if !committed && idempotent {
 					expected = 2
 				}
 				if toolCalls.Load() != expected || modelCalls.Load() != 1 {

@@ -117,6 +117,12 @@ func (c capabilityPanicTool) ReturnsDirectResult() bool {
 	}
 	return false
 }
+func (c capabilityPanicTool) Idempotent() bool {
+	if c.mode == "idempotent" {
+		panic("invalid idempotency declaration")
+	}
+	return false
+}
 func (c capabilityPanicTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	if c.mode == "concurrent" {
 		panic("invalid concurrency declaration")
@@ -130,12 +136,12 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 	executable := scriptTool{name: "echo"}
 	for _, config := range []ToolSetConfig{
 		{}, {Revision: "empty"}, {Tools: []tool.Tool{executable}},
-		{Revision: "bad replay", Tools: []tool.Tool{executable}, Replay: run.ReplayPolicy("invalid")},
 		{Revision: "nil", Tools: []tool.Tool{nil}},
 		{Revision: "nil deferred", DeferredTools: []tool.Tool{nil}},
 		{Revision: "unrepresentable alias", Tools: []tool.Tool{scriptTool{name: "工具"}}},
 		{Revision: "duplicate", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
+		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "idempotent"}}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "wrapper"}}},
 	} {

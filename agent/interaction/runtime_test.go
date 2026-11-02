@@ -24,11 +24,12 @@ const interactionTestTimeout = 5 * time.Second
 const objectToolSchema = `{"type":"object","properties":{"call":{"type":"string"}},"additionalProperties":false}`
 
 type scriptTool struct {
-	name      string
-	invoke    func(context.Context, tool.Invocation) (tool.Result, error)
-	direct    bool
-	classify  func(tool.Invocation) (string, bool)
-	advertise func(context.Context, tool.Invocation, tool.Result) ([]string, error)
+	name       string
+	invoke     func(context.Context, tool.Invocation) (tool.Result, error)
+	direct     bool
+	idempotent bool
+	classify   func(tool.Invocation) (string, bool)
+	advertise  func(context.Context, tool.Invocation, tool.Result) ([]string, error)
 }
 
 func (s scriptTool) Definition() tool.Definition {
@@ -38,6 +39,7 @@ func (s scriptTool) Call(ctx context.Context, input tool.Invocation) (tool.Resul
 	return s.invoke(ctx, input)
 }
 func (s scriptTool) ReturnsDirectResult() bool                               { return s.direct }
+func (s scriptTool) Idempotent() bool                                        { return s.idempotent }
 func (s scriptTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) { return s.classify }
 func (s scriptTool) AdvertiseDeferred(ctx context.Context, input tool.Invocation, result tool.Result) ([]string, error) {
 	if s.advertise == nil {

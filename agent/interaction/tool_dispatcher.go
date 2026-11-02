@@ -100,15 +100,19 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if _, duplicate := t.bindings[publicName]; duplicate {
 		return fmt.Errorf("duplicate tool name %q", publicName)
 	}
-	direct, err := directResultCapability(executable)
+	direct, err := toolCapability(executable, "DirectResultTool.ReturnsDirectResult", DirectResultTool.ReturnsDirectResult)
 	if err != nil {
 		return err
 	}
-	concurrent, err := concurrentToolCapability(executable)
+	idempotent, err := toolCapability(executable, "IdempotentTool.Idempotent", IdempotentTool.Idempotent)
 	if err != nil {
 		return err
 	}
-	advertiser, err := advertisingCapability(executable)
+	concurrent, err := toolCapability(executable, "ConcurrentTool.ConcurrencyPolicy", ConcurrentTool.ConcurrencyPolicy)
+	if err != nil {
+		return err
+	}
+	advertiser, err := toolCapability(executable, "AdvertisingTool capability", func(advertiser AdvertisingTool) AdvertisingTool { return advertiser })
 	if err != nil {
 		return err
 	}
@@ -116,7 +120,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if advertiser != nil {
 		t.advertisers[publicName] = advertiser
 	}
-	entry.direct, entry.concurrent = direct, concurrent
+	entry.direct, entry.idempotent, entry.concurrent = direct, idempotent, concurrent
 	t.manifest.entries[publicName] = entry
 	if !deferred {
 		t.manifest.initialNames = append(t.manifest.initialNames, publicName)
@@ -226,36 +230,22 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 	return prepared
 }
 
-func directResultCapability(executable tool.Tool) (direct bool, err error) {
+// toolCapability resolves an optional declaration through the Tool's wrapping
+// chain. Declarations are read once at binding, so a panic there is a defect of
+// the Tool that must reject construction rather than surface during recovery.
+func toolCapability[C, V any](executable tool.Tool, declaration string, read func(C) V) (value V, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			direct = false
-			err = &run.CallbackPanicError{Operation: "DirectResultTool.ReturnsDirectResult", Value: recovered}
+			var zero V
+			value, err = zero, &run.CallbackPanicError{Operation: declaration, Value: recovered}
 		}
 	}()
-	capability, found, err := tool.Capability[DirectResultTool](executable)
+	capability, found, err := tool.Capability[C](executable)
 	if err != nil {
-		return false, fmt.Errorf("direct-result capability: %w", err)
+		return value, fmt.Errorf("%s: %w", declaration, err)
 	}
 	if !found {
-		return false, nil
+		return value, nil
 	}
-	return capability.ReturnsDirectResult(), nil
-}
-
-func concurrentToolCapability(executable tool.Tool) (declared func(tool.Invocation) (string, bool), err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			declared = nil
-			err = &run.CallbackPanicError{Operation: "ConcurrentTool.ConcurrencyPolicy", Value: recovered}
-		}
-	}()
-	capability, found, err := tool.Capability[ConcurrentTool](executable)
-	if err != nil {
-		return nil, fmt.Errorf("concurrency capability: %w", err)
-	}
-	if !found {
-		return nil, nil
-	}
-	return capability.ConcurrencyPolicy(), nil
+	return read(capability), nil
 }

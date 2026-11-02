@@ -242,15 +242,22 @@ func (c *cyclicCapabilityTool) Call(context.Context, tool.Invocation) (tool.Resu
 }
 func (c *cyclicCapabilityTool) Unwrap() tool.Tool { return c }
 
-func TestEveryOptionalCapabilityRejectsACyclicWrapper(t *testing.T) {
-	value := new(cyclicCapabilityTool)
-	if _, err := directResultCapability(value); !errors.Is(err, tool.ErrInvalidWrappingChain) {
+func TestOptionalCapabilityRejectsACyclicWrapper(t *testing.T) {
+	if _, err := toolCapability(new(cyclicCapabilityTool), "IdempotentTool.Idempotent", IdempotentTool.Idempotent); !errors.Is(err, tool.ErrInvalidWrappingChain) {
 		t.Fatal(err)
 	}
-	if _, err := concurrentToolCapability(value); !errors.Is(err, tool.ErrInvalidWrappingChain) {
-		t.Fatal(err)
-	}
-	if _, err := advertisingCapability(value); !errors.Is(err, tool.ErrInvalidWrappingChain) {
-		t.Fatal(err)
+}
+
+func TestReplayPolicyBelongsToEachTool(t *testing.T) {
+	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
+	definition := mustValue(newDefinition(definitionConfig{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
+	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return nil, errors.New("must not call the model")
+	})}))
+	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever} {
+		effect := mustValue(toolEffect(toolDispatchRequest{Invocation: toolCall{Call: requested(name, name)}}))
+		if got := dispatcher.Policy(effect).Replay; got != want {
+			t.Errorf("%s replay = %s; want %s", name, got, want)
+		}
 	}
 }
