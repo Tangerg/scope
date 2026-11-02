@@ -20,7 +20,8 @@ import (
 
 const (
 	// RequestExtensionKey stores provider-specific [genai.GenerateContentConfig]
-	// fields using the SDK's JSON names. Fields owned by Core are rejected.
+	// fields using the SDK's JSON names. Fields owned by Core are rejected, as is
+	// codeExecution because its output and replay cannot be represented losslessly.
 	RequestExtensionKey = "google/request"
 )
 

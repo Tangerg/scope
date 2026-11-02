@@ -51,8 +51,11 @@ var (
 	)
 )
 
-// ErrModelResponseTooLarge reports response resource admission failure.
-// After model execution starts, the incomplete response is discarded and its
-// Effect remains unknown. Oversize replacement context is rejected before calling
-// the model and settles as a definite host failure.
+// ErrModelResponseTooLarge rejects a canonical settlement that exceeds its
+// budget. Complete generation remains observable, but its Effect stays unknown.
+// Oversize replacement context fails before the model is called.
 var ErrModelResponseTooLarge = errors.New("interaction: model response exceeds byte limit")
+
+// ErrModelStreamTooLarge stops consumption before an encoded delta exceeds the
+// stream admission budget. Observed generation cannot establish non-execution.
+var ErrModelStreamTooLarge = errors.New("interaction: encoded model response deltas exceed stream byte limit")

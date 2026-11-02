@@ -3,12 +3,13 @@
 //
 // Constructors:
 //
-//   - [NewChat] — native genai chat. Full Gemini surface:
+//   - [NewChat] — native genai chat:
 //     thinking budget, response modalities, system instructions,
 //     safety settings, structured output, tool calling, grounding
-//     with Google Search;
-//   - [NewEmbeddingModel] — gemini-embedding-2
-//     with output_dimensionality truncation;
+//     with Google Search. Code execution is rejected because its output and
+//     replay state cannot be represented losslessly;
+//   - [NewEmbeddingModel] — text embeddings with outputDimensionality
+//     truncation; the selected model determines its supported dimensions;
 //   - [NewImageModel] — Gemini image generation through Interactions;
 //   - [NewStreamingSpeechModel] — Gemini 3.1 TTS; Call consumes Stream;
 //   - [NewSpeechModel] — unary-only Gemini 2.5 TTS via generate_content with

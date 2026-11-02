@@ -447,10 +447,10 @@ func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorsto
 }
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
+		return nil, fmt.Errorf("mariadb: rank query: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("mariadb.Store.Search: %w", err)
+		return nil, fmt.Errorf("mariadb: rank query: %w", err)
 	}
 	defer func() {
 		if err == nil {
@@ -588,7 +588,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		return vectorstore.ErrMissingFilter
 	}
 	if validateErr := predicate.Validate(); validateErr != nil {
-		return fmt.Errorf("mariadb.Store.DeleteWhere: %w", validateErr)
+		return fmt.Errorf("mariadb.Store.DeleteMatching: %w", validateErr)
 	}
 	transaction, err := s.prepareFilter(ctx, predicate, false, &budget)
 	defer finishTransaction(transaction, &err)

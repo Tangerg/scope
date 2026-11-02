@@ -17,8 +17,9 @@ import (
 
 const (
 	// RequestExtensionKey stores official Ollama /api/chat request fields that
-	// have no provider-neutral Core equivalent. Core-owned fields are rejected;
-	// think belongs exclusively here because it admits both booleans and levels.
+	// have no provider-neutral Core equivalent. Unknown and Core-owned fields are
+	// rejected; options remains an open native map. Think belongs exclusively here
+	// because it admits both booleans and levels.
 	RequestExtensionKey = "ollama/request"
 
 	protocolGeneratedToolPrefix = "ollama/generated/"
@@ -144,6 +145,9 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
 		return nil, fmt.Errorf("ollama: extension %q: %w", RequestExtensionKey, err)
 	}
+	if fields == nil {
+		return nil, fmt.Errorf("ollama: extension %q must be an object", RequestExtensionKey)
+	}
 	for field := range fields {
 		switch field {
 		case "model", "messages", "stream", "tools":
@@ -166,7 +170,7 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 			}
 		}
 	}
-	if err := jsonv2.Unmarshal(raw, apiReq); err != nil {
+	if err := jsonv2.Unmarshal(raw, apiReq, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, fmt.Errorf("ollama: extension %q: %w", RequestExtensionKey, err)
 	}
 	return apiReq, nil

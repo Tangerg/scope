@@ -16,8 +16,8 @@ func TestRerankerMapsModelIndicesToOwnedCandidates(t *testing.T) {
 	model := corererank.ModelFunc(func(_ context.Context, request *corererank.Request) (*corererank.Response, error) {
 		seen = request
 		return &corererank.Response{Results: []*corererank.Result{
-			{Index: 1, Score: 0.9},
-			{Index: 0, Score: 0.4},
+			{Index: 1, Score: 12.5},
+			{Index: 0, Score: -0.4},
 		}}, nil
 	})
 	reranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model})
@@ -31,7 +31,7 @@ func TestRerankerMapsModelIndicesToOwnedCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Document.ID != "second" || got[0].Score != 0.9 || got[1].Document.ID != "first" || got[1].Score != 0.4 {
+	if len(got) != 2 || got[0].Document.ID != "second" || got[0].Score != 12.5 || got[1].Document.ID != "first" || got[1].Score != -0.4 {
 		t.Fatalf("reranked candidates = %#v", got)
 	}
 	if got[0].Document == second || got[1].Document == first {

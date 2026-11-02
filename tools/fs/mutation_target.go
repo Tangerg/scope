@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Tangerg/scope/tools/textread"
 )
 
 // A mutation owns a directory entry, not a pathname that can be redirected
@@ -100,7 +102,7 @@ func (m *mutationTarget) readText(ctx context.Context) (sourceText, error) {
 	if err != nil {
 		return sourceText{}, err
 	}
-	if looksBinary(data) {
+	if err := textread.Validate(data); err != nil {
 		return sourceText{}, ErrBinaryFile
 	}
 	text, hadBOM, hadCRLF := normalizeText(data)
@@ -154,11 +156,10 @@ type sourceText struct {
 	hadCRLF bool
 }
 
-// restore is the one place a text candidate becomes file bytes, so Write, Edit,
-// and ApplyPatch cannot each admit a NUL differently. ApplyPatch runs it during
-// preparation, before any file in a multi-file patch commits.
+// ApplyPatch restores every candidate during preparation, before any file in
+// a multi-file patch commits.
 func (s sourceText) restore(updated string) ([]byte, error) {
-	if strings.ContainsRune(updated, 0) {
+	if err := textread.Validate([]byte(updated)); err != nil {
 		return nil, ErrBinaryFile
 	}
 	return restoreFormat(updated, s.hadBOM, s.hadCRLF), nil

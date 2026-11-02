@@ -14,9 +14,21 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
+type nativeSimilarity string
+
+const (
+	simCosine     nativeSimilarity = "cosine"
+	simEuclidean  nativeSimilarity = "euclidean"
+	simDotProduct nativeSimilarity = "dotProduct"
+)
+
+// Unit vectors can lose exact unit length when their coordinates become FLOAT32.
+// One FLOAT32 ULP at one admits that rounding without normalizing host input.
+const unitMagnitudeTolerance = 1.0 / (1 << 23)
+
 type nativeSchema struct {
 	dimensions   int
-	similarity   string
+	similarity   nativeSimilarity
 	vectorPath   string
 	indexedTerms bool
 }
@@ -29,10 +41,10 @@ func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID
 		Queryable  bool   `bson:"queryable"`
 		Definition struct {
 			Fields []struct {
-				Type       string `bson:"type"`
-				Path       string `bson:"path"`
-				Dimensions int    `bson:"numDimensions"`
-				Similarity string `bson:"similarity"`
+				Type       string           `bson:"type"`
+				Path       string           `bson:"path"`
+				Dimensions int              `bson:"numDimensions"`
+				Similarity nativeSimilarity `bson:"similarity"`
 			} `bson:"fields"`
 		} `bson:"latestDefinition"`
 	}
@@ -62,7 +74,7 @@ func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID
 				return errors.New("mongodb: requires one embedding vector with a native dimension")
 			}
 			switch field.Similarity {
-			case "cosine", "euclidean", "dotProduct":
+			case simCosine, simEuclidean, simDotProduct:
 			default:
 				return errors.New("mongodb: unsupported native vector similarity")
 			}
@@ -90,10 +102,19 @@ func (n nativeSchema) validateVector(values []float32) error {
 	if len(values) != n.dimensions {
 		return fmt.Errorf("mongodb: vector width %d differs from native dimension %d", len(values), n.dimensions)
 	}
+	var squaredMagnitude float64
 	for _, value := range values {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+		coordinate := float64(value)
+		if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
 			return errors.New("mongodb: vector is not finite FLOAT32")
 		}
+		squaredMagnitude += coordinate * coordinate
+	}
+	if n.similarity == simCosine && squaredMagnitude == 0 {
+		return errors.New("mongodb: cosine requires a nonzero FLOAT32 vector")
+	}
+	if n.similarity == simDotProduct && math.Abs(math.Sqrt(squaredMagnitude)-1) > unitMagnitudeTolerance {
+		return errors.New("mongodb: dotProduct requires a unit FLOAT32 vector")
 	}
 	return nil
 }

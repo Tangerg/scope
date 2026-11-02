@@ -112,9 +112,9 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 	}
 
 	var audio []byte
-	for _, part := range apiResp.Candidates[0].Content.Parts {
-		if part == nil {
-			return nil, errors.New("google: speech: null content part")
+	for index, part := range apiResp.Candidates[0].Content.Parts {
+		if err := validateGenerationPart(part); err != nil {
+			return nil, fmt.Errorf("google: speech: %w: content.parts[%d]: %w", speech.ErrInvalidResponse, index, err)
 		}
 		if part.InlineData == nil || len(part.InlineData.Data) == 0 {
 			continue

@@ -85,15 +85,3 @@ func detectRootFormat(ctx context.Context, root *os.Root, path string) (hadBOM, 
 	}
 	return bytes.HasPrefix(prefix, []byte(utf8BOM)), bytes.Contains(prefix, []byte("\r\n")), nil
 }
-
-// binarySniffLen matches git's heuristic — a NUL in the first 8 KiB
-// means the file is treated as binary.
-const binarySniffLen = 8192
-
-func looksBinary(data []byte) bool {
-	sniff := data
-	if len(sniff) > binarySniffLen {
-		sniff = sniff[:binarySniffLen]
-	}
-	return bytes.IndexByte(sniff, 0) >= 0
-}

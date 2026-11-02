@@ -20,6 +20,54 @@ type textReasoningDialectCase struct {
 	withToolCall    bool
 }
 
+func TestChatCompletionsOwnsDialectPolicy(t *testing.T) {
+	for _, change := range []struct {
+		name   string
+		mutate func(*float64, []scopeopenai.ChatOption)
+	}{
+		{"temperature limit", func(limit *float64, _ []scopeopenai.ChatOption) { *limit = 0.1 }},
+		{"ignored option", func(_ *float64, ignored []scopeopenai.ChatOption) { ignored[0] = scopeopenai.ChatOptionTemperature }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var body struct {
+					Temperature *float64 `json:"temperature"`
+				}
+				if err := jsonv2.UnmarshalRead(request.Body, &body); err != nil {
+					t.Error(err)
+				}
+				if body.Temperature == nil || *body.Temperature != 0.5 {
+					t.Errorf("temperature = %v, want 0.5", body.Temperature)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(writer, "data: {\"id\":\"chat-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}\n\ndata: [DONE]\n\n")
+			}))
+			t.Cleanup(server.Close)
+			limit := 1.0
+			ignored := []scopeopenai.ChatOption{scopeopenai.ChatOptionFrequencyPenalty}
+			dialect := scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens, MaxTemperature: &limit, IgnoredOptions: ignored}
+			var models [2]*scopeopenai.ChatCompletions
+			for index := range models {
+				model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+					APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "model"},
+				}, dialect)
+				if err != nil {
+					t.Fatal(err)
+				}
+				models[index] = model
+			}
+			change.mutate(&limit, ignored)
+			request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}, Options: corechat.Options{Temperature: new(0.5)}}
+			for index, model := range models {
+				response, err := model.Call(t.Context(), request)
+				if err != nil || response.Text() != "ok" {
+					t.Fatalf("model %d after caller mutation: response = %#v, error = %v", index, response, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTextReasoningDialects(t *testing.T) {
 	tests := []textReasoningDialectCase{
 		{name: "reasoning_content output only", dialect: newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}), responseField: "reasoning_content"},

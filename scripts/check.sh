@@ -7,6 +7,7 @@
 #   scripts/check.sh                       # run the complete default set
 #   scripts/check.sh build vet test        # subset
 #   scripts/check.sh isolate               # check hygiene and behavior without go.work
+#   scripts/check.sh candidate             # check current sources as independent modules
 #   FAST=1 scripts/check.sh                # skip govulncheck (slowest)
 #   MODULE=core scripts/check.sh           # Core module only
 #   MODULE=models/google scripts/check.sh  # nested workspace module only
@@ -49,7 +50,7 @@ if [[ -n "${MODULE:-}" ]]; then
 fi
 
 if [[ $# -eq 0 ]]; then
-  CHECKS=(build vet test race integration-compile bench tidy isolate lint coverage vuln)
+  CHECKS=(build vet test race integration-compile bench tidy isolate candidate lint coverage vuln)
 else
   CHECKS=("$@")
 fi
@@ -62,6 +63,16 @@ if [[ "${FAST:-0}" == "1" ]]; then
   done
   CHECKS=("${FAST_CHECKS[@]}")
 fi
+
+candidate_selected=0
+MODULE_CHECKS=()
+for check in "${CHECKS[@]}"; do
+  if [[ "$check" == "candidate" ]]; then
+    candidate_selected=1
+  else
+    MODULE_CHECKS+=("$check")
+  fi
+done
 
 run_in_module() {
   local mod=$1
@@ -100,12 +111,22 @@ run_in_module() {
 }
 
 failed=()
+completed_checks=0
+# Candidate preparation owns the whole dependency graph, even for one consumer.
+if [[ $candidate_selected -eq 1 ]]; then
+  echo "── workspace ── candidate"
+  if ! "$ROOT/scripts/check-candidate.sh" "${MODULES[@]}"; then
+    failed+=("workspace/candidate")
+  fi
+  completed_checks=$((completed_checks + 1))
+fi
 for mod in "${MODULES[@]}"; do
+  [[ ${#MODULE_CHECKS[@]} -gt 0 ]] || break
   MODULE_PACKAGES=()
   MODULE_BUILD_PACKAGES=()
   needs_packages=0
   needs_buildable_packages=0
-  for check in "${CHECKS[@]}"; do
+  for check in "${MODULE_CHECKS[@]}"; do
     case "$check" in
       build|vet|test|bench|race) needs_packages=1 ;;
     esac
@@ -134,11 +155,12 @@ for mod in "${MODULES[@]}"; do
       done <<< "$build_packages"
     fi
   fi
-  for check in "${CHECKS[@]}"; do
+  for check in "${MODULE_CHECKS[@]}"; do
     [[ -z "$check" ]] && continue
     if ! run_in_module "$mod" "$check"; then
       failed+=("$mod/$check")
     fi
+    completed_checks=$((completed_checks + 1))
   done
 done
 
@@ -150,4 +172,4 @@ if [[ ${#failed[@]} -gt 0 ]]; then
 fi
 
 echo
-echo "all green ($((${#MODULES[@]} * ${#CHECKS[@]})) checks)"
+echo "all green ($completed_checks checks)"

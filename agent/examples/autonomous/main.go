@@ -4,8 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +19,10 @@ import (
 const (
 	calculatorToolRequestCall = 1
 	calculatorFinalAnswerCall = 2
+	additionToolName          = "add"
+	additionBudgetSteps       = 8
+	additionBudgetEffects     = 4
+	additionBudgetSignals     = 8
 )
 
 func main() {
@@ -35,9 +37,16 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
+	addition, err := tool.NewFunc(tool.FuncConfig{Name: additionToolName, Description: "Add two numbers and return their sum."},
+		func(_ context.Context, input additionInput) (string, error) {
+			return fmt.Sprintf("%g", input.Left+input.Right), nil
+		})
+	if err != nil {
+		return err
+	}
 	build := agentrun.ComputeDigest([]byte("example-autonomous-implementation"))
 	tools, err := agent.NewToolSet(agent.ToolSetConfig{
-		Name: "example.arithmetic", Description: "Execute arithmetic tools.", Tools: []tool.Tool{additionTool{}},
+		Name: "example.arithmetic", Description: "Execute arithmetic tools.", Tools: []tool.Tool{addition},
 		ImplementationDigest: build, ConfigurationDigest: agentrun.ComputeDigest([]byte("example addition settings")),
 	})
 	if err != nil {
@@ -48,7 +57,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		Model: client, Tools: tools, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
 		BuildIdentity: build,
 		ModelIdentity: agentrun.ComputeDigest([]byte("example calculator model")),
-		ToolBudget:    agentrun.Budget{Steps: agentrun.NewQuota(8), Effects: agentrun.NewQuota(4), Signals: agentrun.NewQuota(8)},
+		ToolBudget:    agentrun.Budget{Steps: agentrun.NewQuota(additionBudgetSteps), Effects: agentrun.NewQuota(additionBudgetEffects), Signals: agentrun.NewQuota(additionBudgetSignals)},
 	})
 	if err != nil {
 		return err
@@ -68,30 +77,9 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	return err
 }
 
-type additionTool struct{}
-
-func (additionTool) Definition() tool.Definition {
-	return tool.Definition{
-		Name:        "add",
-		Description: "Add two numbers and return their sum.",
-		InputSchema: json.RawMessage(`{
-            "type":"object",
-            "properties":{"left":{"type":"number"},"right":{"type":"number"}},
-            "required":["left","right"],
-            "additionalProperties":false
-        }`),
-	}
-}
-
-func (additionTool) Call(_ context.Context, invocation tool.Invocation) (tool.Result, error) {
-	var input struct {
-		Left  float64 `json:"left"`
-		Right float64 `json:"right"`
-	}
-	if err := jsonv2.Unmarshal(invocation.Arguments(), &input); err != nil {
-		return tool.Result{}, err
-	}
-	return tool.Result{Output: tool.NewTextOutput(fmt.Sprintf("%g", input.Left+input.Right))}, nil
+type additionInput struct {
+	Left  float64 `json:"left"`
+	Right float64 `json:"right"`
 }
 
 type calculatorModel struct{ calls int }
@@ -101,7 +89,7 @@ func (c *calculatorModel) Call(_ context.Context, request *chat.Request) (*chat.
 	switch c.calls {
 	case calculatorToolRequestCall:
 		message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{
-			ID: "calculation_1", Name: "add", Arguments: `{"left":20,"right":22}`,
+			ID: "calculation_1", Name: additionToolName, Arguments: `{"left":20,"right":22}`,
 		}))
 		return &chat.Response{Output: &chat.Output{
 			Message: &message, FinishReason: chat.FinishReasonToolCalls,

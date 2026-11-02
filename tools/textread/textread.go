@@ -29,7 +29,6 @@ var (
 	ErrInvalidLimits = errors.New("textread: invalid scan limits")
 	ErrInputTooLarge = errors.New("textread: input exceeds its byte limit")
 	ErrLineTooLarge  = errors.New("textread: line exceeds its byte limit")
-	ErrInvalidText   = errors.New("textread: input is not UTF-8 text")
 )
 
 type lineError struct {
@@ -199,8 +198,8 @@ func (l *lineScanner) consume(raw []byte) error {
 	if len(line) > l.limits.LineBytes {
 		return &lineError{number: l.lineNumber, cause: ErrLineTooLarge}
 	}
-	if !utf8.Valid(line) || bytes.IndexByte(line, 0) >= 0 {
-		return ErrInvalidText
+	if err := Validate(line); err != nil {
+		return err
 	}
 	return l.visit(l.lineNumber, line)
 }

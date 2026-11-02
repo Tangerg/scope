@@ -106,7 +106,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 		Opaque  run.Digest
 		Visible []tool.Definition
 		Entries map[string]entryFact
-	}{config.ConfigurationDigest, dispatcher.manifest.initialDefinitions, entries}, jsonv2.Deterministic(true))
+	}{config.ConfigurationDigest, dispatcher.manifest.initialDefinitions(), entries}, jsonv2.Deterministic(true))
 	if err != nil {
 		return ToolSet{}, fmt.Errorf("%w: freeze tool configuration: %w", ErrInvalidToolSet, err)
 	}
@@ -176,8 +176,17 @@ func (t ToolSet) ObservationFailures() ObservationFailures {
 // toolManifest is the scheduling policy an Interaction retains: Tool
 // contracts and frozen classifiers, never the executable Tools.
 type toolManifest struct {
-	initialDefinitions []tool.Definition
-	entries            map[string]toolManifestEntry
+	// Preserve configured Tool order; entries owns every projected definition.
+	initialNames []string
+	entries      map[string]toolManifestEntry
+}
+
+func (t toolManifest) initialDefinitions() []tool.Definition {
+	var definitions []tool.Definition
+	for _, name := range t.initialNames {
+		definitions = append(definitions, t.entries[name].modelDefinition())
+	}
+	return definitions
 }
 
 func (t toolManifest) deferred(name string) bool {
@@ -262,6 +271,12 @@ type toolManifestEntry struct {
 	// without another model call.
 	direct     bool
 	concurrent func(tool.Invocation) (string, bool)
+}
+
+func (t toolManifestEntry) modelDefinition() tool.Definition {
+	definition := t.contract.Definition()
+	definition.Name = chat.SanitizeToolName(definition.Name)
+	return definition
 }
 
 func (t toolManifestEntry) prepare(call chat.ToolCall, continuation *tool.Continuation) (tool.Invocation, error) {

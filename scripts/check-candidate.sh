@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Test the staged, unpublished workspace through ordinary module downloads.
+# Test the current, unpublished workspace through ordinary module downloads.
 # No tags, replacements, GitHub writes or edits to the checkout are needed.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-rev=$(git -C "$root" write-tree)
 tmp_root=${TMPDIR:-/tmp}
 tmp=$(mktemp -d "${tmp_root%/}/scope-candidate.XXXXXXXX")
 trap 'rm -rf -- "$tmp"' EXIT
 mkdir -p "$tmp/tree" "$tmp/proxy"
+# A separate index captures current file contents without staging the user's work.
+GIT_INDEX_FILE="$tmp/index" git -C "$root" read-tree --empty
+git -C "$root" ls-files --cached --others --exclude-standard -z |
+  GIT_INDEX_FILE="$tmp/index" git -C "$root" update-index --add --remove -z --stdin
+rev=$(GIT_INDEX_FILE="$tmp/index" git -C "$root" write-tree)
 git -C "$root" archive "$rev" | tar -x -C "$tmp/tree"
 version="v0.0.0-candidate.h$rev"
 (cd "$tmp/tree/dev/repoarch" && GOWORK=off go build -o "$tmp/stage" "$tmp/tree/scripts/candidateproxy.go")
@@ -18,6 +22,9 @@ if (( $# == 0 )); then
 else
   modules=("$@")
 fi
+for mod in "${modules[@]}"; do
+  if ! grep -Fqx -- "$mod" "$tmp/modules"; then echo "unknown workspace module: $mod" >&2; exit 2; fi
+done
 # Repository checks inspect the tracked file set. Give the archive its own
 # index rather than pointing any git command back at the developer's checkout.
 git -C "$tmp/tree" init -q
@@ -32,8 +39,14 @@ export GONOSUMDB="github.com/Tangerg/scope,$(go env GONOSUMDB)" GONOPROXY=none G
 while IFS= read -r member; do
   (cd "$tmp/tree/$member" && go mod tidy)
 done < "$tmp/modules"
+failed=()
 for mod in "${modules[@]}"; do
-  if ! grep -Fqx -- "$mod" "$tmp/modules"; then echo "unknown workspace module: $mod" >&2; exit 2; fi
   echo "candidate $version: $mod"
-  (cd "$tmp/tree/$mod" && go test -mod=readonly -count=1 ./...)
+  if ! (cd "$tmp/tree/$mod" && go test -mod=readonly -count=1 ./...); then
+    failed+=("$mod")
+  fi
 done
+if [[ ${#failed[@]} -gt 0 ]]; then
+  printf 'candidate checks failed: %s\n' "${failed[*]}" >&2
+  exit 1
+fi

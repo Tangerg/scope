@@ -32,10 +32,6 @@ type apiConfig struct {
 	HTTPClient *http.Client
 }
 
-func (a apiConfig) validate() error {
-	return nil
-}
-
 // api is the narrow client mechanism for the two native endpoints this adapter
 // owns. It deliberately does not import Ollama's daemon module.
 type api struct {
@@ -44,10 +40,6 @@ type api struct {
 }
 
 func newAPI(config apiConfig) (*api, error) {
-	if err := config.validate(); err != nil {
-		return nil, err
-	}
-
 	u, err := url.Parse(cmp.Or(config.BaseURL, DefaultBaseURL))
 	if err != nil {
 		return nil, errors.New("ollama: BaseURL must be a valid URL")

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/media"
@@ -95,7 +97,7 @@ func TestOfficialTranscriptionOptionsReachForm(t *testing.T) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Error(err)
 		}
-		for field, want := range map[string]string{"diarize": "true", "num_speakers": "2", "keyterms": `["Scope"]`, "tag_audio_events": "false", "no_verbatim": "false"} {
+		for field, want := range map[string]string{"diarize": "true", "num_speakers": "2", "keyterms": "Scope", "tag_audio_events": "false", "no_verbatim": "false"} {
 			if got := r.FormValue(field); got != want {
 				t.Errorf("%s=%q want %q", field, got, want)
 			}
@@ -118,6 +120,80 @@ func TestOfficialTranscriptionOptionsReachForm(t *testing.T) {
 	}
 	if _, err := model.Call(t.Context(), &transcription.Request{Audio: audio}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTranscriptionPreservesModelIDAndMultipartKeyterms(t *testing.T) {
+	for _, sample := range []struct {
+		model    string
+		keyterms []string
+	}{
+		{model: "scribe_v1"},
+		{model: "scribe_v2", keyterms: []string{"Scope"}},
+		{model: "scribe_v2_medical", keyterms: []string{"Scope", "Tangerg", "中文 关键词", `quoted "term"`}},
+		{model: "future-scribe-model", keyterms: []string{"future capability"}},
+	} {
+		t.Run(sample.model, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if err := request.ParseMultipartForm(1 << 20); err != nil {
+					t.Error(err)
+					writer.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if got := request.FormValue("model_id"); got != sample.model {
+					t.Errorf("model_id = %q, want %q", got, sample.model)
+				}
+				if got := request.MultipartForm.Value["keyterms"]; !slices.Equal(got, sample.keyterms) {
+					t.Errorf("keyterms = %q, want repeated fields %q", got, sample.keyterms)
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(writer, `{"text":"spoken text","language_code":"en"}`)
+			}))
+			t.Cleanup(server.Close)
+			model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{
+				APIKey: "test", BaseURL: server.URL, DefaultOptions: transcription.Options{Model: sample.model},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &transcription.Request{Audio: audio}
+			if err := request.Options.Extensions.Set(elevenlabs.TranscriptionRequestExtensionKey, map[string]any{"keyterms": sample.keyterms}); err != nil {
+				t.Fatal(err)
+			}
+			if response, err := model.Call(t.Context(), request); err != nil || response.Output.Text != "spoken text" {
+				t.Fatalf("response = %#v, error = %v", response, err)
+			}
+		})
+	}
+}
+
+func TestTranscriptionRejectsUnsupportedScribeV1KeytermsBeforeIO(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		writer.WriteHeader(http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+	model, err := elevenlabs.NewTranscriptionModel(t.Context(), elevenlabs.TranscriptionModelConfig{
+		APIKey: "test", BaseURL: server.URL, DefaultOptions: transcription.Options{Model: elevenlabs.ModelScribeV1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio, err := media.NewBytes("audio/mpeg", []byte("audio"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &transcription.Request{Audio: audio}
+	if err := request.Options.Extensions.Set(elevenlabs.TranscriptionRequestExtensionKey, map[string]any{"keyterms": []string{"Scope"}}); err != nil {
+		t.Fatal(err)
+	}
+	if response, err := model.Call(t.Context(), request); err == nil || response != nil || calls.Load() != 0 {
+		t.Fatalf("response = %#v, error = %v, HTTP calls = %d", response, err, calls.Load())
 	}
 }
 

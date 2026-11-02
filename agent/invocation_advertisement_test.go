@@ -104,6 +104,70 @@ func TestInvocationAttributionAndDeferredToolAdvertisement(t *testing.T) {
 	}
 }
 
+func TestDeferredModelAliasesExecuteWithAndWithoutContextPreparation(t *testing.T) {
+	for _, prepareContext := range []bool{false, true} {
+		t.Run(fmt.Sprintf("prepare_context_%t", prepareContext), func(t *testing.T) {
+			discover := &callbackTool{name: "discover.tools", call: successfulCallback, advertise: []string{"report.write"}}
+			toolCalls := 0
+			write := &callbackTool{name: "report.write", call: func(context.Context, string) (string, error) {
+				toolCalls++
+				return "written", nil
+			}}
+			model := &manifestScriptModel{scripts: []manifestScript{
+				{wantTools: []string{"discover_tools"}, response: toolCallResponse(chat.ToolCall{ID: "discover", Name: "discover_tools", Arguments: `{}`})},
+				{wantTools: []string{"discover_tools", "report_write"}, response: toolCallResponse(chat.ToolCall{ID: "write", Name: "report_write", Arguments: `{}`})},
+				{wantTools: []string{"discover_tools", "report_write"}, response: textResponse("done")},
+			}}
+			processor := &manifestContextProcessor{expected: [][]string{
+				{"discover_tools"}, {"discover_tools", "report_write"}, {"discover_tools", "report_write"},
+			}}
+			config := agent.DispatcherConfig{Model: model}
+			if prepareContext {
+				config.ContextProcessor = processor
+			}
+			deployment := configuredInteraction(t, agent.DefinitionConfig{
+				Name: "interaction.deferred_alias", Description: "Execute tools through their bound model aliases.",
+				MaxModelCalls: run.NewQuota(uint64(len(model.scripts))),
+			}, config, agent.ToolSetConfig{Tools: []tool.Tool{discover}, DeferredTools: []tool.Tool{write}})
+			process, engine := startDeferredInteraction(t, deployment)
+			t.Cleanup(func() {
+				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+					t.Error(err)
+				}
+			})
+			result, err := process.Await(t.Context())
+			if err != nil || result.Termination().Status() != run.StatusCompleted {
+				t.Fatalf("termination=%+v error=%v", result.Termination(), err)
+			}
+			if err := process.Join(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if toolCalls != 1 || model.calls != len(model.scripts) {
+				t.Fatalf("tool calls=%d model calls=%d", toolCalls, model.calls)
+			}
+			if prepareContext && processor.calls != len(processor.expected) {
+				t.Fatalf("context calls=%d, want %d", processor.calls, len(processor.expected))
+			}
+		})
+	}
+}
+
+type manifestContextProcessor struct {
+	expected [][]string
+	calls    int
+}
+
+func (m *manifestContextProcessor) PrepareContext(_ context.Context, _ agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+	if err := request.Validate(); err != nil {
+		return nil, &agent.ContextFailure{Cause: err}
+	}
+	if m.calls >= len(m.expected) || !slices.Equal(toolNames(request.Tools), m.expected[m.calls]) {
+		return nil, &agent.ContextFailure{Cause: errors.New("context received an unexpected tool manifest")}
+	}
+	m.calls++
+	return request.Messages, nil
+}
+
 func TestContextQueriesTreatNilAsAbsent(t *testing.T) {
 	var nilContext context.Context
 	if _, present := agent.ModelInvocationFromContext(nilContext); present {

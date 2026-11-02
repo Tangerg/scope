@@ -46,7 +46,7 @@ func TestModelObserverCannotChangeRequestOrSettlement(t *testing.T) {
 		message := chat.NewAssistantMessage(chat.NewTextPart("original answer"))
 		return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}, nil
 	})}
-	response, err := dispatcher.callObservedModel(t.Context(), ModelInvocation{}, request, nil, 1<<20)
+	response, err := dispatcher.callObservedModel(t.Context(), ModelInvocation{}, request, nil)
 	if err != nil || response.Text() != "original answer" || request.Messages[0].Parts[0].Text != "original question" {
 		t.Fatalf("observer changed model boundary: response=%v error=%v", response, err)
 	}

@@ -8,8 +8,10 @@ import (
 	"time"
 )
 
+const exampleTimeout = 30 * time.Second
+
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), exampleTimeout)
 	defer cancel()
 	if err := run(ctx, os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

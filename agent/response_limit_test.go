@@ -74,7 +74,7 @@ func TestModelResponseLimitIncludesEncodingAndReplacementContext(t *testing.T) {
 			}
 			fact, _ := event.EffectFinished()
 			wantObservations := int32(1)
-			if test.stream || test.beforeCall {
+			if test.beforeCall {
 				wantObservations = 0
 			}
 			if observer.calls.Load() != wantObservations {
@@ -194,6 +194,58 @@ func TestResponseLimitMeasuresCanonicalSettlementBoundaries(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestResponseLimitIsIndependentOfStreamFragmentation(t *testing.T) {
+	const text = "01234567890123456789012345678901"
+	const settlementBytes = 164
+	var fragments []*chat.ResponseDelta
+	for _, character := range strings.Split(text, "") {
+		fragments = append(fragments, streamTextChunk(character, ""))
+	}
+	fragments[len(fragments)-1].FinishReason = chat.FinishReasonStop
+	for _, test := range []struct {
+		name   string
+		config agent.DispatcherConfig
+	}{
+		{name: "aggregate", config: agent.DispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return textResponse(text), nil })}},
+		{name: "single_delta", config: agent.DispatcherConfig{Streamer: responseStream(streamTextChunk(text, chat.FinishReasonStop))}},
+		{name: "one_character_deltas", config: agent.DispatcherConfig{Streamer: responseStream(fragments...)}},
+	} {
+		for _, limit := range []int{settlementBytes - 1, settlementBytes, settlementBytes + 1} {
+			t.Run(fmt.Sprintf("%s/limit_%d", test.name, limit), func(t *testing.T) {
+				got := dispatchLimitedResponse(t, test.config, limit)
+				if limit < settlementBytes {
+					if !errors.Is(got.err, agent.ErrModelResponseTooLarge) || errors.Is(got.err, agent.ErrModelStreamTooLarge) {
+						t.Fatalf("final settlement admission error=%v", got.err)
+					}
+					return
+				}
+				if got.err != nil || got.settlement.Status() != run.SettlementStatusSucceeded || len(got.settlement.Payload()) != settlementBytes {
+					t.Fatalf("status=%s bytes=%d error=%v", got.settlement.Status(), len(got.settlement.Payload()), got.err)
+				}
+			})
+		}
+	}
+}
+
+func TestStreamAdmissionHasItsOwnBudgetAndFailure(t *testing.T) {
+	closed := false
+	streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		return func(yield func(*chat.ResponseDelta, error) bool) {
+			defer func() { closed = true }()
+			for range 32 {
+				if !yield(streamTextChunk("x", ""), nil) {
+					return
+				}
+			}
+			yield(&chat.ResponseDelta{FinishReason: chat.FinishReasonStop}, nil)
+		}
+	})
+	got := dispatchLimitedResponse(t, agent.DispatcherConfig{Streamer: streamer, MaxStreamDeltaBytes: 512}, 512)
+	if !errors.Is(got.err, agent.ErrModelStreamTooLarge) || errors.Is(got.err, agent.ErrModelResponseTooLarge) || !closed {
+		t.Fatalf("stream admission error=%v producer closed=%t", got.err, closed)
 	}
 }
 

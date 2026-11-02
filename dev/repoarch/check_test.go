@@ -23,6 +23,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 	}
 	const packages = "example.test/first example.test/second"
 	defaultCalls := []string{
+		"candidate:consumer",
 		"workspace:go build " + packages,
 		"workspace:go vet " + packages,
 		"workspace:go test -count=1 " + packages,
@@ -67,6 +68,7 @@ func TestCheckSelectionRunsRequiredCommands(t *testing.T) {
 			write("scripts/check.sh", script)
 			write("scripts/workspace-modules.sh", []byte("#!/usr/bin/env bash\necho consumer\n"))
 			write("scripts/module-packages.sh", []byte("#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n"))
+			write("scripts/check-candidate.sh", []byte("#!/usr/bin/env bash\nprintf 'candidate:%s\\n' \"$*\" >> \"$CHECK_CALLS\"\n"))
 			write("scripts/check-coverage.sh", []byte("#!/usr/bin/env bash\nprintf 'coverage:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
 			write("scripts/check-vulnerabilities.sh", []byte("#!/usr/bin/env bash\nprintf 'vuln:%s\\n' \"$1\" >> \"$CHECK_CALLS\"\n"))
 			write("bin/go", []byte(`#!/usr/bin/env bash
@@ -140,6 +142,7 @@ func TestCoverageSelectionDelegatesToOwnerAndPreservesFailure(t *testing.T) {
 					fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' "+selected+"\n")
 					fixture.write(t, "scripts/module-packages.sh", "#!/usr/bin/env bash\nprintf '%s\\n' example.test/first example.test/second\n")
 					fixture.write(t, "scripts/check-vulnerabilities.sh", "#!/usr/bin/env bash\nexit 0\n")
+					fixture.write(t, "scripts/check-candidate.sh", "#!/usr/bin/env bash\nexit 0\n")
 					fixture.write(t, "bin/go", "#!/usr/bin/env bash\nexit 0\n")
 					fixture.write(t, "bin/golangci-lint", "#!/usr/bin/env bash\nexit 0\n")
 					fixture.write(t, selected+"/go.mod", "module example.test/consumer\n")
@@ -165,6 +168,42 @@ if [[ "$SCRIPT_COVERAGE_FAILURE" == 1 ]]; then echo coverage-budget-failed >&2; 
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestCandidateSelectionRunsOnceAndPreservesFailure(t *testing.T) {
+	t.Parallel()
+	for _, selected := range []string{"", "second"} {
+		for _, fail := range []bool{false, true} {
+			t.Run(fmt.Sprintf("module=%s/fail=%t", selected, fail), func(t *testing.T) {
+				fixture := newScriptFailureFixture(t, "check.sh")
+				fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' first second\n")
+				fixture.write(t, "scripts/check-candidate.sh", `#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SCRIPT_CALLS"
+if [[ "$SCRIPT_CANDIDATE_FAILURE" == 1 ]]; then echo candidate-failed >&2; exit 23; fi
+`)
+				failure := "0"
+				if fail {
+					failure = "1"
+				}
+				fixture.env = append(fixture.env, "MODULE="+selected, "FAST=0", "SCRIPT_CANDIDATE_FAILURE="+failure)
+				output, err := fixture.run(t, "check.sh", "candidate", "candidate")
+				want := "first second\n"
+				if selected != "" {
+					want = selected + "\n"
+				}
+				if fixture.calls(t) != want || (err != nil) != fail {
+					t.Fatalf("candidate selection=%q, want %q; error=%v output=%s", fixture.calls(t), want, err, output)
+				}
+				if fail {
+					if !strings.Contains(output, "workspace/candidate") || strings.Contains(output, "all green") {
+						t.Fatalf("candidate failure became success: %s", output)
+					}
+				} else if !strings.Contains(output, "all green (1 checks)") {
+					t.Fatalf("candidate execution count is inaccurate: %s", output)
+				}
+			})
 		}
 	}
 }

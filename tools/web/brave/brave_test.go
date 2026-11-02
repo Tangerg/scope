@@ -42,4 +42,7 @@ func TestSearch(t *testing.T) {
 	if response.Query != "scope" || len(response.Results) != 1 || response.Results[0].Snippet != "cat" {
 		t.Fatalf("response = %#v", response)
 	}
+	if !response.Results[0].PublishedTime.IsZero() {
+		t.Fatalf("ambiguous page_age became a publication time: %v", response.Results[0].PublishedTime)
+	}
 }

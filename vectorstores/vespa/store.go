@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Tangerg/scope/core/document"
@@ -20,7 +21,10 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const queryGroupSize = 128
+const (
+	queryGroupSize = 128
+	visitPageSize  = 128
+)
 
 var _ vectorstore.Upserter = (*Store)(nil)
 
@@ -247,7 +251,7 @@ func (s *Store) readSource(meter *vectorstore.ScanMeter) ([]nativeRecord, int, e
 	seenIDs := make(map[string]bool)
 	seenTokens := make(map[string]bool)
 	width := s.dimensions
-	parameters := url.Values{"fieldSet": {"[document]"}, "wantedDocumentCount": {"128"}}
+	parameters := url.Values{"fieldSet": {"[document]"}, "wantedDocumentCount": {strconv.Itoa(visitPageSize)}}
 	for {
 		raw, status, err := s.wire(meter.Context(), http.MethodGet, s.documentPath("")+"?"+parameters.Encode(), nil, meter)
 		if err != nil {

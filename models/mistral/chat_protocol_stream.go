@@ -19,6 +19,8 @@ type chatStreamTool struct {
 }
 
 type chatStreamState struct {
+	responseID       string
+	model            string
 	tools            map[int]chatStreamTool
 	finish           finishReason
 	thinkingBlock    uint64
@@ -36,9 +38,12 @@ func newChatStreamState() *chatStreamState {
 func (c *chatStreamState) terminated() bool { return c.finish != "" }
 
 func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.ResponseDelta, error) {
+	if err := c.bindIdentity(chunk); err != nil {
+		return nil, err
+	}
 	response := &corechat.ResponseDelta{
 		Metadata: &corechat.ResponseMetadata{
-			ID: chunk.ID, Model: chunk.Model, Usage: chunk.Usage.usage(),
+			ID: c.responseID, Model: c.model, Usage: chunk.Usage.usage(),
 		},
 	}
 	if err := response.Metadata.Extra.Set(streamChunkExtensionKey, chunk); err != nil {
@@ -79,6 +84,22 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 		return nil, fmt.Errorf("mistral: mapped stream chunk: %w", err)
 	}
 	return response, nil
+}
+
+func (c *chatStreamState) bindIdentity(chunk chatCompletionChunk) error {
+	if chunk.ID != "" && c.responseID != "" && chunk.ID != c.responseID {
+		return fmt.Errorf("mistral: stream: %w: response id changed from %q to %q", corechat.ErrInvalidResponse, c.responseID, chunk.ID)
+	}
+	if chunk.Model != "" && c.model != "" && chunk.Model != c.model {
+		return fmt.Errorf("mistral: stream: %w: model changed from %q to %q", corechat.ErrInvalidResponse, c.model, chunk.Model)
+	}
+	if chunk.ID != "" {
+		c.responseID = chunk.ID
+	}
+	if chunk.Model != "" {
+		c.model = chunk.Model
+	}
+	return nil
 }
 
 func (c *chatStreamState) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {

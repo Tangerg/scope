@@ -22,7 +22,7 @@ func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 	if err := dispatcher.bindTool(makeTool("report.write"), false); err != nil {
 		t.Fatal(err)
 	}
-	definitions := dispatcher.manifest.initialDefinitions
+	definitions := dispatcher.manifest.initialDefinitions()
 	if len(definitions) != 1 || definitions[0].Name != "report_write" {
 		t.Fatalf("advertised tools: %v", definitions)
 	}

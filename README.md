@@ -117,27 +117,34 @@ GOWORK=off go run ./agent/reconciliation
 The examples module has no local replacements. From the repository root,
 `MODULE=examples scripts/check.sh isolate` checks module hygiene and every
 consumer's behavior against those published dependencies. The full default
-`scripts/check.sh` also checks workspace behavior, race detection, integration
-compilation, benchmarks, lint, statement-coverage budgets, and reachable vulnerabilities.
+`scripts/check.sh` also checks workspace behavior, unpublished candidate consumers,
+race detection, integration compilation, benchmarks, lint, statement-coverage budgets,
+and reachable vulnerabilities.
 
 The offline recovery example uses memory storage and a simulated remote ledger.
 For real PostgreSQL transactions and independent-process failure, run
 `scripts/check-tree-committer.sh` with Docker available. It provisions an isolated
 container and runs the same conformance and crash tests with both workspace and
-staged candidate dependencies; no credentials or shared database are required.
+candidate dependencies; no credentials or shared database are required.
 
 ### Verify an unpublished change
 
-Stage the changes you want to test. To verify that ordinary consumers can
-resolve those modules before any tags exist, run:
+To verify that ordinary consumers can resolve current sources before any tags
+exist, run:
 
 ```sh
 ./scripts/check-candidate.sh examples mcp runstores/postgres rag
 ```
 
-The script builds a temporary Go module proxy, substitutes one candidate version
-in a disposable copy, and tests with `GOWORK=off`. It does not publish or edit
-the checkout. Publishing the modules remains a separate release step.
+The script snapshots current tracked files and non-ignored new files through a
+temporary index, builds a temporary Go module proxy, substitutes one candidate
+version in a disposable copy, and tests with `GOWORK=off`. Unstaged changes are
+included; the checkout, real index, and published dependency declarations are
+unchanged. The default `scripts/check.sh` runs this candidate check once for its
+selected modules and retains `isolate` against their declared published versions.
+Candidate success does not establish that published dependency pins contain the
+change. Publishing the modules and advancing those pins remain a separate release
+step.
 
 ## Evolution
 

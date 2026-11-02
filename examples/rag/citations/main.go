@@ -26,9 +26,14 @@ import (
 )
 
 const (
-	policySource = "manual/returns"
-	policy       = "Return unopened purchases within 30 days."
-	question     = "When can I return an unopened purchase?"
+	policySource           = "manual/returns"
+	policy                 = "Return unopened purchases within 30 days."
+	question               = "When can I return an unopened purchase?"
+	documentEmbeddingModel = "passages"
+	queryEmbeddingModel    = "questions"
+	embeddingDimensions    = 2
+	searchResultsPerStore  = 2
+	contextTokenBudget     = 60
 )
 
 var policyFile = policy + "\n\n" + strings.Repeat("Oversized historical return appendix. ", 100)
@@ -42,9 +47,9 @@ func (e *encoderCalls) encode(ctx context.Context, r *embedding.Request) (*embed
 		return nil, err
 	}
 	switch r.Options.Model {
-	case "passages":
+	case documentEmbeddingModel:
 		e.documents++
-	case "questions":
+	case queryEmbeddingModel:
 		e.queries++
 	default:
 		return nil, fmt.Errorf("unexpected encoding purpose %q", r.Options.Model)
@@ -92,7 +97,7 @@ func ingest(ctx context.Context, encoder *vector.Encoder, source, raw string) (*
 	if err != nil {
 		return nil, err
 	}
-	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{Space: encoder.Space(), Dimensions: 2})
+	store, err := inmemory.NewStore(ctx, inmemory.StoreConfig{Space: encoder.Space(), Dimensions: embeddingDimensions})
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +123,7 @@ type report struct {
 func run(ctx context.Context) (report, error) {
 	var result report
 	model := embedding.ModelFunc(result.calls.encode)
-	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: "offline/keyword-v1", Documents: embeddingclient.Config{Model: model, Options: embedding.Options{Model: "passages"}}, Queries: embeddingclient.Config{Model: model, Options: embedding.Options{Model: "questions"}}})
+	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: "offline/keyword-v1", Documents: embeddingclient.Config{Model: model, Options: embedding.Options{Model: documentEmbeddingModel}}, Queries: embeddingclient.Config{Model: model, Options: embedding.Options{Model: queryEmbeddingModel}}})
 	if err != nil {
 		return result, err
 	}
@@ -136,7 +141,7 @@ func run(ctx context.Context) (report, error) {
 	// This host prefers current policy to support notes. It preserves the native
 	// order within each source instead of comparing scores between distinct lists.
 	retrieve := rag.RetrieverFunc(func(ctx context.Context, q rag.Query) (rag.Candidates, error) {
-		coordinates, encodeErr := encoder.EncodeQuery(ctx, q.Text(), vectorstore.SearchOptions{TopK: 2})
+		coordinates, encodeErr := encoder.EncodeQuery(ctx, q.Text(), vectorstore.SearchOptions{TopK: searchResultsPerStore})
 		if encodeErr != nil {
 			return nil, encodeErr
 		}
@@ -152,7 +157,7 @@ func run(ctx context.Context) (report, error) {
 		}
 		return candidates, nil
 	})
-	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{MaxContextTokens: 60, TokenCounter: wordCounter{}})
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{MaxContextTokens: contextTokenBudget, TokenCounter: wordCounter{}})
 	if err != nil {
 		return result, err
 	}

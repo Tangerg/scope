@@ -6,18 +6,23 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/agent"
 	agentrun "github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-const lostToolRound uint64 = 17
+const (
+	lostToolRound        uint64 = 17
+	recoveryTestTimeout         = 2 * time.Minute
+	recoveryPollInterval        = 10 * time.Millisecond
+)
 
 type confirmedToolCall struct {
 	EffectID agentrun.EffectID
@@ -90,7 +95,8 @@ func (c *contextProbe) Requests() []*chat.Request {
 }
 
 func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), recoveryTestTimeout)
+	defer cancel()
 	task := contextTasks()[2]
 	confirmed := make(chan confirmedToolCall, 1)
 	before := &trajectory.Recorder{}
@@ -107,8 +113,7 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := agentrun.NewMemoryStore()
-	observations := &runtest.ObservationRecorder{}
-	engine, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{before, observations}})
+	engine, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{before}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,26 +131,27 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-		fact, ok := event.EffectFinished()
-		return ok && !event.Relation().IsRoot() && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
-	}); waitErr != nil {
-		t.Fatal(waitErr)
-	}
 	var receipt confirmedToolCall
 	select {
 	case receipt = <-confirmed:
 	case <-ctx.Done():
-		t.Fatal(ctx.Err())
+		t.Fatalf("waiting for the confirmed Tool result: %v", ctx.Err())
 	}
+	awaitRecoveryState(t, ctx, engine, root.Relation().ProcessID(), "the confirmed Tool outcome to become unknown", func(inspection agentrun.TreeInspection) bool {
+		for _, process := range inspection.Processes {
+			if !process.Snapshot.Relation().IsRoot() && slices.Contains(process.Snapshot.UnknownEffectIDs(), receipt.EffectID) {
+				return true
+			}
+		}
+		return false
+	})
 	if pauseErr := root.Pause(ctx, "restore committed context while the Tool is unknown"); pauseErr != nil {
 		t.Fatal(pauseErr)
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-		return event.Name() == agentrun.EventProcessPaused && event.Relation().IsRoot()
-	}); waitErr != nil {
-		t.Fatal(waitErr)
-	}
+	awaitRecoveryState(t, ctx, engine, root.Relation().ProcessID(), "the root pause to commit", func(inspection agentrun.TreeInspection) bool {
+		process, found := inspection.Process(root.Relation().ProcessID())
+		return found && process.Snapshot.Status() == agentrun.StatusPaused
+	})
 	effectiveBefore := originalProbe.LastEffective()
 	if _, captureErr := engine.CaptureTree(ctx, root.Relation().ProcessID()); captureErr != nil {
 		t.Fatal(captureErr)
@@ -237,6 +243,49 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 		}
 		if !reflect.DeepEqual(effective.Tools, effectiveBefore.Tools) || !reflect.DeepEqual(effective.ToolChoice, effectiveBefore.ToolChoice) || !reflect.DeepEqual(effective.Options, effectiveBefore.Options) {
 			t.Fatal("restoration changed Tool authority or model options")
+		}
+	}
+}
+
+// Best-effort events cannot acknowledge a recovery boundary; only the tree
+// owner's committed state can establish that the unknown outcome or pause exists.
+func awaitRecoveryState(t *testing.T, ctx context.Context, engine *agentrun.Runtime, rootID agentrun.ProcessID, phase string, ready func(agentrun.TreeInspection) bool) {
+	t.Helper()
+	ticker := time.NewTicker(recoveryPollInterval)
+	defer ticker.Stop()
+	var last agentrun.TreeInspection
+	fail := func(cause error) {
+		t.Helper()
+		for _, process := range last.Processes {
+			t.Logf("process=%s status=%s work=%s unknown=%v runtime_error=%v", process.Snapshot.Relation().ProcessID(), process.Snapshot.Status(), process.Work, process.Snapshot.UnknownEffectIDs(), process.RuntimeError)
+		}
+		t.Fatalf("waiting for %s: %v", phase, cause)
+	}
+	for {
+		inspection, err := engine.InspectTree(ctx, rootID)
+		if err != nil {
+			fail(err)
+			return
+		}
+		last = inspection
+		for _, process := range inspection.Processes {
+			if process.RuntimeError != nil {
+				fail(process.RuntimeError)
+				return
+			}
+		}
+		if ready(inspection) {
+			return
+		}
+		if inspection.Stopped {
+			fail(errors.New("runtime stopped before reaching the required state"))
+			return
+		}
+		select {
+		case <-ctx.Done():
+			fail(ctx.Err())
+			return
+		case <-ticker.C:
 		}
 	}
 }

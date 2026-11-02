@@ -64,9 +64,7 @@ type voice struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// Utterance is the per-segment input to TTS. "Description" is the
-// emotion / style cue Octave is famous for (e.g. "calm, professional");
-// it can replace Voice for fully-prompt-driven generation.
+// Description can replace Voice for generation without a predefined voice.
 type utterance struct {
 	Text            string   `json:"text"`
 	Description     string   `json:"description,omitempty"`
@@ -75,9 +73,6 @@ type utterance struct {
 	TrailingSilence *float64 `json:"trailing_silence,omitzero"`
 }
 
-// TTSRequest mirrors POST /speech. Format is "mp3" / "wav" / "pcm";
-// SplitUtterances controls whether the response includes per-utterance
-// timing.
 type ttsRequest struct {
 	Utterances            []utterance                `json:"utterances"`
 	Context               map[string]json.RawMessage `json:"context,omitzero"`

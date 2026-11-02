@@ -18,6 +18,10 @@
 // and tool choice belong to Core; attempts to set them again in native config
 // are rejected even when the Core value is absent. Native safety, grounding,
 // modalities, and thinking-budget settings remain available.
+// Code execution is rejected before I/O because Core cannot represent its
+// output and replay losslessly. Execution parts in responses fail validation.
+// Each stream binds the first reported response ID and model version; later
+// omissions preserve them, while conflicting values fail validation.
 // Thought signatures retain their original Part positions across streaming,
 // history serialization, and replay. Signature-only Parts carry opaque Core
 // reasoning state without visible reasoning text.
@@ -26,6 +30,8 @@
 // Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Native embedding extensions also use SDK camelCase fields and reject
 // outputDimensionality; embedding.Options.Dimensions owns that value.
+// Positive dimensions must fit the SDK's int32 representation; the service
+// determines the selected model's supported dimensions.
 // Embedding responses retain the exact native JSON. Optional token, truncation,
 // and billing metadata is projected only when reported, including zero and false.
 //

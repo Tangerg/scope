@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/go-resty/resty/v2"
 
@@ -86,7 +85,6 @@ type searchResult struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
 	Description string `json:"description"`
-	PageAge     string `json:"page_age,omitempty"`
 }
 
 type webResults struct {
@@ -136,10 +134,9 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 				return nil, fmt.Errorf("brave: %w: result %d is null", web.ErrInvalidSearchResponse, index)
 			}
 			results = append(results, &web.SearchResult{
-				Title:         searchResult.Title,
-				URL:           searchResult.URL,
-				Snippet:       searchResult.Description,
-				PublishedTime: parseAge(searchResult.PageAge),
+				Title:   searchResult.Title,
+				URL:     searchResult.URL,
+				Snippet: searchResult.Description,
 			})
 		}
 	}
@@ -148,12 +145,4 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 		return nil, fmt.Errorf("brave: %w", err)
 	}
 	return response, nil
-}
-
-func parseAge(s string) time.Time {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }

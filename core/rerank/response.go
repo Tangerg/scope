@@ -10,15 +10,17 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Score is a normalized relevance value in [0, 1]. Its JSON value must be a number.
+// Score preserves a model's finite relevance value, with higher values ranking
+// first. Its scale is model- and query-dependent, so it is not a probability and
+// must not be compared across models or queries. JSON requires a number.
 type Score float64
 
 func (s Score) Float64() float64 { return float64(s) }
 
 func (s Score) Validate() error {
 	value := float64(s)
-	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
-		return fmt.Errorf("%w: score must be finite and in [0, 1], got %v", ErrInvalidResponse, value)
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("%w: score must be finite, got %v", ErrInvalidResponse, value)
 	}
 	return nil
 }
@@ -51,7 +53,7 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Result relates one input document index to its normalized relevance.
+// Result relates one input document index to its model-native relevance.
 // JSON requires both fields; neither may be absent or null.
 type Result struct {
 	Index int   `json:"index"`

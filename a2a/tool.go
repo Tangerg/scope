@@ -207,7 +207,7 @@ func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (
 		switch p.MediaType {
 		case "application/json":
 			question = json.RawMessage(txt)
-		case "", "text/plain":
+		case "", plainTextMediaType:
 			question, err = jsonv2.Marshal(string(txt))
 		default:
 			return toolcontract.Result{}, ErrUnsupportedContent

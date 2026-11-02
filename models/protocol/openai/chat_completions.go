@@ -100,7 +100,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, diale
 	return &ChatCompletions{
 		api:      api,
 		defaults: config.DefaultOptions.Clone(),
-		dialect:  dialect,
+		dialect:  dialect.clone(),
 	}, nil
 }
 

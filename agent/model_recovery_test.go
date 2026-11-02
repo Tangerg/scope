@@ -15,12 +15,14 @@ import (
 )
 
 func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
+	const recoveredText = "01234567890123456789012345678901"
+	const settlementBytes = 164
 	calls := 0
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls++
 		return nil, errors.New("response lost")
 	})
-	definition, err := agent.NewDefinition(agent.DefinitionConfig{PrepareContext: true, Name: "test.model_recovery", Description: "Recover a confirmed response.", CompletionValidator: func(_ context.Context, candidate agent.CompletionCandidate) (agent.CompletionDecision, error) {
+	definition, err := agent.NewDefinition(agent.DefinitionConfig{PrepareContext: true, MaxResponseBytes: settlementBytes, Name: "test.model_recovery", Description: "Recover a confirmed response.", CompletionValidator: func(_ context.Context, candidate agent.CompletionCandidate) (agent.CompletionDecision, error) {
 		working := candidate.WorkingContext()
 		if len(working.Messages) != 1 || working.Messages[0].Text() != "reduced" {
 			return agent.CompletionDecision{}, errors.New("recovery lost effective context")
@@ -82,9 +84,15 @@ func TestModelRecoveryPreservesEffectiveContextWithoutReplay(t *testing.T) {
 			}
 		})
 	}
-	settlement, err := agent.SettleModelResult(deployment, request, textResponse("done"))
+	if _, recoveryErr := agent.SettleModelResult(deployment, request, textResponse(recoveredText+"x")); !errors.Is(recoveryErr, agent.ErrModelResponseTooLarge) {
+		t.Fatalf("recovery admitted an oversized settlement: %v", recoveryErr)
+	}
+	settlement, err := agent.SettleModelResult(deployment, request, textResponse(recoveredText))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(settlement.Payload()) != settlementBytes {
+		t.Fatalf("recovered settlement bytes=%d, want %d", len(settlement.Payload()), settlementBytes)
 	}
 	if resolveErr := root.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
 		t.Fatal(resolveErr)

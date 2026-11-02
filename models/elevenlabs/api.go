@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/go-resty/resty/v2"
@@ -17,7 +18,22 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const maximumErrorResponseBytes = int64(64 * 1024)
+const (
+	maximumErrorResponseBytes           = int64(64 * 1024)
+	minimumTranscriptionSpeakers        = 1
+	maximumTranscriptionSpeakers        = 32
+	minimumDiarizationThreshold         = 0.1
+	maximumDiarizationThreshold         = 0.4
+	minimumTranscriptionTemperature     = 0.0
+	maximumTranscriptionTemperature     = 2.0
+	minimumTranscriptionSeed            = 0
+	maximumKeyterms                     = 1000
+	timestampGranularityNone            = "none"
+	timestampGranularityWord            = "word"
+	timestampGranularityCharacter       = "character"
+	transcriptionFileFormatOther        = "other"
+	transcriptionFileFormatPCM16LE16KHz = "pcm_s16le_16"
+)
 
 type apiConfig struct {
 	APIKey     string
@@ -141,10 +157,7 @@ func (a *api) buildAudioRequest(ctx context.Context, outputFormat string, body *
 	return req
 }
 
-// TranscriptionRequest mirrors POST /v1/speech-to-text (multipart/form-data).
-// Audio is uploaded as the "file" form field; other parameters are form fields.
-// It intentionally models only synchronous, single-result options representable
-// by Core's transcription protocol.
+// Asynchronous and multi-result options cannot honor Core's transcription contract.
 type transcriptionRequest struct {
 	ModelID               string   `json:"model_id,omitempty"`
 	LanguageCode          string   `json:"language_code,omitempty"`
@@ -175,92 +188,81 @@ func (t *transcriptionRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (t *transcriptionRequest) form() (map[string]string, error) {
-	form := map[string]string{}
-	if t == nil {
-		return form, nil
-	}
+func (t *transcriptionRequest) form() url.Values {
+	form := make(url.Values)
 	if t.ModelID != "" {
-		form["model_id"] = t.ModelID
+		form.Set("model_id", t.ModelID)
 	}
 	if t.LanguageCode != "" {
-		form["language_code"] = t.LanguageCode
+		form.Set("language_code", t.LanguageCode)
 	}
 	if t.Diarize != nil {
-		form["diarize"] = strconv.FormatBool(*t.Diarize)
+		form.Set("diarize", strconv.FormatBool(*t.Diarize))
 	}
 	if t.NumSpeakers != nil {
-		form["num_speakers"] = strconv.Itoa(*t.NumSpeakers)
+		form.Set("num_speakers", strconv.Itoa(*t.NumSpeakers))
 	}
 	if t.TagAudioEvents != nil {
-		form["tag_audio_events"] = strconv.FormatBool(*t.TagAudioEvents)
+		form.Set("tag_audio_events", strconv.FormatBool(*t.TagAudioEvents))
 	}
 	if t.TimestampsGranularity != "" {
-		form["timestamps_granularity"] = t.TimestampsGranularity
+		form.Set("timestamps_granularity", t.TimestampsGranularity)
 	}
 	if t.DiarizationThreshold != nil {
-		form["diarization_threshold"] = strconv.FormatFloat(*t.DiarizationThreshold, 'f', -1, 64)
+		form.Set("diarization_threshold", strconv.FormatFloat(*t.DiarizationThreshold, 'f', -1, 64))
 	}
 	if t.FileFormat != "" {
-		form["file_format"] = t.FileFormat
+		form.Set("file_format", t.FileFormat)
 	}
 	if t.Temperature != nil {
-		form["temperature"] = strconv.FormatFloat(*t.Temperature, 'f', -1, 64)
+		form.Set("temperature", strconv.FormatFloat(*t.Temperature, 'f', -1, 64))
 	}
 	if t.Seed != nil {
-		form["seed"] = strconv.Itoa(*t.Seed)
+		form.Set("seed", strconv.Itoa(*t.Seed))
 	}
 	if t.NoVerbatim != nil {
-		form["no_verbatim"] = strconv.FormatBool(*t.NoVerbatim)
+		form.Set("no_verbatim", strconv.FormatBool(*t.NoVerbatim))
 	}
 	if t.UseSpeakerLibrary != nil {
-		form["use_speaker_library"] = strconv.FormatBool(*t.UseSpeakerLibrary)
+		form.Set("use_speaker_library", strconv.FormatBool(*t.UseSpeakerLibrary))
 	}
 	if t.DetectSpeakerRoles != nil {
-		form["detect_speaker_roles"] = strconv.FormatBool(*t.DetectSpeakerRoles)
+		form.Set("detect_speaker_roles", strconv.FormatBool(*t.DetectSpeakerRoles))
 	}
-	if len(t.Keyterms) > 0 {
-		encoded, err := jsonv2.Marshal(t.Keyterms)
-		if err != nil {
-			return nil, fmt.Errorf("elevenlabs: encode transcription keyterms: %w", err)
-		}
-		form["keyterms"] = string(encoded)
+	for _, keyterm := range t.Keyterms {
+		form.Add("keyterms", keyterm)
 	}
-	return form, nil
+	return form
 }
 
 func (t *transcriptionRequest) validate() error {
-	if t.ModelID != ModelScribeV2 && t.ModelID != ModelScribeV1 {
-		return fmt.Errorf("elevenlabs: transcription model must be %q or %q, got %q", ModelScribeV2, ModelScribeV1, t.ModelID)
+	if t.NumSpeakers != nil && (*t.NumSpeakers < minimumTranscriptionSpeakers || *t.NumSpeakers > maximumTranscriptionSpeakers) {
+		return fmt.Errorf("elevenlabs: num_speakers must be between %d and %d, got %d", minimumTranscriptionSpeakers, maximumTranscriptionSpeakers, *t.NumSpeakers)
 	}
-	if t.NumSpeakers != nil && (*t.NumSpeakers < 1 || *t.NumSpeakers > 32) {
-		return fmt.Errorf("elevenlabs: num_speakers must be between 1 and 32, got %d", *t.NumSpeakers)
+	if t.DiarizationThreshold != nil && (*t.DiarizationThreshold < minimumDiarizationThreshold || *t.DiarizationThreshold > maximumDiarizationThreshold) {
+		return fmt.Errorf("elevenlabs: diarization_threshold must be between %g and %g, got %g", minimumDiarizationThreshold, maximumDiarizationThreshold, *t.DiarizationThreshold)
 	}
-	if t.DiarizationThreshold != nil && (*t.DiarizationThreshold < 0.1 || *t.DiarizationThreshold > 0.4) {
-		return fmt.Errorf("elevenlabs: diarization_threshold must be between 0.1 and 0.4, got %g", *t.DiarizationThreshold)
+	if t.Temperature != nil && (*t.Temperature < minimumTranscriptionTemperature || *t.Temperature > maximumTranscriptionTemperature) {
+		return fmt.Errorf("elevenlabs: transcription temperature must be between %g and %g, got %g", minimumTranscriptionTemperature, maximumTranscriptionTemperature, *t.Temperature)
 	}
-	if t.Temperature != nil && (*t.Temperature < 0 || *t.Temperature > 2) {
-		return fmt.Errorf("elevenlabs: transcription temperature must be between 0 and 2, got %g", *t.Temperature)
-	}
-	if t.Seed != nil && *t.Seed < 0 {
+	if t.Seed != nil && *t.Seed < minimumTranscriptionSeed {
 		return fmt.Errorf("elevenlabs: transcription seed must be non-negative, got %d", *t.Seed)
 	}
-	if t.TimestampsGranularity != "" && t.TimestampsGranularity != "none" && t.TimestampsGranularity != "word" && t.TimestampsGranularity != "character" {
-		return fmt.Errorf("elevenlabs: timestamps_granularity must be none, word, or character, got %q", t.TimestampsGranularity)
+	if t.TimestampsGranularity != "" && t.TimestampsGranularity != timestampGranularityNone && t.TimestampsGranularity != timestampGranularityWord && t.TimestampsGranularity != timestampGranularityCharacter {
+		return fmt.Errorf("elevenlabs: timestamps_granularity must be %s, %s, or %s, got %q", timestampGranularityNone, timestampGranularityWord, timestampGranularityCharacter, t.TimestampsGranularity)
 	}
-	if t.FileFormat != "" && t.FileFormat != "other" && t.FileFormat != "pcm_s16le_16" {
-		return fmt.Errorf("elevenlabs: file_format must be other or pcm_s16le_16, got %q", t.FileFormat)
+	if t.FileFormat != "" && t.FileFormat != transcriptionFileFormatOther && t.FileFormat != transcriptionFileFormatPCM16LE16KHz {
+		return fmt.Errorf("elevenlabs: file_format must be %s or %s, got %q", transcriptionFileFormatOther, transcriptionFileFormatPCM16LE16KHz, t.FileFormat)
 	}
 	if len(t.Keyterms) > maximumKeyterms {
 		return fmt.Errorf("elevenlabs: keyterms must contain at most %d entries, got %d", maximumKeyterms, len(t.Keyterms))
 	}
 	if t.ModelID == ModelScribeV1 && len(t.Keyterms) > 0 {
-		return errors.New("elevenlabs: keyterms are only supported by scribe_v2")
+		return errors.New("elevenlabs: scribe_v1 does not support keyterms")
 	}
 	return nil
 }
 
-// TranscriptionResponse models /v1/speech-to-text JSON output.
 type transcriptionResponse struct {
 	LanguageCode        string                     `json:"language_code"`
 	LanguageProbability *float64                   `json:"language_probability"`
@@ -274,16 +276,11 @@ func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, 
 	if len(audio) == 0 {
 		return nil, errors.New("elevenlabs: transcription audio must not be empty")
 	}
-	form, err := req.form()
-	if err != nil {
-		return nil, err
-	}
-
 	var out transcriptionResponse
 	r := a.http.R().
 		SetContext(ctx).
 		SetMultipartField("file", "audio", cmp.Or(mimeType, "application/octet-stream"), bytes.NewReader(audio)).
-		SetMultipartFormData(form).
+		SetFormDataFromValues(req.form()).
 		SetResult(&out)
 	resp, err := r.Post("/speech-to-text")
 	if err != nil {

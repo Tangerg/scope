@@ -19,9 +19,9 @@ import (
 func TestSendMessageEnforcesPublishedInputModes(t *testing.T) {
 	for _, inherit := range []bool{false, true} {
 		t.Run(fmt.Sprintf("inherits_default=%v", inherit), func(t *testing.T) {
-			card := &sdk.AgentCard{Name: "echo", SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("https://agent.example/rpc", sdk.TransportProtocolJSONRPC)}, DefaultInputModes: []string{"text/plain"}, Skills: []sdk.AgentSkill{{ID: "markdown", InputModes: []string{"text/markdown"}}}}
+			card := &sdk.AgentCard{Name: "echo", SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("https://agent.example/rpc", sdk.TransportProtocolJSONRPC)}, DefaultInputModes: []string{"text/plain"}, Skills: []sdk.AgentSkill{{ID: "echo", InputModes: []string{"text/plain"}}}}
 			if inherit {
-				card.Skills = append(card.Skills, sdk.AgentSkill{ID: "default"})
+				card.Skills[0].InputModes = nil
 			}
 			handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, TaskStore: testTaskStore(t), Card: card})
 			if err != nil {
@@ -31,7 +31,7 @@ func TestSendMessageEnforcesPublishedInputModes(t *testing.T) {
 			defer server.Close()
 			// Neither publication nor admission should change when the caller reuses
 			// its card after construction.
-			card.Skills[0].InputModes[0] = "application/xml"
+			card.Skills[0].InputModes = []string{"application/xml"}
 			card.DefaultInputModes[0] = "application/xml"
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+a2asrv.WellKnownAgentCardPath, nil)
 			if err != nil {
@@ -44,13 +44,16 @@ func TestSendMessageEnforcesPublishedInputModes(t *testing.T) {
 			var published sdk.AgentCard
 			err = jsonv2.UnmarshalRead(res.Body, &published)
 			_ = res.Body.Close()
-			if err != nil || res.StatusCode != 200 || len(published.Skills) == 0 || published.Skills[0].InputModes[0] != "text/markdown" || published.DefaultInputModes[0] != "text/plain" {
+			if err != nil || res.StatusCode != http.StatusOK || len(published.Skills) == 0 || published.DefaultInputModes[0] != "text/plain" {
 				t.Fatalf("wrong published MIME declaration: %+v %v", published, err)
+			}
+			if modes := published.Skills[0].InputModes; inherit && len(modes) != 0 || !inherit && (len(modes) != 1 || modes[0] != "text/plain") {
+				t.Fatalf("published skill modes = %v, inherit = %v", modes, inherit)
 			}
 			for _, tc := range []struct {
 				mode    string
 				allowed bool
-			}{{"text/plain", inherit}, {"application/xml", false}} {
+			}{{"text/plain", true}, {"text/markdown", false}, {"application/xml", false}} {
 				body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"input","role":"ROLE_USER","parts":[{"text":"hello","mediaType":%q}]}}}`, tc.mode)
 				rpc, reqErr := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/rpc", bytes.NewBufferString(body))
 				if reqErr != nil {
@@ -93,5 +96,35 @@ func TestInvalidDeclaredInputModeRefusesConstruction(t *testing.T) {
 	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Card: card, Agent: echoAgent{}, TaskStore: testTaskStore(t)})
 	if handler != nil || !errors.Is(err, a2a.ErrInvalidCard) || !errors.Is(err, sdk.ErrInvalidParams) {
 		t.Fatalf("invalid published MIME: %v %v", handler, err)
+	}
+}
+
+func TestTextHandlerRejectsUnrepresentableDeclaredModes(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		configure func(*sdk.AgentCard)
+	}{
+		{name: "default input", configure: func(card *sdk.AgentCard) { card.DefaultInputModes = []string{"text/markdown"} }},
+		{name: "default output", configure: func(card *sdk.AgentCard) { card.DefaultOutputModes = []string{"application/json"} }},
+		{name: "skill input", configure: func(card *sdk.AgentCard) {
+			card.Skills = []sdk.AgentSkill{{ID: "render", InputModes: []string{"text/markdown"}}}
+		}},
+		{name: "skill output", configure: func(card *sdk.AgentCard) {
+			card.Skills = []sdk.AgentSkill{{ID: "render", OutputModes: []string{"image/png"}}}
+		}},
+		{name: "wildcard", configure: func(card *sdk.AgentCard) { card.DefaultInputModes = []string{"text/*"} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			card := &sdk.AgentCard{
+				Name:                "echo",
+				SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("https://agent.example/rpc", sdk.TransportProtocolJSONRPC)},
+				DefaultInputModes:   []string{"text/plain"}, DefaultOutputModes: []string{"text/plain"},
+			}
+			test.configure(card)
+			handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t)})
+			if handler != nil || !errors.Is(err, a2a.ErrInvalidCard) || !errors.Is(err, a2a.ErrUnsupportedContent) {
+				t.Fatalf("unrepresentable card = %v, %v", handler, err)
+			}
+		})
 	}
 }

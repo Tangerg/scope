@@ -28,7 +28,7 @@ type Config[I, O any] struct {
 	Program       run.Program[I, O]
 	Authorize     func(context.Context, *sdk.CallToolRequest) (Grant, error)
 	Project       func(O) (tool.Output, error)
-	ResumeKey     [32]byte
+	ResumeKey     [resumeKeyBytes]byte
 	TokenLifetime time.Duration
 }
 
@@ -36,7 +36,7 @@ func (c Config[I, O]) Validate() error {
 	if c.Runtime == nil || !c.Program.Valid() || c.Authorize == nil || c.Project == nil {
 		return errors.New("managed: runtime, program, authorization and output projection are required")
 	}
-	if c.ResumeKey == ([32]byte{}) || c.TokenLifetime <= 0 {
+	if c.ResumeKey == ([resumeKeyBytes]byte{}) || c.TokenLifetime <= 0 {
 		return errors.New("managed: resume key and token lifetime are required")
 	}
 	return nil
@@ -99,6 +99,13 @@ func Register[I, O any](server *sdk.Server, cfg Config[I, O]) error {
 	server.AddTool(&sdk.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema}, b.call)
 	return nil
 }
+
+type admittedCall[I any] struct {
+	start     run.StartID
+	input     I
+	authority []byte
+}
+
 func (b *binding[I, O]) call(ctx context.Context, req *sdk.CallToolRequest) (out *sdk.CallToolResult, err error) {
 	// Host callback panics do not become model-visible diagnostics.
 	defer func() {
@@ -106,155 +113,137 @@ func (b *binding[I, O]) call(ctx context.Context, req *sdk.CallToolRequest) (out
 			out, err = nil, errInternal
 		}
 	}()
-	if req == nil || req.Params == nil || req.Session == nil {
-		return nil, errArguments
-	}
-	grant, err := b.cfg.Authorize(ctx, req)
-	if err != nil || !grant.StartID.Valid() || (grant.Session == "" && req.Session.ID() == "") {
-		return nil, errPermission
-	}
-	caps := req.ClientCapabilities()
-	if req.ProtocolVersion() != "2026-07-28" || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
-		return nil, errForm
-	}
-	wire := req.Params.Arguments
-	if len(wire) == 0 {
-		wire = json.RawMessage("{}")
-	}
-	p, err := run.ParsePayload(wire)
-	if err != nil || b.cfg.Program.Descriptor().ValidateInput(p) != nil {
-		return nil, errArguments
-	}
-	input, err := p.Decode[I]()
+	call, err := b.admit(ctx, req)
 	if err != nil {
-		return nil, errArguments
-	}
-	auth, err := jsonv2.Marshal(struct {
-		Domain, Program, Name, Native, Session string
-		Start                                  run.StartID
-		Arguments                              [32]byte
-	}{
-		"scope.mcp.managed.v1", b.cfg.Program.ProgramRef().Digest().String(), b.cfg.Program.Descriptor().Name(), req.Session.ID(), grant.Session, grant.StartID, sha256.Sum256(p.JSON()),
-	})
-	if err != nil {
-		return nil, errInternal
+		return nil, err
 	}
 	if req.Params.RequestState == "" {
 		if req.Params.InputResponses != nil {
 			return nil, errContinuation
 		}
-		h, startErr := b.cfg.Runtime.Start(ctx, b.cfg.Program, run.StartRequest[I]{ID: grant.StartID, Input: input})
-		if startErr != nil {
-			if _, unknown := errors.AsType[*run.StartError](startErr); unknown {
-				return nil, rpc(CodeStartUnknown, "initial acceptance is uncertain; retry only with the same authorized start identity")
-			}
-			if accepted, ok := errors.AsType[*run.StartAcceptedError](startErr); ok {
-				return b.viewOnly(ctx, grant.StartID, accepted.Receipt.RootID, auth, run.WaitID{})
-			}
-			if _, ok := errors.AsType[*run.StartConflictError](startErr); ok {
-				return nil, errArguments
-			}
-			return nil, errUnavailable
-		}
-		return observe(ctx, b, h, grant.StartID, auth, run.WaitID{})
+		return b.start(ctx, call)
 	}
-	t, err := b.issuer.open(req.Params.RequestState, auth)
+	return b.resume(ctx, call, req.Params)
+}
+
+func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (admittedCall[I], error) {
+	if req == nil || req.Params == nil || req.Session == nil {
+		return admittedCall[I]{}, errArguments
+	}
+	grant, err := b.cfg.Authorize(ctx, req)
+	if err != nil || !grant.StartID.Valid() || (grant.Session == "" && req.Session.ID() == "") {
+		return admittedCall[I]{}, errPermission
+	}
+	caps := req.ClientCapabilities()
+	if req.ProtocolVersion() != formProtocolVersion || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
+		return admittedCall[I]{}, errForm
+	}
+	wire := req.Params.Arguments
+	if len(wire) == 0 {
+		wire = json.RawMessage("{}")
+	}
+	payload, err := run.ParsePayload(wire)
+	if err != nil || b.cfg.Program.Descriptor().ValidateInput(payload) != nil {
+		return admittedCall[I]{}, errArguments
+	}
+	input, err := payload.Decode[I]()
+	if err != nil {
+		return admittedCall[I]{}, errArguments
+	}
+	authority, err := jsonv2.Marshal(callAuthority{
+		Domain:  authorizationDomain,
+		Program: b.cfg.Program.ProgramRef().Digest().String(),
+		Name:    b.cfg.Program.Descriptor().Name(),
+		Native:  req.Session.ID(), Session: grant.Session, Start: grant.StartID,
+		Arguments: sha256.Sum256(payload.JSON()),
+	})
+	if err != nil {
+		return admittedCall[I]{}, errInternal
+	}
+	return admittedCall[I]{start: grant.StartID, input: input, authority: authority}, nil
+}
+
+func (b *binding[I, O]) start(ctx context.Context, call admittedCall[I]) (*sdk.CallToolResult, error) {
+	handle, err := b.cfg.Runtime.Start(ctx, b.cfg.Program, run.StartRequest[I]{ID: call.start, Input: call.input})
+	if err == nil {
+		return observe(ctx, b, handle, call.start, call.authority, run.WaitID{})
+	}
+	if _, unknown := errors.AsType[*run.StartError](err); unknown {
+		return nil, rpc(CodeStartUnknown, "initial acceptance is uncertain; retry only with the same authorized start identity")
+	}
+	if accepted, ok := errors.AsType[*run.StartAcceptedError](err); ok {
+		return b.viewOnly(ctx, call.start, accepted.Receipt.RootID, call.authority, run.WaitID{})
+	}
+	if _, ok := errors.AsType[*run.StartConflictError](err); ok {
+		return nil, errArguments
+	}
+	return nil, errUnavailable
+}
+
+func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params *sdk.CallToolParamsRaw) (*sdk.CallToolResult, error) {
+	destination, err := b.issuer.open(params.RequestState, call.authority)
 	if err != nil {
 		return nil, errContinuation
 	}
-	head, found, err := b.views.Load(ctx, grant.StartID)
+	head, found, err := b.views.Load(ctx, call.start)
 	if err != nil || !found {
 		return nil, errUnavailable
 	}
-	if head.RootID() != t.Root {
+	if head.RootID() != destination.Root {
 		return nil, errContinuation
 	}
-	pending := false
-	for _, q := range head.Pending() {
-		if q.WaitID == t.Wait && q.ProcessID == t.Owner {
-			pending = true
-			break
-		}
+	reply, err := parseFormReply(params.InputResponses)
+	if err != nil {
+		return nil, err
 	}
-	if len(req.Params.InputResponses) != 1 {
-		return nil, errArguments
+	if reply.action != formAccept {
+		return nil, reply.rejection(destination.pendingIn(head))
 	}
-	reply, ok := req.Params.InputResponses["answer"].(*sdk.ElicitResult)
-	if !ok || reply == nil {
-		return nil, errArguments
-	}
-	switch reply.Action {
-	case "decline", "cancel":
-		if !pending {
-			return nil, errContinuation
-		}
-		if reply.Content != nil {
-			return nil, errArguments
-		}
-		if reply.Action == "decline" {
-			return nil, rpc(CodeDeclined, "form declined; no answer was submitted")
-		}
-		return nil, rpc(CodeCanceled, "form canceled; no answer was submitted")
-	case "accept":
-		if reply.Content == nil {
-			return nil, errArguments
-		}
-	default:
-		return nil, errArguments
-	}
-	// The pinned SDK decodes arbitrary form numbers into float64 before this
-	// handler sees them. Refuse them even in additional properties; otherwise a
-	// rounded wire value could acquire a durable receipt for the wrong answer.
-	for _, value := range reply.Content {
-		switch value.(type) {
-		case bool, string:
-		default:
-			return nil, errArguments
-		}
-	}
-	content, err := jsonv2.Marshal(reply.Content, jsonv2.Deterministic(true))
+	acknowledged, err := head.Answered(destination.Wait, reply.answer)
 	if err != nil {
 		return nil, errArguments
 	}
-	answer, err := run.ParsePayload(content)
-	if err != nil {
-		return nil, errArguments
-	}
-	acknowledged, err := head.Answered(t.Wait, answer)
-	if err != nil {
-		return nil, errArguments
-	}
-	root, active := b.cfg.Runtime.Process(t.Root)
+	root, active := b.cfg.Runtime.Process(destination.Root)
 	owns := active && root.TreeIncarnationID() == head.IncarnationID()
 	if !acknowledged {
-		if !pending {
+		if !destination.pendingIn(head) {
 			return nil, errContinuation
 		}
 		if !owns {
 			return nil, errUnavailable
 		}
-		owner, ok := b.cfg.Runtime.Process(t.Owner)
-		if !ok {
-			return nil, errUnavailable
-		}
-		if owner.Relation().RootID() != t.Root || root.ProgramRef() != b.cfg.Program.ProgramRef() {
-			return nil, errContinuation
-		}
-		if err = owner.Answer(ctx, t.Wait, answer.JSON()); err != nil {
-			if errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) {
-				return nil, errArguments
-			}
-			return nil, errUnavailable
+		if err := b.answer(ctx, root, destination, reply.answer); err != nil {
+			return nil, err
 		}
 	} else if !owns {
-		return b.viewOnly(ctx, grant.StartID, t.Root, auth, t.Wait)
+		return b.viewOnly(ctx, call.start, destination.Root, call.authority, destination.Wait)
 	}
-	return observe(ctx, b, root, grant.StartID, auth, t.Wait)
+	return observe(ctx, b, root, call.start, call.authority, destination.Wait)
+}
+
+func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload], destination target, answer run.Payload) error {
+	owner, ok := b.cfg.Runtime.Process(destination.Owner)
+	if !ok {
+		return errUnavailable
+	}
+	if owner.Relation().RootID() != destination.Root || root.ProgramRef() != b.cfg.Program.ProgramRef() {
+		return errContinuation
+	}
+	if err := owner.Answer(ctx, destination.Wait, answer.JSON()); err != nil {
+		if errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) {
+			return errArguments
+		}
+		return errUnavailable
+	}
+	return nil
 }
 
 // A newer writer can replace a blocked local activation without sending any
 // event to it. The store certifies the view; local notifications only wake reads.
-const ownershipRecheck = time.Second
+const (
+	ownershipRecheck  = time.Second
+	observationBuffer = 16
+)
 
 func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
 	var last run.Digest
@@ -282,7 +271,7 @@ func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H
 		}
 		watch, stop := context.WithTimeout(ctx, ownershipRecheck)
 		retry := false
-		for event, err := range h.Observe(watch, run.Cursor{}, 16) {
+		for event, err := range h.Observe(watch, run.Cursor{}, observationBuffer) {
 			if err != nil {
 				retry = errors.Is(err, run.ErrObservationGap) || errors.Is(err, context.DeadlineExceeded)
 				break
@@ -361,7 +350,7 @@ func (b *binding[I, O]) project(head run.TreeSnapshot, auth []byte, answered run
 		if err != nil {
 			return nil, errInternal
 		}
-		return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{"answer": f}}, nil
+		return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{formInputKey: f}}, nil
 	}
 	return nil, nil
 }

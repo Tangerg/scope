@@ -297,7 +297,7 @@ func TestResponseValueJSONBoundaries(t *testing.T) {
 	if err := jsonv2.Unmarshal(data, &decodedScore); err != nil || decodedScore != score {
 		t.Fatalf("score round trip = %v, %v", decodedScore, err)
 	}
-	if err := jsonv2.Unmarshal([]byte(`2`), &decodedScore); !errors.Is(err, rerank.ErrInvalidResponse) {
+	if err := jsonv2.Unmarshal([]byte(`1e309`), &decodedScore); !errors.Is(err, rerank.ErrInvalidResponse) {
 		t.Fatalf("invalid score error = %v", err)
 	}
 	if err := decodedScore.UnmarshalJSON([]byte(`{`)); !errors.Is(err, rerank.ErrInvalidResponse) {

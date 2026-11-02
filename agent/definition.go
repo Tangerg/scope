@@ -250,12 +250,12 @@ func (d *Definition) modelDefinitions(advertisedToolNames []string) ([]tool.Defi
 	if err := tools.validateAdvertisements(advertisedToolNames); err != nil {
 		return nil, fmt.Errorf("interaction: advertised Tools: %w", err)
 	}
-	definitions := cloneDefinitions(tools.initialDefinitions)
+	definitions := tools.initialDefinitions()
 	for _, delegate := range d.delegates {
 		definitions = append(definitions, delegate.definition.Clone())
 	}
 	for _, name := range advertisedToolNames {
-		definitions = append(definitions, tools.entries[name].contract.Definition())
+		definitions = append(definitions, tools.entries[name].modelDefinition())
 	}
 	return definitions, nil
 }

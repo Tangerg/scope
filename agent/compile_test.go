@@ -66,6 +66,43 @@ func TestCompileRunsTypedOutputAndPinsPolicy(t *testing.T) {
 	}
 }
 
+func TestCompilePinsIndependentStreamAdmissionPolicy(t *testing.T) {
+	var calls atomic.Int32
+	_, config := compiledEcho(t, &calls, nil)
+	config.Model = nil
+	config.Streamer = responseStream(streamTextChunk("done", chat.FinishReasonStop))
+	implicit, err := agent.Compile(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxStreamDeltaBytes = agent.DefaultMaxStreamDeltaBytes
+	explicit, err := agent.Compile(t.Context(), config)
+	if err != nil || explicit.ProgramRef() != implicit.ProgramRef() {
+		t.Fatalf("equivalent stream defaults have different identities: %v", err)
+	}
+	config.MaxStreamDeltaBytes = 512
+	bounded, err := agent.Compile(t.Context(), config)
+	if err != nil || bounded.ProgramRef() == implicit.ProgramRef() {
+		t.Fatalf("stream admission policy did not change program identity: %v", err)
+	}
+	config.MaxStreamDeltaBytes = -1
+	if program, err := agent.Compile(t.Context(), config); program.Valid() || !errors.Is(err, agent.ErrInvalidDispatcherConfig) {
+		t.Fatalf("negative stream admission budget accepted: %v", err)
+	}
+	config.Streamer = nil
+	config.Model = chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		calls.Add(1)
+		return textResponse("done"), nil
+	})
+	config.MaxStreamDeltaBytes = 512
+	if program, err := agent.Compile(t.Context(), config); program.Valid() || !errors.Is(err, agent.ErrInvalidDispatcherConfig) {
+		t.Fatalf("aggregate model accepted a stream-only policy: %v", err)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("configuration validation executed the model")
+	}
+}
+
 func TestManagedStartSurvivesRequestAndConsumesOneScopedKey(t *testing.T) {
 	gate := make(chan struct{})
 	var calls atomic.Int32

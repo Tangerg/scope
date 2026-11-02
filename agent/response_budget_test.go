@@ -14,7 +14,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-func TestModelStreamAdmitsEncodedBytesBeforeAccumulation(t *testing.T) {
+func TestModelStreamAdmitsScopeEncodedDeltaBytesBeforeAccumulation(t *testing.T) {
 	inline, err := media.NewBytes("image/png", []byte(strings.Repeat("x", 400)))
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestModelStreamAdmitsEncodedBytesBeforeAccumulation(t *testing.T) {
 			const limit = 512
 			produced, observed := 0, 0
 			closed := false
-			dispatcher := &Dispatcher{streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+			dispatcher := &Dispatcher{maxStreamDeltaBytes: limit, streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 				return func(yield func(*chat.ResponseDelta, error) bool) {
 					defer func() { closed = true }()
 					for range 1000 {
@@ -46,8 +46,8 @@ func TestModelStreamAdmitsEncodedBytesBeforeAccumulation(t *testing.T) {
 					}
 				}
 			})}
-			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, limit, new(chat.ResponseAccumulator))
-			if response != nil || !errors.Is(err, ErrModelResponseTooLarge) || !closed {
+			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, new(chat.ResponseAccumulator))
+			if response != nil || !errors.Is(err, ErrModelStreamTooLarge) || errors.Is(err, ErrModelResponseTooLarge) || !closed {
 				t.Fatalf("response=%+v error=%v producer closed=%v", response, err, closed)
 			}
 			want := limit / len(encoded)
@@ -69,10 +69,10 @@ func TestModelStreamWithinBudgetMatchesAggregateResponse(t *testing.T) {
 		}
 	})
 	for _, dispatcher := range []*Dispatcher{
-		{streamer: streamer},
+		{streamer: streamer, maxStreamDeltaBytes: DefaultMaxStreamDeltaBytes},
 		{model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return want.Clone(), nil })},
 	} {
-		got, err := dispatcher.callModel(t.Context(), nil, nil, 512, new(chat.ResponseAccumulator))
+		got, err := dispatcher.callModel(t.Context(), nil, nil, new(chat.ResponseAccumulator))
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("response=%+v error=%v", got, err)
 		}

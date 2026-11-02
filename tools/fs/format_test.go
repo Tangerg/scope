@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -122,26 +121,5 @@ func TestAtomicWriteFile_NoLeftoverTemp(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Errorf("dir has %d entries, want 1: %v", len(entries), names)
-	}
-}
-
-func TestLooksBinary(t *testing.T) {
-	cases := []struct {
-		name string
-		data []byte
-		want bool
-	}{
-		{"empty", nil, false},
-		{"plain text", []byte("hello world\n"), false},
-		{"utf-8 text", []byte("héllo 世界\n"), false},
-		{"nul byte", []byte("abc\x00def"), true},
-		{"nul past sniff window", append(bytes.Repeat([]byte{'a'}, binarySniffLen+10), 0), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := looksBinary(tc.data); got != tc.want {
-				t.Errorf("looksBinary = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }

@@ -70,7 +70,8 @@ func (c *CompatibleRequest) SetExtraField(name string, value any) error {
 
 // Dialect groups the independently typed request and response protocol facets
 // selected by a provider adapter. One Chat Completions adapter has exactly one
-// dialect.
+// dialect. Construction snapshots its mutable policy values; callback captures
+// remain owned by the caller.
 type Dialect struct {
 	// Provider scopes provider-owned response and replay state.
 	Provider        string
@@ -111,6 +112,14 @@ func (d Dialect) Validate() error {
 		return fmt.Errorf("token limit field %q is invalid", d.TokenLimitField)
 	}
 	return nil
+}
+
+func (d Dialect) clone() Dialect {
+	d.IgnoredOptions = slices.Clone(d.IgnoredOptions)
+	if d.MaxTemperature != nil {
+		d.MaxTemperature = new(*d.MaxTemperature)
+	}
+	return d
 }
 
 // ChatOption names one Core chat option by the OpenAI request field it travels

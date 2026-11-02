@@ -15,7 +15,7 @@ const (
 	DefaultBaseURL = "https://api.elevenlabs.io/v1"
 )
 
-// These are the provider values this adapter recognizes.
+// Model IDs are conveniences, not an admission allowlist.
 const (
 	ModelElevenV3       = "eleven_v3"
 	ModelMultilingualV2 = "eleven_multilingual_v2"

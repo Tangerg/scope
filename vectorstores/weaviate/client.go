@@ -24,6 +24,8 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
+const defaultHTTPTimeout = 30 * time.Second
+
 // Client binds all REST operations to one origin and gRPC calls to one configured server.
 // Multiple stores can borrow the connection. The Host closes it after use.
 type Client struct {
@@ -54,7 +56,7 @@ func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 	if portErr != nil || portNumber == 0 {
 		return nil, errors.New("weaviate: gRPC port must be in [1,65535]")
 	}
-	h, err := httpclient.New(ctx, httpclient.Config{HTTPClient: &http.Client{Timeout: 30 * time.Second}, BaseURL: u.String(), RejectRedirects: true})
+	h, err := httpclient.New(ctx, httpclient.Config{HTTPClient: &http.Client{Timeout: defaultHTTPTimeout}, BaseURL: u.String(), RejectRedirects: true})
 	if err != nil {
 		return nil, err
 	}

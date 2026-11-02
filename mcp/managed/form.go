@@ -92,5 +92,5 @@ func form(q run.PendingWait) (*sdk.ElicitParams, error) {
 			}
 		}
 	}
-	return &sdk.ElicitParams{Mode: "form", Message: message, RequestedSchema: q.AnswerSchema}, nil
+	return &sdk.ElicitParams{Mode: formMode, Message: message, RequestedSchema: q.AnswerSchema}, nil
 }

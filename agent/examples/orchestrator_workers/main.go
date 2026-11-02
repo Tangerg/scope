@@ -20,11 +20,12 @@ import (
 )
 
 const (
-	workerBudgetSteps   = 32
-	workerBudgetEffects = 32
-	workerBudgetSignals = 64
-	workerParallelism   = 2
-	maximumPlannedTasks = 8
+	workerBudgetSteps         = 32
+	workerBudgetEffects       = 32
+	workerBudgetSignals       = 64
+	workerParallelism         = 2
+	maximumPlannedTasks       = 8
+	interactionModelCallLimit = 1
 )
 
 func main() {
@@ -233,7 +234,7 @@ func interactionDeployment(name, description string, model chat.Model) (agentrun
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	definition, err := agent.NewDefinition(agent.DefinitionConfig{
-		Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(1),
+		Name: name, Description: description, MaxModelCalls: agentrun.NewQuota(interactionModelCallLimit),
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err

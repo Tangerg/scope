@@ -3,12 +3,25 @@ package managed
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/base64"
 	jsonv2 "encoding/json/v2"
 	"time"
 
 	"github.com/Tangerg/scope/agent/run"
 )
+
+const (
+	resumeKeyBytes      = 32
+	maximumTokenBytes   = 8 << 10
+	authorizationDomain = "scope.mcp.managed.v1"
+)
+
+type callAuthority struct {
+	Domain, Program, Name, Native, Session string
+	Start                                  run.StartID
+	Arguments                              [sha256.Size]byte
+}
 
 // The issuer alone chooses the target. All request-specific authority is
 // authenticated as associated data, not copied into a caller-editable payload.
@@ -23,7 +36,7 @@ type target struct {
 	Expires time.Time
 }
 
-func newIssuer(key [32]byte, lifetime time.Duration) (issuer, error) {
+func newIssuer(key [resumeKeyBytes]byte, lifetime time.Duration) (issuer, error) {
 	block, err := aes.NewCipher(key[:])
 	if err != nil {
 		return issuer{}, err
@@ -44,7 +57,7 @@ func (i issuer) seal(t target, auth []byte) (string, error) {
 }
 func (i issuer) open(token string, auth []byte) (target, error) {
 	var t target
-	if len(token) == 0 || len(token) > 8192 {
+	if len(token) == 0 || len(token) > maximumTokenBytes {
 		return t, errContinuation
 	}
 	buf, err := base64.RawURLEncoding.Strict().DecodeString(token)
@@ -59,4 +72,13 @@ func (i issuer) open(token string, auth []byte) (target, error) {
 		return target{}, errContinuation
 	}
 	return t, nil
+}
+
+func (t target) pendingIn(head run.TreeSnapshot) bool {
+	for _, pending := range head.Pending() {
+		if pending.WaitID == t.Wait && pending.ProcessID == t.Owner {
+			return true
+		}
+	}
+	return false
 }

@@ -216,10 +216,11 @@ func (s *SearchRequest) QueryWithSiteOperators() string {
 }
 
 type SearchResult struct {
-	Title         string    `json:"title"`
-	URL           string    `json:"url"`
-	Snippet       string    `json:"snippet"`
-	FaviconURL    string    `json:"favicon_url,omitempty"`
+	Title      string `json:"title"`
+	URL        string `json:"url"`
+	Snippet    string `json:"snippet"`
+	FaviconURL string `json:"favicon_url,omitempty"`
+	// A modification or crawl date cannot establish publication; unknown stays zero.
 	PublishedTime time.Time `json:"published_time,omitzero"`
 	Source        string    `json:"source,omitempty"`
 }

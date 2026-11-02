@@ -25,7 +25,9 @@ type ServerConfig struct {
 	// HTTP(S) URL. Its path is the exact RPC route; hosts own public-origin
 	// routing and reverse-proxy configuration. Its Capabilities must not declare
 	// push notifications or an extended agent card, which this handler does not
-	// provide. Streaming and declared input modes are enforced from the published snapshot.
+	// provide. Default and skill input/output modes may declare only text/plain,
+	// which the Agent boundary can represent. Streaming and input modes are
+	// enforced from the published snapshot.
 	Card *sdka2a.AgentCard
 
 	// TaskStore persists A2A task state and is required: the Host owns the store
@@ -55,6 +57,9 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 		enforcer, enforcerErr := a2asrv.NewAgentCardEnforcer(card)
 		if enforcerErr != nil {
 			return nil, fmt.Errorf("%w %q: %w", ErrInvalidCard, card.Name, enforcerErr)
+		}
+		if err := (textProjection{}).validateCard(card); err != nil {
+			return nil, err
 		}
 		return a2asrv.NewHandler(exec, a2asrv.WithCallInterceptors(enforcer), a2asrv.WithTaskStore(config.TaskStore)), nil
 	})

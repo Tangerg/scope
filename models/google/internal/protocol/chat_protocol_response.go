@@ -21,6 +21,7 @@ const (
 type protocolResponseMapper struct {
 	partOffset   int
 	provider     string
+	responseID   string
 	modelVersion string
 	stopReason   genai.FinishReason
 	hasToolCalls bool
@@ -120,14 +121,14 @@ func (p *protocolResponseMapper) candidate(candidate *genai.Candidate) (*genai.C
 }
 
 func (p *protocolResponseMapper) mapMetadata(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseMetadata, error) {
-	if response.ModelVersion != "" {
-		p.modelVersion = response.ModelVersion
+	if err := p.bindIdentity(response); err != nil {
+		return nil, err
 	}
 	modelName := p.modelVersion
 	if modelName == "" {
 		modelName = requestModel
 	}
-	metadata := &corechat.ResponseMetadata{ID: response.ResponseID, Model: modelName}
+	metadata := &corechat.ResponseMetadata{ID: p.responseID, Model: modelName}
 	if err := metadata.Extra.Set(protocolKey(p.provider, "response"), response); err != nil {
 		return nil, fmt.Errorf("google: preserve native response: %w", err)
 	}
@@ -155,6 +156,22 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 	return metadata, nil
 }
 
+func (p *protocolResponseMapper) bindIdentity(response *genai.GenerateContentResponse) error {
+	if response.ResponseID != "" && p.responseID != "" && response.ResponseID != p.responseID {
+		return fmt.Errorf("google: stream: %w: response id changed from %q to %q", corechat.ErrInvalidResponse, p.responseID, response.ResponseID)
+	}
+	if response.ModelVersion != "" && p.modelVersion != "" && response.ModelVersion != p.modelVersion {
+		return fmt.Errorf("google: stream: %w: model version changed from %q to %q", corechat.ErrInvalidResponse, p.modelVersion, response.ModelVersion)
+	}
+	if response.ResponseID != "" {
+		p.responseID = response.ResponseID
+	}
+	if response.ModelVersion != "" {
+		p.modelVersion = response.ModelVersion
+	}
+	return nil
+}
+
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
 	response.OutputMetadata = &corechat.OutputMetadata{}
 	if isProtocolStopReason(candidate.FinishReason) {
@@ -178,9 +195,6 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 	}
 	offset := p.partOffset
 	for partIndex, part := range parts {
-		if part == nil {
-			return fmt.Errorf("content.parts[%d]: nil part", partIndex)
-		}
 		delta, kind, include, err := mapProtocolCandidatePartDelta(p.provider, offset+partIndex, part)
 		if err != nil {
 			return fmt.Errorf("content.parts[%d]: %w", partIndex, err)
@@ -198,6 +212,9 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 }
 
 func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.Part) (corechat.PartDelta, corechat.PartKind, bool, error) {
+	if err := validateGenerationPart(part); err != nil {
+		return corechat.PartDelta{}, "", false, fmt.Errorf("%w: %w", corechat.ErrInvalidResponse, err)
+	}
 	var mapped corechat.PartDelta
 	var kind corechat.PartKind
 	switch {

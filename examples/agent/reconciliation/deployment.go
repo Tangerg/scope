@@ -11,8 +11,13 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
+const (
+	recordNoteToolName    = "record_note"
+	receiptModelCallLimit = 2
+)
+
 func newDeployment(remote *remoteLedger, model *receiptModel) (agentrun.Program[agentrun.Payload, agentrun.Payload], agent.ToolSet, error) {
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "record_note", Description: "Record one note remotely."},
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: recordNoteToolName, Description: "Record one note remotely."},
 		func(ctx context.Context, input note) (string, error) {
 			invocation, ok := agent.ToolInvocationFromContext(ctx)
 			if !ok {
@@ -29,14 +34,14 @@ func newDeployment(remote *remoteLedger, model *receiptModel) (agentrun.Program[
 	tools, err := agent.NewToolSet(agent.ToolSetConfig{
 		Name: "example.receipt_tools", Description: "A remote write whose response is lost.", Tools: []tool.Tool{executable},
 		ImplementationDigest: agentrun.ComputeDigest([]byte("receipt-tool")),
-		ConfigurationDigest:  agentrun.ComputeDigest([]byte("record_note")),
+		ConfigurationDigest:  agentrun.ComputeDigest([]byte(recordNoteToolName)),
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
 	}
 	definition, err := agent.NewDefinition(agent.DefinitionConfig{
 		Name: "example.reconciliation", Description: "Report a reconciled business receipt.",
-		MaxModelCalls: agentrun.NewQuota(2), Tools: tools,
+		MaxModelCalls: agentrun.NewQuota(receiptModelCallLimit), Tools: tools,
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
@@ -82,7 +87,7 @@ func (r *receiptModel) Call(ctx context.Context, request *chat.Request) (*chat.R
 	}
 	return &chat.Response{Output: &chat.Output{
 		Message: new(chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{
-			ID: "call:record", Name: "record_note", Arguments: `{"text":"release note"}`,
+			ID: "call:record", Name: recordNoteToolName, Arguments: `{"text":"release note"}`,
 		}))), FinishReason: chat.FinishReasonToolCalls,
 	}}, nil
 }

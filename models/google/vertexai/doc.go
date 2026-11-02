@@ -12,6 +12,10 @@
 // owns sampling, output format, reasoning effort, system messages, function
 // tools, and tool choice; duplicate native fields are rejected. Provider-only
 // safety, grounding, modalities, and thinking-budget fields remain available.
+// Code execution is rejected before I/O because Core cannot represent its
+// output and replay losslessly. Execution parts in responses fail validation.
+// Each stream binds the first reported response ID and model version; later
+// omissions preserve them, while conflicting values fail validation.
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
 // Core Citation owns validation of native citations with a URI. Invalid
@@ -24,6 +28,8 @@
 // Parts. Stored visible-text state containing a competing thought flag is rejected.
 // Embedding extensions use SDK camelCase fields and reject native
 // outputDimensionality; Core embedding.Options.Dimensions owns that value.
+// Positive dimensions must fit the SDK's int32 representation; the service
+// determines the selected model's supported dimensions.
 // Embedding responses retain the exact native JSON. Optional token, truncation,
 // and billing metadata is projected only when reported, including zero and false.
 //

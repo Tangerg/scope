@@ -67,7 +67,7 @@ func TestRestoreRejectsInvalidAdvertisements(t *testing.T) {
 func advertisementTestDefinition(t testing.TB) *Definition {
 	t.Helper()
 	var executables []tool.Tool
-	for _, name := range []string{"initial", "first", "second", "existing"} {
+	for _, name := range []string{"initial", "first", "second", "existing", "report.write"} {
 		executable, err := tool.NewFunc(tool.FuncConfig{Name: name, Description: "Exercise deferred tool recovery."},
 			func(context.Context, struct{}) (string, error) { return "done", nil })
 		if err != nil {

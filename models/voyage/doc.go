@@ -32,11 +32,9 @@
 //
 // Rerank scores. Voyage documents relevance_score only as "the relevance
 // score of the document with respect to the query" and states no range, so
-// this package does not claim one either: the value is passed to
-// [rerank.Score], whose contract is [0, 1], and a score outside that range
-// fails the call by name rather than being rescaled onto the bound. There is
-// no published scale to map from, and inventing one would put a plausible
-// number where a reported mismatch belongs.
+// this package preserves each finite value unchanged in [rerank.Score]. Scores
+// are query-relative and higher means more relevant; no cross-model probability
+// or normalization is inferred from the number.
 //
 // See https://docs.voyageai.com/ for the full reference.
 package voyage

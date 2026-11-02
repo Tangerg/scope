@@ -485,10 +485,10 @@ func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorsto
 }
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("oracle.Store.Search: %w", err)
+		return nil, fmt.Errorf("oracle: rank query: %w", err)
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("oracle.Store.Search: %w", err)
+		return nil, fmt.Errorf("oracle: rank query: %w", err)
 	}
 
 	defer func() {
@@ -635,7 +635,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		return vectorstore.ErrMissingFilter
 	}
 	if validateErr := predicate.Validate(); validateErr != nil {
-		return fmt.Errorf("oracle.Store.DeleteWhere: %w", validateErr)
+		return fmt.Errorf("oracle.Store.DeleteMatching: %w", validateErr)
 	}
 
 	transaction, err := s.prepareFilter(ctx, predicate, true, &budget)

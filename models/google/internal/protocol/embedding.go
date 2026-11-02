@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 
 	"google.golang.org/genai"
 
@@ -37,11 +38,9 @@ func (e EmbeddingModelConfig) Validate() error {
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
 
-// EmbeddingModel wraps Gemini's embed_content endpoint. New integrations use
-// gemini-embedding-2, whose output dimensionality is configurable from 128 to
-// 3072. Core's text-only request intentionally exposes only that model's text
-// input capability; richer multimodal embedding inputs belong in a dedicated
-// protocol rather than being hidden inside text.
+// EmbeddingModel admits the SDK's dimensionality representation; the selected
+// model owns its supported dimensions. Core's text-only request cannot carry
+// multimodal embedding inputs through a hidden native extension.
 type EmbeddingModel struct {
 	api            *api
 	provider       string
@@ -91,8 +90,8 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 	}
 
 	if effectiveOptions.Dimensions != nil {
-		if *effectiveOptions.Dimensions < 128 || *effectiveOptions.Dimensions > 3072 {
-			return "", nil, nil, fmt.Errorf("google: embedding: dimensions must be between 128 and 3072: %d", *effectiveOptions.Dimensions)
+		if *effectiveOptions.Dimensions > math.MaxInt32 {
+			return "", nil, nil, fmt.Errorf("google: embedding: dimensions must fit int32, got %d", *effectiveOptions.Dimensions)
 		}
 		config.OutputDimensionality = new(int32(*effectiveOptions.Dimensions))
 	}

@@ -2,11 +2,42 @@ package protocol
 
 import (
 	"encoding/json"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/embedding"
 )
+
+func TestEmbeddingDimensionsUseSDKRepresentation(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		for _, dimensions := range []int64{1, 64, 128, 3073, math.MaxInt32, math.MaxInt32 + 1} {
+			t.Run(provider+"/"+strconv.FormatInt(dimensions, 10), func(t *testing.T) {
+				model := &EmbeddingModel{provider: provider}
+				request, err := embedding.NewRequest([]string{"hello"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				request.Options.Model = "selected-embedding-model"
+				request.Options.Dimensions = new(dimensions)
+				modelName, _, config, err := model.buildAPIRequest(request)
+				if dimensions > math.MaxInt32 {
+					if err == nil {
+						t.Fatal("accepted dimensions that overflow the SDK representation")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if modelName != request.Options.Model || config.OutputDimensionality == nil || int64(*config.OutputDimensionality) != dimensions {
+					t.Fatalf("model = %q, dimensions = %v; want model %q and dimensions %d", modelName, config.OutputDimensionality, request.Options.Model, dimensions)
+				}
+			})
+		}
+	}
+}
 
 func TestEmbeddingConfigUsesCoreDimensions(t *testing.T) {
 	for _, provider := range []string{"google", "vertexai"} {

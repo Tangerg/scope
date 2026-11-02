@@ -8,7 +8,8 @@
 //     is supplied through [speech.Options].Voice;
 //   - /v1/speech-to-text via [NewTranscriptionModel] —
 //     transcribes audio with speaker diarization, language id, and
-//     timestamps; uses the Scribe v2 model family.
+//     timestamps. Model IDs are passed through to the service; [ModelScribeV1]
+//     rejects keyterms because that model does not support the capability.
 //
 // ElevenLabs' voice cloning / library / projects surfaces aren't
 // modeled here — they don't fit Core speech and transcription

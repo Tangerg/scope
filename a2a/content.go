@@ -10,7 +10,32 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+const plainTextMediaType = "text/plain"
+
 type textProjection struct{}
+
+func (t textProjection) validateCard(card *sdka2a.AgentCard) error {
+	if err := t.validateModes(card.DefaultInputModes, card.DefaultOutputModes); err != nil {
+		return fmt.Errorf("%w %q: default modes: %w", ErrInvalidCard, card.Name, err)
+	}
+	for _, skill := range card.Skills {
+		if err := t.validateModes(skill.InputModes, skill.OutputModes); err != nil {
+			return fmt.Errorf("%w %q: skill %q: %w", ErrInvalidCard, card.Name, skill.ID, err)
+		}
+	}
+	return nil
+}
+
+func (textProjection) validateModes(groups ...[]string) error {
+	for _, modes := range groups {
+		for _, mode := range modes {
+			if mode != plainTextMediaType {
+				return fmt.Errorf("%w: mode %q cannot be projected as plain text", ErrUnsupportedContent, mode)
+			}
+		}
+	}
+	return nil
+}
 
 func (textProjection) userMessage(text string) *sdka2a.Message {
 	return sdka2a.NewMessage(sdka2a.MessageRoleUser, sdka2a.NewTextPart(text))
@@ -25,7 +50,7 @@ func (textProjection) parts(parts sdka2a.ContentParts) (string, error) {
 			return "", fmt.Errorf("%w: nil part %d", ErrInvalidResult, index)
 		}
 		text, ok := part.Content.(sdka2a.Text)
-		if !ok || part.Filename != "" || len(part.Metadata) > 0 || (part.MediaType != "" && part.MediaType != "text/plain") {
+		if !ok || part.Filename != "" || len(part.Metadata) > 0 || (part.MediaType != "" && part.MediaType != plainTextMediaType) {
 			return "", fmt.Errorf("%w at part %d (%T)", ErrUnsupportedContent, index, part.Content)
 		}
 		out.WriteString(string(text))

@@ -9,14 +9,22 @@ import (
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
-	toolcontract "github.com/Tangerg/scope/core/tool"
 )
+
+// DefaultMaxStreamDeltaBytes keeps stream admission bounded independently of
+// the final settlement size, including streams that never finish.
+const DefaultMaxStreamDeltaBytes = 64 << 20
 
 type DispatcherConfig struct {
 	// Exactly one of Model and Streamer is required. The selected capability
 	// owns the entire response lifecycle; streaming is accumulated before settlement.
 	Model    chat.Model
 	Streamer chat.Streamer
+
+	// MaxStreamDeltaBytes bounds cumulative Scope-encoded ModelResponseDelta
+	// payloads before accumulation, independently of MaxResponseBytes. Zero uses
+	// DefaultMaxStreamDeltaBytes; a nonzero value requires Streamer.
+	MaxStreamDeltaBytes int
 
 	// Observer receives exact model response facts. Nil disables observation.
 	Observer ModelObserver
@@ -30,8 +38,9 @@ type DispatcherConfig struct {
 // immutable after construction and may serve Processes concurrently when the
 // supplied model capability supports concurrent use.
 type Dispatcher struct {
-	model    chat.Model
-	streamer chat.Streamer
+	model               chat.Model
+	streamer            chat.Streamer
+	maxStreamDeltaBytes int
 	// definition owns the Tool manifest and Delegates the model may call.
 	definition          *Definition
 	observer            ModelObserver
@@ -54,6 +63,10 @@ func (d DispatcherConfig) validate() error {
 		return fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
 	case lo.IsNil(d.Model) && lo.IsNil(d.Streamer):
 		return fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
+	case d.MaxStreamDeltaBytes < 0:
+		return fmt.Errorf("%w: MaxStreamDeltaBytes must not be negative", ErrInvalidDispatcherConfig)
+	case d.Streamer == nil && d.MaxStreamDeltaBytes != 0:
+		return fmt.Errorf("%w: MaxStreamDeltaBytes requires Streamer", ErrInvalidDispatcherConfig)
 	case d.Observer != nil && lo.IsNil(d.Observer):
 		return fmt.Errorf("%w: Observer is typed nil", ErrInvalidDispatcherConfig)
 	case d.ContextProcessor != nil && lo.IsNil(d.ContextProcessor):
@@ -73,10 +86,14 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if definition.prepareContext != (config.ContextProcessor != nil) {
 		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidDispatcherConfig)
 	}
+	streamLimit := config.MaxStreamDeltaBytes
+	if config.Streamer != nil && streamLimit == 0 {
+		streamLimit = DefaultMaxStreamDeltaBytes
+	}
 
 	dispatcher := &Dispatcher{
 		model: config.Model, streamer: config.Streamer, observer: config.Observer,
-		contextReducer: config.ContextProcessor,
+		contextReducer: config.ContextProcessor, maxStreamDeltaBytes: streamLimit,
 
 		definition: definition,
 	}
@@ -137,22 +154,13 @@ func (d *Dispatcher) dispatchModel(
 		call.AppliedSteerSignalIDs,
 	)
 	ctx = withModelInvocation(ctx, invocation)
-	result := &modelCallResult{}
-	base, err := run.EncodePayload(signalEnvelope{ModelResult: result})
-	if err != nil {
-		return failedSettlement(err)
-	}
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
-	result.Response = &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
-	minimum, err := run.EncodePayload(signalEnvelope{ModelResult: result})
-	if err != nil {
-		return failedSettlement(err)
+	minimum := modelCallResult{Response: &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}}
+	if _, settlementErr := minimum.settlement(d.definition.maxResponseBytes); settlementErr != nil {
+		return failedSettlement(settlementErr)
 	}
-	if len(minimum.JSON()) > d.definition.maxResponseBytes {
-		return failedSettlement(ErrModelResponseTooLarge)
-	}
-	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit, d.definition.maxResponseBytes-len(base.JSON()))
+	response, err := d.callObservedModel(ctx, invocation, modelRequest, emit)
 	if err != nil {
 		kind := chat.ClassifyFailure(err)
 		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
@@ -161,8 +169,7 @@ func (d *Dispatcher) dispatchModel(
 		}
 		return run.Settlement{}, err
 	}
-	result.Response = response
-	return result.settlement(d.definition.maxResponseBytes)
+	return (modelCallResult{Response: response}).settlement(d.definition.maxResponseBytes)
 }
 
 func (d *Dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, call *modelCall) (run.Settlement, error) {
@@ -208,7 +215,7 @@ func (d *Dispatcher) observeModelSettled(ctx context.Context, invocation ModelIn
 	d.observer.OnModelSettled(ctx, invocation, settlement)
 }
 
-func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvocation, request *chat.Request, emit run.DeltaEmitter, remainingBytes int) (response *chat.Response, err error) {
+func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvocation, request *chat.Request, emit run.DeltaEmitter) (response *chat.Response, err error) {
 	d.observeModelStarted(ctx, invocation, request)
 	var accumulator chat.ResponseAccumulator
 	defer func() {
@@ -223,7 +230,7 @@ func (d *Dispatcher) callObservedModel(ctx context.Context, invocation ModelInvo
 		}
 		d.observeModelSettled(ctx, invocation, newModelSettlement(response, err))
 	}()
-	response, err = d.callModel(ctx, request, emit, remainingBytes, &accumulator)
+	response, err = d.callModel(ctx, request, emit, &accumulator)
 	// Invalid trailing frames cannot retract terminal generation. A partial
 	// stream is not a Response, but still contradicts non-execution.
 	if response == nil && err != nil {
@@ -254,7 +261,6 @@ func (d *Dispatcher) callModel(
 	ctx context.Context,
 	request *chat.Request,
 	emit run.DeltaEmitter,
-	remainingBytes int,
 	accumulator *chat.ResponseAccumulator,
 ) (*chat.Response, error) {
 	if d.streamer == nil {
@@ -264,6 +270,7 @@ func (d *Dispatcher) callModel(
 	if sequence == nil {
 		return nil, errors.New("model streamer returned a nil sequence")
 	}
+	remainingDeltaBytes := d.maxStreamDeltaBytes
 	for delta, err := range sequence {
 		if err != nil {
 			return nil, err
@@ -275,10 +282,10 @@ func (d *Dispatcher) callModel(
 		if err != nil {
 			return nil, err
 		}
-		if len(payload) > remainingBytes {
-			return nil, ErrModelResponseTooLarge
+		if len(payload) > remainingDeltaBytes {
+			return nil, ErrModelStreamTooLarge
 		}
-		remainingBytes -= len(payload)
+		remainingDeltaBytes -= len(payload)
 		if err := accumulator.Add(delta); err != nil {
 			return nil, fmt.Errorf("accumulate model stream: %w", err)
 		}
@@ -292,14 +299,6 @@ func (d *Dispatcher) callModel(
 		return nil, fmt.Errorf("complete model stream: %w", err)
 	}
 	return response, nil
-}
-
-func cloneDefinitions(definitions []toolcontract.Definition) []toolcontract.Definition {
-	cloned := make([]toolcontract.Definition, len(definitions))
-	for index := range definitions {
-		cloned[index] = definitions[index].Clone()
-	}
-	return cloned
 }
 
 var _ run.Dispatcher = (*Dispatcher)(nil)

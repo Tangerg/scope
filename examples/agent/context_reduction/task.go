@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	reportRounds = 64
-	contextGoal  = "Read every report. Return the latest fact and constraint for every source, sorted by source."
-	contextRule  = "Preserve source attribution and approval constraints. Only read_report is authorized."
+	reportRounds       = 64
+	readReportToolName = "read_report"
+	treeCleanupTimeout = 5 * time.Second
+	contextGoal        = "Read every report. Return the latest fact and constraint for every source, sorted by source."
+	contextRule        = "Preserve source attribution and approval constraints. Only " + readReportToolName + " is authorized."
 )
 
 type contextDocument struct {
@@ -93,7 +95,7 @@ func (c contextModel) Call(ctx context.Context, request *chat.Request) (*chat.Re
 				continue
 			}
 			result := part.ToolResult
-			if result.Name != "read_report" || result.IsError {
+			if result.Name != readReportToolName || result.IsError {
 				return nil, errors.New("unexpected report result")
 			}
 			text, ok := result.Output.Text()
@@ -125,7 +127,7 @@ func (c contextModel) Call(ctx context.Context, request *chat.Request) (*chat.Re
 		if err != nil {
 			return nil, err
 		}
-		message.Parts = []chat.Part{chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("report:%d", count), Name: "read_report", Arguments: string(arguments)})}
+		message.Parts = []chat.Part{chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("report:%d", count), Name: readReportToolName, Arguments: string(arguments)})}
 		finish = chat.FinishReasonToolCalls
 	} else {
 		sources := make([]string, 0, len(latest))
@@ -144,7 +146,7 @@ func (c contextModel) Call(ctx context.Context, request *chat.Request) (*chat.Re
 }
 
 func reportTool(task contextTask) (tool.Tool, error) {
-	return tool.NewFunc(tool.FuncConfig{Name: "read_report", Description: "Read an immutable report by index."},
+	return tool.NewFunc(tool.FuncConfig{Name: readReportToolName, Description: "Read an immutable report by index."},
 		func(_ context.Context, input readReport) (string, error) {
 			if input.Index < 0 || input.Index >= len(task.Documents) {
 				return "", errors.New("report index is out of range")
@@ -309,7 +311,7 @@ func inputBytes(recorded trajectory.Trajectory) (int, error) {
 }
 
 func closeTree(ctx context.Context, engine *agentrun.Runtime, root *agentrun.Handle[agentrun.Payload]) error {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), treeCleanupTimeout)
 	defer cancel()
 	var err error
 	if root != nil {

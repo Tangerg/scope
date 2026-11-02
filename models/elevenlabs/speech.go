@@ -12,14 +12,18 @@ import (
 )
 
 const (
-	characterCostHeader   = "character-cost"
-	contentTypeHeader     = "Content-Type"
-	requestIDHeader       = "request-id"
-	traceIDHeader         = "x-trace-id"
-	metadataCharacterCost = "elevenlabs/character_cost"
-	metadataMIMEType      = "elevenlabs/mime_type"
-	metadataRequestID     = "elevenlabs/request_id"
-	metadataTraceID       = "elevenlabs/trace_id"
+	characterCostHeader                 = "character-cost"
+	contentTypeHeader                   = "Content-Type"
+	requestIDHeader                     = "request-id"
+	traceIDHeader                       = "x-trace-id"
+	metadataCharacterCost               = "elevenlabs/character_cost"
+	metadataMIMEType                    = "elevenlabs/mime_type"
+	metadataRequestID                   = "elevenlabs/request_id"
+	metadataTraceID                     = "elevenlabs/trace_id"
+	minimumSpeechSpeed                  = 0.7
+	maximumSpeechSpeed                  = 1.2
+	minimumStreamingLatencyOptimization = 0
+	maximumStreamingLatencyOptimization = 4
 )
 
 type speechResponseMetadata struct {
@@ -117,12 +121,11 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 	body.Body.Text = req.Text
 	body.Body.ModelID = effectiveOptions.Model
 
-	// ElevenLabs documents the speed range as 0.7 to 1.2 and clamps a value
-	// outside it to the nearest limit rather than reporting one, so refusing
-	// here is the only way a caller who asked for 2.0 learns they got 1.2.
+	// The service clamps out-of-range speeds, so local rejection prevents a
+	// successful response from concealing a changed request.
 	if effectiveOptions.Speed != 0 {
-		if effectiveOptions.Speed < 0.7 || effectiveOptions.Speed > 1.2 {
-			return "", "", nil, fmt.Errorf("elevenlabs: speech speed must be between 0.7 and 1.2, got %g", effectiveOptions.Speed)
+		if effectiveOptions.Speed < minimumSpeechSpeed || effectiveOptions.Speed > maximumSpeechSpeed {
+			return "", "", nil, fmt.Errorf("elevenlabs: speech speed must be between %g and %g, got %g", minimumSpeechSpeed, maximumSpeechSpeed, effectiveOptions.Speed)
 		}
 		if body.Body.VoiceSettings == nil {
 			body.Body.VoiceSettings = &voiceSettings{}
@@ -130,10 +133,10 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 		v := effectiveOptions.Speed
 		body.Body.VoiceSettings.Speed = &v
 	}
-	if body.OptimizeStreamingLatency != nil && (*body.OptimizeStreamingLatency < 0 || *body.OptimizeStreamingLatency > 4) {
-		return "", "", nil, fmt.Errorf("elevenlabs: optimize_streaming_latency must be between 0 and 4, got %d", *body.OptimizeStreamingLatency)
+	if body.OptimizeStreamingLatency != nil && (*body.OptimizeStreamingLatency < minimumStreamingLatencyOptimization || *body.OptimizeStreamingLatency > maximumStreamingLatencyOptimization) {
+		return "", "", nil, fmt.Errorf("elevenlabs: optimize_streaming_latency must be between %d and %d, got %d", minimumStreamingLatencyOptimization, maximumStreamingLatencyOptimization, *body.OptimizeStreamingLatency)
 	}
-	if effectiveOptions.OutputFormat != "" && !isSupportedOutputFormat(effectiveOptions.OutputFormat) {
+	if effectiveOptions.OutputFormat != "" && !speechOutputFormat(effectiveOptions.OutputFormat).valid() {
 		return "", "", nil, fmt.Errorf("elevenlabs: unsupported output format %q", effectiveOptions.OutputFormat)
 	}
 
@@ -182,20 +185,6 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 		return nil, err
 	}
 	return speech.NewResponse(output, responseMetadata)
-}
-
-func isSupportedOutputFormat(format string) bool {
-	switch format {
-	case "alaw_8000",
-		"mp3_22050_32", "mp3_24000_48", "mp3_44100_32", "mp3_44100_64", "mp3_44100_96", "mp3_44100_128", "mp3_44100_192",
-		"opus_48000_32", "opus_48000_64", "opus_48000_96", "opus_48000_128", "opus_48000_192",
-		"pcm_8000", "pcm_16000", "pcm_22050", "pcm_24000", "pcm_32000", "pcm_44100", "pcm_48000",
-		"ulaw_8000",
-		"wav_8000", "wav_16000", "wav_22050", "wav_24000", "wav_32000", "wav_44100", "wav_48000":
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {

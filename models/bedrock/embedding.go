@@ -30,6 +30,15 @@ const (
 	embeddingDimension512         int64 = 512
 	embeddingDimension1024        int64 = 1024
 	embeddingDimension1536        int64 = 1536
+	cohereTruncateNone                  = "NONE"
+	cohereTruncateStart                 = "START"
+	cohereTruncateEnd                   = "END"
+	cohereTruncateLeft                  = "LEFT"
+	cohereTruncateRight                 = "RIGHT"
+	cohereInputSearchDocument           = "search_document"
+	cohereInputSearchQuery              = "search_query"
+	cohereInputClassification           = "classification"
+	cohereInputClustering               = "clustering"
 )
 
 // EmbeddingRequestOptions carries official family-specific InvokeModel fields
@@ -197,13 +206,13 @@ func (e embeddingFamily) validateTruncate(truncate string) error {
 	}
 	if e == embeddingFamilyCohereV3 {
 		switch truncate {
-		case "NONE", "START", "END":
+		case cohereTruncateNone, cohereTruncateStart, cohereTruncateEnd:
 			return nil
 		}
 		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V3 truncate %q", EmbeddingRequestExtensionKey, truncate)
 	}
 	switch truncate {
-	case "NONE", "LEFT", "RIGHT":
+	case cohereTruncateNone, cohereTruncateLeft, cohereTruncateRight:
 		return nil
 	default:
 		return fmt.Errorf("bedrock: embedding extension %q has invalid Cohere V4 truncate %q", EmbeddingRequestExtensionKey, truncate)
@@ -392,7 +401,7 @@ func (e *EmbeddingModel) embedCohere(
 
 func validateCohereInputType(inputType string) error {
 	switch inputType {
-	case "search_document", "search_query", "classification", "clustering":
+	case cohereInputSearchDocument, cohereInputSearchQuery, cohereInputClassification, cohereInputClustering:
 		return nil
 	case "":
 		return fmt.Errorf("bedrock: embedding extension %q input_type is required for Cohere Embed", EmbeddingRequestExtensionKey)

@@ -108,6 +108,11 @@ func (t *TranscriptionModel) buildTranscriptionResponse(apiResp *genai.GenerateC
 	if apiResp.Candidates[0].Content == nil {
 		return nil, fmt.Errorf("google: transcription: %w: candidate has no content", transcription.ErrInvalidResponse)
 	}
+	for index, part := range apiResp.Candidates[0].Content.Parts {
+		if err := validateGenerationPart(part); err != nil {
+			return nil, fmt.Errorf("google: transcription: %w: content.parts[%d]: %w", transcription.ErrInvalidResponse, index, err)
+		}
+	}
 
 	if apiResp.SDKHTTPResponse == nil {
 		return nil, fmt.Errorf("%w: google: transcription has no native response", transcription.ErrInvalidResponse)

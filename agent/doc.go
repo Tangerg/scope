@@ -35,6 +35,14 @@
 // the provider performed no work. An unobserved outcome belongs to recordings
 // missing a callback and is never emitted by the Dispatcher.
 //
+// DefinitionConfig.MaxResponseBytes bounds each complete prepared-context or
+// model-result settlement, independent of response fragmentation. Streaming
+// additionally has DispatcherConfig.MaxStreamDeltaBytes admission: it counts
+// Scope-encoded ModelResponseDelta payloads, including their envelopes, before
+// accumulation and observation. That separate limit bounds unfinished streams;
+// it does not measure provider wire bytes or change the final settlement limit.
+// Compile freezes both policies in the Program identity.
+//
 // Only FinishReasonToolCalls admits Tool and Delegate execution.
 // Length-truncated calls receive model-visible feedback for another model
 // attempt; calls accompanying other finish reasons fail the Process without

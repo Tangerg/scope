@@ -10,8 +10,6 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 )
 
-const maximumKeyterms = 1000
-
 type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options

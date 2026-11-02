@@ -32,7 +32,10 @@ type Config struct {
 	ToolCapabilities       run.CapabilitySet
 	MaxConcurrentToolCalls int
 	MaxResponseBytes       int
-	Delegates              []Delegate
+	// Streaming admission is independent of final settlement size; this uses
+	// the same policy and default as DispatcherConfig.MaxStreamDeltaBytes.
+	MaxStreamDeltaBytes int
+	Delegates           []Delegate
 }
 
 // Compile freezes the real model loop, binds its child programs and checks its
@@ -52,7 +55,7 @@ func Compile(ctx context.Context, cfg Config) (run.Program[Input, Output], error
 	if err != nil {
 		return zero, err
 	}
-	dispatcher, err := NewDispatcher(definition, DispatcherConfig{ContextProcessor: cfg.ContextProcessor, Model: cfg.Model, Streamer: cfg.Streamer})
+	dispatcher, err := NewDispatcher(definition, DispatcherConfig{ContextProcessor: cfg.ContextProcessor, Model: cfg.Model, Streamer: cfg.Streamer, MaxStreamDeltaBytes: cfg.MaxStreamDeltaBytes})
 	if err != nil {
 		return zero, err
 	}
@@ -67,16 +70,21 @@ func Compile(ctx context.Context, cfg Config) (run.Program[Input, Output], error
 		delegates = append(delegates, delegateFact{d.definition, d.deployment.ProgramRef(), d.budget, d.capabilities})
 	}
 	policy := struct {
-		ContextIdentity                          string
-		LocalContext, ExternalContext            bool
-		Model                                    run.Digest
-		Streaming                                bool
-		MaxModelCalls                            run.Quota
-		ToolBudget                               run.Budget
-		ToolCapabilities                         run.CapabilitySet
-		MaxConcurrentToolCalls, MaxResponseBytes int
-		Delegates                                []delegateFact
-	}{cfg.ContextIdentity.String(), cfg.ContextPolicy != nil, cfg.ContextProcessor != nil, cfg.ModelIdentity, cfg.Streamer != nil, definition.maxModelCalls, definition.toolBudget, definition.toolCapabilities, definition.maxConcurrentToolCalls, definition.maxResponseBytes, delegates}
+		ContextIdentity                                               string
+		LocalContext, ExternalContext                                 bool
+		Model                                                         run.Digest
+		Streaming                                                     bool
+		MaxModelCalls                                                 run.Quota
+		ToolBudget                                                    run.Budget
+		ToolCapabilities                                              run.CapabilitySet
+		MaxConcurrentToolCalls, MaxResponseBytes, MaxStreamDeltaBytes int
+		Delegates                                                     []delegateFact
+	}{
+		ContextIdentity: cfg.ContextIdentity.String(), LocalContext: cfg.ContextPolicy != nil, ExternalContext: cfg.ContextProcessor != nil,
+		Model: cfg.ModelIdentity, Streaming: cfg.Streamer != nil, MaxModelCalls: definition.maxModelCalls,
+		ToolBudget: definition.toolBudget, ToolCapabilities: definition.toolCapabilities, MaxConcurrentToolCalls: definition.maxConcurrentToolCalls,
+		MaxResponseBytes: definition.maxResponseBytes, MaxStreamDeltaBytes: dispatcher.maxStreamDeltaBytes, Delegates: delegates,
+	}
 	encoded, err := jsonv2.Marshal(policy, jsonv2.Deterministic(true))
 	if err != nil {
 		return zero, fmt.Errorf("agent: freeze loop settings: %w", err)

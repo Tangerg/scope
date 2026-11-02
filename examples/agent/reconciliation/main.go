@@ -18,8 +18,13 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+const (
+	exampleTimeout     = 10 * time.Second
+	treeCleanupTimeout = 5 * time.Second
+)
+
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), exampleTimeout)
 	defer cancel()
 	if err := run(ctx, os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
@@ -224,7 +229,7 @@ func reconcile(ctx context.Context, lookup func(context.Context, agentrun.Effect
 // A replacement Runtime fences its predecessor. Cleanup still joins both trees;
 // only an already finished Process or the superseded writer is expected here.
 func closeTree(ctx context.Context, engine *agentrun.Runtime, root *agentrun.Handle[agentrun.Payload]) error {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), treeCleanupTimeout)
 	defer cancel()
 	var err error
 	if root != nil {

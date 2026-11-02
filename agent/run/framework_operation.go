@@ -213,7 +213,10 @@ func (c childControlOperation) validateTree(t *treeSnapshotValidation, parent Pr
 		return err
 	}
 	child, present := t.processes[c.request.ChildID]
-	if actualParent, _ := child.Relation.ParentID(); !present || actualParent != parent {
+	if !present {
+		return ErrInvalidChildControl
+	}
+	if actualParent, _ := child.Relation.ParentID(); actualParent != parent {
 		return ErrInvalidChildControl
 	}
 	if c.request.Operation == frameworkOperationCancelChild {

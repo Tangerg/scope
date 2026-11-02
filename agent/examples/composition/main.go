@@ -27,6 +27,7 @@ const (
 	compositionBranchBudgetSteps   = 40
 	compositionBranchBudgetEffects = 40
 	compositionBranchBudgetSignals = 80
+	compositionMaxModelCalls       = 1
 )
 
 const (
@@ -205,7 +206,7 @@ func newModelDeployment() (agentrun.Program[agent.Input, agent.Output], error) {
 	if err != nil {
 		return agentrun.Program[agent.Input, agent.Output]{}, err
 	}
-	return agent.Compile(context.Background(), agent.Config{Name: "example.composition_model", Description: "Return one deterministic composition response.", MaxModelCalls: agentrun.NewQuota(1), Model: client, BuildIdentity: agentrun.ComputeDigest([]byte("example composition build")), ModelIdentity: agentrun.ComputeDigest([]byte("example composition model"))})
+	return agent.Compile(context.Background(), agent.Config{Name: "example.composition_model", Description: "Return one deterministic composition response.", MaxModelCalls: agentrun.NewQuota(compositionMaxModelCalls), Model: client, BuildIdentity: agentrun.ComputeDigest([]byte("example composition build")), ModelIdentity: agentrun.ComputeDigest([]byte("example composition model"))})
 }
 
 type compositionInput struct {

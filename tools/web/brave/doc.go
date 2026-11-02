@@ -8,8 +8,8 @@
 //   - Recency        → freshness=pd/pw/pm/py; hourly filtering is rejected
 //
 // Brave web.results[] map to [web.SearchResult]: title → Title, url → URL,
-// description → Snippet, and page_age → PublishedTime when it is RFC 3339.
-// The relative "age" field is ignored.
+// description → Snippet. PublishedTime remains unknown because page_age can be
+// either a publication or modification date; the relative age cannot disambiguate it.
 //
-// Reference: https://api-dashboard.search.brave.com/app/documentation/web-search/get-started
+// Reference: https://api-dashboard.search.brave.com/api-reference/web/search/get
 package brave

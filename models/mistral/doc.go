@@ -23,6 +23,8 @@
 // after the stream ends normally, so trailing usage is included and a tail
 // failure cannot follow a published terminal delta. Content and Tool calls
 // after the native finish_reason are invalid.
+// Each stream binds the first reported response ID and model; later omissions
+// preserve them, while conflicting values fail with [chat.ErrInvalidResponse].
 //
 // Finish reasons. Mistral's own client types the field as stop, length,
 // model_length, error or an unrecognized string. error and an unrecognized

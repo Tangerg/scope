@@ -104,14 +104,13 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	definition := binding.Contract().Definition()
-	publicName := chat.SanitizeToolName(definition.Name)
+	entry := toolManifestEntry{contract: binding.Contract(), deferred: deferred}
+	publicName := entry.modelDefinition().Name
 	if publicName == "" {
-		return fmt.Errorf("tool %q has no representable model name", definition.Name)
+		return fmt.Errorf("tool %q has no representable model name", entry.contract.Name())
 	}
-	definition.Name = publicName
-	if _, duplicate := t.bindings[definition.Name]; duplicate {
-		return fmt.Errorf("duplicate tool name %q", definition.Name)
+	if _, duplicate := t.bindings[publicName]; duplicate {
+		return fmt.Errorf("duplicate tool name %q", publicName)
 	}
 	direct, err := directResultCapability(executable)
 	if err != nil {
@@ -125,15 +124,14 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	t.bindings[definition.Name] = binding
+	t.bindings[publicName] = binding
 	if advertiser != nil {
-		t.advertisers[definition.Name] = advertiser
+		t.advertisers[publicName] = advertiser
 	}
-	t.manifest.entries[definition.Name] = toolManifestEntry{
-		contract: binding.Contract(), deferred: deferred, direct: direct, concurrent: concurrent,
-	}
+	entry.direct, entry.concurrent = direct, concurrent
+	t.manifest.entries[publicName] = entry
 	if !deferred {
-		t.manifest.initialDefinitions = append(t.manifest.initialDefinitions, definition)
+		t.manifest.initialNames = append(t.manifest.initialNames, publicName)
 	}
 	return nil
 }

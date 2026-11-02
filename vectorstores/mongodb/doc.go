@@ -6,6 +6,9 @@
 // supplies the width and similarity policy, and must index _id as a filter.
 //
 // Upsert validates every FLOAT32 vector before submitting one ordered BulkWrite.
+// The bound metric also governs query and stored vectors: cosine rejects zero
+// magnitude; dotProduct requires unit length within one FLOAT32 ULP at one.
+// Vectors are never normalized because preprocessing belongs to the Host's space.
 // Replacements require both the string _id and the space-specific vector field.
 // A conflicting identity in another space cannot overwrite that record.
 // Uncertain delivery, rejected writes and ordered unattempted tails remain

@@ -16,7 +16,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 		t.Run(map[bool]string{true: "bound", false: "unbound"}[matched], func(t *testing.T) {
 			definition := advertisementTestDefinition(t)
 			state, err := (executionState{
-				AdvertisedToolNames: []string{"first", "second"},
+				AdvertisedToolNames: []string{"first", "report_write", "second"},
 				WorkingContext:      &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("resume"))}},
 			}).snapshot()
 			if err != nil {
@@ -36,7 +36,7 @@ func TestRestoredAdvertisementsDispatchAgainstBoundManifest(t *testing.T) {
 				for _, entry := range request.Tools {
 					names = append(names, entry.Name)
 				}
-				if !slices.Equal(names, []string{"initial", "first", "second"}) {
+				if !slices.Equal(names, []string{"initial", "first", "report_write", "second"}) {
 					t.Errorf("model tools = %v", names)
 				}
 				message := chat.NewAssistantMessage(chat.NewTextPart("done"))
