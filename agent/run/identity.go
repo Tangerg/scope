@@ -1,6 +1,7 @@
 package run
 
 import (
+	"cmp"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -61,8 +62,11 @@ func ParseProcessID(value string) (ProcessID, error) {
 }
 
 func (p ProcessID) String() string { return p.path }
-func (p ProcessID) Valid() bool    { return p.path != "" }
-func (p ProcessID) IsZero() bool   { return !p.Valid() }
+
+// compare orders paths lexically, which places every parent before its children.
+func (p ProcessID) compare(other ProcessID) int { return strings.Compare(p.path, other.path) }
+func (p ProcessID) Valid() bool                 { return p.path != "" }
+func (p ProcessID) IsZero() bool                { return !p.Valid() }
 func (p ProcessID) Root() ProcessID {
 	root, _, _ := strings.Cut(p.path, "/")
 	return ProcessID{path: root}
@@ -188,6 +192,11 @@ type EffectID struct {
 
 func (e EffectID) Valid() bool  { return e.Process.Valid() && e.Step > 0 }
 func (e EffectID) IsZero() bool { return e == EffectID{} }
+
+// compare orders Effects by process, then by declaration within the process.
+func (e EffectID) compare(other EffectID) int {
+	return cmp.Or(e.Process.compare(other.Process), cmp.Compare(e.Step, other.Step), cmp.Compare(e.Index, other.Index))
+}
 
 // Precedes reports whether e was declared before other by the same process.
 // Effects of different processes have no declaration order.

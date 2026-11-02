@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -633,9 +632,7 @@ func (r *Runtime) restoreCheckpoint(ctx context.Context, state *treeState, root 
 	processes := slices.Clone(checkpoint.Processes)
 	// Parents must be bound before their live children. Reaped history needs no
 	// implementation because its Steps are already covered by this checkpoint.
-	slices.SortFunc(processes, func(a, b ProcessCheckpoint) int {
-		return strings.Compare(a.Started.Process.String(), b.Started.Process.String())
-	})
+	slices.SortFunc(processes, func(a, b ProcessCheckpoint) int { return a.Started.Process.compare(b.Started.Process) })
 	for _, captured := range processes {
 		process := state.processes[captured.Started.Process]
 		if err := r.bindRestoredProcess(state, process, root); err != nil {

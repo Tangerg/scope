@@ -73,16 +73,7 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 		return nil
 	}
 	batch := Batch{Root: t.state.root, Epoch: t.state.epoch, After: t.state.head, Records: records}
-	for _, record := range records {
-		limits := t.state.limits
-		if started, ok := record.(Started); ok && started.Process.Depth() == 0 {
-			limits = started.Limits
-		}
-		if err := limits.admitRecord(record); err != nil {
-			return err
-		}
-	}
-	if err := batch.Validate(); err != nil {
+	if err := batch.admit(t.state.limits); err != nil {
 		return err
 	}
 	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), t.runtime.storeTimeout)
@@ -94,25 +85,32 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 		return err
 	}
 	for _, record := range records {
-		if settled, ok := record.(EffectSettled); ok && settled.Outcome.Status() != SettlementStatusUnknown {
-			delete(t.emitters, settled.ID)
-		}
-		if control, ok := record.(ControlRequested); ok {
-			for id := range t.state.processes {
-				if control.Process.Contains(id) {
-					t.enqueue(id)
-				}
-			}
-		}
-		process := recordProcess(record)
-		if process.Valid() {
-			t.enqueue(process)
-			if parent, ok := process.Parent(); ok {
-				t.enqueue(parent)
+		t.wake(record)
+	}
+	return nil
+}
+
+// wake schedules every process a committed record may have made runnable:
+// the process it names, that process's parent, and a control's descendants.
+func (t *treeRuntime) wake(record Record) {
+	if settled, ok := record.(EffectSettled); ok && settled.Outcome.Status() != SettlementStatusUnknown {
+		delete(t.emitters, settled.ID)
+	}
+	if control, ok := record.(ControlRequested); ok {
+		for id := range t.state.processes {
+			if control.Process.Contains(id) {
+				t.enqueue(id)
 			}
 		}
 	}
-	return nil
+	process := recordProcess(record)
+	if !process.Valid() {
+		return
+	}
+	t.enqueue(process)
+	if parent, ok := process.Parent(); ok {
+		t.enqueue(parent)
+	}
 }
 
 func (t *treeRuntime) applyCommitted(batch Batch) error {
@@ -487,32 +485,35 @@ func (t *treeRuntime) checkpoint() error {
 	return nil
 }
 
+// resumeEffects decides every Effect a crash interrupted, in declaration
+// order so that two writers recovering the same log append the same records.
 func (t *treeRuntime) resumeEffects() error {
 	for _, id := range t.state.ordered() {
 		p := t.state.processes[id]
-		for effectID, pending := range p.pending {
+		for _, pending := range p.orderedPending() {
 			if pending.Outcome != nil {
 				continue
 			}
-			if pending.Intent.Effect.Target() == EffectTargetFramework && p.terminal.Valid() {
-				if err := t.settleChildRequest(pending.Intent.ID, nil, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished)); err != nil {
-					return err
-				}
-				continue
-			}
-			if pending.Intent.Policy.Replay == ReplayPolicyNever || p.terminal.Valid() {
-				failure := newRuntimeFailure(FailureKindExternal, failureCodeRuntimeEffectRecoveryInvalid, ErrEffectOutcomeUnknown)
-				if err := t.append(t.ctx, []Record{unknownRecord(effectID, failure)}); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := t.dispatch(effectID, nil); err != nil {
+			if err := t.resumeEffect(p, pending.Intent); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// resumeEffect cancels a child start its finished parent no longer wants,
+// settles Unknown an Effect that may not repeat, and redispatches the rest.
+func (t *treeRuntime) resumeEffect(p *processState, intent EffectIntent) error {
+	switch {
+	case intent.Effect.Target() == EffectTargetFramework && p.terminal.Valid():
+		return t.settleChildRequest(intent.ID, nil, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished))
+	case intent.Policy.Replay == ReplayPolicyNever || p.terminal.Valid():
+		failure := newRuntimeFailure(FailureKindExternal, failureCodeRuntimeEffectRecoveryInvalid, ErrEffectOutcomeUnknown)
+		return t.append(t.ctx, []Record{unknownRecord(intent.ID, failure)})
+	default:
+		return t.dispatch(intent.ID, nil)
+	}
 }
 
 func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {

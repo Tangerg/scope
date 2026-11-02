@@ -381,6 +381,17 @@ type PendingCheckpoint struct {
 	Failure *Failure     `json:"failure,omitzero"`
 }
 
+func (p PendingCheckpoint) inspect(epoch Epoch, program ProgramRef) PendingEffect {
+	effect := PendingEffect{Request: EffectRequest{id: p.Intent.ID, epoch: epoch, program: program, effect: p.Intent.Effect}, Policy: p.Intent.Policy}
+	if p.Failure != nil {
+		effect.Failure = new(*p.Failure)
+	}
+	if p.Outcome != nil {
+		effect.Outcome = *p.Outcome
+	}
+	return effect
+}
+
 func (p PendingCheckpoint) clone() PendingCheckpoint {
 	if p.Outcome != nil {
 		p.Outcome = new(*p.Outcome)
@@ -511,6 +522,23 @@ type Batch struct {
 	Epoch   Epoch
 	After   LSN
 	Records []Record
+}
+
+// admit checks the batch and bounds each record by the tree's limits; the batch
+// that creates a tree carries the limits it will be bound by.
+func (b Batch) admit(limits TreeLimits) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	if started, creates := b.Records[0].(Started); creates && b.After == 0 {
+		limits = started.Limits
+	}
+	for _, record := range b.Records {
+		if err := limits.admitRecord(record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b Batch) Validate() error {

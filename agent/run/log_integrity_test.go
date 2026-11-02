@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
+	"slices"
 	"testing"
 	"time"
 )
@@ -421,4 +422,20 @@ func integrityAppend(log Log, records ...Record) Log {
 	entries := append([]Entry(nil), log.Entries...)
 	entries = append(entries, batch.Entries()...)
 	return Log{Root: log.Root, Entries: entries}
+}
+
+func TestPendingEffectsFollowDeclarationOrder(t *testing.T) {
+	root := controlValue(ParseProcessID("ordering"))
+	process := newProcessState(Started{Process: root})
+	for _, step := range []uint64{10, 9, 2} {
+		id := EffectID{Process: root, Step: step}
+		process.pending[id] = PendingCheckpoint{Intent: EffectIntent{ID: id}}
+	}
+	var steps []uint64
+	for _, pending := range process.orderedPending() {
+		steps = append(steps, pending.Intent.ID.Step)
+	}
+	if !slices.Equal(steps, []uint64{2, 9, 10}) {
+		t.Fatalf("pending order %v is not declaration order", steps)
+	}
 }

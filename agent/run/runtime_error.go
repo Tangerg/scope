@@ -1,7 +1,6 @@
 package run
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -50,9 +49,7 @@ func (r *RuntimeError) UnresolvedEffectIDs() []EffectID { return slices.Clone(r.
 
 func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 	canonical := slices.Clone(effectIDs)
-	slices.SortFunc(canonical, func(left, right EffectID) int {
-		return cmp.Compare(left.String(), right.String())
-	})
+	slices.SortFunc(canonical, EffectID.compare)
 	return slices.Compact(canonical)
 }
 

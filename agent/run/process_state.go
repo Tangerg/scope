@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -235,23 +236,22 @@ func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 		terminal := p.terminal
 		value.Terminal = &terminal
 	}
-	for _, receipt := range p.receipts {
-		value.Receipts = append(value.Receipts, receipt)
-	}
-	for key := range p.childKeys {
-		value.ChildKeys = append(value.ChildKeys, key)
-	}
-	slices.SortFunc(value.ChildKeys, func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) })
-	slices.SortFunc(value.Receipts, func(a, b SignalReceipt) int { return strings.Compare(a.ID.String(), b.ID.String()) })
-	for _, wait := range p.waits {
-		value.Waits = append(value.Waits, wait)
-	}
-	slices.SortFunc(value.Waits, func(a, b Wait) int { return strings.Compare(a.Key.String(), b.Key.String()) })
-	for _, pending := range p.pending {
-		value.Pending = append(value.Pending, pending)
-	}
-	slices.SortFunc(value.Pending, func(a, b PendingCheckpoint) int { return strings.Compare(a.Intent.ID.String(), b.Intent.ID.String()) })
+	value.Receipts = slices.SortedFunc(maps.Values(p.receipts), func(a, b SignalReceipt) int { return strings.Compare(a.ID.String(), b.ID.String()) })
+	value.ChildKeys = slices.SortedFunc(maps.Keys(p.childKeys), func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) })
+	value.Waits = p.orderedWaits()
+	value.Pending = p.orderedPending()
 	return value
+}
+
+// The orderings below are the one canonical order of each set, shared by
+// checkpoints, inspection and recovery so their output never depends on map
+// iteration.
+func (p *processState) orderedWaits() []Wait {
+	return slices.SortedFunc(maps.Values(p.waits), func(a, b Wait) int { return strings.Compare(a.Key.String(), b.Key.String()) })
+}
+
+func (p *processState) orderedPending() []PendingCheckpoint {
+	return slices.SortedFunc(maps.Values(p.pending), func(a, b PendingCheckpoint) int { return a.Intent.ID.compare(b.Intent.ID) })
 }
 
 func (p *processState) admitTransition(transition Transition, limits TreeLimits, delivered uint32) error {

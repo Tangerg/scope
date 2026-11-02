@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 )
 
 // Records are the only input to this materialization. Scheduling, inspection and
@@ -341,7 +340,7 @@ func (t *treeState) ordered() []ProcessID {
 	for id := range t.processes {
 		ids = append(ids, id)
 	}
-	slices.SortFunc(ids, func(a, b ProcessID) int { return strings.Compare(a.String(), b.String()) })
+	slices.SortFunc(ids, ProcessID.compare)
 	return ids
 }
 
@@ -396,22 +395,10 @@ func (t *treeState) inspect() TreeInspection {
 			inspected.Termination = p.exited.Termination
 			inspected.FinishedAt = p.exited.At
 		}
-		for _, wait := range p.waits {
-			inspected.Waits = append(inspected.Waits, wait)
+		inspected.Waits = p.orderedWaits()
+		for _, pending := range p.orderedPending() {
+			inspected.PendingEffects = append(inspected.PendingEffects, pending.inspect(t.epoch, p.started.Program))
 		}
-		slices.SortFunc(inspected.Waits, func(a, b Wait) int { return strings.Compare(a.Key.String(), b.Key.String()) })
-		for _, pending := range p.pending {
-			effect := PendingEffect{Request: EffectRequest{id: pending.Intent.ID, epoch: t.epoch, program: p.started.Program, effect: pending.Intent.Effect}, Policy: pending.Intent.Policy}
-			if pending.Failure != nil {
-				failure := *pending.Failure
-				effect.Failure = &failure
-			}
-			if pending.Outcome != nil {
-				effect.Outcome = *pending.Outcome
-			}
-			inspected.PendingEffects = append(inspected.PendingEffects, effect)
-		}
-		slices.SortFunc(inspected.PendingEffects, func(a, b PendingEffect) int { return strings.Compare(a.Request.ID().String(), b.Request.ID().String()) })
 		view.Processes = append(view.Processes, inspected)
 	}
 	return view
