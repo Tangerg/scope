@@ -23,9 +23,8 @@ const (
 	// FailureKindExternal reports a Host boundary error without a contained panic.
 	FailureKindExternal FailureKind = "external"
 	// FailureKindPanic reports a contained callback panic when that boundary produces
-	// a Failure. Storage and API errors retain CallbackPanicError instead; isolated
-	// observation panics remain in ObservationFailures. This kind does not establish
-	// an external operation's outcome or authorize replay.
+	// a Failure. Storage and API errors retain CallbackPanicError instead. This kind
+	// does not establish an external operation's outcome or authorize replay.
 	FailureKindPanic FailureKind = "panic"
 )
 

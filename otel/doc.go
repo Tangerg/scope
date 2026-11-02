@@ -18,8 +18,8 @@
 //   - tool: tool invocation.
 //   - history: history store and conversation listing.
 //   - vectorstore: the vector-store capabilities.
-//   - agent: managed Process activation, Step, and Effect, through an Observer
-//     bound as a run.EventListener. WrapDispatcher propagates actual dispatch spans
+//   - agent: managed Process activation, Step, and Effect, projected from the
+//     committed log an Observer consumes. WrapDispatcher propagates actual dispatch spans
 //     into downstream calls. Agent and tool durations use gen_ai.invoke_agent.duration
 //     and gen_ai.execute_tool.duration, matching their invocation spans.
 //   - slog: development exporters that write all three signals to log/slog.

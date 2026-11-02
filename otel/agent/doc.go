@@ -10,8 +10,9 @@
 // Invocation and Effect spans use acknowledged record timestamps. They describe
 // logical durable work, including recovery delays. WrapDispatcher separately
 // instruments physical I/O and propagates its span to downstream SDK calls.
-// WrapStore preserves Append and Load exactly while measuring their duration
-// and proposed batch size; a failed acknowledgment is never classified as rollback.
+// WrapStore preserves Append, Load and Read exactly while measuring their
+// duration and proposed batch size; a failed acknowledgment is never classified
+// as rollback.
 //
 // Prompts, questions, outputs, credentials and failure diagnostics never become
 // telemetry attributes. IDs occur only on spans, not metric dimensions. A
