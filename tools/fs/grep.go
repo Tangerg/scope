@@ -118,7 +118,7 @@ func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 	return g.typed.Call(ctx, invocation)
 }
 
-func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, error) {
+func (g *GrepTool) grep(ctx context.Context, _ toolcontract.IdempotencyKey, req GrepRequest) (GrepResponse, error) {
 	res, err := g.executor.Grep(ctx, req)
 	if err != nil {
 		return GrepResponse{}, fmt.Errorf("fs.grep: %w", err)

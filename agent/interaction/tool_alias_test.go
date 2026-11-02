@@ -12,7 +12,7 @@ import (
 func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 	calls := 0
 	makeTool := func(name string) tool.Tool {
-		value, err := tool.NewFunc(tool.FuncConfig{Name: name}, func(context.Context, struct{}) (string, error) { calls++; return "ok", nil })
+		value, err := tool.NewFunc(tool.FuncConfig{Name: name}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) { calls++; return "ok", nil })
 		if err != nil {
 			t.Fatal(err)
 		}

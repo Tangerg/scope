@@ -30,7 +30,7 @@ func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var executions atomic.Int32
-			executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect"}, func(context.Context, struct{}) (string, error) {
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
 				executions.Add(1)
 				return "executed", nil
 			})
@@ -70,7 +70,7 @@ func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 
 func TestInvalidFailureCannotBecomeRemoteDefiniteOutcome(t *testing.T) {
 	for _, invalid := range []*tool.Failure{nil, {}} {
-		executable, err := tool.NewFunc(tool.FuncConfig{Name: "invalid"}, func(context.Context, struct{}) (string, error) {
+		executable, err := tool.NewFunc(tool.FuncConfig{Name: "invalid"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
 			return "", invalid
 		})
 		require.NoError(t, err)

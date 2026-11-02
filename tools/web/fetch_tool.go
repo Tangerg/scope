@@ -33,7 +33,7 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 	return f, nil
 }
 
-func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
+func (f *FetchTool) fetch(ctx context.Context, _ toolcontract.IdempotencyKey, request FetchRequest) (*FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
 		return nil, inputFailure(err)

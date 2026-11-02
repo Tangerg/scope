@@ -136,7 +136,7 @@ func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 	return slices.Compact(paths), nil
 }
 
-func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
+func (a *ApplyPatchTool) apply(ctx context.Context, _ toolcontract.IdempotencyKey, req ApplyPatchRequest) (ApplyPatchResponse, error) {
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
 		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)

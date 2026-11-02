@@ -115,7 +115,7 @@ func (c Contract) Definition() Definition {
 type Invocation struct {
 	contract       *contractState
 	arguments      []byte
-	idempotencyKey string
+	idempotencyKey IdempotencyKey
 	continuation   *Continuation
 }
 
@@ -181,9 +181,7 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 // Arguments returns an owned copy of the validated JSON object.
 func (i Invocation) Arguments() []byte { return bytes.Clone(i.arguments) }
 
-// IdempotencyKey returns the driver-assigned identity of the logical call, or
-// empty when the caller has none.
-func (i Invocation) IdempotencyKey() string { return i.idempotencyKey }
+func (i Invocation) IdempotencyKey() IdempotencyKey { return i.idempotencyKey }
 
 func (i Invocation) Continuation() (Continuation, bool) {
 	if i.continuation == nil {

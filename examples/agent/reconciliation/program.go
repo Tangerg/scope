@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"sync/atomic"
 
 	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -19,12 +17,18 @@ const (
 )
 
 func newProgram(compiler *agentrun.Compiler, remote *remoteLedger, model *receiptModel) (agentrun.Program[interaction.Input, interaction.Output], error) {
-	executable, err := newRecordNoteTool(remote)
+	recordNote, err := tool.NewFunc(tool.FuncConfig{Name: recordNoteToolName, Description: "Record one note remotely."},
+		func(ctx context.Context, key tool.IdempotencyKey, input note) (string, error) {
+			if err := remote.submit(ctx, key, input); err != nil {
+				return "", err
+			}
+			return "", errors.New("remote: response lost after recording the outcome")
+		})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
 	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
-		Revision: "receipt-tool.v1", Tools: []tool.Tool{executable},
+		Revision: "receipt-tool.v1", Tools: []tool.Tool{recordNote},
 	})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
@@ -34,36 +38,6 @@ func newProgram(compiler *agentrun.Compiler, remote *remoteLedger, model *receip
 		Revision: "receipt-interaction.v1", Model: model,
 		MaxModelCalls: agentrun.NewQuota(receiptModelCallLimit), Tools: tools,
 	})
-}
-
-// recordNoteTool implements Tool directly because the remote write must carry
-// the call's idempotency key, which only an Invocation exposes.
-type recordNoteTool struct {
-	remote *remoteLedger
-	input  jsonschema.Schema
-}
-
-func newRecordNoteTool(remote *remoteLedger) (recordNoteTool, error) {
-	input, err := jsonschema.For[note]()
-	if err != nil {
-		return recordNoteTool{}, err
-	}
-	return recordNoteTool{remote: remote, input: input}, nil
-}
-
-func (r recordNoteTool) Definition() tool.Definition {
-	return tool.Definition{Name: recordNoteToolName, Description: "Record one note remotely.", InputSchema: r.input.JSON()}
-}
-
-func (r recordNoteTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
-	var input note
-	if err := jsonv2.Unmarshal(invocation.Arguments(), &input, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return tool.Result{}, err
-	}
-	if err := r.remote.submit(ctx, invocation.IdempotencyKey(), input); err != nil {
-		return tool.Result{}, err
-	}
-	return tool.Result{}, errors.New("remote: response lost after recording the outcome")
 }
 
 type receiptModel struct{ calls atomic.Int32 }

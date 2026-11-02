@@ -85,14 +85,14 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 	handle := startInteraction(t, runtime, program)
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
 	defer cancel()
-	var first, second run.EffectID
+	var first, second tool.IdempotencyKey
 	for range 2 {
 		select {
 		case input := <-started:
 			if requestedCall(input) == "first" {
-				first = invocationEffect(input)
+				first = input.IdempotencyKey()
 			} else {
-				second = invocationEffect(input)
+				second = input.IdempotencyKey()
 			}
 		case <-ctx.Done():
 			t.Fatal("independent tool calls did not overlap", ctx.Err())
@@ -100,17 +100,17 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 	}
 	log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
 		for _, entry := range log.Entries {
-			if settled, ok := entry.Record.(run.EffectSettled); ok && settled.ID == second {
+			if settled, ok := entry.Record.(run.EffectSettled); ok && idempotencyKey(settled.ID) == second {
 				return true
 			}
 		}
 		return false
 	})
 	rounds := mustValue(SettledResults(program, log))
-	if len(rounds) != 1 || rounds[0].Complete() || len(rounds[0].Entries()) != 1 || rounds[0].Entries()[0].ToolCallIndex != 1 || rounds[0].Entries()[0].Reference != second {
+	if len(rounds) != 1 || rounds[0].Complete() || len(rounds[0].Entries()) != 1 || rounds[0].Entries()[0].ToolCallIndex != 1 || idempotencyKey(rounds[0].Entries()[0].Reference) != second {
 		t.Fatal("an early second result changed the provider's proposal indexes")
 	}
-	if reference, found := rounds[0].Reference(0); !found || reference != first {
+	if reference, found := rounds[0].Reference(0); !found || idempotencyKey(reference) != first {
 		t.Fatal("an unfinished sibling lost its committed effect identity")
 	}
 	releaseOnce.Do(func() { close(release) })

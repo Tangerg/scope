@@ -50,7 +50,13 @@ func (t ToolInvocation) Reference() run.EffectID {
 
 // IdempotencyKey is the key the Tool receives in its Admission. Hosts use it to
 // find the external record of a call whose outcome the runtime cannot know.
-func (t ToolInvocation) IdempotencyKey() string { return t.Reference().String() }
+// It digests the call's Reference so a Tool forwarding it to a third party
+// discloses no process path or step.
+func (t ToolInvocation) IdempotencyKey() tool.IdempotencyKey { return idempotencyKey(t.Reference()) }
+
+func idempotencyKey(reference run.EffectID) tool.IdempotencyKey {
+	return tool.IdempotencyKey(run.ComputeDigest([]byte(reference.String())).String())
+}
 
 func (t ToolInvocation) Valid() bool {
 	return t.request.Valid() && t.call.Invocation.validate() == nil && (t.call.Resume == nil || t.call.Resume.precedes(t.request.ID()))

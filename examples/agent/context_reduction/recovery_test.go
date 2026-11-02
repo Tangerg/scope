@@ -23,8 +23,18 @@ const (
 )
 
 type confirmedToolCall struct {
-	EffectID agentrun.EffectID
-	Output   tool.Output
+	Key    tool.IdempotencyKey
+	Output tool.Output
+}
+
+// requestKey is the idempotency key a Host derives to match a pending tool
+// Effect with the external record its Tool wrote.
+func requestKey(request agentrun.EffectRequest) tool.IdempotencyKey {
+	invocation, err := interaction.ToolInvocationFromRequest(request)
+	if err != nil {
+		return ""
+	}
+	return invocation.IdempotencyKey()
 }
 
 type losingReportTool struct {
@@ -37,17 +47,13 @@ func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool
 	if err != nil {
 		return tool.Result{}, err
 	}
-	effectID, err := agentrun.ParseEffectID(input.IdempotencyKey())
-	if err != nil {
-		return tool.Result{}, err
-	}
 	var arguments readReport
 	if err := jsonv2.Unmarshal(input.Arguments(), &arguments, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return tool.Result{}, err
 	}
 	if uint64(arguments.Index+1) == lostToolRound {
 		select {
-		case l.confirmed <- confirmedToolCall{EffectID: effectID, Output: output.Output.Clone()}:
+		case l.confirmed <- confirmedToolCall{Key: input.IdempotencyKey(), Output: output.Output.Clone()}:
 			return tool.Result{}, errors.New("confirmed report response was lost")
 		case <-ctx.Done():
 			return tool.Result{}, ctx.Err()
@@ -132,7 +138,7 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 			return false
 		}
 		for _, pending := range process.PendingEffects {
-			if pending.Request.ID() == receipt.EffectID && pending.Outcome.Status() == agentrun.SettlementStatusUnknown {
+			if requestKey(pending.Request) == receipt.Key && pending.Outcome.Status() == agentrun.SettlementStatusUnknown {
 				return true
 			}
 		}
@@ -159,7 +165,7 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	initial, _ := before.Process(root.ID())
-	if len(initial.PendingEffects) != 1 || initial.PendingEffects[0].Request.ID() != receipt.EffectID {
+	if len(initial.PendingEffects) != 1 || requestKey(initial.PendingEffects[0].Request) != receipt.Key {
 		t.Fatal("confirmed outcome lost its frozen request")
 	}
 	if closeErr := runtime.Close(ctx); closeErr != nil {

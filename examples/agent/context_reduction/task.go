@@ -147,7 +147,7 @@ func (c contextModel) Call(ctx context.Context, request *chat.Request) (*chat.Re
 
 func reportTool(task contextTask) (tool.Tool, error) {
 	return tool.NewFunc(tool.FuncConfig{Name: readReportToolName, Description: "Read an immutable report by index."},
-		func(_ context.Context, input readReport) (string, error) {
+		func(_ context.Context, _ tool.IdempotencyKey, input readReport) (string, error) {
 			if input.Index < 0 || input.Index >= len(task.Documents) {
 				return "", errors.New("report index is out of range")
 			}

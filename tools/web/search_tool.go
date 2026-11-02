@@ -33,7 +33,7 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 	return s, nil
 }
 
-func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*SearchResponse, error) {
+func (s *SearchTool) search(ctx context.Context, _ toolcontract.IdempotencyKey, request SearchRequest) (*SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
 		return nil, inputFailure(err)

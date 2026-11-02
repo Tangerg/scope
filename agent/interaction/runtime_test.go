@@ -84,9 +84,6 @@ func requestedCall(input tool.Invocation) string {
 	return arguments.Call
 }
 
-func invocationEffect(input tool.Invocation) run.EffectID {
-	return mustValue(run.ParseEffectID(input.IdempotencyKey()))
-}
 func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[Input, Output] {
 	t.Helper()
 	config.Name = "test.interaction"
@@ -173,9 +170,9 @@ func readHistory(ctx context.Context, store run.Store, root run.ProcessID) (run.
 func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	var calls []run.EffectID
+	var calls []tool.IdempotencyKey
 	executable := scriptTool{name: "echo", invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
-		calls = append(calls, invocationEffect(input))
+		calls = append(calls, input.IdempotencyKey())
 		return tool.Result{Output: tool.NewTextOutput(requestedCall(input))}, nil
 	}}
 	models := 0
@@ -218,7 +215,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	if starts != 1 || len(intents) != 4 {
 		t.Fatalf("starts=%d intents=%d", starts, len(intents))
 	}
-	if !slices.Equal(calls, intents[1:3]) {
+	if !slices.Equal(calls, []tool.IdempotencyKey{idempotencyKey(intents[1]), idempotencyKey(intents[2])}) {
 		t.Fatalf("idempotency keys %v are not the committed tool intents %v", calls, intents)
 	}
 	rounds, err := SettledResults(program, log)
@@ -235,7 +232,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	}
 	for index, entry := range rounds[0].Entries() {
 		reference, ok := rounds[0].Reference(uint32(index))
-		if !ok || reference != calls[index] || entry.Reference != reference {
+		if !ok || idempotencyKey(reference) != calls[index] || entry.Reference != reference {
 			t.Fatal("result reference not derived from committed intent")
 		}
 	}
@@ -244,7 +241,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, CheckpointInterval: 1})
-	var keys []string
+	var keys []tool.IdempotencyKey
 	executable := scriptTool{name: "ask", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
 		keys = append(keys, input.IdempotencyKey())
 		continuation, resumed := input.Continuation()
@@ -303,7 +300,7 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 	if len(output.DirectToolResults) != 1 || output.ModelCalls != 1 || len(keys) != 3 {
 		t.Fatalf("output=%+v invocations=%d", output, len(keys))
 	}
-	if first := mustValue(run.ParseEffectID(keys[0])); first.Process != handle.ID() || slices.ContainsFunc(keys, func(key string) bool { return key != keys[0] }) {
+	if slices.ContainsFunc(keys, func(key tool.IdempotencyKey) bool { return key != keys[0] }) {
 		t.Fatalf("continuations changed the logical call key: %v", keys)
 	}
 	if pending := PendingToolInputs(program, mustValue(completedLog(t, store, handle.ID()).Inspect())); len(pending) != 0 {

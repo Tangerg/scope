@@ -12,10 +12,11 @@
 // Transient streaming deltas do not establish durable results.
 //
 // Ordinary tool calls are direct dispatcher Effects. Their first EffectID is
-// the logical reference across continuation Effects and result projections, and
-// every attempt receives it as tool.Admission.IdempotencyKey so external
-// systems can deduplicate replayed work. [ToolInvocation.IdempotencyKey] gives
-// Hosts the same key when they reconcile an Unknown call.
+// the logical reference across continuation Effects and result projections.
+// Every attempt receives an opaque tool.IdempotencyKey digested from it, so
+// external systems can deduplicate replayed work without learning process
+// structure. [ToolInvocation.IdempotencyKey] gives Hosts the same key when they
+// reconcile an Unknown call.
 // A tool.InputRequest opens a local Wait; each later question receives a new
 // WaitKey so an old answer retry cannot answer a new question. [PendingToolInputs]
 // lists those waits from a run.TreeInspection, their only record. The process and WaitKey own

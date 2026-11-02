@@ -12,7 +12,9 @@ import (
 )
 
 // Func adapts a typed Go function to [Tool]. It is immutable and as safe for
-// concurrent calls as the wrapped function.
+// concurrent calls as the wrapped function. The function receives the call's
+// IdempotencyKey beside its input so a function with external effects can let
+// its backend deduplicate replays; a pure function ignores it.
 //
 // A Func validates arguments by strictly decoding them into In, not against a
 // retained compiled schema, so it owns only the canonical input-schema JSON it
@@ -21,7 +23,7 @@ import (
 type Func[In, Out any] struct {
 	config      FuncConfig
 	inputSchema json.RawMessage
-	function    func(context.Context, In) (Out, error)
+	function    func(context.Context, IdempotencyKey, In) (Out, error)
 }
 
 type FuncConfig struct {
@@ -34,7 +36,7 @@ type FuncConfig struct {
 // admits arguments before any function executes, even when JSON Schema cannot
 // express all decoder constraints. Custom JSON and text decoders in In must be
 // deterministic, bounded, side-effect-free, and safe for concurrent use.
-func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) (Out, error)) (Func[In, Out], error) {
+func NewFunc[In, Out any](config FuncConfig, function func(context.Context, IdempotencyKey, In) (Out, error)) (Func[In, Out], error) {
 	var zero Func[In, Out]
 	if function == nil {
 		return zero, fmt.Errorf("%w: function is nil", ErrInvalidTool)
@@ -102,7 +104,7 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result,
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return Result{}, ctxErr
 	}
-	output, err := f.function(ctx, input)
+	output, err := f.function(ctx, invocation.IdempotencyKey(), input)
 	if err != nil {
 		return Result{}, err
 	}

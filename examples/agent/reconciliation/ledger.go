@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/Tangerg/scope/core/tool"
 )
 
 type note struct {
@@ -12,7 +14,7 @@ type note struct {
 }
 
 type receipt struct {
-	IdempotencyKey string
+	IdempotencyKey tool.IdempotencyKey
 	Note           note
 	Accepted       bool
 }
@@ -32,12 +34,12 @@ type remoteLedger struct {
 	mu           sync.Mutex
 	reject       bool
 	availability queryAvailability
-	receipts     map[string]receipt
+	receipts     map[tool.IdempotencyKey]receipt
 	attempts     int
 	queries      int
 }
 
-func (r *remoteLedger) submit(ctx context.Context, key string, input note) error {
+func (r *remoteLedger) submit(ctx context.Context, key tool.IdempotencyKey, input note) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -48,13 +50,13 @@ func (r *remoteLedger) submit(ctx context.Context, key string, input note) error
 		return errors.New("remote: unexpected repeated write")
 	}
 	if r.receipts == nil {
-		r.receipts = make(map[string]receipt)
+		r.receipts = make(map[tool.IdempotencyKey]receipt)
 	}
 	r.receipts[key] = receipt{IdempotencyKey: key, Note: input, Accepted: !r.reject}
 	return nil
 }
 
-func (r *remoteLedger) lookup(ctx context.Context, key string) (receipt, bool, error) {
+func (r *remoteLedger) lookup(ctx context.Context, key tool.IdempotencyKey) (receipt, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return receipt{}, false, err
 	}

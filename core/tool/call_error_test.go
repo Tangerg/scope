@@ -72,7 +72,7 @@ func TestFuncPreservesNonfinalExecutionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "write"}, func(context.Context, struct{}) (string, error) {
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "write"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
 		return "not a completed result", callErr
 	})
 	if err != nil {

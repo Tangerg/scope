@@ -190,7 +190,7 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (to
 	return out, err
 }
 
-func (t *Tool) generate(_ context.Context, req Request) (*Response, error) {
+func (t *Tool) generate(_ context.Context, _ toolcontract.IdempotencyKey, req Request) (*Response, error) {
 	req.Location = strings.TrimSpace(req.Location)
 	if req.Location == "" {
 		return nil, errors.New("fakeweather: location is required")

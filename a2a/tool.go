@@ -113,7 +113,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	if key := invocation.IdempotencyKey(); key != "" {
 		// Servers deduplicate on messageId, so a replayed call must resend the
 		// identity of its first attempt rather than start a second task.
-		req.Message.ID = key
+		req.Message.ID = string(key)
 	}
 	if c, ok := invocation.Continuation(); ok {
 		req.Message, err = r.reply(invocation, c)

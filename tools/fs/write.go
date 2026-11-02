@@ -53,7 +53,7 @@ func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	return w.typed.Call(ctx, invocation)
 }
 
-func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse, error) {
+func (w *WriteTool) write(ctx context.Context, _ toolcontract.IdempotencyKey, req WriteRequest) (WriteResponse, error) {
 	res, err := w.executor.Write(ctx, req)
 	if err != nil {
 		return WriteResponse{}, mutationError("fs.write", res, err)

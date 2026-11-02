@@ -67,7 +67,7 @@ func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 	return r.typed.Call(ctx, invocation)
 }
 
-func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
+func (r *ReadTool) read(ctx context.Context, _ toolcontract.IdempotencyKey, req ReadRequest) (ReadResponse, error) {
 	res, err := r.executor.Read(ctx, ReadInput{
 		Path:   req.Path,
 		Offset: max(req.StartLine-1, 0),

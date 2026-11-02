@@ -58,7 +58,7 @@ func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 	return e.typed.Call(ctx, invocation)
 }
 
-func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, error) {
+func (e *EditTool) edit(ctx context.Context, _ toolcontract.IdempotencyKey, req EditRequest) (EditResponse, error) {
 	res, err := e.executor.Edit(ctx, req)
 	if err != nil {
 		return EditResponse{}, mutationError("fs.edit", res, err)

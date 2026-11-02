@@ -46,7 +46,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 	}
 	function, err := coretool.NewFunc(
 		coretool.FuncConfig{Name: config.Name, Description: config.Description},
-		func(ctx context.Context, input RetrievalRequest) (RetrievalOutput, error) {
+		func(ctx context.Context, _ coretool.IdempotencyKey, input RetrievalRequest) (RetrievalOutput, error) {
 			query, err := rag.NewQuery(input.Query)
 			if err != nil {
 				return RetrievalOutput{}, inputFailure(fmt.Errorf("rag: retrieval tool query: %w", err))

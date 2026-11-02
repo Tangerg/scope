@@ -52,7 +52,7 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (to
 	return t.inner.Call(ctx, invocation)
 }
 
-func (t *Tool) request(ctx context.Context, request Request) (*Response, error) {
+func (t *Tool) request(ctx context.Context, _ toolcontract.IdempotencyKey, request Request) (*Response, error) {
 	response, err := t.client.Do(ctx, &request)
 	if admission, ok := errors.AsType[*admissionError](err); ok {
 		return nil, admissionFailure(admission)

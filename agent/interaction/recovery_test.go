@@ -87,13 +87,13 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T)
 				defer barrier.stop()
 				original := conformancetest.Runtime(t, run.Config{Store: barrier})
 				var toolCalls, modelCalls atomic.Int32
-				var idsMu sync.Mutex
-				var ids []run.EffectID
+				var keysMu sync.Mutex
+				var keys []tool.IdempotencyKey
 				executable := scriptTool{name: "write", direct: true, idempotent: idempotent, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
 					toolCalls.Add(1)
-					idsMu.Lock()
-					ids = append(ids, invocationEffect(input))
-					idsMu.Unlock()
+					keysMu.Lock()
+					keys = append(keys, input.IdempotencyKey())
+					keysMu.Unlock()
 					return tool.Result{Output: tool.NewTextOutput("verified")}, nil
 				}}
 				tools := mustValue(NewToolSet(ToolSetConfig{Revision: "write", Tools: []tool.Tool{executable}}))
@@ -143,13 +143,13 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T)
 				if toolCalls.Load() != expected || modelCalls.Load() != 1 {
 					t.Fatalf("tools=%d models=%d", toolCalls.Load(), modelCalls.Load())
 				}
-				idsMu.Lock()
-				for _, id := range ids {
-					if id != intended {
-						t.Error("replay changed logical effect identity")
+				keysMu.Lock()
+				for _, key := range keys {
+					if key != idempotencyKey(intended) {
+						t.Error("replay changed the logical call's idempotency key")
 					}
 				}
-				idsMu.Unlock()
+				keysMu.Unlock()
 				barrier.stop()
 				if _, err := handle.Await(ctx); !errors.Is(err, errToolSettlementCrash) {
 					t.Fatalf("old writer result=%v", err)
@@ -213,10 +213,10 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 	original := conformancetest.Runtime(t, run.Config{Store: barrier})
 	firstQuestion := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"phase":1}`)))
 	secondQuestion := mustValue(newInputRequest([]byte(`"Give a reason."`), []byte(`{"type":"string"}`), []byte(`{"phase":2}`)))
-	keys := make(chan run.EffectID, 3)
+	keys := make(chan tool.IdempotencyKey, 3)
 	var initialCalls, modelCalls atomic.Int32
 	executable := scriptTool{name: "approve", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
-		keys <- invocationEffect(input)
+		keys <- input.IdempotencyKey()
 		continuation, resumed := input.Continuation()
 		if !resumed {
 			initialCalls.Add(1)
@@ -307,7 +307,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		t.Fatal("recovered continuation changed its final output")
 	}
 	for range 3 {
-		if key := <-keys; key != intended {
+		if key := <-keys; key != idempotencyKey(intended) {
 			t.Fatalf("continuation key %s changed the logical call %s", key, intended)
 		}
 	}

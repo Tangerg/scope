@@ -216,7 +216,7 @@ func unknownRequest(log agentrun.Log) (agentrun.EffectRequest, error) {
 	return result, nil
 }
 
-func reconcile(ctx context.Context, lookup func(context.Context, string) (receipt, bool, error), program agentrun.Program[interaction.Input, interaction.Output], request agentrun.EffectRequest, owner *agentrun.Handle[interaction.Output]) (bool, string, error) {
+func reconcile(ctx context.Context, lookup func(context.Context, toolcontract.IdempotencyKey) (receipt, bool, error), program agentrun.Program[interaction.Input, interaction.Output], request agentrun.EffectRequest, owner *agentrun.Handle[interaction.Output]) (bool, string, error) {
 	invocation, err := interaction.ToolInvocationFromRequest(request)
 	if err != nil {
 		return false, "", err

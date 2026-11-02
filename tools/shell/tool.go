@@ -74,7 +74,7 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (to
 	return t.typed.Call(ctx, invocation)
 }
 
-func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
+func (t *Tool) run(ctx context.Context, _ toolcontract.IdempotencyKey, req Request) (Response, error) {
 	res, err := t.executor.Run(ctx, Input{
 		Cmd:     req.Command,
 		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,

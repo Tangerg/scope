@@ -77,7 +77,7 @@ func (g *GlobTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 	return g.typed.Call(ctx, invocation)
 }
 
-func (g *GlobTool) glob(ctx context.Context, req GlobRequest) (GlobResponse, error) {
+func (g *GlobTool) glob(ctx context.Context, _ toolcontract.IdempotencyKey, req GlobRequest) (GlobResponse, error) {
 	res, err := g.executor.Glob(ctx, req)
 	if err != nil {
 		return GlobResponse{}, fmt.Errorf("fs.glob: %w", err)

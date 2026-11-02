@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestRun(t *testing.T) {
@@ -140,7 +141,7 @@ func TestReceiptMustMatchOriginalWrite(t *testing.T) {
 			{IdempotencyKey: "another-call", Note: note{Text: "release note"}, Accepted: true},
 			{IdempotencyKey: invocation.IdempotencyKey(), Note: note{Text: "another operation"}, Accepted: true},
 		} {
-			lookup := func(context.Context, string) (receipt, bool, error) { return wrong, true, nil }
+			lookup := func(context.Context, tool.IdempotencyKey) (receipt, bool, error) { return wrong, true, nil }
 			resolved, _, err := reconcile(ctx, lookup, program, result.Request, nil)
 			if err == nil || err.Error() != "example: remote receipt does not match the original write" || resolved {
 				t.Fatalf("mismatched receipt accepted: resolved=%t error=%v", resolved, err)
