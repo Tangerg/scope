@@ -178,7 +178,7 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 			}
 			intents[record.ID] = record
 			if record.Effect.Target() == run.EffectTargetDispatcher {
-				envelope, err := decodeEffect(record.Effect.Payload())
+				envelope, err := decodeEffect(record.Effect.Payload().JSON())
 				if err != nil {
 					return interactionProjection{}, err
 				}
@@ -258,7 +258,7 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 				if record.Outcome.Status() != run.SettlementStatusSucceeded {
 					continue
 				}
-				envelope, err := decodeResult(record.Outcome.Payload())
+				envelope, err := decodeResult(record.Outcome.Payload().JSON())
 				if err != nil {
 					return interactionProjection{}, err
 				}
@@ -280,10 +280,7 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 			}
 			if intent.Effect.Target() == run.EffectTargetFramework {
 				if record.Outcome.Status() == run.SettlementStatusFailed {
-					payload, err := run.ParsePayload(record.Outcome.Payload())
-					if err != nil {
-						return interactionProjection{}, err
-					}
+					payload := record.Outcome.Payload()
 					failure, err := payload.Decode[run.Failure]()
 					if err != nil {
 						return interactionProjection{}, err
@@ -292,10 +289,7 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 						return interactionProjection{}, err
 					}
 				} else if record.Outcome.Status() == run.SettlementStatusSucceeded {
-					payload, err := run.ParsePayload(record.Outcome.Payload())
-					if err != nil {
-						return interactionProjection{}, err
-					}
+					payload := record.Outcome.Payload()
 					child, err := payload.Decode[run.ProcessID]()
 					if err != nil {
 						return interactionProjection{}, err
@@ -308,7 +302,7 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 			if record.Outcome.Status() != run.SettlementStatusSucceeded {
 				continue
 			}
-			envelope, err := decodeResult(record.Outcome.Payload())
+			envelope, err := decodeResult(record.Outcome.Payload().JSON())
 			if err != nil {
 				return interactionProjection{}, err
 			}

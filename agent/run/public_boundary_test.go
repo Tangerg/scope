@@ -126,9 +126,9 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 			raw := json.RawMessage(` {"value": 1} `)
 			settlement := controlValue(NewSettlement(status, raw))
 			raw[0] = '['
-			returned := settlement.Payload()
+			returned := settlement.Payload().JSON()
 			returned[0] = '['
-			if !settlement.Valid() || settlement.Status() != status || string(settlement.Payload()) != `{"value":1}` {
+			if !settlement.Valid() || settlement.Status() != status || string(settlement.Payload().JSON()) != `{"value":1}` {
 				t.Fatal("settlement admitted a mutable or competing result")
 			}
 			encoded := controlValue(jsonv2.Marshal(settlement))
@@ -136,7 +136,7 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 				t.Fatal(err)
 			}
 			var decoded Settlement
-			if err := jsonv2.Unmarshal(encoded, &decoded); err != nil || decoded.Status() != status || !bytes.Equal(decoded.Payload(), settlement.Payload()) {
+			if err := jsonv2.Unmarshal(encoded, &decoded); err != nil || decoded.Status() != status || !bytes.Equal(decoded.Payload().JSON(), settlement.Payload().JSON()) {
 				t.Fatalf("settlement round trip changed result: %v", err)
 			}
 		})
@@ -161,7 +161,7 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 		`{"status":"failed","status":"succeeded","payload":null}`,
 	} {
 		candidate := accepted
-		if err := candidate.UnmarshalJSON([]byte(raw)); !errors.Is(err, ErrInvalidSettlement) || candidate.Status() != accepted.Status() || !bytes.Equal(candidate.Payload(), accepted.Payload()) {
+		if err := candidate.UnmarshalJSON([]byte(raw)); !errors.Is(err, ErrInvalidSettlement) || candidate.Status() != accepted.Status() || !bytes.Equal(candidate.Payload().JSON(), accepted.Payload().JSON()) {
 			t.Fatalf("invalid wire replaced the accepted settlement: %s, %v", raw, err)
 		}
 	}

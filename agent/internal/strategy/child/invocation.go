@@ -71,10 +71,7 @@ func (i *Invocation) Accept(message run.Message) (bool, error) {
 		if i.Request == nil || value.Effect != *i.Request {
 			return false, nil
 		}
-		payload, err := run.ParsePayload(value.Outcome.Payload())
-		if err != nil {
-			return false, err
-		}
+		payload := value.Outcome.Payload()
 		switch value.Outcome.Status() {
 		case run.SettlementStatusSucceeded:
 			process, err := payload.Decode[run.ProcessID]()

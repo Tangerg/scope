@@ -102,7 +102,7 @@ func ModelRequestFromEffect(effect run.Effect) (*chat.Request, bool, error) {
 	if effect.Target() != run.EffectTargetDispatcher {
 		return nil, false, nil
 	}
-	envelope, err := decodeEffect(effect.Payload())
+	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err != nil {
 		return nil, false, err
 	}
@@ -115,7 +115,7 @@ func ToolCallFromEffect(effect run.Effect) (chat.ToolCall, run.EffectID, bool, e
 	if effect.Target() != run.EffectTargetDispatcher {
 		return chat.ToolCall{}, run.EffectID{}, false, nil
 	}
-	envelope, err := decodeEffect(effect.Payload())
+	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err != nil {
 		return chat.ToolCall{}, run.EffectID{}, false, err
 	}
@@ -133,7 +133,7 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
 	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload())
+		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload().JSON())
 		if err != nil {
 			return ModelSettlement{}, err
 		}
@@ -157,7 +157,7 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 		}
 		return result, result.Validate()
 	}
-	envelope, err := decodeResult(outcome.Payload())
+	envelope, err := decodeResult(outcome.Payload().JSON())
 	if err != nil {
 		return ModelSettlement{}, err
 	}
@@ -171,7 +171,7 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
 	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload())
+		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload().JSON())
 		if err != nil {
 			return ToolSettlement{}, err
 		}
@@ -188,7 +188,7 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		}
 		return result, nil
 	}
-	envelope, err := decodeResult(outcome.Payload())
+	envelope, err := decodeResult(outcome.Payload().JSON())
 	if err != nil {
 		return ToolSettlement{}, err
 	}

@@ -90,7 +90,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 	settlement := mustValue(SettleToolResult(program, request, result, ResultSucceeded, advertised))
 	result.Output.Content[0].Text = "changed after validation"
 	advertised[0] = "missing"
-	retained := mustValue(decodeResult(settlement.Payload())).ToolResult.Completion
+	retained := mustValue(decodeResult(settlement.Payload().JSON())).ToolResult.Completion
 	if !slices.Equal(retained.AdvertisedToolNames, []string{"hidden"}) || retained.Output.Content[0].Text != "verified once" {
 		t.Fatal("investigated evidence was not frozen at admission")
 	}

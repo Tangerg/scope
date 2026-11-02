@@ -6,8 +6,6 @@ import (
 	"math"
 	"slices"
 	"strings"
-
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 // Records are the only input to this materialization. Scheduling, inspection and
@@ -163,7 +161,7 @@ func (t *treeState) settle(settled EffectSettled) error {
 
 func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outcome Settlement) error {
 	if spawn := effect.spawn; spawn != nil {
-		child, err := jsonwire.Decode[ProcessID](outcome.payload)
+		child, err := outcome.payload.Decode[ProcessID]()
 		if err != nil || child != t.unsettledChild {
 			return ErrInvalidChildStart
 		}
@@ -174,7 +172,7 @@ func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outc
 		t.unsettledChild = ProcessID{}
 		return nil
 	}
-	if _, err := jsonwire.Decode[struct{}](outcome.payload); err != nil {
+	if _, err := outcome.payload.Decode[struct{}](); err != nil {
 		return ErrInvalidChildControl
 	}
 	if send := effect.send; send != nil {

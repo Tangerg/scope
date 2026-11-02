@@ -136,10 +136,7 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 		return run.Transition{}, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome
-	payload, err := run.ParsePayload(settlement.Payload())
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
-	}
+	payload := settlement.Payload()
 	if settlement.Status() == run.SettlementStatusFailed {
 		diagnostic, decodeErr := payload.Decode[string]()
 		if decodeErr != nil || !run.ValidDiagnostic(diagnostic) {
@@ -154,7 +151,7 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 	if settlement.Status() != run.SettlementStatusSucceeded {
 		return run.Transition{}, fmt.Errorf("%w: timer requires a definite settlement", ErrInvalidProtocol)
 	}
-	if _, err = payload.Decode[timerReached](); err != nil {
+	if _, err := payload.Decode[timerReached](); err != nil {
 		return run.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
 	d.state.Effect = nil

@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
 	"slices"
@@ -832,7 +831,7 @@ type dispatchResult struct {
 }
 
 func unknownSettlement() Settlement {
-	value, _ := NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON))
+	value := Settlement{status: SettlementStatusUnknown, payload: nullPayload}
 	return value
 }
 

@@ -284,7 +284,7 @@ func TestRuntimePanicCarriesExplicitUnknownFailure(t *testing.T) {
 	}
 	for _, entry := range log.Entries {
 		if settled, ok := entry.Record.(run.EffectSettled); ok && settled.ID == pending.Request.ID() {
-			if settled.Failure == nil || string(settled.Outcome.Payload()) != "null" {
+			if settled.Failure == nil || string(settled.Outcome.Payload().JSON()) != "null" {
 				t.Fatal("runtime failure guessed an interaction envelope")
 			}
 			return

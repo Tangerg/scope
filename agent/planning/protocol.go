@@ -137,13 +137,13 @@ func decodeSettlement[T any](messages []run.Message, expected *run.EffectID) (T,
 	settlement := completion.Outcome
 	var err error
 	if settlement.Status() == run.SettlementStatusFailed {
-		failure, decodeErr := jsonwire.Decode[settlementFailure](settlement.Payload())
+		failure, decodeErr := jsonwire.Decode[settlementFailure](settlement.Payload().JSON())
 		if decodeErr != nil || !failure.valid() {
 			return result, nil, fmt.Errorf("%w: invalid settlement failure", ErrInvalidProtocol)
 		}
 		return result, &failure, nil
 	}
-	if result, err = jsonwire.Decode[T](settlement.Payload()); err != nil {
+	if result, err = jsonwire.Decode[T](settlement.Payload().JSON()); err != nil {
 		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
 	}
 	return result, nil, nil

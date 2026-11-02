@@ -24,6 +24,9 @@ const MaxPayloadBytes = 64 << 20
 
 const nullJSON = "null"
 
+// nullPayload is the result of an Effect whose outcome is unknown.
+var nullPayload = Payload{data: json.RawMessage(nullJSON)}
+
 // canonicalTime is the recorded form of an instant: UTC without a monotonic
 // reading, so equal instants encode, and therefore digest, identically.
 func canonicalTime(instant time.Time) time.Time { return instant.Round(0).UTC() }
@@ -77,6 +80,9 @@ func (p Payload) JSON() json.RawMessage { return bytes.Clone(p.data) }
 
 // IsZero distinguishes an absent optional payload from an explicit JSON null.
 func (p Payload) IsZero() bool { return !p.Valid() }
+
+// equal compares canonical encodings, which every Payload constructor produces.
+func (p Payload) equal(other Payload) bool { return bytes.Equal(p.data, other.data) }
 
 func (p Payload) Valid() bool { return len(p.data) > 0 }
 

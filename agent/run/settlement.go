@@ -1,7 +1,6 @@
 package run
 
 import (
-	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -48,34 +47,34 @@ func (s SettlementStatus) String() string {
 // next Step as a Completion message.
 type Settlement struct {
 	status  SettlementStatus
-	payload json.RawMessage
+	payload Payload
 }
 
 func NewSettlement(status SettlementStatus, payload json.RawMessage) (Settlement, error) {
 	if !status.Valid() {
 		return Settlement{}, fmt.Errorf("%w: status is required", ErrInvalidSettlement)
 	}
-	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
+	value, err := ParsePayload(payload)
 	if err != nil {
 		return Settlement{}, fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
 	}
-	return Settlement{status: status, payload: normalized}, nil
+	return Settlement{status: status, payload: value}, nil
 }
 
 func (s Settlement) Status() SettlementStatus { return s.status }
 
-// Payload returns an independently owned owner-defined result.
-func (s Settlement) Payload() json.RawMessage { return bytes.Clone(s.payload) }
+// Payload is the owner-defined result; its Decode reads the owner's type.
+func (s Settlement) Payload() Payload { return s.payload }
 
 func (s Settlement) Valid() bool {
-	return s.status.Valid() && len(s.payload) > 0
+	return s.status.Valid() && s.payload.Valid()
 }
 
 func (s Settlement) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSettlement
 	}
-	return jsonv2.Marshal(settlementWire{Status: s.status, Payload: s.payload})
+	return jsonv2.Marshal(settlementWire{Status: s.status, Payload: s.payload.JSON()})
 }
 
 func (s *Settlement) UnmarshalJSON(data []byte) error {

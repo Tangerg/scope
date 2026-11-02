@@ -90,10 +90,7 @@ func (s *senderExecution) Step(_ context.Context, turn run.Turn) (run.Transition
 	if !ok || completion.Effect != *s.pending {
 		return run.Transition{}, ErrInvalidMessage
 	}
-	payload, err := run.ParsePayload(completion.Outcome.Payload())
-	if err != nil {
-		return run.Transition{}, err
-	}
+	payload := completion.Outcome.Payload()
 	s.pending = nil
 	s.done = true
 	if completion.Outcome.Status() == run.SettlementStatusFailed {

@@ -26,7 +26,7 @@ func SettleModelResult[I, O any](program run.Program[I, O], request run.EffectRe
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	envelope, err := decodeEffect(request.Effect().Payload())
+	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return run.Settlement{}, err
 	}

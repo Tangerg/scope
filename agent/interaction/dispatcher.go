@@ -103,7 +103,7 @@ func (d *dispatcher) Dispatch(
 	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
 		return failedSettlement(ErrInvalidDispatcherConfig)
 	}
-	envelope, err := decodeEffect(request.Effect().Payload())
+	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return failedSettlement(err)
 	}
@@ -126,7 +126,7 @@ func (d *dispatcher) Dispatch(
 // replay safety in its immutable binding.
 func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	envelope, err := decodeEffect(effect.Payload())
+	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err != nil || envelope.ToolCall == nil || !d.tools.Configured() {
 		return policy
 	}

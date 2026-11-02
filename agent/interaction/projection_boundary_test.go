@@ -259,7 +259,7 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	broken.Entries[2].LSN++
 	assertProjectionRejection(t, program, broken)
 	wrongVariant := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("wrong result")}}).settlement())
-	for _, raw := range []json.RawMessage{[]byte(`{}`), wrongVariant.Payload()} {
+	for _, raw := range []json.RawMessage{[]byte(`{}`), wrongVariant.Payload().JSON()} {
 		broken := mustValue(log.Clone())
 		for index, entry := range broken.Entries {
 			if result, ok := entry.Record.(run.EffectSettled); ok && result.Outcome.Status() == run.SettlementStatusSucceeded {

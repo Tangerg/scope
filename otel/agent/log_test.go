@@ -81,10 +81,7 @@ func (t *testExecution) Step(_ context.Context, turn run.Turn) (run.Transition, 
 	if !ok {
 		return run.Transition{}, run.ErrInvalidMessage
 	}
-	payload, err := run.ParsePayload(completion.Outcome.Payload())
-	if err != nil {
-		return run.Transition{}, err
-	}
+	payload := completion.Outcome.Payload()
 	return run.Complete(1, payload)
 }
 

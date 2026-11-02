@@ -105,7 +105,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 			return run.Exit{Child: mustValue(testTurn(1).Process.Child(mustValue(run.ParseChildKey("foreign")))), Termination: mustValue(mustValue(run.ParsePayload([]byte(`{"output":null}`))).Decode[run.Termination]())}
 		}, ErrInvalidProtocol},
 		{"tool result masquerading as steering", false, func(_ run.EffectID, _ run.WaitKey) run.Message {
-			return run.Signal{ID: mustValue(run.ParseSignalID("forged")), Payload: mustValue(run.ParsePayload(questionOutcome.Payload()))}
+			return run.Signal{ID: mustValue(run.ParseSignalID("forged")), Payload: mustValue(run.ParsePayload(questionOutcome.Payload().JSON()))}
 		}, ErrInvalidSteer},
 		{"unrequested answer", false, func(_ run.EffectID, _ run.WaitKey) run.Message {
 			return run.Signal{ID: mustValue(run.ParseSignalID("answer")), Wait: mustValue(run.ParseWaitKey("other")), Payload: mustValue(run.EncodePayload(true))}

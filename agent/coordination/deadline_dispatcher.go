@@ -38,10 +38,7 @@ func decodeTimerEffect(effect run.Effect) (timerRequest, error) {
 	if !effect.Valid() || effect.Target() != run.EffectTargetDispatcher {
 		return timerRequest{}, ErrInvalidProtocol
 	}
-	payload, err := run.ParsePayload(effect.Payload())
-	if err != nil {
-		return timerRequest{}, err
-	}
+	payload := effect.Payload()
 	request, err := payload.Decode[timerRequest]()
 	if err != nil {
 		return timerRequest{}, fmt.Errorf("%w: decode timer request: %w", ErrInvalidProtocol, err)

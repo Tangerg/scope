@@ -40,7 +40,7 @@ func TestScriptedDispatcherPreservesSettlementDeltaAndRequestOwnership(t *testin
 			delta[1] = 'x'
 			var seen []json.RawMessage
 			settlement, err := dispatcher.Dispatch(t.Context(), request, func(value json.RawMessage) { seen = append(seen, value) })
-			if err != nil || settlement.Status() != status || string(settlement.Payload()) != `"result"` {
+			if err != nil || settlement.Status() != status || string(settlement.Payload().JSON()) != `"result"` {
 				t.Fatalf("settlement=%+v error=%v", settlement, err)
 			}
 			if len(seen) != 1 || string(seen[0]) != `"first"` {

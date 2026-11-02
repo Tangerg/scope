@@ -138,13 +138,13 @@ func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) 
 	response := finalResponse(strings.Repeat("<>&\u2028\u2029", 20))
 	encoded := mustValue((modelCallResult{Response: response}).settlement(run.MaxPayloadBytes))
 	for _, offset := range []int{-1, 0, 1} {
-		limit := len(encoded.Payload()) + offset
+		limit := len(encoded.Payload().JSON()) + offset
 		settlement, err := (modelCallResult{Response: response}).settlement(limit)
 		if offset < 0 {
 			if !errors.Is(err, ErrModelResponseTooLarge) || settlement.Valid() {
 				t.Fatal("oversized canonical outcome admitted", err)
 			}
-		} else if err != nil || string(settlement.Payload()) != string(encoded.Payload()) {
+		} else if err != nil || string(settlement.Payload().JSON()) != string(encoded.Payload().JSON()) {
 			t.Fatal("budget boundary changed outcome bytes", err)
 		}
 	}

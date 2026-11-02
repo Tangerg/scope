@@ -508,10 +508,7 @@ func (r *recoveryExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 		if !ok || completion.Outcome.Status() != run.SettlementStatusSucceeded {
 			return run.Transition{}, run.ErrInvalidMessage
 		}
-		payload, err := run.ParsePayload(completion.Outcome.Payload())
-		if err != nil {
-			return run.Transition{}, err
-		}
+		payload := completion.Outcome.Payload()
 		return run.Complete(consumed, payload)
 	case recoveryWait:
 		key, err := run.ParseWaitKey("answer")

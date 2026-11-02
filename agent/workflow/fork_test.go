@@ -372,10 +372,7 @@ func (m *managedBranchExecution) Step(_ context.Context, turn run.Turn) (run.Tra
 		if len(turn.Messages) != 1 {
 			return run.Transition{}, errors.New("managed branch expected one settlement Signal")
 		}
-		output, err := run.ParsePayload(turn.Messages[0].(run.Completion).Outcome.Payload())
-		if err != nil {
-			return run.Transition{}, err
-		}
+		output := turn.Messages[0].(run.Completion).Outcome.Payload()
 		m.Phase = 2
 		return run.Complete(1, output)
 	default:
@@ -402,7 +399,7 @@ func (m managedBranchDispatcher) Dispatch(
 		Branch string `json:"branch"`
 		Value  int    `json:"value"`
 	}
-	if err := jsonv2.Unmarshal(request.Effect().Payload(), &call); err != nil {
+	if err := jsonv2.Unmarshal(request.Effect().Payload().JSON(), &call); err != nil {
 		return run.Settlement{}, err
 	}
 	m.tracker.started <- call.Branch

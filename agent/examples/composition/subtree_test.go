@@ -67,7 +67,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	recoveredRuntime := conformancetest.Runtime(t, agentrun.Config{Store: store})
 	recovered := compositionValue(recoveredRuntime.Recover(t.Context(), program, handle.ID()))
 	restored := awaitUnknown(t, recovered)
-	if restored.Request.ID() != pending.Request.ID() || !bytes.Equal(restored.Request.Effect().Payload(), pending.Request.Effect().Payload()) || restored.Request.ProgramRef() != pending.Request.ProgramRef() {
+	if restored.Request.ID() != pending.Request.ID() || !bytes.Equal(restored.Request.Effect().Payload().JSON(), pending.Request.Effect().Payload().JSON()) || restored.Request.ProgramRef() != pending.Request.ProgramRef() {
 		t.Fatal("recovery changed committed effect intent")
 	}
 	response := &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("reconciled"))), FinishReason: chat.FinishReasonStop}}

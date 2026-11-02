@@ -60,7 +60,7 @@ func (e Effect) intrinsicPolicy() (EffectPolicy, bool) {
 	return EffectPolicy{Replay: ReplayPolicySameIdentity}, true
 }
 
-func (e Effect) Payload() json.RawMessage { return e.call.JSON() }
+func (e Effect) Payload() Payload { return e.call }
 func (e Effect) Valid() bool {
 	count := 0
 	if e.call.Valid() {

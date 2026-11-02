@@ -20,7 +20,7 @@ func ToolInvocationFromRequest(request run.EffectRequest) (ToolInvocation, error
 	if !request.Valid() {
 		return ToolInvocation{}, ErrInvalidProtocol
 	}
-	envelope, err := decodeEffect(request.Effect().Payload())
+	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return ToolInvocation{}, err
 	}

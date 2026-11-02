@@ -355,14 +355,14 @@ func failedSettlement(cause error) (run.Settlement, error) {
 
 func decodeSettlement(settlement run.Settlement) (resultEnvelope, string, error) {
 	if settlement.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](settlement.Payload())
+		failure, err := jsonwire.Decode[dispatchFailure](settlement.Payload().JSON())
 		if err != nil {
 			return resultEnvelope{}, "", err
 		}
 		diagnostic, err := failure.diagnostic(settlement.Status())
 		return resultEnvelope{}, diagnostic, err
 	}
-	envelope, err := decodeResult(settlement.Payload())
+	envelope, err := decodeResult(settlement.Payload().JSON())
 	return envelope, "", err
 }
 

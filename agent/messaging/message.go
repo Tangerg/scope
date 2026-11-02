@@ -56,10 +56,7 @@ func decodeMessage(effect run.Effect) (Message, error) {
 	if !effect.Valid() || effect.Target() != run.EffectTargetDispatcher {
 		return Message{}, ErrInvalidMessage
 	}
-	input, err := run.ParsePayload(effect.Payload())
-	if err != nil {
-		return Message{}, err
-	}
+	input := effect.Payload()
 	message, err := input.Decode[Message]()
 	if err != nil {
 		return Message{}, fmt.Errorf("%w: decode: %w", ErrInvalidMessage, err)

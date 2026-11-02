@@ -1,7 +1,6 @@
 package run
 
 import (
-	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -181,7 +180,7 @@ type terminationWire struct {
 func (Termination) JSONSchemaModel() any { return terminationWire{} }
 
 func (t Termination) equal(other Termination) bool {
-	return t.Cause() == other.Cause() && t.reason == other.reason && t.failure == other.failure && bytes.Equal(t.output.data, other.output.data)
+	return t.Cause() == other.Cause() && t.reason == other.reason && t.failure == other.failure && t.output.equal(other.output)
 }
 
 func (t Termination) accepts(cause TerminationCause) bool {

@@ -660,7 +660,7 @@ func (c *childControlExecution) Step(_ context.Context, turn Turn) (Transition, 
 		if !ok || completion.Outcome.Status() != SettlementStatusSucceeded {
 			return Transition{}, ErrInvalidMessage
 		}
-		process, err := controlValue(ParsePayload(completion.Outcome.Payload())).Decode[ProcessID]()
+		process, err := controlValue(ParsePayload(completion.Outcome.Payload().JSON())).Decode[ProcessID]()
 		if err != nil {
 			return Transition{}, err
 		}
@@ -778,7 +778,7 @@ func TestFrameworkControlsCannotActOnAnotherParentsChild(t *testing.T) {
 					if !ok || completion.Outcome.Status() != SettlementStatusFailed {
 						return Transition{}, errors.New("unauthorized framework operation succeeded")
 					}
-					failure := controlValue(controlValue(ParsePayload(completion.Outcome.Payload())).Decode[Failure]())
+					failure := controlValue(controlValue(ParsePayload(completion.Outcome.Payload().JSON())).Decode[Failure]())
 					if failure.Kind() != FailureKindContract || failure.Code() != failureCodeRuntimeChildRequestInvalid {
 						return Transition{}, errors.New("framework rejection lost its contract classification")
 					}
@@ -867,7 +867,7 @@ func TestMutatedChildBindingCannotReachItsExecution(t *testing.T) {
 			if record.Outcome.Status() != SettlementStatusFailed {
 				t.Fatal("mutated child declaration acquired a successful receipt")
 			}
-			failure := controlValue(controlValue(ParsePayload(record.Outcome.Payload())).Decode[Failure]())
+			failure := controlValue(controlValue(ParsePayload(record.Outcome.Payload().JSON())).Decode[Failure]())
 			rejected = failure.Kind() == FailureKindContract && failure.Code() == failureCodeRuntimeChildRequestInvalid
 		}
 	}

@@ -248,7 +248,7 @@ func (d *definition) settlePreparedContext(req run.EffectRequest, messages []cha
 	if !req.Valid() {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
-	env, err := decodeEffect(req.Effect().Payload())
+	env, err := decodeEffect(req.Effect().Payload().JSON())
 	if err != nil {
 		return run.Settlement{}, err
 	}

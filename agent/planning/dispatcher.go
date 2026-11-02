@@ -89,7 +89,7 @@ func (d *dispatcher) Dispatch(
 	if d == nil || d.definition == nil || lo.IsNil(d.sensor) {
 		return planningFailureSettlement(ErrInvalidDispatcherConfig)
 	}
-	envelope, err := decodeEffect(request.Effect().Payload())
+	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return planningFailureSettlement(err)
 	}
@@ -111,7 +111,7 @@ func (d *dispatcher) Dispatch(
 // require explicit resolution after an unknown attempt; each requires the
 // capabilities its frozen binding declares.
 func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	envelope, err := decodeEffect(effect.Payload())
+	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err == nil && envelope.operation() == operationSense {
 		return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 	}

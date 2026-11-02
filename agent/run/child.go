@@ -1,7 +1,6 @@
 package run
 
 import (
-	"bytes"
 	"errors"
 	"slices"
 
@@ -29,7 +28,7 @@ func (c ChildSpec) Valid() bool { return c.Key.Valid() && c.ProgramRef.Valid() &
 
 func (c ChildSpec) equal(other ChildSpec) bool {
 	return c.Key == other.Key && c.ProgramRef == other.ProgramRef && c.Budget == other.Budget &&
-		slices.Equal(c.Capabilities.values, other.Capabilities.values) && bytes.Equal(c.Input.data, other.Input.data)
+		slices.Equal(c.Capabilities.values, other.Capabilities.values) && c.Input.equal(other.Input)
 }
 
 func (c *ChildSpec) UnmarshalJSON(data []byte) error {
