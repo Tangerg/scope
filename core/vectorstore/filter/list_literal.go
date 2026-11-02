@@ -13,7 +13,7 @@ type ListLiteral struct {
 	end    Position
 }
 
-func (*ListLiteral) expr() {}
+func (l *ListLiteral) snapshot(tree *treeSnapshot) Expr { return tree.retain(l) }
 
 func (l *ListLiteral) Len() int {
 	if l == nil {

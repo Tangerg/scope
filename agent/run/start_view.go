@@ -1,9 +1,6 @@
 package run
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 // HeadReader reads the latest acknowledged tree without admitting work or
 // acquiring a writer. Stores may provide this capability independently.
@@ -32,14 +29,8 @@ func (s *StartedTrees) Load(ctx context.Context, id StartID) (TreeSnapshot, bool
 	if !receipt.Valid() || receipt.ID != id {
 		return TreeSnapshot{}, false, ErrInvalidStart
 	}
-	head, found, err := s.heads.LoadTree(ctx, receipt.RootID)
-	if err != nil {
-		return TreeSnapshot{}, false, err
-	}
-	if !found || !head.Valid() || head.RootID() != receipt.RootID {
-		return TreeSnapshot{}, false, errors.New("run: accepted start has no matching acknowledged head")
-	}
-	return head, true, nil
+	head, err := receipt.loadHead(ctx, s.heads)
+	return head, err == nil, err
 }
 
 func answerRequest(wait WaitID, answer Payload) (SignalRequest, error) {

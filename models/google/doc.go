@@ -6,6 +6,8 @@
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
 // Native chat request extensions use the SDK's camelCase JSON fields only.
+// Chat, speech, and transcription each produce a single candidate. An explicit
+// count of one is supported; larger or negative counts fail before provider I/O.
 // GenerateContent has one native decoder shared by unary and streaming calls.
 // SDK DTOs and authentication are reused; SDK response converters and automatic
 // continuation are not executed. HTTP extensions allow headers and timeout only.

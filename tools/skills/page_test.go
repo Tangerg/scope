@@ -19,15 +19,7 @@ func pagingTools(t *testing.T, files fstest.MapFS, config Config) map[string]too
 	if err != nil {
 		t.Fatal(err)
 	}
-	built, err := NewTools(source, config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tools := make(map[string]toolcontract.Tool)
-	for _, executable := range built {
-		tools[executable.Definition().Name] = executable
-	}
-	return tools
+	return toolsForSource(t, source, config)
 }
 
 func TestTextPagesPreserveEveryByteAndRespectEncodedBudget(t *testing.T) {
@@ -140,24 +132,24 @@ func TestListPagesKeepEveryCompleteSummary(t *testing.T) {
 
 func TestCursorBindsContentTargetAndUTF8Boundary(t *testing.T) {
 	content := strings.Repeat("中文", 100)
-	first, err := textPage("resource", "guide", "a.txt", content, nil, 160)
+	first, err := textPage("guide", "a.txt", content, nil, 160)
 	if err != nil || first.NextCursor == nil {
 		t.Fatalf("first page: %v %v", first, err)
 	}
-	for _, test := range []struct{ operation, name, path, content string }{
-		{"resource", "guide", "a.txt", content + "changed"},
-		{"resource", "guide", "b.txt", content},
-		{"resource", "other", "a.txt", content},
-		{"load", "guide", "a.txt", content},
+	for _, test := range []struct{ name, path, content string }{
+		{"guide", "a.txt", content + "changed"},
+		{"guide", "b.txt", content},
+		{"other", "a.txt", content},
+		{"guide", "", content},
 	} {
-		_, err := textPage(test.operation, test.name, test.path, test.content, first.NextCursor, 160)
+		_, err := textPage(test.name, test.path, test.content, first.NextCursor, 160)
 		if !errors.Is(err, ErrInvalidCursor) {
 			t.Fatalf("unbound cursor accepted: %v", err)
 		}
 	}
 	invalid := *first.NextCursor
 	invalid.Offset = 1
-	if _, err := textPage("resource", "guide", "a.txt", content, &invalid, 160); !errors.Is(err, ErrInvalidCursor) {
+	if _, err := textPage("guide", "a.txt", content, &invalid, 160); !errors.Is(err, ErrInvalidCursor) {
 		t.Fatalf("split UTF-8 cursor: %v", err)
 	}
 }
@@ -174,7 +166,7 @@ func TestSkillPageFailuresAreExplicit(t *testing.T) {
 		cause      error
 	}{
 		{"list_skills", `{}`, ErrOutputLimit},
-		{"read_skill_resource", `{"name":"guide","path":"ref.txt"}`, skillsrc.ErrInvalidLimit},
+		{"read_skill_resource", `{"name":"guide","path":"ref.txt"}`, skillsrc.ErrContentTooLarge},
 		{"read_skill_resource", `{"name":"guide","path":"binary"}`, skillsrc.ErrInvalidSkill},
 		{"load_skill", `{"name":"guide","cursor":{"offset":1,"snapshot":"` + strings.Repeat("a", 64) + `"}}`, ErrInvalidCursor},
 	} {
@@ -192,7 +184,7 @@ func TestPageAtExactEncodedLimitIsComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := textPage("load", "guide", "", content, nil, int64(len(encoded)))
+	page, err := textPage("guide", "", content, nil, int64(len(encoded)))
 	if err != nil || page.NextCursor != nil || page.Content != content {
 		t.Fatalf("exact limit: %v %v", page, err)
 	}

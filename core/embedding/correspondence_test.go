@@ -166,3 +166,17 @@ func TestUnansweredInputFailsWhenTheResponseIsBuilt(t *testing.T) {
 		t.Fatalf("NewResponse() = %v, want an error naming outputs[1]", err)
 	}
 }
+
+func TestRequestCloneIsIndependent(t *testing.T) {
+	var missing *embedding.Request
+	if missing.Clone() != nil {
+		t.Fatal("cloning a nil request produced a request")
+	}
+	original := &embedding.Request{Texts: []string{"source"}, Options: embedding.Options{Dimensions: new(int64(1))}}
+	cloned := original.Clone()
+	cloned.Texts[0] = "other"
+	*cloned.Options.Dimensions = 2
+	if original.Texts[0] != "source" || *original.Options.Dimensions != 1 {
+		t.Fatal("clone changed the original request")
+	}
+}

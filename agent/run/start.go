@@ -25,6 +25,19 @@ type StartReceipt struct {
 
 func (s StartReceipt) Valid() bool { return s.ID.Valid() && s.Intent.Valid() && s.RootID.Valid() }
 
+func (s StartReceipt) loadHead(ctx context.Context, reader HeadReader) (TreeSnapshot, error) {
+	return invokeCallback("HeadReader.LoadTree", func() (TreeSnapshot, error) {
+		head, found, err := reader.LoadTree(ctx, s.RootID)
+		if err != nil {
+			return TreeSnapshot{}, err
+		}
+		if !found || !head.Valid() || head.RootID() != s.RootID {
+			return TreeSnapshot{}, errors.New("run: accepted start has no matching acknowledged head")
+		}
+		return head, nil
+	})
+}
+
 // Store admits new trees and reads their original acceptance. Initial head,
 // commit deduplication and scoped StartReceipt are one atomic write.
 type Store interface {
@@ -37,8 +50,8 @@ type StartReader interface {
 	LookupStart(ctx context.Context, id StartID) (receipt StartReceipt, found bool, err error)
 }
 
-// StartAcceptedError identifies an accepted run for which this Runtime cannot
-// publish the proposed writer. Reading this evidence never activates a writer.
+// StartAcceptedError carries proof of acceptance when this Runtime cannot
+// establish that its local activation owns the acknowledged head.
 type StartAcceptedError struct{ Receipt StartReceipt }
 
 func (s *StartAcceptedError) Error() string {

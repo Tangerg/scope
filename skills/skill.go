@@ -93,6 +93,17 @@ func (s *Skill) Validate() error {
 	return s.Frontmatter.Validate()
 }
 
+// ValidateFor prevents a source's response from being attributed to a different bundle.
+func (s *Skill) ValidateFor(name string) error {
+	if err := s.Validate(); err != nil {
+		return invalidSkill(name, err)
+	}
+	if err := s.matchDirectoryName(name); err != nil {
+		return invalidSkill(name, err)
+	}
+	return nil
+}
+
 func (s *Skill) matchDirectoryName(name string) error {
 	if s.Name != name {
 		return fmt.Errorf("%w: frontmatter %q vs directory %q", ErrNameMismatch, s.Name, name)

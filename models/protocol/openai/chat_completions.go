@@ -230,12 +230,9 @@ func (c *ChatCompletions) applyRequestExtension(req *corechat.Request, params *o
 		return err
 	}
 	for name := range fields {
-		if coreOwnedChatField(name) {
-			return fmt.Errorf("openai: extension %q field %q is owned by Core", extensionKey, name)
+		if err := validateChatExtraField(name); err != nil {
+			return fmt.Errorf("openai: extension %q: %w", extensionKey, err)
 		}
-	}
-	if _, exists := fields["n"]; exists {
-		return fmt.Errorf("openai: extension %q field %q is unsupported; Core Chat produces one output", extensionKey, "n")
 	}
 	params.SetExtraFields(fields)
 	return nil

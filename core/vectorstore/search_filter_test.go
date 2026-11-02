@@ -51,3 +51,16 @@ func TestSearchResponseValidateForEnforcesMetadataFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestSearchOptionsCloneOwnsItsFilter(t *testing.T) {
+	predicate := filter.EQ("tenant", "scope")
+	original := vectorstore.SearchOptions{TopK: 3, Filter: predicate}
+	clone := original.Clone()
+	*predicate = *filter.EQ("tenant", "other")
+	if clone.TopK != original.TopK || !clone.Filter.Equal(filter.EQ("tenant", "scope")) {
+		t.Fatalf("cloned search options changed with the original: %+v", clone)
+	}
+	if unfiltered := (vectorstore.SearchOptions{}).Clone(); unfiltered.Filter != nil {
+		t.Fatal("cloning an unfiltered query installed a predicate")
+	}
+}

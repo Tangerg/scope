@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -69,8 +70,8 @@ func TestPreparationAndEncoderPurpose(t *testing.T) {
 	m := &modelCalls{}
 	const space vectorstore.SpaceID = "paired-revision"
 	e, err := vector.NewEncoder(vector.EncoderConfig{Space: space,
-		Documents: vector.Encoding{Model: m, Options: embedding.Options{Model: "document-model"}},
-		Queries:   vector.Encoding{Model: m, Options: embedding.Options{Model: "query-model"}},
+		Documents: embeddingclient.Config{Model: m, Options: embedding.Options{Model: "document-model"}},
+		Queries:   embeddingclient.Config{Model: m, Options: embedding.Options{Model: "query-model"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +139,7 @@ func TestPreparationAndEncoderPurpose(t *testing.T) {
 func TestRejectedPreparationDoesNotSpendOrPublish(t *testing.T) {
 	model := new(modelCalls)
 	const space vectorstore.SpaceID = "test"
-	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: space, Documents: vector.Encoding{Model: model}, Queries: vector.Encoding{Model: model}})
+	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: space, Documents: embeddingclient.Config{Model: model}, Queries: embeddingclient.Config{Model: model}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +190,7 @@ func TestRejectedPreparationDoesNotSpendOrPublish(t *testing.T) {
 
 func TestUnboundEncoderCannotReachEitherModel(t *testing.T) {
 	model := new(modelCalls)
-	for _, cfg := range []vector.EncoderConfig{{Space: "", Documents: vector.Encoding{Model: model}, Queries: vector.Encoding{Model: model}}, {Space: "valid", Documents: vector.Encoding{Model: model}}, {Space: "valid", Queries: vector.Encoding{Model: model}}} {
+	for _, cfg := range []vector.EncoderConfig{{Space: "", Documents: embeddingclient.Config{Model: model}, Queries: embeddingclient.Config{Model: model}}, {Space: "valid", Documents: embeddingclient.Config{Model: model}}, {Space: "valid", Queries: embeddingclient.Config{Model: model}}} {
 		if e, err := vector.NewEncoder(cfg); err == nil || e != nil {
 			t.Fatal("accepted an incomplete asymmetric space")
 		}

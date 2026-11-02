@@ -160,3 +160,45 @@ func TestComparisonInverseIncludesNullDomain(t *testing.T) {
 		}
 	}
 }
+
+func TestClonedPredicatePreservesPositionsWithoutSharingNodes(t *testing.T) {
+	original, err := filter.Parse("NOT (tags[0] IN ('red', 'green') AND year > 2010)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := filter.Clone(original)
+	if !clone.Equal(original) || clone.Start() != original.Start() || clone.End() != original.End() {
+		t.Fatalf("clone does not preserve the source tree: %v", clone)
+	}
+	logic := clone.(*filter.UnaryExpr).Right().(*filter.BinaryExpr)
+	membership := logic.Left().(*filter.BinaryExpr)
+	selector := membership.Left().(*filter.IndexExpr)
+	*selector.Index() = *filter.NewLiteral(1)
+	*membership.Right().(*filter.ListLiteral).Literals()[0] = *filter.NewLiteral("blue")
+	kept := original.(*filter.UnaryExpr).Right().(*filter.BinaryExpr).Left().(*filter.BinaryExpr)
+	if !kept.Left().(*filter.IndexExpr).Index().Equal(filter.NewLiteral(0)) || !kept.Right().(*filter.ListLiteral).Literals()[0].Equal(filter.NewLiteral("red")) {
+		t.Fatal("clone shares selector or list elements with original")
+	}
+}
+
+func TestPredicateGraphRejectsCyclesAndRetainsSharedBranches(t *testing.T) {
+	leaf := filter.EQ("tenant", "red")
+	cycle := filter.Not(leaf)
+	*cycle = *filter.Not(cycle)
+	if err := filter.Clone(cycle).Validate(); err == nil {
+		t.Fatal("cyclic predicate was admitted")
+	}
+	index := filter.Index("tags", 0)
+	*index = *filter.Index(index, 1)
+	if err := filter.Clone(filter.EQ(index, "red")).Validate(); err == nil {
+		t.Fatal("cyclic selector was admitted")
+	}
+	var shared filter.Predicate = leaf
+	for range 64 {
+		shared = filter.And(shared, shared)
+	}
+	cloned := filter.Clone(shared).(*filter.BinaryExpr)
+	if err := cloned.Validate(); err != nil || cloned.Left() != cloned.Right() || cloned.Left() == shared.(*filter.BinaryExpr).Left() {
+		t.Fatalf("copy lost shared-branch identity or isolation: %v", err)
+	}
+}

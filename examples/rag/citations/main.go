@@ -14,6 +14,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 	"github.com/Tangerg/scope/etl"
@@ -117,7 +118,7 @@ type report struct {
 func run(ctx context.Context) (report, error) {
 	var result report
 	model := embedding.ModelFunc(result.calls.encode)
-	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: "offline/keyword-v1", Documents: vector.Encoding{Model: model, Options: embedding.Options{Model: "passages"}}, Queries: vector.Encoding{Model: model, Options: embedding.Options{Model: "questions"}}})
+	encoder, err := vector.NewEncoder(vector.EncoderConfig{Space: "offline/keyword-v1", Documents: embeddingclient.Config{Model: model, Options: embedding.Options{Model: "passages"}}, Queries: embeddingclient.Config{Model: model, Options: embedding.Options{Model: "questions"}}})
 	if err != nil {
 		return result, err
 	}

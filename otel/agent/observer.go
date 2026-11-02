@@ -76,7 +76,7 @@ const (
 var (
 	ErrInvalidObserverConfig = errors.New("agent otel: invalid observer configuration")
 	errNilContext            = errors.New("agent otel: nil Context")
-	errIncompleteSpan        = errors.New("agent otel: observer closed before span completion")
+	errIncompleteSpan        = errors.New("agent otel: span completion was not observed")
 )
 
 // Nil providers use the corresponding OpenTelemetry global providers.
@@ -121,8 +121,9 @@ type stepKey struct {
 }
 
 type effectKey struct {
-	process  processKey
-	effectID run.EffectID
+	process   processKey
+	effectID  run.EffectID
+	attemptID run.EffectAttemptID
 }
 
 func processKeyFor(event run.Event) processKey {
@@ -562,13 +563,14 @@ func (o *Observer) startEffect(ctx context.Context, event run.Event) {
 	if !ok {
 		return
 	}
+	key := effectKey{process: processKeyFor(event), effectID: effectID, attemptID: fact.AttemptID()}
 	o.stateMu.Lock()
-	process, found := o.processes[processKeyFor(event)]
+	process, found := o.processes[key.process]
 	if !found {
 		o.stateMu.Unlock()
 		return
 	}
-	if _, exists := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]; exists {
+	if _, exists := o.effects[key]; exists {
 		o.stateMu.Unlock()
 		return
 	}
@@ -586,12 +588,12 @@ func (o *Observer) startEffect(ctx context.Context, event run.Event) {
 		trace.WithAttributes(attributes...),
 	)
 	o.stateMu.Lock()
-	if _, exists := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]; exists {
+	if _, exists := o.effects[key]; exists {
 		o.stateMu.Unlock()
 		span.End(trace.WithTimestamp(event.OccurredAt()))
 		return
 	}
-	o.effects[effectKey{process: processKeyFor(event), effectID: effectID}] = span
+	o.effects[key] = span
 	o.stateMu.Unlock()
 }
 
@@ -604,10 +606,11 @@ func (o *Observer) finishEffect(ctx context.Context, event run.Event) {
 	if !ok {
 		return
 	}
+	key := effectKey{process: processKeyFor(event), effectID: effectID, attemptID: fact.AttemptID()}
 	o.stateMu.Lock()
-	record, found := o.effects[effectKey{process: processKeyFor(event), effectID: effectID}]
+	record, found := o.effects[key]
 	if found {
-		delete(o.effects, effectKey{process: processKeyFor(event), effectID: effectID})
+		delete(o.effects, key)
 	}
 	o.stateMu.Unlock()
 	metricAttributes := append(
@@ -628,7 +631,6 @@ func (o *Observer) finishEffect(ctx context.Context, event run.Event) {
 		return
 	}
 	record.SetAttributes(metricAttributes...)
-	record.SetAttributes(effectAttemptIDAttribute.String(fact.AttemptID().String()))
 	if fact.SettlementStatus() != run.SettlementStatusSucceeded {
 		recordSpanFailure(record, effectError{
 			target: fact.Target(), settlement: fact.SettlementStatus(),

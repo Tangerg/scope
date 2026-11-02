@@ -101,10 +101,13 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	if validateErr := options.Validate(); validateErr != nil {
 		return nil, validateErr
 	}
-	if checkQueryErr := r.vectorStore.CheckQuery(ctx, r.encoder.Space(), options); checkQueryErr != nil {
+	// A filter factory may reuse its tree; capture the grant before calling
+	// collaborators that can invoke application code.
+	grant := options.Clone()
+	if checkQueryErr := r.vectorStore.CheckQuery(ctx, r.encoder.Space(), grant.Clone()); checkQueryErr != nil {
 		return nil, checkQueryErr
 	}
-	request, err := r.encoder.EncodeQuery(ctx, query.Text(), options)
+	request, err := r.encoder.EncodeQuery(ctx, query.Text(), grant)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +115,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	// adapter rewrites its local query while building a native request.
 	wire := *request
 	wire.Values = slices.Clone(request.Values)
+	wire.Options = request.Options.Clone()
 	response, err := r.vectorStore.Query(ctx, &wire)
 	if err != nil {
 		return nil, err

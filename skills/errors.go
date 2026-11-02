@@ -34,3 +34,33 @@ var (
 
 	ErrResourcePath = errors.New("skills: resource path escapes the skill directory")
 )
+
+func missingSkill(err error) bool {
+	return errors.Is(err, ErrSkillNotFound) && onlyMissing(err)
+}
+
+// A source may translate a single backend cause through Is. At a fork, each
+// independent cause must establish absence before a lower source can take over.
+func onlyMissing(err error) bool {
+	if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, ErrSkillNotFound) {
+		return false
+	}
+	for err != nil {
+		var joined interface{ Unwrap() []error }
+		if !errors.As(err, &joined) {
+			break
+		}
+		causes := joined.Unwrap()
+		if len(causes) == 1 {
+			err = causes[0]
+			continue
+		}
+		for _, cause := range causes {
+			if !onlyMissing(cause) {
+				return false
+			}
+		}
+		break
+	}
+	return true
+}

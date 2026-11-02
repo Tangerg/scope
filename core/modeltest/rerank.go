@@ -49,7 +49,7 @@ func (r RerankContract) runCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Options.TopK = new(2)
-	response, err := model.Call(t.Context(), request)
+	response, err := model.Call(t.Context(), request.Clone())
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -118,7 +118,7 @@ func RunIntegrationRerank(t *testing.T, probe IntegrationRerankProbe) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := model.Call(ctx, request)
+	response, err := model.Call(ctx, request.Clone())
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}

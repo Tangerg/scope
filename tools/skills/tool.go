@@ -128,6 +128,11 @@ func (t *toolSet) list(ctx context.Context, request ListSkillsRequest) (ListPage
 	if err != nil {
 		return ListPage{}, err
 	}
+	for _, summary := range summaries {
+		if err = summary.Validate(); err != nil {
+			return ListPage{}, fmt.Errorf("%w: %w", skillsrc.ErrInvalidSkill, err)
+		}
+	}
 	encoded, err := jsonv2.Marshal(summaries)
 	if err != nil {
 		return ListPage{}, err
@@ -162,7 +167,10 @@ func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (TextPage,
 	if err != nil {
 		return TextPage{}, err
 	}
-	page, err := textPage("load", request.Name, "", skill.Instructions, request.Cursor, t.maxOutputBytes)
+	if err = skill.ValidateFor(request.Name); err != nil {
+		return TextPage{}, err
+	}
+	page, err := textPage(request.Name, "", skill.Instructions, request.Cursor, t.maxOutputBytes)
 	if err != nil {
 		return TextPage{}, inputFailure(err)
 	}
@@ -181,9 +189,9 @@ func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceReq
 		return TextPage{}, err
 	}
 	if truncated {
-		return TextPage{}, inputFailure(fmt.Errorf("%w: resource exceeds %d bytes", skillsrc.ErrInvalidLimit, t.maxResourceBytes))
+		return TextPage{}, inputFailure(fmt.Errorf("%w: resource exceeds %d bytes", skillsrc.ErrContentTooLarge, t.maxResourceBytes))
 	}
-	page, err := textPage("resource", request.Name, request.Path, string(data), request.Cursor, t.maxOutputBytes)
+	page, err := textPage(request.Name, request.Path, string(data), request.Cursor, t.maxOutputBytes)
 	if err != nil {
 		return TextPage{}, inputFailure(err)
 	}

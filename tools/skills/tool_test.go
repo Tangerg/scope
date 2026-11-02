@@ -46,7 +46,12 @@ func newTools(t *testing.T) map[string]toolcontract.Tool {
 
 func newToolsWithConfig(t *testing.T, config Config) map[string]toolcontract.Tool {
 	t.Helper()
-	built, err := NewTools(newToolFS(), config)
+	return toolsForSource(t, newToolFS(), config)
+}
+
+func toolsForSource(t *testing.T, source Source, config Config) map[string]toolcontract.Tool {
+	t.Helper()
+	built, err := NewTools(source, config)
 	if err != nil {
 		t.Fatalf("NewTools: %v", err)
 	}
@@ -219,5 +224,47 @@ func TestSkillToolsRejectMissingArguments(t *testing.T) {
 		if _, err := invokeTestTool(t.Context(), tools[test.name], test.arguments); err == nil {
 			t.Errorf("%s accepted %s", test.name, test.arguments)
 		}
+	}
+}
+
+type returnedSkillSource struct {
+	Source
+	skill *skillsrc.Skill
+}
+
+func (r returnedSkillSource) Load(context.Context, string) (*skillsrc.Skill, error) {
+	return r.skill, nil
+}
+
+func TestLoadSkillRejectsInvalidSourceResults(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		skill *skillsrc.Skill
+		want  error
+	}{
+		{"nil", nil, skillsrc.ErrNilSkill},
+		{"wrong bundle", &skillsrc.Skill{Frontmatter: skillsrc.Frontmatter{Name: "other", Description: "Other."}, Instructions: "private instruction"}, skillsrc.ErrNameMismatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tools := toolsForSource(t, returnedSkillSource{Source: newToolFS(), skill: tc.skill}, Config{})
+			out, err := invokeTestTool(t.Context(), tools["load_skill"], `{"name":"guide"}`)
+			if !errors.Is(err, tc.want) || testOutputText(out) != "" {
+				t.Fatalf("output=%q error=%v, want no instructions and %v", testOutputText(out), err, tc.want)
+			}
+		})
+	}
+}
+
+type invalidListing struct{ Source }
+
+func (i invalidListing) List(context.Context) ([]skillsrc.Summary, error) {
+	return []skillsrc.Summary{{Name: "valid", Description: "Visible."}, {Name: "Invalid Name", Description: "Invalid."}}, nil
+}
+
+func TestListSkillsRejectsInvalidSourceBeforePagination(t *testing.T) {
+	tools := toolsForSource(t, invalidListing{newToolFS()}, Config{})
+	out, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
+	if !errors.Is(err, skillsrc.ErrNameInvalid) || testOutputText(out) != "" {
+		t.Fatalf("output=%q error=%v", testOutputText(out), err)
 	}
 }

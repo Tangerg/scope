@@ -22,8 +22,11 @@
 // and input intent, and the root process ID. Repeating the same intent reuses
 // the acceptance; different intent returns [StartConflictError]. A [StartError]
 // means the initial acknowledgment is uncertain. Reconcile with the same ID.
-// An accepted run on another writer returns [StartAcceptedError]; when the store
-// supports [HeadReader], [Runtime.StartedTrees] reads it without acquiring it.
+// A retry returns a local Handle only when [HeadReader] confirms the same
+// writer incarnation. This check does not pin ownership against a later takeover.
+// Otherwise [StartAcceptedError] carries the receipt, even when the store
+// lacks a [HeadReader]. A head read error is joined with that evidence.
+// [Runtime.StartedTrees] reads a supported store without acquiring the writer.
 //
 // A managed [Handle] exposes [Handle.Answer] for an addressed wait, [Handle.Await]
 // for the committed logical result, and [Handle.Join] for local subtree drainage.

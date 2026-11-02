@@ -49,6 +49,8 @@
 // text, srt, and vtt require a different decoder. Image, transcription, and
 // translation calls own their unary mode, so extensions cannot enable streaming.
 //
+// Chat Completions owns its single output. Neither a raw request extension nor
+// a compatible dialect can set n.
 // Standard Chat Completions requests stream_options.include_usage by default
 // for both Call and Stream. Explicit false or null stream_options are respected;
 // compatible providers retain their own request policy. Missing provider usage

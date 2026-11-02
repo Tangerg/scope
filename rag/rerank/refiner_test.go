@@ -140,3 +140,18 @@ func identifiedDocument(t *testing.T, id, text string) *document.Document {
 	doc.ID = id
 	return doc
 }
+
+func TestRerankerChecksIndicesAgainstOriginalCandidates(t *testing.T) {
+	model := corererank.ModelFunc(func(_ context.Context, request *corererank.Request) (*corererank.Response, error) {
+		request.Documents = append(request.Documents, "foreign")
+		return &corererank.Response{Results: []*corererank.Result{{Index: 1, Score: 1}}}, nil
+	})
+	refiner, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model, TopK: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := refiner.Refine(t.Context(), mustQuery(t, "query"), rag.Candidates{candidate(identifiedDocument(t, "doc", "text"))})
+	if !errors.Is(err, rag.ErrInvalidReranking) || !errors.Is(err, corererank.ErrInvalidResponse) || got != nil {
+		t.Fatalf("mutated document range accepted: %v, %v", got, err)
+	}
+}

@@ -2,27 +2,15 @@ package vector
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"slices"
 
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/embeddingclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-// Encoding binds the actual provider model and effective per-purpose options;
-// asymmetric providers receive their native document or query input type here.
-type Encoding struct {
-	Model   embedding.Model
-	Options embedding.Options
-}
-
 type EncoderConfig struct {
 	Space     vectorstore.SpaceID
-	Documents Encoding
-	Queries   Encoding
+	Documents embeddingclient.Config
+	Queries   embeddingclient.Config
 }
 
 // Encoder binds both halves of a compatible vector space. The Host identifies
@@ -30,31 +18,29 @@ type EncoderConfig struct {
 // width is an adequate substitute for that binding.
 type Encoder struct {
 	space     vectorstore.SpaceID
-	documents Encoding
-	queries   Encoding
+	documents embeddingclient.Client
+	queries   embeddingclient.Client
 }
 
 func NewEncoder(config EncoderConfig) (*Encoder, error) {
 	if err := config.Space.Validate(); err != nil {
 		return nil, err
 	}
-	for _, binding := range []Encoding{config.Documents, config.Queries} {
-		if lo.IsNil(binding.Model) {
-			return nil, errors.New("rag/vector: missing embedding model binding")
-		}
-		if err := binding.Options.Validate(); err != nil {
-			return nil, err
-		}
+	documents, err := embeddingclient.New(config.Documents)
+	if err != nil {
+		return nil, err
 	}
-	config.Documents.Options = config.Documents.Options.Clone()
-	config.Queries.Options = config.Queries.Options.Clone()
-	return &Encoder{space: config.Space, documents: config.Documents, queries: config.Queries}, nil
+	queries, err := embeddingclient.New(config.Queries)
+	if err != nil {
+		return nil, err
+	}
+	return &Encoder{space: config.Space, documents: documents, queries: queries}, nil
 }
 
 func (e *Encoder) Space() vectorstore.SpaceID { return e.space }
 
 func (e *Encoder) EncodeDocuments(ctx context.Context, texts []string) ([][]float64, error) {
-	return e.documents.encode(ctx, texts)
+	return e.documents.EmbedTexts(ctx, texts)
 }
 
 // EncodeQuery returns coordinates that can be reused across compatible native
@@ -63,11 +49,12 @@ func (e *Encoder) EncodeQuery(ctx context.Context, text string, options vectorst
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-	values, err := e.queries.encode(ctx, []string{text})
+	options = options.Clone()
+	values, err := e.queries.EmbedText(ctx, text)
 	if err != nil {
 		return nil, err
 	}
-	q := &vectorstore.Query{Space: e.space, Values: values[0], Options: options}
+	q := &vectorstore.Query{Space: e.space, Values: values, Options: options}
 	if options.EffectiveMode() == vectorstore.SearchModeHybrid {
 		q.LexicalText = text
 	}
@@ -75,36 +62,4 @@ func (e *Encoder) EncodeQuery(ctx context.Context, text string, options vectorst
 		return nil, checkErr
 	}
 	return q, nil
-}
-
-func (e Encoding) encode(ctx context.Context, texts []string) ([][]float64, error) {
-	if lo.IsNil(e.Model) {
-		return nil, errors.New("rag/vector: uninitialized encoder binding")
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	req, err := embedding.NewRequest(texts)
-	if err != nil {
-		return nil, err
-	}
-	req.Options = e.Options.Clone()
-	// The producer must not be able to redefine the request against which
-	// its cardinality and requested dimensions are checked.
-	wire := &embedding.Request{Texts: slices.Clone(req.Texts), Options: req.Options.Clone()}
-	res, err := e.Model.Call(ctx, wire)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := res.ValidateFor(req); err != nil {
-		return nil, fmt.Errorf("rag/vector: embedding response: %w", err)
-	}
-	result := make([][]float64, len(res.Outputs))
-	for i, output := range res.Outputs {
-		result[i] = slices.Clone(output.Embedding)
-	}
-	return result, nil
 }

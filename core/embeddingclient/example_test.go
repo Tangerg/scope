@@ -13,7 +13,7 @@ func Example() {
 		output, _ := embedding.NewOutput([]float64{0.1, 0.2}, nil)
 		return embedding.NewResponse([]*embedding.Output{output}, &embedding.ResponseMetadata{})
 	})
-	client, err := embeddingclient.New(model)
+	client, err := embeddingclient.New(embeddingclient.Config{Model: model})
 	if err != nil {
 		panic(err)
 	}

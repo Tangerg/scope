@@ -30,7 +30,7 @@ type Literal struct {
 	end   Position
 }
 
-func (*Literal) expr() {}
+func (l *Literal) snapshot(tree *treeSnapshot) Expr { return tree.retain(l) }
 
 func (l *Literal) Kind() LiteralKind {
 	if l == nil {

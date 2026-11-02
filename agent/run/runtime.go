@@ -349,7 +349,16 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 		if receipt.Intent != intent {
 			return nil, &StartConflictError{Receipt: receipt}
 		}
-		if local, ok := r.Process(receipt.RootID); ok {
+		local, registered := r.Process(receipt.RootID)
+		reader, readable := r.committer.(HeadReader)
+		if !registered || !readable {
+			return nil, &StartAcceptedError{Receipt: receipt}
+		}
+		head, headErr := receipt.loadHead(ctx, reader)
+		if headErr != nil {
+			return nil, errors.Join(&StartAcceptedError{Receipt: receipt}, headErr)
+		}
+		if local.TreeIncarnationID() == head.IncarnationID() {
 			return &Handle[O]{handle: local.handle}, nil
 		}
 		return nil, &StartAcceptedError{Receipt: receipt}

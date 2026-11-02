@@ -413,3 +413,17 @@ func TestResponseJSONRejectsInvalidReceiversAndValues(t *testing.T) {
 		t.Fatalf("invalid response metadata error = %v", err)
 	}
 }
+
+func TestRequestCloneIsIndependent(t *testing.T) {
+	var missing *rerank.Request
+	if missing.Clone() != nil {
+		t.Fatal("cloning a nil request produced a request")
+	}
+	original := &rerank.Request{Query: "query", Documents: []string{"source"}, Options: rerank.Options{TopK: new(1)}}
+	cloned := original.Clone()
+	cloned.Documents[0] = "other"
+	*cloned.Options.TopK = 0
+	if original.Documents[0] != "source" || *original.Options.TopK != 1 || cloned.Query != original.Query {
+		t.Fatal("clone changed the original request or lost its query")
+	}
+}

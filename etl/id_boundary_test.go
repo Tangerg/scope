@@ -125,3 +125,24 @@ func TestGeneratedIdentityRejectsCancellationBeforePublication(t *testing.T) {
 		})
 	}
 }
+
+func TestIDAssignerGrantsOnlyIdentityToGenerator(t *testing.T) {
+	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: boundaryIDGenerator(func(_ context.Context, input *document.Document) (string, error) {
+		input.Text = "foreign"
+		return "generated", nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := document.NewDocument("original", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := assigner.Assign(t.Context(), []*document.Document{source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].ID != "generated" || got[0].Text != "original" {
+		t.Fatalf("ID generation rewrote document content: %q %q", got[0].ID, got[0].Text)
+	}
+}

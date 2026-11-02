@@ -108,7 +108,7 @@ func (o *OverlaySource) ownedSummary(ctx context.Context, listed listedSummary) 
 	switch {
 	case err == nil:
 		return owned, nil
-	case errors.Is(err, ErrSkillNotFound):
+	case missingSkill(err):
 		return listed.summary, nil
 	default:
 		return Summary{}, fmt.Errorf("skills: list: %w", err)
@@ -153,11 +153,8 @@ func (o *OverlaySource) Load(ctx context.Context, name string) (*Skill, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := skill.Validate(); err != nil {
-			return nil, invalidSkill(name, err)
-		}
-		if skill.Name != name {
-			return nil, invalidSkill(name, fmt.Errorf("%w: loaded %q vs requested %q", ErrNameMismatch, skill.Name, name))
+		if err := skill.ValidateFor(name); err != nil {
+			return nil, err
 		}
 		return skill, nil
 	})
@@ -196,7 +193,7 @@ func (o *OverlaySource) resolve[T any](ctx context.Context, name, operation stri
 		if ctxErr := contextError(ctx, operation); ctxErr != nil {
 			return zero, errors.Join(err, ctxErr)
 		}
-		if !errors.Is(err, ErrSkillNotFound) {
+		if !missingSkill(err) {
 			return zero, err
 		}
 		errs = append(errs, err)

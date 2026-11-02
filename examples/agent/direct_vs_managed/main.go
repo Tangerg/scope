@@ -9,9 +9,8 @@
 package main
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +42,12 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 
-	deployment, err := newManagedEchoDeployment()
+	program, err := agent.Compile(ctx, agent.Config{
+		Name: "example.managed_echo", Description: "Return one deterministic echo.",
+		Model: echoModel{prefix: "managed"}, MaxModelCalls: agentrun.NewQuota(1),
+		BuildIdentity: agentrun.ComputeDigest([]byte("example-managed-echo-implementation")),
+		ModelIdentity: agentrun.ComputeDigest([]byte("echo-prefix-managed")),
+	})
 	if err != nil {
 		return err
 	}
@@ -52,11 +56,9 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	input, err := deployment.Descriptor().EncodeInput(agent.Input{Messages: request.Messages})
-	if err != nil {
-		return err
-	}
-	process, err := engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: startrand.Text()}, Input: input})
+	process, err := engine.Start(ctx, program, agentrun.StartRequest[agent.Input]{
+		ID: agentrun.StartID{Scope: "example", Key: rand.Text()}, Input: agent.Input{Messages: request.Messages},
+	})
 	if err != nil {
 		return err
 	}
@@ -64,44 +66,15 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if releaseErr := engine.ReleaseTree(ctx, process.Relation().ProcessID()); releaseErr != nil {
-		return releaseErr
+	if err = engine.ReleaseTree(ctx, process.ID()); err != nil {
+		return err
 	}
-	erased, ok := result.Termination().Output()
-	if !ok {
-		return fmt.Errorf("managed Process ended with %s", result.Termination().Status())
-	}
-	managed, err := deployment.Descriptor().DecodeOutput[agent.Output](erased)
+	managed, err := result.Output()
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(output, "direct: %s\nmanaged: %s\n", direct.Text(), managed.ModelResponse.Text())
 	return err
-}
-
-func newManagedEchoDeployment() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	client, err := chatclient.New(echoModel{prefix: "managed"}, chatclient.Config{})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	definition, err := agent.NewDefinition(agent.DefinitionConfig{
-		Name:          "example.managed_echo",
-		Description:   "Return one deterministic model response through an Engine Process.",
-		MaxModelCalls: agentrun.NewQuota(1),
-	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: client})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
-		Definition:           definition,
-		Dispatcher:           dispatcher,
-		ImplementationDigest: agentrun.ComputeDigest([]byte("example-managed-echo-implementation")),
-		ConfigurationDigest:  agentrun.ComputeDigest([]byte("example-managed-echo-configuration")),
-	})
 }
 
 type echoModel struct{ prefix string }

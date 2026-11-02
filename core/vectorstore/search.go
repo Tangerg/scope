@@ -61,6 +61,11 @@ type searchOptionsWire struct {
 	Mode     SearchMode `json:"mode,omitempty"`
 }
 
+func (s SearchOptions) Clone() SearchOptions {
+	s.Filter = filter.Clone(s.Filter)
+	return s
+}
+
 func (s SearchOptions) Validate() error {
 	if s.TopK < 0 {
 		return fmt.Errorf("%w: top K must not be negative, got %d", ErrInvalidOptions, s.TopK)

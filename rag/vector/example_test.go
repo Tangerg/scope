@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/embeddingclient"
 	corevs "github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/rag"
@@ -62,7 +63,7 @@ func demoEncoder() *ragvectorstore.Encoder {
 	model := embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
 		return embedding.NewResponse([]*embedding.Output{{Embedding: []float64{1, 0}}}, nil)
 	})
-	binding := ragvectorstore.Encoding{Model: model}
+	binding := embeddingclient.Config{Model: model}
 	encoder, err := ragvectorstore.NewEncoder(ragvectorstore.EncoderConfig{Space: "example-v1", Documents: binding, Queries: binding})
 	if err != nil {
 		panic(err)

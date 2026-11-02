@@ -58,11 +58,8 @@ func (c *CompatibleRequest) Stream() bool { return c.stream }
 
 // SetExtraField adds or replaces one provider-owned top-level JSON field.
 func (c *CompatibleRequest) SetExtraField(name string, value any) error {
-	if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name {
-		return errors.New("openai: extra field name is required and must not have surrounding whitespace")
-	}
-	if coreOwnedChatField(name) {
-		return fmt.Errorf("openai: extra field %q is owned by Core", name)
+	if err := validateChatExtraField(name); err != nil {
+		return err
 	}
 	if c.extraFields == nil {
 		c.extraFields = make(map[string]any)

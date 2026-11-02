@@ -482,7 +482,7 @@ func TestObserverCloseRecordsIncompleteSpanError(t *testing.T) {
 	observer.Close()
 
 	process := spanByName(t, recorder.Ended(), "invoke_agent test.otel", 0)
-	assertSpanException(t, process, "agent otel: observer closed before span completion")
+	assertSpanException(t, process, "agent otel: span completion was not observed")
 }
 
 func TestObserverCloseWaitsForInFlightObservation(t *testing.T) {

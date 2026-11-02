@@ -79,7 +79,7 @@ func (r *Repository) List(ctx context.Context) (summaries []Summary, err error) 
 		if contextErr := contextError(ctx, "list"); contextErr != nil {
 			return nil, errors.Join(err, contextErr)
 		}
-		if errors.Is(err, fs.ErrNotExist) {
+		if onlyMissing(err) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("skills: list: %w", err)
@@ -274,7 +274,7 @@ func (r *Repository) missingSkillFileError(ctx context.Context, name string, err
 	if ctxErr := contextError(ctx, "open skill"); ctxErr != nil {
 		return errors.Join(err, ctxErr)
 	}
-	if !errors.Is(err, fs.ErrNotExist) {
+	if !onlyMissing(err) {
 		return err
 	}
 	entry, openErr := r.fsys.Open(name)
@@ -282,7 +282,7 @@ func (r *Repository) missingSkillFileError(ctx context.Context, name string, err
 		if ctxErr := contextError(ctx, "open skill directory"); ctxErr != nil {
 			return errors.Join(err, openErr, ctxErr)
 		}
-		if errors.Is(openErr, fs.ErrNotExist) {
+		if onlyMissing(openErr) {
 			return errors.Join(ErrSkillNotFound, err, openErr)
 		}
 		return errors.Join(err, openErr)

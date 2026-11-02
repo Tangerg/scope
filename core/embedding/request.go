@@ -110,6 +110,14 @@ func NewRequest(texts []string) (*Request, error) {
 	return r, nil
 }
 
+// Clone keeps the submitted request independent of the model's working copy.
+func (r *Request) Clone() *Request {
+	if r == nil {
+		return nil
+	}
+	return &Request{Texts: slices.Clone(r.Texts), Options: r.Options.Clone()}
+}
+
 func (r *Request) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: nil request", ErrInvalidRequest)

@@ -8,6 +8,9 @@
 // stable gen_ai.agent.id values. Model selection stays at the model boundary.
 // Durable Process, Step, and Effect spans are keyed by the active incarnation,
 // so overlapping old and restored instances never share span ownership.
+// A physical AttemptID pairs an Effect start and finish, so a dropped finish
+// cannot make its replay inherit the previous span. Process termination or
+// Observer.Close ends an unmatched start as incomplete.
 // Effect spans and dropped-Delta events carry the Runtime's physical AttemptID.
 // Replays keep the logical EffectID and receive a fresh AttemptID. Unknown
 // resolution is a Process event with the definite settlement, not another

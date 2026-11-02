@@ -152,7 +152,7 @@ func TestObserverCloseEndsEveryIncompleteSpanOnce(t *testing.T) {
 		t.Fatalf("ended spans=%d, want one process, step, and effect", len(spans))
 	}
 	for _, span := range spans {
-		assertSpanException(t, span, "agent otel: observer closed before span completion")
+		assertSpanException(t, span, "agent otel: span completion was not observed")
 	}
 	var metrics metricdata.ResourceMetrics
 	if err := harness.reader.Collect(t.Context(), &metrics); err != nil {

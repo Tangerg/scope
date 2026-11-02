@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-func decodeGenerationConfig(extensions metadata.Extensions, key string) (*genai.GenerateContentConfig, map[string]json.RawMessage, error) {
+func decodeSingleCandidateConfig(extensions metadata.Extensions, key string) (*genai.GenerateContentConfig, map[string]json.RawMessage, error) {
 	raw, found, err := extensions.Decode[json.RawMessage](key)
 	if err != nil {
 		return nil, nil, fmt.Errorf("google: extension %q: %w", key, err)
@@ -28,6 +28,10 @@ func decodeGenerationConfig(extensions metadata.Extensions, key string) (*genai.
 	}
 	if err := jsonv2.Unmarshal(raw, config, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, nil, fmt.Errorf("google: extension %q: %w", key, err)
+	}
+	// The SDK omits a zero count; missing and null also select its single-candidate default.
+	if count := config.CandidateCount; count < 0 || count > 1 {
+		return nil, nil, fmt.Errorf("google: extension %q requests %d candidates for a single-output generation", key, count)
 	}
 	return config, fields, nil
 }

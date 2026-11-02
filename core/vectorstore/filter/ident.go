@@ -12,7 +12,8 @@ type Ident struct {
 	end   Position
 }
 
-func (*Ident) expr()     {}
+func (i *Ident) snapshot(tree *treeSnapshot) Expr { return tree.retain(i) }
+
 func (*Ident) selector() {}
 
 func (i *Ident) Name() string {

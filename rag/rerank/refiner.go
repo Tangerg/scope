@@ -91,7 +91,7 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	if err := request.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: model request: %w", rag.ErrInvalidReranking, err)
 	}
-	response, callErr := r.model.Call(ctx, request)
+	response, callErr := r.model.Call(ctx, request.Clone())
 	if callErr != nil {
 		return nil, callErr
 	}

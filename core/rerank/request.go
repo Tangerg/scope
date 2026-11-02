@@ -25,6 +25,14 @@ func NewRequest(query string, documents []string) (*Request, error) {
 	return request, nil
 }
 
+// Clone keeps the submitted request independent of the model's working copy.
+func (r *Request) Clone() *Request {
+	if r == nil {
+		return nil
+	}
+	return &Request{Query: r.Query, Documents: slices.Clone(r.Documents), Options: r.Options.Clone()}
+}
+
 func (r *Request) Validate() error {
 	if r == nil {
 		return fmt.Errorf("%w: nil request", ErrInvalidRequest)

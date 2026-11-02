@@ -49,7 +49,7 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 		return "", nil, nil, validateOptionsErr
 	}
 
-	config, fields, err := decodeGenerationConfig(effectiveOptions.Extensions, protocolKey(s.provider, "speech_request"))
+	config, fields, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(s.provider, "speech_request"))
 	if err != nil {
 		return "", nil, nil, err
 	}

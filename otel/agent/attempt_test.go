@@ -163,6 +163,9 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 					}
 					eventMu.Lock()
 					defer eventMu.Unlock()
+					if replay && failureMode == "unknown" {
+						checkReplayAfterLostFinish(t, events, dispatcher.attempts)
+					}
 					for _, event := range events {
 						if fact, ok := event.EffectStarted(); ok {
 							if fact.AttemptID() != dispatcher.attempts[0] && (len(dispatcher.attempts) != 2 || fact.AttemptID() != dispatcher.attempts[1]) {
@@ -174,6 +177,39 @@ func TestObserverSeparatesAttemptsFromUnknownResolution(t *testing.T) {
 			})
 		}
 	}
+}
+
+func checkReplayAfterLostFinish(t *testing.T, events []run.Event, attempts []run.EffectAttemptID) {
+	t.Helper()
+	harness := newObserverHarness(t)
+	var replayStart, replayFinish, processFinish time.Time
+	for _, event := range events {
+		if fact, started := event.EffectStarted(); started && fact.AttemptID() == attempts[1] {
+			replayStart = event.OccurredAt()
+		}
+		if fact, finished := event.EffectFinished(); finished {
+			if fact.AttemptID() == attempts[0] {
+				continue
+			}
+			replayFinish = event.OccurredAt()
+		}
+		if event.Name() == run.EventProcessFinished {
+			processFinish = event.OccurredAt()
+		}
+		harness.observer.OnEvent(t.Context(), event)
+	}
+	effects := spansByName(harness.recorder.Ended(), "agent.effect")
+	if len(effects) != 2 {
+		t.Fatalf("replay after a dropped finish ended %d physical spans, want 2", len(effects))
+	}
+	replay, incomplete := effects[0], effects[1]
+	if id := stringAttribute(replay.Attributes(), "agent.effect.attempt_id"); id != attempts[1].String() || !replay.StartTime().Equal(replayStart) || !replay.EndTime().Equal(replayFinish) {
+		t.Fatalf("replay acquired another attempt's span: id=%q start=%v finish=%v", id, replay.StartTime(), replay.EndTime())
+	}
+	if id := stringAttribute(incomplete.Attributes(), "agent.effect.attempt_id"); id != attempts[0].String() || !incomplete.EndTime().Equal(processFinish) || stringAttribute(incomplete.Attributes(), "agent.effect.status") != "" {
+		t.Fatalf("missing finish acquired a settlement: id=%q end=%v attributes=%v", id, incomplete.EndTime(), incomplete.Attributes())
+	}
+	assertSpanException(t, incomplete, "agent otel: span completion was not observed")
 }
 
 type uncertainDispatcher struct {

@@ -82,7 +82,7 @@ func assignID(ctx context.Context, doc *document.Document, generator IDGenerator
 	if doc.ID != "" || generator == nil {
 		return nil
 	}
-	generated, err := generator.Generate(ctx, doc)
+	generated, err := generator.Generate(ctx, doc.Clone())
 	if err != nil {
 		return err
 	}

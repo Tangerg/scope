@@ -14,7 +14,8 @@ type UnaryExpr struct {
 	end      Position
 }
 
-func (*UnaryExpr) expr()      {}
+func (u *UnaryExpr) snapshot(tree *treeSnapshot) Expr { return tree.retain(u) }
+
 func (*UnaryExpr) predicate() {}
 
 func (u *UnaryExpr) Operator() Operator {
@@ -50,7 +51,9 @@ func (u *UnaryExpr) Equal(other Expr) bool {
 	return ok && u != nil && o != nil && u.operator == o.operator && equalExpr(u.right, o.right)
 }
 
-func (u *UnaryExpr) Validate() error {
+func (u *UnaryExpr) Validate() error { return validatePredicate(u) }
+
+func (u *UnaryExpr) validate() error {
 	if u == nil {
 		return errors.New("filter: unary expression is nil")
 	}
@@ -60,7 +63,7 @@ func (u *UnaryExpr) Validate() error {
 	if lo.IsNil(u.right) {
 		return fmt.Errorf("filter: NOT operand is nil at %s", u.Start())
 	}
-	return u.right.Validate()
+	return nil
 }
 
 func (u *UnaryExpr) Accept(visitor Visitor) error { return accept(u, visitor) }

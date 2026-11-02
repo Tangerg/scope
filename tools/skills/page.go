@@ -104,12 +104,9 @@ func boundedPage[T any](remaining int, maxBytes int64, makePage func(int) T) (T,
 	return best, nil
 }
 
-func textPage(operation, name, path, content string, cursor *Cursor, maxBytes int64) (TextPage, error) {
+func textPage(name, path, content string, cursor *Cursor, maxBytes int64) (TextPage, error) {
 	if !utf8.ValidString(content) {
 		return TextPage{}, fmt.Errorf("%w: content must be valid UTF-8", skillsrc.ErrInvalidSkill)
-	}
-	if operation == "load" && path != "" || operation == "resource" && path == "" {
-		return TextPage{}, ErrInvalidCursor
 	}
 	ref, err := skillsrc.NewReference(name, path, []byte(content))
 	if err != nil {

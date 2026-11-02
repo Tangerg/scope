@@ -73,7 +73,7 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 		return "", nil, nil, validateOptionsErr
 	}
 
-	config, _, err := decodeGenerationConfig(effectiveOptions.Extensions, protocolKey(t.provider, "transcription_request"))
+	config, _, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(t.provider, "transcription_request"))
 	if err != nil {
 		return "", nil, nil, err
 	}

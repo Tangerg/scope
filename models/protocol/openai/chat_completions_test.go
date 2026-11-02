@@ -150,26 +150,42 @@ func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 }
 
 func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		t.Error("request must fail before provider I/O")
-		http.Error(writer, "unexpected provider I/O", http.StatusBadRequest)
-	}))
-	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
-		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
-	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
-	if err != nil {
-		t.Fatalf("NewChatCompletions: %v", err)
-	}
-	request, err := corechat.NewRequest(corechat.NewUserMessage(corechat.NewTextPart("hello")))
-	if err != nil {
-		t.Fatalf("NewRequest: %v", err)
-	}
-	if err := request.Options.Extensions.Set("test/openai_request", map[string]any{"n": 2}); err != nil {
-		t.Fatalf("SetExtension: %v", err)
-	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "produces one output") {
-		t.Fatalf("Call error = %v; want output-count rejection", err)
+	for _, source := range []string{"request", "defaults", "dialect"} {
+		t.Run(source, func(t *testing.T) {
+			server := modeltest.JSONServer(http.StatusBadRequest, "{}", func(*http.Request) {
+				t.Error("result count reached provider transport")
+			})
+			t.Cleanup(server.Close)
+			config := scopeopenai.ChatCompletionsConfig{
+				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "test-model"},
+			}
+			dialect := scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens}
+			request, err := corechat.NewRequest(corechat.NewUserMessage(corechat.NewTextPart("hello")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch source {
+			case "request":
+				err = request.Options.Extensions.Set("test/openai_request", scopeopenai.RequestFields{"n": 2})
+			case "defaults":
+				err = config.DefaultOptions.Extensions.Set("test/openai_request", scopeopenai.RequestFields{"n": 2})
+			case "dialect":
+				dialect.PrepareRequest = func(_ *corechat.Request, target *scopeopenai.CompatibleRequest) error {
+					return target.SetExtraField("n", 2)
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, err := scopeopenai.NewChatCompletions(t.Context(), config, dialect)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = model.Call(t.Context(), request)
+			if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || !strings.Contains(err.Error(), "produces one output") {
+				t.Fatalf("Call error = %v; want preflight output-count rejection", err)
+			}
+		})
 	}
 }
 

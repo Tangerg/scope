@@ -33,7 +33,7 @@ func TestClientEmbedsIndependentVectors(t *testing.T) {
 		providerResponses = append(providerResponses, response)
 		return response, nil
 	})
-	client, err := embeddingclient.New(model)
+	client, err := embeddingclient.New(embeddingclient.Config{Model: model})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +52,11 @@ func TestClientEmbedsIndependentVectors(t *testing.T) {
 }
 
 func TestClientRejectsInvalidBoundaries(t *testing.T) {
-	if _, err := embeddingclient.New(nil); !errors.Is(err, embeddingclient.ErrNilModel) {
+	if _, err := embeddingclient.New(embeddingclient.Config{}); !errors.Is(err, embeddingclient.ErrNilModel) {
 		t.Fatalf("New(nil) error = %v, want ErrNilModel", err)
 	}
 	var typedNil *pointerModel
-	if _, err := embeddingclient.New(typedNil); !errors.Is(err, embeddingclient.ErrNilModel) {
+	if _, err := embeddingclient.New(embeddingclient.Config{Model: typedNil}); !errors.Is(err, embeddingclient.ErrNilModel) {
 		t.Fatalf("New(typed nil) error = %v, want ErrNilModel", err)
 	}
 
@@ -65,17 +65,17 @@ func TestClientRejectsInvalidBoundaries(t *testing.T) {
 		t.Fatalf("zero Client error = %v, want ErrNilModel", err)
 	}
 
-	nilResponse, _ := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+	nilResponse, _ := embeddingclient.New(embeddingclient.Config{Model: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 		return nil, nil
-	}))
+	})})
 	if vectors, err := nilResponse.EmbedTexts(t.Context(), []string{"text"}); vectors != nil || !errors.Is(err, embedding.ErrInvalidResponse) {
 		t.Fatalf("absent model response lost its classification: %v, %v", vectors, err)
 	}
 
 	want := errors.New("boom")
-	failed, _ := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+	failed, _ := embeddingclient.New(embeddingclient.Config{Model: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 		return nil, want
-	}))
+	})})
 	if _, err := failed.EmbedTexts(t.Context(), []string{"text"}); !errors.Is(err, want) {
 		t.Fatalf("EmbedTexts error = %v, want %v", err, want)
 	}
@@ -92,18 +92,18 @@ func TestClientValidatesResults(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client, _ := embeddingclient.New(embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
+			client, _ := embeddingclient.New(embeddingclient.Config{Model: embedding.ModelFunc(func(context.Context, *embedding.Request) (*embedding.Response, error) {
 				return tt.response, nil
-			}))
+			})})
 			if _, err := client.EmbedTexts(t.Context(), []string{"text"}); err == nil {
 				t.Fatal("EmbedTexts accepted an invalid output")
 			}
 		})
 	}
 
-	client, _ := embeddingclient.New(embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
+	client, _ := embeddingclient.New(embeddingclient.Config{Model: embedding.ModelFunc(func(_ context.Context, request *embedding.Request) (*embedding.Response, error) {
 		return responseFor(request.Texts), nil
-	}))
+	})})
 	if _, err := client.EmbedTexts(t.Context(), []string{""}); err == nil {
 		t.Fatal("EmbedTexts accepted empty text")
 	}

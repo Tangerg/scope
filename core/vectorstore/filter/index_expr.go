@@ -3,6 +3,7 @@ package filter
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 type IndexExpr struct {
@@ -12,7 +13,8 @@ type IndexExpr struct {
 	end   Position
 }
 
-func (*IndexExpr) expr()     {}
+func (i *IndexExpr) snapshot(tree *treeSnapshot) Expr { return tree.retain(i) }
+
 func (*IndexExpr) selector() {}
 
 func (i *IndexExpr) Left() Selector {
@@ -30,18 +32,39 @@ func (i *IndexExpr) Index() *Literal {
 }
 
 func (i *IndexExpr) Path() ([]PathSegment, error) {
-	if err := i.validate(); err != nil {
-		return nil, err
+	var segments []PathSegment
+	seen := make(map[*IndexExpr]bool)
+	for node := i; node != nil; {
+		if seen[node] {
+			return nil, errors.New("filter: cyclic selector")
+		}
+		seen[node] = true
+		if node.index == nil {
+			return nil, fmt.Errorf("filter: index is nil at %s", node.Start())
+		}
+		if err := node.index.validate(); err != nil {
+			return nil, err
+		}
+		segment, err := node.index.pathSegment()
+		if err != nil {
+			return nil, err
+		}
+		segments = append(segments, segment)
+		switch base := node.left.(type) {
+		case *IndexExpr:
+			node = base
+		case *Ident:
+			if err := base.validate(); err != nil {
+				return nil, err
+			}
+			segments = append(segments, PathSegment{key: base.name})
+			slices.Reverse(segments)
+			return segments, nil
+		default:
+			return nil, fmt.Errorf("filter: invalid index base %T", base)
+		}
 	}
-	path, err := i.left.Path()
-	if err != nil {
-		return nil, err
-	}
-	segment, err := i.index.pathSegment()
-	if err != nil {
-		return nil, err
-	}
-	return append(path, segment), nil
+	return nil, errors.New("filter: index expression is nil")
 }
 
 func (i *IndexExpr) Start() Position {
@@ -64,18 +87,6 @@ func (i *IndexExpr) Equal(other Expr) bool {
 }
 
 func (i *IndexExpr) validate() error {
-	if i == nil {
-		return errors.New("filter: index expression is nil")
-	}
-	if err := validateSelector(i.left); err != nil {
-		return fmt.Errorf("filter: index base: %w", err)
-	}
-	if i.index == nil {
-		return fmt.Errorf("filter: index is nil at %s", i.Start())
-	}
-	if err := i.index.validate(); err != nil {
-		return err
-	}
-	_, err := i.index.pathSegment()
+	_, err := i.Path()
 	return err
 }

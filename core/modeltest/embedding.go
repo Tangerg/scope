@@ -52,7 +52,7 @@ func (e EmbeddingContract) runCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Options.Model = e.ModelID
-	response, err := model.Call(t.Context(), request)
+	response, err := model.Call(t.Context(), request.Clone())
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
@@ -115,7 +115,7 @@ func RunIntegrationEmbedding(t *testing.T, probe IntegrationEmbeddingProbe) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := model.Call(ctx, request)
+	response, err := model.Call(ctx, request.Clone())
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}

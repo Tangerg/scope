@@ -26,7 +26,8 @@ type BinaryExpr struct {
 	end      Position
 }
 
-func (*BinaryExpr) expr()      {}
+func (b *BinaryExpr) snapshot(tree *treeSnapshot) Expr { return tree.retain(b) }
+
 func (*BinaryExpr) predicate() {}
 
 func (b *BinaryExpr) Left() Expr {
@@ -191,7 +192,9 @@ func (b *BinaryExpr) Equal(other Expr) bool {
 	return ok && b != nil && o != nil && b.operator == o.operator && equalExpr(b.left, o.left) && equalExpr(b.right, o.right)
 }
 
-func (b *BinaryExpr) Validate() error {
+func (b *BinaryExpr) Validate() error { return validatePredicate(b) }
+
+func (b *BinaryExpr) validate() error {
 	if b == nil {
 		return errors.New("filter: binary expression is nil")
 	}
@@ -278,18 +281,13 @@ func (b *BinaryExpr) Dispatch(handlers BinaryHandlers) error {
 }
 
 func (b *BinaryExpr) validateLogical() error {
-	left, ok := b.left.(Predicate)
-	if !ok {
+	if _, ok := b.left.(Predicate); !ok {
 		return fmt.Errorf("filter: %s left operand must be a predicate, got %T at %s", b.operator.Name(), b.left, b.Start())
 	}
-	right, ok := b.right.(Predicate)
-	if !ok {
+	if _, ok := b.right.(Predicate); !ok {
 		return fmt.Errorf("filter: %s right operand must be a predicate, got %T at %s", b.operator.Name(), b.right, b.Start())
 	}
-	if err := left.Validate(); err != nil {
-		return err
-	}
-	return right.Validate()
+	return nil
 }
 
 func (b *BinaryExpr) validateComparison(numeric bool) error {

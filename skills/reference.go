@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"io/fs"
 
 	"github.com/samber/lo"
 )
@@ -64,14 +63,20 @@ func (r Reference) Resolve(ctx context.Context, source ContentSource, maxResourc
 	}
 	var data []byte
 	if r.Path == "" {
+		const operation = "resolve instructions"
+		if ctxErr := contextError(ctx, operation); ctxErr != nil {
+			return nil, ctxErr
+		}
 		var s *Skill
 		s, err = source.Load(ctx, r.Name)
+		if ctxErr := contextError(ctx, operation); ctxErr != nil {
+			return nil, errors.Join(err, ctxErr)
+		}
 		if err == nil {
-			if err = s.Validate(); err == nil {
-				if err = s.matchDirectoryName(r.Name); err == nil {
-					data = []byte(s.Instructions)
-				}
+			if err = s.ValidateFor(r.Name); err != nil {
+				return nil, err
 			}
+			data = []byte(s.Instructions)
 		}
 	} else {
 		var truncated bool
@@ -81,7 +86,7 @@ func (r Reference) Resolve(ctx context.Context, source ContentSource, maxResourc
 		}
 	}
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if onlyMissing(err) {
 			return nil, errors.Join(ErrUnresolvedReference, err)
 		}
 		return nil, err
