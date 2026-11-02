@@ -34,6 +34,7 @@ type processState struct {
 func newProcessState(started Started) *processState {
 	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), childKeys: make(map[ChildKey]struct{}), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
 }
+
 func (p *processState) status() Status {
 	switch {
 	case p.exited != nil:
@@ -48,9 +49,11 @@ func (p *processState) status() Status {
 		return StatusRunning
 	}
 }
+
 func (p *processState) ready() bool {
 	return p.exited == nil && !p.terminal.Valid() && !p.paused && !p.yielded
 }
+
 func (p *processState) admit(signal Signal, limits TreeLimits) error {
 	if err := p.admitMessages(limits, 0, nil, 1); err != nil {
 		return err
@@ -84,6 +87,7 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 	p.usage.AcceptedMessages++
 	return nil
 }
+
 func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	if stepped.Step != p.step+1 || p.step == math.MaxUint64 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
 		return ErrInvalidLog
@@ -114,6 +118,7 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	}
 	return nil
 }
+
 func (p *processState) prepare(intent EffectIntent) error {
 	if intent.ID.Step != p.step || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].equal(intent.Effect) {
 		return ErrInvalidLog
@@ -129,6 +134,7 @@ func (p *processState) prepare(intent EffectIntent) error {
 	p.usage.PreparedEffects++
 	return nil
 }
+
 func (p *processState) settle(settled EffectSettled) error {
 	pending, ok := p.pending[settled.ID]
 	if !ok {
@@ -192,6 +198,7 @@ func (p *processState) checkpoint() (ProcessCheckpoint, error) {
 	}
 	return p.materialize(state), nil
 }
+
 func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 	value := ProcessCheckpoint{Started: p.started, State: state, Step: p.step, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, ChildCount: p.childCount, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
 	if p.terminal.Valid() {
@@ -216,6 +223,7 @@ func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 	slices.SortFunc(value.Pending, func(a, b PendingCheckpoint) int { return strings.Compare(a.Intent.ID.String(), b.Intent.ID.String()) })
 	return value
 }
+
 func (p *processState) admitTransition(transition Transition, limits TreeLimits, delivered uint32) error {
 	if !transition.Valid() || transition.consumed > delivered || int(delivered) > len(p.inbox) {
 		return ErrInvalidTransition
@@ -298,6 +306,7 @@ func (p *processState) answered(wait WaitKey) bool {
 	}
 	return false
 }
+
 func (p *processState) answerAfter(wait WaitKey, delivered uint32) bool {
 	for _, message := range p.inbox[delivered:] {
 		if signal, ok := message.(Signal); ok && signal.Wait == wait {

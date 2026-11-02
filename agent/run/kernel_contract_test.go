@@ -17,7 +17,7 @@ func TestChildAdmissionReservesCompletionAndExit(t *testing.T) {
 			store := NewMemoryStore()
 			runtime := kernelRuntime(t, Config{Store: store, Budget: Budget{Messages: NewQuota(maximum)}})
 			program := treeFixtureProgram(t, runtime, 1, false, false, Budget{Messages: NewQuota(0)})
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID(), Input: 0}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID(), Input: 0}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			result := controlValue(handle.Await(ctx))
@@ -74,7 +74,7 @@ func TestCallbackClassificationCannotPanicAfterTheBoundary(t *testing.T) {
 		return Transition{}, hostileError{}
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	result := controlValue(handle.Await(ctx))
@@ -83,7 +83,7 @@ func TestCallbackClassificationCannotPanicAfterTheBoundary(t *testing.T) {
 		t.Fatalf("unsealed error escaped as %+v", failure)
 	}
 	broken := kernelRuntime(t, Config{Store: hostileStore{}})
-	if _, err := broken.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}); err == nil {
+	if _, err := broken.Start(ctx, program, StartRequest[int]{ID: hostStartID()}); err == nil {
 		t.Fatal("panicking error chain became a successful append")
 	}
 }
@@ -122,7 +122,7 @@ func TestDeltaSequenceSurvivesSameEpochReplay(t *testing.T) {
 		return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`1`))
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	var id EffectID
@@ -191,7 +191,7 @@ func TestYieldDoesNotSpinOnUnconsumedMessages(t *testing.T) {
 		return Yield(0, nil, kernelWait())
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	waitForKernelStep(t, ctx, handle, 1)
@@ -235,7 +235,7 @@ func TestWaitAnswerDuringStepDoesNotReopenOrRejectTheWait(t *testing.T) {
 		}
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	waitForKernelStep(t, ctx, handle, 1)

@@ -45,6 +45,7 @@ func (i identity) MarshalText() ([]byte, error) {
 	}
 	return []byte(i.value), nil
 }
+
 func (identity) JSONSchemaModel() any { return "" }
 
 type ProcessID struct{ path string }
@@ -66,6 +67,7 @@ func (p ProcessID) Root() ProcessID {
 	root, _, _ := strings.Cut(p.path, "/")
 	return ProcessID{path: root}
 }
+
 func (p ProcessID) Parent() (ProcessID, bool) {
 	index := strings.LastIndexByte(p.path, '/')
 	if index < 0 {
@@ -73,6 +75,7 @@ func (p ProcessID) Parent() (ProcessID, bool) {
 	}
 	return ProcessID{path: p.path[:index]}, true
 }
+
 func (p ProcessID) Key() (ChildKey, bool) {
 	index := strings.LastIndexByte(p.path, '/')
 	if index < 0 {
@@ -80,6 +83,7 @@ func (p ProcessID) Key() (ChildKey, bool) {
 	}
 	return ChildKey{identity{p.path[index+1:]}}, true
 }
+
 func (p ProcessID) Depth() uint32 { return uint32(strings.Count(p.path, "/")) }
 func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
 	if !p.Valid() || !key.Valid() {
@@ -87,6 +91,7 @@ func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
 	}
 	return ProcessID{path: p.path + "/" + key.String()}, nil
 }
+
 func (p ProcessID) Contains(other ProcessID) bool {
 	for other.Valid() {
 		if p == other {
@@ -100,12 +105,14 @@ func (p ProcessID) Contains(other ProcessID) bool {
 	}
 	return false
 }
+
 func (p ProcessID) MarshalText() ([]byte, error) {
 	if !p.Valid() {
 		return nil, ErrInvalidIdentity
 	}
 	return []byte(p.path), nil
 }
+
 func (p *ProcessID) UnmarshalText(data []byte) error {
 	if p == nil {
 		return ErrInvalidIdentity
@@ -116,6 +123,7 @@ func (p *ProcessID) UnmarshalText(data []byte) error {
 	}
 	return err
 }
+
 func (ProcessID) JSONSchemaModel() any { return "" }
 
 type SignalID struct{ identity }
@@ -124,6 +132,7 @@ func ParseSignalID(value string) (SignalID, error) {
 	id, err := parseIdentity("signal ID", value)
 	return SignalID{id}, err
 }
+
 func (s *SignalID) UnmarshalText(data []byte) error {
 	if s == nil {
 		return ErrInvalidIdentity
@@ -141,6 +150,7 @@ func ParseWaitKey(value string) (WaitKey, error) {
 	id, err := parseIdentity("wait key", value)
 	return WaitKey{id}, err
 }
+
 func (w *WaitKey) UnmarshalText(data []byte) error {
 	if w == nil {
 		return ErrInvalidIdentity
@@ -158,6 +168,7 @@ func ParseChildKey(value string) (ChildKey, error) {
 	id, err := parseIdentity("child key", value)
 	return ChildKey{id}, err
 }
+
 func (c *ChildKey) UnmarshalText(data []byte) error {
 	if c == nil {
 		return ErrInvalidIdentity
@@ -183,6 +194,7 @@ func (e EffectID) String() string {
 	}
 	return e.Process.String() + "/" + strconv.FormatUint(e.Step, 10) + "/" + strconv.FormatUint(uint64(e.Index), 10)
 }
+
 func ParseEffectID(value string) (EffectID, error) {
 	parts := strings.Split(value, "/")
 	if len(parts) < 3 {
@@ -213,6 +225,7 @@ func (e EffectID) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(effectIDWire(e))
 }
+
 func (e *EffectID) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return ErrInvalidIdentity
@@ -228,6 +241,7 @@ func (e *EffectID) UnmarshalJSON(data []byte) error {
 	*e = candidate
 	return nil
 }
+
 func (EffectID) JSONSchemaModel() any { return effectIDWire{} }
 
 type effectIDWire EffectID

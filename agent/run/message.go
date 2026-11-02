@@ -75,6 +75,7 @@ func (i Inbox) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(wire)
 }
+
 func (i *Inbox) UnmarshalJSON(data []byte) error {
 	if i == nil {
 		return ErrInvalidMessage
@@ -150,6 +151,7 @@ func (s signalBatch) validate() error {
 	}
 	return nil
 }
+
 func (s signalBatch) unadmitted(receipts map[SignalID]SignalReceipt) ([]Signal, error) {
 	if err := s.validate(); err != nil {
 		return nil, err

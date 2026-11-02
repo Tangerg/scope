@@ -31,6 +31,7 @@ func (c ChildSpec) equal(other ChildSpec) bool {
 	return c.Key == other.Key && c.ProgramRef == other.ProgramRef && c.Budget == other.Budget &&
 		slices.Equal(c.Capabilities.values, other.Capabilities.values) && bytes.Equal(c.Input.data, other.Input.data)
 }
+
 func (c *ChildSpec) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return ErrInvalidChildStart
@@ -47,24 +48,28 @@ func (c *ChildSpec) UnmarshalJSON(data []byte) error {
 	*c = candidate
 	return nil
 }
+
 func NewChildStartEffect(spec ChildSpec) (Effect, error) {
 	if !spec.Valid() {
 		return Effect{}, ErrInvalidChildStart
 	}
 	return Effect{spawn: &spec}, nil
 }
+
 func ParseChildStartEffect(effect Effect) (ChildSpec, error) {
 	if effect.spawn == nil {
 		return ChildSpec{}, ErrInvalidChildStart
 	}
 	return *effect.spawn, nil
 }
+
 func NewChildSignalEffect(child ProcessID, signal Signal) (Effect, error) {
 	if !child.Valid() || !signal.Valid() {
 		return Effect{}, ErrInvalidChildControl
 	}
 	return Effect{send: &childSignal{Child: child, Signal: signal}}, nil
 }
+
 func NewChildCancelEffect(child ProcessID, reason string) (Effect, error) {
 	if !child.Valid() || validateTerminationReason(reason) != nil {
 		return Effect{}, ErrInvalidChildControl
@@ -76,6 +81,7 @@ type childSignal struct {
 	Child  ProcessID `json:"child"`
 	Signal Signal    `json:"signal"`
 }
+
 type childCancellation struct {
 	Child  ProcessID `json:"child"`
 	Reason string    `json:"reason"`

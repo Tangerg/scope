@@ -65,12 +65,14 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	}
 	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, roots: make(map[ProcessID]*treeRuntime), starting: make(map[string]*startup)}, nil
 }
+
 func (r *Runtime) Compiler() *Compiler {
 	if r == nil {
 		return nil
 	}
 	return r.compiler
 }
+
 func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], request StartRequest[I]) (*Handle[O], error) {
 	if r == nil {
 		return nil, ErrInvalidConfig
@@ -88,6 +90,7 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 	}
 	return typedHandle[O](handle), nil
 }
+
 func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], input I) (O, error) {
 	var zero O
 	if r == nil {
@@ -107,6 +110,7 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 	}
 	return result.Output()
 }
+
 func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payload], id StartID, input Payload) (*Handle[Payload], error) {
 	if err := RequireContext(ctx).Err(); err != nil {
 		return nil, err
@@ -165,6 +169,7 @@ func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payl
 	go tree.run()
 	return handle, nil
 }
+
 func (r *Runtime) accepted(log Log, intent Digest) (*Handle[Payload], error) {
 	if err := log.Validate(); err != nil {
 		return nil, err
@@ -185,6 +190,7 @@ func (r *Runtime) accepted(log Log, intent Digest) (*Handle[Payload], error) {
 	}
 	return &Handle[Payload]{runtime: r, id: log.Root, program: started.Program, epoch: log.Epoch()}, nil
 }
+
 func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], root ProcessID) (*Handle[O], error) {
 	if r == nil {
 		return nil, ErrInvalidConfig
@@ -239,6 +245,7 @@ func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], 
 	go tree.run()
 	return handle, nil
 }
+
 func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
 	if r == nil {
 		return nil, false
@@ -257,6 +264,7 @@ func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
 	}
 	return &Handle[Payload]{runtime: r, tree: tree, process: p, id: id, program: p.started.Program, epoch: tree.state.epoch}, true
 }
+
 func (r *Runtime) Inspect(ctx context.Context, root ProcessID) (TreeInspection, error) {
 	if r == nil {
 		return TreeInspection{}, ErrInvalidConfig
@@ -273,6 +281,7 @@ func (r *Runtime) Inspect(ctx context.Context, root ProcessID) (TreeInspection, 
 	}
 	return log.Inspect()
 }
+
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return ErrInvalidConfig
@@ -313,6 +322,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
 func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 	if r == nil {
 		return ErrInvalidConfig
@@ -334,6 +344,7 @@ func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 		return ErrActiveProcesses
 	}
 }
+
 func (r *Runtime) claim(ctx context.Context, root ProcessID) (context.Context, func(), error) {
 	if !root.Valid() || root.Depth() != 0 {
 		return nil, nil, ErrInvalidIdentity
@@ -369,6 +380,7 @@ func (r *Runtime) claim(ctx context.Context, root ProcessID) (context.Context, f
 		}
 	}
 }
+
 func (r *Runtime) publish(tree *treeRuntime) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -378,6 +390,7 @@ func (r *Runtime) publish(tree *treeRuntime) error {
 	r.roots[tree.state.root] = tree
 	return nil
 }
+
 func (r *Runtime) validateProgram(program Program[Payload, Payload]) error {
 	if err := program.validateDefinition(); err != nil {
 		return err
@@ -387,6 +400,7 @@ func (r *Runtime) validateProgram(program Program[Payload, Payload]) error {
 	}
 	return nil
 }
+
 func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
 	defer cancel()
@@ -403,6 +417,7 @@ func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	}
 	return value.log, value.found, err
 }
+
 func (r *Runtime) read(ctx context.Context, root ProcessID, after LSN) ([]Entry, error) {
 	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
 	defer cancel()

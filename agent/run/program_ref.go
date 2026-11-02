@@ -31,6 +31,7 @@ func newProgramRef(wire programIdentityWire) (ProgramRef, error) {
 	}
 	return ProgramRef{name: wire.Name, build: wire.Build, contract: wire.Contract, configuration: wire.Configuration, revision: wire.Revision, children: wire.Children, digest: ComputeDigest(encoded)}, nil
 }
+
 func (p ProgramRef) Name() string   { return p.name }
 func (p ProgramRef) Build() string  { return p.build }
 func (p ProgramRef) Digest() Digest { return p.digest }
@@ -41,12 +42,14 @@ func (p ProgramRef) String() string {
 	}
 	return p.name + "+" + p.digest.String()
 }
+
 func (p ProgramRef) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {
 		return nil, ErrInvalidProgramRef
 	}
 	return jsonv2.Marshal(p.wire())
 }
+
 func (p *ProgramRef) UnmarshalJSON(data []byte) error {
 	if p == nil {
 		return ErrInvalidProgramRef
@@ -61,9 +64,11 @@ func (p *ProgramRef) UnmarshalJSON(data []byte) error {
 	}
 	return err
 }
+
 func (p ProgramRef) wire() programIdentityWire {
 	return programIdentityWire{Name: p.name, Build: p.build, Contract: p.contract, Configuration: p.configuration, Revision: p.revision, Children: p.children}
 }
+
 func (ProgramRef) JSONSchemaModel() any { return programIdentityWire{} }
 
 type programIdentityWire struct {

@@ -74,7 +74,7 @@ func TestRecoveryResumesFromTheNewestCheckpointWithoutHistory(t *testing.T) {
 	store := NewMemoryStore()
 	original := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1})
 	program := lifecycleEchoProgram(t, original, "test.checkpoint_cut")
-	handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	for entry, err := range handle.Observe(ctx, 0) {

@@ -390,6 +390,7 @@ func validateRecord(record Record) error {
 	}
 	return nil
 }
+
 func EncodeRecord(record Record) (string, []byte, error) {
 	if err := validateRecord(record); err != nil {
 		return "", nil, err
@@ -400,6 +401,7 @@ func EncodeRecord(record Record) (string, []byte, error) {
 	}
 	return string(record.recordKind()), encoded, nil
 }
+
 func DecodeRecord(kind string, data []byte) (Record, error) {
 	var value Record
 	var err error
@@ -437,6 +439,7 @@ func DecodeRecord(kind string, data []byte) (Record, error) {
 	}
 	return value, nil
 }
+
 func decodeLogRecord[T Record](data []byte) (T, error) { return jsonwire.Decode[T](data) }
 
 type Entry struct {
@@ -460,6 +463,7 @@ func (e Entry) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(entryWire{LSN: e.LSN, Epoch: e.Epoch, Kind: kind, Body: body})
 }
+
 func (e *Entry) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return ErrInvalidLog
@@ -534,6 +538,7 @@ func (b Batch) Validate() error {
 	}
 	return nil
 }
+
 func (b Batch) Entries() []Entry {
 	entries := make([]Entry, len(b.Records))
 	epoch := b.Epoch
@@ -545,6 +550,7 @@ func (b Batch) Entries() []Entry {
 	}
 	return entries
 }
+
 func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (Epoch, bool, error) {
 	if err := b.Validate(); err != nil {
 		return current, false, err
@@ -576,12 +582,14 @@ func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (Epoch, bool, er
 	}
 	return current, true, nil
 }
+
 func (b Batch) MarshalJSON() ([]byte, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err
 	}
 	return jsonv2.Marshal(batchWire{Root: b.Root, Epoch: b.Epoch, After: b.After, Entries: b.Entries()})
 }
+
 func (b *Batch) UnmarshalJSON(data []byte) error {
 	if b == nil {
 		return ErrInvalidLog
@@ -628,6 +636,7 @@ func (l Log) Head() LSN {
 	}
 	return l.Entries[len(l.Entries)-1].LSN
 }
+
 func (l Log) Epoch() Epoch {
 	if len(l.Entries) == 0 {
 		return 0
@@ -777,6 +786,7 @@ func (l Log) Clone() (Log, error) {
 	}
 	return Log{Root: l.Root, Entries: entries}, nil
 }
+
 func (l Log) Inspect() (TreeInspection, error) {
 	state, err := projectLog(l)
 	if err != nil {

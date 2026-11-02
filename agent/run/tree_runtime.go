@@ -44,6 +44,7 @@ func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *tr
 	work, cancel := context.WithCancel(ctx)
 	return &treeRuntime{runtime: runtime, state: state, host: ctx, ctx: work, cancel: cancel, commands: make(chan treeCommand, treeCommandCapacity), results: make(chan jobResult, dispatchResultCapacity), done: make(chan struct{}), commit: make(chan struct{}), stopRequested: make(chan struct{}), jobs: make(map[EffectID]*dispatchJob), steps: make(map[ProcessID]*stepJob), emitters: make(map[EffectID]*deltaEmitter)}
 }
+
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }
 func (t *treeRuntime) failureError() error {
 	t.mu.RLock()
@@ -60,6 +61,7 @@ func (t *treeRuntime) failureError() error {
 	}
 	return &RuntimeError{process: t.state.root, epoch: t.state.epoch, after: t.state.head, unresolved: canonicalEffectIDs(ids), cause: cause}
 }
+
 func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 	if len(records) == 0 {
 		return nil
@@ -106,6 +108,7 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 	}
 	return nil
 }
+
 func (t *treeRuntime) applyCommitted(batch Batch) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -145,6 +148,7 @@ func (t *treeRuntime) enqueue(id ProcessID) {
 	p.queued = true
 	t.queue = append(t.queue, id)
 }
+
 func (t *treeRuntime) next() (ProcessID, bool) {
 	for len(t.queue) > 0 {
 		id := t.queue[0]
@@ -157,6 +161,7 @@ func (t *treeRuntime) next() (ProcessID, bool) {
 	t.queue = nil
 	return ProcessID{}, false
 }
+
 func (t *treeRuntime) run() {
 	defer close(t.done)
 	defer t.release()
@@ -224,6 +229,7 @@ func (t *treeRuntime) run() {
 		}
 	}
 }
+
 func (t *treeRuntime) stopWork() {
 	if t.stopping {
 		return
@@ -234,6 +240,7 @@ func (t *treeRuntime) stopWork() {
 		job.cancel()
 	}
 }
+
 func (t *treeRuntime) fail(err error) {
 	t.mu.Lock()
 	if t.failure == nil {
@@ -245,6 +252,7 @@ func (t *treeRuntime) fail(err error) {
 		job.cancel()
 	}
 }
+
 func (t *treeRuntime) advance(id ProcessID) error {
 	p := t.state.processes[id]
 	if p == nil || p.exited != nil {
@@ -269,6 +277,7 @@ func (t *treeRuntime) advance(id ProcessID) error {
 	}()
 	return nil
 }
+
 func (t *treeRuntime) completed(result jobResult) {
 	switch value := result.(type) {
 	case dispatchResult:
@@ -279,6 +288,7 @@ func (t *treeRuntime) completed(result jobResult) {
 		t.childPrepared(value)
 	}
 }
+
 func (t *treeRuntime) stepped(result stepResult) {
 	job := t.steps[result.process]
 	if job == nil {
@@ -326,6 +336,7 @@ func (t *treeRuntime) stepped(result stepResult) {
 		t.fail(err)
 	}
 }
+
 func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transition) error {
 	if err := p.admitTransition(transition, t.state.limits, uint32(len(turn.Messages))); err != nil {
 		failure, classified := StepFailure(err)
@@ -365,6 +376,7 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 	}
 	return nil
 }
+
 func (t *treeRuntime) policy(p *processState, effect Effect) (EffectPolicy, error) {
 	if intrinsic, owned := effect.intrinsicPolicy(); owned {
 		return intrinsic, nil
@@ -384,9 +396,11 @@ func (t *treeRuntime) policy(p *processState, effect Effect) (EffectPolicy, erro
 	}
 	return policy, nil
 }
+
 func (t *treeRuntime) reject(p *processState, failure Failure) error {
 	return t.append(t.ctx, []Record{ExecutionFailed{Process: p.started.Process, Failure: failure, At: canonicalTime(time.Now())}})
 }
+
 func (t *treeRuntime) finish(p *processState) error {
 	if t.steps[p.started.Process] != nil {
 		return nil
@@ -417,6 +431,7 @@ func (t *treeRuntime) finish(p *processState) error {
 	}
 	return t.append(t.ctx, []Record{Exited{Process: p.started.Process, Termination: p.terminal, At: canonicalTime(time.Now())}})
 }
+
 func (t *treeRuntime) cancelJobs(root ProcessID) {
 	if t.preparing != nil && root.Contains(t.preparing.id.Process) {
 		t.preparing.cancel()
@@ -432,6 +447,7 @@ func (t *treeRuntime) cancelJobs(root ProcessID) {
 		}
 	}
 }
+
 func (t *treeRuntime) checkpoint() error {
 	checkpoint, err := t.state.checkpoint()
 	if err != nil {
@@ -443,6 +459,7 @@ func (t *treeRuntime) checkpoint() error {
 	t.checkpointAfter = 0
 	return nil
 }
+
 func (t *treeRuntime) resumeEffects() error {
 	for _, id := range t.state.ordered() {
 		p := t.state.processes[id]
@@ -470,6 +487,7 @@ func (t *treeRuntime) resumeEffects() error {
 	}
 	return nil
 }
+
 func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 	p := t.state.processes[id.Process]
 	if p == nil {
@@ -512,6 +530,7 @@ func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 	}()
 	return nil
 }
+
 func (t *treeRuntime) dispatched(result dispatchResult) {
 	job := t.jobs[result.id]
 	if job == nil {
@@ -537,6 +556,7 @@ func (t *treeRuntime) dispatched(result dispatchResult) {
 		job.reply <- commandResponse{err: err}
 	}
 }
+
 func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error {
 	effect := intent.Effect
 	var records []Record
@@ -621,6 +641,7 @@ func (t *treeRuntime) startNextChild() error {
 	t.childQueue = nil
 	return nil
 }
+
 func (t *treeRuntime) prepareChild(ctx context.Context, id EffectID, parent Program[Payload, Payload], process ProcessID, spec ChildSpec) childResult {
 	rejected := func(err error, kind FailureKind, code string) childResult {
 		return childResult{id: id, failure: newRuntimeFailure(failureKindForError(err, kind), code, err)}
@@ -649,6 +670,7 @@ func (t *treeRuntime) prepareChild(ctx context.Context, id EffectID, parent Prog
 	}
 	return childResult{id: id, child: &preparedChild{started: Started{Process: child, Program: program.ProgramRef(), Input: spec.Input, Budget: spec.Budget, Capabilities: spec.Capabilities, At: canonicalTime(time.Now())}, program: program, execution: execution}}
 }
+
 func (t *treeRuntime) childPrepared(result childResult) {
 	if t.preparing == nil || t.preparing.id != result.id {
 		t.fail(ErrInvalidChildStart)
@@ -678,6 +700,7 @@ func (t *treeRuntime) childPrepared(result childResult) {
 		t.fail(err)
 	}
 }
+
 func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, failure Failure) error {
 	var records []Record
 	var output Payload
@@ -704,6 +727,7 @@ func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, fail
 	}
 	return nil
 }
+
 func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, error) {
 	fresh, err := signalBatch(signals).unadmitted(p.receipts)
 	if err != nil {
@@ -732,6 +756,7 @@ func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, erro
 	}
 	return records, nil
 }
+
 func (t *treeRuntime) command(request treeCommand) {
 	response := commandResponse{}
 	if t.failure != nil || t.stopping {
@@ -799,6 +824,7 @@ type dispatchJob struct {
 	cancel context.CancelFunc
 	reply  chan commandResponse
 }
+
 type dispatchResult struct {
 	id      EffectID
 	outcome Settlement
@@ -809,6 +835,7 @@ func unknownSettlement() Settlement {
 	value, _ := NewSettlement(SettlementStatusUnknown, json.RawMessage(nullJSON))
 	return value
 }
+
 func unknownRecord(id EffectID, failure Failure) EffectSettled {
 	return EffectSettled{ID: id, Outcome: unknownSettlement(), Failure: &failure, At: canonicalTime(time.Now())}
 }
@@ -846,6 +873,7 @@ type stepJob struct {
 	turn   Turn
 	cancel context.CancelFunc
 }
+
 type stepResult struct {
 	process    ProcessID
 	transition Transition
@@ -870,6 +898,7 @@ type childPreparation struct {
 	id     EffectID
 	cancel context.CancelFunc
 }
+
 type childResult struct {
 	id      EffectID
 	child   *preparedChild

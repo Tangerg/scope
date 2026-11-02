@@ -25,6 +25,7 @@ type treeState struct {
 func newTreeState(root ProcessID) *treeState {
 	return &treeState{root: root, processes: make(map[ProcessID]*processState)}
 }
+
 func (t *treeState) apply(entry Entry) error {
 	if entry.LSN != t.head+1 {
 		return ErrInvalidLog
@@ -38,6 +39,7 @@ func (t *treeState) apply(entry Entry) error {
 	t.head = entry.LSN
 	return nil
 }
+
 func (t *treeState) applyRecord(record Record) error {
 	if t.unsettledChild.Valid() {
 		settled, ok := record.(EffectSettled)
@@ -123,6 +125,7 @@ func (t *treeState) process(id ProcessID) (*processState, error) {
 	}
 	return p, nil
 }
+
 func (t *treeState) child(parent, id ProcessID) (*processState, error) {
 	ancestor, ok := id.Parent()
 	child := t.processes[id]
@@ -131,6 +134,7 @@ func (t *treeState) child(parent, id ProcessID) (*processState, error) {
 	}
 	return child, nil
 }
+
 func (t *treeState) settle(settled EffectSettled) error {
 	process, err := t.process(settled.ID.Process)
 	if err != nil {
@@ -156,6 +160,7 @@ func (t *treeState) settle(settled EffectSettled) error {
 	}
 	return process.settle(settled)
 }
+
 func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outcome Settlement) error {
 	if spawn := effect.spawn; spawn != nil {
 		child, err := jsonwire.Decode[ProcessID](outcome.payload)
@@ -195,6 +200,7 @@ func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outc
 	}
 	return ErrInvalidEffect
 }
+
 func (t *treeState) start(started Started) error {
 	if !started.valid() || started.Process.Root() != t.root || t.processes[started.Process] != nil {
 		return ErrInvalidChildStart
@@ -266,6 +272,7 @@ func (t *treeState) exit(exited Exited) error {
 	}
 	return nil
 }
+
 func (t *treeState) reap(reaped Reaped) error {
 	child, err := t.process(reaped.Process)
 	if err != nil || child.exited == nil {
@@ -291,6 +298,7 @@ func (t *treeState) reap(reaped Reaped) error {
 	delete(t.processes, reaped.Process)
 	return nil
 }
+
 func (t *treeState) control(control ControlRequested) error {
 	p, err := t.process(control.Process)
 	if err != nil {
@@ -334,6 +342,7 @@ func (t *treeState) control(control ControlRequested) error {
 	}
 	return nil
 }
+
 func (t *treeState) ordered() []ProcessID {
 	ids := make([]ProcessID, 0, len(t.processes))
 	for id := range t.processes {
@@ -342,6 +351,7 @@ func (t *treeState) ordered() []ProcessID {
 	slices.SortFunc(ids, func(a, b ProcessID) int { return strings.Compare(a.String(), b.String()) })
 	return ids
 }
+
 func (t *treeState) checkpoint() (Checkpoint, error) {
 	value := Checkpoint{StartedProcesses: t.startedProcesses, Processes: make([]ProcessCheckpoint, 0, len(t.processes))}
 	for _, id := range t.ordered() {
@@ -353,6 +363,7 @@ func (t *treeState) checkpoint() (Checkpoint, error) {
 	}
 	return value, nil
 }
+
 func projectLog(log Log) (*treeState, error) {
 	state, rest, err := log.base()
 	if err != nil {

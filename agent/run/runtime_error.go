@@ -41,6 +41,7 @@ type RuntimeError struct {
 func (r *RuntimeError) Error() string {
 	return fmt.Sprintf("run: runtime for %s stopped at %d: %v", r.process, r.after, r.cause)
 }
+
 func (r *RuntimeError) Unwrap() error                   { return r.cause }
 func (r *RuntimeError) ProcessID() ProcessID            { return r.process }
 func (r *RuntimeError) Epoch() Epoch                    { return r.epoch }

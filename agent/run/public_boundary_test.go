@@ -467,7 +467,7 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
-	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
 	result := controlValue(handle.Await(ctx))
 	if result.Termination().Status() != StatusCompleted || result.Usage() != (Usage{CommittedSteps: 2, PreparedEffects: 1, AcceptedMessages: 1}) {
 		t.Fatalf("lossy increments changed durable outcome: %+v", result)
@@ -524,7 +524,7 @@ func TestDurableObserversRejectInvalidStoreEvidence(t *testing.T) {
 	program := treeFixtureProgram(t, runtime, 0, false, false, Budget{})
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
-	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
 	if _, err := handle.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -631,7 +631,7 @@ func TestColdHandlesProjectOnlyCommittedTerminalResults(t *testing.T) {
 	store := &publicObservationStore{store: NewMemoryStore()}
 	writer := kernelRuntime(t, Config{Store: store})
 	program := treeFixtureProgram(t, writer, 0, false, false, Budget{})
-	request := StartRequest[int]{ID: foregroundStartID()}
+	request := StartRequest[int]{ID: hostStartID()}
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	active := controlValue(writer.Start(ctx, program, request))
@@ -732,7 +732,7 @@ func TestCanceledHandleCommandsCannotPublishAdmission(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	program := lifecycleEchoProgram(t, runtime, "test.public.cancel")
-	request := StartRequest[int]{ID: foregroundStartID()}
+	request := StartRequest[int]{ID: hostStartID()}
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	active := controlValue(runtime.Start(ctx, program, request))

@@ -61,7 +61,7 @@ func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
 		return NewSettlement(SettlementStatusUnknown, []byte(`null`))
 	}}
 	program := lifecycleCallProgram(t, runtime, dispatcher)
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	effect := lifecycleUnknown(t, ctx, handle)
@@ -185,7 +185,7 @@ func TestForegroundContextControlsTheTreeButStartDetaches(t *testing.T) {
 				ctx, cancel = context.WithTimeout(t.Context(), 100*time.Millisecond)
 			}
 			defer cancel()
-			handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
 			observation, observationCancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer observationCancel()
 			waitForKernelStep(t, observation, handle, 1)
@@ -208,7 +208,7 @@ func TestReleaseTreeDropsOnlyStoppedLocalOwnership(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	program := lifecycleEchoProgram(t, runtime, "test.release")
-	request := StartRequest[int]{ID: foregroundStartID()}
+	request := StartRequest[int]{ID: hostStartID()}
 	handle := controlValue(runtime.Start(t.Context(), program, request))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
@@ -282,7 +282,7 @@ func TestConcurrentDuplicateStartSharesOneAdmissionAndEpoch(t *testing.T) {
 		}
 	})})
 	program := lifecycleEchoProgram(t, runtime, "test.concurrent_start")
-	request := StartRequest[int]{ID: foregroundStartID(), Input: 7}
+	request := StartRequest[int]{ID: hostStartID(), Input: 7}
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	type startResult struct {
@@ -359,7 +359,7 @@ func TestConcurrentDuplicateStartSharesOneAdmissionAndEpoch(t *testing.T) {
 func TestTerminalSignalRetriesUseTheCommittedReceipt(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	program := lifecycleEchoProgram(t, runtime, "test.terminal_receipt")
-	request := StartRequest[int]{ID: foregroundStartID()}
+	request := StartRequest[int]{ID: hostStartID()}
 	handle := controlValue(runtime.Start(t.Context(), program, request))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
@@ -398,7 +398,7 @@ func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
 	child := lifecycleEchoProgram(t, runtime, "test.child_receipt")
 	parent := &treeFixtureDefinition{descriptor: kernelDescriptor(t, "test.parent_receipt"), children: []Program[Payload, Payload]{child.Erase()}, hold: true}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: parent, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	childID := controlValue(handle.ID().Child(controlValue(ParseChildKey("child-0"))))
@@ -490,7 +490,7 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 				return NewSettlement(SettlementStatusSucceeded, []byte(`7`))
 			}}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			_, err := handle.Await(ctx)
@@ -539,7 +539,7 @@ func TestFailedSignalAdmissionPreservesItsStoreCauseOnRetry(t *testing.T) {
 	fault := &lifecycleFaultStore{store: store, kind: RecordKindSignalAdmitted, cause: cause}
 	runtime := kernelRuntime(t, Config{Store: fault})
 	program := lifecycleEchoProgram(t, runtime, "test.failed_signal")
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	waitForKernelStep(t, ctx, handle, 1)
@@ -589,7 +589,7 @@ func TestRejectedSignalDoesNotClaimAcceptanceWhileTheWriterDrains(t *testing.T) 
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
-	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
 	select {
 	case <-entered:
 	case <-ctx.Done():
@@ -695,7 +695,7 @@ func TestFrameworkSendAndCancelAcknowledgeTheirDurableChildChange(t *testing.T) 
 			runtime := kernelRuntime(t, Config{Store: store})
 			definition := &childControlDefinition{descriptor: kernelDescriptor(t, "test.child_control"), child: lifecycleEchoProgram(t, runtime, "test.controlled_child"), control: test.control}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: test.name}))
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			result := controlValue(handle.Await(ctx))
@@ -740,7 +740,7 @@ func TestFrameworkSendAndCancelAcknowledgeTheirDurableChildChange(t *testing.T) 
 func TestFrameworkControlsCannotActOnAnotherParentsChild(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	owner := treeFixtureProgram(t, runtime, 1, false, true, Budget{})
-	owned := controlValue(runtime.Start(t.Context(), owner, StartRequest[int]{ID: foregroundStartID()}))
+	owned := controlValue(runtime.Start(t.Context(), owner, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	child := controlValue(owned.ID().Child(controlValue(ParseChildKey("child-0"))))
@@ -820,7 +820,7 @@ func TestMutatedProgramDeclarationsAreRejectedBeforeStartingWork(t *testing.T) {
 				other := kernelRuntime(t, Config{Build: "another-build"})
 				program = controlValue(Bind[int, int](other.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
 			}
-			id := foregroundStartID()
+			id := hostStartID()
 			if _, err := runtime.Start(t.Context(), program, StartRequest[int]{ID: id}); !errors.Is(err, ErrInvalidProgram) {
 				t.Fatalf("changed binding executed: %v", err)
 			}
@@ -845,7 +845,7 @@ func TestMutatedChildBindingCannotReachItsExecution(t *testing.T) {
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: parent, Revision: "one"}))
 	leaf.descriptor = kernelDescriptor(t, "test.changed_child")
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	result := controlValue(handle.Await(ctx))
@@ -879,7 +879,7 @@ func TestMutatedChildBindingCannotReachItsExecution(t *testing.T) {
 func TestInvalidAnswerEnvelopesCannotConsumeTheWait(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	program := lifecycleEchoProgram(t, runtime, "test.answer_contract")
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	waitForKernelStep(t, ctx, handle, 1)

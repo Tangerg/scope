@@ -22,12 +22,14 @@ type Handle[O any] struct {
 func typedHandle[O any](h *Handle[Payload]) *Handle[O] {
 	return &Handle[O]{runtime: h.runtime, tree: h.tree, process: h.process, id: h.id, program: h.program, epoch: h.epoch}
 }
+
 func (h *Handle[O]) ID() ProcessID          { return h.id }
 func (h *Handle[O]) ProgramRef() ProgramRef { return h.program }
 func (h *Handle[O]) Epoch() Epoch           { return h.epoch }
 func (h *Handle[O]) Inspect(ctx context.Context) (TreeInspection, error) {
 	return h.runtime.Inspect(ctx, h.id.Root())
 }
+
 func (h *Handle[O]) DeliverSignals(ctx context.Context, signals ...Signal) (bool, error) {
 	if err := RequireContext(ctx).Err(); err != nil {
 		return false, err
@@ -53,6 +55,7 @@ func (h *Handle[O]) DeliverSignals(ctx context.Context, signals ...Signal) (bool
 	}
 	return response.accepted, err
 }
+
 func (h *Handle[O]) admissionClosed() bool {
 	if h.tree == nil {
 		return true
@@ -100,25 +103,31 @@ func (h *Handle[O]) Answer[A any](ctx context.Context, wait WaitKey, value A) er
 	_, err = h.DeliverSignals(ctx, answerSignal(wait, payload))
 	return err
 }
+
 func answerSignal(wait WaitKey, payload Payload) Signal {
 	return Signal{ID: SignalID{identity{value: ComputeDigest([]byte(wait.String())).hex()}}, Wait: wait, Payload: payload}
 }
+
 func (h *Handle[O]) Pause(ctx context.Context, reason string) error {
 	_, err := h.request(ctx, h.id, controlCommand{kind: ControlPause, reason: reason})
 	return err
 }
+
 func (h *Handle[O]) Resume(ctx context.Context) error {
 	_, err := h.request(ctx, h.id, controlCommand{kind: ControlResume})
 	return err
 }
+
 func (h *Handle[O]) Cancel(ctx context.Context, reason string) error {
 	_, err := h.request(ctx, h.id, controlCommand{kind: ControlCancel, reason: reason})
 	return err
 }
+
 func (h *Handle[O]) Kill(ctx context.Context, reason string) error {
 	_, err := h.request(ctx, h.id, controlCommand{kind: ControlKill, reason: reason})
 	return err
 }
+
 func (h *Handle[O]) ResolveUnknownEffect(ctx context.Context, id EffectID, outcome Settlement) error {
 	if !h.id.Contains(id.Process) {
 		return ErrEffectNotPending
@@ -126,6 +135,7 @@ func (h *Handle[O]) ResolveUnknownEffect(ctx context.Context, id EffectID, outco
 	_, err := h.request(ctx, id.Process, resolveCommand{id: id, outcome: outcome})
 	return err
 }
+
 func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error {
 	if !h.id.Contains(id.Process) {
 		return ErrEffectNotPending
@@ -133,6 +143,7 @@ func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error 
 	_, err := h.request(ctx, id.Process, replayCommand{id: id})
 	return err
 }
+
 func (h *Handle[O]) Await(ctx context.Context) (Result[O], error) {
 	ctx = RequireContext(ctx)
 	if h.tree != nil {
@@ -313,6 +324,7 @@ type Result[O any] struct {
 func projectResult[O any](r Result[Payload]) Result[O] {
 	return Result[O](r)
 }
+
 func (r Result[O]) Output() (O, error) {
 	var zero O
 	if !r.Valid() {
@@ -323,6 +335,7 @@ func (r Result[O]) Output() (O, error) {
 	}
 	return zero, &TerminationError{ID: r.process, Termination: r.termination}
 }
+
 func (r Result[O]) ProcessID() ProcessID     { return r.process }
 func (r Result[O]) StartedAt() time.Time     { return r.startedAt }
 func (r Result[O]) FinishedAt() time.Time    { return r.finishedAt }
@@ -370,6 +383,7 @@ type treeCommand struct {
 	reply     chan commandResponse
 	ctx       context.Context
 }
+
 type commandResponse struct {
 	accepted bool
 	err      error

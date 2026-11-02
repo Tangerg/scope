@@ -17,7 +17,7 @@ type ProcessAdmission struct {
 	capabilities CapabilitySet
 }
 
-func (p ProcessAdmission) StartID() (StartID, bool)    { return p.start, p.start.Valid() }
+func (p ProcessAdmission) StartID() (StartID, bool)    { return p.start, p.start.wellFormed() }
 func (p ProcessAdmission) ProcessID() ProcessID        { return p.process }
 func (p ProcessAdmission) ProgramRef() ProgramRef      { return p.program }
 func (p ProcessAdmission) Descriptor() Descriptor      { return p.descriptor }
@@ -36,6 +36,7 @@ type ProcessAdmitterFunc func(context.Context, ProcessAdmission) error
 func (p ProcessAdmitterFunc) Admit(ctx context.Context, admission ProcessAdmission) error {
 	return p(ctx, admission)
 }
+
 func requestProcessAdmission(ctx context.Context, admitter ProcessAdmitter, admission ProcessAdmission) error {
 	if admitter == nil {
 		return nil

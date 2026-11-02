@@ -65,7 +65,7 @@ func signalCommitFixture(b *testing.B, processes int, pendingMessages uint64) (P
 	const expandedChildCapacity = 63
 	runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: store, TreeLimits: TreeLimits{MaxActiveChildren: expandedChildCapacity, MaxPendingMessages: max(defaultMaxPendingMessages, pendingMessages)}}))
 	program := treeFixtureProgram(b, runtime, processes-1, true, true, Budget{})
-	handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	waiting := 0
 	ctx, cancel := context.WithTimeout(b.Context(), kernelTestTimeout)
 	defer cancel()
@@ -211,7 +211,7 @@ func BenchmarkRecoveryCutIsBoundedByTheCheckpointInterval(b *testing.B) {
 				return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
 			}}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
-			handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			if _, err := handle.Await(b.Context()); err != nil {
 				b.Fatal(err)
 			}

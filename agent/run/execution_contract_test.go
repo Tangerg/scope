@@ -26,7 +26,7 @@ func TestInvalidStepCandidatesCannotPublishProgress(t *testing.T) {
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{
 				Definition: &boundaryDefinition{descriptor: kernelDescriptor(t, "test.invalid_step"), step: test.step}, Revision: "one",
 			}))
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			result := controlValue(handle.Await(t.Context()))
 			failure, failed := result.Termination().Failure()
 			if !failed || failure.Kind() != FailureKindContract || failure.Code() != failureCodeExecutionTransitionInvalid {
@@ -80,7 +80,7 @@ func TestInvalidEffectPolicyRejectsTheWholeStepBeforeDispatch(t *testing.T) {
 				}}
 			}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			result := controlValue(handle.Await(t.Context()))
 			failure, failed := result.Termination().Failure()
 			if !failed || failure.Kind() != test.wantKind || failure.Code() != test.wantCode || calls.Load() != 0 {
@@ -111,7 +111,7 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{})
 			program := lifecycleCallProgram(t, runtime, boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: test.dispatch})
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			id := lifecycleUnknown(t, ctx, handle)
@@ -152,7 +152,7 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 				return NewSettlement(SettlementStatusSucceeded, []byte(`7`))
 			}}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			if _, err := handle.Await(ctx); !errors.Is(err, cause) {
@@ -183,7 +183,7 @@ func TestRepeatedUnknownReplayDoesNotResolveItself(t *testing.T) {
 		return NewSettlement(SettlementStatusUnknown, []byte(`null`))
 	}}
 	program := lifecycleCallProgram(t, runtime, dispatcher)
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	id := lifecycleUnknown(t, ctx, handle)
@@ -202,7 +202,7 @@ func TestLocalWorkerCancellationCannotInventHostControl(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	program := treeFixtureProgram(t, runtime, 0, true, false, Budget{})
-	started := Started{Process: foregroundStartID().Root(), Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: runtime.limits, At: canonicalTime(time.Now())}
+	started := Started{Process: hostStartID().Root(), Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: runtime.limits, At: canonicalTime(time.Now())}
 	state := newTreeState(started.Process)
 	tree := newTreeRuntime(runtime, state, t.Context())
 	defer tree.cancel()
@@ -251,7 +251,7 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 		return Complete(2, controlValue(EncodePayload(7)))
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	_, err := handle.Await(ctx)

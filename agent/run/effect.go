@@ -42,6 +42,7 @@ func NewDispatcherEffect(payload json.RawMessage) (Effect, error) {
 	}
 	return Effect{call: value}, nil
 }
+
 func (e Effect) Target() EffectTarget {
 	if e.call.Valid() {
 		return EffectTargetDispatcher
@@ -58,6 +59,7 @@ func (e Effect) intrinsicPolicy() (EffectPolicy, bool) {
 	}
 	return EffectPolicy{Replay: ReplayPolicySameIdentity}, true
 }
+
 func (e Effect) Payload() json.RawMessage { return e.call.JSON() }
 func (e Effect) Valid() bool {
 	count := 0
@@ -84,6 +86,7 @@ func (e Effect) Valid() bool {
 	}
 	return count == 1
 }
+
 func (e Effect) clone() Effect {
 	owned := e
 	if e.spawn != nil {
@@ -100,12 +103,14 @@ func (e Effect) clone() Effect {
 	}
 	return owned
 }
+
 func (e Effect) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidEffect
 	}
 	return jsonv2.Marshal(effectWire{Call: e.call, Spawn: e.spawn, Send: e.send, Cancel: e.cancel})
 }
+
 func (e *Effect) UnmarshalJSON(data []byte) error {
 	if e == nil {
 		return ErrInvalidEffect
@@ -121,6 +126,7 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	*e = value
 	return nil
 }
+
 func (e Effect) equal(other Effect) bool {
 	left, err := jsonv2.Marshal(e)
 	if err != nil {

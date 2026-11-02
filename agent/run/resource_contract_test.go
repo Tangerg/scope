@@ -28,7 +28,7 @@ func TestExhaustedWorkBudgetsFailBeforeDispatch(t *testing.T) {
 				return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
 			}}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			result := controlValue(handle.Await(t.Context()))
 			failure, ok := result.Termination().Failure()
 			if !ok || failure.Kind() != FailureKindExecution || failure.Code() != "runtime.resource.limit_exceeded" || calls.Load() != 0 || result.Usage().PreparedEffects != 0 {
@@ -56,7 +56,7 @@ func TestExternalSignalCannotConsumeAReservedCompletionSlot(t *testing.T) {
 		}
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	waitForKernelStep(t, ctx, handle, 1)
@@ -79,7 +79,7 @@ func TestCheckpointByteBoundStopsTheWriterWithoutInventingProgress(t *testing.T)
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1, TreeLimits: TreeLimits{MaxCheckpointBytes: NewQuota(1)}})
 	program := treeFixtureProgram(t, runtime, 0, true, false, Budget{})
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	_, err := handle.Await(ctx)
@@ -154,7 +154,7 @@ func TestChildAdmissionCannotCreateWorkAuthority(t *testing.T) {
 				return Transition{}, ErrInvalidMessage
 			}}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Configuration: spec, Revision: "one"}))
-			id := foregroundStartID()
+			id := hostStartID()
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: id}))
 			result := controlValue(handle.Await(t.Context()))
 			output := controlValue(result.Output())

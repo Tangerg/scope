@@ -70,7 +70,7 @@ func TestCheckpointRecoveryDoesNotRequireReapedProgramImplementations(t *testing
 	child = treeFixtureProgram(t, runtime, 0, false, false, Budget{})
 	definition := &dynamicChildDefinition{descriptor: kernelDescriptor(t, "test.dynamic_parent"), child: child.ProgramRef()}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one", Configuration: definition.child}))
-	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	var cut LSN
@@ -150,7 +150,7 @@ func TestHostContextValuesCannotChangeLiveOrRecoveredSteps(t *testing.T) {
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: contextDefinition{descriptor: kernelDescriptor(t, "test.context")}, Revision: "one"}))
 			ctx, cancel := context.WithTimeout(context.WithValue(t.Context(), contextValueKey{}, "first host"), kernelTestTimeout)
 			defer cancel()
-			handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
 			waitForKernelStep(t, ctx, handle, 1)
 			if err := runtime.Close(ctx); err != nil {
 				t.Fatal(err)
@@ -202,7 +202,7 @@ func TestSeparateRuntimesResolveConcurrentStartAtTheLog(t *testing.T) {
 			store := &simultaneousStartStore{store: NewMemoryStore(), arrived: make(chan struct{}, 2), release: release}
 			left, right := kernelRuntime(t, Config{Store: store}), kernelRuntime(t, Config{Store: store})
 			program := treeFixtureProgram(t, left, 0, true, false, Budget{})
-			id := foregroundStartID()
+			id := hostStartID()
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			type submission struct {
@@ -321,7 +321,7 @@ func TestCloseJoinsAnAcceptedStartBeforeLocalPublication(t *testing.T) {
 		return nil
 	})})
 	program := treeFixtureProgram(t, runtime, 0, false, false, Budget{})
-	id := foregroundStartID()
+	id := hostStartID()
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	returned := make(chan error, 1)
@@ -376,7 +376,7 @@ func TestRecoveryActivationFailureDoesNotPublishAWriter(t *testing.T) {
 			store := NewMemoryStore()
 			original := kernelRuntime(t, Config{Store: store})
 			program := lifecycleEchoProgram(t, original, "test.activation")
-			handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			waitForKernelStep(t, ctx, handle, 1)
@@ -421,7 +421,7 @@ func TestOpaqueCheckpointRejectionCannotAdvanceTheEpoch(t *testing.T) {
 	store := NewMemoryStore()
 	original := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1})
 	program := lifecycleEchoProgram(t, original, "test.checkpoint_owner")
-	handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	for entry, err := range handle.Observe(ctx, 0) {

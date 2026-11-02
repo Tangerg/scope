@@ -24,7 +24,7 @@ func TestDurableRecordCodecsPreserveRuntimeHistories(t *testing.T) {
 				definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.wire_rejection"), step: func(context.Context, Turn) (Transition, error) { return Transition{}, nil }}
 				program = controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
 			}
-			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 			defer cancel()
 			if scenario == "answered wait" {
@@ -65,7 +65,7 @@ func TestDurableRecordCodecsPreserveRuntimeHistories(t *testing.T) {
 
 func TestLogEnvelopeRejectsSplicedOrIncompleteHistory(t *testing.T) {
 	valid := integrityInitialLog(t)
-	otherRoot := foregroundStartID().Root()
+	otherRoot := hostStartID().Root()
 	for _, test := range []struct {
 		name   string
 		mutate func(*Log)
@@ -138,7 +138,7 @@ func TestBatchWirePreservesWriterCoordinatesAndExactRetry(t *testing.T) {
 		}
 	}
 	foreign := signal
-	foreign.Process = foregroundStartID().Root()
+	foreign.Process = hostStartID().Root()
 	for _, batch := range []Batch{
 		{Root: log.Root, Records: []Record{signal}},
 		{Root: log.Root, Records: []Record{started}},

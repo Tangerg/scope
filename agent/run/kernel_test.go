@@ -14,7 +14,7 @@ func controlValue[T any](value T, err error) T {
 	return value
 }
 func observeOutcome(ctx context.Context, runtime *Runtime, program Program[Payload, Payload], input Payload) (Result[Payload], error) {
-	handle, err := runtime.Start(ctx, program, StartRequest[Payload]{ID: foregroundStartID(), Input: input})
+	handle, err := runtime.Start(ctx, program, StartRequest[Payload]{ID: hostStartID(), Input: input})
 	if err != nil {
 		return Result[Payload]{}, err
 	}

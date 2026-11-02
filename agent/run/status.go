@@ -67,6 +67,7 @@ func (s Status) MarshalText() ([]byte, error) {
 	}
 	return []byte(s), nil
 }
+
 func (s *Status) UnmarshalText(text []byte) error {
 	if s == nil {
 		return ErrInvalidStatus

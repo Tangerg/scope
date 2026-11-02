@@ -48,7 +48,7 @@ func TestInvalidBindingsCannotStartDurableWork(t *testing.T) {
 			} else {
 				owned.children = []Program[Payload, Payload]{treeFixtureProgram(t, runtime, 0, false, false, Budget{}).Erase()}
 			}
-			if _, err := runtime.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}); !errors.Is(err, ErrInvalidProgram) {
+			if _, err := runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}); !errors.Is(err, ErrInvalidProgram) {
 				t.Fatalf("mutable binding escaped its reference: %v", err)
 			}
 		})
@@ -62,7 +62,7 @@ func TestInitializationDefectsNeverPublishStarted(t *testing.T) {
 			runtime := kernelRuntime(t, Config{Store: store})
 			definition := &defectiveDefinition{descriptor: kernelDescriptor(t, "test.initialization"), mode: mode}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Revision: "one"}))
-			id := foregroundStartID()
+			id := hostStartID()
 			if handle, err := runtime.Start(t.Context(), program, StartRequest[int]{ID: id}); err == nil || handle != nil {
 				t.Fatalf("defective initialization admitted: handle=%v error=%v", handle, err)
 			}
@@ -185,7 +185,7 @@ func TestRejectedRootRequestsDoNotAcquireExecutionAuthority(t *testing.T) {
 		t.Fatalf("absent start identity acquired a writer: %v", err)
 	}
 	floating := controlValue(Bind[float64, float64](runtime.Compiler(), BindingConfig{Definition: newTypedFixtureDefinition[float64](t, "test.float"), Revision: "one"}))
-	id := foregroundStartID()
+	id := hostStartID()
 	if handle, err := runtime.Start(t.Context(), floating, StartRequest[float64]{ID: id, Input: math.NaN()}); err == nil || handle != nil {
 		t.Fatal("unrepresentable input acquired a writer")
 	}
@@ -228,7 +228,7 @@ func TestRecoveryCannotReplaceTheAcceptedProgram(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	program := treeFixtureProgram(t, runtime, 0, true, false, Budget{})
-	id := foregroundStartID()
+	id := hostStartID()
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: id}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
@@ -253,5 +253,17 @@ func TestRecoveryCannotReplaceTheAcceptedProgram(t *testing.T) {
 	unavailable := kernelRuntime(t, Config{Store: &publicObservationStore{store: store, load: func(context.Context, ProcessID) (Log, bool, error) { return Log{}, false, failure }}})
 	if _, err := unavailable.Recover(ctx, program, id.Root()); !errors.Is(err, failure) {
 		t.Fatalf("recovery discarded its load failure: %v", err)
+	}
+}
+
+func TestHostStartCannotClaimTheForegroundScope(t *testing.T) {
+	runtime := kernelRuntime(t, Config{})
+	program := lifecycleEchoProgram(t, runtime, "test.reserved_scope")
+	reserved := foregroundStartID()
+	if reserved.Valid() || !reserved.Root().Valid() {
+		t.Fatal("foreground identity must name a root without being submittable")
+	}
+	if _, err := runtime.Start(t.Context(), program, StartRequest[int]{ID: reserved}); !errors.Is(err, ErrInvalidStart) {
+		t.Fatalf("host start claimed the foreground scope: %v", err)
 	}
 }

@@ -28,6 +28,7 @@ func (t TransitionKind) Valid() bool {
 		return false
 	}
 }
+
 func (t TransitionKind) String() string {
 	if !t.Valid() {
 		return invalidEnumName
@@ -51,6 +52,7 @@ func Continue(consumed uint32, effects ...Effect) (Transition, error) {
 	}
 	return t, nil
 }
+
 func Yield(consumed uint32, effects []Effect, waits ...Wait) (Transition, error) {
 	t := Transition{kind: TransitionKindYield, consumed: consumed, effects: cloneEffects(effects), waits: slices.Clone(waits)}
 	if !t.Valid() {
@@ -58,6 +60,7 @@ func Yield(consumed uint32, effects []Effect, waits ...Wait) (Transition, error)
 	}
 	return t, nil
 }
+
 func Complete(consumed uint32, output Payload) (Transition, error) {
 	t := Transition{kind: TransitionKindComplete, consumed: consumed, output: output}
 	if !t.Valid() {
@@ -65,6 +68,7 @@ func Complete(consumed uint32, output Payload) (Transition, error) {
 	}
 	return t, nil
 }
+
 func Fail(consumed uint32, failure Failure) (Transition, error) {
 	t := Transition{kind: TransitionKindFail, consumed: consumed, failure: failure}
 	if !t.Valid() {
@@ -72,6 +76,7 @@ func Fail(consumed uint32, failure Failure) (Transition, error) {
 	}
 	return t, nil
 }
+
 func (t Transition) Kind() TransitionKind     { return t.kind }
 func (t Transition) Consumed() uint32         { return t.consumed }
 func (t Transition) Effects() []Effect        { return cloneEffects(t.effects) }
@@ -107,6 +112,7 @@ func (t Transition) Valid() bool {
 		return false
 	}
 }
+
 func (t Transition) MarshalJSON() ([]byte, error) {
 	if !t.Valid() {
 		return nil, ErrInvalidTransition
@@ -117,6 +123,7 @@ func (t Transition) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(wire)
 }
+
 func (t *Transition) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return ErrInvalidTransition
@@ -135,6 +142,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	*t = value
 	return nil
 }
+
 func (t Transition) equal(other Transition) bool {
 	left, err := jsonv2.Marshal(t)
 	if err != nil {
@@ -143,6 +151,7 @@ func (t Transition) equal(other Transition) bool {
 	right, err := jsonv2.Marshal(other)
 	return err == nil && string(left) == string(right)
 }
+
 func cloneEffects(effects []Effect) []Effect {
 	owned := slices.Clone(effects)
 	for index := range owned {

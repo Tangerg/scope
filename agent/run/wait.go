@@ -16,6 +16,7 @@ type Wait struct {
 func (w Wait) Valid() bool {
 	return w.Key.Valid() && w.MaxAnswerBytes >= 0 && w.MaxAnswerBytes <= MaxPayloadBytes
 }
+
 func (w Wait) admits(payload Payload) error {
 	limit := w.MaxAnswerBytes
 	if limit == 0 {

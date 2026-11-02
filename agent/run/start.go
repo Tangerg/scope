@@ -14,9 +14,13 @@ type StartID struct {
 	Key   string `json:"key"`
 }
 
-func (s StartID) Valid() bool { return validIdentity(s.Scope) && validIdentity(s.Key) }
+// Valid reports whether a Host may submit the identity. The foreground scope
+// belongs to Runtime.Run, whose random keys must not collide with Host keys.
+func (s StartID) Valid() bool { return s.wellFormed() && s.Scope != foregroundStartScope }
+
+func (s StartID) wellFormed() bool { return validIdentity(s.Scope) && validIdentity(s.Key) }
 func (s StartID) Root() ProcessID {
-	if !s.Valid() {
+	if !s.wellFormed() {
 		return ProcessID{}
 	}
 	payload, _ := EncodePayload(s)
