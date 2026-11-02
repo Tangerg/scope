@@ -19,7 +19,6 @@ type processState struct {
 	pending          map[EffectID]PendingCheckpoint
 	usage            Usage
 	allocated        resourceAmounts
-	childCount       uint64
 	activeChildren   uint32
 	retainedChildren uint32
 	paused           bool
@@ -166,6 +165,10 @@ func (p *processState) spawns(spec ChildSpec) bool {
 	return false
 }
 
+// startedChildren counts every child this process has started, reaped or not,
+// because each one permanently claimed a key.
+func (p *processState) startedChildren() uint64 { return uint64(len(p.childKeys)) }
+
 func (p *processState) adopted(key ChildKey) bool {
 	_, adopted := p.childKeys[key]
 	return adopted
@@ -181,7 +184,6 @@ func (p *processState) adopt(spec ChildSpec) error {
 	}
 	p.allocated = allocated
 	p.childKeys[spec.Key] = struct{}{}
-	p.childCount++
 	p.activeChildren++
 	p.retainedChildren++
 	return nil
@@ -200,7 +202,7 @@ func (p *processState) checkpoint() (ProcessCheckpoint, error) {
 }
 
 func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
-	value := ProcessCheckpoint{Started: p.started, State: state, Step: p.step, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, ChildCount: p.childCount, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
+	value := ProcessCheckpoint{Started: p.started, State: state, Step: p.step, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
 	if p.terminal.Valid() {
 		terminal := p.terminal
 		value.Terminal = &terminal

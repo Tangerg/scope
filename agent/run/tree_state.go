@@ -441,10 +441,10 @@ func (t *treeState) admitChild(parent *processState, spec ChildSpec) error {
 	if parent.adopted(spec.Key) {
 		return ErrInvalidChildStart
 	}
-	if parent.childCount == math.MaxUint64 || t.startedProcesses == math.MaxUint64 {
+	if t.startedProcesses == math.MaxUint64 {
 		return ErrCounterExhausted
 	}
-	if !t.limits.admitsDepth(child.Depth()) || !t.limits.admitsChildren(parent.childCount+1, uint64(parent.activeChildren)+1) || !t.limits.admitsTreeSize(t.startedProcesses+1) {
+	if !t.limits.admitsDepth(child.Depth()) || !t.limits.admitsChildren(parent.startedChildren()+1, uint64(parent.activeChildren)+1) || !t.limits.admitsTreeSize(t.startedProcesses+1) {
 		return ErrResourceLimitExceeded
 	}
 	if !parent.started.Budget.canAllocate(parent.usage, parent.allocated, spec.Budget) || !parent.started.Capabilities.Allows(spec.Capabilities) {

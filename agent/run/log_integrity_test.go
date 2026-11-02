@@ -26,7 +26,6 @@ func TestCheckpointRejectsAnInconsistentMaterialization(t *testing.T) {
 			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("done"))}
 			c.Processes[0].Exited = &Exited{Process: c.Processes[0].Started.Process, Termination: Termination{output: controlValue(EncodePayload("other"))}, At: c.Processes[0].Started.At}
 		}},
-		{"more child keys than children", func(c *Checkpoint) { c.Processes[0].ChildKeys = []ChildKey{controlValue(ParseChildKey("never"))} }},
 		{"child the parent never adopted", func(c *Checkpoint) {
 			child := c.Processes[0]
 			child.Started.Process = controlValue(c.Processes[0].Started.Process.Child(controlValue(ParseChildKey("orphan"))))

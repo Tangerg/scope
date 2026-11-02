@@ -283,27 +283,26 @@ func (c Checkpoint) clone() Checkpoint {
 }
 
 type ProcessCheckpoint struct {
-	Started    Started             `json:"started"`
-	State      ExecutionState      `json:"state,omitzero"`
-	Step       uint64              `json:"step"`
-	Inbox      Inbox               `json:"inbox"`
-	Receipts   []SignalReceipt     `json:"receipts"`
-	ChildKeys  []ChildKey          `json:"child_keys"`
-	Waits      []Wait              `json:"waits"`
-	Pending    []PendingCheckpoint `json:"pending"`
-	Usage      Usage               `json:"usage"`
-	Allocated  resourceAmounts     `json:"allocated"`
-	ChildCount uint64              `json:"child_count"`
-	Paused     bool                `json:"paused"`
-	Yielded    bool                `json:"yielded"`
-	Terminal   *Termination        `json:"terminal,omitzero"`
-	Exited     *Exited             `json:"exited,omitzero"`
+	Started   Started             `json:"started"`
+	State     ExecutionState      `json:"state,omitzero"`
+	Step      uint64              `json:"step"`
+	Inbox     Inbox               `json:"inbox"`
+	Receipts  []SignalReceipt     `json:"receipts"`
+	ChildKeys []ChildKey          `json:"child_keys"`
+	Waits     []Wait              `json:"waits"`
+	Pending   []PendingCheckpoint `json:"pending"`
+	Usage     Usage               `json:"usage"`
+	Allocated resourceAmounts     `json:"allocated"`
+	Paused    bool                `json:"paused"`
+	Yielded   bool                `json:"yielded"`
+	Terminal  *Termination        `json:"terminal,omitzero"`
+	Exited    *Exited             `json:"exited,omitzero"`
 }
 
 // A live process is exactly one that still owns ExecutionState; an exit must
 // repeat the terminal intent it completed.
 func (p ProcessCheckpoint) valid() bool {
-	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) || uint64(len(p.ChildKeys)) > p.ChildCount {
+	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) {
 		return false
 	}
 	return p.Exited == nil || p.Terminal != nil && p.Exited.valid() && p.Exited.Process == p.Started.Process && p.Terminal.equal(p.Exited.Termination)
@@ -312,7 +311,7 @@ func (p ProcessCheckpoint) valid() bool {
 func (p ProcessCheckpoint) process() *processState {
 	process := newProcessState(p.Started)
 	process.step, process.inbox, process.usage, process.allocated = p.Step, slices.Clone(p.Inbox), p.Usage, p.Allocated
-	process.childCount, process.paused, process.yielded = p.ChildCount, p.Paused, p.Yielded
+	process.paused, process.yielded = p.Paused, p.Yielded
 	for _, receipt := range p.Receipts {
 		process.receipts[receipt.ID] = receipt
 	}
