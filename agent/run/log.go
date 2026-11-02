@@ -39,6 +39,8 @@ type Store interface {
 	Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error]
 }
 
+// RecordKind is the storage discriminator of a Record; a Store persists it
+// beside the encoded body so DecodeRecord can restore the exact variant.
 type RecordKind string
 
 const (
@@ -55,6 +57,8 @@ const (
 	RecordKindExecutionFailed  RecordKind = "execution_failed"
 )
 
+// Record is the closed set of facts a tree's log holds. Only this package
+// implements it, so a Store can rely on EncodeRecord and DecodeRecord alone.
 type Record interface {
 	recordKind() RecordKind
 	valid() bool
@@ -469,6 +473,7 @@ func DecodeRecord(kind string, data []byte) (Record, error) {
 
 func decodeLogRecord[T Record](data []byte) (T, error) { return jsonwire.Decode[T](data) }
 
+// Entry places a Record at its position and under the Epoch that wrote it.
 type Entry struct {
 	LSN    LSN
 	Epoch  Epoch
@@ -517,6 +522,9 @@ type entryWire struct {
 	Body  json.RawMessage `json:"body"`
 }
 
+// Batch is the unit a Store appends atomically: Records placed after After by
+// the writer holding Epoch. Entries derives each record's coordinates, so a
+// Store never assigns positions itself.
 type Batch struct {
 	Root    ProcessID
 	Epoch   Epoch
@@ -595,12 +603,16 @@ func (b Batch) Entries() []Entry {
 	return entries
 }
 
-func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (Epoch, bool, error) {
+// Admit is the one append decision every Store makes against its current
+// Epoch and head, given the stored entries the batch would occupy. It returns
+// the Epoch after the batch, or retry=true when an identical batch is already
+// stored and the append must be acknowledged without writing.
+func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (next Epoch, retry bool, err error) {
 	if err := b.Validate(); err != nil {
 		return current, false, err
 	}
 	entries := b.Entries()
-	next := entries[len(entries)-1].Epoch
+	next = entries[len(entries)-1].Epoch
 	activationRetry := b.After < head && next == current && next == b.Epoch+1
 	if b.Epoch != current && !activationRetry {
 		return current, false, ErrEpochConflict
@@ -615,12 +627,12 @@ func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (Epoch, bool, er
 		return current, false, ErrCommitConflict
 	}
 	for index, entry := range entries {
-		left, err := jsonv2.Marshal(entry)
-		if err != nil {
-			return current, false, err
+		left, encodeErr := jsonv2.Marshal(entry)
+		if encodeErr != nil {
+			return current, false, encodeErr
 		}
-		right, err := jsonv2.Marshal(existing[index])
-		if err != nil || string(left) != string(right) {
+		right, encodeErr := jsonv2.Marshal(existing[index])
+		if encodeErr != nil || string(left) != string(right) {
 			return current, false, ErrCommitConflict
 		}
 	}
@@ -665,6 +677,8 @@ type batchWire struct {
 	Entries []Entry   `json:"entries"`
 }
 
+// Log is a contiguous segment of one tree's log that begins at the tree's
+// Start or at a Checkpoint, so it can be folded without what precedes it.
 type Log struct {
 	Root    ProcessID `json:"root"`
 	Entries []Entry   `json:"entries"`

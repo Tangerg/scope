@@ -264,5 +264,10 @@ func (EffectID) JSONSchemaModel() any { return effectIDWire{} }
 
 type effectIDWire EffectID
 
+// Epoch fences writers: each Activated advances it, and a Store rejects any
+// batch appended under an older one.
 type Epoch uint64
+
+// LSN is a record's 1-based position in its tree's log, and therefore also a
+// resumable observation cursor.
 type LSN uint64
