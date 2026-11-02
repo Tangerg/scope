@@ -88,6 +88,52 @@ func (r *RoundResults) result(index uint32, result toolCallResult) error {
 	return nil
 }
 
+// callIndex finds a committed tool intent's call in the proposal that produced
+// it; the model owns call IDs, so an ID naming different content is forged.
+func (r *RoundResults) callIndex(call chat.ToolCall) (uint32, bool) {
+	if r == nil {
+		return 0, false
+	}
+	for index, candidate := range r.calls {
+		if candidate.ID == call.ID {
+			return uint32(index), candidate == call
+		}
+	}
+	return 0, false
+}
+
+// delegateIndex finds the proposed call a Spawn intent executes. The child key
+// is derived from the call, so exactly one declared delegate call can match.
+func (r *RoundResults) delegateIndex(definition *definition, spec run.ChildSpec) (uint32, error) {
+	for index, call := range r.calls {
+		delegate, declared := definition.delegate(call.Name)
+		if !declared {
+			continue
+		}
+		key, err := DelegateChildKey(r.sequence, call)
+		if err != nil {
+			return 0, err
+		}
+		if key != spec.Key {
+			continue
+		}
+		if err := delegate.validateChild(spec, r.sequence, call); err != nil {
+			return 0, fmt.Errorf("%w: delegate intent: %w", ErrInvalidResult, err)
+		}
+		return uint32(index), nil
+	}
+	return 0, ErrInvalidResult
+}
+
+// claim binds a proposed call to the one Effect that executes it.
+func (r *RoundResults) claim(index uint32, effect run.EffectID) error {
+	if _, claimed := r.references[index]; claimed {
+		return ErrInvalidResult
+	}
+	r.references[index] = effect
+	return nil
+}
+
 type ResultEntry struct {
 	Reference     run.EffectID      `json:"reference"`
 	ToolCallIndex uint32            `json:"tool_call_index"`
@@ -121,234 +167,4 @@ func SettledResults(program run.Program[Input, Output], log run.Log) ([]RoundRes
 		result = append(result, *round)
 	}
 	return result, nil
-}
-
-type projectedCall struct {
-	round *RoundResults
-	index uint32
-	input *inputWait
-}
-
-func (p *projectedCall) resume(request toolDispatchRequest, effect run.EffectID) error {
-	resume := request.Resume
-	if resume == nil || !resume.precedes(effect) || p.input == nil || p.round.references[p.index] != resume.Reference || p.round.calls[p.index] != request.Invocation.Call {
-		return ErrInvalidResult
-	}
-	question := p.input.Request
-	if !question.ResponseSchema().Equal(resume.InputRequest.ResponseSchema()) || !bytes.Equal(question.Prompt(), resume.InputRequest.Prompt()) || !bytes.Equal(question.State(), resume.InputRequest.State()) {
-		return ErrInvalidResult
-	}
-	p.input = nil
-	return nil
-}
-
-type interactionProjection struct {
-	rounds    []*RoundResults
-	delegates []DelegateAttribution
-}
-
-func projectInteractions(program run.Program[Input, Output], log run.Log) (interactionProjection, error) {
-	if !program.Valid() {
-		return interactionProjection{}, ErrInvalidResult
-	}
-	definition, bound := program.Definition().(*definition)
-	if !bound {
-		return interactionProjection{}, ErrInvalidResult
-	}
-	if !log.Complete() {
-		return interactionProjection{}, fmt.Errorf("%w: projection requires the complete history", ErrInvalidResult)
-	}
-	if err := log.Validate(); err != nil {
-		return interactionProjection{}, err
-	}
-	projection := interactionProjection{}
-	processes := make(map[run.ProcessID]bool)
-	intents := make(map[run.EffectID]run.EffectIntent)
-	models := make(map[run.EffectID]modelCall)
-	active := make(map[run.ProcessID]*RoundResults)
-	calls := make(map[run.EffectID]*projectedCall)
-	delegates := make(map[run.ProcessID]*projectedCall)
-	for _, entry := range log.Entries {
-		switch record := entry.Record.(type) {
-		case run.Started:
-			processes[record.Process] = record.Program == program.ProgramRef()
-		case run.EffectIntent:
-			if !processes[record.ID.Process] {
-				continue
-			}
-			intents[record.ID] = record
-			if record.Effect.Target() == run.EffectTargetDispatcher {
-				envelope, err := decodeEffect(record.Effect.Payload().JSON())
-				if err != nil {
-					return interactionProjection{}, err
-				}
-				switch envelope.operation() {
-				case operationModelCall:
-					models[record.ID] = *envelope.ModelCall
-				case operationToolCall:
-					call := envelope.ToolCall
-					if call.Resume != nil {
-						previous, found := calls[call.Resume.Reference]
-						if !found {
-							return interactionProjection{}, ErrInvalidResult
-						}
-						if err := previous.resume(*call, record.ID); err != nil {
-							return interactionProjection{}, err
-						}
-						calls[record.ID] = previous
-						continue
-					}
-					round := active[record.ID.Process]
-					index, found := roundCall(round, call.Invocation.Call)
-					if !found {
-						return interactionProjection{}, ErrInvalidResult
-					}
-					if _, duplicate := round.references[index]; duplicate {
-						return interactionProjection{}, ErrInvalidResult
-					}
-					round.references[index] = record.ID
-					calls[record.ID] = &projectedCall{round: round, index: index}
-				}
-			} else if record.Effect.Target() == run.EffectTargetFramework {
-				spec, err := run.ParseChildStartEffect(record.Effect)
-				if err != nil {
-					return interactionProjection{}, err
-				}
-				round := active[record.ID.Process]
-				if round == nil {
-					return interactionProjection{}, ErrInvalidResult
-				}
-				matched := false
-				for index, call := range round.calls {
-					delegate, declared := definition.delegate(call.Name)
-					if !declared {
-						continue
-					}
-					key, err := DelegateChildKey(round.sequence, call)
-					if err != nil {
-						return interactionProjection{}, err
-					}
-					if key != spec.Key {
-						continue
-					}
-					if bindingErr := delegate.validateChild(spec, round.sequence, call); bindingErr != nil {
-						return interactionProjection{}, fmt.Errorf("%w: delegate intent: %w", ErrInvalidResult, bindingErr)
-					}
-					if _, duplicate := round.references[uint32(index)]; duplicate {
-						return interactionProjection{}, ErrInvalidResult
-					}
-					round.references[uint32(index)] = record.ID
-					calls[record.ID] = &projectedCall{round: round, index: uint32(index)}
-					matched = true
-					break
-				}
-				if !matched {
-					return interactionProjection{}, ErrInvalidResult
-				}
-			}
-		case run.EffectSettled:
-			if !processes[record.ID.Process] || record.Failure != nil {
-				continue
-			}
-			intent, found := intents[record.ID]
-			if !found {
-				return interactionProjection{}, ErrInvalidResult
-			}
-			if model, modelFound := models[record.ID]; modelFound {
-				if record.Outcome.Status() != run.SettlementStatusSucceeded {
-					continue
-				}
-				envelope, err := decodeResult(record.Outcome.Payload().JSON())
-				if err != nil {
-					return interactionProjection{}, err
-				}
-				if envelope.ModelResult == nil {
-					return interactionProjection{}, ErrInvalidResult
-				}
-				proposed, err := validatedToolCalls(envelope.ModelResult.Response)
-				if err != nil {
-					return interactionProjection{}, err
-				}
-				round := &RoundResults{model: record.ID, sequence: model.ModelCallSequence, calls: proposed, references: make(map[uint32]run.EffectID)}
-				active[record.ID.Process] = round
-				projection.rounds = append(projection.rounds, round)
-				continue
-			}
-			call, found := calls[record.ID]
-			if !found {
-				continue
-			}
-			if intent.Effect.Target() == run.EffectTargetFramework {
-				if record.Outcome.Status() == run.SettlementStatusFailed {
-					payload := record.Outcome.Payload()
-					failure, err := payload.Decode[run.Failure]()
-					if err != nil {
-						return interactionProjection{}, err
-					}
-					if err := call.round.result(call.index, *rejectedDelegateStartResult(call.round.calls[call.index], failure)); err != nil {
-						return interactionProjection{}, err
-					}
-				} else if record.Outcome.Status() == run.SettlementStatusSucceeded {
-					payload := record.Outcome.Payload()
-					child, err := payload.Decode[run.ProcessID]()
-					if err != nil {
-						return interactionProjection{}, err
-					}
-					delegates[child] = call
-					projection.delegates = append(projection.delegates, DelegateAttribution{reference: record.ID, modelCallSequence: call.round.sequence, toolCallIndex: call.index, toolCall: call.round.calls[call.index], processID: child})
-				}
-				continue
-			}
-			if record.Outcome.Status() != run.SettlementStatusSucceeded {
-				continue
-			}
-			envelope, err := decodeResult(record.Outcome.Payload().JSON())
-			if err != nil {
-				return interactionProjection{}, err
-			}
-			if envelope.ToolResult == nil {
-				return interactionProjection{}, ErrInvalidResult
-			}
-			if request := envelope.ToolResult.InputRequest; request != nil {
-				call.input = &inputWait{Effect: record.ID, Request: *request}
-				continue
-			}
-			if err := call.round.result(call.index, *envelope.ToolResult.Completion); err != nil {
-				return interactionProjection{}, err
-			}
-		case run.Exited:
-			call, found := delegates[record.Process]
-			if !found {
-				continue
-			}
-			if output, completed := record.Termination.Output(); completed {
-				delegate, _ := definition.delegate(call.round.calls[call.index].Name)
-				if err := delegate.validateOutput(output); err != nil {
-					return interactionProjection{}, fmt.Errorf("%w: delegated output: %w", ErrInvalidResult, err)
-				}
-			}
-			result, err := delegateToolResult(call.round.calls[call.index], record.Termination)
-			if err != nil {
-				return interactionProjection{}, err
-			}
-			if err := call.round.result(call.index, newToolCallResult(result)); err != nil {
-				return interactionProjection{}, err
-			}
-		}
-	}
-	return projection, nil
-}
-func roundCall(round *RoundResults, call chat.ToolCall) (uint32, bool) {
-	if round == nil {
-		return 0, false
-	}
-	for index, candidate := range round.calls {
-		if candidate.ID == call.ID {
-			if candidate != call {
-				return 0, false
-			}
-			return uint32(index), true
-		}
-	}
-	return 0, false
 }
