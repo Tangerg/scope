@@ -137,42 +137,53 @@ func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run
 	return true, &advertisement, err
 }
 
+// validate checks that the invocation is in exactly one state and that the
+// state is legal for the batch's kind of call.
 func (c callInvocation) validate(kind callKind, call chat.ToolCall) error {
-	if !c.Reference.Valid() {
+	if !c.Reference.Valid() || c.states() != 1 {
 		return ErrInvalidExecutionState
 	}
-	variants := 0
-	if c.Pending != nil {
-		variants++
-		if kind != callTool || !c.Pending.Valid() || !c.followsReference(*c.Pending) {
-			return ErrInvalidExecutionState
-		}
-	}
-	if c.Input != nil {
-		variants++
-		if kind != callTool || !c.Input.Effect.Valid() || !c.followsReference(c.Input.Effect) || !c.Input.Request.Valid() {
-			return ErrInvalidExecutionState
-		}
-	}
-	if c.Child != nil {
-		variants++
-		if kind != callDelegate || !c.Child.Valid() || c.Child.Done() || c.Child.Request != nil && *c.Child.Request != c.Reference {
-			return ErrInvalidExecutionState
-		}
-		if c.Child.Process != nil {
-			parent, _ := c.Child.Process.Parent()
-			if parent != c.Reference.Process {
-				return ErrInvalidExecutionState
-			}
-		}
-	}
-	if c.Result != nil {
-		variants++
+	switch {
+	case c.Pending != nil:
+		return c.validateToolObligation(kind, *c.Pending, true)
+	case c.Input != nil:
+		return c.validateToolObligation(kind, c.Input.Effect, c.Input.Request.Valid())
+	case c.Child != nil:
+		return c.validateChild(kind)
+	default:
 		if err := c.Result.validateCall(call); err != nil {
 			return fmt.Errorf("%w: call result: %w", ErrInvalidExecutionState, err)
 		}
+		return nil
 	}
-	if variants != 1 {
+}
+
+func (c callInvocation) states() int {
+	count := 0
+	for _, present := range []bool{c.Pending != nil, c.Input != nil, c.Child != nil, c.Result != nil} {
+		if present {
+			count++
+		}
+	}
+	return count
+}
+
+func (c callInvocation) validateToolObligation(kind callKind, effect run.EffectID, valid bool) error {
+	if kind != callTool || !valid || !effect.Valid() || !c.followsReference(effect) {
+		return ErrInvalidExecutionState
+	}
+	return nil
+}
+
+// validateChild requires an unfinished child started by this call's own Spawn.
+func (c callInvocation) validateChild(kind callKind) error {
+	if kind != callDelegate || !c.Child.Valid() || c.Child.Done() || c.Child.Request != nil && *c.Child.Request != c.Reference {
+		return ErrInvalidExecutionState
+	}
+	if c.Child.Process == nil {
+		return nil
+	}
+	if parent, _ := c.Child.Process.Parent(); parent != c.Reference.Process {
 		return ErrInvalidExecutionState
 	}
 	return nil
