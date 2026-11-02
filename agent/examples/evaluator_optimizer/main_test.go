@@ -209,7 +209,7 @@ func TestEvaluatorRejectsAnUnscheduledRevisionWithoutReportingAcceptance(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = h.Join(t.Context()); err != nil {
+	if _, err = h.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	failure, ok := result.Termination().Failure()

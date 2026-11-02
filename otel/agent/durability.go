@@ -4,6 +4,7 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"iter"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -16,6 +17,7 @@ import (
 const (
 	logAppendOperation                   = "append"
 	logLoadOperation                     = "load"
+	logReadOperation                     = "read"
 	logOperationAttribute  attribute.Key = "agent.log.operation"
 	logOutcomeAttribute    attribute.Key = "agent.log.outcome"
 	logAcknowledgedOutcome               = "acknowledged"
@@ -53,6 +55,27 @@ func (o *observedStore) Load(ctx context.Context, root run.ProcessID) (run.Log, 
 	log, found, err := o.next.Load(ctx, root)
 	o.record(ctx, span, logLoadOperation, start, err)
 	return log, found, err
+}
+
+// Read is one span from the first pull to the end of iteration, because the
+// iterator owns the storage operation until the caller stops consuming it.
+func (o *observedStore) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	if !o.observer.enabled() {
+		return o.next.Read(ctx, root, after)
+	}
+	return func(yield func(run.Entry, error) bool) {
+		readCtx, span := o.observer.tracer.Start(ctx, "agent.log.read", trace.WithAttributes(processRootIDAttribute.String(root.String()), uint64Attribute(lsnAttribute, uint64(after))))
+		start := time.Now()
+		defer span.End()
+		var failure error
+		for entry, err := range o.next.Read(readCtx, root, after) {
+			failure = err
+			if !yield(entry, err) || err != nil {
+				break
+			}
+		}
+		o.record(readCtx, span, logReadOperation, start, failure)
+	}
 }
 
 func (o *observedStore) record(ctx context.Context, span trace.Span, operation string, start time.Time, err error) {

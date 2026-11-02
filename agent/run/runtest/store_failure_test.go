@@ -3,6 +3,7 @@ package runtest
 import (
 	"context"
 	"errors"
+	"iter"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 type storeProbe struct {
 	append func(context.Context, run.Batch) error
 	load   func(context.Context, run.ProcessID) (run.Log, bool, error)
+	read   func(context.Context, run.ProcessID, run.LSN) iter.Seq2[run.Entry, error]
 }
 
 func (s *storeProbe) Append(ctx context.Context, batch run.Batch) error {
@@ -19,6 +21,9 @@ func (s *storeProbe) Append(ctx context.Context, batch run.Batch) error {
 }
 func (s *storeProbe) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return s.load(ctx, root)
+}
+func (s *storeProbe) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	return s.read(ctx, root, after)
 }
 
 func TestStoreConformanceRejectsBrokenDurabilityGuarantees(t *testing.T) {
@@ -283,7 +288,7 @@ func TestStoreConformanceRejectsBrokenDurabilityGuarantees(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := run.NewMemoryStore()
-			probe := &storeProbe{append: store.Append, load: store.Load}
+			probe := &storeProbe{append: store.Append, load: store.Load, read: store.Read}
 			test.configure(probe, store)
 			if err := test.check(t, probe, storeInitialBatch(t)); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("conformance accepted or misidentified a broken guarantee: %v; want %q", err, test.want)
@@ -307,7 +312,7 @@ func TestStoreConformanceRetainsUnexpectedStorageErrors(t *testing.T) {
 	store := run.NewMemoryStore()
 	batch := storeInitialBatch(t)
 	appendStoreBatch(t, store, batch)
-	probe := &storeProbe{append: store.Append, load: func(context.Context, run.ProcessID) (run.Log, bool, error) { return run.Log{}, false, cause }}
+	probe := &storeProbe{append: store.Append, load: func(context.Context, run.ProcessID) (run.Log, bool, error) { return run.Log{}, false, cause }, read: store.Read}
 	if _, err := readStoreLog(t.Context(), probe, batch.Root); !errors.Is(err, cause) {
 		t.Fatalf("load diagnosis lost underlying error: %v", err)
 	}
@@ -332,7 +337,7 @@ func TestEveryStoreCheckPreservesOperationalErrors(t *testing.T) {
 			for _, operation := range []string{"append", "load"} {
 				t.Run(operation, func(t *testing.T) {
 					store := run.NewMemoryStore()
-					probe := &storeProbe{append: store.Append, load: store.Load}
+					probe := &storeProbe{append: store.Append, load: store.Load, read: store.Read}
 					if operation == "append" {
 						probe.append = func(context.Context, run.Batch) error { return cause }
 					} else {

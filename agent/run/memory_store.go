@@ -2,15 +2,20 @@ package run
 
 import (
 	"context"
+	"iter"
 	"sync"
 )
 
+// MemoryStore keeps each tree's log for the lifetime of the store value. It
+// implements the complete Store contract, so it is a faithful stand-in for a
+// durable backend in tests and single-process hosts.
 type MemoryStore struct {
 	mu   sync.Mutex
 	logs map[ProcessID]*memoryLog
 }
 
 func NewMemoryStore() *MemoryStore { return &MemoryStore{logs: make(map[ProcessID]*memoryLog)} }
+
 func (m *MemoryStore) Append(ctx context.Context, batch Batch) error {
 	if err := RequireContext(ctx).Err(); err != nil {
 		return err
@@ -22,77 +27,131 @@ func (m *MemoryStore) Append(ctx context.Context, batch Batch) error {
 	if err != nil {
 		return err
 	}
-	m.mu.Lock()
-	if contextErr := ctx.Err(); contextErr != nil {
-		m.mu.Unlock()
-		return contextErr
-	}
-	if m.logs == nil {
-		m.logs = make(map[ProcessID]*memoryLog)
-	}
-	stream := m.logs[batch.Root]
-	if stream == nil {
-		_, _, admissionErr := batch.Admit(0, 0, nil)
-		if admissionErr == nil {
-			m.logs[batch.Root] = &memoryLog{entries: owned}
-		}
-		m.mu.Unlock()
-		return admissionErr
-	}
-	m.mu.Unlock()
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-	if contextErr := ctx.Err(); contextErr != nil {
-		return contextErr
-	}
-	head := LSN(len(stream.entries))
-	epoch := Epoch(0)
-	if head > 0 {
-		epoch = stream.entries[len(stream.entries)-1].Epoch
-	}
-	var existing []Entry
-	end := batch.After + LSN(len(batch.Records))
-	if batch.After < head && end <= head {
-		existing = stream.entries[int(batch.After):int(end)]
-	}
-	_, duplicate, err := batch.Admit(epoch, head, existing)
-	if err != nil || duplicate {
+	stream, created, err := m.stream(ctx, batch, owned)
+	if err != nil || created {
 		return err
 	}
-	stream.entries = append(stream.entries, owned...)
-	return nil
+	return stream.append(ctx, batch, owned)
 }
+
 func (m *MemoryStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
-	if err := RequireContext(ctx).Err(); err != nil {
+	stream, err := m.existing(ctx, root)
+	if err != nil || stream == nil {
 		return Log{}, false, err
 	}
-	if !root.Valid() || root.Depth() != 0 {
-		return Log{}, false, ErrInvalidIdentity
-	}
-	m.mu.Lock()
-	stream := m.logs[root]
-	m.mu.Unlock()
-	if stream == nil {
-		return Log{}, false, nil
-	}
-	stream.mu.Lock()
-	defer stream.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return Log{}, false, err
-	}
-	if len(stream.entries) == 0 {
-		return Log{}, false, nil
-	}
-	entries, err := cloneEntries(stream.entries)
+	entries, err := stream.cut()
 	if err != nil {
 		return Log{}, false, err
 	}
 	return Log{Root: root, Entries: entries}, true, nil
 }
 
+func (m *MemoryStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		stream, err := m.existing(ctx, root)
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		if stream == nil {
+			return
+		}
+		entries, err := stream.after(after)
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		for _, entry := range entries {
+			if !yield(entry, nil) {
+				return
+			}
+		}
+	}
+}
+
+// stream returns the log for batch.Root, creating it when batch starts the
+// tree. created reports that the batch has already been applied.
+func (m *MemoryStore) stream(ctx context.Context, batch Batch, owned []Entry) (*memoryLog, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	if stream := m.logs[batch.Root]; stream != nil {
+		return stream, false, nil
+	}
+	if _, _, err := batch.Admit(0, 0, nil); err != nil {
+		return nil, false, err
+	}
+	if m.logs == nil {
+		m.logs = make(map[ProcessID]*memoryLog)
+	}
+	stream := &memoryLog{}
+	stream.extend(owned)
+	m.logs[batch.Root] = stream
+	return stream, true, nil
+}
+
+func (m *MemoryStore) existing(ctx context.Context, root ProcessID) (*memoryLog, error) {
+	if err := RequireContext(ctx).Err(); err != nil {
+		return nil, err
+	}
+	if !root.Valid() || root.Depth() != 0 {
+		return nil, ErrInvalidIdentity
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.logs[root], nil
+}
+
 type memoryLog struct {
 	mu      sync.Mutex
 	entries []Entry
+	// checkpoint indexes the newest Checkpoint entry so Load never scans history.
+	checkpoint int
+}
+
+func (m *memoryLog) append(ctx context.Context, batch Batch, owned []Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	head := LSN(len(m.entries))
+	var existing []Entry
+	if end := batch.After + LSN(len(batch.Records)); batch.After < head && end <= head {
+		existing = m.entries[batch.After:end]
+	}
+	_, duplicate, err := batch.Admit(m.entries[len(m.entries)-1].Epoch, head, existing)
+	if err != nil || duplicate {
+		return err
+	}
+	m.extend(owned)
+	return nil
+}
+
+func (m *memoryLog) extend(entries []Entry) {
+	for _, entry := range entries {
+		if _, checkpoint := entry.Record.(Checkpoint); checkpoint {
+			m.checkpoint = len(m.entries)
+		}
+		m.entries = append(m.entries, entry)
+	}
+}
+
+func (m *memoryLog) cut() ([]Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return cloneEntries(m.entries[m.checkpoint:])
+}
+
+func (m *memoryLog) after(position LSN) ([]Entry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if position >= LSN(len(m.entries)) {
+		return nil, nil
+	}
+	return cloneEntries(m.entries[position:])
 }
 
 func cloneEntries(entries []Entry) ([]Entry, error) {

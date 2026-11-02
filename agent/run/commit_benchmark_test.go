@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -194,4 +195,79 @@ func durationMedian(samples []time.Duration) time.Duration {
 	ordered := slices.Clone(samples)
 	slices.Sort(ordered)
 	return ordered[len(ordered)/2]
+}
+
+// Recovery reads the newest checkpoint and its suffix, so a tree ten times older
+// must not cost ten times more to load and fold.
+func BenchmarkRecoveryCutIsBoundedByTheCheckpointInterval(b *testing.B) {
+	for _, effects := range []int{benchmarkEarlyEffect * 10, benchmarkEffectCount} {
+		b.Run(strconv.Itoa(effects), func(b *testing.B) {
+			store := NewMemoryStore()
+			runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: store}))
+			marks := make(chan time.Time, 1)
+			definition := &boundedEffectDefinition{effectCommitDefinition: effectCommitDefinition{descriptor: kernelDescriptor(b, "benchmark.recovery_cut"), marks: marks}, effects: effects}
+			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+				<-marks
+				return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+			}}
+			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
+			handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+			if _, err := handle.Await(b.Context()); err != nil {
+				b.Fatal(err)
+			}
+			if err := runtime.Close(b.Context()); err != nil {
+				b.Fatal(err)
+			}
+			var cut Log
+			for b.Loop() {
+				var found bool
+				var err error
+				cut, found, err = store.Load(b.Context(), handle.ID())
+				if err != nil || !found {
+					b.Fatal(found, err)
+				}
+				if _, err := projectLog(cut); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(len(cut.Entries)), "cut_entries")
+			b.ReportMetric(float64(cut.Head()), "history_entries")
+		})
+	}
+}
+
+type boundedEffectDefinition struct {
+	effectCommitDefinition
+	effects int
+}
+
+func (b *boundedEffectDefinition) Start(Payload) (Execution, error) {
+	return &boundedEffectExecution{marks: b.marks, effects: b.effects}, nil
+}
+
+func (b *boundedEffectDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
+	completed, err := state.Decode[int]("benchmark.effects")
+	if err != nil {
+		return nil, err
+	}
+	return &boundedEffectExecution{completed: completed, marks: b.marks, effects: b.effects}, nil
+}
+
+type boundedEffectExecution struct {
+	completed, effects int
+	marks              chan<- time.Time
+}
+
+func (b *boundedEffectExecution) Snapshot() (ExecutionState, error) {
+	return EncodeExecutionState("benchmark.effects", b.completed)
+}
+
+func (b *boundedEffectExecution) Step(_ context.Context, turn Turn) (Transition, error) {
+	b.completed += len(turn.Messages)
+	consumed := uint32(len(turn.Messages))
+	if b.completed == b.effects {
+		return Complete(consumed, controlValue(EncodePayload(b.completed)))
+	}
+	b.marks <- time.Now()
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
 }

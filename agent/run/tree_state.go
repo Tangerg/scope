@@ -1,9 +1,7 @@
 package run
 
 import (
-	"bytes"
-	jsonv2 "encoding/json/v2"
-	"errors"
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -21,12 +19,11 @@ type treeState struct {
 	epoch            Epoch
 	startedProcesses uint64
 	processes        map[ProcessID]*processState
-	pathHistory      map[ProcessID]struct{}
 	unsettledChild   ProcessID
 }
 
 func newTreeState(root ProcessID) *treeState {
-	return &treeState{root: root, processes: make(map[ProcessID]*processState), pathHistory: make(map[ProcessID]struct{})}
+	return &treeState{root: root, processes: make(map[ProcessID]*processState)}
 }
 func (t *treeState) apply(entry Entry) error {
 	if entry.LSN != t.head+1 {
@@ -95,11 +92,30 @@ func (t *treeState) applyRecord(record Record) error {
 	case ControlRequested:
 		return t.control(value)
 	case Checkpoint:
-		return t.validateCheckpoint(value)
+		// A checkpoint materializes its own prefix; folding the prefix already
+		// produced that state, so the record adds nothing to replay.
+		return nil
 	default:
 		return ErrInvalidLog
 	}
 }
+
+// verifyStep re-executes a committed Step against the restored Execution. A
+// different Transition proves the Definition is not deterministic over its
+// inputs, so continuing would diverge from what the log already promised.
+func (t *treeState) verifyStep(ctx context.Context, stepped Stepped) error {
+	p := t.processes[stepped.Process]
+	if p == nil || p.execution == nil || int(stepped.Delivered) > len(p.inbox) {
+		return ErrInvalidLog
+	}
+	turn := Turn{Process: stepped.Process, Step: stepped.Step, Messages: slices.Clone([]Message(p.inbox[:stepped.Delivered]))}
+	transition, err := stepExecution(restoreContext{Context: ctx}, p.execution, turn)
+	if err != nil || !transition.equal(stepped.Transition) {
+		return fmt.Errorf("%w: process %s step %d", ErrNondeterministicStep, stepped.Process, stepped.Step)
+	}
+	return nil
+}
+
 func (t *treeState) process(id ProcessID) (*processState, error) {
 	p := t.processes[id]
 	if p == nil {
@@ -180,48 +196,11 @@ func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outc
 	return ErrInvalidEffect
 }
 func (t *treeState) start(started Started) error {
-	if _, used := t.pathHistory[started.Process]; used {
-		return ErrInvalidChildStart
-	}
 	if !started.valid() || started.Process.Root() != t.root || t.processes[started.Process] != nil {
 		return ErrInvalidChildStart
 	}
-	if parentID, child := started.Process.Parent(); child {
-		parent, err := t.process(parentID)
-		if err != nil {
-			return err
-		}
-		key, _ := started.Process.Key()
-		spec := ChildSpec{Key: key, ProgramRef: started.Program, Input: started.Input, Budget: started.Budget, Capabilities: started.Capabilities}
-		if err := t.admitChild(parent, spec); err != nil {
-			return err
-		}
-		authorized := false
-		for _, pending := range parent.pending {
-			spawn := pending.Intent.Effect.spawn
-			if spawn != nil && spawn.Key == spec.Key && spawn.ProgramRef == spec.ProgramRef && spawn.Budget == spec.Budget && slices.Equal(spawn.Capabilities.values, spec.Capabilities.values) && bytes.Equal(spawn.Input.data, spec.Input.data) {
-				authorized = true
-				break
-			}
-		}
-		if !authorized {
-			return ErrInvalidChildStart
-		}
-		debit, _ := parent.started.Budget.allocation(started.Budget)
-		allocated, ok := parent.allocated.add(debit)
-		if !ok {
-			return ErrCounterExhausted
-		}
-		parent.allocated = allocated
-		parent.childCount++
-		parent.activeChildren++
-		parent.retainedChildren++
-		t.unsettledChild = started.Process
-	} else {
-		if len(t.processes) != 0 {
-			return ErrInvalidLog
-		}
-		t.limits = started.Limits
+	if err := t.admitStart(started); err != nil {
+		return err
 	}
 	if t.startedProcesses == math.MaxUint64 {
 		return ErrCounterExhausted
@@ -230,10 +209,37 @@ func (t *treeState) start(started Started) error {
 		return ErrResourceLimitExceeded
 	}
 	t.startedProcesses++
-	t.pathHistory[started.Process] = struct{}{}
 	t.processes[started.Process] = newProcessState(started)
 	return nil
 }
+
+func (t *treeState) admitStart(started Started) error {
+	parentID, child := started.Process.Parent()
+	if !child {
+		if len(t.processes) != 0 {
+			return ErrInvalidLog
+		}
+		t.limits = started.Limits
+		return nil
+	}
+	parent, err := t.process(parentID)
+	if err != nil {
+		return err
+	}
+	spec := started.childSpec()
+	if err := t.admitChild(parent, spec); err != nil {
+		return err
+	}
+	if !parent.spawns(spec) {
+		return ErrInvalidChildStart
+	}
+	if err := parent.adopt(spec); err != nil {
+		return err
+	}
+	t.unsettledChild = started.Process
+	return nil
+}
+
 func (t *treeState) exit(exited Exited) error {
 	p, err := t.process(exited.Process)
 	if err != nil {
@@ -348,30 +354,37 @@ func (t *treeState) checkpoint() (Checkpoint, error) {
 	return value, nil
 }
 func projectLog(log Log) (*treeState, error) {
-	if err := log.validateEnvelope(); err != nil {
+	state, rest, err := log.base()
+	if err != nil {
 		return nil, err
 	}
-	state := newTreeState(log.Root)
-	for _, entry := range log.Entries {
+	for _, entry := range rest {
 		if err := state.apply(entry); err != nil {
 			return nil, err
 		}
 	}
-	if state.unsettledChild.Valid() {
-		return nil, ErrInvalidLog
-	}
-	for _, process := range state.processes {
-		if !process.intentsComplete() {
-			return nil, ErrInvalidLog
-		}
+	if err := state.validateBoundary(); err != nil {
+		return nil, err
 	}
 	return state, nil
 }
 
-var errInvalidCheckpoint = errors.New("run: checkpoint does not materialize its log prefix")
+// validateBoundary rejects a cut inside one batch: a child start without its
+// settlement, or a Step without the intents of all its Effects.
+func (t *treeState) validateBoundary() error {
+	if t.unsettledChild.Valid() {
+		return ErrInvalidLog
+	}
+	for _, process := range t.processes {
+		if !process.intentsComplete() {
+			return ErrInvalidLog
+		}
+	}
+	return nil
+}
 
 func (t *treeState) inspect() TreeInspection {
-	view := TreeInspection{Root: t.root, Head: t.head, Epoch: t.epoch, receipts: make(map[ProcessID][]SignalReceipt)}
+	view := TreeInspection{Root: t.root, Head: t.head, Epoch: t.epoch}
 	for _, id := range t.ordered() {
 		p := t.processes[id]
 		inspected := ProcessInspection{ID: id, Program: p.started.Program, Status: p.status(), Usage: p.usage, StartedAt: p.started.At}
@@ -396,40 +409,8 @@ func (t *treeState) inspect() TreeInspection {
 		}
 		slices.SortFunc(inspected.PendingEffects, func(a, b PendingEffect) int { return strings.Compare(a.Request.ID().String(), b.Request.ID().String()) })
 		view.Processes = append(view.Processes, inspected)
-		for _, receipt := range p.receipts {
-			view.receipts[id] = append(view.receipts[id], receipt)
-		}
 	}
 	return view
-}
-
-func (t *treeState) validateCheckpoint(checkpoint Checkpoint) error {
-	if len(checkpoint.Processes) != len(t.processes) || checkpoint.StartedProcesses != t.startedProcesses {
-		return errInvalidCheckpoint
-	}
-	seen := make(map[ProcessID]struct{}, len(checkpoint.Processes))
-	for _, captured := range checkpoint.Processes {
-		p := t.processes[captured.Started.Process]
-		if p == nil || !p.intentsComplete() {
-			return errInvalidCheckpoint
-		}
-		if _, duplicate := seen[captured.Started.Process]; duplicate {
-			return errInvalidCheckpoint
-		}
-		seen[captured.Started.Process] = struct{}{}
-		if p.terminal.Valid() && captured.State.Valid() || !p.terminal.Valid() && !captured.State.Valid() {
-			return errInvalidCheckpoint
-		}
-		expected, err := jsonv2.Marshal(p.materialize(captured.State))
-		if err != nil {
-			return err
-		}
-		actual, err := jsonv2.Marshal(captured)
-		if err != nil || !bytes.Equal(expected, actual) {
-			return errInvalidCheckpoint
-		}
-	}
-	return nil
 }
 
 func (t *treeState) admitChild(parent *processState, spec ChildSpec) error {
@@ -446,7 +427,7 @@ func (t *treeState) admitChild(parent *processState, spec ChildSpec) error {
 	if err != nil {
 		return err
 	}
-	if _, used := t.pathHistory[child]; used {
+	if parent.adopted(spec.Key) {
 		return ErrInvalidChildStart
 	}
 	if parent.childCount == math.MaxUint64 || t.startedProcesses == math.MaxUint64 {

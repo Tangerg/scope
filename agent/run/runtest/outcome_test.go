@@ -3,6 +3,7 @@ package runtest
 import (
 	"context"
 	"errors"
+	"iter"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,9 @@ type outcomeStore struct {
 
 func (o *outcomeStore) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return o.store.Load(ctx, root)
+}
+func (o *outcomeStore) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	return o.store.Read(ctx, root, after)
 }
 func (o *outcomeStore) Append(ctx context.Context, batch run.Batch) error {
 	for _, record := range batch.Records {
@@ -51,7 +55,7 @@ func TestObserveReturnsCommittedResultsAndStartFailures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			cause := errors.New("initial append unavailable")
 			store := run.NewMemoryStore()
-			probe := &storeProbe{append: store.Append, load: store.Load}
+			probe := &storeProbe{append: store.Append, load: store.Load, read: store.Read}
 			if unavailable {
 				probe.append = func(context.Context, run.Batch) error { return cause }
 			}

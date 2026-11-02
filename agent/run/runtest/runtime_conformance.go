@@ -3,6 +3,7 @@ package runtest
 import (
 	"context"
 	"errors"
+	"iter"
 	"strings"
 	"testing"
 
@@ -269,6 +270,9 @@ func (r redirectedStore) Append(ctx context.Context, batch run.Batch) error {
 func (r redirectedStore) Load(ctx context.Context, _ run.ProcessID) (run.Log, bool, error) {
 	return r.store.Load(ctx, r.target)
 }
+func (r redirectedStore) Read(ctx context.Context, _ run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	return r.store.Read(ctx, r.target, after)
+}
 
 func checkUnresolvedCancellation(t *testing.T, store run.Store) {
 	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusUnknown, SettlementPayload: []byte("null")}}})
@@ -335,7 +339,7 @@ func checkCheckpointWait(t *testing.T, store run.Store) {
 		t.Fatal(err)
 	}
 	gate.await(t)
-	if _, _, found := loadStoreLog(t, store, handle.ID()).LatestCheckpoint(); !found {
+	if _, found := loadStoreLog(t, store, handle.ID()).Entries[0].Record.(run.Checkpoint); !found {
 		t.Fatal("checkpoint barrier did not commit its recovery baseline")
 	}
 	replacement, restoredProgram := recoveryRuntime(t, store, definition, nil)

@@ -148,7 +148,7 @@ func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[stri
 	if err != nil {
 		return sdk.ErrInvalidParams
 	}
-	matched, err := head.Answered(process, wait, payload)
+	matched, err := h.runtime.Answered(ctx, process, wait, payload)
 	if err != nil {
 		return sdk.NewError(sdk.ErrInvalidRequest, "answer is not consistent with the external wait")
 	}

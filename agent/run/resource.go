@@ -197,3 +197,24 @@ func (t TreeLimits) admitsChildren(children, active uint64) bool {
 func (t TreeLimits) admitsTreeSize(processes uint64) bool {
 	return t.MaxTreeProcesses.Allows(processes)
 }
+
+// admitRecord bounds each encoded record, and checkpoints separately, because a
+// record is the unit a Store must accept atomically.
+func (t TreeLimits) admitRecord(record Record) error {
+	if err := validateRecord(record); err != nil {
+		return err
+	}
+	_, checkpoint := record.(Checkpoint)
+	if bounded := t.MaxRecordBytes.limited || checkpoint && t.MaxCheckpointBytes.limited; !bounded {
+		return nil
+	}
+	_, encoded, err := EncodeRecord(record)
+	if err != nil {
+		return err
+	}
+	size := uint64(len(encoded))
+	if !t.MaxRecordBytes.Allows(size) || checkpoint && !t.MaxCheckpointBytes.Allows(size) {
+		return ErrResourceLimitExceeded
+	}
+	return nil
+}

@@ -135,7 +135,7 @@ func awaitLog(t *testing.T, store run.Store, root run.ProcessID, accept func(run
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 	for {
-		log, found, err := store.Load(ctx, root)
+		log, found, err := readHistory(ctx, store, root)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -152,11 +152,22 @@ func awaitLog(t *testing.T, store run.Store, root run.ProcessID, accept func(run
 }
 func completedLog(t *testing.T, store run.Store, root run.ProcessID) run.Log {
 	t.Helper()
-	log, found, err := store.Load(t.Context(), root)
+	log, found, err := readHistory(t.Context(), store, root)
 	if err != nil || !found {
 		t.Fatalf("log found=%v error=%v", found, err)
 	}
 	return log
+}
+
+func readHistory(ctx context.Context, store run.Store, root run.ProcessID) (run.Log, bool, error) {
+	history := run.Log{Root: root}
+	for entry, err := range store.Read(ctx, root, 0) {
+		if err != nil {
+			return run.Log{}, false, err
+		}
+		history.Entries = append(history.Entries, entry)
+	}
+	return history, len(history.Entries) > 0, nil
 }
 
 func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
@@ -260,10 +271,7 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 	for range 2 {
 		var pending PendingToolInput
 		awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-			inputs, err := PendingToolInputs(program, log)
-			if err != nil {
-				t.Fatal(err)
-			}
+			inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 			if len(inputs) != 1 || inputs[0].WaitKey() == previous {
 				return false
 			}
@@ -298,9 +306,8 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 	if first := mustValue(run.ParseEffectID(keys[0])); first.Process != handle.ID() || slices.ContainsFunc(keys, func(key string) bool { return key != keys[0] }) {
 		t.Fatalf("continuations changed the logical call key: %v", keys)
 	}
-	pending, err := PendingToolInputs(program, completedLog(t, store, handle.ID()))
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("finished input remains: %+v %v", pending, err)
+	if pending := PendingToolInputs(program, mustValue(completedLog(t, store, handle.ID()).Inspect())); len(pending) != 0 {
+		t.Fatalf("finished input remains: %+v", pending)
 	}
 }
 

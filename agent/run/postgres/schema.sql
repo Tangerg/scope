@@ -11,3 +11,6 @@ CREATE TABLE $schema.log (
     body bytea NOT NULL,
     PRIMARY KEY (root, lsn)
 );
+-- Load starts at the newest checkpoint; this index finds it without reading
+-- the history before it.
+CREATE INDEX log_checkpoints ON $schema.log (root, lsn) WHERE kind = $checkpoint;

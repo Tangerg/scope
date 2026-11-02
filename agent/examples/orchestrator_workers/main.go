@@ -36,8 +36,7 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
-	store := agentrun.NewMemoryStore()
-	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-orchestrator-workers", Store: store})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-orchestrator-workers", Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return err
 	}
@@ -58,9 +57,6 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if err = resultHandle.Join(ctx); err != nil {
-		return err
-	}
 	result, err := resultHandle.Await(ctx)
 	if err != nil {
 		return err
@@ -69,7 +65,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	log, _, err := store.Load(ctx, result.ProcessID())
+	log, err := runtime.History(ctx, result.ProcessID())
 	if err != nil {
 		return err
 	}

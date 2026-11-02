@@ -218,7 +218,7 @@ func runBriefing(
 	if err != nil {
 		return briefOutput{}, err
 	}
-	if err = handle.Join(ctx); err != nil {
+	if _, err = handle.Await(ctx); err != nil {
 		return briefOutput{}, err
 	}
 	result, err := handle.Await(ctx)

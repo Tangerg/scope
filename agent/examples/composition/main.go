@@ -75,9 +75,6 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if err = embeddedResultHandle.Join(ctx); err != nil {
-		return err
-	}
 	embeddedResult, err := embeddedResultHandle.Await(ctx)
 	if err != nil {
 		return err
@@ -93,9 +90,6 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	}
 	compositionResultHandle, err := runtime.Start(ctx, compositionProgram, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "compositionResult"}, Input: composedInput})
 	if err != nil {
-		return err
-	}
-	if err = compositionResultHandle.Join(ctx); err != nil {
 		return err
 	}
 	compositionResult, err := compositionResultHandle.Await(ctx)

@@ -26,6 +26,9 @@ type Signal struct {
 func (Signal) message()         {}
 func (s Signal) Valid() bool    { return s.ID.Valid() && s.Payload.Valid() }
 func (s Signal) digest() Digest { encoded, _ := jsonv2.Marshal(s); return ComputeDigest(encoded) }
+func (s Signal) receipt() SignalReceipt {
+	return SignalReceipt{ID: s.ID, Wait: s.Wait, Digest: s.digest()}
+}
 
 type Completion struct {
 	Effect  EffectID   `json:"effect"`

@@ -173,8 +173,7 @@ func execute(
 	scores []float64,
 	threshold float64,
 ) (_ optimizationReport, _ executionEvidence, err error) {
-	store := agentrun.NewMemoryStore()
-	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-evaluator-optimizer", Store: store})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-evaluator-optimizer", Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -194,9 +193,6 @@ func execute(
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	if err = handle.Join(ctx); err != nil {
-		return optimizationReport{}, executionEvidence{}, err
-	}
 	result, err := handle.Await(ctx)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
@@ -205,7 +201,7 @@ func execute(
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	log, _, err := store.Load(ctx, result.ProcessID())
+	log, err := runtime.History(ctx, result.ProcessID())
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}

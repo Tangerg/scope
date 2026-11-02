@@ -210,7 +210,7 @@ func TestSparseRoundsRetainProviderOrderAndOnlyCommittedReferences(t *testing.T)
 	if rounds[0].Entries()[0].Result.Output.Content[0].Text != "first output" {
 		t.Fatal("detached result mutated a round projection")
 	}
-	if inputs := mustValue(PendingToolInputs(program, log)); len(inputs) != 0 {
+	if inputs := PendingToolInputs(program, mustValue(log.Inspect())); len(inputs) != 0 {
 		t.Fatal("unknown effect acquired an input question")
 	}
 	inspection := mustValue(log.Inspect())
@@ -242,7 +242,7 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	if got := mustValue(SettledResults(different, log)); len(got) != 0 {
 		t.Fatal("program name overrode exact binding identity")
 	}
-	if got := mustValue(PendingToolInputs(different, log)); len(got) != 0 {
+	if got := PendingToolInputs(different, mustValue(log.Inspect())); len(got) != 0 {
 		t.Fatal("foreign program acquired an input question")
 	}
 	if got := mustValue(DelegateAttributions(different, log)); len(got) != 0 {
@@ -276,9 +276,6 @@ func assertProjectionRejection(t *testing.T, program run.Program[Input, Output],
 	t.Helper()
 	if _, err := SettledResults(program, log); err == nil {
 		t.Fatal("invalid log or program acquired settled results")
-	}
-	if _, err := PendingToolInputs(program, log); err == nil {
-		t.Fatal("invalid log or program acquired input questions")
 	}
 	if _, err := DelegateAttributions(program, log); err == nil {
 		t.Fatal("invalid log or program acquired delegate attribution")

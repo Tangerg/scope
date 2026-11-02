@@ -1,8 +1,8 @@
 // Package run executes deterministic Programs against an append-only tree log.
 // Store.Append acknowledges every Effect intent before dispatch and every
-// settlement before another Step can consume it. Checkpoints only accelerate
-// replay; they cannot introduce progress. Recovery checks replayed Transitions
-// against the committed log and rejects nondeterministic code.
+// settlement before another Step can consume it. A Checkpoint materializes its
+// prefix: recovery starts from the newest one, re-executes only the Steps after
+// it, and rejects code whose replayed Transition differs from the log.
 //
 // A Runtime owns the host Build identity. Its Compiler capability lets strategy
 // packages freeze declarations into Program references without exposing the
@@ -18,11 +18,10 @@
 // external operation stopped; unresolved Effects remain in the durable log.
 //
 // Process paths own ancestry. A child key cannot be reused within its parent's
-// lifetime because that would also reuse Effect identities. The tree retains a
-// compact index of used paths; completed child execution state is discarded once
-// its Exit is consumed and Reaped is appended. Signal receipts likewise remain
-// necessary for exact retry deduplication. Neither index is a second progress
-// authority: both are rebuilt from records.
+// lifetime because that would also reuse Effect identities, so each parent
+// keeps the keys it has used; MaxChildren bounds them. A child's state leaves
+// the tree once its Exit is consumed and Reaped is appended, after which its
+// Signal receipts remain answerable from history through Runtime.Answered.
 //
 // Completion carries a definite Effect outcome. An Unknown outcome stays pending
 // until explicit resolution or a permitted replay under the same EffectID. Exit
@@ -30,10 +29,12 @@
 // have drained, including after cancellation or failure. Yield declares local
 // Wait values directly; the inbox never contains a wait-opening handshake.
 //
-// Observe reads durable records after an LSN and remains valid across recovery.
-// Load retains the full log so earlier observation cursors remain usable; recovery
-// restores opaque ExecutionState only from the newest Checkpoint and replays its
-// suffix. Hosts own log retention. Config.Deltas is the separate best-effort
-// stream: channel saturation may drop increments but cannot change committed
-// usage or outcomes. Keep the channel open until Close returns.
+// Store.Load serves recovery and Store.Read serves history, so the cost of
+// each is bounded by what it returns rather than by the age of the tree.
+// Observe reads history after an LSN and remains valid across recovery; a tree
+// this Runtime writes wakes its observers on commit. Runtime.History reads the
+// complete log for projections that need facts a Checkpoint no longer carries.
+// Hosts own log retention. Config.Deltas is the separate best-effort stream:
+// channel saturation may drop increments but cannot change committed usage or
+// outcomes. Keep the channel open until Close returns.
 package run

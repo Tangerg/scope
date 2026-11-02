@@ -92,7 +92,7 @@ func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if joinErr := root.Join(t.Context()); joinErr != nil {
+	if _, joinErr := root.Await(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
 	if _, err := runtime.Recover(t.Context(), second, root.ID()); !errors.Is(err, run.ErrInvalidProgram) {

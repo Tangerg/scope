@@ -84,8 +84,8 @@ func TestAgentKernelOwnsItsAtomicContracts(t *testing.T) {
 		}
 	})
 	slices.Sort(storeMethods)
-	if !slices.Equal(storeMethods, []string{"Append", "Load"}) {
-		t.Errorf("Store methods = %v; want [Append Load]", storeMethods)
+	if !slices.Equal(storeMethods, []string{"Append", "Load", "Read"}) {
+		t.Errorf("Store methods = %v; want [Append Load Read]", storeMethods)
 	}
 	slices.Sort(messageImplementations)
 	if !slices.Equal(messageImplementations, []string{"Completion", "Exit", "Signal"}) {

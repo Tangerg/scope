@@ -55,7 +55,7 @@ func TestDurableRecordCodecsPreserveRuntimeHistories(t *testing.T) {
 				t.Fatal("wire restoration changed terminal evidence")
 			}
 			if scenario == "answered wait" {
-				if answered, err := inspection.Answered(handle.ID(), kernelWait().Key, controlValue(EncodePayload(42))); !answered || err != nil {
+				if answered, err := runtime.Answered(ctx, handle.ID(), kernelWait().Key, controlValue(EncodePayload(42))); !answered || err != nil {
 					t.Fatalf("wire restoration lost the answer receipt: %t %v", answered, err)
 				}
 			}
@@ -113,22 +113,6 @@ func TestLogEnvelopeRejectsSplicedOrIncompleteHistory(t *testing.T) {
 	}
 	if (Log{}).Head() != 0 || (Log{}).Epoch() != 0 {
 		t.Fatal("absent history advertised committed progress")
-	}
-}
-
-func TestCheckpointLookupCannotRewriteItsLog(t *testing.T) {
-	for _, terminal := range []bool{false, true} {
-		log := publicBoundaryLog(t, terminal)
-		before := controlValue(jsonv2.Marshal(log))
-		checkpoint, cursor, found := log.LatestCheckpoint()
-		if !found || cursor != log.Head() {
-			t.Fatal("latest checkpoint was not selected from committed history")
-		}
-		publicBoundaryMutateRecords([]Entry{{Record: checkpoint}})
-		after, err := jsonv2.Marshal(log)
-		if err != nil || !bytes.Equal(before, after) || log.Validate() != nil {
-			t.Fatal("checkpoint lookup exposed writable log storage")
-		}
 	}
 }
 

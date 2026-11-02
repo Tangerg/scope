@@ -14,6 +14,7 @@ type processState struct {
 	step             uint64
 	inbox            Inbox
 	receipts         map[SignalID]SignalReceipt
+	childKeys        map[ChildKey]struct{}
 	waits            map[WaitKey]Wait
 	pending          map[EffectID]PendingCheckpoint
 	usage            Usage
@@ -31,7 +32,7 @@ type processState struct {
 }
 
 func newProcessState(started Started) *processState {
-	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
+	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), childKeys: make(map[ChildKey]struct{}), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
 }
 func (p *processState) status() Status {
 	switch {
@@ -148,6 +149,38 @@ func (p *processState) settle(settled EffectSettled) error {
 	p.usage.AcceptedMessages++
 	return nil
 }
+
+// spawns reports whether a pending Spawn authorizes exactly this child.
+func (p *processState) spawns(spec ChildSpec) bool {
+	for _, pending := range p.pending {
+		if spawn := pending.Intent.Effect.spawn; spawn != nil && spawn.equal(spec) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *processState) adopted(key ChildKey) bool {
+	_, adopted := p.childKeys[key]
+	return adopted
+}
+
+// adopt debits the child's grant and claims its key for this parent's
+// lifetime; a key never names a second child, even after the first is reaped.
+func (p *processState) adopt(spec ChildSpec) error {
+	debit, _ := p.started.Budget.allocation(spec.Budget)
+	allocated, ok := p.allocated.add(debit)
+	if !ok {
+		return ErrCounterExhausted
+	}
+	p.allocated = allocated
+	p.childKeys[spec.Key] = struct{}{}
+	p.childCount++
+	p.activeChildren++
+	p.retainedChildren++
+	return nil
+}
+
 func (p *processState) checkpoint() (ProcessCheckpoint, error) {
 	var state ExecutionState
 	if !p.terminal.Valid() {
@@ -168,6 +201,10 @@ func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 	for _, receipt := range p.receipts {
 		value.Receipts = append(value.Receipts, receipt)
 	}
+	for key := range p.childKeys {
+		value.ChildKeys = append(value.ChildKeys, key)
+	}
+	slices.SortFunc(value.ChildKeys, func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) })
 	slices.SortFunc(value.Receipts, func(a, b SignalReceipt) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 	for _, wait := range p.waits {
 		value.Waits = append(value.Waits, wait)

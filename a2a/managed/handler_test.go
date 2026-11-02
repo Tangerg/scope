@@ -286,7 +286,7 @@ func TestWireCancellationIsAnIntentUntilExternalCallReturns(t *testing.T) {
 	if !ok {
 		t.Fatal("lost handle")
 	}
-	if err = h.Join(t.Context()); err != nil {
+	if _, err = h.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	actual := read(t, s, "GetTask", started.ID)

@@ -45,41 +45,19 @@ func (p PendingToolInput) ResponseSignal(id run.SignalID, response json.RawMessa
 	}
 	return run.Signal{ID: id, Wait: p.waitKey, Payload: payload}, nil
 }
-func PendingToolInputs(program run.Program[Input, Output], log run.Log) ([]PendingToolInput, error) {
-	projection, err := projectInteractions(program, log)
-	if err != nil {
-		return nil, err
-	}
-	inspection, err := log.Inspect()
-	if err != nil {
-		return nil, err
-	}
+
+// PendingToolInputs lists the tool questions awaiting an answer. Every Wait an
+// interaction opens is a tool question, so the committed waits are the one
+// complete record of them and need no history.
+func PendingToolInputs(program run.Program[Input, Output], inspection run.TreeInspection) []PendingToolInput {
 	var pending []PendingToolInput
 	for _, process := range inspection.Processes {
 		if process.Program != program.ProgramRef() {
 			continue
 		}
 		for _, wait := range process.Waits {
-			matched := false
-			for effect, input := range projection.inputs {
-				expected, waitErr := input.wait()
-				if waitErr != nil {
-					return nil, waitErr
-				}
-				if effect.Process != process.ID || expected.Key != wait.Key {
-					continue
-				}
-				if !bytes.Equal(wait.Question.JSON(), expected.Question.JSON()) || !wait.AnswerSchema.Equal(expected.AnswerSchema) || wait.MaxAnswerBytes != expected.MaxAnswerBytes {
-					return nil, fmt.Errorf("%w: wait differs from its committed tool question", ErrInvalidResult)
-				}
-				pending = append(pending, PendingToolInput{processID: process.ID, waitKey: wait.Key, prompt: wait.Question.JSON(), responseSchema: wait.AnswerSchema})
-				matched = true
-				break
-			}
-			if !matched {
-				return nil, fmt.Errorf("%w: wait has no committed tool question", ErrInvalidResult)
-			}
+			pending = append(pending, PendingToolInput{processID: process.ID, waitKey: wait.Key, prompt: wait.Question.JSON(), responseSchema: wait.AnswerSchema})
 		}
 	}
-	return pending, nil
+	return pending
 }

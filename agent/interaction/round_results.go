@@ -102,6 +102,7 @@ type roundResultsWire struct {
 	Entries   []ResultEntry `json:"entries"`
 }
 
+// SettledResults projects the complete history that run.Runtime.History reads.
 // Only committed intents establish references. Locally rejected proposals that
 // never emitted an effect are not presented as externally executed operations.
 func SettledResults(program run.Program[Input, Output], log run.Log) ([]RoundResults, error) {
@@ -144,7 +145,6 @@ func (p *projectedCall) resume(request toolDispatchRequest, effect run.EffectID)
 type interactionProjection struct {
 	rounds    []*RoundResults
 	delegates []DelegateAttribution
-	inputs    map[run.EffectID]inputWait
 }
 
 func projectInteractions(program run.Program[Input, Output], log run.Log) (interactionProjection, error) {
@@ -155,10 +155,13 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 	if !bound {
 		return interactionProjection{}, ErrInvalidResult
 	}
+	if !log.Complete() {
+		return interactionProjection{}, fmt.Errorf("%w: projection requires the complete history", ErrInvalidResult)
+	}
 	if err := log.Validate(); err != nil {
 		return interactionProjection{}, err
 	}
-	projection := interactionProjection{inputs: make(map[run.EffectID]inputWait)}
+	projection := interactionProjection{}
 	processes := make(map[run.ProcessID]bool)
 	intents := make(map[run.EffectID]run.EffectIntent)
 	models := make(map[run.EffectID]modelCall)
@@ -337,11 +340,6 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 			if err := call.round.result(call.index, newToolCallResult(result)); err != nil {
 				return interactionProjection{}, err
 			}
-		}
-	}
-	for _, call := range calls {
-		if call.input != nil {
-			projection.inputs[call.input.Effect] = *call.input
 		}
 	}
 	return projection, nil

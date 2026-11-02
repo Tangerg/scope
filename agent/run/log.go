@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
 	"slices"
 	"time"
@@ -22,12 +23,20 @@ var (
 	ErrNondeterministicStep = errors.New("run: replayed step differs from committed transition")
 )
 
-// Append is the only operation that advances a tree. An acknowledgment precedes
-// publication and external dispatch. Load retains history for durable observers;
-// recovery selects the newest Checkpoint and replays only its suffix.
+// Store owns one append-only log per root tree. Recovery and history are
+// separate reads so that neither pays for the other's range: Load is bounded by
+// the checkpoint interval however old the tree is, and Read is incremental.
 type Store interface {
-	Append(context.Context, Batch) error
-	Load(context.Context, ProcessID) (Log, bool, error)
+	// Append is the only operation that advances a tree. It must atomically
+	// compare the writer Epoch and the head position before extending the log,
+	// and acknowledge a byte-identical retry of an applied batch.
+	Append(ctx context.Context, batch Batch) error
+	// Load returns the recovery segment: the newest Checkpoint entry and every
+	// entry after it, or the whole log when it holds no Checkpoint.
+	Load(ctx context.Context, root ProcessID) (Log, bool, error)
+	// Read yields the committed entries after position in order. It reads one
+	// consistent snapshot and ends at that snapshot's head.
+	Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error]
 }
 
 type RecordKind string
@@ -77,6 +86,11 @@ func (s Started) IntentDigest() (Digest, error) {
 		return Digest{}, err
 	}
 	return ComputeDigest(payload), nil
+}
+
+func (s Started) childSpec() ChildSpec {
+	key, _ := s.Process.Key()
+	return ChildSpec{Key: key, ProgramRef: s.Program, Input: s.Input, Budget: s.Budget, Capabilities: s.Capabilities}
 }
 
 type startIntent struct {
@@ -202,8 +216,11 @@ func (c ControlRequested) valid() bool {
 	return c.Process.Valid() && c.Kind.Valid() && !c.At.IsZero() && (c.Kind == ControlResume && c.Reason == "" || c.Kind != ControlResume && validateTerminationReason(c.Reason) == nil)
 }
 
-// Checkpoint is a materialization of acknowledged records. Only this record
-// carries opaque ExecutionState; it cannot introduce new progress.
+// Checkpoint materializes every acknowledged record before it. Recovery starts
+// from the newest one without reading its prefix, so it is the authority for
+// that prefix rather than a cache to be checked against it; it can only be
+// written by the fenced writer that folded the prefix. Only this record carries
+// opaque ExecutionState.
 type Checkpoint struct {
 	Processes        []ProcessCheckpoint `json:"processes"`
 	StartedProcesses uint64              `json:"started_processes"`
@@ -215,36 +232,52 @@ func (c Checkpoint) valid() bool {
 		return false
 	}
 	for _, process := range c.Processes {
-		if !process.Started.valid() || !process.State.Valid() && process.Terminal == nil && process.Exited == nil {
+		if !process.valid() {
 			return false
 		}
 	}
 	return true
 }
 
+// tree restores the materialization recorded at entry. Child counters are
+// derived from the captured membership instead of being stored a second time.
+func (c Checkpoint) tree(root ProcessID, entry Entry) (*treeState, error) {
+	state := newTreeState(root)
+	state.head, state.epoch, state.startedProcesses = entry.LSN, entry.Epoch, c.StartedProcesses
+	for _, captured := range c.Processes {
+		id := captured.Started.Process
+		if id.Root() != root || state.processes[id] != nil {
+			return nil, ErrInvalidLog
+		}
+		state.processes[id] = captured.process()
+	}
+	rootProcess := state.processes[root]
+	if rootProcess == nil {
+		return nil, ErrInvalidLog
+	}
+	state.limits = rootProcess.started.Limits
+	for id, process := range state.processes {
+		parentID, child := id.Parent()
+		if !child {
+			continue
+		}
+		parent := state.processes[parentID]
+		key, _ := id.Key()
+		if parent == nil || !parent.adopted(key) {
+			return nil, ErrInvalidLog
+		}
+		parent.retainedChildren++
+		if process.exited == nil {
+			parent.activeChildren++
+		}
+	}
+	return state, nil
+}
+
 func (c Checkpoint) clone() Checkpoint {
 	c.Processes = slices.Clone(c.Processes)
 	for index := range c.Processes {
-		process := &c.Processes[index]
-		process.Inbox = slices.Clone(process.Inbox)
-		process.Receipts = slices.Clone(process.Receipts)
-		process.Waits = slices.Clone(process.Waits)
-		process.Pending = slices.Clone(process.Pending)
-		for index := range process.Pending {
-			pending := &process.Pending[index]
-			if pending.Outcome != nil {
-				pending.Outcome = new(*pending.Outcome)
-			}
-			if pending.Failure != nil {
-				pending.Failure = new(*pending.Failure)
-			}
-		}
-		if process.Terminal != nil {
-			process.Terminal = new(*process.Terminal)
-		}
-		if process.Exited != nil {
-			process.Exited = new(*process.Exited)
-		}
+		c.Processes[index] = c.Processes[index].clone()
 	}
 	return c
 }
@@ -255,6 +288,7 @@ type ProcessCheckpoint struct {
 	Step       uint64              `json:"step"`
 	Inbox      Inbox               `json:"inbox"`
 	Receipts   []SignalReceipt     `json:"receipts"`
+	ChildKeys  []ChildKey          `json:"child_keys"`
 	Waits      []Wait              `json:"waits"`
 	Pending    []PendingCheckpoint `json:"pending"`
 	Usage      Usage               `json:"usage"`
@@ -264,6 +298,59 @@ type ProcessCheckpoint struct {
 	Yielded    bool                `json:"yielded"`
 	Terminal   *Termination        `json:"terminal,omitzero"`
 	Exited     *Exited             `json:"exited,omitzero"`
+}
+
+// A live process is exactly one that still owns ExecutionState; an exit must
+// repeat the terminal intent it completed.
+func (p ProcessCheckpoint) valid() bool {
+	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) || uint64(len(p.ChildKeys)) > p.ChildCount {
+		return false
+	}
+	return p.Exited == nil || p.Terminal != nil && p.Exited.valid() && p.Exited.Process == p.Started.Process && p.Terminal.equal(p.Exited.Termination)
+}
+
+func (p ProcessCheckpoint) process() *processState {
+	process := newProcessState(p.Started)
+	process.step, process.inbox, process.usage, process.allocated = p.Step, slices.Clone(p.Inbox), p.Usage, p.Allocated
+	process.childCount, process.paused, process.yielded = p.ChildCount, p.Paused, p.Yielded
+	for _, receipt := range p.Receipts {
+		process.receipts[receipt.ID] = receipt
+	}
+	for _, key := range p.ChildKeys {
+		process.childKeys[key] = struct{}{}
+	}
+	for _, wait := range p.Waits {
+		process.waits[wait.Key] = wait
+	}
+	for _, pending := range p.Pending {
+		process.pending[pending.Intent.ID] = pending.clone()
+	}
+	if p.Terminal != nil {
+		process.terminal = *p.Terminal
+	}
+	if p.Exited != nil {
+		process.exited = new(*p.Exited)
+		close(process.done)
+	}
+	return process
+}
+
+func (p ProcessCheckpoint) clone() ProcessCheckpoint {
+	p.Inbox = slices.Clone(p.Inbox)
+	p.Receipts = slices.Clone(p.Receipts)
+	p.ChildKeys = slices.Clone(p.ChildKeys)
+	p.Waits = slices.Clone(p.Waits)
+	p.Pending = slices.Clone(p.Pending)
+	for index := range p.Pending {
+		p.Pending[index] = p.Pending[index].clone()
+	}
+	if p.Terminal != nil {
+		p.Terminal = new(*p.Terminal)
+	}
+	if p.Exited != nil {
+		p.Exited = new(*p.Exited)
+	}
+	return p
 }
 
 type SignalReceipt struct {
@@ -276,6 +363,16 @@ type PendingCheckpoint struct {
 	Intent  EffectIntent `json:"intent"`
 	Outcome *Settlement  `json:"outcome,omitzero"`
 	Failure *Failure     `json:"failure,omitzero"`
+}
+
+func (p PendingCheckpoint) clone() PendingCheckpoint {
+	if p.Outcome != nil {
+		p.Outcome = new(*p.Outcome)
+	}
+	if p.Failure != nil {
+		p.Failure = new(*p.Failure)
+	}
+	return p
 }
 
 func validateRecord(record Record) error {
@@ -346,6 +443,14 @@ type Entry struct {
 	LSN    LSN
 	Epoch  Epoch
 	Record Record
+}
+
+func (e Entry) belongsTo(root ProcessID) bool {
+	if validateRecord(e.Record) != nil {
+		return false
+	}
+	process := recordProcess(e.Record)
+	return !process.Valid() || process.Root() == root
 }
 
 func (e Entry) MarshalJSON() ([]byte, error) {
@@ -513,6 +618,10 @@ type Log struct {
 	Entries []Entry   `json:"entries"`
 }
 
+// Complete reports whether the log begins at the tree's Start rather than at a
+// Checkpoint, which history projections require.
+func (l Log) Complete() bool { return len(l.Entries) > 0 && l.Entries[0].LSN == 1 }
+
 func (l Log) Head() LSN {
 	if len(l.Entries) == 0 {
 		return 0
@@ -525,42 +634,59 @@ func (l Log) Epoch() Epoch {
 	}
 	return l.Entries[len(l.Entries)-1].Epoch
 }
-func (l Log) LatestCheckpoint() (Checkpoint, LSN, bool) {
-	for index := len(l.Entries) - 1; index >= 0; index-- {
-		if checkpoint, ok := l.Entries[index].Record.(Checkpoint); ok {
-			return checkpoint.clone(), l.Entries[index].LSN, true
+
+// rootStarted returns the root's Start from the segment's leading record.
+func (l Log) rootStarted() (Started, error) {
+	if len(l.Entries) == 0 {
+		return Started{}, ErrInvalidLog
+	}
+	switch first := l.Entries[0].Record.(type) {
+	case Started:
+		if first.Process == l.Root {
+			return first, nil
+		}
+	case Checkpoint:
+		for _, process := range first.Processes {
+			if process.Started.Process == l.Root {
+				return process.Started, nil
+			}
 		}
 	}
-	return Checkpoint{}, 0, false
+	return Started{}, ErrInvalidLog
 }
+
+// base is the state a Log starts from: the tree its leading Checkpoint
+// materialized, or an empty tree when the Log begins with the tree's Start.
+func (l Log) base() (*treeState, []Entry, error) {
+	if err := l.validateEnvelope(); err != nil {
+		return nil, nil, err
+	}
+	first := l.Entries[0]
+	if checkpoint, ok := first.Record.(Checkpoint); ok {
+		state, err := checkpoint.tree(l.Root, first)
+		return state, l.Entries[1:], err
+	}
+	return newTreeState(l.Root), l.Entries, nil
+}
+
+// validateEnvelope checks the coordinates every segment shares: contiguous
+// positions, monotonic epochs, one root, and resolved record limits. A segment
+// begins either at the tree's Start or at a Checkpoint.
 func (l Log) validateEnvelope() error {
-	if !l.Root.Valid() || l.Root.Depth() != 0 || len(l.Entries) < 2 {
+	if !l.Root.Valid() || l.Root.Depth() != 0 || len(l.Entries) == 0 {
 		return ErrInvalidLog
 	}
-	started, ok := l.Entries[0].Record.(Started)
-	if !ok || started.Process != l.Root {
-		return ErrInvalidLog
+	limits, epoch, err := l.origin()
+	if err != nil {
+		return err
 	}
-	if activation, ok := l.Entries[1].Record.(Activated); !ok || activation.Epoch != 1 {
-		return ErrInvalidLog
-	}
-	epoch := Epoch(0)
+	first := l.Entries[0].LSN
 	for index, entry := range l.Entries {
-		if entry.LSN != LSN(index)+1 {
+		if entry.LSN != first+LSN(index) {
 			return ErrInvalidLog
 		}
-		if err := validateRecord(entry.Record); err != nil {
+		if err := limits.admitRecord(entry.Record); err != nil {
 			return err
-		}
-		_, checkpoint := entry.Record.(Checkpoint)
-		if started.Limits.MaxRecordBytes.limited || checkpoint && started.Limits.MaxCheckpointBytes.limited {
-			_, encoded, err := EncodeRecord(entry.Record)
-			if err != nil {
-				return err
-			}
-			if !started.Limits.MaxRecordBytes.Allows(uint64(len(encoded))) || checkpoint && !started.Limits.MaxCheckpointBytes.Allows(uint64(len(encoded))) {
-				return ErrResourceLimitExceeded
-			}
 		}
 		if process := recordProcess(entry.Record); process.Valid() && process.Root() != l.Root {
 			return ErrInvalidLog
@@ -575,11 +701,31 @@ func (l Log) validateEnvelope() error {
 			return ErrInvalidLog
 		}
 	}
-	if epoch == 0 {
-		return ErrInvalidLog
-	}
 	return nil
 }
+
+// origin returns the limits and writer epoch in force before the first entry.
+func (l Log) origin() (TreeLimits, Epoch, error) {
+	started, err := l.rootStarted()
+	if err != nil {
+		return TreeLimits{}, 0, err
+	}
+	first := l.Entries[0]
+	if _, checkpoint := first.Record.(Checkpoint); checkpoint {
+		if first.Epoch == 0 {
+			return TreeLimits{}, 0, ErrInvalidLog
+		}
+		return started.Limits, first.Epoch, nil
+	}
+	if first.LSN != 1 || len(l.Entries) < 2 {
+		return TreeLimits{}, 0, ErrInvalidLog
+	}
+	if activation, ok := l.Entries[1].Record.(Activated); !ok || activation.Epoch != 1 {
+		return TreeLimits{}, 0, ErrInvalidLog
+	}
+	return started.Limits, 0, nil
+}
+
 func recordProcess(record Record) ProcessID {
 	switch value := record.(type) {
 	case Started:
@@ -636,14 +782,7 @@ func (l Log) Inspect() (TreeInspection, error) {
 	if err != nil {
 		return TreeInspection{}, err
 	}
-	view := state.inspect()
-	view.receipts = make(map[ProcessID][]SignalReceipt)
-	for _, entry := range l.Entries {
-		if admitted, ok := entry.Record.(SignalAdmitted); ok {
-			view.receipts[admitted.Process] = append(view.receipts[admitted.Process], SignalReceipt{ID: admitted.Signal.ID, Wait: admitted.Signal.Wait, Digest: admitted.Signal.digest()})
-		}
-	}
-	return view, nil
+	return state.inspect(), nil
 }
 
 func (l Log) Validate() error { _, err := projectLog(l); return err }

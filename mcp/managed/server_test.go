@@ -348,7 +348,7 @@ func TestOldMCPWriterDoesNotRepublishReplacedWait(t *testing.T) {
 		defer stop()
 		if old, ok := s.runtime.Process(before.Root); ok {
 			_ = old.Cancel(clean, "finish superseded activation")
-			_ = old.Join(clean)
+			_, _ = old.Await(clean)
 		}
 	})
 	next := must(run.New(ctx, run.Config{Build: "managed-test", Store: s.store}))
@@ -364,7 +364,7 @@ func TestOldMCPWriterDoesNotRepublishReplacedWait(t *testing.T) {
 	if err = answerer.Answer(ctx, wait.Key, map[string]string{"city": "Paris"}); err != nil {
 		t.Fatal(err)
 	}
-	if err = fresh.Join(ctx); err != nil {
+	if _, err = fresh.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
 	result, err := call(ctx, client, "", nil, "order")

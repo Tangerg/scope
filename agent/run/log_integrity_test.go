@@ -4,67 +4,104 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"iter"
 	"testing"
 	"time"
 )
 
-func TestCheckpointCannotRewriteCommittedMetadata(t *testing.T) {
+func TestCheckpointRejectsAnInconsistentMaterialization(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		change func(*Checkpoint)
 	}{
-		{"started process count", func(c *Checkpoint) { c.StartedProcesses++ }},
+		{"fewer started processes than members", func(c *Checkpoint) { c.StartedProcesses = 0 }},
 		{"duplicate process", func(c *Checkpoint) { c.Processes = append(c.Processes, c.Processes[0]); c.StartedProcesses++ }},
-		{"accepted input", func(c *Checkpoint) { c.Processes[0].Started.Input = controlValue(EncodePayload("rewritten")) }},
-		{"process identity", func(c *Checkpoint) { c.Processes[0].Started.Process = controlValue(ParseProcessID("another-root")) }},
-		{"step position", func(c *Checkpoint) { c.Processes[0].Step++ }},
-		{"usage", func(c *Checkpoint) { c.Processes[0].Usage.CommittedSteps++ }},
-		{"allocated quota", func(c *Checkpoint) { c.Processes[0].Allocated.Steps++ }},
-		{"child history", func(c *Checkpoint) { c.Processes[0].ChildCount++ }},
-		{"pause", func(c *Checkpoint) { c.Processes[0].Paused = true }},
-		{"yield", func(c *Checkpoint) { c.Processes[0].Yielded = true }},
-		{"inbox", func(c *Checkpoint) {
-			c.Processes[0].Inbox = Inbox{Signal{ID: controlValue(ParseSignalID("invented")), Payload: controlValue(EncodePayload("invented"))}}
+		{"foreign process", func(c *Checkpoint) { c.Processes[0].Started.Process = controlValue(ParseProcessID("another-root")) }},
+		{"live process without state", func(c *Checkpoint) { c.Processes[0].State = ExecutionState{} }},
+		{"terminal process with state", func(c *Checkpoint) {
+			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("done"))}
 		}},
-		{"signal receipt", func(c *Checkpoint) {
-			c.Processes[0].Receipts = []SignalReceipt{{ID: controlValue(ParseSignalID("invented")), Digest: ComputeDigest([]byte("invented"))}}
+		{"exit without its terminal intent", func(c *Checkpoint) {
+			c.Processes[0].State = ExecutionState{}
+			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("done"))}
+			c.Processes[0].Exited = &Exited{Process: c.Processes[0].Started.Process, Termination: Termination{output: controlValue(EncodePayload("other"))}, At: c.Processes[0].Started.At}
 		}},
-		{"wait", func(c *Checkpoint) { c.Processes[0].Waits = []Wait{{Key: controlValue(ParseWaitKey("invented"))}} }},
-		{"effect", func(c *Checkpoint) {
-			started := c.Processes[0].Started
-			c.Processes[0].Pending = []PendingCheckpoint{{Intent: EffectIntent{ID: EffectID{Process: started.Process, Step: 1}, Effect: controlValue(NewDispatcherEffect([]byte(`"invented"`))), Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}}}
-		}},
-		{"terminal intent", func(c *Checkpoint) {
-			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("invented"))}
-		}},
-		{"exit", func(c *Checkpoint) {
-			c.Processes[0].Exited = &Exited{Process: c.Processes[0].Started.Process, Termination: Termination{output: controlValue(EncodePayload("invented"))}, At: c.Processes[0].Started.At}
+		{"more child keys than children", func(c *Checkpoint) { c.Processes[0].ChildKeys = []ChildKey{controlValue(ParseChildKey("never"))} }},
+		{"child the parent never adopted", func(c *Checkpoint) {
+			child := c.Processes[0]
+			child.Started.Process = controlValue(c.Processes[0].Started.Process.Child(controlValue(ParseChildKey("orphan"))))
+			child.Started.Limits = TreeLimits{}
+			c.Processes = append(c.Processes, child)
+			c.StartedProcesses++
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			log := integrityInitialLog(t)
 			started := log.Entries[0].Record.(Started)
 			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: controlValue(ParseExecutionState("fixture", started.Input.JSON()))}}}
-			if err := integrityAppend(log, checkpoint).Validate(); err != nil {
+			cut := Log{Root: log.Root, Entries: []Entry{{LSN: log.Head() + 1, Epoch: log.Epoch(), Record: checkpoint}}}
+			if err := cut.Validate(); err != nil {
 				t.Fatalf("valid recovery baseline: %v", err)
 			}
 			test.change(&checkpoint)
-			if _, _, err := EncodeRecord(checkpoint); err != nil {
-				t.Fatalf("fixture must have valid wire structure: %v", err)
+			cut.Entries[0].Record = checkpoint
+			if err := cut.Validate(); !errors.Is(err, ErrInvalidLog) {
+				t.Fatalf("inconsistent checkpoint accepted: %v", err)
 			}
-			corrupted := integrityAppend(log, checkpoint)
-			if err := corrupted.Validate(); !errors.Is(err, ErrInvalidLog) {
-				t.Fatalf("checkpoint replaced committed metadata: %v", err)
-			}
-			store := &integrityStore{log: corrupted}
+			store := &integrityStore{log: cut}
 			runtime, program := integrityRuntime(t, store)
 			if _, err := runtime.Recover(t.Context(), program, log.Root); !errors.Is(err, ErrInvalidLog) {
-				t.Fatalf("recovered a forged checkpoint: %v", err)
+				t.Fatalf("recovered an inconsistent checkpoint: %v", err)
 			}
 			if store.appends != 0 {
 				t.Fatal("invalid checkpoint advanced the writer epoch")
 			}
 		})
+	}
+}
+
+// recoveryCutStore serves Load but refuses history, proving that recovery is
+// bounded by the newest checkpoint rather than by the age of the tree.
+type recoveryCutStore struct{ *MemoryStore }
+
+func (recoveryCutStore) Read(context.Context, ProcessID, LSN) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		yield(Entry{}, errors.New("recovery read history before its checkpoint"))
+	}
+}
+
+func TestRecoveryResumesFromTheNewestCheckpointWithoutHistory(t *testing.T) {
+	store := NewMemoryStore()
+	original := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1})
+	program := lifecycleEchoProgram(t, original, "test.checkpoint_cut")
+	handle := controlValue(original.Start(t.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
+	defer cancel()
+	for entry, err := range handle.Observe(ctx, 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, checkpoint := entry.Record.(Checkpoint); checkpoint {
+			break
+		}
+	}
+	if err := original.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	cut, _, err := store.Load(ctx, handle.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, checkpoint := cut.Entries[0].Record.(Checkpoint); !checkpoint || cut.Entries[0].LSN == 1 {
+		t.Fatalf("Load returned history instead of the recovery cut: first LSN %d", cut.Entries[0].LSN)
+	}
+	replacement := kernelRuntime(t, Config{Store: recoveryCutStore{store}})
+	recovered := controlValue(replacement.Recover(ctx, lifecycleEchoProgram(t, replacement, "test.checkpoint_cut"), handle.ID()))
+	if err := recovered.Answer(ctx, kernelWait().Key, 42); err != nil {
+		t.Fatal(err)
+	}
+	if result := controlValue(recovered.Await(ctx)); controlValue(result.Output()) != 42 {
+		t.Fatal("recovery from the checkpoint changed the outcome")
 	}
 }
 
@@ -344,6 +381,15 @@ type integrityStore struct {
 func (i *integrityStore) Load(context.Context, ProcessID) (Log, bool, error) {
 	entries, err := cloneEntries(i.log.Entries)
 	return Log{Root: i.log.Root, Entries: entries}, true, err
+}
+func (i *integrityStore) Read(_ context.Context, _ ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		for _, entry := range i.log.Entries {
+			if entry.LSN > after && !yield(entry, nil) {
+				return
+			}
+		}
+	}
 }
 func (i *integrityStore) Append(context.Context, Batch) error {
 	i.appends++

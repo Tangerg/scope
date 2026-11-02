@@ -26,7 +26,6 @@ type TreeInspection struct {
 	Head      LSN
 	Epoch     Epoch
 	Processes []ProcessInspection
-	receipts  map[ProcessID][]SignalReceipt
 }
 
 func (t TreeInspection) Process(id ProcessID) (ProcessInspection, bool) {
@@ -36,17 +35,4 @@ func (t TreeInspection) Process(id ProcessID) (ProcessInspection, bool) {
 		}
 	}
 	return ProcessInspection{}, false
-}
-func (t TreeInspection) Answered(process ProcessID, wait WaitKey, payload Payload) (bool, error) {
-	for _, receipt := range t.receipts[process] {
-		if receipt.Wait != wait {
-			continue
-		}
-		signal := Signal{ID: receipt.ID, Wait: wait, Payload: payload}
-		if signal.digest() != receipt.Digest {
-			return false, ErrSignalConflict
-		}
-		return true, nil
-	}
-	return false, nil
 }

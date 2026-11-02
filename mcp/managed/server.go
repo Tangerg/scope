@@ -185,7 +185,7 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 	if reply.action != formAccept {
 		return nil, reply.rejection(destination.pendingIn(head))
 	}
-	acknowledged, err := head.Answered(destination.Owner, destination.Wait, reply.answer)
+	acknowledged, err := b.cfg.Runtime.Answered(ctx, destination.Owner, destination.Wait, reply.answer)
 	if err != nil {
 		return nil, errArguments
 	}

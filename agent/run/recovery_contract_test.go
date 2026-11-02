@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"errors"
+	"iter"
 	"testing"
 )
 
@@ -175,6 +176,9 @@ type simultaneousStartStore struct {
 func (s *simultaneousStartStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	return s.store.Load(ctx, root)
 }
+func (s *simultaneousStartStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return s.store.Read(ctx, root, after)
+}
 func (s *simultaneousStartStore) Append(ctx context.Context, batch Batch) error {
 	if batch.After == 0 {
 		s.arrived <- struct{}{}
@@ -282,6 +286,9 @@ type publicationStore struct {
 
 func (p publicationStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	return p.store.Load(ctx, root)
+}
+func (p publicationStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return p.store.Read(ctx, root, after)
 }
 func (p publicationStore) Append(ctx context.Context, batch Batch) error {
 	if err := p.store.Append(ctx, batch); err != nil {
@@ -428,7 +435,7 @@ func TestOpaqueCheckpointRejectionCannotAdvanceTheEpoch(t *testing.T) {
 	if err := original.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	log, _, err := store.Load(ctx, handle.ID())
+	log, err := original.History(ctx, handle.ID())
 	if err != nil {
 		t.Fatal(err)
 	}

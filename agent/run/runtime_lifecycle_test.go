@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"errors"
+	"iter"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -350,7 +351,7 @@ func TestConcurrentDuplicateStartSharesOneAdmissionAndEpoch(t *testing.T) {
 	if err := first.Cancel(ctx, "test finished"); err != nil {
 		t.Fatal(err)
 	}
-	if err := first.Join(ctx); err != nil {
+	if _, err := first.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -436,7 +437,7 @@ func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
 	if err := handle.Cancel(ctx, "test finished"); err != nil {
 		t.Fatal(err)
 	}
-	if err := handle.Join(ctx); err != nil {
+	if _, err := handle.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -451,6 +452,10 @@ type lifecycleFaultStore struct {
 
 func (l *lifecycleFaultStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	return l.store.Load(ctx, root)
+}
+
+func (l *lifecycleFaultStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return l.store.Read(ctx, root, after)
 }
 
 func (l *lifecycleFaultStore) Append(ctx context.Context, batch Batch) error {
@@ -794,7 +799,7 @@ func TestFrameworkControlsCannotActOnAnotherParentsChild(t *testing.T) {
 	if err := owned.Cancel(ctx, "test finished"); err != nil {
 		t.Fatal(err)
 	}
-	if err := owned.Join(ctx); err != nil {
+	if _, err := owned.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
 }

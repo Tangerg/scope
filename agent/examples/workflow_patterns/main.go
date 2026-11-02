@@ -134,8 +134,7 @@ func execute(
 	ctx context.Context,
 	request patternRequest,
 ) (_ patternReport, _ executionEvidence, err error) {
-	store := agentrun.NewMemoryStore()
-	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-workflow-patterns", Store: store})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-workflow-patterns", Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
@@ -154,9 +153,6 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	if err = handle.Join(ctx); err != nil {
-		return patternReport{}, executionEvidence{}, err
-	}
 	result, err := handle.Await(ctx)
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
@@ -165,7 +161,7 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	log, _, err := store.Load(ctx, result.ProcessID())
+	log, err := runtime.History(ctx, result.ProcessID())
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}

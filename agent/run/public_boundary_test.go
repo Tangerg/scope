@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"iter"
 	"math"
 	"strings"
 	"testing"
@@ -496,10 +497,18 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 type publicObservationStore struct {
 	store Store
 	load  func(context.Context, ProcessID) (Log, bool, error)
+	read  func(context.Context, ProcessID, LSN) iter.Seq2[Entry, error]
 }
 
 func (p *publicObservationStore) Append(ctx context.Context, batch Batch) error {
 	return p.store.Append(ctx, batch)
+}
+
+func (p *publicObservationStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	if p.read != nil {
+		return p.read(ctx, root, after)
+	}
+	return p.store.Read(ctx, root, after)
 }
 
 func (p *publicObservationStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
@@ -516,7 +525,7 @@ func TestDurableObserversRejectInvalidStoreEvidence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: foregroundStartID()}))
-	if err := handle.Join(ctx); err != nil {
+	if _, err := handle.Await(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := runtime.Close(ctx); err != nil {
@@ -526,26 +535,43 @@ func TestDurableObserversRejectInvalidStoreEvidence(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("completed history is missing: found=%t, %v", found, err)
 	}
-	wrongRoot := controlValue(log.Clone())
-	wrongRoot.Root = controlValue(ParseProcessID("different-root"))
+	foreign := controlValue(ParseProcessID("different-root"))
+	misplaced := controlValue(log.Clone())
+	misplaced.Entries[0].Record = Started{Process: foreign, Program: log.Entries[0].Record.(Started).Program, Input: log.Entries[0].Record.(Started).Input, Limits: log.Entries[0].Record.(Started).Limits, At: log.Entries[0].Record.(Started).At}
 	corrupt := controlValue(log.Clone())
 	corrupt.Entries[1].LSN++
-	loadFailure := errors.New("observation storage unavailable")
+	sourceFailure := errors.New("observation storage unavailable")
+	failing := func(context.Context, ProcessID, LSN) iter.Seq2[Entry, error] {
+		return func(yield func(Entry, error) bool) { yield(Entry{}, sourceFailure) }
+	}
+	serve := func(history Log) func(context.Context, ProcessID, LSN) iter.Seq2[Entry, error] {
+		return func(context.Context, ProcessID, LSN) iter.Seq2[Entry, error] {
+			return func(yield func(Entry, error) bool) {
+				for _, entry := range history.Entries {
+					if !yield(entry, nil) {
+						return
+					}
+				}
+			}
+		}
+	}
+	empty := serve(Log{})
 	for _, test := range []struct {
 		name       string
 		load       func(context.Context, ProcessID) (Log, bool, error)
+		read       func(context.Context, ProcessID, LSN) iter.Seq2[Entry, error]
 		after      LSN
 		observeErr error
 		inspectErr error
 	}{
-		{"load failure", func(context.Context, ProcessID) (Log, bool, error) { return Log{}, false, loadFailure }, 0, loadFailure, loadFailure},
-		{"missing tree", func(context.Context, ProcessID) (Log, bool, error) { return Log{}, false, nil }, 0, ErrTreeNotFound, ErrProcessNotFound},
-		{"wrong tree", func(context.Context, ProcessID) (Log, bool, error) { return wrongRoot, true, nil }, 0, ErrInvalidLog, ErrInvalidLog},
-		{"corrupt history", func(context.Context, ProcessID) (Log, bool, error) { return corrupt, true, nil }, 0, ErrInvalidLog, ErrInvalidLog},
-		{"future cursor", nil, log.Head() + 1, ErrCommitConflict, nil},
+		{"source failure", func(context.Context, ProcessID) (Log, bool, error) { return Log{}, false, sourceFailure }, failing, 0, sourceFailure, sourceFailure},
+		{"missing tree", func(context.Context, ProcessID) (Log, bool, error) { return Log{}, false, nil }, empty, 0, ErrTreeNotFound, ErrProcessNotFound},
+		{"foreign tree", nil, serve(misplaced), 0, ErrInvalidLog, nil},
+		{"corrupt history", func(context.Context, ProcessID) (Log, bool, error) { return corrupt, true, nil }, serve(corrupt), 0, ErrInvalidLog, ErrInvalidLog},
+		{"future cursor", nil, nil, log.Head() + 1, ErrCommitConflict, nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store.load = test.load
+			store.load, store.read = test.load, test.read
 			reported := 0
 			for entry, observeErr := range handle.Observe(ctx, test.after) {
 				reported++
@@ -561,6 +587,7 @@ func TestDurableObserversRejectInvalidStoreEvidence(t *testing.T) {
 			}
 		})
 	}
+	store.read = nil
 	store.load = nil
 	var cursor LSN
 	for entry, observeErr := range handle.Observe(ctx, 0) {

@@ -35,11 +35,14 @@ type treeRuntime struct {
 	stopping        bool
 	failure         error
 	checkpointAfter uint64
+	// commit is closed and replaced after every acknowledged append so local
+	// readers wake without polling; it is nil once this writer stops.
+	commit chan struct{}
 }
 
 func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *treeRuntime {
 	work, cancel := context.WithCancel(ctx)
-	return &treeRuntime{runtime: runtime, state: state, host: ctx, ctx: work, cancel: cancel, commands: make(chan treeCommand, treeCommandCapacity), results: make(chan jobResult, dispatchResultCapacity), done: make(chan struct{}), stopRequested: make(chan struct{}), jobs: make(map[EffectID]*dispatchJob), steps: make(map[ProcessID]*stepJob), emitters: make(map[EffectID]*deltaEmitter)}
+	return &treeRuntime{runtime: runtime, state: state, host: ctx, ctx: work, cancel: cancel, commands: make(chan treeCommand, treeCommandCapacity), results: make(chan jobResult, dispatchResultCapacity), done: make(chan struct{}), commit: make(chan struct{}), stopRequested: make(chan struct{}), jobs: make(map[EffectID]*dispatchJob), steps: make(map[ProcessID]*stepJob), emitters: make(map[EffectID]*deltaEmitter)}
 }
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }
 func (t *treeRuntime) failureError() error {
@@ -63,21 +66,13 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 	}
 	batch := Batch{Root: t.state.root, Epoch: t.state.epoch, After: t.state.head, Records: records}
 	for _, record := range records {
-		_, encoded, err := EncodeRecord(record)
-		if err != nil {
-			return err
-		}
 		limits := t.state.limits
 		if started, ok := record.(Started); ok && started.Process.Depth() == 0 {
 			limits = started.Limits
 		}
-		if !limits.MaxRecordBytes.Allows(uint64(len(encoded))) {
-			return ErrResourceLimitExceeded
+		if err := limits.admitRecord(record); err != nil {
+			return err
 		}
-		if _, ok := record.(Checkpoint); ok && !limits.MaxCheckpointBytes.Allows(uint64(len(encoded))) {
-			return ErrResourceLimitExceeded
-		}
-
 	}
 	if err := batch.Validate(); err != nil {
 		return err
@@ -87,14 +82,9 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 	if err := invokeCallbackErr("Store.Append", func() error { return t.runtime.store.Append(commitCtx, batch) }); err != nil {
 		return err
 	}
-	t.mu.Lock()
-	for _, entry := range batch.Entries() {
-		if err := t.state.apply(entry); err != nil {
-			t.mu.Unlock()
-			return err
-		}
+	if err := t.applyCommitted(batch); err != nil {
+		return err
 	}
-	t.mu.Unlock()
 	for _, record := range records {
 		if settled, ok := record.(EffectSettled); ok && settled.Outcome.Status() != SettlementStatusUnknown {
 			delete(t.emitters, settled.ID)
@@ -116,6 +106,34 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 	}
 	return nil
 }
+func (t *treeRuntime) applyCommitted(batch Batch) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, entry := range batch.Entries() {
+		if err := t.state.apply(entry); err != nil {
+			return err
+		}
+	}
+	close(t.commit)
+	t.commit = make(chan struct{})
+	return nil
+}
+
+func (t *treeRuntime) nextCommit() <-chan struct{} {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.commit
+}
+
+// release wakes every local reader for the last time; they continue by polling
+// because another writer may now own the tree.
+func (t *treeRuntime) release() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	close(t.commit)
+	t.commit = nil
+}
+
 func (t *treeRuntime) enqueue(id ProcessID) {
 	p := t.state.processes[id]
 	if p == nil || p.queued || p.exited != nil || t.steps[id] != nil {
@@ -141,6 +159,7 @@ func (t *treeRuntime) next() (ProcessID, bool) {
 }
 func (t *treeRuntime) run() {
 	defer close(t.done)
+	defer t.release()
 	defer t.cancel()
 	if t.recovering {
 		if err := t.resumeEffects(); err != nil {

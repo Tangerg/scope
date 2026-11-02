@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -36,6 +37,10 @@ type appendBarrier struct {
 
 func newAppendBarrier(store run.Store, kind run.RecordKind, cut appendCut) *appendBarrier {
 	return &appendBarrier{store: store, kind: kind, cut: cut, seen: make(chan run.Batch, 1), release: make(chan struct{})}
+}
+
+func (a *appendBarrier) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	return a.store.Read(ctx, root, after)
 }
 
 func (a *appendBarrier) Append(ctx context.Context, batch run.Batch) error {

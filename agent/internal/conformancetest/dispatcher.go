@@ -37,7 +37,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher run.Dispatcher, effect ru
 		cancel()
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(t.Context()), rejectionTimeout)
 		defer cleanupCancel()
-		if joinErr := process.Join(cleanupCtx); joinErr != nil {
+		if _, joinErr := process.Await(cleanupCtx); joinErr != nil {
 			t.Error(joinErr)
 		}
 	}()

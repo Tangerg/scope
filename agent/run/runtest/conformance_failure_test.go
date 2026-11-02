@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"iter"
 	"os"
 	"os/exec"
 	"regexp"
@@ -75,6 +76,7 @@ func publicConformanceFailures() []conformanceFailure {
 		{"acknowledged effect intent disappears", "crash effect_intent cut 1", "lost acknowledgment did not leave the exact committed batch", brokenStoreSuite(omitEffectIntent)},
 		{"store grants an unauthorized replay policy", "crash effect_intent cut 1", "unacknowledged effect did not receive a durable unknown outcome", brokenStoreSuite(authorizeReplay)},
 		{"store rewrites successful settlement", "crash effect_settled cut 1", "recovered outcome=failed", brokenStoreSuite(rewriteSettlement)},
+		{"history read drops its first entry", "read yields history after a position", "read after 0", brokenStoreSuite(dropFirstHistoryEntry)},
 		{"committed checkpoint disappears", "checkpoint recovery keeps the same local wait", "checkpoint barrier did not commit its recovery baseline", brokenStoreSuite(hideCheckpoint)},
 		{"accepted signal receipt disappears", "signal receipts survive recovery", "recovered signal retry accepted=true", brokenStoreSuite(omitSignalReceipt)},
 		{"accepted start declaration changes", "start retries do not activate another writer", "conflicts with committed intent", brokenStoreSuite(rewriteStartedInput)},
@@ -104,7 +106,7 @@ func brokenStoreSuite(configure func(*storeProbe, run.Store)) func(*testing.T) {
 	return func(t *testing.T) {
 		RunStoreConformance(t, func(*testing.T) run.Store {
 			store := run.NewMemoryStore()
-			probe := &storeProbe{append: store.Append, load: store.Load}
+			probe := &storeProbe{append: store.Append, load: store.Load, read: store.Read}
 			configure(probe, store)
 			return probe
 		})
@@ -173,16 +175,29 @@ func rewriteSettlement(probe *storeProbe, store run.Store) {
 	}
 }
 
-func hideCheckpoint(probe *storeProbe, store run.Store) {
-	probe.load = func(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
-		log, found, err := store.Load(ctx, root)
-		for index, entry := range log.Entries {
-			if _, checkpoint := entry.Record.(run.Checkpoint); checkpoint {
-				log.Entries = log.Entries[:index]
-				break
+func dropFirstHistoryEntry(probe *storeProbe, store run.Store) {
+	probe.read = func(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+		return func(yield func(run.Entry, error) bool) {
+			first := true
+			for entry, err := range store.Read(ctx, root, after) {
+				if first && err == nil {
+					first = false
+					continue
+				}
+				if !yield(entry, err) {
+					return
+				}
 			}
 		}
-		return log, found, err
+	}
+}
+
+// hideCheckpoint serves the whole history from Load, leaving recovery cost
+// proportional to the tree's age.
+func hideCheckpoint(probe *storeProbe, store run.Store) {
+	probe.load = func(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
+		entries, err := readStoreHistory(ctx, store, root, 0)
+		return run.Log{Root: root, Entries: entries}, len(entries) > 0, err
 	}
 }
 

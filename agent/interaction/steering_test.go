@@ -200,7 +200,7 @@ func TestSteeringDuringToolInputWaitSurvivesRecoveryAndRevisesDirectOutput(t *te
 	handle := startInteraction(t, original, program)
 	var pending PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		inputs := mustValue(PendingToolInputs(program, log))
+		inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 		if len(inputs) == 1 {
 			pending = inputs[0]
 			return true

@@ -142,7 +142,7 @@ func TestWorkflowChildrenRejectInvalidPolicyAndIncompleteUpstreamRecords(t *test
 		if e != nil {
 			t.Fatal(e)
 		}
-		if e = h.Join(ctx); e != nil {
+		if _, e = h.Await(ctx); e != nil {
 			t.Fatal(e)
 		}
 		failure, ok := result.Termination().Failure()

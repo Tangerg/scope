@@ -75,49 +75,20 @@ func (h *Handle[O]) admissionClosed() bool {
 // A stopped writer can acknowledge an exact retry from committed facts. It has
 // no authority to admit another input, even if another writer has recovered it.
 func (h *Handle[O]) committedSignals(ctx context.Context, signals []Signal) error {
-	log, found, err := h.runtime.load(ctx, h.id.Root())
+	receipts, exited, err := h.runtime.receipts(ctx, h.id)
 	if err != nil {
 		return err
-	}
-	if !found {
-		return ErrTreeNotFound
-	}
-	if validationErr := log.Validate(); validationErr != nil {
-		return validationErr
-	}
-	receipts := make(map[SignalID]SignalReceipt)
-	exists, terminal := false, false
-	for _, entry := range log.Entries {
-		switch value := entry.Record.(type) {
-		case Started:
-			if value.Process == h.id {
-				exists = true
-			}
-		case Exited:
-			if value.Process == h.id {
-				terminal = true
-			}
-		case SignalAdmitted:
-			if value.Process == h.id {
-				receipts[value.Signal.ID] = SignalReceipt{ID: value.Signal.ID, Wait: value.Signal.Wait, Digest: value.Signal.digest()}
-			}
-		}
-	}
-	if !exists {
-		return ErrProcessNotFound
 	}
 	fresh, err := signalBatch(signals).unadmitted(receipts)
-	if err != nil {
+	if err != nil || len(fresh) == 0 {
 		return err
 	}
-	if len(fresh) == 0 {
-		return nil
-	}
-	if terminal {
+	if exited {
 		return ErrProcessFinished
 	}
 	return ErrProcessNotActive
 }
+
 func (h *Handle[O]) Answer[A any](ctx context.Context, wait WaitKey, value A) error {
 	if !wait.Valid() {
 		return ErrSignalRejected
@@ -165,99 +136,141 @@ func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error 
 func (h *Handle[O]) Await(ctx context.Context) (Result[O], error) {
 	ctx = RequireContext(ctx)
 	if h.tree != nil {
-		select {
-		case <-h.process.done:
-			h.tree.mu.RLock()
-			result := h.process.result()
-			h.tree.mu.RUnlock()
-			return projectResult[O](result), nil
-		case <-h.tree.done:
-			h.tree.mu.RLock()
-			if h.process.exited != nil {
-				result := projectResult[O](h.process.result())
-				h.tree.mu.RUnlock()
-				return result, nil
-			}
-			h.tree.mu.RUnlock()
-			return Result[O]{}, h.tree.failureError()
-		case <-ctx.Done():
-			return Result[O]{}, ctx.Err()
-		}
+		return h.awaitLocal(ctx)
 	}
-	for observation, err := range h.observations(ctx) {
+	return h.awaitCommitted(ctx)
+}
+
+func (h *Handle[O]) awaitLocal(ctx context.Context) (Result[O], error) {
+	select {
+	case <-h.process.done:
+	case <-h.tree.done:
+	case <-ctx.Done():
+		return Result[O]{}, ctx.Err()
+	}
+	h.tree.mu.RLock()
+	defer h.tree.mu.RUnlock()
+	if h.process.exited == nil {
+		return Result[O]{}, h.tree.failureError()
+	}
+	return projectResult[O](h.process.result()), nil
+}
+
+// awaitCommitted serves a tree another writer owns: it waits on the committed
+// log for this process's exit and then reads the result from the recovery cut.
+func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
+	state, err := h.committedState(ctx)
+	if err != nil {
+		return Result[O]{}, err
+	}
+	if process := state.processes[h.id]; process != nil && process.exited != nil {
+		return projectResult[O](process.result()), nil
+	}
+	for entry, err := range h.Observe(ctx, state.head) {
 		if err != nil {
 			return Result[O]{}, err
 		}
-		p := observation.state.processes[h.id]
-		if p == nil {
-			return Result[O]{}, ErrProcessNotFound
-		}
-		if p.exited != nil {
-			return projectResult[O](p.result()), nil
+		if exited, ok := entry.Record.(Exited); ok && exited.Process == h.id {
+			break
 		}
 	}
-	return Result[O]{}, ErrProcessNotFound
+	if state, err = h.committedState(ctx); err != nil {
+		return Result[O]{}, err
+	}
+	process := state.processes[h.id]
+	if process == nil || process.exited == nil {
+		return Result[O]{}, ErrProcessNotFound
+	}
+	return projectResult[O](process.result()), nil
 }
-func (h *Handle[O]) Join(ctx context.Context) error { _, err := h.Await(ctx); return err }
+
+// Observe yields the tree's committed entries after position, ending with the
+// root's exit. A tree this Runtime writes wakes readers on each commit; any
+// other tree is polled, and every poll reads only entries past the cursor.
 func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
+		ctx = RequireContext(ctx)
+		root := h.id.Root()
 		cursor := after
-		for observation, err := range h.observations(ctx) {
+		for {
+			commit := h.nextCommit()
+			entries, err := h.runtime.read(ctx, root, cursor)
 			if err != nil {
 				yield(Entry{}, err)
 				return
 			}
-			if cursor > observation.state.head {
-				yield(Entry{}, ErrCommitConflict)
-				return
-			}
-			for _, entry := range observation.log.Entries {
-				if entry.LSN <= cursor {
-					continue
+			if len(entries) == 0 && cursor == after {
+				finished, err := h.finishedAt(ctx, cursor)
+				if err != nil {
+					yield(Entry{}, err)
+					return
 				}
+				if finished {
+					return
+				}
+			}
+			for _, entry := range entries {
 				if !yield(entry, nil) {
 					return
 				}
 				cursor = entry.LSN
+				if exited, ok := entry.Record.(Exited); ok && exited.Process == root {
+					return
+				}
+			}
+			if err := h.waitForCommit(ctx, commit); err != nil {
+				yield(Entry{}, err)
+				return
 			}
 		}
 	}
 }
-func (h *Handle[O]) observations(ctx context.Context) iter.Seq2[treeObservation, error] {
-	return func(yield func(treeObservation, error) bool) {
-		ctx = RequireContext(ctx)
-		ticker := time.NewTicker(observationPollInterval)
-		defer ticker.Stop()
-		for {
-			log, found, err := h.runtime.load(ctx, h.id.Root())
-			if err != nil {
-				yield(treeObservation{}, err)
-				return
-			}
-			if !found {
-				yield(treeObservation{}, ErrTreeNotFound)
-				return
-			}
-			state, err := projectLog(log)
-			if err != nil {
-				yield(treeObservation{}, err)
-				return
-			}
-			if !yield(treeObservation{log: log, state: state}, nil) {
-				return
-			}
-			if state.processes[state.root].exited != nil {
-				return
-			}
-			select {
-			case <-ctx.Done():
-				yield(treeObservation{}, ctx.Err())
-				return
-			case <-ticker.C:
-			}
+
+// finishedAt reports whether position is already the head of a tree whose root
+// exited, so a reader that has seen everything stops instead of polling.
+func (h *Handle[O]) finishedAt(ctx context.Context, position LSN) (bool, error) {
+	state, err := h.committedState(ctx)
+	if err != nil {
+		return false, err
+	}
+	if position > state.head {
+		return false, ErrCommitConflict
+	}
+	return position == state.head && state.processes[state.root].exited != nil, nil
+}
+
+func (h *Handle[O]) committedState(ctx context.Context) (*treeState, error) {
+	return h.runtime.committed(ctx, h.id.Root())
+}
+
+// nextCommit is taken before a read so a commit landing between the read and
+// the wait still wakes the reader.
+func (h *Handle[O]) nextCommit() <-chan struct{} {
+	if h.tree == nil {
+		return nil
+	}
+	return h.tree.nextCommit()
+}
+
+func (h *Handle[O]) waitForCommit(ctx context.Context, commit <-chan struct{}) error {
+	if commit == nil {
+		timer := time.NewTimer(observationPollInterval)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
+	select {
+	case <-commit:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
+
 func (h *Handle[O]) request(ctx context.Context, process ProcessID, operation command) (commandResponse, error) {
 	ctx = RequireContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -287,11 +300,6 @@ func (h *Handle[O]) request(ctx context.Context, process ProcessID, operation co
 	case <-ctx.Done():
 		return commandResponse{}, ctx.Err()
 	}
-}
-
-type treeObservation struct {
-	log   Log
-	state *treeState
 }
 
 type Result[O any] struct {

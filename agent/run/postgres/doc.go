@@ -3,9 +3,10 @@
 // the head is a transactional CAS address and contains no execution state.
 //
 // Install SchemaSQL in a dedicated Host-owned namespace before calling New.
-// This schema deliberately cannot read the retired snapshot store. The Host
-// owns pool lifetime, authorizes namespace creation, and joins its runtimes
-// before closing a Store or pool.
+// The Host owns pool lifetime, authorizes namespace creation, and joins its
+// runtimes before closing a Store or pool. Load finds the newest checkpoint
+// through a partial index, so recovery reads never scan the history before it;
+// Read streams history from one snapshot.
 //
 // Config.Prepare must derive its mutation solely from the exact Batch. It runs
 // only for a new append, inside the root's serialized transaction. A byte-exact

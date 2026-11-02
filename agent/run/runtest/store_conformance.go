@@ -34,6 +34,8 @@ func RunStoreConformance(t *testing.T, factory func(*testing.T) run.Store) {
 		{"canceled calls do not mutate", checkStoreCancellation},
 		{"invalid batches are rejected atomically", checkInvalidStoreBatch},
 		{"caller mutation cannot rewrite history", checkStoreOwnership},
+		{"load starts at the newest checkpoint", checkStoreRecoveryCut},
+		{"read yields history after a position", checkStoreHistoryRead},
 	} {
 		t.Run(check.name, func(t *testing.T) {
 			if err := check.run(t, factory(t), storeInitialBatch(t)); err != nil {
@@ -289,6 +291,79 @@ func storeInitialBatch(t *testing.T) run.Batch {
 		run.Started{Process: root, Program: program.ProgramRef(), Input: input, Limits: run.DefaultTreeLimits(), At: time.Unix(0, 0).UTC()},
 		run.Activated{Epoch: 1},
 	}}
+}
+
+func checkStoreRecoveryCut(t *testing.T, store run.Store, batch run.Batch) error {
+	checkpoint := storeCheckpoint(t, batch)
+	sequence := []run.Batch{
+		batch,
+		storeSignalBatch(t, batch.Root, 1, 2, "before", "accepted"),
+		{Root: batch.Root, Epoch: 1, After: 3, Records: []run.Record{checkpoint}},
+		storeSignalBatch(t, batch.Root, 1, 4, "between", "accepted"),
+		{Root: batch.Root, Epoch: 1, After: 5, Records: []run.Record{checkpoint}},
+		storeSignalBatch(t, batch.Root, 1, 6, "after", "accepted"),
+	}
+	for _, appended := range sequence {
+		if err := store.Append(t.Context(), appended); err != nil {
+			return fmt.Errorf("append at %d: %w", appended.After, err)
+		}
+	}
+	log, err := readStoreLog(t.Context(), store, batch.Root)
+	if err != nil {
+		return err
+	}
+	want := append(sequence[4].Entries(), sequence[5].Entries()...)
+	if err := compareStoreEntries(log.Entries, want); err != nil {
+		return fmt.Errorf("load is not the newest checkpoint and its suffix: %w", err)
+	}
+	return nil
+}
+
+func checkStoreHistoryRead(t *testing.T, store run.Store, batch run.Batch) error {
+	sequence := []run.Batch{batch, storeSignalBatch(t, batch.Root, 1, 2, "first", "accepted"), storeSignalBatch(t, batch.Root, 1, 3, "second", "accepted")}
+	var history []run.Entry
+	for _, appended := range sequence {
+		if err := store.Append(t.Context(), appended); err != nil {
+			return fmt.Errorf("append at %d: %w", appended.After, err)
+		}
+		history = append(history, appended.Entries()...)
+	}
+	for _, after := range []run.LSN{0, 2, 4} {
+		got, err := readStoreHistory(t.Context(), store, batch.Root, after)
+		if err != nil {
+			return err
+		}
+		if err := compareStoreEntries(got, history[after:]); err != nil {
+			return fmt.Errorf("read after %d: %w", after, err)
+		}
+	}
+	absent, err := readStoreHistory(t.Context(), store, (run.StartID{Scope: "runtest", Key: "absent"}).Root(), 0)
+	if err != nil || len(absent) != 0 {
+		return errors.Join(fmt.Errorf("absent tree yielded %d entries", len(absent)), err)
+	}
+	return nil
+}
+
+func readStoreHistory(ctx context.Context, store run.Store, root run.ProcessID, after run.LSN) ([]run.Entry, error) {
+	var entries []run.Entry
+	for entry, err := range store.Read(ctx, root, after) {
+		if err != nil {
+			return nil, fmt.Errorf("read history after %d: %w", after, err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// storeCheckpoint materializes only the root's Start; a Store treats the
+// record as opaque, so its fidelity to the prefix is not under test here.
+func storeCheckpoint(t *testing.T, batch run.Batch) run.Checkpoint {
+	t.Helper()
+	state, err := run.EncodeExecutionState("runtest.store", "input")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return run.Checkpoint{StartedProcesses: 1, Processes: []run.ProcessCheckpoint{{Started: batch.Records[0].(run.Started), State: state}}}
 }
 
 func storeSignalBatch(t *testing.T, root run.ProcessID, epoch run.Epoch, after run.LSN, id, value string) run.Batch {

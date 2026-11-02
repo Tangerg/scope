@@ -7,10 +7,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Tangerg/scope/agent/run"
 )
 
 const maxIdentifierBytes = 63
-const schemaMarker = "$schema"
+
+const (
+	schemaMarker     = "$schema"
+	checkpointMarker = "$checkpoint"
+)
 
 //go:embed schema.sql
 var schemaTemplate string
@@ -35,5 +41,6 @@ func SchemaSQL(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.ReplaceAll(schemaTemplate, schemaMarker, schema), nil
+	checkpoint := "'" + string(run.RecordKindCheckpoint) + "'"
+	return strings.NewReplacer(schemaMarker, schema, checkpointMarker, checkpoint).Replace(schemaTemplate), nil
 }

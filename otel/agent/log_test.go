@@ -141,7 +141,7 @@ func startObservedExecution(t *testing.T, h observerHarness, next run.Dispatcher
 
 func observedExecution(t *testing.T, h observerHarness) (*run.Handle[string], *run.MemoryStore) {
 	handle, store := startObservedExecution(t, h, testDispatcher{})
-	if err := handle.Join(t.Context()); err != nil {
+	if _, err := handle.Await(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	result, err := handle.Await(t.Context())
@@ -299,14 +299,20 @@ func TestCloseCancelsAndJoinsReaders(t *testing.T) {
 }
 
 type rejectedStore struct {
-	cause          error
-	appends, loads int
+	cause                 error
+	appends, loads, reads int
 }
 
 func (r *rejectedStore) Append(context.Context, run.Batch) error { r.appends++; return r.cause }
 func (r *rejectedStore) Load(context.Context, run.ProcessID) (run.Log, bool, error) {
 	r.loads++
 	return run.Log{}, false, r.cause
+}
+func (r *rejectedStore) Read(context.Context, run.ProcessID, run.LSN) iter.Seq2[run.Entry, error] {
+	return func(yield func(run.Entry, error) bool) {
+		r.reads++
+		yield(run.Entry{}, r.cause)
+	}
 }
 
 func TestStoreDecorationPreservesErrorsAndDoesNotLeakDiagnostics(t *testing.T) {
@@ -325,7 +331,12 @@ func TestStoreDecorationPreservesErrorsAndDoesNotLeakDiagnostics(t *testing.T) {
 			if _, found, err := store.Load(t.Context(), root); !errors.Is(err, cause) || found {
 				t.Fatal(found, err)
 			}
-			if next.appends != 1 || next.loads != 1 {
+			for _, err := range store.Read(t.Context(), root, 0) {
+				if !errors.Is(err, cause) {
+					t.Fatal(err)
+				}
+			}
+			if next.appends != 1 || next.loads != 1 || next.reads != 1 {
 				t.Fatal("decoration changed call count")
 			}
 			for _, span := range h.spans.Ended() {

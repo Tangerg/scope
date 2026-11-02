@@ -90,7 +90,7 @@ func TestCheckpointByteBoundStopsTheWriterWithoutInventingProgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, found := log.LatestCheckpoint(); found {
+	if _, found := log.Entries[0].Record.(Checkpoint); found {
 		t.Fatal("oversized checkpoint reached storage")
 	}
 	if err := log.Validate(); err != nil {

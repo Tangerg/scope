@@ -169,7 +169,10 @@ func (r *Runtime) accepted(log Log, intent Digest) (*Handle[Payload], error) {
 	if err := log.Validate(); err != nil {
 		return nil, err
 	}
-	started := log.Entries[0].Record.(Started)
+	started, err := log.rootStarted()
+	if err != nil {
+		return nil, err
+	}
 	acceptedIntent, err := started.IntentDigest()
 	if err != nil {
 		return nil, err
@@ -400,6 +403,110 @@ func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	}
 	return value.log, value.found, err
 }
+func (r *Runtime) read(ctx context.Context, root ProcessID, after LSN) ([]Entry, error) {
+	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
+	defer cancel()
+	entries, err := invokeCallback("Store.Read", func() ([]Entry, error) {
+		var entries []Entry
+		for entry, err := range r.store.Read(ctx, root, after) {
+			if err != nil {
+				return nil, err
+			}
+			if entry.LSN != after+LSN(len(entries))+1 || !entry.belongsTo(root) {
+				return nil, ErrInvalidLog
+			}
+			entries = append(entries, entry)
+		}
+		return entries, nil
+	})
+	return entries, err
+}
+
+// Answered reports whether wait already admitted exactly this answer, so a
+// caller can confirm a delivery whose acknowledgment was lost without sending
+// it twice. A different answer to the same wait is ErrSignalConflict.
+func (r *Runtime) Answered(ctx context.Context, process ProcessID, wait WaitKey, answer Payload) (bool, error) {
+	if r == nil {
+		return false, ErrInvalidConfig
+	}
+	receipts, _, err := r.receipts(ctx, process)
+	if err != nil {
+		return false, err
+	}
+	for _, receipt := range receipts {
+		if receipt.Wait != wait {
+			continue
+		}
+		if (Signal{ID: receipt.ID, Wait: wait, Payload: answer}).receipt() != receipt {
+			return false, ErrSignalConflict
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+// receipts reads a process's admitted Signals from the recovery cut, or from
+// history once reaping has removed the process from the cut, so an
+// acknowledged delivery stays acknowledged for the life of the log.
+func (r *Runtime) receipts(ctx context.Context, process ProcessID) (map[SignalID]SignalReceipt, bool, error) {
+	state, err := r.committed(ctx, process.Root())
+	if err != nil {
+		return nil, false, err
+	}
+	if live := state.processes[process]; live != nil {
+		return live.receipts, live.exited != nil, nil
+	}
+	history, err := r.read(ctx, process.Root(), 0)
+	if err != nil {
+		return nil, false, err
+	}
+	receipts := make(map[SignalID]SignalReceipt)
+	started := false
+	for _, entry := range history {
+		switch record := entry.Record.(type) {
+		case Started:
+			started = started || record.Process == process
+		case SignalAdmitted:
+			if record.Process == process {
+				receipts[record.Signal.ID] = record.Signal.receipt()
+			}
+		}
+	}
+	if !started {
+		return nil, false, ErrProcessNotFound
+	}
+	return receipts, true, nil
+}
+
+// committed folds the recovery cut, the newest state any writer acknowledged.
+func (r *Runtime) committed(ctx context.Context, root ProcessID) (*treeState, error) {
+	log, found, err := r.load(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrTreeNotFound
+	}
+	return projectLog(log)
+}
+
+// History reads the complete log of root's tree, for projections that need
+// facts a checkpoint no longer carries, such as settled tool rounds.
+func (r *Runtime) History(ctx context.Context, root ProcessID) (Log, error) {
+	if r == nil {
+		return Log{}, ErrInvalidConfig
+	}
+	entries, err := r.read(ctx, root, 0)
+	if err != nil {
+		return Log{}, err
+	}
+	if len(entries) == 0 {
+		return Log{}, ErrTreeNotFound
+	}
+	history := Log{Root: root, Entries: entries}
+	return history, history.Validate()
+}
+
 func (r *Runtime) resolve(parent Program[Payload, Payload], reference ProgramRef) (Program[Payload, Payload], error) {
 	if reference == parent.ProgramRef() {
 		return parent, nil
@@ -420,53 +527,63 @@ func (r *Runtime) resolve(parent Program[Payload, Payload], reference ProgramRef
 	return program, r.validateProgram(program)
 }
 
+// restore resumes from the Log's base and re-executes only the Steps after
+// it, so recovery cost is bounded by the checkpoint interval rather than the
+// tree's age. Each replayed Step must reproduce its committed Transition.
 func (r *Runtime) restore(ctx context.Context, program Program[Payload, Payload], log Log) (*treeState, error) {
-	if err := log.Validate(); err != nil {
+	started, err := log.rootStarted()
+	if err != nil {
 		return nil, err
 	}
-	started := log.Entries[0].Record.(Started)
 	if started.Program != program.ProgramRef() {
 		return nil, ErrInvalidProgram
 	}
-	checkpoint, cut, hasCheckpoint := log.LatestCheckpoint()
-	state := newTreeState(log.Root)
-	for _, entry := range log.Entries {
-		if err := ctx.Err(); err != nil {
+	state, rest, err := log.base()
+	if err != nil {
+		return nil, err
+	}
+	if checkpoint, ok := log.Entries[0].Record.(Checkpoint); ok {
+		if err := r.restoreCheckpoint(ctx, state, program, checkpoint); err != nil {
 			return nil, err
-		}
-		if entry.LSN > cut || !hasCheckpoint {
-			if stepped, ok := entry.Record.(Stepped); ok {
-				p := state.processes[stepped.Process]
-				if p == nil || p.execution == nil || int(stepped.Delivered) > len(p.inbox) {
-					return nil, ErrInvalidLog
-				}
-				transition, err := stepExecution(restoreContext{Context: ctx}, p.execution, Turn{Process: stepped.Process, Step: stepped.Step, Messages: slices.Clone([]Message(p.inbox[:stepped.Delivered]))})
-				if err != nil || !transition.equal(stepped.Transition) {
-					return nil, fmt.Errorf("%w: process %s step %d", ErrNondeterministicStep, stepped.Process, stepped.Step)
-				}
-			}
-		}
-		if err := state.apply(entry); err != nil {
-			return nil, err
-		}
-		if start, ok := entry.Record.(Started); ok && (!hasCheckpoint || entry.LSN > cut) {
-			p := state.processes[start.Process]
-			if err := r.bindRestoredProcess(state, p, program); err != nil {
-				return nil, err
-			}
-			execution, _, err := initializeExecution(ctx, p.program.definition, start.Input)
-			if err != nil {
-				return nil, err
-			}
-			p.execution = execution
-		}
-		if hasCheckpoint && entry.LSN == cut {
-			if err := r.restoreCheckpoint(ctx, state, program, checkpoint); err != nil {
-				return nil, err
-			}
 		}
 	}
+	for _, entry := range rest {
+		if err := r.replay(ctx, state, program, entry); err != nil {
+			return nil, err
+		}
+	}
+	if err := state.validateBoundary(); err != nil {
+		return nil, err
+	}
 	return state, nil
+}
+
+func (r *Runtime) replay(ctx context.Context, state *treeState, program Program[Payload, Payload], entry Entry) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if stepped, ok := entry.Record.(Stepped); ok {
+		if err := state.verifyStep(ctx, stepped); err != nil {
+			return err
+		}
+	}
+	if err := state.apply(entry); err != nil {
+		return err
+	}
+	started, ok := entry.Record.(Started)
+	if !ok {
+		return nil
+	}
+	process := state.processes[started.Process]
+	if err := r.bindRestoredProcess(state, process, program); err != nil {
+		return err
+	}
+	execution, _, err := initializeExecution(ctx, process.program.definition, started.Input)
+	if err != nil {
+		return err
+	}
+	process.execution = execution
+	return nil
 }
 
 func (r *Runtime) bindRestoredProcess(state *treeState, process *processState, root Program[Payload, Payload]) error {

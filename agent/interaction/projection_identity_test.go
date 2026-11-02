@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -125,7 +124,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 	handle := startInteraction(t, runtime, program)
 	var pending PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		inputs := mustValue(PendingToolInputs(program, log))
+		inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 		if len(inputs) == 1 {
 			pending = inputs[0]
 			return true
@@ -163,59 +162,6 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 		change(envelope.ToolCall)
 		effect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(envelope))))
 		assertProjectionRejection(t, program, replaceLoggedEffect(t, log, intent.ID, effect))
-	}
-}
-
-func TestPendingToolQuestionMustReflectItsCommittedInputRequest(t *testing.T) {
-	store := run.NewMemoryStore()
-	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"private":true}`)))
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, scriptTool{name: "ask", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
-		return tool.Result{InputRequest: &question}, nil
-	}}), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return callResponse(requested("ask", "approval")), nil
-	})})
-	handle := startInteraction(t, runtime, program)
-	log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		return len(mustValue(PendingToolInputs(program, log))) == 1
-	})
-	for _, row := range []struct {
-		name   string
-		change func(*run.Wait)
-	}{
-		{"prompt", func(wait *run.Wait) { wait.Question = mustValue(run.EncodePayload("another question")) }},
-		{"answer contract", func(wait *run.Wait) { wait.AnswerSchema = mustValue(jsonschema.For[string]()) }},
-		{"answer bound", func(wait *run.Wait) { wait.MaxAnswerBytes = tool.MaxInputBytes / 2 }},
-		{"identity", func(wait *run.Wait) { wait.Key = mustValue(run.ParseWaitKey("unrelated")) }},
-	} {
-		t.Run(row.name, func(t *testing.T) {
-			corrupt := mustValue(log.Clone())
-			for index, entry := range corrupt.Entries {
-				switch record := entry.Record.(type) {
-				case run.Stepped:
-					waits := record.Transition.Waits()
-					if record.Process != handle.ID() || len(waits) == 0 {
-						continue
-					}
-					row.change(&waits[0])
-					record.Transition = mustValue(run.Yield(record.Transition.Consumed(), record.Transition.Effects(), waits...))
-					corrupt.Entries[index].Record = record
-				case run.Checkpoint:
-					for process := range record.Processes {
-						if record.Processes[process].Started.Process == handle.ID() && len(record.Processes[process].Waits) > 0 {
-							row.change(&record.Processes[process].Waits[0])
-						}
-					}
-					corrupt.Entries[index].Record = record
-				}
-			}
-			if err := corrupt.Validate(); err != nil {
-				t.Fatal("fixture changed a kernel-owned contract", err)
-			}
-			if _, err := PendingToolInputs(program, corrupt); !errors.Is(err, ErrInvalidResult) {
-				t.Fatal("wait projection originated a different tool question", err)
-			}
-		})
 	}
 }
 

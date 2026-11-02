@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"errors"
+	"iter"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -64,6 +65,9 @@ func (t *toolSettlementBarrier) Append(ctx context.Context, batch run.Batch) err
 }
 func (t *toolSettlementBarrier) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return t.store.Load(ctx, root)
+}
+func (t *toolSettlementBarrier) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
+	return t.store.Read(ctx, root, after)
 }
 func (t *toolSettlementBarrier) stop() { t.once.Do(func() { close(t.release) }) }
 
@@ -176,10 +180,7 @@ func TestToolInputWaitRecoversWithoutRepeatingItsEffect(t *testing.T) {
 	handle := startInteraction(t, original, program)
 	var wait PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		inputs, err := PendingToolInputs(program, log)
-		if err != nil {
-			t.Fatal(err)
-		}
+		inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 		if len(inputs) == 1 {
 			wait = inputs[0]
 			return true
@@ -256,7 +257,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		process, _ := view.Process(handle.ID())
 		return len(process.PendingEffects) == 1 && process.PendingEffects[0].Outcome.Status() == run.SettlementStatusUnknown
 	})
-	if inputs := mustValue(PendingToolInputs(program, log)); len(inputs) != 0 {
+	if inputs := PendingToolInputs(program, mustValue(log.Inspect())); len(inputs) != 0 {
 		t.Fatal("uncommitted question became answerable")
 	}
 	view := mustValue(log.Inspect())
@@ -268,7 +269,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 	}
 	var firstWait, secondWait PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		inputs := mustValue(PendingToolInputs(program, log))
+		inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 		if len(inputs) == 1 {
 			firstWait = inputs[0]
 			return true
@@ -282,7 +283,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
-		inputs := mustValue(PendingToolInputs(program, log))
+		inputs := PendingToolInputs(program, mustValue(log.Inspect()))
 		if len(inputs) == 1 && inputs[0].WaitKey() != firstWait.WaitKey() {
 			secondWait = inputs[0]
 			return true
@@ -311,7 +312,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		}
 	}
 	completed := completedLog(t, store, handle.ID())
-	if inputs := mustValue(PendingToolInputs(program, completed)); len(inputs) != 0 {
+	if inputs := PendingToolInputs(program, mustValue(completed.Inspect())); len(inputs) != 0 {
 		t.Fatal("completed call retained an answerable question")
 	}
 	rounds := mustValue(SettledResults(program, completed))
