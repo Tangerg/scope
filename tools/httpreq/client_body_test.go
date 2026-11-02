@@ -130,7 +130,7 @@ func TestToolPreservesInterruptedPostResponseAsEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com","method":"POST","body":"create"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com","method":"POST","body":"create"}`}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestToolPreservesNonUTF8BodyAndHeaderObservations(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com"}`}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: `{"url":"https://example.com"}`}, tool.Admission{})
 		if err != nil {
 			t.Fatal(err)
 		}

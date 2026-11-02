@@ -42,7 +42,7 @@ func TestToolConcurrencyPolicyUsesHostPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"write"}`}, toolcontract.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

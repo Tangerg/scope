@@ -113,17 +113,18 @@ func (c Contract) Definition() Definition {
 // contract. Its fields are intentionally private: only Contract.Prepare can
 // promote an untrusted model proposal into an executable invocation.
 type Invocation struct {
-	contract     *contractState
-	arguments    []byte
-	continuation *Continuation
+	contract       *contractState
+	arguments      []byte
+	idempotencyKey string
+	continuation   *Continuation
 }
 
 // Prepare validates identity, RFC 7493 JSON syntax, the frozen input schema,
 // and its independent input validator. It does not invoke the executable Tool
 // or authorization policy. Blank arguments are normalized to the empty object.
-// A nil continuation starts a new logical call. A driving runtime may pass an
-// answer only for the same call that produced its committed InputRequest.
-func (c Contract) Prepare(call Request, continuation *Continuation) (Invocation, error) {
+// A driving runtime may supply a Continuation only for the same call that
+// produced its committed InputRequest.
+func (c Contract) Prepare(call Request, admission Admission) (Invocation, error) {
 	if c.state == nil {
 		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
 	}
@@ -143,15 +144,14 @@ func (c Contract) Prepare(call Request, continuation *Continuation) (Invocation,
 	if err := c.validateInput(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
-	if continuation != nil && !continuation.valid() {
-		return Invocation{}, fmt.Errorf("%w: invalid continuation", ErrInvalidInvocation)
+	if err := admission.validate(); err != nil {
+		return Invocation{}, err
 	}
-	var frozen *Continuation
-	if continuation != nil {
-		owned := *continuation
-		frozen = &owned
+	var continuation *Continuation
+	if admission.Continuation != nil {
+		continuation = new(*admission.Continuation)
 	}
-	return Invocation{contract: c.state, arguments: arguments, continuation: frozen}, nil
+	return Invocation{contract: c.state, arguments: arguments, idempotencyKey: admission.IdempotencyKey, continuation: continuation}, nil
 }
 
 func (c Contract) validateInput(arguments []byte) (err error) {
@@ -181,8 +181,10 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 // Arguments returns an owned copy of the validated JSON object.
 func (i Invocation) Arguments() []byte { return bytes.Clone(i.arguments) }
 
-// Continuation returns input supplied explicitly for this invocation. Prepare
-// with nil always starts a new call, regardless of values inherited in ctx.
+// IdempotencyKey returns the driver-assigned identity of the logical call, or
+// empty when the caller has none.
+func (i Invocation) IdempotencyKey() string { return i.idempotencyKey }
+
 func (i Invocation) Continuation() (Continuation, bool) {
 	if i.continuation == nil {
 		return Continuation{}, false

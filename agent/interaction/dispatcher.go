@@ -111,7 +111,7 @@ func (d *dispatcher) Dispatch(
 	case operationPrepare:
 		return d.prepareContext(ctx, request, envelope.Preparation)
 	case operationModelCall:
-		return d.dispatchModel(ctx, request, envelope.ModelCall, emit)
+		return d.dispatchModel(ctx, envelope.ModelCall, emit)
 	case operationToolCall:
 		if !d.tools.Configured() {
 			return failedSettlement(ErrInvalidToolSet)
@@ -134,22 +134,11 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return policy
 }
 
-func (d *dispatcher) dispatchModel(
-	ctx context.Context,
-	request run.EffectRequest,
-	call *modelCall,
-	emit run.DeltaEmitter,
-) (run.Settlement, error) {
+func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit run.DeltaEmitter) (run.Settlement, error) {
 	modelRequest := call.request()
 	if validateErr := modelRequest.Validate(); validateErr != nil {
 		return failedSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
 	}
-	invocation := modelInvocationFromRequest(
-		request,
-		call.ModelCallSequence,
-		call.AppliedSteerSignalIDs,
-	)
-	ctx = withModelInvocation(ctx, invocation)
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
 	minimum := modelCallResult{Response: &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}}

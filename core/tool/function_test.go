@@ -370,10 +370,10 @@ func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	contract := binding.Contract()
-	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":3}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":3}`}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("odd input was admitted: %v", err)
 	}
-	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":4}`}, nil); err != nil {
+	if _, err := contract.Prepare(tool.Request{Name: "even", Arguments: `{"n":4}`}, tool.Admission{}); err != nil {
 		t.Fatal(err)
 	}
 	if executions != 0 {
@@ -388,7 +388,7 @@ func TestContractDoesNotRetainFunctionExecutionResources(t *testing.T) {
 	if resource.Value() != nil {
 		t.Fatal("pure input contract retained execution resources")
 	}
-	if _, err := contract.Prepare(tool.Request{Name: "resource", Arguments: `{}`}, nil); err != nil {
+	if _, err := contract.Prepare(tool.Request{Name: "resource", Arguments: `{}`}, tool.Admission{}); err != nil {
 		t.Fatal(err)
 	}
 	runtime.KeepAlive(contract)
@@ -416,12 +416,12 @@ func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 		`{"float":1e39}`, `{"bytes":"invalid base64"}`,
 		`{"value":1e999}`,
 	} {
-		if _, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+		if _, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%s) = %v, want invalid invocation", arguments, err)
 		}
 	}
 	for _, arguments := range []string{`{}`, `{"signed":-128}`, `{"signed":127}`, `{"unsigned":18446744073709551615}`, `{"float":1.25}`, `{"bytes":"aGk="}`} {
-		invocation, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "representable", Arguments: arguments}, tool.Admission{})
 		if err != nil {
 			t.Fatalf("valid input rejected: %s: %v", arguments, err)
 		}
@@ -468,7 +468,7 @@ func call(t *testing.T, ctx context.Context, executable tool.Tool, arguments str
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: binding.Contract().Definition().Name, Arguments: arguments,
-	}, nil)
+	}, tool.Admission{})
 	if err != nil {
 		return tool.Output{}, err
 	}

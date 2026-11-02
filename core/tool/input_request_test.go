@@ -34,7 +34,7 @@ func TestExplicitContinuationSurvivesWireAndIsFrozenAtPrepare(t *testing.T) {
 		t.Fatal(err)
 	}
 	call := tool.Request{Name: "confirm", Arguments: `{}`}
-	initial, err := binding.Contract().Prepare(call, nil)
+	initial, err := binding.Contract().Prepare(call, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestExplicitContinuationSurvivesWireAndIsFrozenAtPrepare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resumed, err := binding.Contract().Prepare(call, &continuation)
+	resumed, err := binding.Contract().Prepare(call, tool.Admission{Continuation: &continuation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +73,14 @@ func TestExplicitContinuationSurvivesWireAndIsFrozenAtPrepare(t *testing.T) {
 	if text != `{"id":9007199254740993}:9007199254740993` || completed.InputRequest != nil {
 		t.Fatalf("completed=%+v", completed)
 	}
-	again, err := binding.Contract().Prepare(call, nil)
+	again, err := binding.Contract().Prepare(call, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, resumed := again.Continuation(); resumed {
 		t.Fatal("new call inherited continuation")
 	}
-	if _, err := binding.Contract().Prepare(call, &continuation); !errors.Is(err, tool.ErrInvalidInvocation) {
+	if _, err := binding.Contract().Prepare(call, tool.Admission{Continuation: &continuation}); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("zero continuation=%v", err)
 	}
 	if err := (tool.Result{Output: tool.NewTextOutput("complete"), InputRequest: &request}).Validate(); !errors.Is(err, tool.ErrInvalidResult) {

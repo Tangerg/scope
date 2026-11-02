@@ -110,6 +110,11 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 
 	projection := textProjection{}
 	req := &sdka2a.SendMessageRequest{Message: projection.userMessage(input.Message)}
+	if key := invocation.IdempotencyKey(); key != "" {
+		// Servers deduplicate on messageId, so a replayed call must resend the
+		// identity of its first attempt rather than start a second task.
+		req.Message.ID = key
+	}
 	if c, ok := invocation.Continuation(); ok {
 		req.Message, err = r.reply(invocation, c)
 		if err != nil {

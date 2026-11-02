@@ -30,12 +30,12 @@ func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 		t.Fatal("ambiguous alias admitted")
 	}
 	for _, name := range []string{"report.write", "unseen"} {
-		prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: name}, nil)
+		prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: name}, tool.Admission{})
 		if prepared.rejection == nil {
 			t.Fatalf("unadvertised name %q accepted", name)
 		}
 	}
-	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: "report_write", Arguments: "{}"}, nil)
+	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: "report_write", Arguments: "{}"}, tool.Admission{})
 	if prepared.rejection != nil || prepared.defect != nil {
 		t.Fatalf("alias rejected: %+v", prepared)
 	}

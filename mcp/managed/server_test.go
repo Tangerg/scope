@@ -297,12 +297,12 @@ func TestScopeClientConsumesManagedServerForm(t *testing.T) {
 	}
 	binding := must(tool.Bind(tools[0]))
 	request := tool.Request{Name: binding.Contract().Definition().Name, Arguments: `{"order":"order"}`}
-	first := must(binding.Call(ctx, must(binding.Contract().Prepare(request, nil))))
+	first := must(binding.Call(ctx, must(binding.Contract().Prepare(request, tool.Admission{}))))
 	if first.InputRequest == nil {
 		t.Fatal("remote form was not a pending tool result")
 	}
 	response := must(first.InputRequest.Continuation(json.RawMessage(`{"action":"accept","content":{"city":"Paris"}}`)))
-	done := must(binding.Call(ctx, must(binding.Contract().Prepare(request, &response))))
+	done := must(binding.Call(ctx, must(binding.Contract().Prepare(request, tool.Admission{Continuation: &response}))))
 	if got, _ := done.Output.Text(); got != "Paris" || s.starts.Load() != 1 {
 		t.Fatalf("text=%s starts=%d", got, s.starts.Load())
 	}

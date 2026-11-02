@@ -35,7 +35,7 @@ func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	}
 	// A blank message passes schema admission but fails argument parsing before
 	// the remote agent is called; the zero client is never reached.
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`}, toolcontract.Admission{})
 	if err != nil {
 		t.Fatalf("Prepare rejected blank message before Call: %v", err)
 	}

@@ -216,23 +216,23 @@ func unknownRequest(log agentrun.Log) (agentrun.EffectRequest, error) {
 	return result, nil
 }
 
-func reconcile(ctx context.Context, lookup func(context.Context, agentrun.EffectID) (receipt, bool, error), program agentrun.Program[interaction.Input, interaction.Output], request agentrun.EffectRequest, owner *agentrun.Handle[interaction.Output]) (bool, string, error) {
-	outcome, found, err := lookup(ctx, request.ID())
+func reconcile(ctx context.Context, lookup func(context.Context, string) (receipt, bool, error), program agentrun.Program[interaction.Input, interaction.Output], request agentrun.EffectRequest, owner *agentrun.Handle[interaction.Output]) (bool, string, error) {
+	invocation, err := interaction.ToolInvocationFromRequest(request)
+	if err != nil {
+		return false, "", err
+	}
+	outcome, found, err := lookup(ctx, invocation.IdempotencyKey())
 	if err != nil {
 		return false, err.Error(), nil
 	}
 	if !found {
 		return false, "remote receipt not found; outcome unresolved", nil
 	}
-	invocation, err := interaction.ToolInvocationFromRequest(request)
-	if err != nil {
-		return false, "", err
-	}
 	var input note
 	if decodeErr := jsonv2.Unmarshal([]byte(invocation.ToolCall().Arguments), &input, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
 		return false, "", decodeErr
 	}
-	if outcome.EffectID != request.ID() || outcome.Note != input {
+	if outcome.IdempotencyKey != invocation.IdempotencyKey() || outcome.Note != input {
 		return false, "", errors.New("example: remote receipt does not match the original write")
 	}
 	disposition, text := interaction.ResultRejected, "write denied"

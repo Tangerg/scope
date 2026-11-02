@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
@@ -131,11 +132,15 @@ func TestReceiptMustMatchOriginalWrite(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		invocation, err := interaction.ToolInvocationFromRequest(result.Request)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, wrong := range []receipt{
-			{EffectID: agentrun.EffectID{}, Note: note{Text: "release note"}, Accepted: true},
-			{EffectID: result.Request.ID(), Note: note{Text: "another operation"}, Accepted: true},
+			{IdempotencyKey: "another-call", Note: note{Text: "release note"}, Accepted: true},
+			{IdempotencyKey: invocation.IdempotencyKey(), Note: note{Text: "another operation"}, Accepted: true},
 		} {
-			lookup := func(context.Context, agentrun.EffectID) (receipt, bool, error) { return wrong, true, nil }
+			lookup := func(context.Context, string) (receipt, bool, error) { return wrong, true, nil }
 			resolved, _, err := reconcile(ctx, lookup, program, result.Request, nil)
 			if err == nil || err.Error() != "example: remote receipt does not match the original write" || resolved {
 				t.Fatalf("mismatched receipt accepted: resolved=%t error=%v", resolved, err)

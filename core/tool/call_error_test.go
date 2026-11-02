@@ -82,7 +82,7 @@ func TestFuncPreservesNonfinalExecutionEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "write", Arguments: "{}"}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "write", Arguments: "{}"}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

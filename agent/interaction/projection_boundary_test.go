@@ -177,9 +177,8 @@ func TestPendingInputBoundaryDoesNotExposeContinuationState(t *testing.T) {
 func TestSparseRoundsRetainProviderOrderAndOnlyCommittedReferences(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	executable := scriptTool{name: "echo", direct: true, invoke: func(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
-		invocation, _ := ToolInvocationFromContext(ctx)
-		if invocation.ToolCall().ID == "uncertain" {
+	executable := scriptTool{name: "echo", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
+		if requestedCall(input) == "uncertain" {
 			return tool.Result{}, mustValue(tool.NewCallError(tool.CallErrorConfig{Cause: errors.New("lost confirmation"), Evidence: tool.NewTextOutput("uncertain output")}))
 		}
 		return tool.Result{Output: tool.NewTextOutput("first output")}, nil

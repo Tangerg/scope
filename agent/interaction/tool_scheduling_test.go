@@ -67,21 +67,17 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	defer releaseOnce.Do(func() { close(release) })
-	started := make(chan ToolInvocation, 2)
-	executable := scriptTool{name: "echo", direct: true, classify: func(tool.Invocation) (string, bool) { return "", true }, invoke: func(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
-		invocation, present := ToolInvocationFromContext(ctx)
-		if !present {
-			return tool.Result{}, errors.New("missing tool invocation")
-		}
-		started <- invocation
-		if invocation.ToolCall().ID == "first" {
+	started := make(chan tool.Invocation, 2)
+	executable := scriptTool{name: "echo", direct: true, classify: func(tool.Invocation) (string, bool) { return "", true }, invoke: func(ctx context.Context, input tool.Invocation) (tool.Result, error) {
+		started <- input
+		if requestedCall(input) == "first" {
 			select {
 			case <-release:
 			case <-ctx.Done():
 				return tool.Result{}, ctx.Err()
 			}
 		}
-		return tool.Result{Output: tool.NewTextOutput(invocation.ToolCall().ID)}, nil
+		return tool.Result{Output: tool.NewTextOutput(requestedCall(input))}, nil
 	}}
 	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), MaxConcurrentToolCalls: 2, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("echo", "first"), requested("echo", "second")), nil
@@ -92,11 +88,11 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 	var first, second run.EffectID
 	for range 2 {
 		select {
-		case invocation := <-started:
-			if invocation.ToolCall().ID == "first" {
-				first = invocation.EffectID()
+		case input := <-started:
+			if requestedCall(input) == "first" {
+				first = invocationEffect(input)
 			} else {
-				second = invocation.EffectID()
+				second = invocationEffect(input)
 			}
 		case <-ctx.Done():
 			t.Fatal("independent tool calls did not overlap", ctx.Err())
@@ -161,7 +157,7 @@ func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
 	if !ok || called.Load() || strings.Contains(failure.Message(), "private-validator-detail") {
 		t.Fatalf("validator defect lost its boundary: %+v called=%v", failure, called.Load())
 	}
-	prepared := tools.dispatcher.prepareToolCall(requested("checked", "call"), nil)
+	prepared := tools.dispatcher.prepareToolCall(requested("checked", "call"), tool.Admission{})
 	if prepared.defect == nil || prepared.rejection != nil {
 		t.Fatal("dispatch validator defect became model-correctable feedback")
 	}

@@ -37,9 +37,9 @@ func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool
 	if err != nil {
 		return tool.Result{}, err
 	}
-	invocation, ok := interaction.ToolInvocationFromContext(ctx)
-	if !ok {
-		return tool.Result{}, errors.New("missing Tool invocation")
+	effectID, err := agentrun.ParseEffectID(input.IdempotencyKey())
+	if err != nil {
+		return tool.Result{}, err
 	}
 	var arguments readReport
 	if err := jsonv2.Unmarshal(input.Arguments(), &arguments, jsonv2.RejectUnknownMembers(true)); err != nil {
@@ -47,7 +47,7 @@ func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool
 	}
 	if uint64(arguments.Index+1) == lostToolRound {
 		select {
-		case l.confirmed <- confirmedToolCall{EffectID: invocation.EffectID(), Output: output.Output.Clone()}:
+		case l.confirmed <- confirmedToolCall{EffectID: effectID, Output: output.Output.Clone()}:
 			return tool.Result{}, errors.New("confirmed report response was lost")
 		case <-ctx.Done():
 			return tool.Result{}, ctx.Err()

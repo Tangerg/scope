@@ -50,7 +50,7 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: "search", Arguments: `{"query":"scope"}`,
-	}, nil)
+	}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestGuardDenialSkipsExecution(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: "search", Arguments: `{"query":"scope"}`,
-	}, nil)
+	}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: "search", Arguments: `{"query":"scope"}`,
-	}, nil)
+	}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: "search", Arguments: `{"query":"scope"}`,
-	}, nil)
+	}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

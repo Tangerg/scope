@@ -11,7 +11,7 @@ func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments
 	if err != nil {
 		return toolcontract.Output{}, err
 	}
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, toolcontract.Admission{})
 	if err != nil {
 		return toolcontract.Output{}, err
 	}

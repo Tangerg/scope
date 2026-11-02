@@ -29,7 +29,7 @@ func ExampleRetrieval() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"Go design"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "search", Arguments: `{"query":"Go design"}`}, tool.Admission{})
 	if err != nil {
 		panic(err)
 	}

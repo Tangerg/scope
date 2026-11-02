@@ -55,30 +55,21 @@ func newToolDispatcher() *toolDispatcher {
 
 func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
-	envelope, err := decodeEffect(request.Effect().Payload())
+	invocation, err := ToolInvocationFromRequest(request)
 	if err != nil {
 		return failedSettlement(err)
 	}
-	if envelope.operation() != operationToolCall || envelope.ToolCall == nil {
-		return failedSettlement(errors.New("interaction: Tool dispatcher requires one tool_call"))
+	admission, err := invocation.admission()
+	if err != nil {
+		return failedSettlement(err)
 	}
-	call := envelope.ToolCall.Invocation
-	resume := envelope.ToolCall.Resume
-	var continuation *tool.Continuation
-	if resume != nil {
-		input, resumeErr := resume.InputRequest.Continuation(resume.InputResponse)
-		if resumeErr != nil {
-			return failedSettlement(resumeErr)
-		}
-		continuation = &input
-	}
-	prepared := t.prepareToolCall(call.Call, continuation)
+	prepared := t.prepareToolCall(invocation.ToolCall(), admission)
 	if prepared.defect != nil {
 		// A validator defect is settled before Tool.Call runs, as a definite
 		// failure that propagates to the parent, never a model-visible result.
 		return failedSettlement(errToolInputValidatorDefect)
 	}
-	result, advertised, required, rejected, err := t.callTool(ctx, request, prepared)
+	result, advertised, required, rejected, err := t.callTool(ctx, prepared)
 	if err != nil && result.ID == "" {
 		failure := toolFailure{Diagnostic: run.NormalizeDiagnostic(err.Error())}
 		if evidence, ok := errors.AsType[*tool.CallError](err); ok && evidence.Validate() == nil {
@@ -135,7 +126,6 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 
 func (t *toolDispatcher) callTool(
 	ctx context.Context,
-	request run.EffectRequest,
 	prepared preparedToolCall,
 ) (
 	result chat.ToolResult,
@@ -148,12 +138,7 @@ func (t *toolDispatcher) callTool(
 	if prepared.rejection != nil {
 		return prepared.rejection.Clone(), nil, nil, true, nil
 	}
-	invocation, attributionErr := ToolInvocationFromRequest(request)
-	if attributionErr != nil {
-		return chat.ToolResult{}, nil, nil, false, attributionErr
-	}
 	binding := prepared.binding
-	ctx = withToolInvocation(ctx, invocation)
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			result = chat.ToolResult{}
@@ -218,7 +203,7 @@ func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invoca
 	return canonical, nil
 }
 
-func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, continuation *tool.Continuation) preparedToolCall {
+func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admission) preparedToolCall {
 	prepared := preparedToolCall{call: call}
 	binding, found := t.bindings[call.Name]
 	if !found {
@@ -227,7 +212,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, continuation *tool.
 		return prepared
 	}
 	prepared.binding = binding
-	invocation, err := t.manifest.entries[call.Name].prepare(call, continuation)
+	invocation, err := t.manifest.entries[call.Name].prepare(call, admission)
 	if err != nil {
 		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
 			prepared.defect = err

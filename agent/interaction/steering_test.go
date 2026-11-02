@@ -125,14 +125,6 @@ func TestSteeringAndOutcomeMessagesCannotCrossProtocolBoundaries(t *testing.T) {
 	if _, err := NewSteerSignal(run.SignalID{}, testInput().Messages...); !errors.Is(err, ErrInvalidSteer) {
 		t.Fatal("unidentified guidance admitted", err)
 	}
-	for _, ctx := range []context.Context{nil, t.Context()} {
-		if _, found := ModelInvocationFromContext(ctx); found {
-			t.Fatal("model identity fabricated from unrelated context")
-		}
-		if _, found := ToolInvocationFromContext(ctx); found {
-			t.Fatal("tool identity fabricated from unrelated context")
-		}
-	}
 }
 
 func TestLocalContextPolicyFailureCannotDispatchAModel(t *testing.T) {

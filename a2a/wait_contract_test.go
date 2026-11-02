@@ -126,7 +126,7 @@ func TestProtocolHandlerAndRemoteToolShareAnExactStructuredWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := tool.Request{Name: bound.Contract().Definition().Name, Arguments: `{"message":"quote"}`}
-	inv, err := bound.Contract().Prepare(req, nil)
+	inv, err := bound.Contract().Prepare(req, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestProtocolHandlerAndRemoteToolShareAnExactStructuredWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err := bound.Contract().Prepare(req, &bad)
+	next, err := bound.Contract().Prepare(req, tool.Admission{Continuation: &bad})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestProtocolHandlerAndRemoteToolShareAnExactStructuredWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, err = bound.Contract().Prepare(req, &c)
+	next, err = bound.Contract().Prepare(req, tool.Admission{Continuation: &c})
 	if err != nil {
 		t.Fatal(err)
 	}

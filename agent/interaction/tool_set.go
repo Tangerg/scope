@@ -193,10 +193,10 @@ func (t toolManifestEntry) modelDefinition() tool.Definition {
 	return definition
 }
 
-func (t toolManifestEntry) prepare(call chat.ToolCall, continuation *tool.Continuation) (tool.Invocation, error) {
+func (t toolManifestEntry) prepare(call chat.ToolCall, admission tool.Admission) (tool.Invocation, error) {
 	request := call.Request()
 	request.Name = t.contract.Name()
-	return t.contract.Prepare(request, continuation)
+	return t.contract.Prepare(request, admission)
 }
 
 type toolConcurrencyPlan struct {
@@ -208,7 +208,7 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (plan toolConcurrencyPlan, e
 	if t.concurrent == nil {
 		return toolConcurrencyPlan{}, nil
 	}
-	invocation, err := t.prepare(call, nil)
+	invocation, err := t.prepare(call, tool.Admission{})
 	if err != nil {
 		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
 			// A validator defect is an internal fault, not a bad argument; fail the

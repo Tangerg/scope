@@ -228,7 +228,7 @@ func TestAgentCardLimitDoesNotBoundRPCResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"question"}`}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

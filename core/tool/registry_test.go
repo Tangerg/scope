@@ -40,7 +40,7 @@ func TestRegistryResolveAndDefinitions(t *testing.T) {
 	if !ok {
 		t.Fatal("Resolve(alpha) did not find registered tool")
 	}
-	invocation, err := value.Contract().Prepare(tool.Request{Name: "alpha", Arguments: `{}`}, nil)
+	invocation, err := value.Contract().Prepare(tool.Request{Name: "alpha", Arguments: `{}`}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

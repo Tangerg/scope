@@ -26,7 +26,7 @@ func ExampleNewInputRequest() {
 		panic(err)
 	}
 	// The runtime persists the checkpoint and routes this answer to the same
-	// call through binding.Contract().Prepare(call, &continuation).
+	// call through binding.Contract().Prepare(call, tool.Admission{Continuation: &continuation}).
 	fmt.Println(string(continuation.State()), string(continuation.Response()))
 	// Output: {"record":"draft"} true
 }
@@ -55,7 +55,7 @@ func Example() {
 	if !ok {
 		panic("missing add")
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "add", Arguments: `{"a":2,"b":3}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "add", Arguments: `{"a":2,"b":3}`}, tool.Admission{})
 	if err != nil {
 		panic(err)
 	}
@@ -111,7 +111,7 @@ func ExampleNewGuard() {
 	if err != nil {
 		panic(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "inspect", Arguments: `{}`}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "inspect", Arguments: `{}`}, tool.Admission{})
 	if err != nil {
 		panic(err)
 	}

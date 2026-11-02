@@ -57,7 +57,7 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 		{Name: "search", Arguments: `{"query":"x"}`},
 		{Name: "search", Arguments: `{"query":"ok","extra":true}`},
 	} {
-		if _, prepareErr := contract.Prepare(call, nil); !errors.Is(prepareErr, tool.ErrInvalidInvocation) {
+		if _, prepareErr := contract.Prepare(call, tool.Admission{}); !errors.Is(prepareErr, tool.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%+v) error = %v, want ErrInvalidInvocation", call, prepareErr)
 		}
 	}
@@ -65,7 +65,7 @@ func TestContractPromotesOnlySchemaValidCalls(t *testing.T) {
 		t.Fatalf("invalid promotion executed Tool %d times", executable.calls.Load())
 	}
 
-	invocation, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, nil)
+	invocation, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{"query":"scope"}`}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestContractNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(tool.Request{Name: "empty"}, nil)
+	invocation, err := binding.Contract().Prepare(tool.Request{Name: "empty"}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestBindingRejectsForeignInvocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := first.Contract().Prepare(tool.Request{Name: "same", Arguments: `{}`}, nil)
+	invocation, err := first.Contract().Prepare(tool.Request{Name: "same", Arguments: `{}`}, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestBindingRejectsForeignInvocation(t *testing.T) {
 
 func TestZeroContractCannotPrepareInvocation(t *testing.T) {
 	var contract tool.Contract
-	if _, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{}`}, nil); !errors.Is(err, tool.ErrInvalidInvocation) {
+	if _, err := contract.Prepare(tool.Request{Name: "search", Arguments: `{}`}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("Prepare error = %v, want ErrInvalidInvocation", err)
 	}
 }

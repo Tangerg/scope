@@ -70,7 +70,7 @@ func SettleToolResult(program run.Program[Input, Output], request run.EffectRequ
 	if !found {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
-	if _, prepareErr := entry.prepare(call, nil); prepareErr != nil {
+	if _, prepareErr := entry.prepare(call, tool.Admission{}); prepareErr != nil {
 		return run.Settlement{}, fmt.Errorf("%w: recovery input: %w", ErrInvalidProtocol, prepareErr)
 	}
 	if result.InputRequest != nil {

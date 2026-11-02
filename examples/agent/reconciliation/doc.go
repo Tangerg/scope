@@ -1,6 +1,6 @@
 // Command reconciliation investigates a Tool response lost after a remote
 // operation. It restores the committed log in a replacement Runtime and settles
-// only a receipt that matches the original EffectID and arguments.
+// only a receipt that matches the original idempotency key and arguments.
 //
 // Run from the repository root:
 //

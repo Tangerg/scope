@@ -62,7 +62,7 @@ func ExampleNewTools_pagination() {
 		if err != nil {
 			panic(err)
 		}
-		invocation, err := binding.Contract().Prepare(tool.Request{Name: "load_skill", Arguments: string(arguments)}, nil)
+		invocation, err := binding.Contract().Prepare(tool.Request{Name: "load_skill", Arguments: string(arguments)}, tool.Admission{})
 		if err != nil {
 			panic(err)
 		}

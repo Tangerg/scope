@@ -11,7 +11,7 @@ func prepareTestTool(executable toolcontract.Tool, arguments string) (toolcontra
 	if err != nil {
 		return toolcontract.Binding{}, toolcontract.Invocation{}, err
 	}
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, toolcontract.Admission{})
 	return binding, invocation, err
 }
 

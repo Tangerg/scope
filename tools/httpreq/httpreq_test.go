@@ -48,7 +48,7 @@ func TestToolUsesStrictTypedContract(t *testing.T) {
 		`{"url":"https://example.com","timeout_ms":120001}`,
 		`{"url":"https://example.com","timeout_ms":1.0}`,
 	} {
-		if _, err := binding.Contract().Prepare(toolcontract.Request{Name: definition.Name, Arguments: arguments}, nil); !errors.Is(err, toolcontract.ErrInvalidInvocation) {
+		if _, err := binding.Contract().Prepare(toolcontract.Request{Name: definition.Name, Arguments: arguments}, toolcontract.Admission{}); !errors.Is(err, toolcontract.ErrInvalidInvocation) {
 			t.Errorf("Prepare(%s) = %v, want invalid invocation", arguments, err)
 		}
 	}

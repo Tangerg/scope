@@ -455,7 +455,7 @@ func TestScopeRemoteToolCompletesTheManagedProtocolWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"ask"}`}
-	inv, err := b.Contract().Prepare(req, nil)
+	inv, err := b.Contract().Prepare(req, tool.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestScopeRemoteToolCompletesTheManagedProtocolWait(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inv, err = b.Contract().Prepare(req, &resume)
+	inv, err = b.Contract().Prepare(req, tool.Admission{Continuation: &resume})
 	if err != nil {
 		t.Fatal(err)
 	}

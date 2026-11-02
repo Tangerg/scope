@@ -20,7 +20,7 @@ func invocationFor(t *testing.T, executable toolcontract.Tool, arguments string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: arguments}, toolcontract.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestReadToolUsesConcurrentReaderContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: "read", Arguments: `{"path":"file.txt"}`}, nil)
+	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: "read", Arguments: `{"path":"file.txt"}`}, toolcontract.Admission{})
 	if err != nil {
 		t.Fatal(err)
 	}

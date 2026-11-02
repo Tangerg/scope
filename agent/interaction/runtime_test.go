@@ -21,7 +21,7 @@ import (
 )
 
 const interactionTestTimeout = 5 * time.Second
-const objectToolSchema = `{"type":"object","additionalProperties":false}`
+const objectToolSchema = `{"type":"object","properties":{"call":{"type":"string"}},"additionalProperties":false}`
 
 type scriptTool struct {
 	name      string
@@ -65,8 +65,25 @@ func callResponse(calls ...chat.ToolCall) *chat.Response {
 	}
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(parts...)), FinishReason: chat.FinishReasonToolCalls}}
 }
+
+// requested echoes the model call ID into the arguments, the only call data a
+// Tool receives, so scripted tools can tell sibling calls apart.
 func requested(name, id string) chat.ToolCall {
-	return chat.ToolCall{ID: id, Name: name, Arguments: `{}`}
+	return chat.ToolCall{ID: id, Name: name, Arguments: `{"call":"` + id + `"}`}
+}
+
+func requestedCall(input tool.Invocation) string {
+	var arguments struct {
+		Call string `json:"call"`
+	}
+	if err := jsonv2.Unmarshal(input.Arguments(), &arguments); err != nil {
+		panic(err)
+	}
+	return arguments.Call
+}
+
+func invocationEffect(input tool.Invocation) run.EffectID {
+	return mustValue(run.ParseEffectID(input.IdempotencyKey()))
 }
 func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[Input, Output] {
 	t.Helper()
@@ -143,23 +160,13 @@ func completedLog(t *testing.T, store run.Store, root run.ProcessID) run.Log {
 func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
-	var calls []ToolInvocation
-	var modelInvocations []ModelInvocation
-	executable := scriptTool{name: "echo", invoke: func(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
-		invocation, ok := ToolInvocationFromContext(ctx)
-		if !ok {
-			return tool.Result{}, errors.New("missing invocation")
-		}
-		calls = append(calls, invocation)
-		return tool.Result{Output: tool.NewTextOutput(invocation.ToolCall().ID)}, nil
+	var calls []run.EffectID
+	executable := scriptTool{name: "echo", invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
+		calls = append(calls, invocationEffect(input))
+		return tool.Result{Output: tool.NewTextOutput(requestedCall(input))}, nil
 	}}
 	models := 0
 	model := chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
-		invocation, ok := ModelInvocationFromContext(ctx)
-		if !ok {
-			return nil, errors.New("missing model invocation")
-		}
-		modelInvocations = append(modelInvocations, invocation)
 		models++
 		if models == 1 {
 			return callResponse(requested("echo", "first"), requested("echo", "second")), nil
@@ -182,36 +189,30 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 		t.Fatalf("models=%d tools=%d", output.ModelCalls, len(calls))
 	}
 	log := completedLog(t, store, handle.ID())
-	starts, intents := 0, 0
+	starts := 0
+	var intents []run.EffectID
 	for _, entry := range log.Entries {
 		switch record := entry.Record.(type) {
 		case run.Started:
 			starts++
 		case run.EffectIntent:
-			intents++
+			intents = append(intents, record.ID)
 			if record.ID.Process != handle.ID() || record.Effect.Target() != run.EffectTargetDispatcher {
 				t.Fatal("ordinary tool allocated a child lifecycle")
 			}
 		}
 	}
-	if starts != 1 || intents != 4 {
-		t.Fatalf("starts=%d intents=%d", starts, intents)
+	if starts != 1 || len(intents) != 4 {
+		t.Fatalf("starts=%d intents=%d", starts, len(intents))
 	}
-	for _, call := range calls {
-		if call.Reference() != call.EffectID() || call.ProcessID() != handle.ID() || call.ProgramRef() != program.ProgramRef() || call.Epoch() == 0 {
-			t.Fatal("initial reference does not use effect identity")
-		}
-	}
-	for index, invocation := range modelInvocations {
-		if !invocation.Valid() || invocation.ModelCallSequence() != uint64(index+1) || invocation.ProcessID() != handle.ID() || invocation.ProgramRef() != program.ProgramRef() || invocation.EffectID().Process != handle.ID() || invocation.Epoch() == 0 || len(invocation.AppliedSteerSignalIDs()) != 0 {
-			t.Fatal("model attribution differs from committed execution")
-		}
+	if !slices.Equal(calls, intents[1:3]) {
+		t.Fatalf("idempotency keys %v are not the committed tool intents %v", calls, intents)
 	}
 	rounds, err := SettledResults(program, log)
 	if err != nil || len(rounds) != 1 || !rounds[0].Complete() {
 		t.Fatalf("rounds=%+v err=%v", rounds, err)
 	}
-	if rounds[0].ProcessID() != handle.ID() || rounds[0].ModelEffectID() != modelInvocations[0].EffectID() || rounds[0].ModelCallSequence() != 1 || rounds[0].CallCount() != 2 || !rounds[0].Digest().Valid() {
+	if rounds[0].ProcessID() != handle.ID() || rounds[0].ModelEffectID() != intents[0] || rounds[0].ModelCallSequence() != 1 || rounds[0].CallCount() != 2 || !rounds[0].Digest().Valid() {
 		t.Fatal("round attribution is not derived from its model intent")
 	}
 	data := rounds[0].JSON()
@@ -221,7 +222,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	}
 	for index, entry := range rounds[0].Entries() {
 		reference, ok := rounds[0].Reference(uint32(index))
-		if !ok || reference != calls[index].EffectID() || entry.Reference != reference {
+		if !ok || reference != calls[index] || entry.Reference != reference {
 			t.Fatal("result reference not derived from committed intent")
 		}
 	}
@@ -230,10 +231,9 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, CheckpointInterval: 1})
-	var invocations []ToolInvocation
-	executable := scriptTool{name: "ask", direct: true, invoke: func(ctx context.Context, input tool.Invocation) (tool.Result, error) {
-		invocation, _ := ToolInvocationFromContext(ctx)
-		invocations = append(invocations, invocation)
+	var keys []string
+	executable := scriptTool{name: "ask", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
+		keys = append(keys, input.IdempotencyKey())
 		continuation, resumed := input.Continuation()
 		stage := 0
 		if resumed {
@@ -290,16 +290,11 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 		previous = pending.WaitKey()
 	}
 	output := awaitOutput(t, handle)
-	if len(output.DirectToolResults) != 1 || output.ModelCalls != 1 || len(invocations) != 3 {
-		t.Fatalf("output=%+v invocations=%d", output, len(invocations))
+	if len(output.DirectToolResults) != 1 || output.ModelCalls != 1 || len(keys) != 3 {
+		t.Fatalf("output=%+v invocations=%d", output, len(keys))
 	}
-	for index, invocation := range invocations {
-		if invocation.Reference() != invocations[0].EffectID() {
-			t.Fatal("continuation changed logical reference")
-		}
-		if index > 0 && invocation.EffectID() == invocations[index-1].EffectID() {
-			t.Fatal("continuation reused effect identity")
-		}
+	if first := mustValue(run.ParseEffectID(keys[0])); first.Process != handle.ID() || slices.ContainsFunc(keys, func(key string) bool { return key != keys[0] }) {
+		t.Fatalf("continuations changed the logical call key: %v", keys)
 	}
 	pending, err := PendingToolInputs(program, completedLog(t, store, handle.ID()))
 	if err != nil || len(pending) != 0 {

@@ -113,7 +113,7 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					inv, err := b.Contract().Prepare(tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"question 9007199254740993"}`}, nil)
+					inv, err := b.Contract().Prepare(tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"question 9007199254740993"}`}, tool.Admission{})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -128,7 +128,7 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 					original := tool.Request{Name: b.Contract().Definition().Name, Arguments: `{"message":"question 9007199254740993"}`}
 					wrong := original
 					wrong.Arguments = `{"message":"different"}`
-					wrongInv, err := b.Contract().Prepare(wrong, &c)
+					wrongInv, err := b.Contract().Prepare(wrong, tool.Admission{Continuation: &c})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -136,7 +136,7 @@ func TestWireRemoteTaskOutcomesAcrossBindings(t *testing.T) {
 						t.Fatalf("cross-call answer: %v", err)
 					}
 					for range 2 {
-						next, prepareErr := b.Contract().Prepare(original, &c)
+						next, prepareErr := b.Contract().Prepare(original, tool.Admission{Continuation: &c})
 						if prepareErr != nil {
 							t.Fatal(prepareErr)
 						}

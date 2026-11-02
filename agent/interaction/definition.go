@@ -285,7 +285,7 @@ func (d *definition) admitProposals(ctx context.Context, calls []chat.ToolCall, 
 			if !found || (entry.deferred && !slices.Contains(advertised, call.Name)) {
 				return fmt.Sprintf("tool batch was not executed: tool %q is not available", call.Name), nil
 			}
-			_, err = entry.prepare(call, nil)
+			_, err = entry.prepare(call, tool.Admission{})
 		}
 		if err != nil {
 			if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {

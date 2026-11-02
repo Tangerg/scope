@@ -62,7 +62,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		rawArgs = string(req.Params.Arguments)
 	}
 
-	invocation, err := s.executable.Contract().Prepare(toolcontract.Request{Name: toolName, Arguments: rawArgs}, nil)
+	invocation, err := s.executable.Contract().Prepare(toolcontract.Request{Name: toolName, Arguments: rawArgs}, toolcontract.Admission{})
 	if err != nil {
 		return s.prepareError(span, err)
 	}

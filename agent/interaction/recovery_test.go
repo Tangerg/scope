@@ -82,11 +82,10 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndReplayPolicy(t *testing.T
 				var toolCalls, modelCalls atomic.Int32
 				var idsMu sync.Mutex
 				var ids []run.EffectID
-				executable := scriptTool{name: "write", direct: true, invoke: func(ctx context.Context, _ tool.Invocation) (tool.Result, error) {
+				executable := scriptTool{name: "write", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
 					toolCalls.Add(1)
-					invocation, _ := ToolInvocationFromContext(ctx)
 					idsMu.Lock()
-					ids = append(ids, invocation.EffectID())
+					ids = append(ids, invocationEffect(input))
 					idsMu.Unlock()
 					return tool.Result{Output: tool.NewTextOutput("verified")}, nil
 				}}
@@ -210,14 +209,10 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 	original := conformancetest.Runtime(t, run.Config{Store: barrier})
 	firstQuestion := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"phase":1}`)))
 	secondQuestion := mustValue(newInputRequest([]byte(`"Give a reason."`), []byte(`{"type":"string"}`), []byte(`{"phase":2}`)))
-	invocations := make(chan ToolInvocation, 3)
+	keys := make(chan run.EffectID, 3)
 	var initialCalls, modelCalls atomic.Int32
-	executable := scriptTool{name: "approve", direct: true, invoke: func(ctx context.Context, input tool.Invocation) (tool.Result, error) {
-		invocation, present := ToolInvocationFromContext(ctx)
-		if !present {
-			return tool.Result{}, errors.New("missing tool invocation")
-		}
-		invocations <- invocation
+	executable := scriptTool{name: "approve", direct: true, invoke: func(_ context.Context, input tool.Invocation) (tool.Result, error) {
+		keys <- invocationEffect(input)
 		continuation, resumed := input.Continuation()
 		if !resumed {
 			initialCalls.Add(1)
@@ -307,13 +302,10 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 	if text, textual := output.DirectToolResults[0].Output.Text(); !textual || text != "approved after review" {
 		t.Fatal("recovered continuation changed its final output")
 	}
-	previous := run.EffectID{}
 	for range 3 {
-		invocation := <-invocations
-		if invocation.Reference() != intended || invocation.ProcessID() != recovered.ID() || previous.Valid() && invocation.EffectID().Step <= previous.Step {
-			t.Fatal("continuation changed the logical call or reused an effect")
+		if key := <-keys; key != intended {
+			t.Fatalf("continuation key %s changed the logical call %s", key, intended)
 		}
-		previous = invocation.EffectID()
 	}
 	completed := completedLog(t, store, handle.ID())
 	if inputs := mustValue(PendingToolInputs(program, completed)); len(inputs) != 0 {

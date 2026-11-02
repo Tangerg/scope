@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
-	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 type note struct {
@@ -14,9 +12,9 @@ type note struct {
 }
 
 type receipt struct {
-	EffectID agentrun.EffectID
-	Note     note
-	Accepted bool
+	IdempotencyKey string
+	Note           note
+	Accepted       bool
 }
 
 type queryAvailability uint8
@@ -34,29 +32,29 @@ type remoteLedger struct {
 	mu           sync.Mutex
 	reject       bool
 	availability queryAvailability
-	receipts     map[agentrun.EffectID]receipt
+	receipts     map[string]receipt
 	attempts     int
 	queries      int
 }
 
-func (r *remoteLedger) submit(ctx context.Context, id agentrun.EffectID, input note) error {
+func (r *remoteLedger) submit(ctx context.Context, key string, input note) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.attempts++
-	if _, exists := r.receipts[id]; exists {
+	if _, exists := r.receipts[key]; exists {
 		return errors.New("remote: unexpected repeated write")
 	}
 	if r.receipts == nil {
-		r.receipts = make(map[agentrun.EffectID]receipt)
+		r.receipts = make(map[string]receipt)
 	}
-	r.receipts[id] = receipt{EffectID: id, Note: input, Accepted: !r.reject}
+	r.receipts[key] = receipt{IdempotencyKey: key, Note: input, Accepted: !r.reject}
 	return nil
 }
 
-func (r *remoteLedger) lookup(ctx context.Context, id agentrun.EffectID) (receipt, bool, error) {
+func (r *remoteLedger) lookup(ctx context.Context, key string) (receipt, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return receipt{}, false, err
 	}
@@ -69,7 +67,7 @@ func (r *remoteLedger) lookup(ctx context.Context, id agentrun.EffectID) (receip
 	case queryUnavailable:
 		return receipt{}, false, errors.New("remote: receipt query unavailable")
 	case queryAvailable:
-		result, found := r.receipts[id]
+		result, found := r.receipts[key]
 		return result, found, nil
 	default:
 		return receipt{}, false, fmt.Errorf("remote: invalid query availability %d", r.availability)
