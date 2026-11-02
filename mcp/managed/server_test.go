@@ -35,7 +35,7 @@ type decision struct {
 }
 type definition struct {
 	descriptor run.Descriptor
-	wait       run.ExternalWaitSpec
+	wait       run.Wait
 	starts     *atomic.Int64
 }
 
@@ -51,61 +51,38 @@ func (d definition) Restore(_ context.Context, s run.ExecutionState) (run.Execut
 }
 
 type state struct {
-	Phase int        `json:"phase"`
-	Wait  run.WaitID `json:"wait,omitzero"`
+	Phase int `json:"phase"`
 }
 type execution struct {
-	wait  run.ExternalWaitSpec
+	wait  run.Wait
 	state state
 }
 
 func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.booking", e.state)
 }
-func (e *execution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
-	switch e.state.Phase {
-	case 0:
+func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
+	if e.state.Phase == 0 {
 		e.state.Phase++
-		effect, err := run.NewWaitEffect(e.wait)
-		if err != nil {
-			return run.Transition{}, err
-		}
-		return run.Continue(0, effect)
-	case 1:
-		if len(signals) != 1 {
-			return run.Transition{}, run.ErrInvalidSignal
-		}
-		opening, err := signals[0].Frame[run.WaitOpened]()
-		if err != nil {
-			return run.Transition{}, err
-		}
-		key := opening.WaitID()
-		e.state = state{Phase: 2, Wait: key}
-		return run.Wait(1, key)
-	case 2:
-		if len(signals) != 1 {
-			return run.Transition{}, run.ErrInvalidSignal
-		}
-		id, ok := signals[0].WaitID()
-		if !ok || id != e.state.Wait {
-			return run.Transition{}, run.ErrInvalidSignal
-		}
-		v, err := run.ParsePayload(signals[0].Payload())
-		if err != nil {
-			return run.Transition{}, err
-		}
-		e.state.Phase++
-		return run.Complete(1, v)
+		return run.Yield(0, nil, e.wait)
 	}
-	return run.Transition{}, run.ErrInvalidExecutionState
+	if e.state.Phase != 1 || len(turn.Messages) != 1 {
+		return run.Transition{}, run.ErrInvalidExecutionState
+	}
+	answer, ok := turn.Messages[0].(run.Signal)
+	if !ok || answer.Wait != e.wait.Key {
+		return run.Transition{}, run.ErrInvalidMessage
+	}
+	e.state.Phase++
+	return run.Complete(1, answer.Payload)
 }
-func program(ctx context.Context, starts *atomic.Int64) run.Program[request, decision] {
+func program(compiler *run.Compiler, starts *atomic.Int64) run.Program[request, decision] {
 	input := must(jsonschema.For[request]())
 	answer := must(jsonschema.Parse([]byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}`)))
-	d := definition{descriptor: must(run.NewDescriptor(run.DescriptorConfig{Name: "test.form", Description: "Select a city.", InputSchema: input, OutputSchema: must(jsonschema.For[decision]())})), wait: must(run.NewExternalWaitSpec(run.ExternalWaitSpecConfig{Key: must(run.ParseWaitKey("city")), Question: json.RawMessage(`"Which city?"`), AnswerSchema: answer})), starts: starts}
-	child := must(run.Bind[request, decision](run.BindingConfig{Definition: d, ImplementationDigest: run.ComputeDigest([]byte("test.child")), ConfigurationDigest: run.ComputeDigest([]byte("city"))}))
+	d := definition{descriptor: must(run.NewDescriptor(run.DescriptorConfig{Name: "test.form", Description: "Select a city.", InputSchema: input, OutputSchema: must(jsonschema.For[decision]())})), wait: run.Wait{Key: must(run.ParseWaitKey("city")), Question: must(run.EncodePayload("Which city?")), AnswerSchema: answer}, starts: starts}
+	child := must(run.Bind[request, decision](compiler, run.BindingConfig{Definition: d, Revision: "city"}))
 	stage := must(workflow.Call(workflow.CallConfig{ID: "ask", Program: child.Erase()}))
-	return must(workflow.Compile[request, decision](ctx, workflow.Config{Name: "test.booking", Description: "Confirm a booking.", Stages: []workflow.Stage{stage}, BuildIdentity: run.ComputeDigest([]byte("test.workflow"))}))
+	return must(workflow.Compile[request, decision](compiler, workflow.Config{Name: "test.booking", Description: "Confirm a booking.", Stages: []workflow.Stage{stage}}))
 }
 
 type service struct {
@@ -120,14 +97,14 @@ type service struct {
 func newService(t *testing.T) *service {
 	t.Helper()
 	storage := run.NewMemoryStore()
-	rt := must(run.New(t.Context(), run.Config{Store: storage}))
+	rt := must(run.New(t.Context(), run.Config{Build: "managed-test", Store: storage}))
 	s := &service{runtime: rt, store: storage, server: sdk.NewServer(&sdk.Implementation{Name: "managed", Version: "v1"}, nil)}
 	t.Cleanup(func() {
 		if err := rt.Close(context.Background()); err != nil {
 			t.Error(err)
 		}
 	})
-	s.cfg = managed.Config[request, decision]{Runtime: rt, Program: program(t.Context(), &s.starts), ResumeKey: [32]byte{42}, TokenLifetime: time.Minute,
+	s.cfg = managed.Config[request, decision]{Runtime: rt, Program: program(rt.Compiler(), &s.starts), ResumeKey: [32]byte{42}, TokenLifetime: time.Minute,
 		Authorize: func(_ context.Context, r *sdk.CallToolRequest) (managed.Grant, error) {
 			v, ok := s.grants.Load(r.Session)
 			if !ok {
@@ -254,7 +231,7 @@ func TestReadOnlyNodeDoesNotAcquireManagedChild(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	origin := s.connect(t, "shared-host-session", true)
-	node := &service{server: sdk.NewServer(&sdk.Implementation{Name: "reader", Version: "v1"}, nil), runtime: must(run.New(ctx, run.Config{Store: s.store})), cfg: s.cfg}
+	node := &service{server: sdk.NewServer(&sdk.Implementation{Name: "reader", Version: "v1"}, nil), runtime: must(run.New(ctx, run.Config{Build: "managed-test", Store: s.store})), cfg: s.cfg}
 	t.Cleanup(func() {
 		if err := node.runtime.Close(context.Background()); err != nil {
 			t.Error(err)
@@ -301,12 +278,11 @@ func TestReadOnlyNodeDoesNotAcquireManagedChild(t *testing.T) {
 	}
 	_, err = call(ctx, reader, original.RequestState, answer("accept", map[string]any{"city": "Rome"}), "order")
 	wantCode(t, err, jsonrpc.CodeInvalidParams)
-	views := must(node.runtime.StartedTrees())
-	head, found, err := views.Load(ctx, run.StartID{Scope: "tenant:1", Key: "order:1"})
-	if err != nil || !found {
+	head, err := s.runtime.Inspect(ctx, (run.StartID{Scope: "tenant:1", Key: "order:1"}).Root())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, active := node.runtime.Process(head.RootID()); active || s.starts.Load() != 1 {
+	if _, active := node.runtime.Process(head.Root); active || s.starts.Load() != 1 {
 		t.Fatal("read-only reconciliation acquired or repeated work")
 	}
 }
@@ -359,42 +335,33 @@ func TestOldMCPWriterDoesNotRepublishReplacedWait(t *testing.T) {
 	if err != nil || !pending.NeedsInput() {
 		t.Fatalf("wait=%+v %v", pending, err)
 	}
-	views := must(s.runtime.StartedTrees())
 	id := run.StartID{Scope: "tenant:1", Key: "order:1"}
-	before, found, err := views.Load(ctx, id)
-	if err != nil || !found || len(before.Pending()) != 1 {
-		t.Fatalf("head=%v %v", found, err)
+	before, err := s.runtime.Inspect(ctx, id.Root())
+	if err != nil {
+		t.Fatal(err)
 	}
+	owner, wait := pendingOwner(t, before)
 	// Let the superseded local activation meet its fence and drain before
 	// tearing down the original service. No production path takes over implicitly.
 	t.Cleanup(func() {
 		clean, stop := context.WithTimeout(context.Background(), time.Second)
 		defer stop()
-		if old, ok := s.runtime.Process(before.RootID()); ok {
+		if old, ok := s.runtime.Process(before.Root); ok {
 			_ = old.Cancel(clean, "finish superseded activation")
 			_ = old.Join(clean)
 		}
 	})
-	next := must(run.New(ctx, run.Config{Store: s.store}))
+	next := must(run.New(ctx, run.Config{Build: "managed-test", Store: s.store}))
 	t.Cleanup(func() { _ = next.Close(context.Background()) })
-	// Opening the child form, parking the child, and parking its parent may
-	// advance the head concurrently. A rejected CAS installed no activation;
-	// retry the deliberate takeover against the new authoritative head.
-	var fresh *run.Handle[decision]
-	for {
-		fresh, err = next.Recover(ctx, s.cfg.Program, before)
-		if !errors.Is(err, run.ErrTreeIncarnationConflict) {
-			break
-		}
-		before, found, err = views.Load(ctx, id)
-		if err != nil || !found || len(before.Pending()) != 1 {
-			t.Fatalf("load after CAS rejection: found=%t err=%v", found, err)
-		}
-	}
+	fresh, err := next.Recover(ctx, s.cfg.Program, before.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = fresh.Answer(ctx, before.Pending()[0].WaitID, map[string]string{"city": "Paris"}); err != nil {
+	answerer, ok := next.Process(owner)
+	if !ok {
+		t.Fatal("recovery lost pending child")
+	}
+	if err = answerer.Answer(ctx, wait.Key, map[string]string{"city": "Paris"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = fresh.Join(ctx); err != nil {
@@ -408,4 +375,21 @@ func TestOldMCPWriterDoesNotRepublishReplacedWait(t *testing.T) {
 	if err != nil || retry.NeedsInput() || len(retry.Content) != 1 || retry.Content[0].(*sdk.TextContent).Text != "Paris" {
 		t.Fatalf("accepted answer replay reached stale writer: %+v %v", retry, err)
 	}
+}
+
+func pendingOwner(t *testing.T, view run.TreeInspection) (run.ProcessID, run.Wait) {
+	t.Helper()
+	var owner run.ProcessID
+	var wait run.Wait
+	count := 0
+	for _, process := range view.Processes {
+		for _, pending := range process.Waits {
+			owner, wait = process.ID, pending
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("pending waits = %d, want 1", count)
+	}
+	return owner, wait
 }

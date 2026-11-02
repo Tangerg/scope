@@ -5,7 +5,7 @@
 // published Agent and Core versions selected by its go.mod.
 // MemoryStore retains facts only for that instance's lifetime; this
 // example does not demonstrate durable or cross-process recovery. See the
-// reconciliation example and runstores/postgres for those boundaries.
+// reconciliation example and agent/run/postgres for those boundaries.
 package main
 
 import (
@@ -16,7 +16,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
@@ -42,22 +42,20 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 
-	program, err := agent.Compile(ctx, agent.Config{
+	runtime, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore(), Build: "direct-managed-example"})
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx))) }()
+	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name: "example.managed_echo", Description: "Return one deterministic echo.",
-		Model: echoModel{prefix: "managed"}, MaxModelCalls: agentrun.NewQuota(1),
-		BuildIdentity: agentrun.ComputeDigest([]byte("example-managed-echo-implementation")),
-		ModelIdentity: agentrun.ComputeDigest([]byte("echo-prefix-managed")),
+		Model: echoModel{prefix: "managed"}, MaxModelCalls: agentrun.NewQuota(1), Revision: "managed-prefix",
 	})
 	if err != nil {
 		return err
 	}
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	process, err := engine.Start(ctx, program, agentrun.StartRequest[agent.Input]{
-		ID: agentrun.StartID{Scope: "example", Key: rand.Text()}, Input: agent.Input{Messages: request.Messages},
+	process, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{
+		ID: agentrun.StartID{Scope: "example", Key: rand.Text()}, Input: interaction.Input{Messages: request.Messages},
 	})
 	if err != nil {
 		return err
@@ -66,7 +64,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	if err = engine.ReleaseTree(ctx, process.ID()); err != nil {
+	if err = runtime.ReleaseTree(ctx, process.ID()); err != nil {
 		return err
 	}
 	managed, err := result.Output()

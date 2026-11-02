@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,13 +18,13 @@ import (
 )
 
 const (
-	acceptanceThreshold    = 0.9
-	workerBudgetSteps      = 8
-	workerBudgetEffects    = 4
-	workerBudgetSignals    = 8
-	iterationBudgetSteps   = 64
-	iterationBudgetEffects = 32
-	iterationBudgetSignals = 64
+	acceptanceThreshold     = 0.9
+	workerBudgetSteps       = 8
+	workerBudgetEffects     = 4
+	workerBudgetMessages    = 8
+	iterationBudgetSteps    = 64
+	iterationBudgetEffects  = 32
+	iterationBudgetMessages = 64
 )
 
 func main() {
@@ -156,13 +155,13 @@ func (o optimizationReport) best() attempt {
 }
 
 type executionEvidence struct {
-	Deployments map[string]int
+	Programs map[string]int
 }
 
 // ProcessCount totals the Processes the Program counts already record.
 func (e executionEvidence) ProcessCount() int {
 	count := 0
-	for _, processes := range e.Deployments {
+	for _, processes := range e.Programs {
 		count += processes
 	}
 	return count
@@ -174,23 +173,24 @@ func execute(
 	scores []float64,
 	threshold float64,
 ) (_ optimizationReport, _ executionEvidence, err error) {
-	root, err := newEvaluatorOptimizer(scores, threshold)
-	if err != nil {
-		return optimizationReport{}, executionEvidence{}, err
-	}
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
+	store := agentrun.NewMemoryStore()
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-evaluator-optimizer", Store: store})
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
 	defer func() {
-		err = errors.Join(err, engine.Close(context.WithoutCancel(ctx)))
+		err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx)))
 	}()
+	root, err := newEvaluatorOptimizer(runtime.Compiler(), scores, threshold)
+	if err != nil {
+		return optimizationReport{}, executionEvidence{}, err
+	}
 
 	input, err := agentrun.EncodePayload(request)
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	handle, err := engine.Start(ctx, root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "run"}, Input: input})
+	handle, err := runtime.Start(ctx, root, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "run"}, Input: input})
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
@@ -205,40 +205,41 @@ func execute(
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	tree, err := engine.CaptureTree(ctx, result.ProcessID())
+	log, _, err := store.Load(ctx, result.ProcessID())
 	if err != nil {
 		return optimizationReport{}, executionEvidence{}, err
 	}
-	snapshots := tree.ProcessSnapshots()
 	evidence := executionEvidence{
-		Deployments: make(map[string]int),
+		Programs: make(map[string]int),
 	}
-	for _, snapshot := range snapshots {
-		evidence.Deployments[snapshot.ProgramRef().Name()]++
+	for _, entry := range log.Entries {
+		if started, ok := entry.Record.(agentrun.Started); ok {
+			evidence.Programs[started.Program.Name()]++
+		}
 	}
 	return report, evidence, nil
 }
 
 // newEvaluatorOptimizer runs one iteration per scheduled score: the schedule
 // owns the iteration bound.
-func newEvaluatorOptimizer(scores []float64, threshold float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+func newEvaluatorOptimizer(compiler *agentrun.Compiler, scores []float64, threshold float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	frozenScores, err := validateScoreSchedule(scores, threshold)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	optimizer, err := newOptimizerDeployment()
+	optimizer, err := newOptimizerProgram(compiler)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	evaluator, err := newEvaluatorDeployment(frozenScores)
+	evaluator, err := newEvaluatorProgram(compiler, frozenScores)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	iteration, err := newIterationDeployment(optimizer, evaluator)
+	iteration, err := newIterationProgram(compiler, optimizer, evaluator)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	root, err := newOptimizationRoot(iteration, threshold, uint64(len(frozenScores)))
+	root, err := newOptimizationRoot(compiler, iteration, threshold, uint64(len(frozenScores)))
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
@@ -261,8 +262,8 @@ func validateScoreSchedule(scores []float64, threshold float64) ([]float64, erro
 	return frozenScores, nil
 }
 
-func newOptimizerDeployment() (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	return transformDeployment(
+func newOptimizerProgram(compiler *agentrun.Compiler) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+	return transformProgram(compiler,
 		"example.evaluator_optimizer.optimizer",
 		"Produce one revised candidate from the objective and latest evaluator feedback.",
 		struct{}{},
@@ -281,10 +282,10 @@ func newOptimizerDeployment() (agentrun.Program[agentrun.Payload, agentrun.Paylo
 	)
 }
 
-// newEvaluatorDeployment scores candidates; the root Loop owns the acceptance
+// newEvaluatorProgram scores candidates; the root Loop owns the acceptance
 // threshold, so feedback never decides acceptance.
-func newEvaluatorDeployment(scores []float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	return transformDeployment(
+func newEvaluatorProgram(compiler *agentrun.Compiler, scores []float64) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+	return transformProgram(compiler,
 		"example.evaluator_optimizer.evaluator",
 		"Score one candidate, provide revision feedback, and retain the stable best attempt.",
 		struct {
@@ -314,12 +315,13 @@ func newEvaluatorDeployment(scores []float64) (agentrun.Program[agentrun.Payload
 	)
 }
 
-func newIterationDeployment(
+func newIterationProgram(
+	compiler *agentrun.Compiler,
 	optimizer agentrun.Program[agentrun.Payload, agentrun.Payload],
 	evaluator agentrun.Program[agentrun.Payload, agentrun.Payload],
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	workerBudget := agentrun.Budget{
-		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Signals: agentrun.NewQuota(workerBudgetSignals),
+		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Messages: agentrun.NewQuota(workerBudgetMessages),
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
 		ID: "optimize", Program: optimizer, Budget: workerBudget,
@@ -333,21 +335,9 @@ func newIterationDeployment(
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	iterationDefinition, err := workflow.NewDefinition(workflow.DefinitionConfig{
-		Name:        "example.evaluator_optimizer.iteration",
-		Description: "Run one exact optimizer child followed by one exact evaluator child.",
-		Stages:      []workflow.Stage{optimize, evaluate},
+	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{
+		Name: "example.evaluator_optimizer.iteration", Description: "Run one optimizer child followed by one evaluator child.", Stages: []workflow.Stage{optimize, evaluate},
 	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	return newWorkflowDeployment(
-		iterationDefinition,
-		"evaluator-optimizer-iteration",
-		struct {
-			WorkerBudget agentrun.Budget `json:"worker_budget"`
-		}{WorkerBudget: workerBudget},
-	)
 }
 
 func initializeOptimization(_ context.Context, request optimizationRequest) (optimizationState, error) {
@@ -375,6 +365,7 @@ func finalizeOptimization(result workflow.LoopResult[optimizationState]) (optimi
 }
 
 func newOptimizationRoot(
+	compiler *agentrun.Compiler,
 	iteration agentrun.Program[agentrun.Payload, agentrun.Payload],
 	threshold float64,
 	maxIterations uint64,
@@ -384,7 +375,7 @@ func newOptimizationRoot(
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	iterationBudget := agentrun.Budget{
-		Steps: agentrun.NewQuota(iterationBudgetSteps), Effects: agentrun.NewQuota(iterationBudgetEffects), Signals: agentrun.NewQuota(iterationBudgetSignals),
+		Steps: agentrun.NewQuota(iterationBudgetSteps), Effects: agentrun.NewQuota(iterationBudgetEffects), Messages: agentrun.NewQuota(iterationBudgetMessages),
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: iteration, Budget: iterationBudget,
@@ -407,36 +398,22 @@ func newOptimizationRoot(
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	rootDefinition, err := workflow.NewDefinition(workflow.DefinitionConfig{
-		Name:        "example.evaluator_optimizer",
-		Description: "Refine candidates through bounded exact optimizer and evaluator child Processes.",
-		Stages:      []workflow.Stage{initialize, refine, finalize},
+	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{
+		Name: "example.evaluator_optimizer", Description: "Refine candidates through bounded optimizer and evaluator child Processes.",
+		Revision: "optimization-v1", Stages: []workflow.Stage{initialize, refine, finalize},
+		Configuration: struct {
+			Threshold float64 `json:"threshold"`
+		}{Threshold: threshold},
 	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	return newWorkflowDeployment(
-		rootDefinition,
-		"evaluator-optimizer-root",
-		struct {
-			IterationBudget agentrun.Budget `json:"iteration_budget"`
-			Threshold       float64         `json:"threshold"`
-			MaxIterations   agentrun.Quota  `json:"max_iterations"`
-		}{
-			IterationBudget: iterationBudget,
-			Threshold:       threshold,
-			MaxIterations:   agentrun.NewQuota(uint64(maxIterations)),
-		},
-	)
 }
 
 func validScore(score float64) bool {
 	return !math.IsNaN(score) && !math.IsInf(score, 0) && score >= 0 && score <= 1
 }
 
-func transformDeployment[I, O any](
-	name string,
-	description string,
+func transformProgram[I, O any](
+	compiler *agentrun.Compiler,
+	name, description string,
 	configuration any,
 	transform workflow.TransformFunc[I, O],
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
@@ -444,36 +421,8 @@ func transformDeployment[I, O any](
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
-		Name: name, Description: description, Stages: []workflow.Stage{stage},
-	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	configurationJSON, err := jsonv2.Marshal(configuration)
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("encode %s configuration: %w", name, err)
-	}
-	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
-		Definition:           definition,
-		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-transform")),
-		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
-	})
-}
-
-func newWorkflowDeployment(
-	definition *workflow.Definition,
-	implementationIdentity string,
-	configuration any,
-) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	configurationJSON, err := jsonv2.Marshal(configuration)
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, fmt.Errorf("encode %s configuration: %w", definition.Descriptor().Name(), err)
-	}
-	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
-		Definition:           definition,
-		ImplementationDigest: agentrun.ComputeDigest([]byte(implementationIdentity)),
-		ConfigurationDigest:  agentrun.ComputeDigest(configurationJSON),
+	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{
+		Name: name, Description: description, Revision: name, Stages: []workflow.Stage{stage}, Configuration: configuration,
 	})
 }
 

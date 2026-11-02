@@ -1,44 +1,43 @@
-package workflow_test
+package workflow
 
 import (
-	startrand "crypto/rand"
-
 	"bytes"
 	"context"
+	startrand "crypto/rand"
 	"errors"
 	"testing"
 	"testing/synctest"
 
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 )
 
 func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name  string
-		stage func(*testing.T, run.Program[run.Payload, run.Payload], chan struct{}) (workflow.Stage, error)
+		stage func(*testing.T, run.Program[run.Payload, run.Payload], chan struct{}) (Stage, error)
 	}{
 		{
 			name: "transform",
-			stage: func(_ *testing.T, _ run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
-				return workflow.Transform("work", canceledWorkflowCallback[numberInput, numberInput](entered))
+			stage: func(_ *testing.T, _ run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+				return Transform("work", canceledWorkflowCallback[numberInput, numberInput](entered))
 			},
 		},
 		{
 			name: "switch",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
-				return workflow.Switch(workflow.SwitchConfig[numberInput]{
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+				return Switch(SwitchConfig[numberInput]{
 					ID: "work", Select: canceledWorkflowCallback[numberInput, string](entered),
-					Cases: []workflow.SwitchCase{{ID: "child", Program: child, Budget: mustBudget(t)}},
+					Cases: []SwitchCase{{ID: "child", Program: child, Budget: mustBudget(t)}},
 				})
 			},
 		},
 		{
 			name: "fork",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
-				return workflow.Fork(workflow.ForkConfig[numberInput, numberInput, numberInput]{
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+				return Fork(ForkConfig[numberInput, numberInput, numberInput]{
 					ID: "work", WindowSize: 1,
-					Branches: []workflow.ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}},
+					Branches: []ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}},
 					Reduce: func(ctx context.Context, _ numberInput, outputs []numberInput) (numberInput, error) {
 						return canceledWorkflowCallback[[]numberInput, numberInput](entered)(ctx, outputs)
 					},
@@ -47,8 +46,8 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 		},
 		{
 			name: "loop",
-			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (workflow.Stage, error) {
-				return workflow.Loop(workflow.LoopConfig[numberInput]{
+			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
+				return Loop(LoopConfig[numberInput]{
 					ID: "work", Body: child, Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
 					Predicate: canceledWorkflowCallback[numberInput, bool](entered),
 				})
@@ -57,7 +56,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				child := mustDeployment(t, mustDefinition(t, "test.workflow.cancel_child",
+				child := mustProgram(t, mustDefinition(t, "test.cancel_child",
 					mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) {
 						return input, nil
 					}),
@@ -67,13 +66,13 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				deployment := mustDeployment(t, mustDefinition(t, "test.workflow.cancel_"+test.name, stage), test.name)
-				engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+				program := mustProgram(t, mustDefinition(t, "test.cancel_"+test.name, stage), test.name)
+				runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 				if err != nil {
 					t.Fatal(err)
 				}
 				input, _ := run.EncodePayload(numberInput{Value: 3})
-				process, err := engine.Start(t.Context(), deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+				process, err := runtime.Start(t.Context(), program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -86,7 +85,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 					result.Termination().Cause() != run.TerminationCauseHostCancellation {
 					t.Fatalf("callback cancellation result=%+v, error=%v", result, err)
 				}
-				if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+				if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 					t.Fatal(err)
 				}
 			})
@@ -104,7 +103,7 @@ func canceledWorkflowCallback[I, O any](entered chan struct{}) func(context.Cont
 
 func TestWorkflowRejectsCanceledStepBeforeCallingTransform(t *testing.T) {
 	called := false
-	definition := mustDefinition(t, "test.workflow.canceled_step",
+	definition := mustDefinition(t, "test.canceled_step",
 		mustTransform(t, "work", func(_ context.Context, input numberInput) (numberInput, error) {
 			called = true
 			return input, nil
@@ -121,7 +120,7 @@ func TestWorkflowRejectsCanceledStepBeforeCallingTransform(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if transition, stepErr := execution.Step(ctx, nil); !errors.Is(stepErr, context.Canceled) || transition.Valid() || called {
+	if transition, stepErr := execution.Step(ctx, testTurn(1)); !errors.Is(stepErr, context.Canceled) || transition.Valid() || called {
 		t.Fatalf("canceled Step transition=%+v, error=%v, called=%t", transition, stepErr, called)
 	}
 	after, err := execution.Snapshot()

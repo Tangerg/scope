@@ -9,9 +9,9 @@ import (
 
 func TestStrategyDoesNotRetainProcessAuthority(t *testing.T) {
 	for _, value := range []reflect.Type{
-		reflect.TypeFor[Definition](),
+		reflect.TypeFor[definition](),
 		reflect.TypeFor[execution](),
-		reflect.TypeFor[Dispatcher](),
+		reflect.TypeFor[dispatcher](),
 	} {
 		t.Run(value.Name(), func(t *testing.T) { conformancetest.AssertNoProcessAuthority(t, value) })
 	}

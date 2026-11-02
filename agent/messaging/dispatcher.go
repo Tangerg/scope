@@ -25,7 +25,7 @@ var ErrNilDeliveryPort = errors.New("messaging: delivery port is required")
 // must preserve identity conflicts and admission evidence for the entire replay
 // obligation.
 type DeliveryPort interface {
-	Deliver(ctx context.Context, sender, recipient run.ProcessID, signal run.SignalRequest) error
+	Deliver(ctx context.Context, sender, recipient run.ProcessID, signal run.Signal) error
 }
 
 // DispatcherConfig binds the only delivery authority used by this Dispatcher.
@@ -50,7 +50,7 @@ func NewDispatcher(config DispatcherConfig) (*Dispatcher, error) {
 	return &Dispatcher{port: config.Port}, nil
 }
 
-// Receipt is the successful admission result carried by a settlement Signal.
+// Receipt is the successful admission result carried by a Completion.
 // It establishes delivery, not the receiver's committed consumption. The
 // Message owns its recipient; the receipt carries only the SignalID the
 // recipient admitted, which derives from the sending Effect.
@@ -81,14 +81,14 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ 
 	if err != nil {
 		return messageFailureSettlement(err)
 	}
-	signal, err := message.signalRequest(request.ID())
+	signal, err := message.signal(request.ID())
 	if err != nil {
 		return messageFailureSettlement(err)
 	}
-	if deliveryErr := d.port.Deliver(ctx, request.Relation().ProcessID(), message.Recipient, signal); deliveryErr != nil {
+	if deliveryErr := d.port.Deliver(ctx, request.ID().Process, message.Recipient, signal); deliveryErr != nil {
 		return run.Settlement{}, deliveryErr
 	}
-	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID()})
+	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID})
 	if err != nil {
 		return run.Settlement{}, err
 	}

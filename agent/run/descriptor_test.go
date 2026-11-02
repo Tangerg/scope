@@ -164,7 +164,7 @@ func descriptorConfig(t *testing.T) DescriptorConfig {
 }
 
 func TestDescriptorDecodingEnforcesConstructionRules(t *testing.T) {
-	descriptor := newEngineTestDefinition(t, "descriptor.valid", "complete").Descriptor()
+	descriptor := controlValue(NewDescriptor(descriptorConfig(t)))
 	for _, description := range []string{" leading", "", "trailing "} {
 		wire := descriptor.contractWire()
 		wire.Description = description

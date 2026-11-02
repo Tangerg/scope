@@ -31,9 +31,9 @@ func restoreExecution(ctx context.Context, definition Definition, state Executio
 	return execution, err
 }
 
-func stepExecution(ctx context.Context, execution Execution, signals []Signal) (Transition, error) {
+func stepExecution(ctx context.Context, execution Execution, turn Turn) (Transition, error) {
 	return invokeCallback("Execution.Step", func() (Transition, error) {
-		return execution.Step(ctx, signals)
+		return execution.Step(ctx, turn)
 	})
 }
 
@@ -49,27 +49,30 @@ func initializeExecution(
 	ctx context.Context,
 	definition Definition,
 	input Payload,
-) (Execution, ExecutionState, Failure, error) {
+) (Execution, Failure, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, Failure{}, err
+	}
 	execution, err := startExecution(definition, input)
 	if err != nil {
-		failure := newEngineFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeEngineProcessStartFailed, err,
+		failure := newRuntimeFailure(
+			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessStartFailed, err,
 		)
-		return nil, ExecutionState{}, failure, fmt.Errorf("start Execution: %w", err)
+		return nil, failure, fmt.Errorf("start Execution: %w", err)
 	}
 	state, err := captureExecution(execution)
 	if err != nil {
-		failure := newEngineFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeEngineProcessSnapshotFailed, err,
+		failure := newRuntimeFailure(
+			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessSnapshotFailed, err,
 		)
-		return nil, ExecutionState{}, failure, fmt.Errorf("capture initial Execution state: %w", err)
+		return nil, failure, fmt.Errorf("capture initial Execution state: %w", err)
 	}
 	restored, err := restoreExecution(ctx, definition, state)
 	if err != nil {
-		failure := newEngineFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeEngineProcessSnapshotUnrestorable, err,
+		failure := newRuntimeFailure(
+			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessSnapshotUnrestorable, err,
 		)
-		return nil, ExecutionState{}, failure, fmt.Errorf("validate initial Execution state: %w", err)
+		return nil, failure, fmt.Errorf("validate initial Execution state: %w", err)
 	}
-	return restored, state, Failure{}, nil
+	return restored, Failure{}, nil
 }

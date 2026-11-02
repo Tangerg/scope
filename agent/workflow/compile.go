@@ -1,35 +1,29 @@
 package workflow
 
 import (
-	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// Config binds the declared graph to executable code. CallbackIdentity covers
-// captured settings of transforms, selectors and reducers that cannot be inferred.
+// Revision identifies callbacks that cannot be inspected. Configuration records
+// their captured settings; structural stage settings belong to the graph.
 type Config struct {
-	Name             string
-	Description      string
-	Stages           []Stage
-	BuildIdentity    run.Digest
-	CallbackIdentity run.Digest
+	Name          string
+	Description   string
+	Stages        []Stage
+	Revision      string
+	Configuration any
 }
 
-func Compile[I, O any](ctx context.Context, cfg Config) (run.Program[I, O], error) {
+func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], error) {
 	var zero run.Program[I, O]
-	if err := run.RequireContext(ctx).Err(); err != nil {
-		return zero, err
-	}
-	def, err := NewDefinition(DefinitionConfig{Name: cfg.Name, Description: cfg.Description, Stages: cfg.Stages})
+
+	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, Stages: cfg.Stages})
 	if err != nil {
 		return zero, err
 	}
-	if !cfg.BuildIdentity.Valid() {
-		return zero, fmt.Errorf("%w: missing BuildIdentity", run.ErrInvalidProgram)
-	}
+
 	callbacks := false
 	for _, stage := range def.stages {
 		if stage.kind != StageKindCall && stage.kind != StageKindMap {
@@ -37,15 +31,15 @@ func Compile[I, O any](ctx context.Context, cfg Config) (run.Program[I, O], erro
 			break
 		}
 	}
-	if callbacks != cfg.CallbackIdentity.Valid() {
-		return zero, fmt.Errorf("%w: CallbackIdentity must identify exactly the configured stage callbacks", run.ErrInvalidProgram)
+	if callbacks != (cfg.Revision != "") || !callbacks && cfg.Configuration != nil {
+		return zero, fmt.Errorf("%w: Revision must identify the configured stage callbacks", run.ErrInvalidProgram)
 	}
-	wire, err := jsonv2.Marshal(struct {
-		Topology  Topology
-		Callbacks string
-	}{def.Topology(), cfg.CallbackIdentity.String()}, jsonv2.Deterministic(true))
-	if err != nil {
-		return zero, err
-	}
-	return run.Bind[I, O](run.BindingConfig{Definition: def, ImplementationDigest: cfg.BuildIdentity, ConfigurationDigest: run.ComputeDigest(wire)})
+	configuration := struct {
+		Graph     Topology `json:"graph"`
+		Callbacks any      `json:"callbacks,omitzero"`
+	}{Graph: def.Topology(), Callbacks: cfg.Configuration}
+	return run.Bind[I, O](compiler, run.BindingConfig{
+		Definition: def, Revision: cfg.Revision,
+		Configuration: configuration,
+	})
 }

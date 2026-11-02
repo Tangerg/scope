@@ -2,7 +2,6 @@ package coordination
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/restore"
@@ -15,224 +14,110 @@ const (
 	inputGateWaitKey   = "coordination.input"
 )
 
-// InputGateConfig separates the opening request from the addressed answer.
-// The gate returns the original run.Signal so its identity survives composition.
-type InputGateConfig struct {
-	Name          string
-	Description   string
-	RequestSchema jsonschema.Schema
-	AnswerSchema  jsonschema.Schema
+type inputGateDefinition struct {
+	descriptor run.Descriptor
+	policy     InputGate
 }
 
-// InputGate retains its initial request in Strategy state, opens an external
-// wait, and returns one addressed answer as an immutable run.Signal. The
-// opening only acknowledges its WaitID. Unaddressed inputs are not
-// part of this protocol and are rejected at admission, including while the
-// final Step runs. A router retains responsibility for rejected input.
-type InputGate struct {
-	descriptor   run.Descriptor
-	answerSchema jsonschema.Schema
-}
-
-func NewInputGate(config InputGateConfig) (*InputGate, error) {
-	if !config.AnswerSchema.Valid() {
-		return nil, fmt.Errorf("%w: answer schema is required", ErrInvalidConfig)
+func newInputGate(name, description string, policy InputGate) (*inputGateDefinition, error) {
+	if !policy.AnswerSchema.Valid() || policy.MaxAnswerBytes < 0 {
+		return nil, ErrInvalidConfig
 	}
-	outputSchema, err := jsonschema.For[run.Signal]()
+	output, err := jsonschema.For[run.Signal]()
 	if err != nil {
 		return nil, err
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name: config.Name, Description: config.Description,
-		InputSchema: config.RequestSchema, OutputSchema: outputSchema,
-	})
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: name, Description: description, InputSchema: policy.RequestSchema, OutputSchema: output})
 	if err != nil {
-		return nil, fmt.Errorf("%w: input gate descriptor: %w", ErrInvalidConfig, err)
+		return nil, err
 	}
-	return &InputGate{descriptor: descriptor, answerSchema: config.AnswerSchema}, nil
+	return &inputGateDefinition{descriptor: descriptor, policy: policy}, nil
 }
-
-func (*InputGate) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
-
-func (i *InputGate) Descriptor() run.Descriptor {
-	if i == nil {
-		return run.Descriptor{}
-	}
-	return i.descriptor
-}
-
-func (i *InputGate) Start(input run.Payload) (run.Execution, error) {
-	if !i.valid() {
-		return nil, ErrInvalidConfig
-	}
+func (i *inputGateDefinition) Descriptor() run.Descriptor                           { return i.descriptor }
+func (*inputGateDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+func (i *inputGateDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err := i.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	return &inputGateExecution{definition: i, state: inputGateState{Phase: gateReady, Request: input}}, nil
+	return &inputGateExecution{definition: i, state: inputGateState{Request: input, Phase: inputGateReady}}, nil
 }
-
-func (i *InputGate) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !i.valid() {
-		return nil, ErrInvalidConfig
-	}
-	decoded, err := restore.Decode(ctx, state, inputGateStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded inputGateState) error {
-		return decoded.validate(ctx, i)
-	})
+func (i *inputGateDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+	value, err := restore.Decode(ctx, state, inputGateStateKind, ErrInvalidExecutionState, func(ctx context.Context, value inputGateState) error { return value.validate(ctx, i) })
 	if err != nil {
 		return nil, err
 	}
-	return &inputGateExecution{definition: i, state: decoded}, nil
+	return &inputGateExecution{definition: i, state: value}, nil
 }
 
-func (i *InputGate) valid() bool {
-	return i != nil && i.descriptor.Valid() && i.answerSchema.Valid()
-}
-
-type gatePhase string
+type inputGatePhase string
 
 const (
-	gateReady        gatePhase = "ready"
-	gateAwaitingOpen gatePhase = "awaiting_open"
-	gateWaiting      gatePhase = "waiting"
-	gateCompleted    gatePhase = "completed"
+	inputGateReady     inputGatePhase = "ready"
+	inputGateWaiting   inputGatePhase = "waiting"
+	inputGateCompleted inputGatePhase = "completed"
 )
 
 type inputGateState struct {
-	Phase   gatePhase   `json:"phase"`
-	Request run.Payload `json:"request"`
-	WaitID  *run.WaitID `json:"wait_id,omitzero"`
+	Request run.Payload    `json:"request,omitzero"`
+	Phase   inputGatePhase `json:"phase"`
 }
 
-func (i inputGateState) phase() gatePhase {
-	if i.Phase == gateAwaitingOpen && i.WaitID != nil {
-		return gateWaiting
-	}
-	return i.Phase
-}
-
-func (i inputGateState) validate(ctx context.Context, definition *InputGate) error {
+func (i inputGateState) validate(ctx context.Context, definition *inputGateDefinition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if i.Phase == inputGateCompleted {
+		if i.Request.Valid() {
+			return ErrInvalidExecutionState
+		}
+		return nil
+	}
+	if i.Phase != inputGateReady && i.Phase != inputGateWaiting {
+		return ErrInvalidExecutionState
+	}
 	if err := definition.descriptor.ValidateInput(i.Request); err != nil {
-		return fmt.Errorf("%w: opening request: %w", ErrInvalidExecutionState, err)
-	}
-	if i.WaitID != nil && !i.WaitID.Valid() {
-		return fmt.Errorf("%w: invalid gate wait", ErrInvalidExecutionState)
-	}
-	switch i.Phase {
-	case gateReady:
-		if i.WaitID != nil {
-			return fmt.Errorf("%w: unopened gate retains a wait", ErrInvalidExecutionState)
-		}
-	case gateAwaitingOpen:
-	case gateCompleted:
-		// A completed gate's answer, including the wait it addressed, is the
-		// Runtime-owned Output, never repeated here.
-		if i.WaitID != nil {
-			return fmt.Errorf("%w: completed gate repeats its Output", ErrInvalidExecutionState)
-		}
-	default:
-		return fmt.Errorf("%w: unknown input gate phase %q", ErrInvalidExecutionState, i.Phase)
-	}
-	return ctx.Err()
-}
-
-// acceptsAnswer confirms that a signal addresses this gate's open wait. The
-// answer schema and the deliverable-output capacity are the wait's acceptance
-// contract, enforced by the mailbox at admission, so this Step trusts the
-// admitted answer rather than revalidating it. Its one caller, acceptAnswer,
-// classifies a failure as a protocol violation.
-func (i inputGateState) acceptsAnswer(signal run.Signal) error {
-	waitID, addressed := signal.WaitID()
-	_, err := signal.Frame[run.ExternalInput]()
-	if err != nil || i.WaitID == nil || !addressed || waitID != *i.WaitID {
-		return errors.New("answer does not address the input gate")
+		return fmt.Errorf("%w: request: %w", ErrInvalidExecutionState, err)
 	}
 	return nil
 }
 
 type inputGateExecution struct {
-	definition *InputGate
+	definition *inputGateDefinition
 	state      inputGateState
-}
-
-func (i *inputGateExecution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
-	if err := ctx.Err(); err != nil {
-		return run.Transition{}, err
-	}
-	switch i.state.phase() {
-	case gateReady:
-		return i.open(signals)
-	case gateAwaitingOpen:
-		return i.acceptOpening(signals)
-	case gateWaiting:
-		return i.acceptAnswer(signals)
-	default:
-		return run.Transition{}, fmt.Errorf("%w: input gate has no next Step", ErrInvalidProtocol)
-	}
-}
-
-func (i *inputGateExecution) open(signals []run.Signal) (run.Transition, error) {
-	if len(signals) != 0 {
-		return run.Transition{}, fmt.Errorf("%w: input gate requires an addressed answer", ErrInvalidProtocol)
-	}
-	key, err := run.ParseWaitKey(inputGateWaitKey)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	// The wait owns the answer contract so the mailbox rejects a schema-invalid or
-	// undeliverable answer at admission and keeps the wait open; AnswerIsOutput
-	// closes the accept/deliver gap for the Signal this gate returns verbatim.
-	spec, err := run.NewExternalWaitSpec(run.ExternalWaitSpecConfig{
-		Key:            key,
-		AnswerSchema:   i.definition.answerSchema,
-		AnswerIsOutput: true,
-	})
-	if err != nil {
-		return run.Transition{}, err
-	}
-	effect, err := run.NewWaitEffect(spec)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	i.state.Phase = gateAwaitingOpen
-	return run.Continue(0, effect)
-}
-
-func (i *inputGateExecution) acceptOpening(signals []run.Signal) (run.Transition, error) {
-	if len(signals) == 0 {
-		return run.Transition{}, fmt.Errorf("%w: input gate opening is missing", ErrInvalidProtocol)
-	}
-	opening, err := signals[0].Frame[run.WaitOpened]()
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: input gate opening: %w", ErrInvalidProtocol, err)
-	}
-	waitID := opening.WaitID()
-	i.state.WaitID = &waitID
-	return run.Wait(1, waitID)
-}
-
-func (i *inputGateExecution) acceptAnswer(signals []run.Signal) (run.Transition, error) {
-	if len(signals) == 0 {
-		return run.Transition{}, fmt.Errorf("%w: input gate answer is missing", ErrInvalidProtocol)
-	}
-	answer := signals[0]
-	if err := i.state.acceptsAnswer(answer); err != nil {
-		return run.Transition{}, fmt.Errorf("%w: input gate answer: %w", ErrInvalidProtocol, err)
-	}
-	output, err := run.EncodePayload(answer)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	i.state = inputGateState{Phase: gateCompleted, Request: i.state.Request}
-	return run.Complete(1, output)
 }
 
 func (i *inputGateExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(inputGateStateKind, i.state)
 }
-
-var _ run.Execution = (*inputGateExecution)(nil)
-
-var _ run.Definition = (*InputGate)(nil)
+func (i *inputGateExecution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
+	if err := ctx.Err(); err != nil {
+		return run.Transition{}, err
+	}
+	if i.state.Phase == inputGateCompleted {
+		return run.Transition{}, ErrInvalidProtocol
+	}
+	key, err := run.ParseWaitKey(inputGateWaitKey)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	if i.state.Phase == inputGateReady {
+		if len(turn.Messages) != 0 {
+			return run.Transition{}, ErrInvalidProtocol
+		}
+		i.state.Phase = inputGateWaiting
+		return run.Yield(0, nil, run.Wait{Key: key, Question: i.state.Request, AnswerSchema: i.definition.policy.AnswerSchema, MaxAnswerBytes: i.definition.policy.MaxAnswerBytes})
+	}
+	if len(turn.Messages) != 1 {
+		return run.Transition{}, ErrInvalidProtocol
+	}
+	answer, ok := turn.Messages[0].(run.Signal)
+	if !ok || answer.Wait != key {
+		return run.Transition{}, fmt.Errorf("%w: answer does not address input gate", ErrInvalidProtocol)
+	}
+	output, err := run.EncodePayload(answer)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	i.state = inputGateState{Phase: inputGateCompleted}
+	return run.Complete(1, output)
+}

@@ -6,95 +6,44 @@ import (
 	"fmt"
 )
 
-// ErrProcessAdmissionRejected marks failure at the policy boundary before execution starts.
 var ErrProcessAdmissionRejected = errors.New("run: process admission rejected")
 
-// ProcessAdmission is the immutable Framework-owned information supplied to a
-// ProcessAdmitter immediately before one root or child Process starts. It does
-// not expose Input, Execution, Dispatcher, product identity, or Host state.
 type ProcessAdmission struct {
-	startID      StartID
-	relation     ProcessRelation
-	programRef   ProgramRef
+	start        StartID
+	process      ProcessID
+	program      ProgramRef
 	descriptor   Descriptor
 	budget       Budget
 	capabilities CapabilitySet
 }
 
-// StartID identifies a root admission before its first commit. External
-// admission hooks must be pure or idempotent under this key. Child starts use
-// their stable child identity and have no root-submission key.
-func (p ProcessAdmission) StartID() (StartID, bool) { return p.startID, p.startID.Valid() }
-
-func (p ProcessAdmission) Relation() ProcessRelation { return p.relation }
-
-func (p ProcessAdmission) ProgramRef() ProgramRef { return p.programRef }
-
-func (p ProcessAdmission) Descriptor() Descriptor { return p.descriptor }
-
-func (p ProcessAdmission) Budget() Budget { return p.budget }
-
-// Capabilities returns the prospective Process's immutable authority set.
+func (p ProcessAdmission) StartID() (StartID, bool)    { return p.start, p.start.Valid() }
+func (p ProcessAdmission) ProcessID() ProcessID        { return p.process }
+func (p ProcessAdmission) ProgramRef() ProgramRef      { return p.program }
+func (p ProcessAdmission) Descriptor() Descriptor      { return p.descriptor }
+func (p ProcessAdmission) Budget() Budget              { return p.budget }
 func (p ProcessAdmission) Capabilities() CapabilitySet { return p.capabilities }
-
 func (p ProcessAdmission) Valid() bool {
-	return p.relation.Valid() && p.programRef.Valid() && p.descriptor.Valid()
+	return p.process.Valid() && p.program.Valid() && p.descriptor.Valid()
 }
 
-// ProcessAdmitter decides whether one prospective root or child Process may
-// initialize. Implementations may coordinate caller-owned external admission
-// work but must not create a Process, mutate the admission, allocate Framework
-// resources, or re-enter the Runtime. They must respect ctx, return in bounded
-// time, and be safe for concurrent calls. Persistence, charging, and business
-// idempotency are implementation responsibilities; a prepared Step may replay
-// the same child admission with the same prospective identity and resources
-// after recovery. The runtime durably confirms that proposal before calling Host.
-//
-// The runtime cancels an active child admission when its parent terminates.
-// Every accepted admission concludes with exactly one
-// ProcessInitializationOutcome when an acknowledger is configured; a child that
-// initializes anyway is published and then terminated with its parent. Restore
-// repeats neither admission nor its outcome for a captured Process.
 type ProcessAdmitter interface {
-	// Admit returns nil to accept only the supplied identity and resources, or
-	// an error to reject this prospective Process before initialization. It
-	// cannot enlarge Budget or Capabilities.
-	Admit(ctx context.Context, admission ProcessAdmission) error
+	Admit(context.Context, ProcessAdmission) error
 }
 
-type ProcessAdmitterFunc func(ctx context.Context, admission ProcessAdmission) error
+type ProcessAdmitterFunc func(context.Context, ProcessAdmission) error
 
 func (p ProcessAdmitterFunc) Admit(ctx context.Context, admission ProcessAdmission) error {
 	return p(ctx, admission)
 }
-
-func newProcessAdmission(
-	relation ProcessRelation,
-	deployment Program[Payload, Payload],
-	budget Budget,
-	capabilities CapabilitySet,
-) ProcessAdmission {
-	return ProcessAdmission{
-		relation: relation, programRef: deployment.ProgramRef(),
-		descriptor: deployment.Descriptor(), budget: budget,
-		capabilities: capabilities,
-	}
-}
-
-func requestProcessAdmission(
-	ctx context.Context,
-	admitter ProcessAdmitter,
-	admission ProcessAdmission,
-) error {
+func requestProcessAdmission(ctx context.Context, admitter ProcessAdmitter, admission ProcessAdmission) error {
 	if admitter == nil {
 		return nil
 	}
 	if !admission.Valid() {
-		return fmt.Errorf("%w: invalid admission", ErrProcessAdmissionRejected)
+		return ErrProcessAdmissionRejected
 	}
-	err := invokeCallbackErr("ProcessAdmitter.Admit", func() error {
-		return admitter.Admit(RequireContext(ctx), admission)
-	})
+	err := invokeCallbackErr("ProcessAdmitter.Admit", func() error { return admitter.Admit(ctx, admission) })
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrProcessAdmissionRejected, err)
 	}

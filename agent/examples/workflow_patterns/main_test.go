@@ -37,9 +37,9 @@ func TestRoutingStartsOnlySelectedExactChild(t *testing.T) {
 	if report.Route != "standard" || evidence.ProcessCount() != 10 {
 		t.Fatalf("report=%#v evidence=%#v", report, evidence)
 	}
-	if evidence.Deployments["example.workflow_patterns.route_standard"] != 1 ||
-		evidence.Deployments["example.workflow_patterns.route_urgent"] != 0 {
-		t.Fatalf("route deployments=%#v", evidence.Deployments)
+	if evidence.Programs["example.workflow_patterns.route_standard"] != 1 ||
+		evidence.Programs["example.workflow_patterns.route_urgent"] != 0 {
+		t.Fatalf("route programs=%#v", evidence.Programs)
 	}
 }
 
@@ -69,8 +69,8 @@ func TestParallelSectionsAndVotingPreserveDeclarationOrder(t *testing.T) {
 		"example.workflow_patterns.vote_reject_second":  1,
 		"example.workflow_patterns.vote_approve_second": 1,
 	}
-	if !maps.Equal(evidence.Deployments, want) {
-		t.Fatalf("deployments=%#v, want %#v", evidence.Deployments, want)
+	if !maps.Equal(evidence.Programs, want) {
+		t.Fatalf("programs=%#v, want %#v", evidence.Programs, want)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestIncompleteEvidenceCannotBeRoutedOrTurnedIntoAVote(t *testing.T) {
 }
 func TestWorkflowChildrenRejectInvalidPolicyAndIncompleteUpstreamRecords(t *testing.T) {
 	ctx := t.Context()
-	rt, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
+	rt, err := agentrun.New(ctx, agentrun.Config{Build: "example-test", Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,24 +104,24 @@ func TestWorkflowChildrenRejectInvalidPolicyAndIncompleteUpstreamRecords(t *test
 			t.Error(e)
 		}
 	}()
-	if p, routeDeploymentErr := routeDeployment("typo"); p.Valid() || routeDeploymentErr == nil {
+	if p, routeProgramErr := routeProgram(rt.Compiler(), "typo"); p.Valid() || routeProgramErr == nil {
 		t.Fatal("unknown route accepted")
 	}
-	if p, findingDeploymentErr := findingDeployment("unknown"); p.Valid() || findingDeploymentErr == nil {
+	if p, findingProgramErr := findingProgram(rt.Compiler(), "unknown"); p.Valid() || findingProgramErr == nil {
 		t.Fatal("unknown section accepted")
 	}
-	if p, ballotDeploymentErr := ballotDeployment("invalid", ballotChoice("maybe")); p.Valid() || ballotDeploymentErr == nil {
+	if p, ballotProgramErr := ballotProgram(rt.Compiler(), "invalid", ballotChoice("maybe")); p.Valid() || ballotProgramErr == nil {
 		t.Fatal("unknown vote accepted")
 	}
-	route, err := routeDeployment(standardRouteID)
+	route, err := routeProgram(rt.Compiler(), standardRouteID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	section, err := findingDeployment(factsSectionID)
+	section, err := findingProgram(rt.Compiler(), factsSectionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ballotChild, err := ballotDeployment(approveFirstBallotID, ballotApprove)
+	ballotChild, err := ballotProgram(rt.Compiler(), approveFirstBallotID, ballotApprove)
 	if err != nil {
 		t.Fatal(err)
 	}

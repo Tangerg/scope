@@ -1,22 +1,15 @@
 package run
 
 import (
-	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"fmt"
-
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 var ErrInvalidEffect = errors.New("run: invalid effect")
 
-// EffectTarget identifies which of the two execution boundaries owns an Effect.
-// Framework Effects are interpreted by the Runtime; Dispatcher Effects remain
-// opaque to the Runtime and are interpreted by the Program-bound dispatcher.
 type EffectTarget string
 
 const (
@@ -25,15 +18,7 @@ const (
 	EffectTargetDispatcher EffectTarget = "dispatcher"
 )
 
-func (e EffectTarget) Valid() bool {
-	switch e {
-	case EffectTargetFramework, EffectTargetDispatcher:
-		return true
-	default:
-		return false
-	}
-}
-
+func (e EffectTarget) Valid() bool { return e == EffectTargetFramework || e == EffectTargetDispatcher }
 func (e EffectTarget) String() string {
 	if !e.Valid() {
 		return invalidEnumName
@@ -41,134 +26,113 @@ func (e EffectTarget) String() string {
 	return string(e)
 }
 
-// Effect is an immutable request for an operation outside Execution.Step.
-// Payload is frozen before dispatch and interpreted only by Target's owner.
-// EffectID is deliberately absent because the Runtime assigns it during prepare.
+// Each variant owns its operation; a payload is never inspected to guess a
+// framework operation or to distinguish a completion from external input.
 type Effect struct {
-	target  EffectTarget
-	payload json.RawMessage
+	call   Payload
+	spawn  *ChildSpec
+	send   *childSignal
+	cancel *childCancellation
 }
 
-// NewDispatcherEffect freezes an opaque request. Its Dispatcher's
-// [EffectPolicy] declares the authority it requires.
 func NewDispatcherEffect(payload json.RawMessage) (Effect, error) {
-	return freezeEffect(EffectTargetDispatcher, payload)
-}
-
-// NewWaitEffect creates the Framework Effect that asks the Runtime to mint one
-// WaitID for the spec's key and to enforce the spec's acceptance contract on
-// every external answer. Signal.Frame[WaitOpened] reads the minted WaitID from the Signal
-// that acknowledges it; the Execution keeps whatever the wait is about.
-func NewWaitEffect(spec ExternalWaitSpec) (Effect, error) {
-	if !spec.Valid() {
-		return Effect{}, fmt.Errorf("%w: wait spec: %w", ErrInvalidEffect, ErrInvalidExternalWait)
-	}
-	return newFrameworkEffect(waitRequestWire{Operation: frameworkOperationWait, Spec: spec.wire()})
-}
-
-// waitOpenedPayload is the normalized payload of every external wait opening.
-func waitOpenedPayload() json.RawMessage {
-	return lo.Must(jsonv2.Marshal(frameworkOperationHeader{Operation: frameworkOperationWait}))
-}
-
-// Typed constructors validate their requests before encoding, so only
-// UnmarshalJSON must decode Framework fields again.
-func newFrameworkEffect(request any) (Effect, error) {
-	payload, err := jsonv2.Marshal(request)
+	value, err := ParsePayload(payload)
 	if err != nil {
-		return Effect{}, fmt.Errorf("%w: encode Framework request: %w", ErrInvalidEffect, err)
+		return Effect{}, err
 	}
-	return freezeEffect(EffectTargetFramework, payload)
+	return Effect{call: value}, nil
+}
+func (e Effect) Target() EffectTarget {
+	if e.call.Valid() {
+		return EffectTargetDispatcher
+	}
+	if e.Valid() {
+		return EffectTargetFramework
+	}
+	return EffectTargetInvalid
 }
 
-func freezeEffect(target EffectTarget, payload json.RawMessage) (Effect, error) {
-	if !target.Valid() {
-		return Effect{}, fmt.Errorf("%w: invalid target", ErrInvalidEffect)
+func (e Effect) intrinsicPolicy() (EffectPolicy, bool) {
+	if e.Target() != EffectTargetFramework {
+		return EffectPolicy{}, false
 	}
-	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
-	if err != nil {
-		return Effect{}, fmt.Errorf("%w: payload: %w", ErrInvalidEffect, err)
-	}
-	return Effect{target: target, payload: normalized}, nil
+	return EffectPolicy{Replay: ReplayPolicySameIdentity}, true
 }
-
-func (e Effect) Target() EffectTarget { return e.target }
-
-// Payload returns an independently owned copy of the operation intent.
-func (e Effect) Payload() json.RawMessage { return bytes.Clone(e.payload) }
-
+func (e Effect) Payload() json.RawMessage { return e.call.JSON() }
 func (e Effect) Valid() bool {
-	return e.target.Valid() && len(e.payload) > 0
+	count := 0
+	if e.call.Valid() {
+		count++
+	}
+	if e.spawn != nil {
+		if !e.spawn.Valid() {
+			return false
+		}
+		count++
+	}
+	if e.send != nil {
+		if !e.send.Child.Valid() || !e.send.Signal.Valid() {
+			return false
+		}
+		count++
+	}
+	if e.cancel != nil {
+		if !e.cancel.Child.Valid() || validateTerminationReason(e.cancel.Reason) != nil {
+			return false
+		}
+		count++
+	}
+	return count == 1
 }
-
 func (e Effect) clone() Effect {
-	return Effect{target: e.target, payload: bytes.Clone(e.payload)}
+	owned := e
+	if e.spawn != nil {
+		v := *e.spawn
+		owned.spawn = &v
+	}
+	if e.send != nil {
+		v := *e.send
+		owned.send = &v
+	}
+	if e.cancel != nil {
+		v := *e.cancel
+		owned.cancel = &v
+	}
+	return owned
 }
-
 func (e Effect) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidEffect
 	}
-	return jsonv2.Marshal(effectWire{Target: e.target, Payload: e.payload})
+	return jsonv2.Marshal(effectWire{Call: e.call, Spawn: e.spawn, Send: e.send, Cancel: e.cancel})
 }
-
 func (e *Effect) UnmarshalJSON(data []byte) error {
 	if e == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidEffect)
+		return ErrInvalidEffect
 	}
 	wire, err := jsonwire.Decode[effectWire](data)
 	if err != nil {
-		return fmt.Errorf("%w: decode: %w", ErrInvalidEffect, err)
-	}
-	value, err := freezeEffect(wire.Target, wire.Payload)
-	if err != nil {
 		return err
 	}
-	if value.target == EffectTargetFramework {
-		if _, err := decodeFrameworkOperation(value.payload); err != nil {
-			return err
-		}
+	value := Effect{call: wire.Call, spawn: wire.Spawn, send: wire.Send, cancel: wire.Cancel}
+	if !value.Valid() {
+		return ErrInvalidEffect
 	}
 	*e = value
 	return nil
 }
-
 func (e Effect) equal(other Effect) bool {
-	return e.Valid() && other.Valid() && e.target == other.target &&
-		bytes.Equal(e.payload, other.payload)
+	left, err := jsonv2.Marshal(e)
+	if err != nil {
+		return false
+	}
+	right, err := jsonv2.Marshal(other)
+	return err == nil && string(left) == string(right)
 }
 
 type effectWire struct {
-	Target  EffectTarget    `json:"target"`
-	Payload json.RawMessage `json:"payload"`
-}
-
-type frameworkOperationKind string
-
-const (
-	frameworkOperationWait         frameworkOperationKind = "wait"
-	frameworkOperationStartChild   frameworkOperationKind = "start_child"
-	frameworkOperationWaitChildren frameworkOperationKind = "wait_children"
-	frameworkOperationSignalChild  frameworkOperationKind = "signal_child"
-	frameworkOperationCancelChild  frameworkOperationKind = "cancel_child"
-)
-
-type waitRequestWire struct {
-	Operation frameworkOperationKind `json:"operation"`
-	Spec      externalWaitSpecWire   `json:"spec"`
-}
-
-func decodeWaitRequestPayload(payload json.RawMessage) (ExternalWaitSpec, error) {
-	wire, err := jsonwire.Decode[waitRequestWire](payload)
-	if err != nil {
-		return ExternalWaitSpec{}, fmt.Errorf("%w: decode Framework Effect: %w", ErrInvalidEffect, err)
-	}
-	if wire.Operation != frameworkOperationWait {
-		return ExternalWaitSpec{}, fmt.Errorf("%w: unsupported Framework Effect", ErrInvalidEffect)
-	}
-	spec, err := wire.Spec.value()
-	if err != nil {
-		return ExternalWaitSpec{}, fmt.Errorf("%w: %w", ErrInvalidEffect, err)
-	}
-	return spec, nil
+	Call   Payload            `json:"call,omitzero"`
+	Spawn  *ChildSpec         `json:"spawn,omitzero"`
+	Send   *childSignal       `json:"send,omitzero"`
+	Cancel *childCancellation `json:"cancel,omitzero"`
 }

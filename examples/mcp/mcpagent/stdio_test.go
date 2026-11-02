@@ -3,17 +3,16 @@
 package main
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	"crypto/rand"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/run/runtest"
 )
 
 func TestMCPProcessBoundary(t *testing.T) {
@@ -27,11 +26,11 @@ func TestMCPProcessBoundary(t *testing.T) {
 			t.Fatalf("external prompt=%q error=%v", prompt, err)
 		}
 		for _, permit := range []bool{false, true} {
-			deployment := peerDeployment(t, ctx, peer, permit, briefingQuery)
-			engine := managedEngine(t, agentrun.NewMemoryStore(), nil)
-			brief, runErr := runBriefing(ctx, engine, deployment, prompt, briefingTopic)
-			if runErr != nil {
-				t.Fatal(runErr)
+			runtime := managedRuntime(t, agentrun.NewMemoryStore())
+			program := peerProgram(t, ctx, runtime.Compiler(), peer, permit, briefingQuery)
+			brief, err := runBriefing(ctx, runtime, program, prompt, briefingTopic)
+			if err != nil {
+				t.Fatal(err)
 			}
 			if permit {
 				peer.await(t, ctx, expertStarted)
@@ -48,86 +47,61 @@ func TestMCPProcessBoundary(t *testing.T) {
 		defer cancel()
 		peer := openExpert(t, ctx, binary)
 		store := agentrun.NewMemoryStore()
-		engine := managedEngine(t, store, nil)
-		root := startManagedBriefing(t, ctx, engine, peerDeployment(t, ctx, peer, true, expertWaitQuery))
+		runtime := managedRuntime(t, store)
+		program := peerProgram(t, ctx, runtime.Compiler(), peer, true, expertWaitQuery)
+		root := startManagedBriefing(t, ctx, runtime, program)
 		peer.await(t, ctx, expertStarted)
 		if err := root.Cancel(ctx, "stop the external search"); err != nil {
 			t.Fatal(err)
 		}
-		result, err := root.Await(ctx)
-		if err != nil || result.Termination().Status() != agentrun.StatusCanceled {
-			t.Fatalf("cancellation status=%s error=%v", result.Termination().Status(), err)
-		}
-		if err := root.Join(ctx); err != nil {
-			t.Fatal(err)
-		}
 		peer.await(t, ctx, expertCanceled)
+		awaitUnknown(t, ctx, root)
 		if status := peer.status(t, ctx); status.Calls != 1 || status.Canceled != 1 {
 			t.Fatalf("peer cancellation=%+v", status)
 		}
-		unknownRequest(t, loadHead(t, ctx, store, root.Relation().ProcessID()))
+		log := loadLog(t, ctx, store, root.ID())
+		unknownRequest(t, log)
+		assertUnresolved(t, log)
 	})
 	t.Run("reconnection cannot replay or settle an uncertain call", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 		defer cancel()
 		peer := openExpert(t, ctx, binary)
 		store := agentrun.NewMemoryStore()
-		observations := &runtest.ObservationRecorder{}
-		engine := managedEngine(t, store, observations)
-		deployment := peerDeployment(t, ctx, peer, true, expertDisconnectQuery)
-		root := startManagedBriefing(t, ctx, engine, deployment)
+		runtime := managedRuntime(t, store)
+		program := peerProgram(t, ctx, runtime.Compiler(), peer, true, expertDisconnectQuery)
+		root := startManagedBriefing(t, ctx, runtime, program)
 		peer.await(t, ctx, expertStarted)
-		if _, err := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-			fact, ok := event.EffectFinished()
-			return ok && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
-		}); err != nil {
-			t.Fatal(err)
-		}
+		awaitUnknown(t, ctx, root)
 		if result, err := peer.command.Wait(); err != nil || result.ExitCode != expertExitCode {
 			t.Fatalf("expert exit=%+v error=%v", result, err)
 		}
-		if err := root.Pause(ctx, "handoff before reconnecting"); err != nil {
+		if err := runtime.Close(ctx); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-			return event.Name() == agentrun.EventProcessPaused && event.Relation().IsRoot()
-		}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := engine.CaptureTree(ctx, root.Relation().ProcessID()); err != nil {
-			t.Fatal(err)
-		}
-		head := loadHead(t, ctx, store, root.Relation().ProcessID())
-		original := unknownRequest(t, head)
+		before := loadLog(t, ctx, store, root.ID())
+		original := unknownRequest(t, before)
 		reconnected := openExpert(t, ctx, binary)
-		replacement := managedEngine(t, store, nil)
-		changedGrant := peerDeployment(t, ctx, reconnected, false, expertDisconnectQuery)
-		if changedGrant.ProgramRef() == deployment.ProgramRef() {
+		replacement := managedRuntime(t, store)
+		changedGrant := peerProgram(t, ctx, replacement.Compiler(), reconnected, false, expertDisconnectQuery)
+		if changedGrant.ProgramRef() == program.ProgramRef() {
 			t.Fatal("authorization change did not change the exact binding")
 		}
-		if _, err := replacement.Recover(ctx, changedGrant, head); !errors.Is(err, agentrun.ErrInvalidTreeSnapshot) {
+		if _, err := replacement.Recover(ctx, changedGrant, before.Root); !errors.Is(err, agentrun.ErrInvalidProgram) {
 			t.Fatalf("restoration with changed authorization=%v", err)
 		}
-		if loaded := loadHead(t, ctx, store, head.RootID()); loaded.Digest() != head.Digest() {
-			t.Fatal("rejected restoration advanced the authoritative head")
+		if loaded := loadLog(t, ctx, store, before.Root); loaded.Head() != before.Head() || loaded.Epoch() != before.Epoch() {
+			t.Fatal("rejected restoration advanced the authoritative log")
 		}
-		exact := peerDeployment(t, ctx, reconnected, true, expertDisconnectQuery)
-		if exact.ProgramRef() != deployment.ProgramRef() {
-			t.Fatal("session identity leaked into the deployment binding")
+		exact := peerProgram(t, ctx, replacement.Compiler(), reconnected, true, expertDisconnectQuery)
+		if exact.ProgramRef() != program.ProgramRef() {
+			t.Fatal("session identity leaked into the program binding")
 		}
-		restored, err := replacement.Recover(ctx, exact, head)
+		restored, err := replacement.Recover(ctx, exact, before.Root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		cleanupRoot(t, restored)
-		if resumeErr := restored.Resume(ctx); resumeErr != nil {
-			t.Fatal(resumeErr)
-		}
-		cut, err := replacement.CaptureTree(ctx, restored.Relation().ProcessID())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if current := unknownRequest(t, cut); current.ID() != original.ID() || current.Relation().ProcessID() != original.Relation().ProcessID() {
+		if current := unknownRequest(t, loadLog(t, ctx, store, before.Root)); current.ID() != original.ID() {
 			t.Fatal("reconnection changed the uncertain Effect identity")
 		}
 		if status := reconnected.status(t, ctx); status.Calls != 0 {
@@ -136,18 +110,12 @@ func TestMCPProcessBoundary(t *testing.T) {
 		if cancelErr := restored.Cancel(ctx, "leave the remote outcome unresolved"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
-		result, err := restored.Await(ctx)
-		if err != nil || result.Termination().Status() != agentrun.StatusCanceled {
-			t.Fatalf("restored cancellation=%s error=%v", result.Termination().Status(), err)
-		}
-		if joinErr := restored.Join(ctx); joinErr != nil {
-			t.Fatal(joinErr)
-		}
-		terminal := loadHead(t, ctx, store, head.RootID())
-		if unknownRequest(t, terminal).ID() != original.ID() {
+		unresolved := loadLog(t, ctx, store, before.Root)
+		assertUnresolved(t, unresolved)
+		if unknownRequest(t, unresolved).ID() != original.ID() {
 			t.Fatal("cancellation erased uncertainty")
 		}
-		fresh := peerDeployment(t, ctx, reconnected, true, briefingQuery)
+		fresh := peerProgram(t, ctx, replacement.Compiler(), reconnected, true, briefingQuery)
 		brief, err := runBriefing(ctx, replacement, fresh, "Use the external expert.", briefingTopic)
 		if err != nil || !slices.Equal(brief.Sources, []string{expertSourceURL}) {
 			t.Fatalf("fresh task after reconnect=%+v error=%v", brief, err)
@@ -156,92 +124,105 @@ func TestMCPProcessBoundary(t *testing.T) {
 		if status := reconnected.status(t, ctx); status.Calls != 1 {
 			t.Fatalf("fresh task calls=%+v", status)
 		}
-		if loadHead(t, ctx, store, head.RootID()).Digest() != terminal.Digest() {
-			t.Fatal("a fresh task advanced the old execution")
+		if loadLog(t, ctx, store, before.Root).Head() != unresolved.Head() {
+			t.Fatal("a fresh task advanced the unresolved execution")
 		}
 	})
 }
 
-func peerDeployment(t *testing.T, ctx context.Context, peer *stdioPeer, permit bool, query string) agentrun.Program[agentrun.Payload, agentrun.Payload] {
+func peerProgram(t *testing.T, ctx context.Context, compiler *agentrun.Compiler, peer *stdioPeer, permit bool, query string) agentrun.Program[interaction.Input, interaction.Output] {
 	t.Helper()
-	deployment, err := newBriefingDeployment(ctx, briefingConfig{Session: peer.session, ExpertDigest: peer.artifact.digest, AllowSearch: permit, Query: query})
+	program, err := newBriefingProgram(ctx, compiler, briefingConfig{Session: peer.session, ExpertRevision: peer.artifact.digest.String(), AllowSearch: permit, Query: query})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return program
 }
 
-func managedEngine(t *testing.T, store *agentrun.MemoryStore, recorder *runtest.ObservationRecorder) *agentrun.Runtime {
+func managedRuntime(t *testing.T, store *agentrun.MemoryStore) *agentrun.Runtime {
 	t.Helper()
-	config := agentrun.Config{Store: store}
-	if recorder != nil {
-		config.EventListeners = []agentrun.EventListener{recorder}
-	}
-	engine, err := agentrun.New(t.Context(), config)
+	runtime, err := agentrun.New(t.Context(), agentrun.Config{Store: store, Build: briefingBuild})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
-		if err := engine.Close(ctx); err != nil {
+		if err := runtime.Close(ctx); err != nil {
 			t.Error(err)
 		}
 	})
-	return engine
+	return runtime
 }
 
-func startManagedBriefing(t *testing.T, ctx context.Context, engine *agentrun.Runtime, deployment agentrun.Program[agentrun.Payload, agentrun.Payload]) *agentrun.Handle[agentrun.Payload] {
+func startManagedBriefing(t *testing.T, ctx context.Context, runtime *agentrun.Runtime, program agentrun.Program[interaction.Input, interaction.Output]) *agentrun.Handle[interaction.Output] {
 	t.Helper()
 	input, err := briefingInput("Use the external expert.", briefingTopic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	root, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{ID: agentrun.StartID{Scope: "test", Key: rand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cleanupRoot(t, root)
 	return root
 }
 
-func cleanupRoot(t *testing.T, root *agentrun.Handle[agentrun.Payload]) {
+func awaitUnknown(t *testing.T, ctx context.Context, root *agentrun.Handle[interaction.Output]) {
 	t.Helper()
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
-		defer cancel()
-		if err := root.Kill(ctx, "test cleanup"); err != nil && !errors.Is(err, agentrun.ErrProcessFinished) && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
-			t.Error(err)
+	for entry, err := range root.Observe(ctx, 0) {
+		if err != nil {
+			t.Fatal(err)
 		}
-		if err := root.Join(ctx); err != nil && !errors.Is(err, agentrun.ErrTreeIncarnationConflict) {
-			t.Error(err)
+		if settled, ok := entry.Record.(agentrun.EffectSettled); ok && settled.Outcome.Status() == agentrun.SettlementStatusUnknown {
+			return
 		}
-	})
-}
-
-func loadHead(t *testing.T, ctx context.Context, store *agentrun.MemoryStore, root agentrun.ProcessID) agentrun.TreeSnapshot {
-	t.Helper()
-	head, found, err := store.LoadTree(ctx, root)
-	if err != nil || !found {
-		t.Fatalf("load authoritative head: found=%t error=%v", found, err)
 	}
-	return head
+	t.Fatal("interaction exited without preserving its uncertain call")
 }
 
-func unknownRequest(t *testing.T, head agentrun.TreeSnapshot) agentrun.EffectRequest {
+func loadLog(t *testing.T, ctx context.Context, store agentrun.Store, root agentrun.ProcessID) agentrun.Log {
 	t.Helper()
+	log, found, err := store.Load(ctx, root)
+	if err != nil || !found {
+		t.Fatalf("load authoritative log: found=%t error=%v", found, err)
+	}
+	return log
+}
+
+func unknownRequest(t *testing.T, log agentrun.Log) agentrun.EffectRequest {
+	t.Helper()
+	inspection, err := log.Inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var requests []agentrun.EffectRequest
-	for _, snapshot := range head.ProcessSnapshots() {
-		for _, id := range snapshot.UnknownEffectIDs() {
-			request, found := head.EffectRequest(snapshot.Relation().ProcessID(), id)
-			if !found {
-				t.Fatal("missing captured Effect request")
+	for _, process := range inspection.Processes {
+		for _, effect := range process.PendingEffects {
+			if effect.Outcome.Status() == agentrun.SettlementStatusUnknown {
+				requests = append(requests, effect.Request)
 			}
-			requests = append(requests, request)
 		}
 	}
 	if len(requests) != 1 {
 		t.Fatalf("unknown requests=%d, want 1", len(requests))
 	}
 	return requests[0]
+}
+
+func assertUnresolved(t *testing.T, log agentrun.Log) {
+	t.Helper()
+	inspection, err := log.Inspect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, found := inspection.Process(inspection.Root)
+	if !found || root.Status.Terminal() {
+		t.Fatal("unresolved tree published a terminal status")
+	}
+	for _, entry := range log.Entries {
+		if _, exited := entry.Record.(agentrun.Exited); exited {
+			t.Fatal("unresolved tree published Exited")
+		}
+	}
 }

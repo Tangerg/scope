@@ -1,21 +1,19 @@
 package main
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	startrand "crypto/rand"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"reflect"
-	"slices"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/eval/trajectory"
 )
 
 const (
@@ -39,15 +37,15 @@ func (l losingReportTool) Call(ctx context.Context, input tool.Invocation) (tool
 	if err != nil {
 		return tool.Result{}, err
 	}
-	invocation, ok := agent.ToolInvocationFromContext(ctx)
+	invocation, ok := interaction.ToolInvocationFromContext(ctx)
 	if !ok {
 		return tool.Result{}, errors.New("missing Tool invocation")
 	}
-	reference, ok := invocation.Reference()
-	if !ok {
-		return tool.Result{}, errors.New("missing Tool parent reference")
+	var arguments readReport
+	if err := jsonv2.Unmarshal(input.Arguments(), &arguments, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return tool.Result{}, err
 	}
-	if reference.ModelCallSequence() == lostToolRound {
+	if uint64(arguments.Index+1) == lostToolRound {
 		select {
 		case l.confirmed <- confirmedToolCall{EffectID: invocation.EffectID(), Output: output.Output.Clone()}:
 			return tool.Result{}, errors.New("confirmed report response was lost")
@@ -64,7 +62,7 @@ type contextProbe struct {
 	last     *chat.Request
 }
 
-func (c *contextProbe) PrepareContext(ctx context.Context, invocation agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+func (c *contextProbe) PrepareContext(ctx context.Context, invocation interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	messages, err := (duplicateToolOutputReducer{}).PrepareContext(ctx, invocation, request)
 	if err != nil {
 		return nil, err
@@ -99,35 +97,26 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	defer cancel()
 	task := contextTasks()[2]
 	confirmed := make(chan confirmedToolCall, 1)
-	before := &trajectory.Recorder{}
 	reader, err := reportTool(task)
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalProbe := &contextProbe{}
-	deployment, _, err := newDeployment(contextDeploymentConfig{
-		Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: contextPolicy{ID: duplicateOutputPolicyID, Reducer: originalProbe},
-		Reader: losingReportTool{Tool: reader, confirmed: confirmed}, Recorder: before,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := agentrun.NewMemoryStore()
-	engine, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{before}})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Store: store, Build: contextBuild})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var root *agentrun.Handle[agentrun.Payload]
 	t.Cleanup(func() {
-		if closeErr := closeTree(context.WithoutCancel(ctx), engine, root); closeErr != nil {
+		if closeErr := closeRuntime(ctx, runtime); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
-	input, err := contextInput()
+	originalProbe := &contextProbe{}
+	program, err := compileContext(runtime.Compiler(), contextProgramConfig{Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: contextPolicy{ID: duplicateOutputPolicyID, Reducer: originalProbe}, Reader: losingReportTool{Tool: reader, confirmed: confirmed}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err = engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	root, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{ID: agentrun.StartID{Scope: "test", Key: startrand.Text()}, Input: contextInput()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,156 +124,133 @@ func TestRestoredContextDoesNotRegrowOrChangeAuthority(t *testing.T) {
 	select {
 	case receipt = <-confirmed:
 	case <-ctx.Done():
-		t.Fatalf("waiting for the confirmed Tool result: %v", ctx.Err())
+		t.Fatal("confirmed tool result missing", ctx.Err())
 	}
-	awaitRecoveryState(t, ctx, engine, root.Relation().ProcessID(), "the confirmed Tool outcome to become unknown", func(inspection agentrun.TreeInspection) bool {
-		for _, process := range inspection.Processes {
-			if !process.Snapshot.Relation().IsRoot() && slices.Contains(process.Snapshot.UnknownEffectIDs(), receipt.EffectID) {
+	awaitRecoveryState(t, ctx, runtime, root.ID(), "the confirmed tool outcome to become unknown", func(view agentrun.TreeInspection) bool {
+		process, ok := view.Process(root.ID())
+		if !ok {
+			return false
+		}
+		for _, pending := range process.PendingEffects {
+			if pending.Request.ID() == receipt.EffectID && pending.Outcome.Status() == agentrun.SettlementStatusUnknown {
 				return true
 			}
 		}
 		return false
 	})
-	if pauseErr := root.Pause(ctx, "restore committed context while the Tool is unknown"); pauseErr != nil {
+	if pauseErr := root.Pause(ctx, "restore committed context while the tool is unknown"); pauseErr != nil {
 		t.Fatal(pauseErr)
 	}
-	awaitRecoveryState(t, ctx, engine, root.Relation().ProcessID(), "the root pause to commit", func(inspection agentrun.TreeInspection) bool {
-		process, found := inspection.Process(root.Relation().ProcessID())
-		return found && process.Snapshot.Status() == agentrun.StatusPaused
-	})
 	effectiveBefore := originalProbe.LastEffective()
-	if _, captureErr := engine.CaptureTree(ctx, root.Relation().ProcessID()); captureErr != nil {
-		t.Fatal(captureErr)
-	}
-	head, found, err := store.LoadTree(ctx, root.Relation().ProcessID())
+	head, found, err := store.Load(ctx, root.ID())
 	if err != nil || !found {
-		t.Fatalf("acknowledged head: found=%t, error=%v", found, err)
+		t.Fatalf("acknowledged log found=%t error=%v", found, err)
 	}
-	snapshot, err := agentrun.ParseTreeSnapshot(head.JSON())
+	encoded, err := jsonv2.Marshal(head)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var request agentrun.EffectRequest
-	for _, process := range snapshot.ProcessSnapshots() {
-		for _, id := range process.UnknownEffectIDs() {
-			if request.Valid() {
-				t.Fatal("more than one unknown operation")
-			}
-			request, found = snapshot.EffectRequest(process.Relation().ProcessID(), id)
-			if !found {
-				t.Fatal("unknown operation lost its request")
-			}
-		}
+	var retained agentrun.Log
+	if decodeErr := jsonv2.Unmarshal(encoded, &retained, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+		t.Fatal(decodeErr)
 	}
-	if !request.Valid() || request.ID() != receipt.EffectID {
-		t.Fatal("confirmed Tool response lost its frozen request identity")
-	}
-	after := &trajectory.Recorder{}
-	probe := &contextProbe{}
-	replacementDeployment, tools, err := newDeployment(contextDeploymentConfig{
-		Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: contextPolicy{ID: duplicateOutputPolicyID, Reducer: probe}, Reader: reader, Recorder: after,
-	})
+	before, err := retained.Inspect()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replacementDeployment.ProgramRef() != deployment.ProgramRef() {
-		t.Fatal("instrumentation changed the deployment binding")
+	initial, _ := before.Process(root.ID())
+	if len(initial.PendingEffects) != 1 || initial.PendingEffects[0].Request.ID() != receipt.EffectID {
+		t.Fatal("confirmed outcome lost its frozen request")
 	}
-	replacement, err := agentrun.New(t.Context(), agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{after}})
+	if closeErr := runtime.Close(ctx); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	replacement, err := agentrun.New(ctx, agentrun.Config{Store: store, Build: contextBuild})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var restored *agentrun.Handle[agentrun.Payload]
 	t.Cleanup(func() {
-		if closeErr := closeTree(context.WithoutCancel(ctx), replacement, restored); closeErr != nil {
+		if closeErr := closeRuntime(ctx, replacement); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
-	restored, err = replacement.Recover(ctx, replacementDeployment, snapshot)
+	probe := &contextProbe{}
+	recoveredProgram, err := compileContext(replacement.Compiler(), contextProgramConfig{Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: contextPolicy{ID: duplicateOutputPolicyID, Reducer: probe}, Reader: reader})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Tool settlement carries no replacement model context: the only source
-	// for the recovered prefix is the context already committed in the tree.
-	settlement, err := tools.SettleToolResult(request, receipt.Output, agent.ResultSucceeded, nil)
+	if recoveredProgram.ProgramRef() != program.ProgramRef() {
+		t.Fatal("instrumentation changed the program binding")
+	}
+	restored, err := replacement.Recover(ctx, recoveredProgram, root.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, found := replacement.Process(request.Relation().ProcessID())
-	if !found {
-		t.Fatal("restored Tool owner is missing")
+	view, err := restored.Inspect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, _ := view.Process(root.ID())
+	if len(process.PendingEffects) != 1 {
+		t.Fatal("unknown effect disappeared at recovery")
+	}
+	request := process.PendingEffects[0].Request
+	settlement, err := interaction.SettleToolResult(recoveredProgram, request, tool.Result{Output: receipt.Output}, interaction.ResultSucceeded, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolveErr := restored.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
+		t.Fatal(resolveErr)
 	}
 	if resumeErr := restored.Resume(ctx); resumeErr != nil {
 		t.Fatal(resumeErr)
 	}
-	if resolveErr := owner.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
-		t.Fatal(resolveErr)
-	}
 	if _, awaitErr := restored.Await(ctx); awaitErr != nil {
 		t.Fatal(awaitErr)
 	}
-	recorded, err := after.Take(ctx, restored, nil)
+	recorded, err := captureContext(ctx, restored)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text, err := answer(recorded)
 	if err != nil || text != task.Expected {
-		t.Fatalf("restoration degraded task quality: %q, %v", text, err)
+		t.Fatalf("recovery degraded quality: %q %v", text, err)
 	}
 	requests := probe.Requests()
-	if len(originalProbe.Requests()) != int(lostToolRound) || len(requests) != reportRounds+1-int(lostToolRound) || len(recorded.ModelCalls()) != len(requests) || recorded.ModelCalls()[0].CallSequence != lostToolRound+1 || len(recorded.ToolCalls()) != reportRounds-int(lostToolRound) {
-		t.Fatalf("restoration replayed model work: requests=%d, calls=%+v", len(requests), recorded.ModelCalls())
+	if len(originalProbe.Requests()) != int(lostToolRound) || len(requests) != reportRounds+1-int(lostToolRound) || len(recorded.ModelCalls()) != reportRounds+1 || len(recorded.ToolCalls()) != reportRounds {
+		t.Fatalf("recovery replayed work or lost history: before=%d after=%d model=%d tool=%d", len(originalProbe.Requests()), len(requests), len(recorded.ModelCalls()), len(recorded.ToolCalls()))
+	}
+	if !recorded.HistoryComplete() {
+		t.Fatal("recovery fragmented retained history")
 	}
 	for _, effective := range requests {
-		// Observe before reduction. A reducer running again must not conceal
-		// a recovered WorkingContext that regrew discarded duplicate bodies.
 		if len(effective.Messages) < len(effectiveBefore.Messages) || !reflect.DeepEqual(effective.Messages[:len(effectiveBefore.Messages)], effectiveBefore.Messages) {
-			t.Fatal("pre-reduction restored context regrew or lost committed evidence")
+			t.Fatal("pre-reduction recovered context regrew or lost committed evidence")
 		}
 		if !reflect.DeepEqual(effective.Tools, effectiveBefore.Tools) || !reflect.DeepEqual(effective.ToolChoice, effectiveBefore.ToolChoice) || !reflect.DeepEqual(effective.Options, effectiveBefore.Options) {
-			t.Fatal("restoration changed Tool authority or model options")
+			t.Fatal("recovery changed tool authority or model options")
 		}
 	}
 }
 
-// Best-effort events cannot acknowledge a recovery boundary; only the tree
-// owner's committed state can establish that the unknown outcome or pause exists.
-func awaitRecoveryState(t *testing.T, ctx context.Context, engine *agentrun.Runtime, rootID agentrun.ProcessID, phase string, ready func(agentrun.TreeInspection) bool) {
+func awaitRecoveryState(t *testing.T, ctx context.Context, runtime *agentrun.Runtime, root agentrun.ProcessID, phase string, ready func(agentrun.TreeInspection) bool) {
 	t.Helper()
 	ticker := time.NewTicker(recoveryPollInterval)
 	defer ticker.Stop()
-	var last agentrun.TreeInspection
-	fail := func(cause error) {
-		t.Helper()
-		for _, process := range last.Processes {
-			t.Logf("process=%s status=%s work=%s unknown=%v runtime_error=%v", process.Snapshot.Relation().ProcessID(), process.Snapshot.Status(), process.Work, process.Snapshot.UnknownEffectIDs(), process.RuntimeError)
-		}
-		t.Fatalf("waiting for %s: %v", phase, cause)
-	}
 	for {
-		inspection, err := engine.InspectTree(ctx, rootID)
+		view, err := runtime.Inspect(ctx, root)
 		if err != nil {
-			fail(err)
+			t.Fatalf("waiting for %s: %v", phase, err)
+		}
+		if ready(view) {
 			return
 		}
-		last = inspection
-		for _, process := range inspection.Processes {
-			if process.RuntimeError != nil {
-				fail(process.RuntimeError)
-				return
-			}
-		}
-		if ready(inspection) {
-			return
-		}
-		if inspection.Stopped {
-			fail(errors.New("runtime stopped before reaching the required state"))
-			return
+		if process, ok := view.Process(root); ok && process.Termination.Valid() {
+			t.Fatalf("waiting for %s: root ended with %v", phase, process.Termination)
 		}
 		select {
 		case <-ctx.Done():
-			fail(ctx.Err())
-			return
+			t.Fatalf("waiting for %s: %v", phase, ctx.Err())
 		case <-ticker.C:
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/agent/workflow"
 )
@@ -53,9 +54,9 @@ func TestExhaustionReturnsBestAttemptNotLatestAttempt(t *testing.T) {
 	if report.History[2].Candidate == report.best().Candidate {
 		t.Fatal("latest lower-scoring candidate replaced the stable best attempt")
 	}
-	wantDeployments := expectedDeployments(3)
-	if !maps.Equal(evidence.Deployments, wantDeployments) {
-		t.Fatalf("deployments=%#v, want %#v", evidence.Deployments, wantDeployments)
+	wantPrograms := expectedPrograms(3)
+	if !maps.Equal(evidence.Programs, wantPrograms) {
+		t.Fatalf("programs=%#v, want %#v", evidence.Programs, wantPrograms)
 	}
 }
 
@@ -72,13 +73,13 @@ func TestAcceptedAttemptStopsBeforeLimit(t *testing.T) {
 	if !report.Accepted || len(report.History) != 1 {
 		t.Fatalf("report=%#v, want one accepted iteration", report)
 	}
-	wantDeployments := expectedDeployments(1)
-	if evidence.ProcessCount() != 4 || !maps.Equal(evidence.Deployments, wantDeployments) {
+	wantPrograms := expectedPrograms(1)
+	if evidence.ProcessCount() != 4 || !maps.Equal(evidence.Programs, wantPrograms) {
 		t.Fatalf("evidence=%#v, want exact root/body/optimizer/evaluator tree", evidence)
 	}
 }
 
-func expectedDeployments(iterations int) map[string]int {
+func expectedPrograms(iterations int) map[string]int {
 	return map[string]int{
 		"example.evaluator_optimizer":           1,
 		"example.evaluator_optimizer.iteration": iterations,
@@ -115,7 +116,7 @@ func TestConfigurationIsExplicitAndFinite(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := newEvaluatorOptimizer(test.scores, test.threshold); err == nil {
+			if _, err := newEvaluatorOptimizer(conformancetest.Compiler(t), test.scores, test.threshold); err == nil {
 				t.Fatal("invalid evaluator-optimizer configuration was accepted")
 			}
 		})
@@ -183,11 +184,11 @@ func TestFinalReportRefusesIncompleteOrContradictoryHistory(t *testing.T) {
 }
 
 func TestEvaluatorRejectsAnUnscheduledRevisionWithoutReportingAcceptance(t *testing.T) {
-	child, err := newEvaluatorDeployment([]float64{0.9})
+	child, err := newEvaluatorProgram(conformancetest.Compiler(t), []float64{0.9})
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, err := agentrun.New(t.Context(), agentrun.Config{Store: agentrun.NewMemoryStore()})
+	rt, err := agentrun.New(t.Context(), agentrun.Config{Build: conformancetest.Build, Store: agentrun.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}

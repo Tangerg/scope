@@ -1,9 +1,8 @@
 package main
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	"crypto/rand"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,16 +10,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 const (
-	exampleTimeout     = 10 * time.Second
-	treeCleanupTimeout = 5 * time.Second
+	exampleBuild          = "example.reconciliation.v1"
+	exampleTimeout        = 10 * time.Second
+	runtimeCleanupTimeout = 5 * time.Second
 )
 
 func main() {
@@ -43,148 +42,172 @@ func run(ctx context.Context, output io.Writer) error {
 		{name: "missing", availability: queryMissing},
 		{name: "unavailable", availability: queryUnavailable},
 	} {
-		remote := &remoteLedger{reject: scenario.reject, availability: scenario.availability}
-		result, err := runScenario(ctx, remote)
+		result, err := runScenario(ctx, &remoteLedger{reject: scenario.reject, availability: scenario.availability})
 		if err != nil {
 			return fmt.Errorf("%s: %w", scenario.name, err)
 		}
-		unknown := 0
-		for _, snapshot := range result.Head.ProcessSnapshots() {
-			unknown += len(snapshot.UnknownEffectIDs())
+		inspection, err := result.Head.Inspect()
+		if err != nil {
+			return err
 		}
-		if _, writeErr := fmt.Fprintf(output, "%s: %s unknown=%d writes=%d attempts=%d model_calls=%d result=%q reason=%q\n",
-			scenario.name, result.Result.Termination().Status(), unknown, result.Remote.Writes, result.Remote.Attempts,
-			result.ModelCalls, result.Message, result.Reason); writeErr != nil {
-			return writeErr
+		root, found := inspection.Process(inspection.Root)
+		if !found {
+			return errors.New("example: root absent from committed log")
+		}
+		unknown := unknownCount(inspection)
+		status := root.Status.String()
+		if unknown != 0 {
+			status = "unresolved"
+		}
+		message, err := result.message()
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "%s: %s unknown=%d writes=%d attempts=%d model_calls=%d result=%q reason=%q\n",
+			scenario.name, status, unknown, result.Remote.Writes, result.Remote.Attempts,
+			result.ModelCalls, message, result.Reason); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 type scenarioResult struct {
-	Before     agentrun.TreeSnapshot
-	Head       agentrun.TreeSnapshot
+	Before     agentrun.Log
+	Head       agentrun.Log
 	Request    agentrun.EffectRequest
-	Result     agentrun.Result[agentrun.Payload]
 	Remote     ledgerReport
 	ModelCalls int32
-	Message    string
 	Reason     string
+}
+
+func (s scenarioResult) message() (string, error) {
+	inspection, err := s.Head.Inspect()
+	if err != nil {
+		return "", err
+	}
+	root, found := inspection.Process(inspection.Root)
+	if !found {
+		return "", errors.New("example: missing root process")
+	}
+	payload, completed := root.Termination.Output()
+	if !completed {
+		return "", nil
+	}
+	output, err := payload.Decode[interaction.Output]()
+	if err != nil {
+		return "", err
+	}
+	if output.ModelResponse == nil {
+		return "", errors.New("example: missing receipt report")
+	}
+	return output.ModelResponse.Text(), nil
 }
 
 func runScenario(ctx context.Context, remote *remoteLedger) (result scenarioResult, runErr error) {
 	model := &receiptModel{}
-	deployment, tools, err := newDeployment(remote, model)
-	if err != nil {
-		return result, err
-	}
 	store := agentrun.NewMemoryStore()
-	observations := &runtest.ObservationRecorder{}
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: store, EventListeners: []agentrun.EventListener{observations}})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Store: store, Build: exampleBuild})
 	if err != nil {
 		return result, err
 	}
-	var root *agentrun.Handle[agentrun.Payload]
-	defer func() { runErr = errors.Join(runErr, closeTree(ctx, engine, root)) }()
-	input, err := deployment.Descriptor().EncodeInput(agent.Input{Messages: []chat.Message{
-		chat.NewUserMessage(chat.NewTextPart("Record one release note and report its receipt.")),
-	}})
+	defer func() { runErr = errors.Join(runErr, closeRuntime(ctx, runtime)) }()
+	program, err := newProgram(runtime.Compiler(), remote, model)
 	if err != nil {
 		return result, err
 	}
-	root, err = engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: startrand.Text()}, Input: input})
+	root, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{
+		ID:    agentrun.StartID{Scope: "example", Key: rand.Text()},
+		Input: interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("Record one release note and report its receipt."))}},
+	})
 	if err != nil {
 		return result, err
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-		fact, ok := event.EffectFinished()
-		return ok && fact.SettlementStatus() == agentrun.SettlementStatusUnknown
-	}); waitErr != nil {
-		return result, waitErr
+	if observeErr := awaitUnknown(ctx, root); observeErr != nil {
+		return result, observeErr
 	}
-	// CaptureTree releases its barrier when it returns. Pause the live parent
-	// first so it cannot advance the head between the load and writer activation.
-	if pauseErr := root.Pause(ctx, "hand off the uncertain operation"); pauseErr != nil {
-		return result, pauseErr
+	// Closing stops the local owner while retaining the unresolved external fact.
+	if closeErr := closeRuntime(ctx, runtime); closeErr != nil {
+		return result, closeErr
 	}
-	if _, waitErr := observations.AwaitEvent(ctx, func(event agentrun.Event) bool {
-		return event.Name() == agentrun.EventProcessPaused && event.Relation().ProcessID() == root.Relation().ProcessID()
-	}); waitErr != nil {
-		return result, waitErr
-	}
-	// After an actual runtime failure, read the store directly: CaptureTree
-	// cannot recover private state.
-	if _, captureErr := engine.CaptureTree(ctx, root.Relation().ProcessID()); captureErr != nil {
-		return result, captureErr
-	}
-	head, found, err := store.LoadTree(ctx, root.Relation().ProcessID())
+	before, found, err := store.Load(ctx, root.ID())
 	if err != nil || !found {
-		return result, errors.Join(errors.New("example: no authoritative head"), err)
+		return result, errors.Join(errors.New("example: no authoritative log"), err)
 	}
-	request, err := unknownRequest(head)
+	request, err := unknownRequest(before)
 	if err != nil {
 		return result, err
 	}
-	replacement, err := agentrun.New(ctx, agentrun.Config{Store: store})
+	replacement, err := agentrun.New(ctx, agentrun.Config{Store: store, Build: exampleBuild})
 	if err != nil {
 		return result, err
 	}
-	var restored *agentrun.Handle[agentrun.Payload]
-	defer func() { runErr = errors.Join(runErr, closeTree(ctx, replacement, restored)) }()
-	restored, err = replacement.Recover(ctx, deployment, head)
+	defer func() { runErr = errors.Join(runErr, closeRuntime(ctx, replacement)) }()
+	restoredProgram, err := newProgram(replacement.Compiler(), remote, model)
 	if err != nil {
 		return result, err
 	}
-	owner, found := replacement.Process(request.Relation().ProcessID())
-	if !found {
-		return result, errors.New("example: missing restored Tool Process")
-	}
-	if resumeErr := restored.Resume(ctx); resumeErr != nil {
-		return result, resumeErr
-	}
-	resolved, reason, err := reconcile(ctx, remote.lookup, tools, request, owner)
+	restored, err := replacement.Recover(ctx, restoredProgram, root.ID())
 	if err != nil {
 		return result, err
 	}
-	if !resolved {
-		if cancelErr := restored.Cancel(ctx, reason); cancelErr != nil {
-			return result, cancelErr
+	resolved, reason, err := reconcile(ctx, remote.lookup, restoredProgram, request, restored)
+	if err != nil {
+		return result, err
+	}
+	if resolved {
+		if _, awaitErr := restored.Await(ctx); awaitErr != nil {
+			return result, awaitErr
 		}
+	} else if cancelErr := restored.Cancel(ctx, reason); cancelErr != nil {
+		return result, cancelErr
 	}
-	completed, err := restored.Await(ctx)
-	if err != nil {
-		return result, err
-	}
-	if joinErr := restored.Join(ctx); joinErr != nil {
-		return result, joinErr
-	}
-	final, found, err := store.LoadTree(ctx, head.RootID())
+	head, found, err := store.Load(ctx, root.ID())
 	if err != nil || !found {
-		return result, errors.Join(errors.New("example: missing final head"), err)
+		return result, errors.Join(errors.New("example: missing final log"), err)
 	}
-	result = scenarioResult{Before: head, Head: final, Request: request, Result: completed, Remote: remote.report(), ModelCalls: model.calls.Load(), Reason: reason}
-	if output, ok := completed.Termination().Output(); ok {
-		decoded, decodeErr := deployment.Descriptor().DecodeOutput[agent.Output](output)
-		if decodeErr != nil {
-			return result, decodeErr
-		}
-		result.Message = decoded.ModelResponse.Text()
-	}
-	return result, nil
+	return scenarioResult{Before: before, Head: head, Request: request, Remote: remote.report(), ModelCalls: model.calls.Load(), Reason: reason}, nil
 }
 
-func unknownRequest(head agentrun.TreeSnapshot) (agentrun.EffectRequest, error) {
+func awaitUnknown(ctx context.Context, root *agentrun.Handle[interaction.Output]) error {
+	for entry, err := range root.Observe(ctx, 0) {
+		if err != nil {
+			return err
+		}
+		if outcome, ok := entry.Record.(agentrun.EffectSettled); ok && outcome.Outcome.Status() == agentrun.SettlementStatusUnknown {
+			return nil
+		}
+	}
+	return errors.New("example: interaction exited without its uncertain receipt")
+}
+
+func unknownCount(inspection agentrun.TreeInspection) int {
+	count := 0
+	for _, process := range inspection.Processes {
+		for _, effect := range process.PendingEffects {
+			if effect.Outcome.Status() == agentrun.SettlementStatusUnknown {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func unknownRequest(log agentrun.Log) (agentrun.EffectRequest, error) {
+	inspection, err := log.Inspect()
+	if err != nil {
+		return agentrun.EffectRequest{}, err
+	}
 	var result agentrun.EffectRequest
-	for _, snapshot := range head.ProcessSnapshots() {
-		for _, id := range snapshot.UnknownEffectIDs() {
+	for _, process := range inspection.Processes {
+		for _, effect := range process.PendingEffects {
+			if effect.Outcome.Status() != agentrun.SettlementStatusUnknown {
+				continue
+			}
 			if result.Valid() {
 				return agentrun.EffectRequest{}, errors.New("example: expected exactly one Unknown")
 			}
-			request, found := head.EffectRequest(snapshot.Relation().ProcessID(), id)
-			if !found {
-				return agentrun.EffectRequest{}, errors.New("example: missing original Effect request")
-			}
-			result = request
+			result = effect.Request
 		}
 	}
 	if !result.Valid() {
@@ -193,7 +216,7 @@ func unknownRequest(head agentrun.TreeSnapshot) (agentrun.EffectRequest, error) 
 	return result, nil
 }
 
-func reconcile(ctx context.Context, lookup func(context.Context, agentrun.EffectID) (receipt, bool, error), tools agent.ToolSet, request agentrun.EffectRequest, owner *agentrun.Handle[agentrun.Payload]) (bool, string, error) {
+func reconcile(ctx context.Context, lookup func(context.Context, agentrun.EffectID) (receipt, bool, error), program agentrun.Program[interaction.Input, interaction.Output], request agentrun.EffectRequest, owner *agentrun.Handle[interaction.Output]) (bool, string, error) {
 	outcome, found, err := lookup(ctx, request.ID())
 	if err != nil {
 		return false, err.Error(), nil
@@ -201,7 +224,7 @@ func reconcile(ctx context.Context, lookup func(context.Context, agentrun.Effect
 	if !found {
 		return false, "remote receipt not found; outcome unresolved", nil
 	}
-	invocation, err := agent.ToolInvocationFromRequest(request)
+	invocation, err := interaction.ToolInvocationFromRequest(request)
 	if err != nil {
 		return false, "", err
 	}
@@ -212,33 +235,22 @@ func reconcile(ctx context.Context, lookup func(context.Context, agentrun.Effect
 	if outcome.EffectID != request.ID() || outcome.Note != input {
 		return false, "", errors.New("example: remote receipt does not match the original write")
 	}
-	disposition, text := agent.ResultRejected, "write denied"
+	disposition, text := interaction.ResultRejected, "write denied"
 	if outcome.Accepted {
-		disposition, text = agent.ResultSucceeded, "stored:"+outcome.Note.Text
+		disposition, text = interaction.ResultSucceeded, "stored:"+outcome.Note.Text
 	}
-	settlement, err := tools.SettleToolResult(request, toolcontract.NewTextOutput(text), disposition, nil)
+	settlement, err := interaction.SettleToolResult(program, request, toolcontract.Result{Output: toolcontract.NewTextOutput(text)}, disposition, nil)
 	if err != nil {
 		return false, "", err
 	}
-	if resolveErr := owner.ResolveUnknownEffect(ctx, request.ID(), settlement); resolveErr != nil {
-		return false, "", resolveErr
+	if err := owner.ResolveUnknownEffect(ctx, request.ID(), settlement); err != nil {
+		return false, "", err
 	}
 	return true, "", nil
 }
 
-// A replacement Runtime fences its predecessor. Cleanup still joins both trees;
-// only an already finished Process or the superseded writer is expected here.
-func closeTree(ctx context.Context, engine *agentrun.Runtime, root *agentrun.Handle[agentrun.Payload]) error {
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), treeCleanupTimeout)
+func closeRuntime(ctx context.Context, runtime *agentrun.Runtime) error {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimeCleanupTimeout)
 	defer cancel()
-	var err error
-	if root != nil {
-		if killErr := root.Kill(cleanup, "close example tree"); killErr != nil && !errors.Is(killErr, agentrun.ErrProcessFinished) && !errors.Is(killErr, agentrun.ErrTreeIncarnationConflict) {
-			err = errors.Join(err, killErr)
-		}
-		if joinErr := root.Join(cleanup); joinErr != nil && !errors.Is(joinErr, agentrun.ErrTreeIncarnationConflict) {
-			err = errors.Join(err, joinErr)
-		}
-	}
-	return errors.Join(err, engine.Close(cleanup))
+	return runtime.Close(cleanup)
 }

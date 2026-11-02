@@ -19,59 +19,58 @@ const (
 )
 
 type pendingQuestion struct {
-	ProcessID      string          `json:"process_id"`
-	WaitID         string          `json:"wait_id"`
-	Key            string          `json:"key"`
+	Address        a2a.WaitAddress `json:"address"`
 	Question       json.RawMessage `json:"question"`
 	AnswerSchema   json.RawMessage `json:"answer_schema"`
 	MaxAnswerBytes int             `json:"max_answer_bytes"`
 }
 
-func rootProcess(head run.TreeSnapshot) run.ProcessSnapshot {
-	for _, p := range head.ProcessSnapshots() {
-		if p.Relation().IsRoot() {
-			return p
-		}
-	}
-	return run.ProcessSnapshot{}
+func rootProcess(head run.TreeInspection) run.ProcessInspection {
+	root, _ := head.Process(head.Root)
+	return root
 }
-func projectTask(k taskKey, head run.TreeSnapshot) (*sdk.Task, error) {
+
+func projectTask(k taskKey, head run.TreeInspection) (*sdk.Task, error) {
 	root := rootProcess(head)
-	if !root.Valid() {
+	if !root.ID.Valid() {
 		return nil, sdk.ErrInternalError
 	}
-	t := &sdk.Task{ID: k.id, ContextID: k.context, Status: sdk.TaskStatus{State: sdk.TaskStateWorking}, Metadata: map[string]any{RootKey: root.Relation().ProcessID().String(), ProgramKey: root.ProgramRef().String(), rootStatusMetadataKey: root.Status().String()}}
-	for _, member := range head.ProcessSnapshots() {
-		if root.Status().Terminal() && !member.Status().Terminal() {
-			return t, nil
-		}
-	}
-	if result, ok := root.Result(); ok {
-		termination := result.Termination()
-		switch termination.Status() {
+	task := &sdk.Task{ID: k.id, ContextID: k.context, Status: sdk.TaskStatus{State: sdk.TaskStateWorking}, Metadata: map[string]any{
+		RootKey: head.Root.String(), ProgramKey: root.Program.String(), rootStatusMetadataKey: root.Status.String(),
+	}}
+	if root.Termination.Valid() {
+		switch root.Termination.Status() {
 		case run.StatusCompleted:
-			t.Status.State = sdk.TaskStateCompleted
-			if payload, ok := termination.Output(); ok {
-				t.Artifacts = []*sdk.Artifact{{ID: resultArtifactID, Parts: []*sdk.Part{jsonPart(payload.JSON())}}}
+			task.Status.State = sdk.TaskStateCompleted
+			if payload, ok := root.Termination.Output(); ok {
+				task.Artifacts = []*sdk.Artifact{{ID: resultArtifactID, Parts: []*sdk.Part{jsonPart(payload.JSON())}}}
 			}
 		case run.StatusCanceled, run.StatusKilled:
-			t.Status.State = sdk.TaskStateCanceled
+			task.Status.State = sdk.TaskStateCanceled
 		default:
-			t.Status.State = sdk.TaskStateFailed
+			task.Status.State = sdk.TaskStateFailed
 		}
-		t.Metadata[terminationMetadataKey] = termination.Cause().String()
-		return t, nil
+		task.Metadata[terminationMetadataKey] = root.Termination.Cause().String()
+		return task, nil
 	}
-	pending := head.Pending()
-	if len(pending) > 0 {
-		questions := make([]pendingQuestion, 0, len(pending))
-		for _, w := range pending {
-			questions = append(questions, pendingQuestion{ProcessID: w.ProcessID.String(), WaitID: w.WaitID.String(), Key: w.Key.String(), Question: w.Question, AnswerSchema: w.AnswerSchema, MaxAnswerBytes: w.MaxAnswerBytes})
+	var questions []pendingQuestion
+	for _, process := range head.Processes {
+		for _, wait := range process.Waits {
+			questions = append(questions, pendingQuestion{
+				Address:  a2a.WaitAddress{Process: process.ID.String(), Key: wait.Key.String()},
+				Question: wait.Question.JSON(), AnswerSchema: wait.AnswerSchema.JSON(), MaxAnswerBytes: wait.MaxAnswerBytes,
+			})
 		}
-		t.Metadata[PendingKey] = questions
-		t.Status.State = sdk.TaskStateInputRequired
-		t.Status.Message = sdk.NewMessageForTask(sdk.MessageRoleAgent, t, jsonPart(pending[0].Question))
-		t.Status.Message.Metadata = map[string]any{a2a.WaitIDMetadataKey: pending[0].WaitID.String(), a2a.AnswerSchemaMetadataKey: string(pending[0].AnswerSchema)}
 	}
-	return t, nil
+	if len(questions) > 0 {
+		address, err := questions[0].Address.Metadata()
+		if err != nil {
+			return nil, err
+		}
+		task.Metadata[PendingKey] = questions
+		task.Status.State = sdk.TaskStateInputRequired
+		task.Status.Message = sdk.NewMessageForTask(sdk.MessageRoleAgent, task, jsonPart(questions[0].Question))
+		task.Status.Message.Metadata = map[string]any{a2a.WaitMetadataKey: address, a2a.AnswerSchemaMetadataKey: string(questions[0].AnswerSchema)}
+	}
+	return task, nil
 }

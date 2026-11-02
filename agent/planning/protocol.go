@@ -123,17 +123,19 @@ func failedSettlement(failure settlementFailure) (run.Settlement, error) {
 	return run.NewSettlement(run.SettlementStatusFailed, payload)
 }
 
-// decodeSettlement reads the single Dispatcher settlement of the awaited
+// decodeSettlement reads the single dispatcher settlement of the awaited
 // operation. A failed settlement returns its explanation instead of a result.
-func decodeSettlement[T any](signals []run.Signal) (T, *settlementFailure, error) {
+func decodeSettlement[T any](messages []run.Message, expected *run.EffectID) (T, *settlementFailure, error) {
 	var result T
-	if len(signals) != 1 {
+	if len(messages) != 1 {
 		return result, nil, fmt.Errorf("%w: exactly one settlement Signal is required", ErrInvalidProtocol)
 	}
-	settlement, err := signals[0].Frame[run.Settlement]()
-	if err != nil {
-		return result, nil, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	completion, ok := messages[0].(run.Completion)
+	if !ok || expected == nil || completion.Effect != *expected {
+		return result, nil, ErrInvalidProtocol
 	}
+	settlement := completion.Outcome
+	var err error
 	if settlement.Status() == run.SettlementStatusFailed {
 		failure, decodeErr := jsonwire.Decode[settlementFailure](settlement.Payload())
 		if decodeErr != nil || !failure.valid() {

@@ -1,24 +1,22 @@
-package planning_test
+package planning
 
 import (
 	"errors"
 	"testing"
-
-	"github.com/Tangerg/scope/agent/planning"
 )
 
-func condition(t *testing.T, key string, truth planning.Truth) planning.Condition {
+func condition(t *testing.T, key string, truth Truth) Condition {
 	t.Helper()
-	value, err := planning.NewCondition(key, truth)
+	value, err := NewCondition(key, truth)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return value
 }
 
-func worldState(t *testing.T, conditions ...planning.Condition) planning.WorldState {
+func worldState(t *testing.T, conditions ...Condition) WorldState {
 	t.Helper()
-	state, err := planning.NewWorldState(conditions...)
+	state, err := NewWorldState(conditions...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +24,11 @@ func worldState(t *testing.T, conditions ...planning.Condition) planning.WorldSt
 }
 
 func TestActionPublishesItsCompleteContract(t *testing.T) {
-	action, err := planning.NewAction(planning.ActionConfig{
+	action, err := NewAction(ActionConfig{
 		Name:          "scope.test.gather",
 		Description:   "gathers the required input",
-		Preconditions: []planning.Condition{condition(t, "input.available", planning.TruthTrue)},
-		Effects:       []planning.Condition{condition(t, "input.gathered", planning.TruthTrue)},
+		Preconditions: []Condition{condition(t, "input.available", TruthTrue)},
+		Effects:       []Condition{condition(t, "input.gathered", TruthTrue)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -47,50 +45,50 @@ func TestActionPublishesItsCompleteContract(t *testing.T) {
 	if len(preconditions) != 1 {
 		t.Fatalf("Preconditions = %#v", preconditions)
 	}
-	preconditions[0] = planning.Condition{}
-	if len(action.Preconditions()) != 1 || action.Preconditions()[0] == (planning.Condition{}) {
+	preconditions[0] = Condition{}
+	if len(action.Preconditions()) != 1 || action.Preconditions()[0] == (Condition{}) {
 		t.Fatal("Preconditions aliases the Action's own set")
 	}
 
 	effects := action.Effects()
-	effects[0] = planning.Condition{}
-	if action.Effects()[0] == (planning.Condition{}) {
+	effects[0] = Condition{}
+	if action.Effects()[0] == (Condition{}) {
 		t.Fatal("Effects aliases the Action's own set")
 	}
 }
 
 func TestActionApplicabilityFollowsItsPreconditions(t *testing.T) {
-	action, err := planning.NewAction(planning.ActionConfig{
+	action, err := NewAction(ActionConfig{
 		Name:          "scope.test.gather",
 		Description:   "gathers the required input",
-		Preconditions: []planning.Condition{condition(t, "input.available", planning.TruthTrue)},
-		Effects:       []planning.Condition{condition(t, "input.gathered", planning.TruthTrue)},
+		Preconditions: []Condition{condition(t, "input.available", TruthTrue)},
+		Effects:       []Condition{condition(t, "input.gathered", TruthTrue)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	satisfied := worldState(t, condition(t, "input.available", planning.TruthTrue))
+	satisfied := worldState(t, condition(t, "input.available", TruthTrue))
 	if !action.Applicable(satisfied) {
 		t.Error("an Action was not applicable in a state that satisfies it")
 	}
 
-	unsatisfied := worldState(t, condition(t, "input.available", planning.TruthFalse))
+	unsatisfied := worldState(t, condition(t, "input.available", TruthFalse))
 	if action.Applicable(unsatisfied) {
 		t.Error("an Action was applicable in a state that contradicts it")
 	}
 
-	var zero planning.Action
+	var zero Action
 	if zero.Applicable(satisfied) {
 		t.Error("the zero Action reported itself applicable")
 	}
 }
 
 func TestGoalPublishesItsCompleteContract(t *testing.T) {
-	goal, err := planning.NewGoal(planning.GoalConfig{
+	goal, err := NewGoal(GoalConfig{
 		Name:        "scope.test.answered",
 		Description: "the question is answered",
-		Conditions:  []planning.Condition{condition(t, "answer.present", planning.TruthTrue)},
+		Conditions:  []Condition{condition(t, "answer.present", TruthTrue)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -104,31 +102,31 @@ func TestGoalPublishesItsCompleteContract(t *testing.T) {
 	}
 
 	conditions := goal.Conditions()
-	conditions[0] = planning.Condition{}
-	if goal.Conditions()[0] == (planning.Condition{}) {
+	conditions[0] = Condition{}
+	if goal.Conditions()[0] == (Condition{}) {
 		t.Fatal("Conditions aliases the goal's own set")
 	}
 
-	if !goal.SatisfiedBy(worldState(t, condition(t, "answer.present", planning.TruthTrue))) {
+	if !goal.SatisfiedBy(worldState(t, condition(t, "answer.present", TruthTrue))) {
 		t.Error("a satisfying state did not satisfy the goal")
 	}
-	if goal.SatisfiedBy(worldState(t, condition(t, "answer.present", planning.TruthFalse))) {
+	if goal.SatisfiedBy(worldState(t, condition(t, "answer.present", TruthFalse))) {
 		t.Error("a contradicting state satisfied the goal")
 	}
 }
 
 func TestNewGoalRequiresAtLeastOneCondition(t *testing.T) {
-	_, err := planning.NewGoal(planning.GoalConfig{
+	_, err := NewGoal(GoalConfig{
 		Name:        "scope.test.answered",
 		Description: "the question is answered",
 	})
-	if !errors.Is(err, planning.ErrInvalidGoal) {
+	if !errors.Is(err, ErrInvalidGoal) {
 		t.Fatalf("NewGoal error = %v, want ErrInvalidGoal", err)
 	}
 }
 
 func TestEmptyPlanRepresentsAnEmptyActionSequence(t *testing.T) {
-	empty, err := planning.NewPlan(nil)
+	empty, err := NewPlan(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,15 +136,15 @@ func TestEmptyPlanRepresentsAnEmptyActionSequence(t *testing.T) {
 }
 
 func TestTruthIsAClosedVocabulary(t *testing.T) {
-	for _, truth := range []planning.Truth{planning.TruthTrue, planning.TruthFalse} {
+	for _, truth := range []Truth{TruthTrue, TruthFalse} {
 		if truth.String() == "" {
 			t.Errorf("%v printed nothing", truth)
 		}
 	}
-	if _, err := planning.NewCondition("key", planning.Truth("maybe")); err == nil {
+	if _, err := NewCondition("key", Truth("maybe")); err == nil {
 		t.Fatal("NewCondition accepted a truth outside the vocabulary")
 	}
-	if _, err := planning.NewCondition("", planning.TruthTrue); err == nil {
+	if _, err := NewCondition("", TruthTrue); err == nil {
 		t.Fatal("NewCondition accepted an empty key")
 	}
 }

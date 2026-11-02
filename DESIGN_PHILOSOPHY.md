@@ -54,7 +54,13 @@ Scope is reusable Go infrastructure for models, agents, retrieval-augmented gene
 
 A module expresses an independent dependency set, release cadence, and version boundary. A package expresses one responsibility inside that boundary. Splitting modules for visual symmetry creates release overhead without isolation; merging unrelated provider dependencies couples versions that should move independently.
 
-Within `agent`, the root package compiles model and tool policies into a typed `run.Program[I,O]`. The `agent/run` package owns execution, resource accounting, atomic admission, recovery and the single tree writer. Workflow, planning, coordination and team are sibling policy packages; none owns another scheduler. Heterogeneous child programs retain their exact binding when erased to the wire type. Cross-tree delivery belongs to `agent/messaging`; `agent/run/runtest` exercises the public execution and durability contracts. A StartID identifies a caller's scoped submission, independent of the ProcessID and writer incarnation.
+Within `agent`, the root is a documentation entry. `agent/interaction` compiles model and tool policies into a typed `run.Program[I,O]`. The `agent/run` package owns execution, resource accounting, atomic admission, recovery and the tree actor. Workflow, planning, coordination and team are sibling policy packages; none owns another scheduler. Heterogeneous child programs retain their exact binding when erased to the wire type. Cross-tree delivery belongs to `agent/messaging`; `agent/run/runtest` exercises the public execution and durability contracts. The PostgreSQL log adapter is the independently versioned `agent/run/postgres` module.
+
+Each tree's append-only log owns committed progress. `Store.Append` compares the current epoch and log position before accepting one atomic batch; `Store.Load` supplies committed records. Checkpoints accelerate deterministic replay and never originate progress. An Effect intent must be acknowledged before dispatch, and its settlement must be acknowledged before it enters an inbox. Recovery replays Steps and rejects a transition that differs from the committed record. Reaped children leave the active tree and subsequent checkpoints after their parent consumes their exit.
+
+Process paths own parentage, child keys and depth. A scoped StartID determines its root path, so duplicate starts compare the original intent at one log position. Epochs fence writers, LSNs identify committed positions, and EffectID coordinates identify one logical Effect. An inbox contains only an external Signal, an Effect Completion or a child Exit; waits are declared by a yielding transition and need no handshake. A child publishes Exit only after its subtree drains.
+
+The Host declares its build once in `run.Config.Build`. Its runtime compiler combines that build with each program's declared configuration, opaque collaborator revision and child references. Every strategy publishes one `Compile` entry; custom strategies use the atomic `run.Bind` API. Tool calls are interaction Effects, including continuation calls after local waits; only delegation creates a child Process.
 
 Within `rag`, the root owns retrieval domain values, stage contracts, and deterministic composition. Adapters for chat, vector stores, rerank models, and tools live in their respective subpackages and compose through those contracts. All packages remain in the same RAG module.
 
@@ -178,6 +184,8 @@ The Host binds exporters and World Wide Web Consortium (W3C) propagation once at
 The trace identifier originates at the entry point and propagates through every boundary. Telemetry records stable identities, counts, durations, outcomes, and low-cardinality classifications. Prompts, documents, media, credentials, and raw provider messages do not become attributes. Prefer semantic conventions; custom keys carry no Scope brand. The instrumentation scope may use the library path because it identifies the instrumentation library rather than domain data.
 
 A detached goroutine preserves trace values with `context.WithoutCancel` rather than starting from `context.Background()`.
+
+Committed Agent observations come from the append log through `Handle.Observe` with an LSN cursor that survives recovery. Telemetry and trajectory evaluation consume that stream without participating in commitment. `run.Config.Deltas` is a separate best-effort channel for transient streaming output; it neither certifies a result nor reconstructs committed history.
 
 ## Performance follows evidence
 

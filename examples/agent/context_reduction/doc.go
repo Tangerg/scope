@@ -14,7 +14,8 @@
 //
 // Paired eval checks require zero exact-answer degradation and at least 50%
 // fewer serialized model-request bytes on the fixed dataset. A recreated Runtime
-// restores a strict committed snapshot without replay or regrowing old output.
+// restores committed context from the append log without repeating tool calls or
+// regrowing old output.
 // The local model explicitly resolves references; this proves the deterministic
 // protocol and task contracts, not live-model quality, tokenizer savings, or
 // provider charges. MemoryStore retains state only for its own lifetime.

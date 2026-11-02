@@ -1,73 +1,49 @@
 package trajectory_test
 
 import (
-	"github.com/Tangerg/scope/agent/run/runtest"
-
 	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/core/jsonschema"
+	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-// ExampleRecorder records one deterministic Agent run as a listener on the
-// Runtime, then takes the drained root subtree as a portable Trajectory.
-func ExampleRecorder() {
-	inputSchema, err := jsonschema.For[fixtureInput]()
+func ExampleCapture() {
+	ctx := context.Background()
+	runtime, err := run.New(ctx, run.Config{Store: run.NewMemoryStore(), Build: "example"})
 	if err != nil {
 		panic(err)
 	}
-	outputSchema, err := jsonschema.For[fixtureOutput]()
+	defer runtime.Close(ctx)
+	stage, err := workflow.Transform("double", func(_ context.Context, value int) (int, error) { return 2 * value, nil })
 	if err != nil {
 		panic(err)
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name: "example.trajectory", Description: "Complete one deterministic trajectory.",
-		InputSchema: inputSchema, OutputSchema: outputSchema,
-	})
+	program, err := workflow.Compile[int, int](runtime.Compiler(), workflow.Config{Name: "example.double", Description: "Double an integer", Revision: "double", Stages: []workflow.Stage{stage}})
 	if err != nil {
 		panic(err)
 	}
-	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
-		Definition: fixtureDefinition{descriptor: descriptor}, Dispatcher: rejectingDispatcher{},
-		ImplementationDigest: run.ComputeDigest([]byte("example-implementation")),
-		ConfigurationDigest:  run.ComputeDigest([]byte("example-configuration")),
-	})
+	handle, err := runtime.Start(ctx, program, run.StartRequest[int]{ID: run.StartID{Scope: "example", Key: "double"}, Input: 21})
 	if err != nil {
 		panic(err)
 	}
-
-	recorder := &trajectory.Recorder{}
-	engine, err := run.New(context.Background(), run.Config{
-		Store:          run.NewMemoryStore(),
-		EventListeners: []run.EventListener{recorder},
-	})
+	if _, awaitErr := handle.Await(ctx); awaitErr != nil {
+		panic(awaitErr)
+	}
+	actual, err := trajectory.Capture(ctx, handle, &trajectory.Coverage{})
 	if err != nil {
 		panic(err)
 	}
-	defer func() { _ = engine.Close(context.Background()) }()
-
-	input, err := run.EncodePayload(fixtureInput{Value: "done"})
+	output, err := run.EncodePayload(42)
 	if err != nil {
 		panic(err)
 	}
-	result, err := runtest.Observe(context.Background(), engine, deployment, input)
+	report, err := (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{Actual: actual, Expected: trajectory.Expectation{Status: run.StatusCompleted, Output: output}})
 	if err != nil {
 		panic(err)
 	}
-	process, ok := engine.Process(result.ProcessID())
-	if !ok {
-		panic("root process is missing")
-	}
-	recorded, err := recorder.Take(context.Background(), process, &trajectory.Coverage{})
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(recorded.Termination().Status() == run.StatusCompleted)
-	fmt.Println(len(recorded.Events()) > 0)
-	// Output:
-	// true
-	// true
+	fmt.Println(report.Verdict() == eval.VerdictPass, actual.HistoryComplete())
+	// Output: true true
 }

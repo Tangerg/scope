@@ -48,7 +48,7 @@ jobs:
       - name: Install check tools
         run: scripts/install-check-tools.sh
       - name: PostgreSQL transactions and process crashes
-        run: scripts/check-tree-committer.sh
+        run: scripts/check-run-store.sh
 
   discover:
     runs-on: ubuntu-latest

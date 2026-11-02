@@ -10,17 +10,13 @@ import (
 )
 
 func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
-	root, err := newEvaluatorOptimizer([]float64{0.5, 0.95}, 0.9)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	admittedChild := false
-	engine, err := agentrun.New(t.Context(), agentrun.Config{
+	runtime, err := agentrun.New(t.Context(), agentrun.Config{Build: "example-cancellation",
 		Store: agentrun.NewMemoryStore(),
 		ProcessAdmitter: agentrun.ProcessAdmitterFunc(func(_ context.Context, admission agentrun.ProcessAdmission) error {
-			if _, child := admission.Relation().ParentID(); child {
+			if _, child := admission.ProcessID().Parent(); child {
 				admittedChild = true
 				cancel()
 			}
@@ -31,15 +27,19 @@ func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		if closeErr := engine.Close(context.WithoutCancel(ctx)); closeErr != nil {
+		if closeErr := runtime.Close(context.WithoutCancel(ctx)); closeErr != nil {
 			t.Error(closeErr)
 		}
 	}()
+	root, err := newEvaluatorOptimizer(runtime.Compiler(), []float64{0.5, 0.95}, 0.9)
+	if err != nil {
+		t.Fatal(err)
+	}
 	input, err := root.Descriptor().EncodeInput(optimizationRequest{Objective: "cancel child work"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := runtest.Observe(ctx, engine, root, input)
+	result, err := runtest.Observe(ctx, runtime, root, input)
 	if err != nil || !admittedChild || result.Termination().Status() != agentrun.StatusCanceled {
 		t.Fatalf("cancellation result = %s, child admission = %t, error = %v", result.Termination().Status(), admittedChild, err)
 	}

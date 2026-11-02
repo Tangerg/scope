@@ -12,54 +12,22 @@ import (
 
 func TestStableFailureVocabulary(t *testing.T) {
 	codes := map[string]string{
-		"engine.capability.denied":                           failureCodeEngineCapabilityDenied,
-		"engine.child.admission.rejected":                    failureCodeEngineChildAdmissionRejected,
-		"engine.child.budget_exhausted":                      failureCodeEngineChildBudgetExhausted,
-		"engine.child.capability_escalation":                 failureCodeEngineChildCapabilityEscalation,
-		"engine.child.control.not_owned":                     failureCodeEngineChildControlNotOwned,
-		"engine.child.control.settlement.invalid":            failureCodeEngineChildControlSettlementInvalid,
-		"engine.child.deployment_unavailable":                failureCodeEngineChildDeploymentUnavailable,
-		"engine.child.identity_conflict":                     failureCodeEngineChildIdentityConflict,
-		"engine.child.initialization_outcome.unacknowledged": failureCodeEngineChildInitializationOutcomeUnacknowledged,
-		"engine.child.input.invalid":                         failureCodeEngineChildInputInvalid,
-		"engine.child.request.invalid":                       failureCodeEngineChildRequestInvalid,
-		"engine.child.settlement.invalid":                    failureCodeEngineChildSettlementInvalid,
-		"engine.child.signal.rejected":                       failureCodeEngineChildSignalRejected,
-		"engine.child.start.interrupted":                     failureCodeEngineChildStartInterrupted,
-		"engine.child.start.unavailable":                     failureCodeEngineChildStartUnavailable,
-		"engine.child.tree_limit":                            failureCodeEngineChildTreeLimit,
-		"engine.child.wait.satisfaction.encoding_failed":     failureCodeEngineChildWaitSatisfactionEncodingFailed,
-		"engine.child.wait.satisfaction.invalid":             failureCodeEngineChildWaitSatisfactionInvalid,
-		"engine.counter.exhausted":                           failureCodeEngineCounterExhausted,
-		"engine.dispatch.canceled":                           failureCodeEngineDispatchCanceled,
-		"engine.dispatch.deadline":                           failureCodeEngineDispatchDeadline,
-		"engine.dispatch.failed":                             failureCodeEngineDispatchFailed,
-		"engine.dispatch.panicked":                           failureCodeEngineDispatchPanicked,
-		"engine.dispatch.settlement.invalid":                 failureCodeEngineDispatchSettlementInvalid,
-		"engine.effect.phase.invalid":                        failureCodeEngineEffectPhaseInvalid,
-		"engine.effect.recovery.invalid":                     failureCodeEngineEffectRecoveryInvalid,
-		"engine.effect.settlement.invalid":                   failureCodeEngineEffectSettlementInvalid,
-		"engine.finalize.invalid":                            failureCodeEngineFinalizeInvalid,
-		"engine.framework_effect.settlement.invalid":         failureCodeEngineFrameworkEffectSettlementInvalid,
-		"engine.limit.child_wait_signal":                     failureCodeEngineLimitChildWaitSignal,
-		"engine.limit.effects":                               failureCodeEngineLimitEffects,
-		"engine.limit.signals":                               failureCodeEngineLimitSignals,
-		"engine.limit.snapshot":                              failureCodeEngineLimitSnapshot,
-		"engine.limit.steps":                                 failureCodeEngineLimitSteps,
-		"engine.process.attempt_exhausted":                   failureCodeEngineProcessAttemptExhausted,
-		"engine.process.snapshot.failed":                     failureCodeEngineProcessSnapshotFailed,
-		"engine.process.snapshot.unrestorable":               failureCodeEngineProcessSnapshotUnrestorable,
-		"engine.process.start.failed":                        failureCodeEngineProcessStartFailed,
-		"engine.termination.invalid":                         failureCodeEngineTerminationInvalid,
-		"engine.tree.committer_conflict":                     failureCodeEngineTreeCommitterConflict,
-		"engine.tree.committer_failed":                       failureCodeEngineTreeCommitterFailed,
-		"engine.tree.incarnation_conflict":                   failureCodeEngineTreeIncarnationConflict,
-		"execution.effect.invalid":                           failureCodeExecutionEffectInvalid,
-		"execution.output.invalid":                           failureCodeExecutionOutputInvalid,
-		"execution.snapshot.failed":                          failureCodeExecutionSnapshotFailed,
-		"execution.snapshot.unrestorable":                    failureCodeExecutionSnapshotUnrestorable,
-		"execution.step.failed":                              failureCodeExecutionStepFailed,
-		"execution.transition.invalid":                       failureCodeExecutionTransitionInvalid,
+		"runtime.resource.limit_exceeded":       failureCodeRuntimeResourceLimitExceeded,
+		"runtime.capability.denied":             failureCodeRuntimeCapabilityDenied,
+		"runtime.child.admission.rejected":      failureCodeRuntimeChildAdmissionRejected,
+		"runtime.child.request.canceled":        failureCodeRuntimeChildRequestCanceled,
+		"runtime.child.request.invalid":         failureCodeRuntimeChildRequestInvalid,
+		"runtime.counter.exhausted":             failureCodeRuntimeCounterExhausted,
+		"runtime.dispatch.failed":               failureCodeRuntimeDispatchFailed,
+		"runtime.dispatch.panicked":             failureCodeRuntimeDispatchPanicked,
+		"runtime.dispatch.settlement.invalid":   failureCodeRuntimeDispatchSettlementInvalid,
+		"runtime.effect.recovery.invalid":       failureCodeRuntimeEffectRecoveryInvalid,
+		"runtime.process.snapshot.failed":       failureCodeRuntimeProcessSnapshotFailed,
+		"runtime.process.snapshot.unrestorable": failureCodeRuntimeProcessSnapshotUnrestorable,
+		"runtime.process.start.failed":          failureCodeRuntimeProcessStartFailed,
+		"execution.effect.invalid":              failureCodeExecutionEffectInvalid,
+		"execution.step.failed":                 failureCodeExecutionStepFailed,
+		"execution.transition.invalid":          failureCodeExecutionTransitionInvalid,
 	}
 	seen := make(map[string]bool)
 	for _, path := range frameworkProductionGoFiles(t) {
@@ -124,7 +92,7 @@ func TestFailureConstructionUsesDeclaredVocabulary(t *testing.T) {
 			}
 			index := -1
 			switch name {
-			case "NewFailure", "newEngineFailure", "recordFailure":
+			case "NewFailure", "newRuntimeFailure", "recordFailure":
 				index = 1
 			case "fail":
 				for _, declaration := range file.Decls {

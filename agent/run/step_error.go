@@ -32,6 +32,9 @@ func (c *ClassifiedError) Error() string { return c.failure.Message() }
 // execution.step.failed, and for cancellation and contained panics, whose
 // classifications the Runtime owns.
 func StepFailure(err error) (Failure, bool) {
+	if sealed, ok := errors.AsType[*callbackError](err); ok {
+		return sealed.step, sealed.step.Valid()
+	}
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return Failure{}, false
 	}
@@ -42,5 +45,5 @@ func StepFailure(err error) (Failure, bool) {
 	if !ok {
 		return Failure{}, false
 	}
-	return newEngineFailure(classified.failure.Kind(), classified.failure.Code(), err), true
+	return newRuntimeFailure(classified.failure.Kind(), classified.failure.Code(), err), true
 }

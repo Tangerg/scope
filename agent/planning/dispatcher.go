@@ -9,31 +9,31 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// DispatcherConfig binds side-effect-free sensing and the exact set of
-// dispatcher-targeted Action executors required by a Definition. Child-bound
+// dispatcherConfig binds side-effect-free sensing and the exact set of
+// dispatcher-targeted Action executors required by a definition. Child-bound
 // Actions must not appear in ActionExecutors.
-type DispatcherConfig struct {
+type dispatcherConfig struct {
 	Sensor          Sensor
 	ActionExecutors map[string]ActionExecutor
 }
 
-// Dispatcher executes sensing and dispatcher Action Effects emitted by one
-// Planning Definition, whose bindings own each Action's contract and required
+// dispatcher executes sensing and dispatcher Action Effects emitted by one
+// Planning definition, whose bindings own each Action's contract and required
 // capabilities. It is immutable after construction and may serve Processes
 // concurrently when Sensor and ActionExecutors are concurrent-safe.
-type Dispatcher struct {
-	definition *Definition
+type dispatcher struct {
+	definition *definition
 	sensor     Sensor
 	executors  map[string]ActionExecutor
 }
 
-func (d *Dispatcher) bound(name string) (ActionBinding, ActionExecutor, bool) {
+func (d *dispatcher) bound(name string) (ActionBinding, ActionExecutor, bool) {
 	binding, found := d.definition.binding(name)
 	executor, bound := d.executors[name]
 	return binding, executor, found && bound
 }
 
-func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher, error) {
+func newDispatcher(definition *definition, config dispatcherConfig) (*dispatcher, error) {
 	if !definition.valid() || lo.IsNil(config.Sensor) {
 		return nil, ErrInvalidDispatcherConfig
 	}
@@ -41,7 +41,7 @@ func NewDispatcher(definition *Definition, config DispatcherConfig) (*Dispatcher
 	if err != nil {
 		return nil, err
 	}
-	return &Dispatcher{definition: definition, sensor: config.Sensor, executors: executors}, nil
+	return &dispatcher{definition: definition, sensor: config.Sensor, executors: executors}, nil
 }
 
 func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor) (map[string]ActionExecutor, error) {
@@ -74,10 +74,10 @@ func bindExecutors(bindings []ActionBinding, supplied map[string]ActionExecutor)
 // and valid ActionResult failures are definite failed settlements; an
 // ActionExecutor error leaves the Effect outcome unknown. The Runtime enforces
 // the capabilities Policy declares for each Action before dispatch. Input that
-// violates the Definition schema or an Action whose binding does not admit the
+// violates the definition schema or an Action whose binding does not admit the
 // request's world state returns a Failed host_error settlement; Execution
 // consumes it as a contract failure without another external attempt.
-func (d *Dispatcher) Dispatch(
+func (d *dispatcher) Dispatch(
 	ctx context.Context,
 	request run.EffectRequest,
 	_ run.DeltaEmitter,
@@ -110,7 +110,7 @@ func (d *Dispatcher) Dispatch(
 // Action Effects may have irreversible external consequences and always
 // require explicit resolution after an unknown attempt; each requires the
 // capabilities its frozen binding declares.
-func (d *Dispatcher) Policy(effect run.Effect) run.EffectPolicy {
+func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	envelope, err := decodeEffect(effect.Payload())
 	if err == nil && envelope.operation() == operationSense {
 		return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
@@ -124,7 +124,7 @@ func (d *Dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return policy
 }
 
-func (d *Dispatcher) sense(
+func (d *dispatcher) sense(
 	ctx context.Context,
 	effectID run.EffectID,
 	input run.Payload,
@@ -138,7 +138,7 @@ func (d *Dispatcher) sense(
 	return settlement, nil
 }
 
-func (d *Dispatcher) execute(
+func (d *dispatcher) execute(
 	ctx context.Context,
 	effectRequest run.EffectRequest,
 	input run.Payload,
@@ -162,7 +162,7 @@ func (d *Dispatcher) execute(
 	return NewActionSettlement(result)
 }
 
-var _ run.Dispatcher = (*Dispatcher)(nil)
+var _ run.Dispatcher = (*dispatcher)(nil)
 
 func planningFailureSettlement(cause error) (run.Settlement, error) {
 	return failedSettlement(settlementFailure{HostError: run.NormalizeDiagnostic(cause.Error())})

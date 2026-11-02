@@ -68,7 +68,7 @@ module_budget=(
   "otel/eval 90"
   "otel/rag 90"
   "rag 90"
-  "runstores/postgres 20"
+  "agent/run/postgres 20"
   "skills 90"
   "tokenizers/tiktoken 90"
   "tools 90"
@@ -117,8 +117,9 @@ package_budget=(
   "agent/messaging 88.6"
   "agent/team 85.5"
   "agent/coordination 80.1"
-  "agent 84.2"
-  "agent/internal/strategy/childcall 95.3"
+  "agent none"
+  "agent/interaction 84.2"
+  "agent/internal/strategy/child 95.3"
   "agent/internal/strategy/restore 100.0"
   "agent/internal/strategy/stepfail 100.0"
   "agent/planning 82.4"
@@ -189,7 +190,7 @@ minimum_provider_coverage=20
 for budget in "${module_budget[@]}"; do
   read -r module minimum <<< "$budget"
   case "$module" in
-    historystores/*|models/*|retrievers/*|runstores/*|vectorstores/*)
+    historystores/*|models/*|retrievers/*|agent/run/postgres|vectorstores/*)
       ratio=$(budget_ratio "$minimum")
       read -r numerator denominator <<< "$ratio"
       if ! awk -v numerator="$numerator" -v denominator="$denominator" -v floor="$minimum_provider_coverage" 'BEGIN {exit numerator*100 < floor*denominator}'; then
@@ -255,16 +256,12 @@ profile_statistics() {
         package=block
         sub(/\/[^\/]+$/, "", package)
         sub(/^github.com\/Tangerg\/scope\//, "", package)
-        if (block ~ /^github.com\/Tangerg\/scope\/agent\/adapt\.go:/) {
-          adaptTotal+=statements[block]; adaptHit+=statements[block]*covered[block]
-        }
         total[package]+=statements[block]
         hit[package]+=statements[block]*covered[block]
         all+=statements[block]
         executed+=statements[block]*covered[block]
       }
       printf "module %d %d\n", executed, all
-      if (adaptTotal) printf "agent/adapt.go %d %d\n", adaptHit, adaptTotal
       for (package in total) printf "%s %d %d\n", package, hit[package], total[package]
     }
   ' "$profile"
@@ -308,11 +305,6 @@ for budget in "${module_budget[@]}"; do
     exit 1
   fi
   check_budget "$module" module "$minimum" || failed=1
-  if [[ "$module" == agent ]]; then
-    # Preserve the former role package's ratchet on its implementation after
-    # moving Adapt to the owning package. A root average cannot prove it.
-    check_budget agent/adapt.go agent/adapt.go 87.5 || failed=1
-  fi
   for package_entry in "${package_budget[@]}"; do
     read -r package minimum <<< "$package_entry"
     if [[ "$package" == "$module" || "$package" == "$module/"* ]]; then

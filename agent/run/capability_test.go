@@ -25,51 +25,51 @@ func TestEmptyCapabilitySetHasOneArrayRepresentation(t *testing.T) {
 	}
 }
 
-func TestEngineEnforcesDispatcherEffectCapabilities(t *testing.T) {
+func TestRuntimeEnforcesDispatcherEffectCapabilities(t *testing.T) {
 	required, _ := ParseCapability("resource.read")
 	definition := newCapabilityTestDefinition(t)
 	dispatcher := &capabilityTestDispatcher{required: required}
-	deployment, err := Bind[Payload, Payload](BindingConfig{
+	compilerRuntime := controlValue(New(t.Context(), Config{Store: NewMemoryStore(), Build: "test"}))
+	program, err := Bind[Payload, Payload](compilerRuntime.Compiler(), BindingConfig{
 		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: ComputeDigest([]byte("capability-test-implementation")),
-		ConfigurationDigest:  ComputeDigest([]byte("capability-test-configuration")),
+		Revision: "capability-test",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	input, _ := EncodePayload(struct{}{})
 
-	deniedEngine, err := New(t.Context(), Config{Store: NewMemoryStore()})
+	deniedRuntime, err := New(t.Context(), Config{Build: "test", Store: NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	denied, err := observeOutcome(context.Background(), deniedEngine, deployment, input)
+	denied, err := observeOutcome(context.Background(), deniedRuntime, program, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if denied.Termination().Status() != StatusFailed || dispatcher.calls.Load() != 0 {
 		t.Fatalf("denied status = %s, dispatcher calls = %d", denied.Termination().Status(), dispatcher.calls.Load())
 	}
-	if failure, ok := denied.Termination().Failure(); !ok || failure.Code() != "engine.capability.denied" {
+	if failure, ok := denied.Termination().Failure(); !ok || failure.Code() != "runtime.capability.denied" {
 		t.Fatalf("denied failure = %#v", failure)
 	}
-	if closeErr := deniedEngine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+	if closeErr := deniedRuntime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 		t.Fatal(closeErr)
 	}
 
 	capabilities, _ := NewCapabilitySet(required)
-	allowedEngine, err := New(t.Context(), Config{Store: NewMemoryStore(), Capabilities: capabilities})
+	allowedRuntime, err := New(t.Context(), Config{Build: "test", Store: NewMemoryStore(), Capabilities: capabilities})
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed, err := observeOutcome(context.Background(), allowedEngine, deployment, input)
+	allowed, err := observeOutcome(context.Background(), allowedRuntime, program, input)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if allowed.Termination().Status() != StatusCompleted || dispatcher.calls.Load() != 1 {
 		t.Fatalf("allowed status = %s, dispatcher calls = %d", allowed.Termination().Status(), dispatcher.calls.Load())
 	}
-	if err := allowedEngine.Close(context.WithoutCancel(t.Context())); err != nil {
+	if err := allowedRuntime.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -112,14 +112,14 @@ type capabilityTestExecution struct {
 	phase uint8
 }
 
-func (c *capabilityTestExecution) Step(context.Context, []Signal) (Transition, error) {
+func (c *capabilityTestExecution) Step(context.Context, Turn) (Transition, error) {
 	if c.phase == 0 {
 		effect, err := NewDispatcherEffect(json.RawMessage(`{}`))
 		if err != nil {
 			return Transition{}, err
 		}
 		c.phase = 1
-		return Continue(0, effect)
+		return Yield(0, []Effect{effect})
 	}
 	c.phase = 2
 	output, _ := EncodePayload(struct{}{})

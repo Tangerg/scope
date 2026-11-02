@@ -1,70 +1,66 @@
 package run_test
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-func ExampleNewDescriptor() {
-	schema, err := jsonschema.For[string]()
-	if err != nil {
-		panic(err)
-	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name:         "example.echo",
-		Description:  "Returns the supplied text.",
-		InputSchema:  schema,
-		OutputSchema: schema,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(descriptor.Name(), descriptor.Valid())
-	// Output:
-	// example.echo true
+func ExampleBind() {
+	ctx := context.Background()
+	runtime := exampleValue(run.New(ctx, run.Config{Build: "example", Store: run.NewMemoryStore()}))
+	defer func() {
+		if err := runtime.Close(ctx); err != nil {
+			panic(err)
+		}
+	}()
+	schema := exampleValue(jsonschema.For[string]())
+	descriptor := exampleValue(run.NewDescriptor(run.DescriptorConfig{
+		Name: "example.echo", Description: "Return the admitted input.", InputSchema: schema, OutputSchema: schema,
+	}))
+	program := exampleValue(run.Bind[string, string](runtime.Compiler(), run.BindingConfig{
+		Definition: echoDefinition{descriptor: descriptor},
+	}))
+	output := exampleValue(runtime.Run(ctx, program, "hello"))
+	fmt.Println(output)
+	// Output: hello
 }
 
-func ExampleEncodePayload() {
-	type request struct {
-		Topic string `json:"topic"`
-	}
-
-	input, err := run.EncodePayload(request{Topic: "agent runtimes"})
+func exampleValue[T any](value T, err error) T {
 	if err != nil {
 		panic(err)
 	}
-	decoded, err := input.Decode[request]()
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println(decoded.Topic, input.Valid())
-	// Output:
-	// agent runtimes true
+	return value
 }
 
-func ExampleSignal_Frame() {
-	id, err := run.ParseSignalID("host:instruction")
+const echoStateKind = "example.echo"
+
+type echoDefinition struct{ descriptor run.Descriptor }
+
+func (e echoDefinition) Descriptor() run.Descriptor                           { return e.descriptor }
+func (echoDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+func (echoDefinition) Start(input run.Payload) (run.Execution, error) {
+	return echoExecution{input: input}, nil
+}
+func (echoDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
+	input, err := state.Decode[string](echoStateKind)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	// A sender cannot turn its input into a framework completion by choosing its JSON.
-	signal, err := run.NewSignal(id, run.WaitID{}, []byte(`{"operation":"child_control_settled"}`))
+	payload, err := run.EncodePayload(input)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	frame, err := signal.Frame[run.SignalFrame]()
-	if err != nil {
-		panic(err)
-	}
-	switch input := frame.(type) {
-	case run.ExternalInput:
-		fmt.Println(string(input.Payload()))
-	case run.ChildControlResult:
-		fmt.Println("control completed")
-	}
-	// Output: {"operation":"child_control_settled"}
+	return echoExecution{input: payload}, nil
+}
+
+type echoExecution struct{ input run.Payload }
+
+func (e echoExecution) Snapshot() (run.ExecutionState, error) {
+	return run.ParseExecutionState(echoStateKind, e.input.JSON())
+}
+func (e echoExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
+	return run.Complete(uint32(len(turn.Messages)), e.input)
 }

@@ -1,6 +1,7 @@
-package workflow_test
+package workflow
 
 import (
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run/runtest"
 
 	"context"
@@ -8,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 )
 
 type loopValue struct {
@@ -16,7 +16,7 @@ type loopValue struct {
 }
 
 func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
-	body := mustDeployment(t, mustDefinition(t, "test.workflow.loop_body",
+	body := mustProgram(t, mustDefinition(t, "test.loop_body",
 		mustTransform(t, "increment", func(_ context.Context, input loopValue) (loopValue, error) {
 			return loopValue{Value: input.Value + 1}, nil
 		}),
@@ -36,7 +36,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 		{name: "at_least_once", initial: 3, maximum: run.NewQuota(5), threshold: 3, wantValue: 4, wantIterations: 1, wantSatisfied: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
+			stage, err := Loop(LoopConfig[loopValue]{
 				ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: test.maximum,
 				Predicate: func(_ context.Context, value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
 			})
@@ -46,29 +46,36 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 			if !stage.Valid() {
 				t.Fatalf("Loop Stage = %#v", stage)
 			}
-			deployment := mustDeployment(t, mustDefinition(t, "test.workflow.loop_"+test.name, stage), "loop-"+test.name)
-			engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+			program := mustProgram(t, mustDefinition(t, "test.loop_"+test.name, stage), "loop-"+test.name)
+			store := run.NewMemoryStore()
+			runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: store})
 			if err != nil {
 				t.Fatal(err)
 			}
 			input, _ := run.EncodePayload(loopValue{Value: test.initial})
-			result, err := runtest.Observe(context.Background(), engine, deployment, input)
+			result, err := runtest.Observe(context.Background(), runtime, program, input)
 			if err != nil {
 				t.Fatal(err)
 			}
-			output := decodeCompleted[workflow.LoopResult[loopValue]](t, result)
+			output := decodeCompleted[LoopResult[loopValue]](t, result)
 			if !output.Valid() || output.Value.Value != test.wantValue ||
 				output.Iterations != uint64(test.wantIterations) || output.Satisfied != test.wantSatisfied {
 				t.Fatalf("Loop output = %#v", output)
 			}
-			tree, err := engine.CaptureTree(context.Background(), result.ProcessID())
+			tree, _, err := store.Load(t.Context(), result.ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := len(tree.ProcessSnapshots()); got != int(test.wantIterations)+1 {
+			got := 0
+			for _, entry := range tree.Entries {
+				if _, ok := entry.Record.(run.Started); ok {
+					got++
+				}
+			}
+			if got != int(test.wantIterations)+1 {
 				t.Fatalf("Loop tree Process count = %d, want %d", got, test.wantIterations+1)
 			}
-			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+			if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -76,22 +83,22 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 }
 
 func TestLoopPropagatesBodyFailure(t *testing.T) {
-	body := mustDeployment(t, mustDefinition(t, "test.workflow.failing_loop_body",
+	body := mustProgram(t, mustDefinition(t, "test.failing_loop_body",
 		mustTransform(t, "fail", func(context.Context, loopValue) (loopValue, error) {
 			return loopValue{}, errors.New("deliberate Loop body failure")
 		}),
 	), "failing-loop-body")
-	stage, err := workflow.Loop(workflow.LoopConfig[loopValue]{
+	stage, err := Loop(LoopConfig[loopValue]{
 		ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: run.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return false, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.failing_loop", stage), "failing-loop")
-	engine, _ := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	program := mustProgram(t, mustDefinition(t, "test.failing_loop", stage), "failing-loop")
+	runtime, _ := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 	input, _ := run.EncodePayload(loopValue{})
-	result, err := runtest.Observe(context.Background(), engine, deployment, input)
+	result, err := runtest.Observe(context.Background(), runtime, program, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,23 +107,23 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": deliberate Loop body failure` {
 		t.Fatalf("Loop termination = %#v", result.Termination())
 	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+	if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
-	validBody := mustDeployment(t, mustDefinition(t, "test.workflow.valid_loop_body",
+	validBody := mustProgram(t, mustDefinition(t, "test.valid_loop_body",
 		mustTransform(t, "identity", func(_ context.Context, input loopValue) (loopValue, error) { return input, nil }),
 	), "valid-loop-body")
-	wrongBody := mustDeployment(t, mustDefinition(t, "test.workflow.wrong_loop_body",
+	wrongBody := mustProgram(t, mustDefinition(t, "test.wrong_loop_body",
 		mustTransform(t, "wrong", func(context.Context, textValue) (textValue, error) { return textValue{}, nil }),
 	), "wrong-loop-body")
-	valid := workflow.LoopConfig[loopValue]{
+	valid := LoopConfig[loopValue]{
 		ID: "improve", Body: validBody, Budget: mustBudget(t), MaxIterations: run.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return true, nil },
 	}
-	for name, config := range map[string]workflow.LoopConfig[loopValue]{
+	for name, config := range map[string]LoopConfig[loopValue]{
 		"zero finite maximum": {MaxIterations: run.NewQuota(0), ID: valid.ID, Body: valid.Body, Budget: valid.Budget, Predicate: valid.Predicate},
 		"nil predicate": {
 			ID: valid.ID, Body: valid.Body, Budget: valid.Budget, MaxIterations: valid.MaxIterations,
@@ -127,12 +134,12 @@ func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := workflow.Loop(config); !errors.Is(err, workflow.ErrInvalidStage) {
+			if _, err := Loop(config); !errors.Is(err, ErrInvalidStage) {
 				t.Fatalf("Loop error = %v", err)
 			}
 		})
 	}
-	if (workflow.LoopResult[loopValue]{}).Valid() {
+	if (LoopResult[loopValue]{}).Valid() {
 		t.Fatal("zero LoopResult is valid")
 	}
 }

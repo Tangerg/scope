@@ -11,12 +11,11 @@ import (
 
 func TestObserverPreservesInstrumentConstructionFailures(t *testing.T) {
 	for _, name := range []string{
-		processActivationsMetricName, processExitsMetricName,
+		processStartsMetricName, processExitsMetricName,
 		invokeAgentDurationMetricName, processCommittedStepsMetricName,
-		processPreparedEffectsMetricName, processAcceptedSignalsMetricName,
-		stepDurationMetricName, stepAdoptionDelayMetricName,
-		effectDurationMetricName, deltaDropsMetricName,
-		durabilityDurationMetricName, durabilitySnapshotBytesMetricName,
+		processPreparedEffectsMetricName, processAcceptedMessagesMetricName,
+		effectDurationMetricName,
+		durabilityDurationMetricName, durabilityBatchBytesMetricName,
 	} {
 		t.Run(name, func(t *testing.T) {
 			cause := errors.New("instrument configuration rejected")

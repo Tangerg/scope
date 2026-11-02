@@ -15,7 +15,7 @@ func TestTransitionNormalizesDynamicDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	failure, failed := transition.Failure()
-	if !failed || transition.ConsumedSignals() != 2 || failure.Code() != "strategy.test.failed" ||
+	if !failed || transition.Consumed() != 2 || failure.Code() != "strategy.test.failed" ||
 		failure.Message() != run.NormalizeDiagnostic(raw) {
 		t.Fatalf("transition = %+v, failure = %+v", transition, failure)
 	}

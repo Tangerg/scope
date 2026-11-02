@@ -1,14 +1,13 @@
-package workflow_test
+package workflow
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	startrand "crypto/rand"
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 )
 
 type numberInput struct {
@@ -34,19 +33,19 @@ func TestDefinitionRequiresUniqueConnectedStages(t *testing.T) {
 		return input, nil
 	})
 
-	for name, stages := range map[string][]workflow.Stage{
+	for name, stages := range map[string][]Stage{
 		"empty":        nil,
-		"zero":         {workflow.Stage{}},
+		"zero":         {Stage{}},
 		"duplicate":    {first, duplicate},
 		"disconnected": {first, disconnected},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := workflow.NewDefinition(workflow.DefinitionConfig{
-				Name: "test.invalid", Description: "Reject an invalid Workflow Definition.",
+			_, err := newDefinition(definitionConfig{
+				Name: "test.invalid", Description: "Reject an invalid Workflow definition.",
 				Stages: stages,
 			})
-			if !errors.Is(err, workflow.ErrInvalidDefinitionConfig) {
-				t.Fatalf("NewDefinition error = %v", err)
+			if !errors.Is(err, ErrInvalidDefinitionConfig) {
+				t.Fatalf("newDefinition error = %v", err)
 			}
 		})
 	}
@@ -59,29 +58,29 @@ func TestStageConstructorsExposeAccurateImmutableContracts(t *testing.T) {
 	if !transform.Valid() {
 		t.Fatalf("Transform Stage = %#v", transform)
 	}
-	if _, err := workflow.Transform("Invalid ID", func(_ context.Context, input numberInput) (numberOutput, error) {
+	if _, err := Transform("Invalid ID", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
-	}); !errors.Is(err, workflow.ErrInvalidStage) {
+	}); !errors.Is(err, ErrInvalidStage) {
 		t.Fatalf("invalid Transform error = %v", err)
 	}
-	var nilTransform workflow.TransformFunc[numberInput, numberOutput]
-	if _, err := workflow.Transform("nil", nilTransform); !errors.Is(err, workflow.ErrInvalidStage) {
+	var nilTransform TransformFunc[numberInput, numberOutput]
+	if _, err := Transform("nil", nilTransform); !errors.Is(err, ErrInvalidStage) {
 		t.Fatalf("nil Transform error = %v", err)
 	}
 }
 
-func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
+func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	stage := mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) {
 		return input, nil
 	})
-	first := mustDeployment(t, mustDefinition(t, "workflow.first", stage), "shared-implementation")
-	second := mustDeployment(t, mustDefinition(t, "workflow.second", stage), "shared-implementation")
-	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	first := mustProgram(t, mustDefinition(t, "first", stage), "shared-implementation")
+	second := mustProgram(t, mustDefinition(t, "second", stage), "shared-implementation")
+	runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+		if closeErr := runtime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	})
@@ -89,25 +88,22 @@ func TestEngineOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := engine.Start(t.Context(), first, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	root, err := runtime.Start(t.Context(), first, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if joinErr := root.Join(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	snapshot, err := engine.CaptureTree(t.Context(), root.Relation().ProcessID())
-	if err != nil {
-		t.Fatal(err)
+	if _, err := runtime.Recover(t.Context(), second, root.ID()); !errors.Is(err, run.ErrInvalidProgram) {
+		t.Fatalf("different program accepted stored execution: %v", err)
 	}
-	if _, err := engine.Recover(t.Context(), second, snapshot); !errors.Is(err, run.ErrInvalidTreeSnapshot) {
-		t.Fatalf("different workflow accepted structurally compatible state: %v", err)
-	}
+
 }
 
-func mustDefinition(t *testing.T, name string, stages ...workflow.Stage) *workflow.Definition {
+func mustDefinition(t *testing.T, name string, stages ...Stage) *definition {
 	t.Helper()
-	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
+	definition, err := newDefinition(definitionConfig{
 		Name: name, Description: "Execute a deterministic managed Workflow.",
 		Stages: stages,
 	})
@@ -117,9 +113,9 @@ func mustDefinition(t *testing.T, name string, stages ...workflow.Stage) *workfl
 	return definition
 }
 
-func mustTransform[I, O any](t *testing.T, id string, transform workflow.TransformFunc[I, O]) workflow.Stage {
+func mustTransform[I, O any](t *testing.T, id string, transform TransformFunc[I, O]) Stage {
 	t.Helper()
-	stage, err := workflow.Transform(id, transform)
+	stage, err := Transform(id, transform)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +124,6 @@ func mustTransform[I, O any](t *testing.T, id string, transform workflow.Transfo
 
 func mustBudget(t *testing.T) run.Budget {
 	t.Helper()
-	budget := run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(64), Signals: run.NewQuota(64)}
+	budget := run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(64), Messages: run.NewQuota(64)}
 	return budget
 }

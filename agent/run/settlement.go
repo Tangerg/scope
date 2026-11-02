@@ -45,15 +45,10 @@ func (s SettlementStatus) String() string {
 // Effect definitely succeeded, definitely failed, or remains unknown; a
 // Dispatcher payload carries only the result or diagnostic, never a second
 // success flag. The Runtime delivers a definite Dispatcher settlement to the
-// next Step, where Signal.Frame exposes both.
+// next Step as a Completion message.
 type Settlement struct {
 	status  SettlementStatus
 	payload json.RawMessage
-}
-
-func (s Settlement) clone() Settlement {
-	s.payload = bytes.Clone(s.payload)
-	return s
 }
 
 func NewSettlement(status SettlementStatus, payload json.RawMessage) (Settlement, error) {
@@ -99,13 +94,9 @@ func (s *Settlement) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (s Settlement) equal(other Settlement) bool {
-	return s.Valid() && other.Valid() && s.status == other.status && bytes.Equal(s.payload, other.payload)
-}
+func (Settlement) JSONSchemaModel() any { return settlementWire{} }
 
 type settlementWire struct {
 	Status  SettlementStatus `json:"status"`
 	Payload json.RawMessage  `json:"payload"`
 }
-
-func (Settlement) signalFrame() {}

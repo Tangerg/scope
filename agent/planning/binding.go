@@ -11,7 +11,7 @@ import (
 type ChildInputFunc func(processInput run.Payload, worldState WorldState) (run.Payload, error)
 
 // DispatcherBindingConfig binds a predictive Action to the Planning
-// Dispatcher. RequiredCapabilities are enforced by Runtime before dispatch.
+// dispatcher. RequiredCapabilities are enforced by Runtime before dispatch.
 type DispatcherBindingConfig struct {
 	Action               Action
 	RequiredCapabilities []run.Capability
@@ -22,7 +22,7 @@ type DispatcherBindingConfig struct {
 // identity, explicit budget, and attenuated capabilities.
 type ChildBindingConfig struct {
 	Action Action
-	// Program is the exact child program; the planning Definition owns it
+	// Program is the exact child program; the planning definition owns it
 	// as one of its ChildPrograms.
 	Program run.Program[run.Payload, run.Payload]
 	// Input deterministically derives child input; nil reuses Process input.
@@ -34,11 +34,11 @@ type ChildBindingConfig struct {
 
 // ActionBinding is an immutable association between predictive Action
 // semantics and exactly one external execution mechanism: a child Program
-// when one is bound, and the planning Dispatcher otherwise.
+// when one is bound, and the planning dispatcher otherwise.
 type ActionBinding struct {
 	action            Action
 	required          run.CapabilitySet
-	childDeployment   run.Program[run.Payload, run.Payload]
+	childProgram      run.Program[run.Payload, run.Payload]
 	childBudget       run.Budget
 	childCapabilities run.CapabilitySet
 	childInput        ChildInputFunc
@@ -60,15 +60,15 @@ func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
 	return ActionBinding{
-		action:          config.Action,
-		childDeployment: config.Program, childBudget: config.Budget, childCapabilities: config.Capabilities,
+		action:       config.Action,
+		childProgram: config.Program, childBudget: config.Budget, childCapabilities: config.Capabilities,
 		childInput: config.Input,
 	}, nil
 }
 
 func (a ActionBinding) Action() Action { return a.action }
 
-func (a ActionBinding) delegatesToChild() bool { return a.childDeployment.Valid() }
+func (a ActionBinding) delegatesToChild() bool { return a.childProgram.Valid() }
 
 func (a ActionBinding) Valid() bool {
 	if !a.action.Valid() {
@@ -82,7 +82,7 @@ func (a ActionBinding) Valid() bool {
 
 func (a ActionBinding) childSpec(key run.ChildKey, input run.Payload) run.ChildSpec {
 	return run.ChildSpec{
-		Key: key, ProgramRef: a.childDeployment.ProgramRef(), Input: input,
+		Key: key, ProgramRef: a.childProgram.ProgramRef(), Input: input,
 		Budget: a.childBudget, Capabilities: a.childCapabilities,
 	}
 }

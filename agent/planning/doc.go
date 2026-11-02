@@ -1,26 +1,22 @@
-// Package planning provides goal-directed state planning as an Agent execution
-// strategy. Goal, Condition, WorldState, Action, and Plan belong exclusively to
-// this package; the Agent kernel sees only opaque Execution state and Effects.
+// Package planning separates predicted action semantics from observed reality.
+// Goal, Condition, WorldState, Action, and Plan belong to this strategy; the run
+// kernel sees only opaque execution state and declared Effects.
 //
-// Planning separates predicted Action semantics from external execution. A
-// Planner is a pure, deterministic search over a Problem. A managed Planning
-// Execution reads the real world through a Sensor and executes selected Actions
-// outside its Step through a Program-bound dispatcher or a child Process,
-// then senses again before accepting that the prediction became true. A Sensor
-// supplies decision input; it has no role in execution telemetry.
+// [Compile] freezes the planning domain, action bindings, and limits using the
+// Runtime's Compiler. Revision identifies the opaque Sensor, Planner, and action
+// implementations. A Planner performs deterministic search over a Problem.
+// A Sensor reads actual world state through a dispatcher Effect. Actions execute
+// through dispatcher Effects or exact child Programs, then the strategy senses
+// again before accepting that their predicted effects became true.
 //
-// Attempt facts determine which Actions remain eligible. An Action reported as
-// successful remains current until sensing confirms its predicted effects;
-// failed or unconfirmed Actions are excluded from subsequent planning. Restore
-// reconstructs those decisions from the same facts used during live execution.
-// A delegated Action waits for its child subtree to drain before reobserving
-// the world. A child start or execution failure records a failed attempt;
-// it does not bypass sensing or directly establish the Action's effects.
-// Drained child subtrees with unresolved Effects fail the Process before any
-// further sensing or action. Join alone does not prove external outcomes.
+// Attempt facts determine eligibility. Successful actions remain current until
+// sensing confirms their effects; failed or unconfirmed actions are excluded
+// from later planning. Restore derives the same decisions from these facts.
+// A child action is observed only through its drained Exit. Its admission or
+// execution failure records a failed attempt and cannot establish world state.
 //
-// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
-// Runtime-owned settlements are consumed only at their matching protocol phase;
-// Wait openings may share a window with the following completion. InputGate
-// replies, when used as children, must address the child's current WaitID.
+// Unknown external outcomes require explicit host resolution before planning
+// advances. Cancellation and subtree drain remain Runtime-owned. Unaddressed
+// Signals are rejected, and messages must match the outstanding action, sensing
+// Effect, or child invocation.
 package planning

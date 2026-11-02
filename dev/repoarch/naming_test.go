@@ -247,7 +247,7 @@ func walkGoFiles(t *testing.T, root string, productionOnly bool, visit func(path
 			return nil
 		}
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, nil, 0)
+		file, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if err != nil {
 			return err
 		}

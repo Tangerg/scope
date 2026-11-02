@@ -1,4 +1,4 @@
-package planning_test
+package planning
 
 import (
 	"context"
@@ -8,35 +8,33 @@ import (
 	"math"
 	"slices"
 	"testing"
-
-	"github.com/Tangerg/scope/agent/planning"
 )
 
 func TestWorldStatePreservesThreeValuedImmutableFacts(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.TruthTrue)
-	disabled := mustCondition(t, "world.disabled", planning.TruthFalse)
-	input := []planning.Condition{ready, disabled}
+	ready := mustCondition(t, "world.ready", TruthTrue)
+	disabled := mustCondition(t, "world.disabled", TruthFalse)
+	input := []Condition{ready, disabled}
 	state := mustWorldState(t, input...)
-	input[0] = mustCondition(t, "world.replaced", planning.TruthTrue)
+	input[0] = mustCondition(t, "world.replaced", TruthTrue)
 
-	if state.Truth("world.ready") != planning.TruthTrue || state.Truth("world.disabled") != planning.TruthFalse ||
-		state.Truth("world.missing") != planning.TruthUnknown {
+	if state.Truth("world.ready") != TruthTrue || state.Truth("world.disabled") != TruthFalse ||
+		state.Truth("world.missing") != TruthUnknown {
 		t.Fatalf("unexpected truth projection: %#v", state.Conditions())
 	}
 	conditions := state.Conditions()
 	if got := []string{conditions[0].Key(), conditions[1].Key()}; !slices.Equal(got, []string{"world.disabled", "world.ready"}) {
 		t.Fatalf("condition order = %v", got)
 	}
-	conditions[0] = mustCondition(t, "world.mutated", planning.TruthTrue)
-	if state.Truth("world.disabled") != planning.TruthFalse {
+	conditions[0] = mustCondition(t, "world.mutated", TruthTrue)
+	if state.Truth("world.disabled") != TruthFalse {
 		t.Fatal("Conditions exposed mutable storage")
 	}
 
-	updated, err := state.Apply(mustCondition(t, "world.ready", planning.TruthFalse))
+	updated, err := state.Apply(mustCondition(t, "world.ready", TruthFalse))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.Truth("world.ready") != planning.TruthTrue || updated.Truth("world.ready") != planning.TruthFalse ||
+	if state.Truth("world.ready") != TruthTrue || updated.Truth("world.ready") != TruthFalse ||
 		state.Key() == updated.Key() {
 		t.Fatalf("immutable apply failed: before=%s after=%s", state.Key(), updated.Key())
 	}
@@ -44,15 +42,15 @@ func TestWorldStatePreservesThreeValuedImmutableFacts(t *testing.T) {
 
 func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
 	state := mustWorldState(t,
-		mustCondition(t, "b", planning.TruthFalse),
-		mustCondition(t, "d", planning.TruthTrue),
+		mustCondition(t, "b", TruthFalse),
+		mustCondition(t, "d", TruthTrue),
 	)
-	effects := []planning.Condition{
-		mustCondition(t, "e", planning.TruthTrue),
-		mustCondition(t, "b", planning.TruthTrue),
-		mustCondition(t, "a", planning.TruthFalse),
-		mustCondition(t, "e", planning.TruthFalse),
-		mustCondition(t, "c", planning.TruthTrue),
+	effects := []Condition{
+		mustCondition(t, "e", TruthTrue),
+		mustCondition(t, "b", TruthTrue),
+		mustCondition(t, "a", TruthFalse),
+		mustCondition(t, "e", TruthFalse),
+		mustCondition(t, "c", TruthTrue),
 	}
 	before := slices.Clone(effects)
 	updated, err := state.Apply(effects...)
@@ -63,28 +61,28 @@ func TestWorldStateApplyOrdersFactsAndUsesLastRepeatedEffect(t *testing.T) {
 		!slices.Equal(effects, before) {
 		t.Fatalf("apply changed its inputs or facts: %s -> %s", state.Key(), updated.Key())
 	}
-	effects[0] = mustCondition(t, "z", planning.TruthTrue)
-	if updated.Truth("z") != planning.TruthUnknown {
+	effects[0] = mustCondition(t, "z", TruthTrue)
+	if updated.Truth("z") != TruthUnknown {
 		t.Fatal("successor retained caller effects")
 	}
 	if unchanged, applyErr := state.Apply(); applyErr != nil || unchanged.Key() != state.Key() {
 		t.Fatalf("empty effects changed the state: %s, %v", unchanged.Key(), applyErr)
 	}
-	if _, applyErr := state.Apply(planning.Condition{}); !errors.Is(applyErr, planning.ErrInvalidWorldState) {
+	if _, applyErr := state.Apply(Condition{}); !errors.Is(applyErr, ErrInvalidWorldState) {
 		t.Fatalf("invalid effect accepted: %v", applyErr)
 	}
 }
 
 func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 	state := mustWorldState(t,
-		mustCondition(t, "world.alpha", planning.TruthTrue),
-		mustCondition(t, "world.beta", planning.TruthFalse),
+		mustCondition(t, "world.alpha", TruthTrue),
+		mustCondition(t, "world.beta", TruthFalse),
 	)
 	data, err := jsonv2.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var restored planning.WorldState
+	var restored WorldState
 	if err := jsonv2.Unmarshal(data, &restored); err != nil {
 		t.Fatal(err)
 	}
@@ -92,79 +90,79 @@ func TestPlanningValuesUseStrictPortableJSON(t *testing.T) {
 		t.Fatalf("restored key = %q, want %q", restored.Key(), state.Key())
 	}
 	for _, invalid := range []string{`null`, `{}`, `{"conditions":null}`, `{"conditions":[],"extra":true}`} {
-		if err := jsonv2.Unmarshal([]byte(invalid), &restored); !errors.Is(err, planning.ErrInvalidWorldState) {
+		if err := jsonv2.Unmarshal([]byte(invalid), &restored); !errors.Is(err, ErrInvalidWorldState) {
 			t.Fatalf("invalid WorldState %s error = %v", invalid, err)
 		}
 		if restored.Key() != state.Key() {
 			t.Fatal("invalid WorldState replaced the last complete observation")
 		}
 	}
-	var truth planning.Truth
-	if err := truth.UnmarshalJSON([]byte(`"true" false`)); !errors.Is(err, planning.ErrInvalidCondition) {
+	var truth Truth
+	if err := truth.UnmarshalJSON([]byte(`"true" false`)); !errors.Is(err, ErrInvalidCondition) {
 		t.Fatalf("trailing Truth error = %v", err)
 	}
 }
 
 func TestGoalAndActionOwnConstructionInputs(t *testing.T) {
-	required := []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}
-	goal, err := planning.NewGoal(planning.GoalConfig{
+	required := []Condition{mustCondition(t, "world.done", TruthTrue)}
+	goal, err := NewGoal(GoalConfig{
 		Name: "goal.done", Description: "Make the world done.", Conditions: required,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	required[0] = mustCondition(t, "world.changed", planning.TruthTrue)
+	required[0] = mustCondition(t, "world.changed", TruthTrue)
 	if goal.Conditions()[0].Key() != "world.done" {
 		t.Fatal("Goal retained caller slice")
 	}
 
-	preconditions := []planning.Condition{mustCondition(t, "world.ready", planning.TruthTrue)}
-	effects := []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}
-	action := mustAction(t, planning.ActionConfig{
+	preconditions := []Condition{mustCondition(t, "world.ready", TruthTrue)}
+	effects := []Condition{mustCondition(t, "world.done", TruthTrue)}
+	action := mustAction(t, ActionConfig{
 		Name: "action.finish", Description: "Finish the work.",
 		Preconditions: preconditions, Effects: effects,
 	})
-	preconditions[0] = mustCondition(t, "world.changed", planning.TruthTrue)
-	effects[0] = mustCondition(t, "world.changed", planning.TruthFalse)
+	preconditions[0] = mustCondition(t, "world.changed", TruthTrue)
+	effects[0] = mustCondition(t, "world.changed", TruthFalse)
 	if action.Preconditions()[0].Key() != "world.ready" || action.Effects()[0].Key() != "world.done" {
 		t.Fatal("Action retained caller slices")
 	}
-	cost, err := action.Cost(mustWorldState(t, mustCondition(t, "world.ready", planning.TruthTrue)))
+	cost, err := action.Cost(mustWorldState(t, mustCondition(t, "world.ready", TruthTrue)))
 	if err != nil || cost != 1 {
 		t.Fatalf("default cost = %v, error = %v", cost, err)
 	}
 }
 
 func TestActionRejectsPredictiveNoOpAndInvalidCosts(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.TruthTrue)
-	_, err := planning.NewAction(planning.ActionConfig{
+	ready := mustCondition(t, "world.ready", TruthTrue)
+	_, err := NewAction(ActionConfig{
 		Name: "action.noop", Description: "Predict no state change.",
-		Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{ready},
+		Preconditions: []Condition{ready}, Effects: []Condition{ready},
 	})
-	if !errors.Is(err, planning.ErrInvalidAction) {
+	if !errors.Is(err, ErrInvalidAction) {
 		t.Fatalf("no-op error = %v", err)
 	}
 
 	cause := errors.New("cost sentinel")
 	tests := []struct {
 		name string
-		cost planning.CostFunc
+		cost CostFunc
 		want error
 	}{
-		{name: "negative", cost: planning.FixedCost(-1), want: planning.ErrInvalidActionCost},
-		{name: "nan", cost: planning.FixedCost(math.NaN()), want: planning.ErrInvalidActionCost},
-		{name: "infinite", cost: planning.FixedCost(math.Inf(1)), want: planning.ErrInvalidActionCost},
-		{name: "error", cost: func(planning.WorldState) (float64, error) { return 0, cause }, want: cause},
-		{name: "panic", cost: func(planning.WorldState) (float64, error) { panic(cause) }, want: cause},
+		{name: "negative", cost: FixedCost(-1), want: ErrInvalidActionCost},
+		{name: "nan", cost: FixedCost(math.NaN()), want: ErrInvalidActionCost},
+		{name: "infinite", cost: FixedCost(math.Inf(1)), want: ErrInvalidActionCost},
+		{name: "error", cost: func(WorldState) (float64, error) { return 0, cause }, want: cause},
+		{name: "panic", cost: func(WorldState) (float64, error) { panic(cause) }, want: cause},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			action := mustAction(t, planning.ActionConfig{
+			action := mustAction(t, ActionConfig{
 				Name: "action.cost", Description: "Evaluate one test cost.",
-				Effects: []planning.Condition{mustCondition(t, "world.done", planning.TruthTrue)}, Cost: test.cost,
+				Effects: []Condition{mustCondition(t, "world.done", TruthTrue)}, Cost: test.cost,
 			})
-			_, err := action.Cost(planning.WorldState{})
-			if !errors.Is(err, planning.ErrInvalidActionCost) || !errors.Is(err, test.want) {
+			_, err := action.Cost(WorldState{})
+			if !errors.Is(err, ErrInvalidActionCost) || !errors.Is(err, test.want) {
 				t.Fatalf("Cost error = %v", err)
 			}
 		})
@@ -172,22 +170,22 @@ func TestActionRejectsPredictiveNoOpAndInvalidCosts(t *testing.T) {
 }
 
 func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.TruthTrue)
-	done := mustCondition(t, "world.done", planning.TruthTrue)
-	action := mustAction(t, planning.ActionConfig{
+	ready := mustCondition(t, "world.ready", TruthTrue)
+	done := mustCondition(t, "world.done", TruthTrue)
+	action := mustAction(t, ActionConfig{
 		Name: "action.finish", Description: "Finish ready work.",
-		Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done}, Cost: planning.FixedCost(2),
+		Preconditions: []Condition{ready}, Effects: []Condition{done}, Cost: FixedCost(2),
 	})
 	goal := mustGoal(t, done)
-	problem, err := planning.NewProblem(mustWorldState(t, ready), goal, action)
+	problem, err := NewProblem(mustWorldState(t, ready), goal, action)
 	if err != nil {
 		t.Fatal(err)
 	}
-	planned, err := planning.NewPlannedAction("action.finish")
+	planned, err := NewPlannedAction("action.finish")
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid, err := planning.NewPlan([]planning.PlannedAction{planned})
+	valid, err := NewPlan([]PlannedAction{planned})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,47 +195,47 @@ func TestProblemValidatesPlannerOutputAgainstItsActions(t *testing.T) {
 	if data := mustJSON(t, valid); string(data) != `{"actions":["action.finish"]}` {
 		t.Fatalf("Plan repeats predictive metadata: %s", data)
 	}
-	var retired planning.Plan
-	if decodeErr := jsonv2.Unmarshal([]byte(`{"actions":["action.finish"],"total_cost":2}`), &retired); !errors.Is(decodeErr, planning.ErrInvalidPlan) {
+	var retired Plan
+	if decodeErr := jsonv2.Unmarshal([]byte(`{"actions":["action.finish"],"total_cost":2}`), &retired); !errors.Is(decodeErr, ErrInvalidPlan) {
 		t.Fatalf("retired cost owner accepted: %v", decodeErr)
 	}
-	unknown, _ := planning.NewPlannedAction("action.unknown")
-	unknownPlan, _ := planning.NewPlan([]planning.PlannedAction{unknown})
-	if _, err := problem.EvaluatePlan(t.Context(), unknownPlan); !errors.Is(err, planning.ErrInvalidPlan) {
+	unknown, _ := NewPlannedAction("action.unknown")
+	unknownPlan, _ := NewPlan([]PlannedAction{unknown})
+	if _, err := problem.EvaluatePlan(t.Context(), unknownPlan); !errors.Is(err, ErrInvalidPlan) {
 		t.Fatalf("unknown-Action error = %v", err)
 	}
 }
 
 func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
-	done := mustCondition(t, "world.done", planning.TruthTrue)
-	succeeded := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptSucceeded}
-	failed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptFailed, Diagnostic: "refused"}
-	unconfirmed := planning.Attempt{ActionName: "action.finish", Status: planning.AttemptUnconfirmed}
+	done := mustCondition(t, "world.done", TruthTrue)
+	succeeded := Attempt{ActionName: "action.finish", Status: AttemptSucceeded}
+	failed := Attempt{ActionName: "action.finish", Status: AttemptFailed, Diagnostic: "refused"}
+	unconfirmed := Attempt{ActionName: "action.finish", Status: AttemptUnconfirmed}
 	for _, test := range []struct {
 		name     string
-		outcome  planning.Outcome
-		attempts []planning.Attempt
+		outcome  Outcome
+		attempts []Attempt
 		passes   uint64
 		valid    bool
 	}{
-		{name: "already achieved", outcome: planning.OutcomeAchieved, valid: true},
-		{name: "achieved after action", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded}, passes: 1, valid: true},
-		{name: "unreachable", outcome: planning.OutcomeUnreachable, passes: 1, valid: true},
-		{name: "unreachable after attempt", outcome: planning.OutcomeUnreachable, attempts: []planning.Attempt{failed}},
-		{name: "attempt limit exhausted", outcome: planning.OutcomeExhausted, attempts: []planning.Attempt{failed}, passes: 1, valid: true},
-		{name: "exhausted without attempts", outcome: planning.OutcomeExhausted},
-		{name: "replanning stuck", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{failed}, passes: 2, valid: true},
-		{name: "stuck without attempts", outcome: planning.OutcomeStuck},
-		{name: "repeated success", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{succeeded, succeeded}, passes: 2, valid: true},
-		{name: "attempt after failure", outcome: planning.OutcomeAchieved, attempts: []planning.Attempt{failed, succeeded}, passes: 2, valid: true},
-		{name: "attempt after unconfirmed action", outcome: planning.OutcomeStuck, attempts: []planning.Attempt{unconfirmed, succeeded}, passes: 3, valid: true},
+		{name: "already achieved", outcome: OutcomeAchieved, valid: true},
+		{name: "achieved after action", outcome: OutcomeAchieved, attempts: []Attempt{succeeded}, passes: 1, valid: true},
+		{name: "unreachable", outcome: OutcomeUnreachable, passes: 1, valid: true},
+		{name: "unreachable after attempt", outcome: OutcomeUnreachable, attempts: []Attempt{failed}},
+		{name: "attempt limit exhausted", outcome: OutcomeExhausted, attempts: []Attempt{failed}, passes: 1, valid: true},
+		{name: "exhausted without attempts", outcome: OutcomeExhausted},
+		{name: "replanning stuck", outcome: OutcomeStuck, attempts: []Attempt{failed}, passes: 2, valid: true},
+		{name: "stuck without attempts", outcome: OutcomeStuck},
+		{name: "repeated success", outcome: OutcomeAchieved, attempts: []Attempt{succeeded, succeeded}, passes: 2, valid: true},
+		{name: "attempt after failure", outcome: OutcomeAchieved, attempts: []Attempt{failed, succeeded}, passes: 2, valid: true},
+		{name: "attempt after unconfirmed action", outcome: OutcomeStuck, attempts: []Attempt{unconfirmed, succeeded}, passes: 3, valid: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			output := planning.Output{Outcome: test.outcome, Attempts: test.attempts}
-			if test.outcome == planning.OutcomeAchieved {
+			output := Output{Outcome: test.outcome, Attempts: test.attempts}
+			if test.outcome == OutcomeAchieved {
 				output.WorldState = mustWorldState(t, done)
 			}
-			if err := output.Validate(); (err == nil) != test.valid || !test.valid && !errors.Is(err, planning.ErrInvalidResult) {
+			if err := output.Validate(); (err == nil) != test.valid || !test.valid && !errors.Is(err, ErrInvalidResult) {
 				t.Fatalf("Validate = %v, want valid=%t", err, test.valid)
 			}
 			if test.valid && output.PlanningPasses() != test.passes {
@@ -247,27 +245,27 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 	}
 }
 
-func mustCondition(t *testing.T, key string, truth planning.Truth) planning.Condition {
+func mustCondition(t *testing.T, key string, truth Truth) Condition {
 	t.Helper()
-	condition, err := planning.NewCondition(key, truth)
+	condition, err := NewCondition(key, truth)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return condition
 }
 
-func mustWorldState(t *testing.T, conditions ...planning.Condition) planning.WorldState {
+func mustWorldState(t *testing.T, conditions ...Condition) WorldState {
 	t.Helper()
-	state, err := planning.NewWorldState(conditions...)
+	state, err := NewWorldState(conditions...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return state
 }
 
-func mustGoal(t *testing.T, conditions ...planning.Condition) planning.Goal {
+func mustGoal(t *testing.T, conditions ...Condition) Goal {
 	t.Helper()
-	goal, err := planning.NewGoal(planning.GoalConfig{
+	goal, err := NewGoal(GoalConfig{
 		Name: "goal.test", Description: "Reach the test target.", Conditions: conditions,
 	})
 	if err != nil {
@@ -276,9 +274,9 @@ func mustGoal(t *testing.T, conditions ...planning.Condition) planning.Goal {
 	return goal
 }
 
-func mustAction(t *testing.T, config planning.ActionConfig) planning.Action {
+func mustAction(t *testing.T, config ActionConfig) Action {
 	t.Helper()
-	action, err := planning.NewAction(config)
+	action, err := NewAction(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -286,19 +284,19 @@ func mustAction(t *testing.T, config planning.ActionConfig) planning.Action {
 }
 
 func TestAttemptAndOutputValidationShareResultClassification(t *testing.T) {
-	for _, attempt := range []planning.Attempt{
+	for _, attempt := range []Attempt{
 		{},
-		{ActionName: "action", Status: planning.AttemptSucceeded, Diagnostic: "unexpected"},
-		{ActionName: "action", Status: planning.AttemptFailed},
+		{ActionName: "action", Status: AttemptSucceeded, Diagnostic: "unexpected"},
+		{ActionName: "action", Status: AttemptFailed},
 	} {
-		if err := attempt.Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+		if err := attempt.Validate(); !errors.Is(err, ErrInvalidResult) {
 			t.Fatalf("attempt classification lost: %v", err)
 		}
-		if err := (planning.Output{Outcome: planning.OutcomeAchieved, Attempts: []planning.Attempt{attempt}}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+		if err := (Output{Outcome: OutcomeAchieved, Attempts: []Attempt{attempt}}).Validate(); !errors.Is(err, ErrInvalidResult) {
 			t.Fatalf("nested attempt classification lost: %v", err)
 		}
 	}
-	if err := (planning.Output{}).Validate(); !errors.Is(err, planning.ErrInvalidResult) {
+	if err := (Output{}).Validate(); !errors.Is(err, ErrInvalidResult) {
 		t.Fatalf("output classification lost: %v", err)
 	}
 }
@@ -309,22 +307,22 @@ func TestEvaluatePlanStopsAfterCanceledCost(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			calls := 0
-			done := mustCondition(t, "world.done", planning.TruthTrue)
-			action := mustAction(t, planning.ActionConfig{Name: "action.finish", Description: "Finish work.", Effects: []planning.Condition{done}, Cost: func(planning.WorldState) (float64, error) {
+			done := mustCondition(t, "world.done", TruthTrue)
+			action := mustAction(t, ActionConfig{Name: "action.finish", Description: "Finish work.", Effects: []Condition{done}, Cost: func(WorldState) (float64, error) {
 				calls++
 				cancel()
 				return 1, nil
 			}})
-			problem, err := planning.NewProblem(planning.WorldState{}, mustGoal(t, done), action)
+			problem, err := NewProblem(WorldState{}, mustGoal(t, done), action)
 			if err != nil {
 				t.Fatal(err)
 			}
-			planned, _ := planning.NewPlannedAction("action.finish")
-			actions := make([]planning.PlannedAction, count)
+			planned, _ := NewPlannedAction("action.finish")
+			actions := make([]PlannedAction, count)
 			for i := range actions {
 				actions[i] = planned
 			}
-			plan, err := planning.NewPlan(actions)
+			plan, err := NewPlan(actions)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -337,50 +335,50 @@ func TestEvaluatePlanStopsAfterCanceledCost(t *testing.T) {
 }
 
 func TestProblemRejectsInapplicableIncompleteAndOverflowingPlans(t *testing.T) {
-	ready := mustCondition(t, "world.ready", planning.TruthTrue)
-	done := mustCondition(t, "world.done", planning.TruthTrue)
-	prepare := mustAction(t, planning.ActionConfig{
-		Name: "prepare", Description: "Prepare work.", Effects: []planning.Condition{ready}, Cost: planning.FixedCost(math.MaxFloat64),
+	ready := mustCondition(t, "world.ready", TruthTrue)
+	done := mustCondition(t, "world.done", TruthTrue)
+	prepare := mustAction(t, ActionConfig{
+		Name: "prepare", Description: "Prepare work.", Effects: []Condition{ready}, Cost: FixedCost(math.MaxFloat64),
 	})
-	finish := mustAction(t, planning.ActionConfig{
-		Name: "finish", Description: "Finish ready work.", Preconditions: []planning.Condition{ready}, Effects: []planning.Condition{done}, Cost: planning.FixedCost(math.MaxFloat64),
+	finish := mustAction(t, ActionConfig{
+		Name: "finish", Description: "Finish ready work.", Preconditions: []Condition{ready}, Effects: []Condition{done}, Cost: FixedCost(math.MaxFloat64),
 	})
-	problem, err := planning.NewProblem(planning.WorldState{}, mustGoal(t, done), prepare, finish)
+	problem, err := NewProblem(WorldState{}, mustGoal(t, done), prepare, finish)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, names := range [][]string{{"finish"}, {"prepare"}, {"prepare", "finish"}} {
-		actions := make([]planning.PlannedAction, len(names))
+		actions := make([]PlannedAction, len(names))
 		for index, name := range names {
-			actions[index], err = planning.NewPlannedAction(name)
+			actions[index], err = NewPlannedAction(name)
 			if err != nil {
 				t.Fatal(err)
 			}
 		}
-		plan, err := planning.NewPlan(actions)
+		plan, err := NewPlan(actions)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := problem.EvaluatePlan(t.Context(), plan); !errors.Is(err, planning.ErrInvalidPlan) {
+		if _, err := problem.EvaluatePlan(t.Context(), plan); !errors.Is(err, ErrInvalidPlan) {
 			t.Fatalf("invalid sequence %v was accepted: %v", names, err)
 		}
 	}
-	if _, err := (planning.Problem{}).EvaluatePlan(t.Context(), planning.Plan{}); !errors.Is(err, planning.ErrInvalidPlan) {
+	if _, err := (Problem{}).EvaluatePlan(t.Context(), Plan{}); !errors.Is(err, ErrInvalidPlan) {
 		t.Fatalf("missing problem contract became a completed plan: %v", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := problem.EvaluatePlan(ctx, planning.Plan{}); !errors.Is(err, context.Canceled) {
+	if _, err := problem.EvaluatePlan(ctx, Plan{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled validation became a planning result: %v", err)
 	}
 }
 
 func TestPlanDecodingCannotReplaceAValidActionSequenceWithInvalidReferences(t *testing.T) {
-	planned, err := planning.NewPlannedAction("finish")
+	planned, err := NewPlannedAction("finish")
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := planning.NewPlan([]planning.PlannedAction{planned})
+	plan, err := NewPlan([]PlannedAction{planned})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,17 +387,17 @@ func TestPlanDecodingCannotReplaceAValidActionSequenceWithInvalidReferences(t *t
 		`{"actions":["invalid name"]}`,
 		`{"actions":[1]}`,
 	} {
-		if err := jsonv2.Unmarshal([]byte(raw), &plan); !errors.Is(err, planning.ErrInvalidPlan) {
+		if err := jsonv2.Unmarshal([]byte(raw), &plan); !errors.Is(err, ErrInvalidPlan) {
 			t.Fatalf("invalid plan %s was accepted: %v", raw, err)
 		}
 		if actions := plan.Actions(); len(actions) != 1 || actions[0] != planned {
 			t.Fatalf("failed decode replaced the last valid plan: %v", actions)
 		}
 	}
-	if _, err := planning.NewPlan([]planning.PlannedAction{{}}); !errors.Is(err, planning.ErrInvalidPlan) {
+	if _, err := NewPlan([]PlannedAction{{}}); !errors.Is(err, ErrInvalidPlan) {
 		t.Fatalf("invalid planned action was admitted: %v", err)
 	}
-	if _, err := jsonv2.Marshal(planning.PlannedAction{}); !errors.Is(err, planning.ErrInvalidPlan) {
+	if _, err := jsonv2.Marshal(PlannedAction{}); !errors.Is(err, ErrInvalidPlan) {
 		t.Fatalf("invalid planned action became portable: %v", err)
 	}
 }

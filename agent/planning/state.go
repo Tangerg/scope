@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
-	"github.com/Tangerg/scope/agent/internal/strategy/childcall"
+	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -31,17 +31,16 @@ func (p phase) valid() bool {
 }
 
 type executionState struct {
-	Phase             phase           `json:"phase"`
-	Input             json.RawMessage `json:"input"`
-	WorldState        WorldState      `json:"world_state" jsonwire:"required"`
-	Attempts          []Attempt       `json:"attempts,omitempty"`
-	CurrentActionName string          `json:"current_action_name,omitempty"`
-	// Child is the handshake progress of a child-bound current Action; the
-	// Action's binding, not this value, says whether a child is involved.
-	Child childcall.Single `json:"child,omitzero"`
+	Phase             phase             `json:"phase"`
+	Input             json.RawMessage   `json:"input"`
+	WorldState        WorldState        `json:"world_state" jsonwire:"required"`
+	Attempts          []Attempt         `json:"attempts,omitempty"`
+	CurrentActionName string            `json:"current_action_name,omitempty"`
+	Child             *child.Invocation `json:"child,omitzero"`
+	PendingEffect     *run.EffectID     `json:"pending_effect,omitzero"`
 }
 
-func (e executionState) phase(definition *Definition) phase {
+func (e executionState) phase(definition *definition) phase {
 	if e.Phase != phaseAwaitingAction {
 		return e.Phase
 	}
@@ -61,12 +60,12 @@ func (e *executionState) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (e executionState) validate(ctx context.Context, definition *Definition) error {
+func (e executionState) validate(ctx context.Context, definition *definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if !definition.valid() {
-		return fmt.Errorf("%w: valid Definition is required", ErrInvalidExecutionState)
+		return fmt.Errorf("%w: valid definition is required", ErrInvalidExecutionState)
 	}
 	if !e.Phase.valid() {
 		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
@@ -90,7 +89,7 @@ func (e executionState) validate(ctx context.Context, definition *Definition) er
 	return e.validatePhase()
 }
 
-func (e executionState) validateAttemptHistory(ctx context.Context, definition *Definition) error {
+func (e executionState) validateAttemptHistory(ctx context.Context, definition *definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -105,7 +104,7 @@ func (e executionState) validateAttemptHistory(ctx context.Context, definition *
 
 // needsPlan reports whether the goal is unmet and another Action attempt is
 // still admitted, so the Planner must be asked for one.
-func (e executionState) needsPlan(definition *Definition) bool {
+func (e executionState) needsPlan(definition *definition) bool {
 	return !definition.goal.SatisfiedBy(e.WorldState) && definition.maxActionAttempts.Allows(e.attemptCount(), 1)
 }
 
@@ -117,7 +116,7 @@ func (e executionState) attemptCount() uint64 {
 	return count
 }
 
-func (e executionState) validateCurrentAction(definition *Definition) error {
+func (e executionState) validateCurrentAction(definition *definition) error {
 	if e.CurrentActionName == "" {
 		return nil
 	}
@@ -131,8 +130,23 @@ func (e executionState) validateCurrentAction(definition *Definition) error {
 	if !binding.action.Applicable(e.WorldState) {
 		return fmt.Errorf("%w: current Action was not applicable to its observed WorldState", ErrInvalidExecutionState)
 	}
-	if !binding.delegatesToChild() && e.Child != (childcall.Single{}) {
-		return fmt.Errorf("%w: Dispatcher Action retains child progress", ErrInvalidExecutionState)
+	if binding.delegatesToChild() && e.Phase == phaseAwaitingAction && (e.Child == nil || !e.Child.Valid()) {
+		return ErrInvalidExecutionState
+	}
+	if e.Child != nil {
+		if e.Child.Done() || e.Child.Request != nil && e.Child.Request.Index != 0 {
+			return ErrInvalidExecutionState
+		}
+		if e.Child.Process != nil {
+			expected, err := planningChildKey(e.CurrentActionName, uint64(len(e.Attempts))+1)
+			key, _ := e.Child.Process.Key()
+			if err != nil || key != expected {
+				return ErrInvalidExecutionState
+			}
+		}
+	}
+	if !binding.delegatesToChild() && e.Child != nil {
+		return fmt.Errorf("%w: dispatcher Action retains child progress", ErrInvalidExecutionState)
 	}
 	return nil
 }
@@ -151,7 +165,11 @@ func (e executionState) validateProgress() error {
 }
 
 func (e executionState) validatePhase() error {
-	if e.Child != (childcall.Single{}) && e.Phase != phaseAwaitingAction {
+	pending := e.Phase == phaseAwaitingSense || e.Phase == phaseAwaitingAction && e.Child == nil
+	if pending != (e.PendingEffect != nil) || e.PendingEffect != nil && !e.PendingEffect.Valid() {
+		return ErrInvalidExecutionState
+	}
+	if e.Child != nil && e.Phase != phaseAwaitingAction {
 		return fmt.Errorf("%w: child state disagrees with execution phase", ErrInvalidExecutionState)
 	}
 	hasAction := e.CurrentActionName != ""
@@ -188,7 +206,7 @@ func (e *executionState) recordFailedAction(reason string) {
 	e.CurrentActionName = ""
 }
 
-func (e *executionState) complete(ctx context.Context, definition *Definition) (Output, error) {
+func (e *executionState) complete(ctx context.Context, definition *definition) (Output, error) {
 	if err := e.validate(ctx, definition); err != nil {
 		return Output{}, err
 	}
@@ -209,7 +227,7 @@ func (e *executionState) complete(ctx context.Context, definition *Definition) (
 // output classifies completion: a completion that still needed a plan
 // followed a planning pass that found none, otherwise the attempt limit
 // admitted no further pass.
-func (e executionState) output(definition *Definition) Output {
+func (e executionState) output(definition *definition) Output {
 	outcome := OutcomeExhausted
 	switch {
 	case definition.goal.SatisfiedBy(e.WorldState):

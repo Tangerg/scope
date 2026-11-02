@@ -7,32 +7,13 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// EffectReference identifies one logical dispatcher Effect in one runtime
-// activation, including every SameIdentity replay attempt. A zero
-// TreeIncarnationID leaves the activation undeclared; Runtime-produced requests
-// always carry the active writer incarnation.
-type EffectReference struct {
-	ProcessID         run.ProcessID         `json:"process_id"`
-	TreeIncarnationID run.TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
-	EffectID          run.EffectID          `json:"effect_id"`
-}
-
-func (e EffectReference) Valid() bool {
-	return e.ProcessID.Valid() && e.EffectID.Valid() &&
-		(e.TreeIncarnationID == (run.TreeIncarnationID{}) || e.TreeIncarnationID.Valid())
-}
-
-// Coverage is the Host's exhaustive classification of dispatcher Effects in
-// this recording. Models and Tools require exactly one semantic call for each
-// physical EffectStarted attempt, including Unknown calls; Other asserts that
-// an Effect performs neither kind of call. The Host must classify requests
-// independently of the observations being checked: coverage derived from
-// recorded responses would conceal missing observations. Nil coverage leaves
-// completeness unknown; an empty value asserts no dispatch.
+// Coverage declares the protocol of each dispatcher intent independently of
+// its result. Only declared interaction effects are decoded as model or tool
+// calls; arbitrary dispatcher payloads remain opaque.
 type Coverage struct {
-	Models []EffectReference `json:"models,omitempty"`
-	Tools  []EffectReference `json:"tools,omitempty"`
-	Other  []EffectReference `json:"other,omitempty"`
+	Models []run.EffectID `json:"models,omitempty"`
+	Tools  []run.EffectID `json:"tools,omitempty"`
+	Other  []run.EffectID `json:"other,omitempty"`
 }
 
 func (c *Coverage) clone() *Coverage {
@@ -47,6 +28,24 @@ func (c Coverage) Validate() error {
 	return err
 }
 
+func (c Coverage) classifications() (map[run.EffectID]effectRole, error) {
+	seen := make(map[run.EffectID]effectRole, len(c.Models)+len(c.Tools)+len(c.Other))
+	for _, group := range [...]struct {
+		role    effectRole
+		effects []run.EffectID
+	}{
+		{effectRoleModel, c.Models}, {effectRoleTool, c.Tools}, {effectRoleOther, c.Other},
+	} {
+		for _, id := range group.effects {
+			if !id.Valid() || seen[id] != effectRoleInvalid {
+				return nil, fmt.Errorf("%w: coverage requires unique valid effect identities", ErrInvalidTrajectory)
+			}
+			seen[id] = group.role
+		}
+	}
+	return seen, nil
+}
+
 type effectRole uint8
 
 const (
@@ -55,34 +54,3 @@ const (
 	effectRoleTool
 	effectRoleOther
 )
-
-func (e effectRole) String() string {
-	switch e {
-	case effectRoleModel:
-		return "model"
-	case effectRoleTool:
-		return "tool"
-	case effectRoleOther:
-		return "other"
-	default:
-		return "invalid"
-	}
-}
-
-func (c Coverage) classifications() (map[EffectReference]effectRole, error) {
-	seen := make(map[EffectReference]effectRole, len(c.Models)+len(c.Tools)+len(c.Other))
-	for _, group := range []struct {
-		role    effectRole
-		effects []EffectReference
-	}{
-		{effectRoleModel, c.Models}, {effectRoleTool, c.Tools}, {effectRoleOther, c.Other},
-	} {
-		for _, reference := range group.effects {
-			if !reference.Valid() || seen[reference] != effectRoleInvalid {
-				return nil, fmt.Errorf("%w: coverage requires unique valid Effect references", ErrInvalidTrajectory)
-			}
-			seen[reference] = group.role
-		}
-	}
-	return seen, nil
-}

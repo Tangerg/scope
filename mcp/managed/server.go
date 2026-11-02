@@ -70,7 +70,6 @@ var (
 type binding[I, O any] struct {
 	cfg    Config[I, O]
 	issuer issuer
-	views  *run.StartedTrees
 }
 
 // Register exposes a Program's descriptor as an MCP tool. The projection only
@@ -91,11 +90,7 @@ func Register[I, O any](server *sdk.Server, cfg Config[I, O]) error {
 	if err != nil {
 		return err
 	}
-	views, err := cfg.Runtime.StartedTrees()
-	if err != nil {
-		return err
-	}
-	b := &binding[I, O]{cfg: cfg, issuer: signer, views: views}
+	b := &binding[I, O]{cfg: cfg, issuer: signer}
 	server.AddTool(&sdk.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema}, b.call)
 	return nil
 }
@@ -166,31 +161,22 @@ func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (ad
 func (b *binding[I, O]) start(ctx context.Context, call admittedCall[I]) (*sdk.CallToolResult, error) {
 	handle, err := b.cfg.Runtime.Start(ctx, b.cfg.Program, run.StartRequest[I]{ID: call.start, Input: call.input})
 	if err == nil {
-		return observe(ctx, b, handle, call.start, call.authority, run.WaitID{})
-	}
-	if _, unknown := errors.AsType[*run.StartError](err); unknown {
-		return nil, rpc(CodeStartUnknown, "initial acceptance is uncertain; retry only with the same authorized start identity")
-	}
-	if accepted, ok := errors.AsType[*run.StartAcceptedError](err); ok {
-		return b.viewOnly(ctx, call.start, accepted.Receipt.RootID, call.authority, run.WaitID{})
+		return observe(ctx, b, handle, call.start, call.authority, target{})
 	}
 	if _, ok := errors.AsType[*run.StartConflictError](err); ok {
 		return nil, errArguments
 	}
-	return nil, errUnavailable
+	return nil, rpc(CodeStartUnknown, "initial acceptance is unconfirmed; retry only with the same authorized start identity")
 }
 
 func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params *sdk.CallToolParamsRaw) (*sdk.CallToolResult, error) {
 	destination, err := b.issuer.open(params.RequestState, call.authority)
+	if err != nil || destination.Owner.Root() != call.start.Root() {
+		return nil, errContinuation
+	}
+	head, err := b.cfg.Runtime.Inspect(ctx, call.start.Root())
 	if err != nil {
-		return nil, errContinuation
-	}
-	head, found, err := b.views.Load(ctx, call.start)
-	if err != nil || !found {
 		return nil, errUnavailable
-	}
-	if head.RootID() != destination.Root {
-		return nil, errContinuation
 	}
 	reply, err := parseFormReply(params.InputResponses)
 	if err != nil {
@@ -199,12 +185,12 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 	if reply.action != formAccept {
 		return nil, reply.rejection(destination.pendingIn(head))
 	}
-	acknowledged, err := head.Answered(destination.Wait, reply.answer)
+	acknowledged, err := head.Answered(destination.Owner, destination.Wait, reply.answer)
 	if err != nil {
 		return nil, errArguments
 	}
-	root, active := b.cfg.Runtime.Process(destination.Root)
-	owns := active && root.TreeIncarnationID() == head.IncarnationID()
+	root, active := b.cfg.Runtime.Process(head.Root)
+	owns := active && root.Epoch() == head.Epoch
 	if !acknowledged {
 		if !destination.pendingIn(head) {
 			return nil, errContinuation
@@ -216,9 +202,9 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 			return nil, err
 		}
 	} else if !owns {
-		return b.viewOnly(ctx, call.start, destination.Root, call.authority, destination.Wait)
+		return b.viewOnly(ctx, call.start, call.authority, destination)
 	}
-	return observe(ctx, b, root, call.start, call.authority, destination.Wait)
+	return observe(ctx, b, root, call.start, call.authority, destination)
 }
 
 func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload], destination target, answer run.Payload) error {
@@ -226,10 +212,10 @@ func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload
 	if !ok {
 		return errUnavailable
 	}
-	if owner.Relation().RootID() != destination.Root || root.ProgramRef() != b.cfg.Program.ProgramRef() {
+	if owner.ID().Root() != root.ID() || root.ProgramRef() != b.cfg.Program.ProgramRef() {
 		return errContinuation
 	}
-	if err := owner.Answer(ctx, destination.Wait, answer.JSON()); err != nil {
+	if err := owner.Answer(ctx, destination.Wait, answer); err != nil {
 		if errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) {
 			return errArguments
 		}
@@ -238,66 +224,33 @@ func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload
 	return nil
 }
 
-// A newer writer can replace a blocked local activation without sending any
-// event to it. The store certifies the view; local notifications only wake reads.
-const (
-	ownershipRecheck  = time.Second
-	observationBuffer = 16
-)
-
-func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
-	var last run.Digest
-	read := func() (*sdk.CallToolResult, error) {
-		head, found, err := b.views.Load(ctx, id)
-		if err != nil || !found {
-			return nil, errUnavailable
-		}
-		if head.RootID() != h.ID() {
-			return nil, errContinuation
-		}
-		last = head.Digest()
-		out, err := b.project(head, auth, answered)
-		if out != nil || err != nil {
-			return out, err
-		}
-		if head.IncarnationID() != h.TreeIncarnationID() {
-			return nil, errUnavailable
-		}
-		return nil, nil
-	}
-	for ctx.Err() == nil {
-		if out, err := read(); out != nil || err != nil {
-			return out, err
-		}
-		watch, stop := context.WithTimeout(ctx, ownershipRecheck)
-		retry := false
-		for event, err := range h.Observe(watch, run.Cursor{}, observationBuffer) {
-			if err != nil {
-				retry = errors.Is(err, run.ErrObservationGap) || errors.Is(err, context.DeadlineExceeded)
-				break
-			}
-			if event.Snapshot.Valid() && event.Snapshot.Digest() != last {
-				if out, readErr := read(); out != nil || readErr != nil {
-					stop()
-					return out, readErr
-				}
-			}
-		}
-		stop()
-		if !retry {
-			return b.viewOnly(ctx, id, h.ID(), auth, answered)
-		}
-	}
-	return nil, errUnavailable
-}
-
-func (b *binding[I, O]) viewOnly(ctx context.Context, id run.StartID, root run.ProcessID, auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
-	head, ok, err := b.views.Load(ctx, id)
-	if err != nil || !ok {
+func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte, answered target) (*sdk.CallToolResult, error) {
+	head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
+	if err != nil || head.Root != h.ID() {
 		return nil, errUnavailable
 	}
-	if head.RootID() != root {
-		return nil, errContinuation
+	if out, err := b.project(head, auth, answered); out != nil || err != nil {
+		return out, err
+	}
+	for _, err := range h.Observe(ctx, head.Head) {
+		if err != nil {
+			return nil, errUnavailable
+		}
+		head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
+		if err != nil {
+			return nil, errUnavailable
+		}
+		if out, err := b.project(head, auth, answered); out != nil || err != nil {
+			return out, err
+		}
+	}
+	return b.viewOnly(ctx, id, auth, answered)
+}
+
+func (b *binding[I, O]) viewOnly(ctx context.Context, id run.StartID, auth []byte, answered target) (*sdk.CallToolResult, error) {
+	head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
+	if err != nil {
+		return nil, errUnavailable
 	}
 	out, err := b.project(head, auth, answered)
 	if out == nil && err == nil {
@@ -305,24 +258,16 @@ func (b *binding[I, O]) viewOnly(ctx context.Context, id run.StartID, root run.P
 	}
 	return out, err
 }
-func (b *binding[I, O]) project(head run.TreeSnapshot, auth []byte, answered run.WaitID) (*sdk.CallToolResult, error) {
-	var terminal run.Result[run.Payload]
-	allDone := true
-	for _, p := range head.ProcessSnapshots() {
-		if !p.Status().Terminal() {
-			allDone = false
-		}
-		if p.Relation().IsRoot() {
-			if p.ProgramRef() != b.cfg.Program.ProgramRef() {
-				return nil, errContinuation
-			}
-			terminal, _ = p.Result()
-		}
+
+func (b *binding[I, O]) project(head run.TreeInspection, auth []byte, answered target) (*sdk.CallToolResult, error) {
+	root, ok := head.Process(head.Root)
+	if !ok || root.Program != b.cfg.Program.ProgramRef() {
+		return nil, errContinuation
 	}
-	if allDone && terminal.Valid() {
-		v, ok := terminal.Termination().Output()
+	if root.Termination.Valid() {
+		v, ok := root.Termination.Output()
 		if !ok {
-			return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "Managed run ended: " + terminal.Termination().Status().String()}}}, nil
+			return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "Managed run ended: " + root.Termination.Status().String()}}}, nil
 		}
 		value, err := b.cfg.Program.Descriptor().DecodeOutput[O](v)
 		if err != nil {
@@ -338,19 +283,21 @@ func (b *binding[I, O]) project(head run.TreeSnapshot, auth []byte, answered run
 		}
 		return out, nil
 	}
-	for _, q := range head.Pending() {
-		if q.WaitID == answered {
-			continue
+	for _, process := range head.Processes {
+		for _, wait := range process.Waits {
+			if process.ID == answered.Owner && wait.Key == answered.Wait {
+				continue
+			}
+			f, err := form(wait)
+			if err != nil {
+				return nil, err
+			}
+			token, err := b.issuer.seal(target{Owner: process.ID, Wait: wait.Key}, auth)
+			if err != nil {
+				return nil, errInternal
+			}
+			return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{formInputKey: f}}, nil
 		}
-		f, err := form(q)
-		if err != nil {
-			return nil, err
-		}
-		token, err := b.issuer.seal(target{Root: head.RootID(), Owner: q.ProcessID, Wait: q.WaitID}, auth)
-		if err != nil {
-			return nil, errInternal
-		}
-		return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{formInputKey: f}}, nil
 	}
 	return nil, nil
 }

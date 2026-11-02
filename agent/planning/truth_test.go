@@ -1,24 +1,22 @@
-package planning_test
+package planning
 
 import (
 	jsonv2 "encoding/json/v2"
 	"slices"
 	"testing"
-
-	"github.com/Tangerg/scope/agent/planning"
 )
 
 // The JSON codec and the generated schema must admit exactly the same tokens:
 // TruthUnknown is absence, never a serialized value, so every schema token must
 // round-trip and no other token may decode.
 func TestTruthWireContractMatchesSchema(t *testing.T) {
-	schema := planning.TruthFalse.JSONSchemaEnum()
+	schema := TruthFalse.JSONSchemaEnum()
 	if want := []string{"false", "true"}; !slices.Equal(schema, want) {
 		t.Fatalf("JSONSchemaEnum() = %v, want %v", schema, want)
 	}
 	for _, token := range schema {
 		wire := `"` + token + `"`
-		var decoded planning.Truth
+		var decoded Truth
 		if err := jsonv2.Unmarshal([]byte(wire), &decoded); err != nil {
 			t.Fatalf("schema token %q rejected by decoder: %v", token, err)
 		}
@@ -35,16 +33,16 @@ func TestTruthWireContractMatchesSchema(t *testing.T) {
 // TruthUnknown stays a valid in-memory three-valued state but has no wire form,
 // so both directions of the codec must reject the "unknown" token.
 func TestTruthUnknownHasNoWireForm(t *testing.T) {
-	if !planning.TruthUnknown.Valid() {
+	if !TruthUnknown.Valid() {
 		t.Fatal("TruthUnknown must remain a valid in-memory truth")
 	}
-	if got := planning.TruthUnknown.String(); got != "unknown" {
+	if got := TruthUnknown.String(); got != "unknown" {
 		t.Fatalf("TruthUnknown.String() = %q, want %q", got, "unknown")
 	}
-	if _, err := jsonv2.Marshal(planning.TruthUnknown); err == nil {
+	if _, err := jsonv2.Marshal(TruthUnknown); err == nil {
 		t.Fatal("marshaling TruthUnknown must fail: unknown is absence, not a token")
 	}
-	var decoded planning.Truth
+	var decoded Truth
 	if err := jsonv2.Unmarshal([]byte(`"unknown"`), &decoded); err == nil {
 		t.Fatal("decoding the \"unknown\" token must fail")
 	}
@@ -52,11 +50,11 @@ func TestTruthUnknownHasNoWireForm(t *testing.T) {
 
 // A rejected token must not overwrite a receiver that already holds a known value.
 func TestTruthDecodeFailurePreservesReceiver(t *testing.T) {
-	decoded := planning.TruthTrue
+	decoded := TruthTrue
 	if err := jsonv2.Unmarshal([]byte(`"unknown"`), &decoded); err == nil {
 		t.Fatal("decoding \"unknown\" must fail")
 	}
-	if decoded != planning.TruthTrue {
+	if decoded != TruthTrue {
 		t.Fatalf("receiver mutated to %q after a failed decode", decoded)
 	}
 }

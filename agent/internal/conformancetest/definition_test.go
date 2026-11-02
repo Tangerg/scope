@@ -31,7 +31,7 @@ type recordingFailureExecution struct {
 func (r recordingFailureExecution) Snapshot() (run.ExecutionState, error) {
 	return r.state, r.snapshotErr
 }
-func (r recordingFailureExecution) Step(ctx context.Context, _ []run.Signal) (run.Transition, error) {
+func (r recordingFailureExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
@@ -53,18 +53,17 @@ func TestRecorderDoesNotPromoteFailedCallbacksToConformanceCases(t *testing.T) {
 	}
 	for _, fixture := range []recordingFailureExecution{{snapshotErr: cause}, {state: state, stepErr: cause}} {
 		execution := &recordingExecution{execution: fixture, recorder: definition}
-		if _, err := execution.Step(t.Context(), nil); !errors.Is(err, cause) {
+		if _, err := execution.Step(t.Context(), run.Turn{}); !errors.Is(err, cause) {
 			t.Fatal(err)
 		}
 		if len(definition.cases) != 0 {
 			t.Fatal("failed Step entered the replay cases")
 		}
 	}
-	definition.frameReady, definition.releaseFrame = make(chan struct{}), make(chan struct{})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	execution := &recordingExecution{execution: recordingFailureExecution{state: state}, recorder: definition}
-	if _, err := execution.Step(ctx, []run.Signal{{}}); !errors.Is(err, context.Canceled) {
+	if _, err := execution.Step(ctx, run.Turn{}); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if len(definition.cases) != 0 {

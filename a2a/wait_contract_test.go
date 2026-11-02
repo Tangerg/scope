@@ -20,7 +20,7 @@ import (
 func TestMalformedWaitExtensionNeverFallsBackToUnaddressedText(t *testing.T) {
 	r := remoteTool{}
 	const schema = `{"type":"string"}`
-	fields := func(w, s any) map[string]any { return map[string]any{WaitIDMetadataKey: w, AnswerSchemaMetadataKey: s} }
+	fields := func(w, s any) map[string]any { return map[string]any{WaitMetadataKey: w, AnswerSchemaMetadataKey: s} }
 	for _, tc := range []struct {
 		name  string
 		meta  map[string]any
@@ -28,14 +28,14 @@ func TestMalformedWaitExtensionNeverFallsBackToUnaddressedText(t *testing.T) {
 		cause error
 	}{
 		{"schema without address", map[string]any{AnswerSchemaMetadataKey: schema}, sdk.NewTextPart("question"), ErrInvalidResult},
-		{"address without schema", map[string]any{WaitIDMetadataKey: "w"}, sdk.NewTextPart("question"), ErrInvalidResult},
+		{"address without schema", map[string]any{WaitMetadataKey: "w"}, sdk.NewTextPart("question"), ErrInvalidResult},
 		{"nonnative address", fields(42, schema), sdk.NewTextPart("question"), ErrInvalidResult},
 		{"blank address", fields(" ", schema), sdk.NewTextPart("question"), ErrInvalidResult},
-		{"unencodable schema", fields("w", true), sdk.NewTextPart("question"), ErrInvalidResult},
-		{"invalid schema", fields("w", "{"), sdk.NewTextPart("question"), nil},
-		{"binary is not a question", fields("w", schema), sdk.NewRawPart([]byte{255}), ErrUnsupportedContent},
-		{"incorrect MIME", fields("w", schema), &sdk.Part{Content: sdk.Text("html"), MediaType: "text/html"}, ErrUnsupportedContent},
-		{"malformed JSON question", fields("w", schema), &sdk.Part{Content: sdk.Text("{"), MediaType: "application/json"}, nil},
+		{"unencodable schema", fields(WaitAddress{Process: "root/child", Key: "price"}, true), sdk.NewTextPart("question"), ErrInvalidResult},
+		{"invalid schema", fields(WaitAddress{Process: "root/child", Key: "price"}, "{"), sdk.NewTextPart("question"), nil},
+		{"binary is not a question", fields(WaitAddress{Process: "root/child", Key: "price"}, schema), sdk.NewRawPart([]byte{255}), ErrUnsupportedContent},
+		{"incorrect MIME", fields(WaitAddress{Process: "root/child", Key: "price"}, schema), &sdk.Part{Content: sdk.Text("html"), MediaType: "text/html"}, ErrUnsupportedContent},
+		{"malformed JSON question", fields(WaitAddress{Process: "root/child", Key: "price"}, schema), &sdk.Part{Content: sdk.Text("{"), MediaType: "application/json"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			msg := sdk.NewMessage(sdk.MessageRoleAgent, tc.part)
@@ -82,12 +82,18 @@ func TestProtocolHandlerAndRemoteToolShareAnExactStructuredWait(t *testing.T) {
 				p := sdk.NewTextPart(question)
 				p.MediaType = "application/json"
 				m := sdk.NewMessageForTask(sdk.MessageRoleAgent, e, p)
-				m.Metadata = map[string]any{WaitIDMetadataKey: "wait:price", AnswerSchemaMetadataKey: schema}
+				address, err := (WaitAddress{Process: "root/child", Key: "price"}).Metadata()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				m.Metadata = map[string]any{WaitMetadataKey: address, AnswerSchemaMetadataKey: schema}
 				yield(sdk.NewStatusUpdateEvent(e, sdk.TaskStateInputRequired, m), nil)
 				return
 			}
 			m := e.Message
-			if e.TaskInfo() != orig || m.ID == "" || m.TaskID != orig.TaskID || m.ContextID != orig.ContextID || m.Metadata[WaitIDMetadataKey] != "wait:price" || len(m.Parts) != 1 || m.Parts[0].MediaType != "application/json" || m.Parts[0].Text() != answer {
+			address, addressErr := ParseWaitAddress(m.Metadata[WaitMetadataKey])
+			if e.TaskInfo() != orig || m.ID == "" || m.TaskID != orig.TaskID || m.ContextID != orig.ContextID || address != (WaitAddress{Process: "root/child", Key: "price"}) || addressErr != nil || len(m.Parts) != 1 || m.Parts[0].MediaType != "application/json" || m.Parts[0].Text() != answer {
 				t.Errorf("misbound or lossy reply: %+v", m)
 			}
 			if !yield(sdk.NewArtifactEvent(e, sdk.NewTextPart("accepted")), nil) {

@@ -1,28 +1,25 @@
 package examples_test
 
 import (
-	startrand "crypto/rand"
-
 	"context"
-	"encoding/json"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"runtime"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/coordination"
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/planning"
 	"github.com/Tangerg/scope/agent/planning/goap"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
+
+const contractBuild = "cross-strategy-contract"
 
 func contractValue[T any](value T, err error) T {
 	if err != nil {
@@ -31,160 +28,165 @@ func contractValue[T any](value T, err error) T {
 	return value
 }
 
-func contractDeployment(definition run.Definition, dispatcher run.Dispatcher) run.Program[run.Payload, run.Payload] {
-	return contractValue(run.Bind[run.Payload, run.Payload](run.BindingConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: run.ComputeDigest([]byte("contract-test-implementation")),
-		ConfigurationDigest:  run.ComputeDigest([]byte(definition.Descriptor().Name())),
-	}))
+type contractResolver struct {
+	programs []run.Program[run.Payload, run.Payload]
 }
 
-type contractResolver map[run.ProgramRef]run.Program[run.Payload, run.Payload]
-
-func (c contractResolver) Resolve(ref run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
-	if deployment, ok := c[ref]; ok {
-		return deployment, nil
+func (c *contractResolver) Resolve(reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
+	for _, program := range c.programs {
+		if program.ProgramRef() == reference {
+			return program, nil
+		}
 	}
-	return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("unresolved test deployment: %v", ref)
+	return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("unresolved test program: %v", reference)
 }
-
-func contractInteraction(config agent.DefinitionConfig, model chat.Model) run.Program[run.Payload, run.Payload] {
-	definition := contractValue(agent.NewDefinition(config))
-	return contractDeployment(definition, contractValue(agent.NewDispatcher(definition, agent.DispatcherConfig{Model: model})))
+func contractInteraction(compiler *run.Compiler, config interaction.Config, model chat.Model) run.Program[interaction.Input, interaction.Output] {
+	config.Model, config.Revision = model, "contract"
+	return contractValue(interaction.Compile(compiler, config))
 }
-
 func contractText(text string) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart(text))), FinishReason: chat.FinishReasonStop}}
 }
-
 func contractToolCall(name, arguments string) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: name, Arguments: arguments}))), FinishReason: chat.FinishReasonToolCalls}}
 }
 
-func TestStrategiesRejectUnresolvedDelegateSubtrees(t *testing.T) {
+func awaitContractRecord[O any](t *testing.T, ctx context.Context, handle *run.Handle[O], matches func(run.Record) bool) run.Entry {
+	t.Helper()
+	for entry, err := range handle.Observe(ctx, 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if matches(entry.Record) {
+			return entry
+		}
+	}
+	t.Fatal("root ended before the required committed record")
+	return run.Entry{}
+}
+
+func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 	for _, strategy := range []string{"interaction", "planning"} {
 		t.Run(strategy, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			textSchema := contractValue(jsonschema.For[string]())
-			gate := contractDeployment(contractValue(coordination.NewInputGate(coordination.InputGateConfig{Name: "contract.winner", Description: "Wait for explicit completion.", RequestSchema: textSchema, AnswerSchema: textSchema})), nil)
+			store := run.NewMemoryStore()
+			resolver := new(contractResolver)
+			runtime := contractValue(run.New(ctx, run.Config{Store: store, Build: contractBuild, ProgramResolver: resolver}))
+			defer runtime.Close(context.WithoutCancel(ctx))
+			compiler := runtime.Compiler()
+			schema := contractValue(jsonschema.For[string]())
+			gate := contractValue(coordination.Compile[string, run.Signal](compiler, coordination.Config{Name: "contract.winner", Description: "Wait for explicit completion.", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 			var loserCalls atomic.Int32
-			loser := contractInteraction(agent.DefinitionConfig{Name: "contract.loser", Description: "Retain an unknown remote result.", MaxModelCalls: run.NewQuota(1)}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			loser := contractInteraction(compiler, interaction.Config{Name: "contract.loser", Description: "Retain an unknown remote outcome.", MaxModelCalls: run.NewQuota(1)}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				loserCalls.Add(1)
 				return nil, errors.New("remote result lost")
 			}))
-			race := contractDeployment(contractValue(coordination.NewFirstSuccess(coordination.FirstSuccessConfig{Name: "contract.competition", Description: "Choose a result before all remote effects are known.", MaxCandidates: 2, Accept: func(context.Context, run.ChildKey, run.ChildOutcome) (bool, error) { return true, nil }})), nil)
-			childBudget := run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Signals: run.NewQuota(16)}
+			race := contractValue(coordination.Compile[[]run.ChildSpec, coordination.FirstSuccessResult](compiler, coordination.Config{Name: "contract.competition", Description: "Drain every candidate before publishing a winner.", Policy: coordination.FirstSuccess{MaxCandidates: 2, Revision: "accept-completed", Accept: func(context.Context, run.ChildKey, run.Termination) (bool, error) { return true, nil }}}))
+			childBudget := run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Messages: run.NewQuota(16)}
 			candidates := []run.ChildSpec{
 				{Key: contractValue(run.ParseChildKey("winner")), ProgramRef: gate.ProgramRef(), Input: contractValue(run.EncodePayload("finish")), Budget: childBudget},
-				{Key: contractValue(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: contractValue(run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})), Budget: childBudget},
+				{Key: contractValue(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: contractValue(run.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})), Budget: childBudget},
 			}
 			prepare := contractValue(workflow.Transform("candidates", func(context.Context, struct{}) ([]run.ChildSpec, error) { return candidates, nil }))
-			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Program: race, Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Signals: run.NewQuota(64)}}))
-			delegate := contractDeployment(contractValue(workflow.NewDefinition(workflow.DefinitionConfig{Name: "contract.composite", Description: "Reject unsafe competition output.", Stages: []workflow.Stage{prepare, call}})), nil)
+			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Program: race.Erase(), Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Messages: run.NewQuota(64)}}))
+			delegate := contractValue(workflow.Compile[struct{}, coordination.FirstSuccessResult](compiler, workflow.Config{Name: "contract.composite", Description: "Publish a drained competition result.", Stages: []workflow.Stage{prepare, call}, Revision: "fixed-candidates"}))
+			delegateBudget := run.Budget{Steps: run.NewQuota(96), Effects: run.NewQuota(80), Messages: run.NewQuota(96)}
 			var rootCalls atomic.Int32
-			var root run.Program[run.Payload, run.Payload]
+			var program run.Program[run.Payload, run.Payload]
 			var input run.Payload
-			delegateBudget := run.Budget{Steps: run.NewQuota(96), Effects: run.NewQuota(80), Signals: run.NewQuota(96)}
 			if strategy == "interaction" {
-				binding := contractValue(agent.NewDelegate(agent.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Program: delegate, Budget: delegateBudget}))
-				root = contractInteraction(agent.DefinitionConfig{Name: "contract.parent", Description: "Reject unresolved delegate subtrees.", MaxModelCalls: run.NewQuota(2), Delegates: []agent.Delegate{binding}}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				binding := contractValue(interaction.NewDelegate(interaction.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Program: delegate.Erase(), Budget: delegateBudget}))
+				program = contractInteraction(compiler, interaction.Config{Name: "contract.parent", Description: "Continue only after delegate quiescence.", MaxModelCalls: run.NewQuota(2), Delegates: []interaction.Delegate{binding}}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					if rootCalls.Add(1) == 1 {
 						return contractToolCall("delegate", `{}`), nil
 					}
-					return contractText("incorrectly continued"), nil
-				}))
-				input = contractValue(run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run delegate"))}}))
+					return contractText("drained"), nil
+				})).Erase()
+				input = contractValue(run.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run delegate"))}}))
 			} else {
 				done := contractValue(planning.NewCondition("world.done", planning.TruthTrue))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
-				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: delegate, Budget: delegateBudget}))
-				definition := contractValue(planning.NewDefinition(planning.DefinitionConfig{Name: "contract.parent", Description: "Stop before sensing after unresolved child work.", InputSchema: contractValue(jsonschema.For[struct{}]()), Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: run.NewQuota(2)}))
-				dispatcher := contractValue(planning.NewDispatcher(definition, planning.DispatcherConfig{Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
-					rootCalls.Add(1)
+				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: delegate.Erase(), Budget: delegateBudget}))
+				program = contractValue(planning.Compile[struct{}](compiler, planning.Config{Name: "contract.parent", Description: "Sense only after child quiescence.", Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: run.NewQuota(2), Revision: "sense-after-child", Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
+					if rootCalls.Add(1) > 1 {
+						return planning.NewWorldState(done)
+					}
 					return planning.NewWorldState()
-				})}))
-				root = contractDeployment(definition, dispatcher)
+				})})).Erase()
 				input = contractValue(run.EncodePayload(struct{}{}))
 			}
-			// The race candidates arrive as FirstSuccess input; every other child is
-			// bound by its parent's Program.
-			resolver := contractResolver{gate.ProgramRef(): gate, loser.ProgramRef(): loser}
-			events := &runtest.ObservationRecorder{}
-			store := run.NewMemoryStore()
-			engine := contractValue(run.New(t.Context(), run.Config{Store: store, ProgramResolver: resolver, EventListeners: []run.EventListener{events}}))
-			defer engine.Close(context.WithoutCancel(ctx))
-			process := contractValue(engine.Start(ctx, root, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input}))
-			defer process.Kill(context.WithoutCancel(ctx), "test cleanup")
-			unknownEvent, err := events.AwaitEvent(ctx, func(event run.Event) bool {
-				fact, ok := event.EffectFinished()
-				return ok && fact.SettlementStatus() == run.SettlementStatusUnknown
+			resolver.programs = []run.Program[run.Payload, run.Payload]{gate.Erase(), loser.Erase()}
+			handle := contractValue(runtime.Start(ctx, program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: rand.Text()}, Input: input}))
+			unknown := awaitContractRecord(t, ctx, handle, func(record run.Record) bool {
+				settled, ok := record.(run.EffectSettled)
+				return ok && settled.Outcome.Status() == run.SettlementStatusUnknown
+			}).Record.(run.EffectSettled)
+			awaitContractRecord(t, ctx, handle, func(record run.Record) bool {
+				step, ok := record.(run.Stepped)
+				return ok && len(step.Transition.Waits()) > 0
 			})
-			if err != nil {
+			view := contractValue(handle.Inspect(ctx))
+			for _, process := range view.Processes {
+				if process.Program == gate.ProgramRef() {
+					owner, ok := runtime.Process(process.ID)
+					if !ok || len(process.Waits) != 1 {
+						t.Fatal("input gate owner missing")
+					}
+					if err := owner.Answer(ctx, process.Waits[0].Key, "done"); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			awaitContractRecord(t, ctx, handle, func(record run.Record) bool {
+				control, ok := record.(run.ControlRequested)
+				return ok && control.Process == unknown.ID.Process && control.Kind == run.ControlCancel
+			})
+			view = contractValue(handle.Inspect(ctx))
+			root, _ := view.Process(handle.ID())
+			if root.Termination.Valid() || rootCalls.Load() != 1 {
+				t.Fatal("parent continued before unknown descendant drained", rootCalls.Load())
+			}
+			if err := runtime.Close(ctx); err != nil {
 				t.Fatal(err)
 			}
-			var gateProcess *run.Handle[run.Payload]
-			var waitID run.WaitID
-			for !waitID.Valid() && ctx.Err() == nil {
-				tree := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
-				for _, child := range tree.ProcessSnapshots() {
-					if child.ProgramRef() == gate.ProgramRef() {
-						waitID, _ = child.WaitID()
-						gateProcess, _ = engine.Process(child.Relation().ProcessID())
-					}
-				}
-				runtime.Gosched()
+			replacement := contractValue(run.New(ctx, run.Config{Store: store, Build: contractBuild, ProgramResolver: resolver}))
+			defer replacement.Close(context.WithoutCancel(ctx))
+			recovered := contractValue(replacement.Recover(ctx, program, handle.ID()))
+			view = contractValue(recovered.Inspect(ctx))
+			owner, ok := view.Process(unknown.ID.Process)
+			if !ok || len(owner.PendingEffects) != 1 {
+				t.Fatal("recovery lost pending descendant")
 			}
-			if !waitID.Valid() {
-				t.Fatal(ctx.Err())
-			}
-			answer := contractValue(run.NewSignalRequest(contractValue(run.ParseSignalID("signal:complete-winner")), waitID, json.RawMessage(`"done"`)))
-			if accepted, err := gateProcess.DeliverSignals(ctx, answer); err != nil || !accepted {
-				t.Fatalf("answer accepted=%v error=%v", accepted, err)
-			}
-			result := contractValue(process.Await(ctx))
-			if err := process.Join(ctx); err != nil {
+			settlement := contractValue(interaction.SettleModelResult(loser, owner.PendingEffects[0].Request, contractText("investigated outcome")))
+			if err := recovered.ResolveUnknownEffect(ctx, unknown.ID, settlement); err != nil {
 				t.Fatal(err)
 			}
-			failure, failed := result.Termination().Failure()
-			wantCode := "interaction.delegate.unresolved_effects"
-			if strategy == "planning" {
-				wantCode = "planning.child.unresolved_effects"
+			result := contractValue(recovered.Await(ctx))
+			if result.Termination().Status() != run.StatusCompleted || rootCalls.Load() != 2 || loserCalls.Load() != 1 {
+				t.Fatalf("drained result=%v root=%d loser=%d", result.Termination(), rootCalls.Load(), loserCalls.Load())
 			}
-			effectID, _ := unknownEvent.EffectID()
-			if !failed || failure.Code() != wantCode || rootCalls.Load() != 1 || !strings.Contains(failure.Message(), effectID.String()) || !strings.Contains(failure.Message(), unknownEvent.Relation().ProcessID().String()) {
-				t.Fatalf("termination=%+v root calls=%d", result.Termination(), rootCalls.Load())
+			log, found, err := store.Load(ctx, handle.ID())
+			if err != nil || !found {
+				t.Fatal(found, err)
 			}
-			snapshot := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
-			var failedDelegates, completedCompetitions, unresolvedEffects int
-			for _, child := range snapshot.ProcessSnapshots() {
-				unresolvedEffects += len(child.UnknownEffectIDs())
-				if child.ProgramRef() == race.ProgramRef() && child.Status() == run.StatusCompleted {
-					completedCompetitions++
-				}
-				if child.ProgramRef() == delegate.ProgramRef() {
-					delegateProcess, found := engine.Process(child.Relation().ProcessID())
-					if !found {
-						t.Fatal("direct delegate Process is missing")
+			exits := make(map[run.ProcessID]run.LSN)
+			var raceID, delegateID run.ProcessID
+			for _, entry := range log.Entries {
+				switch record := entry.Record.(type) {
+				case run.Started:
+					if record.Program == race.ProgramRef() {
+						raceID = record.Process
 					}
-					delegateResult := contractValue(delegateProcess.Await(ctx))
-					delegateFailure, failed := delegateResult.Termination().Failure()
-					if child.Status() != run.StatusFailed || !failed || delegateFailure.Code() != "workflow.call.unresolved_effects" {
-						t.Fatalf("direct delegate termination=%+v", delegateResult.Termination())
+					if record.Program == delegate.ProgramRef() {
+						delegateID = record.Process
 					}
-					failedDelegates++
+				case run.Exited:
+					exits[record.Process] = entry.LSN
 				}
 			}
-			if failedDelegates != 1 || completedCompetitions != 1 || unresolvedEffects != 1 {
-				t.Fatalf("subtree evidence: failed delegates=%d completed competitions=%d unresolved Effects=%d", failedDelegates, completedCompetitions, unresolvedEffects)
-			}
-			restoredEngine := contractValue(run.New(t.Context(), run.Config{Store: store, ProgramResolver: resolver}))
-			defer restoredEngine.Close(context.WithoutCancel(ctx))
-			restored := contractValue(restoredEngine.Recover(ctx, root, snapshot))
-			restoredResult := contractValue(restored.Await(ctx))
-			restoredFailure, _ := restoredResult.Termination().Failure()
-			if restoredFailure.Code() != wantCode || rootCalls.Load() != 1 || loserCalls.Load() != 1 {
-				t.Fatalf("restore changed facts or replayed work: %+v", restoredResult)
+			if exits[unknown.ID.Process] == 0 || exits[unknown.ID.Process] >= exits[raceID] || exits[raceID] >= exits[delegateID] || exits[delegateID] >= exits[handle.ID()] {
+				t.Fatalf("exit order did not drain child subtrees: %v", exits)
 			}
 		})
 	}

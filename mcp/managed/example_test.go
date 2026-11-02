@@ -17,13 +17,13 @@ import (
 
 func ExampleRegister() {
 	ctx := context.Background()
-	rt := must(run.New(ctx, run.Config{Store: run.NewMemoryStore()}))
+	rt := must(run.New(ctx, run.Config{Build: "order-example", Store: run.NewMemoryStore()}))
 	defer rt.Close(ctx)
 	type order struct {
 		ID string `json:"id"`
 	}
 	stage := must(workflow.Transform("lookup", func(_ context.Context, in order) (string, error) { return in.ID, nil }))
-	program := must(workflow.Compile[order, string](ctx, workflow.Config{Name: "example.order", Description: "Return an order ID.", Stages: []workflow.Stage{stage}, BuildIdentity: run.ComputeDigest([]byte("example.build")), CallbackIdentity: run.ComputeDigest([]byte("lookup.v1"))}))
+	program := must(workflow.Compile[order, string](rt.Compiler(), workflow.Config{Name: "example.order", Description: "Return an order ID.", Stages: []workflow.Stage{stage}, Revision: "lookup.v1"}))
 	server := sdk.NewServer(&sdk.Implementation{Name: "orders", Version: "1"}, nil)
 	// The transport's authenticated middleware supplies the grant on every
 	// round. Use the same protected secret across replicas of a real service.

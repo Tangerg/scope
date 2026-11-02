@@ -1,6 +1,7 @@
-package workflow_test
+package workflow
 
 import (
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run/runtest"
 
 	"context"
@@ -8,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 )
 
 type switchInput struct {
@@ -17,20 +17,20 @@ type switchInput struct {
 }
 
 func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
-	left := mustDeployment(t, mustDefinition(t, "test.workflow.switch_left",
+	left := mustProgram(t, mustDefinition(t, "test.switch_left",
 		mustTransform(t, "left", func(_ context.Context, input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value + 10}, nil
 		}),
 	), "switch-left")
-	right := mustDeployment(t, mustDefinition(t, "test.workflow.switch_right",
+	right := mustProgram(t, mustDefinition(t, "test.switch_right",
 		mustTransform(t, "right", func(_ context.Context, input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value + 20}, nil
 		}),
 	), "switch-right")
-	stage, err := workflow.Switch(workflow.SwitchConfig[switchInput]{
+	stage, err := Switch(SwitchConfig[switchInput]{
 		ID:     "choose",
 		Select: func(_ context.Context, input switchInput) (string, error) { return input.Case, nil },
-		Cases: []workflow.SwitchCase{
+		Cases: []SwitchCase{
 			{ID: "left", Program: left, Budget: mustBudget(t)},
 			{ID: "right", Program: right, Budget: mustBudget(t)},
 		},
@@ -41,18 +41,19 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 	if !stage.Valid() {
 		t.Fatalf("Switch Stage = %#v", stage)
 	}
-	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.switch", stage), "switch")
+	program := mustProgram(t, mustDefinition(t, "test.switch", stage), "switch")
 	for _, test := range []struct {
 		selected string
 		want     int
 	}{{selected: "left", want: 13}, {selected: "right", want: 23}} {
 		t.Run(test.selected, func(t *testing.T) {
-			engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+			store := run.NewMemoryStore()
+			runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: store})
 			if err != nil {
 				t.Fatal(err)
 			}
 			input, _ := run.EncodePayload(switchInput{Case: test.selected, Value: 3})
-			result, err := runtest.Observe(context.Background(), engine, deployment, input)
+			result, err := runtest.Observe(context.Background(), runtime, program, input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +61,7 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 			if output.Value != test.want {
 				t.Fatalf("Switch output = %#v", output)
 			}
-			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
+			tree, _, err := store.Load(t.Context(), result.ProcessID())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,16 +69,16 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 			if test.selected == "right" {
 				wantChild = right.ProgramRef()
 			}
-			var children []run.ProcessSnapshot
-			for _, snapshot := range tree.ProcessSnapshots() {
-				if !snapshot.Relation().IsRoot() {
-					children = append(children, snapshot)
+			var children []run.Started
+			for _, entry := range tree.Entries {
+				if started, ok := entry.Record.(run.Started); ok && started.Process.Depth() > 0 {
+					children = append(children, started)
 				}
 			}
-			if len(children) != 1 || children[0].ProgramRef() != wantChild || children[0].Relation().Depth() != 1 {
+			if len(children) != 1 || children[0].Program != wantChild || children[0].Process.Depth() != 1 {
 				t.Fatalf("Switch did not start exactly the selected child: %+v", children)
 			}
-			if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+			if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -85,22 +86,22 @@ func TestSwitchRunsOnlyTheSelectedManagedChild(t *testing.T) {
 }
 
 func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
-	child := mustDeployment(t, mustDefinition(t, "test.workflow.switch_known",
+	child := mustProgram(t, mustDefinition(t, "test.switch_known",
 		mustTransform(t, "known", func(_ context.Context, input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value}, nil
 		}),
 	), "switch-known")
-	stage, err := workflow.Switch(workflow.SwitchConfig[switchInput]{
+	stage, err := Switch(SwitchConfig[switchInput]{
 		ID: "choose", Select: func(context.Context, switchInput) (string, error) { return "missing", nil },
-		Cases: []workflow.SwitchCase{{ID: "known", Program: child, Budget: mustBudget(t)}},
+		Cases: []SwitchCase{{ID: "known", Program: child, Budget: mustBudget(t)}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.switch_unknown", stage), "switch-unknown")
-	engine, _ := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	program := mustProgram(t, mustDefinition(t, "test.switch_unknown", stage), "switch-unknown")
+	runtime, _ := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 	input, _ := run.EncodePayload(switchInput{Case: "missing", Value: 1})
-	result, err := runtest.Observe(context.Background(), engine, deployment, input)
+	result, err := runtest.Observe(context.Background(), runtime, program, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,30 +109,30 @@ func TestSwitchRejectsUndeclaredSelection(t *testing.T) {
 	if result.Termination().Status() != run.StatusFailed || !present || failure.Code() != "workflow.switch.case_unknown" {
 		t.Fatalf("Switch termination = %#v", result.Termination())
 	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+	if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
-	valid := mustDeployment(t, mustDefinition(t, "test.workflow.switch_valid",
+	valid := mustProgram(t, mustDefinition(t, "test.switch_valid",
 		mustTransform(t, "valid", func(_ context.Context, input switchInput) (numberOutput, error) {
 			return numberOutput{Value: input.Value}, nil
 		}),
 	), "switch-valid")
-	wrongInput := mustDeployment(t, mustDefinition(t, "test.workflow.switch_wrong_input",
+	wrongInput := mustProgram(t, mustDefinition(t, "test.switch_wrong_input",
 		mustTransform(t, "wrong", func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		}),
 	), "switch-wrong-input")
-	wrongOutput := mustDeployment(t, mustDefinition(t, "test.workflow.switch_wrong_output",
+	wrongOutput := mustProgram(t, mustDefinition(t, "test.switch_wrong_output",
 		mustTransform(t, "wrong", func(_ context.Context, input switchInput) (string, error) {
 			return input.Case, nil
 		}),
 	), "switch-wrong-output")
-	for name, cases := range map[string][]workflow.SwitchCase{
+	for name, cases := range map[string][]SwitchCase{
 		"empty":                 nil,
-		"missing deployment":    {{ID: "missing"}},
+		"missing program":       {{ID: "missing"}},
 		"invalid case identity": {{ID: "invalid name", Program: valid}},
 		"duplicate": {
 			{ID: "same", Program: valid, Budget: mustBudget(t)},
@@ -144,10 +145,10 @@ func TestSwitchRequiresMatchingUniqueCases(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := workflow.Switch(workflow.SwitchConfig[switchInput]{
+			_, err := Switch(SwitchConfig[switchInput]{
 				ID: "choose", Select: func(context.Context, switchInput) (string, error) { return "same", nil }, Cases: cases,
 			})
-			if !errors.Is(err, workflow.ErrInvalidStage) {
+			if !errors.Is(err, ErrInvalidStage) {
 				t.Fatalf("Switch error = %v", err)
 			}
 		})

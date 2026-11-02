@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
@@ -35,7 +35,7 @@ func TestDuplicateOutputReductionPreservesEvidenceAndPairing(t *testing.T) {
 	request := duplicateRequest()
 	before := request.Clone()
 	reducer := duplicateToolOutputReducer{}
-	messages, err := reducer.PrepareContext(t.Context(), agent.ContextInvocation{}, request)
+	messages, err := reducer.PrepareContext(t.Context(), interaction.ContextInvocation{}, request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestDuplicateOutputReductionPreservesEvidenceAndPairing(t *testing.T) {
 	if validateErr := effective.Validate(); validateErr != nil {
 		t.Fatal(validateErr)
 	}
-	again, err := reducer.PrepareContext(t.Context(), agent.ContextInvocation{}, effective)
+	again, err := reducer.PrepareContext(t.Context(), interaction.ContextInvocation{}, effective)
 	if err != nil || !reflect.DeepEqual(again, messages) {
 		t.Fatalf("reduction is not idempotent: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestDuplicateOutputReductionLeavesProtectedValuesIntact(t *testing.T) {
 			request := duplicateRequest()
 			request.Messages = request.Messages[:6]
 			test.change(request)
-			messages, err := (duplicateToolOutputReducer{}).PrepareContext(t.Context(), agent.ContextInvocation{}, request)
+			messages, err := (duplicateToolOutputReducer{}).PrepareContext(t.Context(), interaction.ContextInvocation{}, request)
 			if err != nil || !reflect.DeepEqual(messages, request.Messages) {
 				t.Fatalf("protected evidence changed: %v", err)
 			}
@@ -130,12 +130,12 @@ func TestDuplicateOutputReductionLeavesProtectedValuesIntact(t *testing.T) {
 
 func TestDuplicateOutputReductionRejectsInvalidOrCanceledInput(t *testing.T) {
 	reducer := duplicateToolOutputReducer{}
-	if _, err := reducer.PrepareContext(t.Context(), agent.ContextInvocation{}, nil); !errors.Is(err, chat.ErrInvalidRequest) {
+	if _, err := reducer.PrepareContext(t.Context(), interaction.ContextInvocation{}, nil); !errors.Is(err, chat.ErrInvalidRequest) {
 		t.Fatalf("invalid input: %v", err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := reducer.PrepareContext(ctx, agent.ContextInvocation{}, duplicateRequest()); !errors.Is(err, context.Canceled) {
+	if _, err := reducer.PrepareContext(ctx, interaction.ContextInvocation{}, duplicateRequest()); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled input: %v", err)
 	}
 }
@@ -151,7 +151,7 @@ func BenchmarkDuplicateToolOutputReduction(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := (duplicateToolOutputReducer{}).PrepareContext(b.Context(), agent.ContextInvocation{}, request); err != nil {
+		if _, err := (duplicateToolOutputReducer{}).PrepareContext(b.Context(), interaction.ContextInvocation{}, request); err != nil {
 			b.Fatal(err)
 		}
 	}

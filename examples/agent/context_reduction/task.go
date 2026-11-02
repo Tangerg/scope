@@ -9,10 +9,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -23,6 +22,7 @@ const (
 	reportRounds       = 64
 	readReportToolName = "read_report"
 	treeCleanupTimeout = 5 * time.Second
+	contextBuild       = "context-reduction-example"
 	contextGoal        = "Read every report. Return the latest fact and constraint for every source, sorted by source."
 	contextRule        = "Preserve source attribution and approval constraints. Only " + readReportToolName + " is authorized."
 )
@@ -156,131 +156,91 @@ func reportTool(task contextTask) (tool.Tool, error) {
 		})
 }
 
-type contextDeploymentConfig struct {
-	Task     contextTask
-	Model    chat.Model
-	Policy   contextPolicy
-	Reader   tool.Tool
-	Recorder *trajectory.Recorder
+type contextProgramConfig struct {
+	Task   contextTask
+	Model  chat.Model
+	Policy contextPolicy
+	Reader tool.Tool
 }
 
-func newDeployment(config contextDeploymentConfig) (agentrun.Program[agentrun.Payload, agentrun.Payload], agent.ToolSet, error) {
-	task, policy, recorder := config.Task, config.Policy, config.Recorder
+func compileContext(compiler *agentrun.Compiler, config contextProgramConfig) (agentrun.Program[interaction.Input, interaction.Output], error) {
+	task, policy := config.Task, config.Policy
 	if policy.ID == "" {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agent.ToolSet{}, errors.New("context policy identity is required")
+		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("context policy revision is required")
 	}
-	toolConfiguration, err := jsonv2.Marshal(task.Documents, jsonv2.Deterministic(true))
+	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{config.Reader}, Revision: task.ID})
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agent.ToolSet{}, err
+		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	tools, err := agent.NewToolSet(agent.ToolSetConfig{
-		Name: "example.context_reports", Description: "Read-only report source.", Tools: []tool.Tool{config.Reader}, Observer: recorder,
-		ImplementationDigest: agentrun.ComputeDigest([]byte("context-report-tool")), ConfigurationDigest: agentrun.ComputeDigest(toolConfiguration),
-	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
-	}
-	definition, err := agent.NewDefinition(agent.DefinitionConfig{
-		PrepareContext: policy.Reducer != nil, Name: "example.context_reduction", Description: "Read reports and preserve every latest fact and constraint.",
+	return interaction.Compile(compiler, interaction.Config{
+		Name: "example.context_reduction", Description: "Read reports and preserve every latest fact and constraint.",
+		Model: config.Model, ContextProcessor: policy.Reducer, Revision: task.ID + ":" + policy.ID,
 		MaxModelCalls: agentrun.NewQuota(uint64(len(task.Documents) + 1)), Tools: tools,
 	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
-	}
-	dispatcher, err := agent.NewDispatcher(definition, agent.DispatcherConfig{Model: config.Model, ContextProcessor: policy.Reducer, Observer: recorder})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
-	}
-	configuration, err := jsonv2.Marshal(struct {
-		Task   contextTask
-		Policy string
-	}{task, policy.ID}, jsonv2.Deterministic(true))
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, tools, err
-	}
-	deployment, err := agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
-		Definition: definition, Dispatcher: dispatcher,
-		ImplementationDigest: agentrun.ComputeDigest([]byte("context-reduction-example")), ConfigurationDigest: agentrun.ComputeDigest(configuration),
-	})
-	return deployment, tools, err
-}
-
-// Context preparation has its own dispatcher effect. Its durable identities
-// classify framework attempts independently from model and tool observations.
-type preparationCoverage struct {
-	processor agent.ContextProcessor
-	effects   sync.Map
-}
-
-func (p *preparationCoverage) PrepareContext(ctx context.Context, invocation agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
-	p.effects.Store(invocation.Effect.ID(), true)
-	return p.processor.PrepareContext(ctx, invocation, request)
 }
 
 func runTask(ctx context.Context, task contextTask, policy contextPolicy) (recorded trajectory.Trajectory, runErr error) {
-	recorder := &trajectory.Recorder{}
 	reader, err := reportTool(task)
 	if err != nil {
 		return recorded, err
 	}
-	preparation := &preparationCoverage{processor: policy.Reducer}
-	if policy.Reducer != nil {
-		policy.Reducer = preparation
-	}
-	deployment, _, err := newDeployment(contextDeploymentConfig{Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: policy, Reader: reader, Recorder: recorder})
+	runtime, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore(), Build: contextBuild})
 	if err != nil {
 		return recorded, err
 	}
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore(), EventListeners: []agentrun.EventListener{recorder}})
+	defer func() { runErr = errors.Join(runErr, closeRuntime(ctx, runtime)) }()
+	program, err := compileContext(runtime.Compiler(), contextProgramConfig{Task: task, Model: contextModel{rounds: len(task.Documents)}, Policy: policy, Reader: reader})
 	if err != nil {
 		return recorded, err
 	}
-	var root *agentrun.Handle[agentrun.Payload]
-	defer func() { runErr = errors.Join(runErr, closeTree(ctx, engine, root)) }()
-	input, err := contextInput()
+	root, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{ID: agentrun.StartID{Scope: "example", Key: startrand.Text()}, Input: contextInput()})
 	if err != nil {
 		return recorded, err
 	}
-	root, err = engine.Start(ctx, deployment, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: startrand.Text()}, Input: input})
-	if err != nil {
+	if _, err := root.Await(ctx); err != nil {
 		return recorded, err
 	}
-	if _, awaitErr := root.Await(ctx); awaitErr != nil {
-		return recorded, awaitErr
-	}
-	recorded, err = recorder.Take(ctx, root, nil)
-	if err != nil {
-		return recorded, err
-	}
-	// Classification comes from dispatcher events, independently of the model
-	// and Tool observations whose completeness the evaluator will check.
-	coverage := &trajectory.Coverage{}
-	for _, event := range recorded.Events() {
-		fact, started := event.EffectStarted()
-		if !started || fact.Target() != agentrun.EffectTargetDispatcher {
-			continue
-		}
-		id, _ := event.EffectID()
-		incarnation, _ := event.TreeIncarnationID()
-		reference := trajectory.EffectReference{ProcessID: event.Relation().ProcessID(), TreeIncarnationID: incarnation, EffectID: id}
-		if _, prepared := preparation.effects.Load(id); prepared {
-			coverage.Other = append(coverage.Other, reference)
-		} else if event.Relation().IsRoot() {
-			coverage.Models = append(coverage.Models, reference)
-		} else {
-			coverage.Tools = append(coverage.Tools, reference)
-		}
-	}
-	return trajectory.New(trajectory.Config{
-		RootProcessID: recorded.RootProcessID(), Termination: recorded.Termination(), RootUsage: recorded.RootUsage(), Coverage: coverage,
-		Gaps: recorded.Gaps(), Elapsed: recorded.Elapsed(), Events: recorded.Events(), ModelCalls: recorded.ModelCalls(), ToolCalls: recorded.ToolCalls(),
-	})
+	return captureContext(ctx, root)
 }
 
-func contextInput() (agentrun.Payload, error) {
-	return agentrun.EncodePayload(agent.Input{Messages: []chat.Message{
-		chat.NewSystemMessage(contextRule), chat.NewUserMessage(chat.NewTextPart(contextGoal)),
-	}})
+func captureContext(ctx context.Context, root *agentrun.Handle[interaction.Output]) (trajectory.Trajectory, error) {
+	raw, err := trajectory.Capture(ctx, root, nil)
+	if err != nil {
+		return trajectory.Trajectory{}, err
+	}
+	log, err := raw.Log()
+	if err != nil {
+		return trajectory.Trajectory{}, err
+	}
+	coverage := new(trajectory.Coverage)
+	for _, entry := range log.Entries {
+		intent, ok := entry.Record.(agentrun.EffectIntent)
+		if !ok || intent.Effect.Target() != agentrun.EffectTargetDispatcher {
+			continue
+		}
+		_, model, err := interaction.ModelRequestFromEffect(intent.Effect)
+		if err != nil {
+			return trajectory.Trajectory{}, err
+		}
+		if model {
+			coverage.Models = append(coverage.Models, intent.ID)
+			continue
+		}
+		_, _, call, err := interaction.ToolCallFromEffect(intent.Effect)
+		if err != nil {
+			return trajectory.Trajectory{}, err
+		}
+		if call {
+			coverage.Tools = append(coverage.Tools, intent.ID)
+		} else {
+			coverage.Other = append(coverage.Other, intent.ID)
+		}
+	}
+	return trajectory.New(trajectory.Config{Log: log, Coverage: coverage})
+}
+
+func contextInput() interaction.Input {
+	return interaction.Input{Messages: []chat.Message{chat.NewSystemMessage(contextRule), chat.NewUserMessage(chat.NewTextPart(contextGoal))}}
 }
 
 func answer(recorded trajectory.Trajectory) (string, error) {
@@ -288,7 +248,7 @@ func answer(recorded trajectory.Trajectory) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("task ended with %s", recorded.Termination().Status())
 	}
-	output, err := payload.Decode[agent.Output]()
+	output, err := payload.Decode[interaction.Output]()
 	if err != nil {
 		return "", err
 	}
@@ -310,17 +270,8 @@ func inputBytes(recorded trajectory.Trajectory) (int, error) {
 	return total, nil
 }
 
-func closeTree(ctx context.Context, engine *agentrun.Runtime, root *agentrun.Handle[agentrun.Payload]) error {
+func closeRuntime(ctx context.Context, runtime *agentrun.Runtime) error {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), treeCleanupTimeout)
 	defer cancel()
-	var err error
-	if root != nil {
-		if killErr := root.Kill(cleanup, "close context example"); killErr != nil && !errors.Is(killErr, agentrun.ErrProcessFinished) && !errors.Is(killErr, agentrun.ErrTreeIncarnationConflict) {
-			err = errors.Join(err, killErr)
-		}
-		if joinErr := root.Join(cleanup); joinErr != nil && !errors.Is(joinErr, agentrun.ErrTreeIncarnationConflict) {
-			err = errors.Join(err, joinErr)
-		}
-	}
-	return errors.Join(err, engine.Close(cleanup))
+	return runtime.Close(cleanup)
 }

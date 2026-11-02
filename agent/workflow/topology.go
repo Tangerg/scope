@@ -57,9 +57,9 @@ type StageTopology struct {
 	MaxIterations *run.Quota `json:"max_iterations,omitzero"`
 }
 
-// Topology is a detached Definition-derived, function-free projection for
-// diagnostics, documentation, UI rendering, and deployment audit. Mutating a
-// projection never changes the Definition or a later projection.
+// Topology is a detached definition-derived, function-free projection for
+// diagnostics, documentation, UI rendering, and program audit. Mutating a
+// projection never changes the definition or a later projection.
 type Topology struct {
 	Descriptor run.Descriptor `json:"descriptor"`
 	// Stages are projected in execution order.

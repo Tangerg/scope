@@ -1,464 +1,308 @@
 package run
 
 import (
-	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/samber/lo"
 )
 
-var (
-	ErrInvalidConfig         = errors.New("run: invalid runtime configuration")
-	ErrClosed                = errors.New("run: runtime is closed")
-	ErrQuiescenceUnavailable = errors.New("run: runtime cannot become quiescent")
-	ErrActiveProcesses       = errors.New("run: runtime has active processes")
-	ErrProcessAlreadyExists  = errors.New("run: process identity already exists")
-	// ErrTreeNotFound reports that this Runtime has no registered root tree with
-	// the requested identity, including after ReleaseTree removed it.
-	ErrTreeNotFound = errors.New("run: tree not found")
-)
+const defaultCheckpointInterval uint64 = 1024
+const defaultStoreTimeout = 30 * time.Second
 
-// Config keeps scheduling and authority policy outside Programs so a
-// strategy cannot change its constraints through its behavior binding. Budget,
-// TreeLimits, and Capabilities apply to newly started root trees. Recover
-// retains their captured values; the Host authorizes snapshots before recovery.
 type Config struct {
-	// Store is required. Publication follows acknowledgment of the
-	// authoritative tree head, including when the Host selects volatile storage.
-	Store Store
-
-	// ProcessInitializationAcknowledger optionally accepts initialization outcomes
-	// before publication. Its acknowledgment is separate from TreeCommitter;
-	// nil omits this Host acceptance step.
-	ProcessInitializationAcknowledger ProcessInitializationAcknowledger
-
-	// ProgramResolver binds the exact child references a Program does
-	// not own: children named by runtime input. A program referring to itself and
-	// children a Program binds through Definition.ChildPrograms need no
-	// resolver. Nil rejects every other child reference.
-	ProgramResolver ProgramResolver
-
-	// ProcessAdmitter optionally applies Host policy before root or child
-	// initialization. Nil admits every start that satisfies Runtime constraints.
-	ProcessAdmitter ProcessAdmitter
-
-	// EventListeners receive queued, best-effort Framework facts. An empty slice disables
-	// delivery. Callbacks must be bounded and must not query or control their tree.
-	EventListeners []EventListener
-	// EventBufferCapacity bounds pending callbacks per event listener. Zero uses 256.
-	EventBufferCapacity int
-
-	// DeltaListeners receive queued, best-effort Strategy increments. An empty
-	// slice disables delivery. Callbacks run serially and must return so Runtime
-	// shutdown can drain the queue and join its delivery worker.
-	DeltaListeners []DeltaListener
-
-	// Each delta listener has its own bounded queue.
-	// Zero selects the library default; negative capacities are invalid.
-	DeltaBufferCapacity int
-
-	// Budget grants cumulative work authority to each new root; zero quotas are
-	// unlimited.
-	Budget Budget
-
-	// TreeLimits is the capacity policy of each new root tree. Lifetime quotas
-	// and snapshot bytes default to unlimited; depth, active-child, and
-	// pending-Signal capacity inherit finite defaults.
-	TreeLimits TreeLimits
-
-	// Capabilities grants authority to new roots. Children receive only subsets
-	// of their parent's captured authority, including after restoration.
-	Capabilities CapabilitySet
+	Store              Store
+	Build              string
+	ProgramResolver    ProgramResolver
+	ProcessAdmitter    ProcessAdmitter
+	Deltas             chan<- Delta
+	Budget             Budget
+	TreeLimits         TreeLimits
+	Capabilities       CapabilitySet
+	CheckpointInterval uint64
+	StoreTimeout       time.Duration
 }
 
-// Runtime keeps admission, publication, and execution under one owner because
-// resource reservations and recoverable tree state must describe the same
-// lifecycle. Construct it with New; its zero value is not usable. A
-// Runtime must not be copied because doing so shares its registries while
-// duplicating their synchronization. Operations on a nil Runtime report
-// ErrInvalidConfig; read accessors return zero values.
 type Runtime struct {
-	committer                  Store
-	initializationAcknowledger ProcessInitializationAcknowledger
-	resolver                   ProgramResolver
-	admitter                   ProcessAdmitter
-	observation                *observationBus
-	budget                     Budget
-	treeLimits                 TreeLimits
-	capabilities               CapabilitySet
-
-	// Tree-wide administrative operations use an independent serial lane so a
-	// caller waiting for one root never holds the registry lock needed by Runtime
-	// lifecycle paths. The two locks are therefore never nested.
-	startMu          sync.Mutex
-	submissions      map[StartID]chan struct{}
-	treeOperationsMu sync.Mutex
-	treeOperations   map[ProcessID]*treeOperation
-
-	// Registry and reservation changes share this lock so publication cannot
-	// expose a Process whose admission still appears unreserved.
-	mu       sync.RWMutex
-	registry processRegistry
-	// One channel closes admission at allocation and joins completion on close,
-	// avoiding separate shutdown flags that could disagree.
-	closeDone chan struct{}
-}
-
-// ObservationFailures returns consistent panic counts and the latest bounded
-// diagnostic for each listener kind. Listener failures cannot veto execution.
-func (r *Runtime) ObservationFailures() ObservationFailures {
-	if r == nil || r.observation == nil {
-		return ObservationFailures{}
-	}
-	return r.observation.failureSnapshot()
-}
-
-// FlushObservations waits for all event and delta deliveries accepted before
-// this call. It does not recover drops, block writers or wait for later events.
-// Close rejects new flushes once shutdown begins.
-func (r *Runtime) FlushObservations(ctx context.Context) error {
-	if r == nil {
-		return ErrInvalidConfig
-	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := r.observation.checkListenerJoin(ctx, "FlushObservations"); err != nil {
-		return err
-	}
-	r.mu.RLock()
-	closing := r.closeDone != nil
-	r.mu.RUnlock()
-	if closing {
-		return ErrClosed
-	}
-	return r.observation.flush(ctx)
-}
-
-func (c Config) validateCollaborators() error {
-	if lo.IsNil(c.Store) {
-		return fmt.Errorf("%w: TreeCommitter is required", ErrInvalidConfig)
-	}
-	if c.ProcessInitializationAcknowledger != nil && lo.IsNil(c.ProcessInitializationAcknowledger) {
-		return fmt.Errorf("%w: ProcessInitializationAcknowledger is typed nil", ErrInvalidConfig)
-	}
-	if c.ProgramResolver != nil && lo.IsNil(c.ProgramResolver) {
-		return fmt.Errorf("%w: ProgramResolver is typed nil", ErrInvalidConfig)
-	}
-	if c.ProcessAdmitter != nil && lo.IsNil(c.ProcessAdmitter) {
-		return fmt.Errorf("%w: ProcessAdmitter is typed nil", ErrInvalidConfig)
-	}
-	for index, listener := range c.EventListeners {
-		if lo.IsNil(listener) {
-			return fmt.Errorf("%w: EventListeners[%d] is nil", ErrInvalidConfig, index)
-		}
-	}
-	for index, listener := range c.DeltaListeners {
-		if lo.IsNil(listener) {
-			return fmt.Errorf("%w: DeltaListeners[%d] is nil", ErrInvalidConfig, index)
-		}
-	}
-	return nil
+	store              Store
+	compiler           *Compiler
+	resolver           ProgramResolver
+	admitter           ProcessAdmitter
+	deltas             chan<- Delta
+	budget             Budget
+	limits             TreeLimits
+	capabilities       CapabilitySet
+	checkpointInterval uint64
+	storeTimeout       time.Duration
+	mu                 sync.RWMutex
+	roots              map[ProcessID]*treeRuntime
+	starting           map[string]*startup
+	closeDone          chan struct{}
 }
 
 func New(ctx context.Context, config Config) (*Runtime, error) {
 	if err := RequireContext(ctx).Err(); err != nil {
 		return nil, err
 	}
-	if config.EventBufferCapacity < 0 {
-		return nil, fmt.Errorf("%w: EventBufferCapacity must not be negative", ErrInvalidConfig)
+	if lo.IsNil(config.Store) || !ValidDescription(config.Build) || config.ProgramResolver != nil && lo.IsNil(config.ProgramResolver) || config.ProcessAdmitter != nil && lo.IsNil(config.ProcessAdmitter) || config.StoreTimeout < 0 {
+		return nil, ErrInvalidConfig
 	}
-	if config.DeltaBufferCapacity < 0 {
-		return nil, fmt.Errorf("%w: DeltaBufferCapacity must not be negative", ErrInvalidConfig)
-	}
-	if err := config.validateCollaborators(); err != nil {
-		return nil, err
-	}
-	capacity := config.DeltaBufferCapacity
-	if capacity == 0 {
-		capacity = defaultObservationBuffer
-	}
-	treeLimits, err := config.TreeLimits.resolve()
+	limits, err := config.TreeLimits.resolve()
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{
-		committer:                  config.Store,
-		initializationAcknowledger: config.ProcessInitializationAcknowledger,
-		resolver:                   config.ProgramResolver,
-		admitter:                   config.ProcessAdmitter,
-		observation:                newObservationBus(config.EventListeners, config.DeltaListeners, cmp.Or(config.EventBufferCapacity, defaultObservationBuffer), capacity),
-		budget:                     config.Budget,
-		treeLimits:                 treeLimits,
-		capabilities:               config.Capabilities,
-		submissions:                make(map[StartID]chan struct{}),
-		treeOperations:             make(map[ProcessID]*treeOperation),
-		registry:                   newProcessRegistry(),
-	}, nil
+	interval := config.CheckpointInterval
+	if interval == 0 {
+		interval = defaultCheckpointInterval
+	}
+	timeout := config.StoreTimeout
+	if timeout == 0 {
+		timeout = defaultStoreTimeout
+	}
+	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, roots: make(map[ProcessID]*treeRuntime), starting: make(map[string]*startup)}, nil
 }
-
-// Start keeps ctx attached to the resulting tree so Host cancellation and
-// deadlines reach accepted work; execution that outlives a request needs a
-// longer-lived context. An already-canceled context never reserves an identity
-// or invokes Host admission. Insufficient Process or tree snapshot capacity,
-// including mandatory lifecycle growth, returns ErrResourceLimitExceeded before
-// the initial head commits. Later Steps, dispatch permissions, and settlements
-// each require their own capacity admission.
-func (r *Runtime) startTree(ctx, workCtx context.Context, deployment Program[Payload, Payload], input Payload, key StartID) (*Handle[Payload], error) {
+func (r *Runtime) Compiler() *Compiler {
+	if r == nil {
+		return nil
+	}
+	return r.compiler
+}
+func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], request StartRequest[I]) (*Handle[O], error) {
 	if r == nil {
 		return nil, ErrInvalidConfig
 	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := deployment.validateDefinition(); err != nil {
-		return nil, err
-	}
-	if err := deployment.Descriptor().ValidateInput(input); err != nil {
-		return nil, err
-	}
-	id := newProcessID()
-	relation := rootProcessRelation(id)
-	admission := newProcessAdmission(relation, deployment, r.budget, r.capabilities)
-	admission.startID = key
-	if err := r.reserveProcessStart(relation); err != nil {
-		return nil, err
-	}
-	published := false
-	defer func() {
-		if !published {
-			r.discardProcessStart(relation)
-		}
-	}()
-	if requestProcessAdmissionErr := requestProcessAdmission(ctx, r.admitter, admission); requestProcessAdmissionErr != nil {
-		return nil, requestProcessAdmissionErr
-	}
-	execution, state, failure, err := initializeExecution(ctx, deployment.Definition(), input)
-	// A root is admitted exactly once per Start and is never re-initialized on
-	// recovery, so its outcome carries the zero incarnation; only a child start
-	// can be re-attempted under a new incarnation.
-	if err != nil {
-		acknowledgeErr := acknowledgeProcessInitialization(ctx, r.initializationAcknowledger, failedProcessInitializationOutcome(admission, TreeIncarnationID{}, failure))
-		return nil, errors.Join(fmt.Errorf("run: initialize Process: %w", err), acknowledgeErr)
-	}
-	if acknowledgeErr := acknowledgeProcessInitialization(ctx, r.initializationAcknowledger, initializedProcessOutcome(admission, TreeIncarnationID{})); acknowledgeErr != nil {
-		return nil, acknowledgeErr
-	}
-	// The start time is stamped with the handle and persisted in the root's first
-	// checkpoint, matching how a child's start time is stamped at publication.
-	handle := newProcessHandle(relation, deployment, r.budget, r.capabilities, canonicalTime(time.Now()))
-	process := newProcessState(handle, deployment, execution, state)
-	runtime := newTreeRuntime(r, relation.RootID(), r.treeLimits, workCtx, process)
-
-	if capacityErr := runtime.validateSnapshotCapacity(); capacityErr != nil {
-		return nil, capacityErr
-	}
-
-	baseSnapshot, captureErr := runtime.captureTree()
-	if captureErr != nil {
-		return nil, captureErr
-	}
-	if err := runtime.writer.commitStart(ctx, baseSnapshot, StartReceipt{ID: key, RootID: id, Intent: startIntent(deployment.ProgramRef(), input)}); err != nil {
-		// The initial checkpoint was attempted but not acknowledged. Surface the
-		// allocated root and attempted-head identity so the Host can reconcile; an
-		// attempted head is never presented as an acknowledged one.
-		if errors.Is(err, ErrCommitConflict) || errors.Is(err, ErrTreeIncarnationConflict) {
-			return nil, err
-		}
-		if _, ok := errors.AsType[*StartAcceptedError](err); ok {
-			return nil, err
-		}
-		if _, ok := errors.AsType[*StartConflictError](err); ok {
-			return nil, err
-		}
-		return nil, &StartError{
-			key:         key,
-			rootID:      relation.RootID(),
-			incarnation: runtime.writer.incarnation(),
-			sequence:    1,
-			digest:      baseSnapshot.Digest(),
-			err:         err,
-		}
-	}
-
-	r.publishProcessStart(handle)
-	published = true
-	go runtime.run(workCtx)
-	return &Handle[Payload]{handle: handle}, nil
-}
-
-// StartRequest binds a caller-known key to one immutable input. Share the
-// key with a retry only when it denotes the same logical submission.
-type StartRequest[I any] struct {
-	ID    StartID
-	Input I
-}
-
-// Start admits a managed tree. After admission, request cancellation stops no
-// accepted work. The Host controls the tree explicitly through the issued Handle.
-func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], req StartRequest[I]) (*Handle[O], error) {
-	ctx = RequireContext(ctx)
-	if r == nil {
-		return nil, ErrInvalidConfig
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if !req.ID.Valid() {
+	if !request.ID.Valid() {
 		return nil, ErrInvalidStart
 	}
-	if !program.Valid() {
-		return nil, ErrInvalidProgram
-	}
-	release, err := r.claimStart(ctx, req.ID)
+	input, err := program.Descriptor().EncodeInput(request.Input)
 	if err != nil {
 		return nil, err
 	}
-	defer release()
-	in, err := program.Descriptor().EncodeInput(req.Input)
+	handle, err := r.start(ctx, context.WithoutCancel(RequireContext(ctx)), program.Erase(), request.ID, input)
 	if err != nil {
 		return nil, err
 	}
-	intent := startIntent(program.ProgramRef(), in)
-	accepted := func(receipt StartReceipt) (*Handle[O], error) {
-		if receipt.Intent != intent {
-			return nil, &StartConflictError{Receipt: receipt}
-		}
-		local, registered := r.Process(receipt.RootID)
-		reader, readable := r.committer.(HeadReader)
-		if !registered || !readable {
-			return nil, &StartAcceptedError{Receipt: receipt}
-		}
-		head, headErr := receipt.loadHead(ctx, reader)
-		if headErr != nil {
-			return nil, errors.Join(&StartAcceptedError{Receipt: receipt}, headErr)
-		}
-		if local.TreeIncarnationID() == head.IncarnationID() {
-			return &Handle[O]{handle: local.handle}, nil
-		}
-		return nil, &StartAcceptedError{Receipt: receipt}
-	}
-	receipt, found, err := req.ID.lookup(ctx, r.committer)
-	if err != nil {
-		return nil, err
-	}
-	if found {
-		return accepted(receipt)
-	}
-	p, err := r.startTree(ctx, context.WithoutCancel(ctx), program.Erase(), in, req.ID)
-	if old, ok := errors.AsType[*StartAcceptedError](err); ok {
-		if !old.Receipt.matches(req.ID) {
-			return nil, ErrInvalidStart
-		}
-		return accepted(old.Receipt)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &Handle[O]{handle: p.handle}, nil
+	return typedHandle[O](handle), nil
 }
-
-// claimStart serializes local publication for one request key. Across
-// Runtimes the atomic store receipt, not this short-lived lane, arbitrates.
-func (r *Runtime) claimStart(ctx context.Context, id StartID) (func(), error) {
-	for {
-		r.startMu.Lock()
-		active := r.submissions[id]
-		if active == nil {
-			active = make(chan struct{})
-			r.submissions[id] = active
-			r.startMu.Unlock()
-			return func() { r.startMu.Lock(); delete(r.submissions, id); close(active); r.startMu.Unlock() }, nil
-		}
-		r.startMu.Unlock()
-		select {
-		case <-active:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-}
-
-// Run binds execution cancellation to ctx and joins the entire local subtree
-// before projecting its output. Transient waits never convert a timeout into
-// proof that an external operation stopped.
 func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], input I) (O, error) {
 	var zero O
 	if r == nil {
 		return zero, ErrInvalidConfig
 	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return zero, err
-	}
-	if !program.Valid() {
-		return zero, ErrInvalidProgram
-	}
-	in, err := program.Descriptor().EncodeInput(input)
+	payload, err := program.Descriptor().EncodeInput(input)
 	if err != nil {
 		return zero, err
 	}
-	p, err := r.startTree(ctx, ctx, program.Erase(), in, StartID{Scope: "foreground", Key: randomHexIdentity("call:", 16).String()})
+	handle, err := r.start(ctx, ctx, program.Erase(), foregroundStartID(), payload)
 	if err != nil {
 		return zero, err
 	}
-	cleanup := context.WithoutCancel(ctx)
-	err = p.Join(cleanup)
+	result, err := typedHandle[O](handle).Await(ctx)
 	if err != nil {
-		return zero, errors.Join(err, r.ReleaseTree(cleanup, p.ID()))
+		return zero, err
 	}
-	result, err := p.Await(cleanup)
-	release := r.ReleaseTree(cleanup, p.ID())
-	if err != nil || release != nil {
-		return zero, errors.Join(err, release)
-	}
-	return projectResult[O](result).Output()
+	return result.Output()
 }
+func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payload], id StartID, input Payload) (*Handle[Payload], error) {
+	if err := RequireContext(ctx).Err(); err != nil {
+		return nil, err
+	}
+	if err := r.validateProgram(program); err != nil {
+		return nil, err
+	}
+	root := id.Root()
+	claimed, release, err := r.claim(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	ctx = claimed
+	started := Started{Process: root, Program: program.ProgramRef(), Input: input, Budget: r.budget, Capabilities: r.capabilities, Limits: r.limits, At: canonicalTime(time.Now())}
+	intent, err := started.IntentDigest()
+	if err != nil {
+		return nil, err
+	}
+	log, found, err := r.load(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return r.accepted(log, intent)
+	}
+	admission := ProcessAdmission{start: id, process: root, program: program.ProgramRef(), descriptor: program.descriptor, budget: r.budget, capabilities: r.capabilities}
+	if admissionErr := requestProcessAdmission(ctx, r.admitter, admission); admissionErr != nil {
+		return nil, admissionErr
+	}
+	execution, _, err := initializeExecution(ctx, program.definition, input)
+	if err != nil {
+		return nil, err
+	}
 
+	state := newTreeState(root)
+	tree := newTreeRuntime(r, state, work)
+	if err := tree.append(ctx, []Record{started, Activated{Epoch: 1}}); err != nil {
+		tree.cancel()
+		if appendConflict(err) {
+			if current, exists, loadErr := r.load(ctx, root); loadErr == nil && exists {
+				return r.accepted(current, intent)
+			}
+		}
+		return nil, err
+	}
+	p := state.processes[root]
+	p.execution = execution
+	p.program = program
+	if err := r.publish(tree); err != nil {
+		tree.cancel()
+		return nil, err
+	}
+	handle := &Handle[Payload]{runtime: r, tree: tree, process: p, id: root, program: program.ProgramRef(), epoch: state.epoch}
+	tree.enqueue(root)
+	go tree.run()
+	return handle, nil
+}
+func (r *Runtime) accepted(log Log, intent Digest) (*Handle[Payload], error) {
+	if err := log.Validate(); err != nil {
+		return nil, err
+	}
+	started := log.Entries[0].Record.(Started)
+	acceptedIntent, err := started.IntentDigest()
+	if err != nil {
+		return nil, err
+	}
+	if acceptedIntent != intent {
+		return nil, &StartConflictError{Root: log.Root, Intent: acceptedIntent}
+	}
+	if local, ok := r.Process(log.Root); ok && local.Epoch() == log.Epoch() {
+		return local, nil
+	}
+	return &Handle[Payload]{runtime: r, id: log.Root, program: started.Program, epoch: log.Epoch()}, nil
+}
+func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], root ProcessID) (*Handle[O], error) {
+	if r == nil {
+		return nil, ErrInvalidConfig
+	}
+	if err := RequireContext(ctx).Err(); err != nil {
+		return nil, err
+	}
+	if err := r.validateProgram(program.Erase()); err != nil {
+		return nil, err
+	}
+	claimed, release, err := r.claim(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	ctx = claimed
+	r.mu.RLock()
+	previous := r.roots[root]
+	r.mu.RUnlock()
+	if previous != nil {
+		select {
+		case <-previous.done:
+		default:
+			return nil, ErrActiveProcesses
+		}
+	}
+	log, found, err := r.load(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrTreeNotFound
+	}
+	state, err := r.restore(ctx, program.Erase(), log)
+	if err != nil {
+		return nil, err
+	}
+	tree := newTreeRuntime(r, state, context.WithoutCancel(ctx))
+	if err := tree.append(ctx, []Record{Activated{Epoch: state.epoch + 1}}); err != nil {
+		tree.cancel()
+		return nil, err
+	}
+	if err := r.publish(tree); err != nil {
+		tree.cancel()
+		return nil, err
+	}
+	handle := &Handle[O]{runtime: r, tree: tree, process: state.processes[root], id: root, program: program.ProgramRef(), epoch: state.epoch}
+	tree.recovering = true
+	for id := range state.processes {
+		tree.enqueue(id)
+	}
+	go tree.run()
+	return handle, nil
+}
 func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
-	if r == nil || !id.Valid() {
+	if r == nil {
 		return nil, false
 	}
 	r.mu.RLock()
-	handle := r.registry.entries[id].handle
+	tree := r.roots[id.Root()]
 	r.mu.RUnlock()
-	if handle == nil {
+	if tree == nil {
 		return nil, false
 	}
-	return &Handle[Payload]{handle: handle}, true
+	tree.mu.RLock()
+	defer tree.mu.RUnlock()
+	p := tree.state.processes[id]
+	if p == nil {
+		return nil, false
+	}
+	return &Handle[Payload]{runtime: r, tree: tree, process: p, id: id, program: p.started.Program, epoch: tree.state.epoch}, true
 }
-
-// Close rejects pending starts or restorations, Processes whose result
-// publication or parent/child bookkeeping is incomplete, and trees that still
-// own asynchronous work or a freeze. Handle.Join or Run establishes subtree
-// completion; callers must finish every tree and release any freeze before
-// closing the Runtime.
-// Once closing begins, the Runtime drains accepted Delta delivery and stops
-// observation workers. Canceling ctx stops only this caller's wait; it does not
-// interrupt that owned shutdown, which later and concurrent callers join.
-// Existing handles retain results and RuntimeErrors for later reads.
+func (r *Runtime) Inspect(ctx context.Context, root ProcessID) (TreeInspection, error) {
+	if r == nil {
+		return TreeInspection{}, ErrInvalidConfig
+	}
+	if err := RequireContext(ctx).Err(); err != nil {
+		return TreeInspection{}, err
+	}
+	log, found, err := r.load(ctx, root)
+	if err != nil {
+		return TreeInspection{}, err
+	}
+	if !found {
+		return TreeInspection{}, ErrProcessNotFound
+	}
+	return log.Inspect()
+}
 func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return ErrInvalidConfig
 	}
 	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
+	r.mu.Lock()
+	done := r.closeDone
+	if done == nil {
+		done = make(chan struct{})
+		r.closeDone = done
+		trees := make([]*treeRuntime, 0, len(r.roots))
+		for _, tree := range r.roots {
+			trees = append(trees, tree)
+		}
+		pending := make([]*startup, 0, len(r.starting))
+		for _, start := range r.starting {
+			pending = append(pending, start)
+			start.cancel()
+		}
+		go func() {
+			for _, tree := range trees {
+				tree.stop()
+			}
+			for _, tree := range trees {
+				<-tree.done
+			}
+			for _, start := range pending {
+				<-start.done
+			}
+			close(done)
+		}()
 	}
-	if err := r.observation.checkListenerJoin(ctx, "Close"); err != nil {
-		return err
-	}
-	done, err := r.startClose()
-	if err != nil {
-		return err
-	}
+	r.mu.Unlock()
 	select {
 	case <-done:
 		return nil
@@ -466,429 +310,213 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
-
-func (r *Runtime) startClose() (<-chan struct{}, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closeDone != nil {
-		return r.closeDone, nil
-	}
-	for _, entry := range r.registry.entries {
-		handle := entry.handle
-		if handle == nil {
-			return nil, fmt.Errorf("%w: Process publication is pending", ErrActiveProcesses)
-		}
-		select {
-		case <-handle.bookkeepingDone:
-		default:
-			return nil, fmt.Errorf(
-				"%w: Process %s has an unpublished outcome or pending parent/child bookkeeping",
-				ErrActiveProcesses, handle.processID(),
-			)
-		}
-	}
-	for rootID := range r.registry.entries {
-		if runtime := r.rootRuntime(rootID); runtime != nil && runtime.ownsActiveWork() {
-			return nil, fmt.Errorf(
-				"%w: tree %s still owns active work",
-				ErrActiveProcesses, rootID,
-			)
-		}
-	}
-	done := make(chan struct{})
-	r.closeDone = done
-	// The Runtime owns shutdown independently of any caller's wait. Observation
-	// delivery must be joined after releasing the registry lock used by listeners.
-	go func() {
-		r.observation.close()
-		close(done)
-	}()
-	return done, nil
-}
-
-func (r *Runtime) reserveProcessStart(relation ProcessRelation) error {
-	if !relation.Valid() {
-		return ErrInvalidProcessRelation
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closeDone != nil {
-		return ErrClosed
-	}
-	return r.registry.reserve(relation, nil)
-}
-
-func (r *Runtime) discardProcessStart(relation ProcessRelation) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.registry.discard(relation, nil)
-}
-
-func (r *Runtime) publishProcessStart(handle *processHandle) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closeDone != nil || handle.treeRuntime() == nil {
-		panic("run: invalid Process start reservation")
-	}
-	r.registry.publish(handle, nil)
-}
-
-// InspectTree samples a registered root tree without freezing it or waiting
-// for storage acknowledgment. It remains available during a commit, while a
-// freeze is acquired or held, and after the owner stops or Runtime.Close returns.
-// ReleaseTree removes the lookup; an overlapping inspection may return its
-// earlier valid sample. ctx bounds both admission and response waiting.
-// The owner never calls user execution code to construct a report. Callbacks
-// cannot control their own tree with the active listener context. Query failures are returned as errors; runtime
-// failures are reported through ProcessInspection.RuntimeError.
-func (r *Runtime) InspectTree(ctx context.Context, rootID ProcessID) (TreeInspection, error) {
+func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 	if r == nil {
-		return TreeInspection{}, ErrInvalidConfig
+		return ErrInvalidConfig
 	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return TreeInspection{}, err
+	if err := RequireContext(ctx).Err(); err != nil {
+		return err
 	}
-	if err := r.observation.checkEventListenerReentrancy(ctx, rootID, "InspectTree"); err != nil {
-		return TreeInspection{}, err
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	tree := r.roots[root]
+	if tree == nil {
+		return ErrTreeNotFound
 	}
-	runtime, err := r.runtimeForTree(rootID)
-	if err != nil {
-		return TreeInspection{}, err
+	select {
+	case <-tree.done:
+		delete(r.roots, root)
+		return nil
+	default:
+		return ErrActiveProcesses
 	}
-	return runtime.inspect(ctx)
 }
-
-func (r *Runtime) acquireTreeOperation(
-	ctx context.Context,
-	rootID ProcessID,
-) (*treeOperation, error) {
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := r.observation.checkEventListenerReentrancy(ctx, rootID, "tree operation"); err != nil {
-		return nil, err
+func (r *Runtime) claim(ctx context.Context, root ProcessID) (context.Context, func(), error) {
+	if !root.Valid() || root.Depth() != 0 {
+		return nil, nil, ErrInvalidIdentity
 	}
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		r.treeOperationsMu.Lock()
-		active := r.treeOperations[rootID]
-		if active == nil {
-			operation := &treeOperation{
-				engine: r, rootID: rootID, released: make(chan struct{}),
-			}
-			r.treeOperations[rootID] = operation
-			r.treeOperationsMu.Unlock()
-			return operation, nil
+		r.mu.Lock()
+		if r.closeDone != nil {
+			r.mu.Unlock()
+			return nil, nil, ErrClosed
 		}
-		released := active.released
-		r.treeOperationsMu.Unlock()
+		pending := r.starting[root.String()]
+		if pending == nil {
+			work, cancel := context.WithCancel(ctx)
+			pending = &startup{done: make(chan struct{}), cancel: cancel}
+			r.starting[root.String()] = pending
+			r.mu.Unlock()
+			return work, func() {
+				cancel()
+				r.mu.Lock()
+				delete(r.starting, root.String())
+				close(pending.done)
+				r.mu.Unlock()
+			}, nil
+		}
+		r.mu.Unlock()
 		select {
-		case <-released:
+		case <-pending.done:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 	}
 }
-
-// ReleaseTree waits for the complete root tree to settle and removes its
-// in-memory registry entries and execution state. It does not cancel work or
-// delete Host persistence. Capture any required TreeSnapshot before releasing.
-// Existing Process handles retain their Result or RuntimeError;
-// Runtime.Process no longer finds the released identities, and tree operations
-// return ErrTreeNotFound.
-// Canceling ctx before settlement leaves the tree registered and usable.
-func (r *Runtime) ReleaseTree(ctx context.Context, rootID ProcessID) error {
-	if r == nil {
-		return ErrInvalidConfig
-	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := r.observation.checkEventListenerReentrancy(ctx, rootID, "ReleaseTree"); err != nil {
-		return err
-	}
-	runtime, err := r.runtimeForTree(rootID)
-	if err != nil {
-		return err
-	}
-	select {
-	case <-runtime.done:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	// Settlement may need another tree operation, so acquire exclusive access
-	// only after the runtime has stopped.
-	operation, err := r.acquireTreeOperation(ctx, rootID)
-	if err != nil {
-		return err
-	}
-	defer operation.release()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.rootRuntime(rootID) != runtime {
-		return ErrTreeNotFound
-	}
-	for _, process := range runtime.members.all() {
-		r.registry.release(process.handle)
-	}
-	runtime.binding.Store(nil)
-	return nil
-}
-
-// Recover recreates a complete Process tree from one strict TreeSnapshot.
-// The supplied program must exactly match the captured root. Children bound by the
-// root's Program, transitively through their own bindings, reuse those
-// bindings; only other exact references are resolved through the configured
-// ProgramResolver. Registration is all-or-nothing within this Runtime.
-// The Runtime reserves every captured identity before resolving children or
-// restoring Execution state. Any failure releases the entire reservation.
-// Committed states and nonterminal prepared candidates must restore through
-// their exact Definition before registration, activation, or Effect dispatch.
-// Interrupted terminal candidates remain inert evidence and are not restored.
-// Both completed and prepared completion outputs must satisfy that Definition's
-// output schema before admission.
-//
-// Snapshot capabilities, limits, budgets, and usage remain authoritative. Current
-// Config start defaults do not revoke or rewrite captured grants. The Host
-// must authorize the snapshot before calling Recover; ProcessAdmitter and
-// initialization acknowledgment are not repeated for captured Processes.
-// Captured capacity must fit lifecycle reservations for live Processes and the
-// encoded size of terminal Processes. Restoration rejects insufficient capacity
-// before activating a writer or publishing handles. Later growth requires new
-// capacity admission.
-func (r *Runtime) Recover[I, O any](
-	ctx context.Context,
-	rootDeployment Program[I, O],
-	snapshot TreeSnapshot,
-) (*Handle[O], error) {
-	if r == nil {
-		return nil, ErrInvalidConfig
-	}
-	ctx = RequireContext(ctx)
-	restoration, err := r.newRestoration(rootDeployment.Erase(), snapshot)
-	if err != nil {
-		return nil, err
-	}
-	operation, err := r.acquireTreeOperation(ctx, restoration.wire.rootID())
-	if err != nil {
-		return nil, err
-	}
-	defer operation.release()
-	// Admission precedes the prepare pass so a closed Runtime or a taken
-	// identity refuses without running Host Definition code.
-	if err = r.reserveRestoredTree(restoration); err != nil {
-		return nil, err
-	}
-	published := false
-	defer func() {
-		if !published {
-			r.discardRestoredTree(restoration)
-		}
-	}()
-	if err = restoration.prepare(ctx); err != nil {
-		return nil, err
-	}
-	prospectiveSnapshot, err := restoration.runtime.writer.activate(ctx, snapshot, restoration.wire)
-	if err != nil {
-		return nil, err
-	}
-	restoration.wire = prospectiveSnapshot.state
-
-	r.publishRestoredTree(restoration)
-	published = true
-	p := r.startRestoredTree(context.WithoutCancel(ctx), restoration)
-	return &Handle[O]{handle: p.handle}, nil
-}
-
-// ValidateRestorableTree reports whether this Runtime can rebuild snapshot under
-// the supplied root program, using the same validation as Recover: exact program
-// bindings, committed and prepared Execution states, mailbox and wait history,
-// Signal and output schemas, and captured snapshot capacity.
-//
-// It skips admission, reserves no identity, and activates no writer, so it
-// neither fences the previous writer nor promises that a later Recover
-// succeeds. Retained Unknown settlements are restorable facts; whether to
-// reconcile, replay, or refuse them stays a Host decision.
-func (r *Runtime) ValidateRestorableTree(
-	ctx context.Context,
-	rootDeployment Program[Payload, Payload],
-	snapshot TreeSnapshot,
-) error {
-	if r == nil {
-		return ErrInvalidConfig
-	}
-	ctx = RequireContext(ctx)
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	restoration, err := r.newRestoration(rootDeployment, snapshot)
-	if err != nil {
-		return err
-	}
-	return restoration.prepare(ctx)
-}
-
-func (r *Runtime) newRestoration(
-	rootDeployment Program[Payload, Payload],
-	snapshot TreeSnapshot,
-) (*treeRestoration, error) {
-	if err := rootDeployment.validateDefinition(); err != nil {
-		return nil, err
-	}
-	wire, err := snapshot.wire()
-	if err != nil {
-		return nil, err
-	}
-	rootSnapshot := wire.processSnapshot(wire.rootID())
-	if !rootSnapshot.Valid() || rootSnapshot.ProgramRef() != rootDeployment.ProgramRef() {
-		return nil, fmt.Errorf("%w: exact root Program does not match", ErrInvalidTreeSnapshot)
-	}
-	restoration := &treeRestoration{engine: r, wire: wire, deployments: make(map[ProgramRef]Program[Payload, Payload])}
-	if err := restoration.bind(rootDeployment); err != nil {
-		return nil, err
-	}
-	return restoration, nil
-}
-
-func (r *Runtime) startRestoredTree(ctx context.Context, restoration *treeRestoration) *Handle[Payload] {
-	runtime := restoration.runtime
-	processes := runtime.members.ordered()
-	for _, process := range processes {
-		if process.status().Terminal() {
-			process.handle.publishResult(process.result())
-		}
-	}
-	for _, process := range slices.Backward(processes) {
-		if process.status().Terminal() {
-			runtime.propagateProcessTermination(process)
-			runtime.finishProcessBookkeeping(process)
-		}
-	}
-	root := runtime.members.get(runtime.rootID).handle
-	go runtime.run(RequireContext(ctx))
-	return &Handle[Payload]{handle: root}
-}
-
-func (r *Runtime) reserveRestoredTree(restoration *treeRestoration) error {
-	if restoration == nil || len(restoration.wire.ProcessSnapshots) == 0 {
-		return ErrInvalidTreeSnapshot
-	}
+func (r *Runtime) publish(tree *treeRuntime) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closeDone != nil {
 		return ErrClosed
 	}
-	for index, process := range restoration.wire.ProcessSnapshots {
-		if err := r.registry.reserve(process.Relation(), restoration); err != nil {
-			for _, claimed := range restoration.wire.ProcessSnapshots[:index] {
-				r.registry.discard(claimed.Relation(), restoration)
+	r.roots[tree.state.root] = tree
+	return nil
+}
+func (r *Runtime) validateProgram(program Program[Payload, Payload]) error {
+	if err := program.validateDefinition(); err != nil {
+		return err
+	}
+	if program.ProgramRef().Build() != r.compiler.build {
+		return fmt.Errorf("%w: program build differs from runtime build", ErrInvalidProgram)
+	}
+	return nil
+}
+func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
+	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
+	defer cancel()
+	type loaded struct {
+		log   Log
+		found bool
+	}
+	value, err := invokeCallback("Store.Load", func() (loaded, error) {
+		log, found, err := r.store.Load(ctx, root)
+		return loaded{log: log, found: found}, err
+	})
+	if err == nil && value.found && value.log.Root != root {
+		return Log{}, false, ErrInvalidLog
+	}
+	return value.log, value.found, err
+}
+func (r *Runtime) resolve(parent Program[Payload, Payload], reference ProgramRef) (Program[Payload, Payload], error) {
+	if reference == parent.ProgramRef() {
+		return parent, nil
+	}
+	if child, found := parent.boundChild(reference); found {
+		return child, r.validateProgram(child)
+	}
+	if r.resolver == nil {
+		return Program[Payload, Payload]{}, ErrInvalidProgram
+	}
+	program, err := invokeCallback("ProgramResolver.Resolve", func() (Program[Payload, Payload], error) { return r.resolver.Resolve(reference) })
+	if err != nil {
+		return Program[Payload, Payload]{}, err
+	}
+	if program.ProgramRef() != reference {
+		return Program[Payload, Payload]{}, ErrInvalidProgram
+	}
+	return program, r.validateProgram(program)
+}
+
+func (r *Runtime) restore(ctx context.Context, program Program[Payload, Payload], log Log) (*treeState, error) {
+	if err := log.Validate(); err != nil {
+		return nil, err
+	}
+	started := log.Entries[0].Record.(Started)
+	if started.Program != program.ProgramRef() {
+		return nil, ErrInvalidProgram
+	}
+	checkpoint, cut, hasCheckpoint := log.LatestCheckpoint()
+	state := newTreeState(log.Root)
+	for _, entry := range log.Entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.LSN > cut || !hasCheckpoint {
+			if stepped, ok := entry.Record.(Stepped); ok {
+				p := state.processes[stepped.Process]
+				if p == nil || p.execution == nil || int(stepped.Delivered) > len(p.inbox) {
+					return nil, ErrInvalidLog
+				}
+				transition, err := stepExecution(restoreContext{Context: ctx}, p.execution, Turn{Process: stepped.Process, Step: stepped.Step, Messages: slices.Clone([]Message(p.inbox[:stepped.Delivered]))})
+				if err != nil || !transition.equal(stepped.Transition) {
+					return nil, fmt.Errorf("%w: process %s step %d", ErrNondeterministicStep, stepped.Process, stepped.Step)
+				}
 			}
+		}
+		if err := state.apply(entry); err != nil {
+			return nil, err
+		}
+		if start, ok := entry.Record.(Started); ok && (!hasCheckpoint || entry.LSN > cut) {
+			p := state.processes[start.Process]
+			if err := r.bindRestoredProcess(state, p, program); err != nil {
+				return nil, err
+			}
+			execution, _, err := initializeExecution(ctx, p.program.definition, start.Input)
+			if err != nil {
+				return nil, err
+			}
+			p.execution = execution
+		}
+		if hasCheckpoint && entry.LSN == cut {
+			if err := r.restoreCheckpoint(ctx, state, program, checkpoint); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return state, nil
+}
+
+func (r *Runtime) bindRestoredProcess(state *treeState, process *processState, root Program[Payload, Payload]) error {
+	bound := root
+	if parentID, isChild := process.started.Process.Parent(); isChild {
+		parent := state.processes[parentID]
+		if parent == nil {
+			return ErrInvalidLog
+		}
+		var err error
+		bound, err = r.resolve(parent.program, process.started.Program)
+		if err != nil {
 			return err
 		}
+	}
+	if bound.ProgramRef() != process.started.Program {
+		return ErrInvalidProgram
+	}
+	if err := bound.descriptor.ValidateInput(process.started.Input); err != nil {
+		return err
+	}
+	process.program = bound
+	return nil
+}
+
+func (r *Runtime) restoreCheckpoint(ctx context.Context, state *treeState, root Program[Payload, Payload], checkpoint Checkpoint) error {
+	processes := slices.Clone(checkpoint.Processes)
+	// Parents must be bound before their live children. Reaped history needs no
+	// implementation because its Steps are already covered by this checkpoint.
+	slices.SortFunc(processes, func(a, b ProcessCheckpoint) int {
+		return strings.Compare(a.Started.Process.String(), b.Started.Process.String())
+	})
+	for _, captured := range processes {
+		process := state.processes[captured.Started.Process]
+		if err := r.bindRestoredProcess(state, process, root); err != nil {
+			return err
+		}
+		if process.terminal.Valid() {
+			continue
+		}
+		execution, err := restoreExecution(ctx, process.program.definition, captured.State)
+		if err != nil {
+			return err
+		}
+		process.execution = execution
 	}
 	return nil
 }
 
-func (r *Runtime) discardRestoredTree(restoration *treeRestoration) {
-	if restoration == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, process := range restoration.wire.ProcessSnapshots {
-		r.registry.discard(process.Relation(), restoration)
-	}
-}
-
-func (r *Runtime) publishRestoredTree(restoration *treeRestoration) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	runtime := restoration.runtime
-	if r.closeDone != nil || runtime == nil || runtime.rootID != restoration.wire.rootID() ||
-		runtime.members.len() != len(restoration.wire.ProcessSnapshots) {
-		panic("run: invalid restored tree runtime")
-	}
-	// Verify the whole set before making any handle visible.
-	for _, process := range runtime.members.all() {
-		if !r.registry.reserved(process.handle.relation, restoration) {
-			panic("run: restored Process reservation changed")
-		}
-	}
-	for _, process := range runtime.members.all() {
-		r.registry.publish(process.handle, restoration)
-	}
-}
-
-// CaptureTree quiesces the tree at Strategy-safe boundaries, commits the cut,
-// and returns that acknowledged snapshot. In-flight Effects settle before the
-// barrier completes. After a runtime failure, read the authoritative head from
-// the Host's commit store; unacknowledged runtime state is never recoverable.
-func (r *Runtime) CaptureTree(ctx context.Context, rootID ProcessID) (TreeSnapshot, error) {
-	if r == nil {
-		return TreeSnapshot{}, ErrInvalidConfig
-	}
-	ctx = RequireContext(ctx)
-	if !rootID.Valid() {
-		return TreeSnapshot{}, ErrTreeNotFound
-	}
-
-	operation, err := r.acquireTreeOperation(ctx, rootID)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	defer operation.release()
-	runtime, err := r.runtimeForTree(rootID)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	freeze, snapshot, err := runtime.acquireTreeFreeze(ctx)
-	if err != nil {
-		return TreeSnapshot{}, err
-	}
-	if freeze != nil {
-		if releaseErr := freeze.release(); releaseErr != nil {
-			return TreeSnapshot{}, releaseErr
-		}
-	}
-	return snapshot, nil
-}
-
-func (r *Runtime) runtimeForTree(rootID ProcessID) (*treeRuntime, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	runtime := r.rootRuntime(rootID)
-	if runtime == nil {
-		return nil, ErrTreeNotFound
-	}
-	return runtime, nil
-}
-
-// rootRuntime requires r.mu. A registered root handle owns its tree's runtime.
-func (r *Runtime) rootRuntime(rootID ProcessID) *treeRuntime {
-	root := r.registry.entries[rootID].handle
-	if root == nil || !root.relation.IsRoot() {
-		return nil
-	}
-	return root.treeRuntime()
-}
-
-// StartedTrees returns a view of this runtime's own store. Requiring the
-// capability before serving a protocol prevents admitting unobservable work.
-func (r *Runtime) StartedTrees() (*StartedTrees, error) {
-	if r == nil {
-		return nil, ErrInvalidConfig
-	}
-	reader, ok := r.committer.(HeadReader)
-	if !ok {
-		return nil, fmt.Errorf("run: store cannot load acknowledged heads: %w", errors.ErrUnsupported)
-	}
-	return &StartedTrees{starts: r.committer, heads: reader}, nil
+type startup struct {
+	done   chan struct{}
+	cancel context.CancelFunc
 }

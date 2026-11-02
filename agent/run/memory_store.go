@@ -2,210 +2,107 @@ package run
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math"
 	"sync"
 )
 
-type memoryTreeHead struct {
-	snapshot TreeSnapshot
-	sequence uint64
-}
-
-// MemoryStore atomically accepts tree commits in volatile memory; an
-// acknowledgment survives only as long as this instance. Share the instance
-// when restoring trees into another Runtime. Heads and replay-protection facts
-// are retained for the store lifetime, including after Runtime.ReleaseTree, so
-// retention grows with commit count. Discard the store only after all its
-// writers and callers have stopped. Construct it with NewMemoryStore.
 type MemoryStore struct {
-	mu     sync.Mutex
-	heads  map[ProcessID]memoryTreeHead
-	facts  map[string]Digest
-	starts map[StartID]StartReceipt
+	mu   sync.Mutex
+	logs map[ProcessID]*memoryLog
 }
 
-// NewMemoryStore starts a separate volatile ledger; it cannot fence
-// writers or reconcile acknowledgments from an earlier instance.
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{
-		heads:  make(map[ProcessID]memoryTreeHead),
-		facts:  make(map[string]Digest),
-		starts: make(map[StartID]StartReceipt),
+func NewMemoryStore() *MemoryStore { return &MemoryStore{logs: make(map[ProcessID]*memoryLog)} }
+func (m *MemoryStore) Append(ctx context.Context, batch Batch) error {
+	if err := RequireContext(ctx).Err(); err != nil {
+		return err
 	}
-}
-
-func (m *MemoryStore) LookupStart(_ context.Context, id StartID) (StartReceipt, bool, error) {
-	if m == nil || !id.Valid() {
-		return StartReceipt{}, false, ErrInvalidStart
+	if err := batch.Validate(); err != nil {
+		return err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	receipt, ok := m.starts[id]
-	return receipt, ok, nil
-}
-
-func (m *MemoryStore) LoadTree(
-	_ context.Context,
-	rootID ProcessID,
-) (TreeSnapshot, bool, error) {
-	if m == nil || !rootID.Valid() {
-		return TreeSnapshot{}, false, ErrInvalidTreeSnapshot
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	head, exists := m.heads[rootID]
-	return head.snapshot, exists, nil
-}
-
-func (m *MemoryStore) ActivateTree(
-	_ context.Context,
-	activation TreeActivation,
-) error {
-	if m == nil {
-		return errors.New("run: invalid tree activation")
-	}
-	content, err := activation.ContentDigest()
+	owned, err := cloneEntries(batch.Entries())
 	if err != nil {
 		return err
 	}
-	prospective := activation.TreeSnapshot()
-	rootID := prospective.RootID()
-	key := activation.Identity()
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if previous, exists := m.facts[key]; exists {
-		head := m.heads[rootID]
-		if previous == content && head.sequence == 0 && head.snapshot.Digest() == prospective.Digest() {
-			return nil
+	if contextErr := ctx.Err(); contextErr != nil {
+		m.mu.Unlock()
+		return contextErr
+	}
+	if m.logs == nil {
+		m.logs = make(map[ProcessID]*memoryLog)
+	}
+	stream := m.logs[batch.Root]
+	if stream == nil {
+		_, _, admissionErr := batch.Admit(0, 0, nil)
+		if admissionErr == nil {
+			m.logs[batch.Root] = &memoryLog{entries: owned}
 		}
-		return commitContentConflict()
+		m.mu.Unlock()
+		return admissionErr
 	}
-	head, exists := m.heads[rootID]
-	incarnationID := head.snapshot.IncarnationID()
-	if !exists || incarnationID != activation.PreviousIncarnationID() ||
-		head.snapshot.Digest() != activation.PreviousTreeDigest() {
-		return treeIncarnationConflict()
+	m.mu.Unlock()
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
 	}
-	m.facts[key] = content
-	m.heads[rootID] = memoryTreeHead{snapshot: prospective}
-	return nil
-}
-
-func (m *MemoryStore) CommitEffect(
-	_ context.Context,
-	boundary EffectBoundary,
-) error {
-	if m == nil {
-		return errors.New("run: invalid Effect boundary")
+	head := LSN(len(stream.entries))
+	epoch := Epoch(0)
+	if head > 0 {
+		epoch = stream.entries[len(stream.entries)-1].Epoch
 	}
-	prospective := boundary.TreeSnapshot()
-	content, err := boundary.ContentDigest()
-	if err != nil {
+	var existing []Entry
+	end := batch.After + LSN(len(batch.Records))
+	if batch.After < head && end <= head {
+		existing = stream.entries[int(batch.After):int(end)]
+	}
+	_, duplicate, err := batch.Admit(epoch, head, existing)
+	if err != nil || duplicate {
 		return err
 	}
-	key := boundary.Identity()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.advanceHead(
-		key, content, boundary.Sequence(), boundary.PreviousTreeDigest(), prospective,
-	)
+	stream.entries = append(stream.entries, owned...)
+	return nil
 }
-
-func (m *MemoryStore) CommitCheckpoint(
-	_ context.Context,
-	checkpoint TreeCheckpoint,
-) error {
-	if m == nil {
-		return errors.New("run: invalid tree checkpoint")
+func (m *MemoryStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
+	if err := RequireContext(ctx).Err(); err != nil {
+		return Log{}, false, err
 	}
-	prospective := checkpoint.TreeSnapshot()
-	content, err := checkpoint.ContentDigest()
+	if !root.Valid() || root.Depth() != 0 {
+		return Log{}, false, ErrInvalidIdentity
+	}
+	m.mu.Lock()
+	stream := m.logs[root]
+	m.mu.Unlock()
+	if stream == nil {
+		return Log{}, false, nil
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return Log{}, false, err
+	}
+	if len(stream.entries) == 0 {
+		return Log{}, false, nil
+	}
+	entries, err := cloneEntries(stream.entries)
 	if err != nil {
-		return err
+		return Log{}, false, err
 	}
-	key := checkpoint.Identity()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if checkpoint.Kind() == TreeCheckpointKindStart {
-		receipt, ok := checkpoint.Start()
-		if !ok {
-			return ErrInvalidStart
-		}
-		if prior, found := m.starts[receipt.ID]; found {
-			if prior.Intent != receipt.Intent {
-				return &StartConflictError{Receipt: prior}
-			}
-			if prior.RootID != receipt.RootID {
-				return &StartAcceptedError{Receipt: prior}
-			}
-		}
-		if err := m.createHead(key, content, checkpoint.Sequence(), prospective); err != nil {
-			return err
-		}
-		m.starts[receipt.ID] = receipt
-		return nil
-	}
-	return m.advanceHead(
-		key, content, checkpoint.Sequence(), checkpoint.PreviousTreeDigest(), prospective,
-	)
+	return Log{Root: root, Entries: entries}, true, nil
 }
 
-func (m *MemoryStore) createHead(
-	key string,
-	content Digest,
-	sequence uint64,
-	prospective TreeSnapshot,
-) error {
-	rootID := prospective.RootID()
-	if previous, exists := m.facts[key]; exists {
-		head := m.heads[rootID]
-		if previous == content && head.sequence == sequence && head.snapshot.Digest() == prospective.Digest() {
-			return nil
+type memoryLog struct {
+	mu      sync.Mutex
+	entries []Entry
+}
+
+func cloneEntries(entries []Entry) ([]Entry, error) {
+	result := make([]Entry, len(entries))
+	for index, entry := range entries {
+		record, err := cloneRecord(entry.Record)
+		if err != nil {
+			return nil, err
 		}
-		return commitContentConflict()
+		result[index] = Entry{LSN: entry.LSN, Epoch: entry.Epoch, Record: record}
 	}
-	if _, exists := m.heads[rootID]; exists {
-		return treeIncarnationConflict()
-	}
-	m.facts[key] = content
-	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: sequence}
-	return nil
-}
-
-func (m *MemoryStore) advanceHead(
-	key string,
-	content Digest,
-	sequence uint64,
-	previousDigest Digest,
-	prospective TreeSnapshot,
-) error {
-	rootID := prospective.RootID()
-	incarnationID := prospective.IncarnationID()
-	head, exists := m.heads[rootID]
-	headIncarnationID := head.snapshot.IncarnationID()
-	if !exists || headIncarnationID != incarnationID {
-		return treeIncarnationConflict()
-	}
-	if previous, committed := m.facts[key]; committed {
-		if previous == content && head.sequence == sequence && head.snapshot.Digest() == prospective.Digest() {
-			return nil
-		}
-		return commitContentConflict()
-	}
-	if head.sequence == math.MaxUint64 || sequence != head.sequence+1 || head.snapshot.Digest() != previousDigest {
-		return treeIncarnationConflict()
-	}
-	m.facts[key] = content
-	m.heads[rootID] = memoryTreeHead{snapshot: prospective, sequence: sequence}
-	return nil
-}
-
-func commitContentConflict() error {
-	return fmt.Errorf("%w: idempotency content differs", ErrCommitConflict)
-}
-
-func treeIncarnationConflict() error {
-	return fmt.Errorf("%w: authoritative head changed", ErrTreeIncarnationConflict)
+	return result, nil
 }

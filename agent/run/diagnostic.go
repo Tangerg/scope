@@ -5,7 +5,6 @@ import (
 	"unicode/utf8"
 )
 
-// MaxDiagnosticBytes bounds persistable failure messages and strategy diagnostics.
 const MaxDiagnosticBytes = 4096
 
 func ValidDiagnostic(message string) bool { return validBoundedText(message, MaxDiagnosticBytes) }

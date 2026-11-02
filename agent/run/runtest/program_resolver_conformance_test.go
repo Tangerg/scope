@@ -29,7 +29,7 @@ func (r resolverTestDefinition) Restore(context.Context, run.ExecutionState) (ru
 	return nil, errors.New("runtest: resolver fixture does not execute")
 }
 
-func resolverTestDeployment(t *testing.T, name string) run.Program[run.Payload, run.Payload] {
+func resolverTestProgram(t *testing.T, name string) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	schema, err := jsonschema.For[definitionConformanceInput]()
 	if err != nil {
@@ -42,15 +42,24 @@ func resolverTestDeployment(t *testing.T, name string) run.Program[run.Payload, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
-		Definition:           resolverTestDefinition{descriptor: descriptor},
-		ImplementationDigest: run.ComputeDigest([]byte("agenttest.resolver.code")),
-		ConfigurationDigest:  run.ComputeDigest([]byte("agenttest.resolver.config." + name)),
+	runtime, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), Build: conformanceBuild})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := runtime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	program, err := run.Bind[run.Payload, run.Payload](runtime.Compiler(), run.BindingConfig{
+		Definition:    resolverTestDefinition{descriptor: descriptor},
+		Revision:      "one",
+		Configuration: name,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return program
 }
 
 type exactResolver struct {
@@ -58,11 +67,11 @@ type exactResolver struct {
 }
 
 func (e exactResolver) Resolve(reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
-	deployment, found := e.bindings[reference]
+	program, found := e.bindings[reference]
 	if !found {
 		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding for %s", reference)
 	}
-	return deployment, nil
+	return program, nil
 }
 
 // nameFallbackResolver keys by name, which is exactly the mistake the contract
@@ -72,19 +81,19 @@ type nameFallbackResolver struct {
 }
 
 func (n nameFallbackResolver) Resolve(reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
-	deployment, found := n.bindings[reference.Name()]
+	program, found := n.bindings[reference.Name()]
 	if !found {
 		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding named %s", reference.Name())
 	}
-	return deployment, nil
+	return program, nil
 }
 
 type mismatchResolver struct {
-	deployment run.Program[run.Payload, run.Payload]
+	program run.Program[run.Payload, run.Payload]
 }
 
 func (m mismatchResolver) Resolve(run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
-	return m.deployment, nil
+	return m.program, nil
 }
 
 type statefulResolver struct {
@@ -100,11 +109,11 @@ func (s *statefulResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 	if len(s.seen) > 1 {
 		return run.Program[run.Payload, run.Payload]{}, errors.New("runtest: resolver retained caller state")
 	}
-	deployment, found := s.bindings[reference]
+	program, found := s.bindings[reference]
 	if !found {
 		return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("runtest: no binding for %s", reference)
 	}
-	return deployment, nil
+	return program, nil
 }
 
 type panickingResolver struct{}
@@ -115,8 +124,8 @@ func (panickingResolver) Resolve(run.ProgramRef) (run.Program[run.Payload, run.P
 
 func resolverConformanceFixture(t *testing.T) (first, second run.Program[run.Payload, run.Payload], exact exactResolver) {
 	t.Helper()
-	first = resolverTestDeployment(t, "agenttest.resolver.first")
-	second = resolverTestDeployment(t, "agenttest.resolver.second")
+	first = resolverTestProgram(t, "agenttest.resolver.first")
+	second = resolverTestProgram(t, "agenttest.resolver.second")
 	return first, second, exactResolver{bindings: map[run.ProgramRef]run.Program[run.Payload, run.Payload]{
 		first.ProgramRef(): first, second.ProgramRef(): second,
 	}}
@@ -124,7 +133,7 @@ func resolverConformanceFixture(t *testing.T) (first, second run.Program[run.Pay
 
 func TestRunProgramResolverConformanceAcceptsAnExactResolver(t *testing.T) {
 	first, second, exact := resolverConformanceFixture(t)
-	unknown := resolverTestDeployment(t, "agenttest.resolver.unknown")
+	unknown := resolverTestProgram(t, "agenttest.resolver.unknown")
 	RunProgramResolverConformance(t, ProgramResolverConformanceConfig{
 		Resolver:     exact,
 		Resolvable:   []run.Program[run.Payload, run.Payload]{first, second},
@@ -155,7 +164,7 @@ func TestProgramResolverConformanceDetectsContractViolations(t *testing.T) {
 			"mismatched binding",
 			verifyExactResolution,
 			ProgramResolverConformanceConfig{
-				Resolver:   mismatchResolver{deployment: second},
+				Resolver:   mismatchResolver{program: second},
 				Resolvable: []run.Program[run.Payload, run.Payload]{first},
 			},
 			"resolver answered",
@@ -175,7 +184,7 @@ func TestProgramResolverConformanceDetectsContractViolations(t *testing.T) {
 			"admitted unknown reference",
 			verifyUnknownReferencesRejected,
 			ProgramResolverConformanceConfig{
-				Resolver:     mismatchResolver{deployment: first},
+				Resolver:     mismatchResolver{program: first},
 				Resolvable:   []run.Program[run.Payload, run.Payload]{first},
 				Unresolvable: []run.ProgramRef{second.ProgramRef()},
 			},
@@ -194,7 +203,7 @@ func TestProgramResolverConformanceDetectsContractViolations(t *testing.T) {
 			"concurrent mismatch",
 			verifyConcurrentResolution,
 			ProgramResolverConformanceConfig{
-				Resolver:   mismatchResolver{deployment: second},
+				Resolver:   mismatchResolver{program: second},
 				Resolvable: []run.Program[run.Payload, run.Payload]{first},
 			},
 			"resolver answered",

@@ -1,99 +1,47 @@
 package run
 
 import (
-	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 )
 
-// StartID identifies a caller's immutable submission within a Host-authorized
-// scope. It is known before sending the request and is not a ProcessID.
+var ErrInvalidStart = errors.New("run: invalid start identity")
+
 type StartID struct {
-	Scope string
-	Key   string
+	Scope string `json:"scope"`
+	Key   string `json:"key"`
 }
 
 func (s StartID) Valid() bool { return validIdentity(s.Scope) && validIdentity(s.Key) }
-
-func (s StartID) lookup(ctx context.Context, reader StartReader) (StartReceipt, bool, error) {
-	var receipt StartReceipt
-	found, err := invokeCallback("Store.LookupStart", func() (bool, error) {
-		var ok bool
-		var lookupErr error
-		receipt, ok, lookupErr = reader.LookupStart(ctx, s)
-		return ok, lookupErr
-	})
-	if err != nil || !found {
-		return StartReceipt{}, false, err
+func (s StartID) Root() ProcessID {
+	if !s.Valid() {
+		return ProcessID{}
 	}
-	if !receipt.matches(s) {
-		return StartReceipt{}, false, ErrInvalidStart
-	}
-	return receipt, true, nil
+	payload, _ := EncodePayload(s)
+	return ProcessID{path: ComputeDigest(payload.JSON()).hex()}
 }
 
-// StartReceipt is the durable association installed with the first tree head.
-// The backend must retain it across subsequent commits and writer activations.
-type StartReceipt struct {
-	ID     StartID
+type StartRequest[I any] struct {
+	ID    StartID
+	Input I
+}
+
+type StartConflictError struct {
+	Root   ProcessID
 	Intent Digest
-	RootID ProcessID
 }
-
-func (s StartReceipt) Valid() bool { return s.ID.Valid() && s.Intent.Valid() && s.RootID.Valid() }
-
-func (s StartReceipt) matches(id StartID) bool { return s.Valid() && s.ID == id }
-
-func (s StartReceipt) loadHead(ctx context.Context, reader HeadReader) (TreeSnapshot, error) {
-	return invokeCallback("HeadReader.LoadTree", func() (TreeSnapshot, error) {
-		head, found, err := reader.LoadTree(ctx, s.RootID)
-		if err != nil {
-			return TreeSnapshot{}, err
-		}
-		if !found || !head.Valid() || head.RootID() != s.RootID {
-			return TreeSnapshot{}, errors.New("run: accepted start has no matching acknowledged head")
-		}
-		return head, nil
-	})
-}
-
-// Store admits new trees and reads their original acceptance. Initial head,
-// commit deduplication and scoped StartReceipt are one atomic write.
-type Store interface {
-	TreeCommitter
-	StartReader
-}
-
-// StartReader reads the original acceptance, never the current head or writer.
-type StartReader interface {
-	LookupStart(ctx context.Context, id StartID) (receipt StartReceipt, found bool, err error)
-}
-
-// StartAcceptedError carries proof of acceptance when this Runtime cannot
-// establish that its local activation owns the acknowledged head.
-type StartAcceptedError struct{ Receipt StartReceipt }
-
-func (s *StartAcceptedError) Error() string {
-	return fmt.Sprintf("run: start %s/%s already accepted as %s", s.Receipt.ID.Scope, s.Receipt.ID.Key, s.Receipt.RootID)
-}
-
-// StartConflictError reports reuse of a caller's key for a different intent.
-type StartConflictError struct{ Receipt StartReceipt }
 
 func (s *StartConflictError) Error() string {
-	return fmt.Sprintf("run: start %s/%s conflicts with accepted run %s", s.Receipt.ID.Scope, s.Receipt.ID.Key, s.Receipt.RootID)
+	return fmt.Sprintf("run: start for %s conflicts with committed intent %s", s.Root, s.Intent)
 }
 
-var ErrInvalidStart = errors.New("run: invalid start identity or receipt")
+const foregroundStartScope = "run"
+const foregroundStartRandomBytes = 16
 
-func startIntent(ref ProgramRef, input Payload) Digest {
-	return ComputeDigest([]byte(ref.Digest().String() + "\x00" + string(input.JSON())))
-}
-
-func newStartCheckpoint(snapshot TreeSnapshot, receipt StartReceipt) (TreeCheckpoint, error) {
-	c := TreeCheckpoint{sequence: 1, cause: checkpointCauseCut, treeUpdate: treeUpdate{treeSnapshot: snapshot}, start: receipt}
-	if !c.Valid() {
-		return TreeCheckpoint{}, ErrInvalidStart
-	}
-	return c, nil
+func foregroundStartID() StartID {
+	var random [foregroundStartRandomBytes]byte
+	_, _ = rand.Read(random[:])
+	return StartID{Scope: foregroundStartScope, Key: hex.EncodeToString(random[:])}
 }

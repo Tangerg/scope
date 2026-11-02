@@ -14,12 +14,7 @@ import (
 // Every resource limit uses one policy with only a maximum, so the constrained
 // Metric decides whether two trajectory decisions observe the same thing.
 func TestChangedLimitMetricIsAnotherObservation(t *testing.T) {
-	recorder := &trajectory.Recorder{}
-	process, _ := startRecordedInteraction(t, recorder, recorder, fixtureWeatherTool{}, 2)
-	recorded, err := recorder.Take(t.Context(), process, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	recorded := coveredInteraction(t)
 	zero := uint64(0)
 	run := func(limits trajectory.Limits) eval.ExperimentReport {
 		t.Helper()

@@ -17,7 +17,6 @@ var ErrInvalidCapability = errors.New("run: invalid capability")
 // enforces possession and attenuation; it does not assign product meaning.
 type Capability struct{ name string }
 
-// ParseCapability validates a lowercase qualified capability name.
 func ParseCapability(name string) (Capability, error) {
 	if !ValidQualifiedName(name) {
 		return Capability{}, ErrInvalidCapability

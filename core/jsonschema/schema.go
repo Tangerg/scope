@@ -23,6 +23,8 @@ const (
 	schemaTypeString      = "string"
 	schemaTypeNumber      = "number"
 	schemaTypeInteger     = "integer"
+	schemaTypeBoolean     = "boolean"
+	schemaTypeObject      = "object"
 	base64ContentEncoding = "base64"
 )
 
@@ -123,7 +125,8 @@ type Schema struct {
 // Named definitions include their Go package; moving a type changes its canonical
 // schema and any deployment identities derived from it.
 // Custom encodings require Modeler, except standard-library types with known
-// wire contracts. Opaque Schema values cannot be derived from their Go fields.
+// wire contracts and Schema's owned boolean-or-object document shape. Schema
+// documents still pass through Parse for semantic validation and compilation.
 // A string tag requires a custom encoding and Modeler: numeric constraints do
 // not constrain JSON strings, and other ordinary types reject this tag in JSON v2.
 func For[T any]() (Schema, error) {

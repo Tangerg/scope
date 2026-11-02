@@ -24,22 +24,22 @@ var (
 // DefinitionConformanceConfig supplies representative cases, not a proof that
 // arbitrary Definition code never reads hidden input or performs I/O.
 type DefinitionConformanceConfig struct {
-	Definition     run.Definition
-	Input          run.Payload
-	InitialSignals []run.Signal
-	// FollowingSignals exercises the original instance and each restored copy
+	Definition  run.Definition
+	Input       run.Payload
+	InitialTurn run.Turn
+	// FollowingTurns exercises the original instance and each restored copy
 	// through a representative multi-Step suffix.
-	FollowingSignals [][]run.Signal
-	RestoredCases    []ExecutionConformanceCase
-	RejectedCases    []RejectedStepConformanceCase
+	FollowingTurns []run.Turn
+	RestoredCases  []ExecutionConformanceCase
+	RejectedCases  []RejectedStepConformanceCase
 }
 
 type ExecutionConformanceCase struct {
 	Name string
 	// State is an exact state previously produced by the Definition.
-	State            run.ExecutionState
-	Signals          []run.Signal
-	FollowingSignals [][]run.Signal
+	State          run.ExecutionState
+	Turn           run.Turn
+	FollowingTurns []run.Turn
 }
 
 // RejectedStepConformanceCase requires a stable domain classification instead
@@ -47,8 +47,8 @@ type ExecutionConformanceCase struct {
 type RejectedStepConformanceCase struct {
 	Name string
 	// State is an exact state previously produced by the Definition.
-	State   run.ExecutionState
-	Signals []run.Signal
+	State run.ExecutionState
+	Turn  run.Turn
 	// FailureKind and FailureCode are the exact persisted classification.
 	FailureKind run.FailureKind
 	FailureCode string
@@ -58,9 +58,9 @@ type RejectedStepConformanceCase struct {
 // isolation, exact Snapshot/Restore, byte-equivalent Step results, and stable
 // rejection classifications for the supplied representative cases.
 //
-// All configured Signals are validated before the Definition runs. Restore and
+// All configured turns are validated before the Definition runs. Restore and
 // Step inherit the test context; each Step receives a child context canceled
-// when that call returns. RestoredCases and the fresh Signal batches must
+// when that call returns. RestoredCases and the fresh turns must
 // describe successful Steps; RejectedCases describe domain violations and
 // assert the exact Failure the Definition persists for them. Cancellation paths
 // remain ordinary tests owned by the Definition implementation.
@@ -103,16 +103,16 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 	if !config.Input.Valid() {
 		return errors.New("runtest: Definition conformance Input is invalid")
 	}
-	if err := validateConformanceSignals(config.InitialSignals, config.FollowingSignals...); err != nil {
-		return fmt.Errorf("runtest: Definition conformance fresh Signals: %w", err)
+	if err := validateConformanceTurns(config.InitialTurn, config.FollowingTurns...); err != nil {
+		return fmt.Errorf("runtest: Definition conformance fresh Turn: %w", err)
 	}
 	restored := conformanceCaseNames{kind: "restored"}
 	for index, sample := range config.RestoredCases {
 		if err := restored.claim(index, sample.Name, sample.State); err != nil {
 			return err
 		}
-		if err := validateConformanceSignals(sample.Signals, sample.FollowingSignals...); err != nil {
-			return fmt.Errorf("runtest: Definition conformance restored case %q Signals: %w", sample.Name, err)
+		if err := validateConformanceTurns(sample.Turn, sample.FollowingTurns...); err != nil {
+			return fmt.Errorf("runtest: Definition conformance restored case %q Turn: %w", sample.Name, err)
 		}
 	}
 	rejected := conformanceCaseNames{kind: "rejected"}
@@ -120,8 +120,8 @@ func validateDefinitionConformanceConfig(config DefinitionConformanceConfig) err
 		if err := rejected.claim(index, sample.Name, sample.State); err != nil {
 			return err
 		}
-		if err := validateConformanceSignals(sample.Signals); err != nil {
-			return fmt.Errorf("runtest: Definition conformance rejected case %q Signals: %w", sample.Name, err)
+		if err := validateConformanceTurns(sample.Turn); err != nil {
+			return fmt.Errorf("runtest: Definition conformance rejected case %q Turn: %w", sample.Name, err)
 		}
 		if !sample.FailureKind.Valid() || !run.ValidQualifiedName(sample.FailureCode) {
 			return fmt.Errorf("runtest: Definition conformance rejected case %q must name the exact Failure kind and code", sample.Name)
@@ -165,7 +165,7 @@ func verifyRejectedStep(
 		if err != nil {
 			return err
 		}
-		transition, stepErr := callStep(ctx, execution, slices.Clone(sample.Signals))
+		transition, stepErr := callStep(ctx, execution, cloneTurn(sample.Turn))
 		if stepErr == nil {
 			return fmt.Errorf(
 				"runtest: rejected case %q attempt %d returned Transition %v instead of a classified Failure",
@@ -175,7 +175,7 @@ func verifyRejectedStep(
 		failure, classified := run.StepFailure(stepErr)
 		if !classified {
 			return fmt.Errorf(
-				"runtest: rejected case %q attempt %d returned an unclassified error, which the Engine records as execution.step.failed: %w",
+				"runtest: rejected case %q attempt %d returned an unclassified error, which the Runtime records as execution.step.failed: %w",
 				sample.Name, attempt, stepErr,
 			)
 		}
@@ -191,15 +191,18 @@ func verifyRejectedStep(
 	return nil
 }
 
-func validateConformanceSignals(signals []run.Signal, following ...[]run.Signal) error {
-	for batchIndex, batch := range append([][]run.Signal{signals}, following...) {
-		for index, signal := range batch {
-			if !signal.Valid() {
-				return fmt.Errorf("batch %d signal %d is invalid", batchIndex, index)
-			}
+func validateConformanceTurns(first run.Turn, following ...run.Turn) error {
+	for index, turn := range append([]run.Turn{first}, following...) {
+		if !turn.Valid() {
+			return fmt.Errorf("runtest: turn %d is invalid", index)
 		}
 	}
 	return nil
+}
+
+func cloneTurn(turn run.Turn) run.Turn {
+	turn.Messages = slices.Clone(turn.Messages)
+	return turn
 }
 
 // callConcurrently runs call twice at once so a Definition that shares
@@ -250,7 +253,7 @@ func verifyFreshExecutions(ctx context.Context, config DefinitionConformanceConf
 		config.Definition,
 		executions[0],
 		executions[1],
-		config.InitialSignals, config.FollowingSignals...,
+		config.InitialTurn, config.FollowingTurns...,
 	); pairErr != nil {
 		return pairErr
 	}
@@ -283,11 +286,11 @@ func verifyRestoredExecutions(
 	if err := requireEquivalent("restored state", sample.State, leftState); err != nil {
 		return err
 	}
-	return verifyExecutionPair(ctx, definition, left, right, sample.Signals, sample.FollowingSignals...)
+	return verifyExecutionPair(ctx, definition, left, right, sample.Turn, sample.FollowingTurns...)
 }
 
-func verifyExecutionPair(ctx context.Context, definition run.Definition, left, right run.Execution, signals []run.Signal, following ...[]run.Signal) error {
-	for _, batch := range append([][]run.Signal{signals}, following...) {
+func verifyExecutionPair(ctx context.Context, definition run.Definition, left, right run.Execution, turn run.Turn, following ...run.Turn) error {
+	for _, batch := range append([]run.Turn{turn}, following...) {
 		if err := verifyExecutionStep(ctx, definition, left, right, batch); err != nil {
 			return err
 		}
@@ -300,7 +303,7 @@ func verifyExecutionStep(
 	definition run.Definition,
 	left run.Execution,
 	right run.Execution,
-	signals []run.Signal,
+	turn run.Turn,
 ) error {
 	if lo.IsNil(left) || lo.IsNil(right) {
 		return errors.New("runtest: Definition returned a nil Execution")
@@ -317,11 +320,11 @@ func verifyExecutionStep(
 	if err != nil {
 		return err
 	}
-	leftTransition, err := stepIsolatedPair(ctx, left, right, rightBefore, signals)
+	leftTransition, err := stepIsolatedPair(ctx, left, right, rightBefore, turn)
 	if err != nil {
 		return err
 	}
-	restoredTransition, err := callStep(ctx, restored, slices.Clone(signals))
+	restoredTransition, err := callStep(ctx, restored, cloneTurn(turn))
 	if err != nil {
 		return err
 	}
@@ -349,9 +352,9 @@ func stepIsolatedPair(
 	ctx context.Context,
 	left, right run.Execution,
 	rightBefore run.ExecutionState,
-	signals []run.Signal,
+	turn run.Turn,
 ) (run.Transition, error) {
-	leftTransition, err := callValidStep(ctx, left, signals)
+	leftTransition, err := callValidStep(ctx, left, turn)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -362,7 +365,7 @@ func stepIsolatedPair(
 	if comparisonErr := requireEquivalent("sibling Execution state after the first Step", rightBefore, rightStill); comparisonErr != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", errConformanceExecutionsShareState, comparisonErr)
 	}
-	rightTransition, err := callValidStep(ctx, right, signals)
+	rightTransition, err := callValidStep(ctx, right, turn)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -387,12 +390,12 @@ func snapshotEquivalentPair(label string, left, right run.Execution) (run.Execut
 	return leftState, rightState, nil
 }
 
-func callValidStep(ctx context.Context, execution run.Execution, signals []run.Signal) (run.Transition, error) {
-	transition, err := callStep(ctx, execution, slices.Clone(signals))
+func callValidStep(ctx context.Context, execution run.Execution, turn run.Turn) (run.Transition, error) {
+	transition, err := callStep(ctx, execution, cloneTurn(turn))
 	if err != nil {
 		return run.Transition{}, err
 	}
-	if err := validateTransition(transition, len(signals)); err != nil {
+	if err := validateTransition(transition, len(turn.Messages)); err != nil {
 		return run.Transition{}, err
 	}
 	return transition, nil
@@ -410,14 +413,14 @@ func verifyExactRestore(ctx context.Context, definition run.Definition, state ru
 	return requireEquivalent("Snapshot/Restore state", state, restoredState)
 }
 
-func validateTransition(transition run.Transition, signalCount int) error {
+func validateTransition(transition run.Transition, messageCount int) error {
 	if !transition.Valid() {
 		return errors.New("runtest: Step returned an invalid Transition")
 	}
-	if uint64(transition.ConsumedSignals()) > uint64(signalCount) {
+	if uint64(transition.Consumed()) > uint64(messageCount) {
 		return fmt.Errorf(
-			"runtest: Step consumed %d Signals from a prefix of %d",
-			transition.ConsumedSignals(), signalCount,
+			"runtest: Step consumed %d messages from a prefix of %d",
+			transition.Consumed(), messageCount,
 		)
 	}
 	return nil
@@ -483,7 +486,7 @@ func callRestore(ctx context.Context, definition run.Definition, state run.Execu
 	return execution, nil
 }
 
-func callStep(ctx context.Context, execution run.Execution, signals []run.Signal) (transition run.Transition, err error) {
+func callStep(ctx context.Context, execution run.Execution, turn run.Turn) (transition run.Transition, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer func() {
@@ -491,7 +494,7 @@ func callStep(ctx context.Context, execution run.Execution, signals []run.Signal
 			err = &run.CallbackPanicError{Operation: "Execution.Step", Value: recovered}
 		}
 	}()
-	transition, err = execution.Step(ctx, signals)
+	transition, err = execution.Step(ctx, turn)
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("runtest: Execution.Step: %w", err)
 	}

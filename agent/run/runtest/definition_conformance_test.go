@@ -76,7 +76,7 @@ type definitionConformanceExecution struct {
 	shared     *uint64
 }
 
-func (d *definitionConformanceExecution) Step(_ context.Context, _ []run.Signal) (run.Transition, error) {
+func (d *definitionConformanceExecution) Step(_ context.Context, _ run.Turn) (run.Transition, error) {
 	if d.restored {
 		d.value += 10
 	}
@@ -112,19 +112,19 @@ func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, stepErr := execution.Step(context.Background(), nil); stepErr != nil {
+	if _, stepErr := execution.Step(context.Background(), definitionTurn(1)); stepErr != nil {
 		t.Fatal(stepErr)
 	}
 	restoredState, err := execution.Snapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	RunDefinitionConformance(t, DefinitionConformanceConfig{
-		Definition:       definition,
-		Input:            input,
-		FollowingSignals: [][]run.Signal{nil, nil},
+	RunDefinitionConformance(t, DefinitionConformanceConfig{InitialTurn: definitionTurn(1),
+		Definition:     definition,
+		Input:          input,
+		FollowingTurns: []run.Turn{definitionTurn(2), definitionTurn(3)},
 		RestoredCases: []ExecutionConformanceCase{{
-			Name: "after one Step", State: restoredState,
+			Name: "after one Step", State: restoredState, Turn: definitionTurn(2),
 		}},
 	})
 }
@@ -136,7 +136,7 @@ func TestDefinitionConformanceDetectsHiddenMutableInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{InitialTurn: definitionTurn(1),
 		Definition: definition,
 		Input:      input,
 	})
@@ -153,7 +153,7 @@ func TestDefinitionConformanceDetectsSharedExecutionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{InitialTurn: definitionTurn(1),
 		Definition: definition,
 		Input:      input,
 	})
@@ -169,13 +169,13 @@ func TestDefinitionConformanceRejectsLossyBehaviorRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: definition, Input: input})
+	err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{InitialTurn: definitionTurn(1), Definition: definition, Input: input})
 	if !errors.Is(err, errConformanceValuesDiffer) {
 		t.Fatalf("lossy restore = %v", err)
 	}
 }
 
-func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) {
+func TestDefinitionConformanceValidatesEveryConfiguredTurn(t *testing.T) {
 	definition := newDefinitionConformanceFixture(t)
 	input, err := run.EncodePayload(definitionConformanceInput{Value: 7})
 	if err != nil {
@@ -189,44 +189,29 @@ func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	invalid := definitionTurn(1)
+	invalid.Messages = run.Inbox{run.Signal{}}
 	for _, test := range []struct {
 		name   string
 		mutate func(*DefinitionConformanceConfig)
 		want   string
 	}{
-		{"initial", func(config *DefinitionConformanceConfig) { config.InitialSignals = []run.Signal{{}} }, "fresh Signals: batch 0 signal 0 is invalid"},
-		{"following", func(config *DefinitionConformanceConfig) { config.FollowingSignals = [][]run.Signal{nil, {{}}} }, "fresh Signals: batch 2 signal 0 is invalid"},
-		{"restored", func(config *DefinitionConformanceConfig) { config.RestoredCases[0].Signals = []run.Signal{{}} }, "restored case \"sample\" Signals: batch 0 signal 0 is invalid"},
-		{"restored following", func(config *DefinitionConformanceConfig) {
-			config.RestoredCases[0].FollowingSignals = [][]run.Signal{nil, {{}}}
-		}, "restored case \"sample\" Signals: batch 2 signal 0 is invalid"},
-		{"rejected name", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases[0].Name = " padded"
-		}, "rejected case 0 has an invalid name"},
-		{"rejected duplicate", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases = append(config.RejectedCases, config.RejectedCases[0])
-		}, "rejected case name \"rejected\" is duplicated"},
-		{"rejected state", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases[0].State = run.ExecutionState{}
-		}, "rejected case \"rejected\" has an invalid state"},
-		{"rejected signals", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases[0].Signals = []run.Signal{{}}
-		}, "rejected case \"rejected\" Signals: batch 0 signal 0 is invalid"},
-		{"rejected kind", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases[0].FailureKind = run.FailureKindInvalid
-		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
-		{"rejected code", func(config *DefinitionConformanceConfig) {
-			config.RejectedCases[0].FailureCode = "Rejected"
-		}, "rejected case \"rejected\" must name the exact Failure kind and code"},
+		{"initial", func(c *DefinitionConformanceConfig) { c.InitialTurn = invalid }, "fresh Turn"},
+		{"following", func(c *DefinitionConformanceConfig) { c.FollowingTurns = []run.Turn{definitionTurn(2), invalid} }, "fresh Turn"},
+		{"restored", func(c *DefinitionConformanceConfig) { c.RestoredCases[0].Turn = invalid }, "restored case"},
+		{"restored following", func(c *DefinitionConformanceConfig) { c.RestoredCases[0].FollowingTurns = []run.Turn{invalid} }, "restored case"},
+		{"rejected name", func(c *DefinitionConformanceConfig) { c.RejectedCases[0].Name = " padded" }, "invalid name"},
+		{"rejected duplicate", func(c *DefinitionConformanceConfig) { c.RejectedCases = append(c.RejectedCases, c.RejectedCases[0]) }, "duplicated"},
+		{"rejected state", func(c *DefinitionConformanceConfig) { c.RejectedCases[0].State = run.ExecutionState{} }, "invalid state"},
+		{"rejected turn", func(c *DefinitionConformanceConfig) { c.RejectedCases[0].Turn = invalid }, "rejected case"},
+		{"rejected kind", func(c *DefinitionConformanceConfig) { c.RejectedCases[0].FailureKind = run.FailureKindInvalid }, "exact Failure kind and code"},
+		{"rejected code", func(c *DefinitionConformanceConfig) { c.RejectedCases[0].FailureCode = "Rejected" }, "exact Failure kind and code"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := DefinitionConformanceConfig{
-				Definition: definition, Input: input,
-				RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state}},
-				RejectedCases: []RejectedStepConformanceCase{{
-					Name: "rejected", State: state,
-					FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected",
-				}},
+				Definition: definition, Input: input, InitialTurn: definitionTurn(1),
+				RestoredCases: []ExecutionConformanceCase{{Name: "sample", State: state, Turn: definitionTurn(1)}},
+				RejectedCases: []RejectedStepConformanceCase{{Name: "rejected", State: state, Turn: definitionTurn(1), FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected"}},
 			}
 			test.mutate(&config)
 			if err := validateDefinitionConformanceConfig(config); err == nil || !strings.Contains(err.Error(), test.want) {
@@ -236,11 +221,15 @@ func TestDefinitionConformanceValidatesEveryConfiguredSignalBatch(t *testing.T) 
 	}
 }
 
+func definitionTurn(step uint64) run.Turn {
+	return run.Turn{Process: (run.StartID{Scope: "runtest", Key: "definition"}).Root(), Step: step}
+}
+
 type conformanceContextExecution struct {
 	seen context.Context
 }
 
-func (c *conformanceContextExecution) Step(ctx context.Context, _ []run.Signal) (run.Transition, error) {
+func (c *conformanceContextExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {
 	c.seen = ctx
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
@@ -256,14 +245,14 @@ func TestConformanceStepPreservesCallerCancellationAndClosesItsScope(t *testing.
 	execution := &conformanceContextExecution{}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	if _, err := callStep(ctx, execution, nil); err != nil {
+	if _, err := callStep(ctx, execution, definitionTurn(1)); err != nil {
 		t.Fatal(err)
 	}
 	if !errors.Is(execution.seen.Err(), context.Canceled) || ctx.Err() != nil {
 		t.Fatal("Step must close its own context without canceling the caller")
 	}
 	cancel()
-	if _, err := callStep(ctx, execution, nil); !errors.Is(err, context.Canceled) {
+	if _, err := callStep(ctx, execution, definitionTurn(1)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("caller cancellation did not reach Step: %v", err)
 	}
 }
@@ -321,7 +310,7 @@ func (r *rejectingDefinition) Restore(context.Context, run.ExecutionState) (run.
 
 type rejectingExecution struct{ err error }
 
-func (r *rejectingExecution) Step(context.Context, []run.Signal) (run.Transition, error) {
+func (r *rejectingExecution) Step(context.Context, run.Turn) (run.Transition, error) {
 	if r.err == nil {
 		return run.Continue(0)
 	}
@@ -342,7 +331,7 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sample := RejectedStepConformanceCase{
+	sample := RejectedStepConformanceCase{Turn: definitionTurn(1),
 		Name: "sample", State: state,
 		FailureKind: run.FailureKindContract, FailureCode: "agenttest.rejected",
 	}

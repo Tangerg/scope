@@ -20,7 +20,6 @@ func (opaqueEncoding) MarshalJSON() ([]byte, error) { return []byte(`{"value":tr
 
 func TestForRejectsUnmodeledCustomEncoding(t *testing.T) {
 	for name, derive := range map[string]func() error{
-		"schema": func() error { _, err := jsonschema.For[jsonschema.Schema](); return err },
 		"opaque": func() error { _, err := jsonschema.For[opaqueEncoding](); return err },
 		"nested": func() error {
 			_, err := jsonschema.For[struct {
@@ -34,6 +33,56 @@ func TestForRejectsUnmodeledCustomEncoding(t *testing.T) {
 				t.Fatalf("For error=%v", err)
 			}
 		})
+	}
+}
+
+func TestForUsesSchemaOwnedDocumentShape(t *testing.T) {
+	shape, err := jsonschema.For[jsonschema.Schema]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type declaration struct {
+		Contract jsonschema.Schema `json:"contract"`
+	}
+	nestedShape, err := jsonschema.For[declaration]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, document := range []string{
+		`true`, `false`, `{}`, `{"type":"integer"}`,
+		`{"$defs":{"answer":{"type":"integer"}},"$ref":"#/$defs/answer"}`,
+	} {
+		if err := shape.Validate([]byte(document)); err != nil {
+			t.Fatalf("schema document shape rejected %s: %v", document, err)
+		}
+		contract, parseErr := jsonschema.Parse([]byte(document))
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		encoded, marshalErr := jsonv2.Marshal(declaration{Contract: contract})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if validateErr := nestedShape.Validate(encoded); validateErr != nil {
+			t.Fatalf("nested contract rejected %s: %v", encoded, validateErr)
+		}
+		var restored declaration
+		if decodeErr := jsonv2.Unmarshal(encoded, &restored); decodeErr != nil || !restored.Contract.Equal(contract) {
+			t.Fatalf("nested schema round trip changed its contract: %s, %v", encoded, decodeErr)
+		}
+	}
+	for _, document := range []string{`null`, `42`, `"object"`, `[]`, `[true]`} {
+		if err := shape.Validate([]byte(document)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Fatalf("non-schema wire shape accepted %s: %v", document, err)
+		}
+		if err := nestedShape.Validate([]byte(`{"contract":` + document + `}`)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Fatalf("nested non-schema wire shape accepted %s: %v", document, err)
+		}
+	}
+	retained := personSchema(t)
+	value := declaration{Contract: retained}
+	if err := jsonv2.Unmarshal([]byte(`{"contract":{"type":"unknown"}}`), &value); !errors.Is(err, jsonschema.ErrInvalid) || !value.Contract.Equal(retained) {
+		t.Fatalf("document shape bypassed Parse's semantic validation: %v", err)
 	}
 }
 

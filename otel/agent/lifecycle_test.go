@@ -1,228 +1,205 @@
 package agent_test
 
 import (
-	startrand "crypto/rand"
-
 	"context"
+	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
-	"testing/synctest"
-	"time"
 
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/Tangerg/scope/agent/coordination"
 	"github.com/Tangerg/scope/agent/run"
-	agentotel "github.com/Tangerg/scope/otel/agent"
+	"github.com/Tangerg/scope/agent/workflow"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-func TestObserverRetainsTerminationClassificationWithoutFailure(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		status    run.Status
-		cause     run.TerminationCause
-		errorType string
-	}{
-		{name: "canceled", status: run.StatusCanceled, cause: run.TerminationCauseHostCancellation},
-		{name: "deadline", status: run.StatusTimedOut, cause: run.TerminationCauseHostDeadline, errorType: "agent.host_deadline"},
-		{name: "killed", status: run.StatusKilled, cause: run.TerminationCauseEngineKill, errorType: "agent.engine_kill"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				harness := newObserverHarness(t)
-				paused := make(chan run.ProcessID, 1)
-				engine, err := run.New(t.Context(), run.Config{
-					Store: run.NewMemoryStore(),
-					EventListeners: []run.EventListener{
-						harness.observer,
-						run.EventListenerFunc(func(_ context.Context, event run.Event) {
-							if event.Name() == run.EventProcessPaused {
-								paused <- event.Relation().ProcessID()
-							}
-						}),
-					},
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer func() {
-					if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-						t.Error(closeErr)
-					}
-				}()
-				ctx, cancel := context.WithCancel(t.Context())
-				if test.status == run.StatusTimedOut {
-					cancel()
-					ctx, cancel = context.WithTimeout(t.Context(), time.Second)
-				}
-				defer cancel()
-				input, err := run.EncodePayload(testInput{Value: "pause"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				var process *run.Handle[run.Payload]
-				var foreground chan error
-				program := testDeployment(t)
-				if test.status == run.StatusTimedOut {
-					foreground = make(chan error, 1)
-					go func() { _, runErr := engine.Run(ctx, program, input); foreground <- runErr }()
-					id := <-paused
-					var found bool
-					process, found = engine.Process(id)
-					if !found {
-						t.Fatal("foreground execution missing before deadline")
-					}
-				} else {
-					process, err = engine.Start(ctx, program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
-					if err != nil {
-						t.Fatal(err)
-					}
-					<-paused
-				}
-				switch test.status {
-				case run.StatusCanceled:
-					if cancelErr := process.Cancel(t.Context(), "private termination reason"); cancelErr != nil {
-						t.Fatal(cancelErr)
-					}
-				case run.StatusTimedOut:
-					time.Sleep(time.Second)
-				case run.StatusKilled:
-					if killErr := process.Kill(t.Context(), "private termination reason"); killErr != nil {
-						t.Fatal(killErr)
-					}
-				}
-				if foreground != nil {
-					if ended, ok := errors.AsType[*run.TerminationError](<-foreground); !ok || ended.Termination.Status() != run.StatusTimedOut {
-						t.Fatal("foreground timeout missing")
-					}
-				}
-				result, err := process.Await(t.Context())
-				if err != nil || result.Termination().Status() != test.status || result.Termination().Cause() != test.cause {
-					t.Fatalf("termination=%+v error=%v", result.Termination(), err)
-				}
-				if err := process.Join(t.Context()); err != nil {
-					t.Fatal(err)
-				}
-				if flushErr := engine.FlushObservations(t.Context()); flushErr != nil {
-					t.Fatal(flushErr)
-				}
-				span := spanByName(t, harness.recorder.Ended(), "invoke_agent test.otel", 0)
-				if stringAttribute(span.Attributes(), "error.type") != test.errorType ||
-					(span.Status().Code == codes.Error) != (test.errorType != "") {
-					t.Fatalf("span status=%v attributes=%v", span.Status(), span.Attributes())
-				}
-				if test.errorType != "" {
-					assertSpanException(t, span, "agent Process "+test.status.String()+": "+test.cause.String())
-				}
-				if strings.Contains(fmt.Sprint(span.Attributes(), span.Events(), span.Status()), "private termination reason") {
-					t.Fatal("caller termination diagnostics entered telemetry")
-				}
-				var metrics metricdata.ResourceMetrics
-				if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
-					t.Fatal(err)
-				}
-				assertSumAttribute(t, metricByName(t, metrics, "agent.process.exits"), "agent.process.cause", test.cause.String())
-				duration := metricByName(t, metrics, "gen_ai.invoke_agent.duration")
-				if histogramCount(t, duration) != 1 {
-					t.Fatal("termination did not record exactly one activation duration")
-				}
-				if test.errorType != "" {
-					assertHistogramAttribute(t, duration, "error.type", test.errorType)
-				}
-			})
-		})
-	}
-}
-
-func TestObserverCloseEndsEveryIncompleteSpanOnce(t *testing.T) {
-	harness := newObserverHarness(t)
-	for _, event := range captureObserverEvents(t) {
-		step, _ := event.StepSequence()
-		if event.Name() == run.EventProcessStarted ||
-			(step == 1 && (event.Name() == run.EventStepStarted || event.Name() == run.EventEffectStarted)) {
-			harness.observer.OnEvent(t.Context(), event)
+func TestUnknownResolutionEndsOneLogicalEffectSpan(t *testing.T) {
+	h := newObserverHarness(t)
+	cause := errors.New("secret dispatch acknowledgment lost")
+	handle, _ := startObservedExecution(t, h, testDispatcher{err: cause})
+	var unknown run.EffectSettled
+	for entry, err := range handle.Observe(t.Context(), 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settled, ok := entry.Record.(run.EffectSettled); ok && settled.Outcome.Status() == run.SettlementStatusUnknown {
+			unknown = settled
+			break
 		}
 	}
-	harness.observer.Close()
-	harness.observer.Close()
-	spans := harness.recorder.Ended()
-	if len(spans) != 3 {
-		t.Fatalf("ended spans=%d, want one process, step, and effect", len(spans))
+	if unknown.Failure == nil {
+		t.Fatal("runtime failure not persisted")
 	}
-	for _, span := range spans {
-		assertSpanException(t, span, "agent otel: span completion was not observed")
-	}
-	var metrics metricdata.ResourceMetrics
-	if err := harness.reader.Collect(t.Context(), &metrics); err != nil {
-		t.Fatal(err)
-	}
-	for _, scope := range metrics.ScopeMetrics {
-		for _, metric := range scope.Metrics {
-			if metric.Name == "agent.process.exits" {
-				t.Fatal("closing observation invented a logical process exit")
-			}
-		}
-	}
-}
-
-func TestObserverRejectsNilContextWithoutRetainingInFlightWork(t *testing.T) {
-	harness := newObserverHarness(t)
-	event := captureProcessStartedEvent(t)
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		harness.observer.OnEvent(nil, event) //nolint:staticcheck // This invalid context proves admission cannot retain in-flight work.
-	}()
-	if recovered == nil {
-		t.Fatal("nil context was accepted")
-	}
-	harness.observer.Close()
-	if len(harness.recorder.Started()) != 0 {
-		t.Fatal("invalid context started observation")
-	}
-}
-
-func TestObserverIgnoresMissingReceiverAndInvalidFacts(t *testing.T) {
-	var missing *agentotel.Observer
-	missing.OnEvent(t.Context(), run.Event{})
-	missing.Close()
-	harness := newObserverHarness(t)
-	harness.observer.OnEvent(t.Context(), run.Event{})
-	if len(harness.recorder.Started()) != 0 {
-		t.Fatal("invalid fact started observation")
-	}
-}
-
-func TestWrapDispatcherRejectsInvalidConstruction(t *testing.T) {
-	for _, observer := range []*agentotel.Observer{nil, {}} {
-		if dispatcher, err := observer.WrapDispatcher(testDispatcher{}); dispatcher != nil || !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
-			t.Fatalf("dispatcher=%v error=%v", dispatcher, err)
-		}
-	}
-	harness := newObserverHarness(t)
-	var typedNil *testDispatcher
-	for _, next := range []run.Dispatcher{nil, typedNil} {
-		if dispatcher, err := harness.observer.WrapDispatcher(next); dispatcher != nil || !errors.Is(err, agentotel.ErrInvalidObserverConfig) {
-			t.Fatalf("dispatcher=%v error=%v", dispatcher, err)
-		}
-	}
-}
-
-func TestClosedObserverPreservesCommitterInvocation(t *testing.T) {
-	harness := newObserverHarness(t)
-	cause := errors.New("storage unavailable")
-	next := &failingObservedDurability{err: cause}
-	committer, err := harness.observer.WrapTreeCommitter(next)
+	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"secret-investigated-result"`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	harness.observer.Close()
-	if err := committer.CommitCheckpoint(t.Context(), run.TreeCheckpoint{}); err != cause || next.calls != 1 { //nolint:errorlint // A closed observer must return the identical error without wrapping it.
-		t.Fatalf("error=%v calls=%d", err, next.calls)
+	if err := handle.ResolveUnknownEffect(t.Context(), unknown.ID, settlement); err != nil {
+		t.Fatal(err)
 	}
-	if len(harness.recorder.Started()) != 0 {
-		t.Fatal("closed observer started a committer span")
+	if _, err := handle.Await(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.observer.Consume(t.Context(), handle, 0); err != nil {
+		t.Fatal(err)
+	}
+	effects, uncertainties := 0, 0
+	for _, span := range h.spans.Ended() {
+		if strings.Contains(span.Status().Description, "secret") {
+			t.Fatal("diagnostic leaked")
+		}
+		if span.Name() != "agent.effect" {
+			continue
+		}
+		effects++
+		if span.Status().Code == codes.Error {
+			t.Fatal("resolved logical effect remained failed")
+		}
+		for _, event := range span.Events() {
+			if event.Name == "agent.effect.unknown" {
+				uncertainties++
+			}
+		}
+	}
+	if effects != 1 || uncertainties != 1 {
+		t.Fatalf("effects=%d uncertainty events=%d", effects, uncertainties)
+	}
+}
+
+func TestChildWaitProjectsParentageAndEveryMessageVariant(t *testing.T) {
+	h := newObserverHarness(t)
+	runtime, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), Build: "otel-child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(context.Background())
+	schema, err := jsonschema.For[string]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, err := coordination.Compile[string, run.Signal](runtime.Compiler(), coordination.Config{Name: "test.gate", Description: "Wait for a string", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, err := workflow.Call(workflow.CallConfig{ID: "gate", Program: gate.Erase()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := workflow.Compile[string, run.Signal](runtime.Compiler(), workflow.Config{Name: "test.parent", Description: "Join a child", Stages: []workflow.Stage{stage}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := runtime.Start(t.Context(), parent, run.StartRequest[string]{ID: run.StartID{Scope: "otel", Key: "child"}, Input: "secret-question"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var owner run.ProcessID
+	var wait run.WaitKey
+	for entry, err := range handle.Observe(t.Context(), 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if step, ok := entry.Record.(run.Stepped); ok && len(step.Transition.Waits()) > 0 {
+			owner, wait = step.Process, step.Transition.Waits()[0].Key
+			break
+		}
+	}
+	child, ok := runtime.Process(owner)
+	if !ok {
+		t.Fatal("child is absent")
+	}
+	if err := child.Answer(t.Context(), wait, "secret-answer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handle.Await(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.observer.Consume(t.Context(), handle, 0); err != nil {
+		t.Fatal(err)
+	}
+	spans := h.spans.Ended()
+	var childFound bool
+	for _, childSpan := range spans {
+		if childSpan.Name() != "invoke_agent test.gate" {
+			continue
+		}
+		for _, parentSpan := range spans {
+			if parentSpan.Name() == "invoke_agent test.parent" && childSpan.Parent().SpanID() == parentSpan.SpanContext().SpanID() {
+				childFound = true
+			}
+		}
+	}
+	if !childFound {
+		t.Fatal("child invocation lost its parent")
+	}
+	var metrics metricdata.ResourceMetrics
+	if err := h.metrics.Collect(t.Context(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	var messages int64
+	for _, scope := range metrics.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "agent.process.accepted_messages" {
+				continue
+			}
+			sum := metric.Data.(metricdata.Sum[int64])
+			for _, point := range sum.DataPoints {
+				messages += point.Value
+			}
+		}
+	}
+	if messages != 3 {
+		t.Fatalf("accepted Signal+Completion+Exit=%d, want 3", messages)
+	}
+}
+
+func TestExecutionFailureProjectsOnlyItsStableClassification(t *testing.T) {
+	h := newObserverHarness(t)
+	runtime, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), Build: "otel-failure"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close(context.Background())
+	stage, err := workflow.Transform("fail", func(context.Context, string) (string, error) { return "", errors.New("secret transform diagnostic") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.failure", Description: "Fail before publication", Revision: "failure", Stages: []workflow.Stage{stage}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := runtime.Start(t.Context(), program, run.StartRequest[string]{ID: run.StartID{Scope: "otel", Key: "failure"}, Input: "input"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := handle.Await(t.Context())
+	if err != nil || result.Termination().Status() != run.StatusFailed {
+		t.Fatal(result, err)
+	}
+	if _, err := h.observer.Consume(t.Context(), handle, 0); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, span := range h.spans.Ended() {
+		if span.Name() != "invoke_agent test.failure" {
+			continue
+		}
+		found = true
+		if span.Status().Code != codes.Error || strings.Contains(span.Status().Description, "secret") {
+			t.Fatal("failure classification lost or leaked")
+		}
+		for _, event := range span.Events() {
+			for _, attribute := range event.Attributes {
+				if strings.Contains(attribute.Value.AsString(), "secret") {
+					t.Fatal("failure diagnostic leaked")
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("failure span absent")
 	}
 }

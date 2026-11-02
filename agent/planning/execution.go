@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/Tangerg/scope/agent/internal/strategy/childcall"
+	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
@@ -16,15 +16,14 @@ import (
 const (
 	failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
 	actionChildKeyPrefix                = "planning.action."
-	actionChildWaitKey                  = "planning.child"
 )
 
 type execution struct {
-	definition *Definition
+	definition *definition
 	state      executionState
 }
 
-func (e *execution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
+func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if e == nil || !e.definition.valid() {
 		return run.Transition{}, ErrInvalidExecutionState
 	}
@@ -33,16 +32,16 @@ func (e *execution) Step(ctx context.Context, signals []run.Signal) (run.Transit
 	}
 	switch e.state.phase(e.definition) {
 	case phaseReadySense:
-		if len(signals) != 0 {
+		if len(turn.Messages) != 0 {
 			return run.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
 		}
-		return e.requestSense(0)
+		return e.requestSense(turn, 0)
 	case phaseAwaitingSense:
-		return e.acceptSense(ctx, signals)
+		return e.acceptSense(ctx, turn)
 	case phaseAwaitingAction:
-		return e.acceptAction(signals)
+		return e.acceptAction(turn)
 	case phaseChild:
-		return e.advanceChild(signals)
+		return e.advanceChild(turn)
 	case phaseCompleted:
 		return run.Transition{}, fmt.Errorf("%w: completed execution cannot advance", ErrInvalidExecutionState)
 	default:
@@ -54,7 +53,7 @@ func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return e.state.snapshot()
 }
 
-func (e *execution) requestSense(consumedSignals uint32) (run.Transition, error) {
+func (e *execution) requestSense(turn run.Turn, consumedMessages uint32) (run.Transition, error) {
 	input, err := e.state.input()
 	if err != nil {
 		return run.Transition{}, err
@@ -63,12 +62,13 @@ func (e *execution) requestSense(consumedSignals uint32) (run.Transition, error)
 	if err != nil {
 		return run.Transition{}, err
 	}
+	e.state.PendingEffect = new(turn.EffectID(0))
 	e.state.Phase = phaseAwaitingSense
-	return run.Continue(consumedSignals, effect)
+	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
-func (e *execution) acceptSense(ctx context.Context, signals []run.Signal) (run.Transition, error) {
-	sensed, failure, err := decodeSettlement[senseResult](signals)
+func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transition, error) {
+	sensed, failure, err := decodeSettlement[senseResult](turn.Messages, e.state.PendingEffect)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -86,12 +86,12 @@ func (e *execution) acceptSense(ctx context.Context, signals []run.Signal) (run.
 		}
 		e.state.confirmAction(binding.action)
 	}
-	return e.decide(ctx, 1)
+	return e.decide(ctx, turn, 1)
 }
 
-func (e *execution) decide(ctx context.Context, consumedSignals uint32) (run.Transition, error) {
+func (e *execution) decide(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
 	if !e.state.needsPlan(e.definition) {
-		return e.complete(ctx, consumedSignals)
+		return e.complete(ctx, consumedMessages)
 	}
 	problem := e.definition.problem(e.state)
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
@@ -99,61 +99,62 @@ func (e *execution) decide(ctx context.Context, consumedSignals uint32) (run.Tra
 		return run.Transition{}, cancelErr
 	}
 	if err != nil {
-		return e.failPlanning(consumedSignals, run.FailureKindExecution, failureCodePlanningPlannerFailed, err)
+		return e.failPlanning(consumedMessages, run.FailureKindExecution, failureCodePlanningPlannerFailed, err)
 	}
 	if !found {
-		return e.complete(ctx, consumedSignals)
+		return e.complete(ctx, consumedMessages)
 	}
 	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
-		return e.failPlanning(consumedSignals, run.FailureKindContract, failureCodePlanningPlannerContract, err)
+		return e.failPlanning(consumedMessages, run.FailureKindContract, failureCodePlanningPlannerContract, err)
 	}
 	binding, found := e.definition.binding(plan.actions[0].name)
 	if !found {
 		return stepfail.Transition(
-			consumedSignals, run.FailureKindContract, failureCodePlanningPlannerContract,
-			"Planner selected an Action outside the Planning Definition",
+			consumedMessages, run.FailureKindContract, failureCodePlanningPlannerContract,
+			"Planner selected an Action outside the Planning definition",
 		)
 	}
-	return e.startAction(consumedSignals, binding)
+	return e.startAction(turn, consumedMessages, binding)
 }
 
 // failPlanning keeps cancellation a Step error rather than a Planner Failure.
-func (e *execution) failPlanning(consumedSignals uint32, kind run.FailureKind, code string, err error) (run.Transition, error) {
+func (e *execution) failPlanning(consumedMessages uint32, kind run.FailureKind, code string, err error) (run.Transition, error) {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return run.Transition{}, err
 	}
-	return stepfail.Transition(consumedSignals, kind, code, err.Error())
+	return stepfail.Transition(consumedMessages, kind, code, err.Error())
 }
 
-func (e *execution) startAction(consumedSignals uint32, binding ActionBinding) (run.Transition, error) {
+func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding ActionBinding) (run.Transition, error) {
 	input, err := e.state.input()
 	if err != nil {
 		return run.Transition{}, err
 	}
 	if binding.delegatesToChild() {
-		return e.startChild(consumedSignals, binding, input)
+		return e.startChild(turn, consumedMessages, binding, input)
 	}
 	effect, err := newActionEffect(input, binding, e.state.WorldState)
 	if err != nil {
 		return run.Transition{}, err
 	}
+	e.state.PendingEffect = new(turn.EffectID(0))
 	e.state.CurrentActionName = binding.action.name
 	e.state.Phase = phaseAwaitingAction
-	return run.Continue(consumedSignals, effect)
+	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
-func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, input run.Payload) (run.Transition, error) {
+func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding ActionBinding, input run.Payload) (run.Transition, error) {
 	childInput := input
 	if binding.childInput != nil {
 		var err error
 		childInput, err = binding.childInput(input, e.state.WorldState)
 		if err != nil {
-			return stepfail.Transition(consumedSignals, run.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
+			return stepfail.Transition(consumedMessages, run.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
 		}
 	}
 	if !childInput.Valid() {
 		return stepfail.Transition(
-			consumedSignals, run.FailureKindContract, failureCodePlanningChildInputInvalid,
+			consumedMessages, run.FailureKindContract, failureCodePlanningChildInputInvalid,
 			"Child input function returned an invalid Input",
 		)
 	}
@@ -161,17 +162,19 @@ func (e *execution) startChild(consumedSignals uint32, binding ActionBinding, in
 	if err != nil {
 		return run.Transition{}, err
 	}
-	effect, err := run.NewChildStartEffect(binding.childSpec(key, childInput))
+	invocation, effect, err := child.Start(turn, 0, binding.childSpec(key, childInput))
 	if err != nil {
 		return run.Transition{}, err
 	}
+	e.state.PendingEffect = nil
+	e.state.Child = &invocation
 	e.state.CurrentActionName = binding.action.name
 	e.state.Phase = phaseAwaitingAction
-	return run.Continue(consumedSignals, effect)
+	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
-func (e *execution) acceptAction(signals []run.Signal) (run.Transition, error) {
-	_, failure, err := decodeSettlement[actionCompleted](signals)
+func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
+	_, failure, err := decodeSettlement[actionCompleted](turn.Messages, e.state.PendingEffect)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -181,67 +184,37 @@ func (e *execution) acceptAction(signals []run.Signal) (run.Transition, error) {
 		}
 		e.state.recordFailedAction(failure.Diagnostic)
 	}
-	return e.requestSense(1)
+	return e.requestSense(turn, 1)
 }
 
-func (e *execution) advanceChild(signals []run.Signal) (run.Transition, error) {
-	phase := e.state.Child.Phase()
-	signal, err := e.state.Child.Window(signals)
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	if phase == childcall.PhaseAwaitingStart {
-		return e.acceptChildStart(signal)
-	}
-	waitKey, err := planningChildWaitKey()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	if phase == childcall.PhaseAwaitingOpening {
-		waitID, openErr := e.state.Child.AcceptOpening(signal)
-		if openErr != nil {
-			return run.Transition{}, fmt.Errorf("%w: child wait opening: %w", ErrInvalidProtocol, openErr)
+func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
+	var consumed uint32
+	for _, message := range turn.Messages {
+		accepted, err := e.state.Child.Accept(message)
+		if err != nil {
+			return run.Transition{}, err
 		}
-		return run.Wait(1, waitID)
+		if !accepted {
+			return run.Transition{}, ErrInvalidProtocol
+		}
+		consumed++
+		if e.state.Child.Done() {
+			break
+		}
 	}
-	outcome, err := e.state.Child.Complete(signal, waitKey, run.ChildWaitBoundaryDrained)
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
+	if !e.state.Child.Done() {
+		return run.Yield(consumed, nil)
 	}
-	if !outcome.SubtreeResolved() {
-		unresolved, _ := outcome.SubtreeUnresolvedEffects()
-		return stepfail.Transition(1, run.FailureKindExternal, failureCodePlanningChildUnresolvedEffects, fmt.Sprintf("child subtree %s ended with unresolved Effects %v", outcome.Result().ProcessID(), unresolved))
-	}
-	result := outcome.Result()
-	e.state.Child = childcall.Single{}
-	if result.Termination().Status() != run.StatusCompleted {
-		e.state.recordFailedAction(result.Termination().Reason())
-	}
-	return e.requestSense(1)
-}
-
-func (e *execution) acceptChildStart(signal run.Signal) (run.Transition, error) {
-	result, err := e.state.Child.AcceptStart(signal)
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: child start: %w", ErrInvalidProtocol, err)
-	}
-	if failure, failed := result.Failure(); failed {
+	if failure := e.state.Child.Rejection; failure != nil {
 		e.state.recordFailedAction(failure.Code() + ": " + failure.Message())
-		e.state.Child = childcall.Single{}
-		return e.requestSense(1)
+	} else if outcome := e.state.Child.Termination; outcome.Status() != run.StatusCompleted {
+		e.state.recordFailedAction(outcome.Reason())
 	}
-	waitKey, err := planningChildWaitKey()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	effect, err := e.state.Child.WaitEffect(waitKey, run.ChildWaitBoundaryDrained)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	return run.Continue(1, effect)
+	e.state.Child = nil
+	return e.requestSense(turn, consumed)
 }
 
-func (e *execution) complete(ctx context.Context, consumedSignals uint32) (run.Transition, error) {
+func (e *execution) complete(ctx context.Context, consumedMessages uint32) (run.Transition, error) {
 	output, err := e.state.complete(ctx, e.definition)
 	if err != nil {
 		return run.Transition{}, err
@@ -250,19 +223,11 @@ func (e *execution) complete(ctx context.Context, consumedSignals uint32) (run.T
 	if err != nil {
 		return run.Transition{}, err
 	}
-	return run.Complete(consumedSignals, erased)
+	return run.Complete(consumedMessages, erased)
 }
 
 func planningChildKey(action string, attempt uint64) (run.ChildKey, error) {
 	return run.ParseChildKey(actionChildKeyPrefix + planningIdentity(action, attempt))
-}
-
-// planningChildWaitKey is the mailbox slot for the single action child's wait.
-// Planning runs one child at a time and consumes each answer before starting the
-// next, so a fixed key never collides; WaitID, derived from the Effect, owns the
-// wait's identity.
-func planningChildWaitKey() (run.WaitKey, error) {
-	return run.ParseWaitKey(actionChildWaitKey)
 }
 
 func planningIdentity(action string, attempt uint64) string {
@@ -274,10 +239,9 @@ func planningIdentity(action string, attempt uint64) string {
 }
 
 const (
-	failureCodePlanningChildInputFailed       = "planning.child.input.failed"
-	failureCodePlanningChildInputInvalid      = "planning.child.input.invalid"
-	failureCodePlanningChildUnresolvedEffects = "planning.child.unresolved_effects"
-	failureCodePlanningPlannerContract        = "planning.planner.contract"
-	failureCodePlanningPlannerFailed          = "planning.planner.failed"
-	failureCodePlanningSensingFailed          = "planning.sensing.failed"
+	failureCodePlanningChildInputFailed  = "planning.child.input.failed"
+	failureCodePlanningChildInputInvalid = "planning.child.input.invalid"
+	failureCodePlanningPlannerContract   = "planning.planner.contract"
+	failureCodePlanningPlannerFailed     = "planning.planner.failed"
+	failureCodePlanningSensingFailed     = "planning.sensing.failed"
 )

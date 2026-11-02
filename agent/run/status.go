@@ -3,6 +3,7 @@ package run
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 const invalidEnumName = "invalid"
@@ -14,12 +15,11 @@ var ErrInvalidStatus = errors.New("run: invalid status")
 type Status string
 
 const (
-	StatusInvalid Status = ""
-	StatusRunning Status = "running"
-	// StatusWaiting identifies a Process awaiting a WaitID-addressed Signal
-	// without an explicit pause. StatusPaused may retain the same unanswered wait.
+	StatusInvalid   Status = ""
+	StatusRunning   Status = "running"
 	StatusWaiting   Status = "waiting"
 	StatusPaused    Status = "paused"
+	StatusDraining  Status = "draining"
 	StatusCompleted Status = "completed"
 	StatusFailed    Status = "failed"
 	StatusCanceled  Status = "canceled"
@@ -43,13 +43,12 @@ func parseStatus(value string) (Status, error) {
 }
 
 func (s Status) Valid() bool {
-	switch s {
-	case StatusRunning, StatusWaiting, StatusPaused,
-		StatusCompleted, StatusFailed, StatusCanceled, StatusTimedOut, StatusKilled:
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(s.JSONSchemaEnum(), string(s))
+}
+
+func (Status) JSONSchemaEnum() []string {
+	return []string{string(StatusRunning), string(StatusWaiting), string(StatusPaused), string(StatusDraining),
+		string(StatusCompleted), string(StatusFailed), string(StatusCanceled), string(StatusTimedOut), string(StatusKilled)}
 }
 
 // Terminal reports whether the Process may never transition again.
@@ -62,25 +61,15 @@ func (s Status) Terminal() bool {
 	}
 }
 
-func (s Status) acceptsSignals() bool { return s.Valid() && !s.Terminal() }
-
-// parked reports a live status that cannot advance on its own: it waits for
-// input or for Resume.
-func (s Status) parked() bool { return s == StatusWaiting || s == StatusPaused }
-
-// pausable reports a live status that Pause can park.
-func (s Status) pausable() bool { return s == StatusRunning || s == StatusWaiting }
-
 func (s Status) MarshalText() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidStatus
 	}
 	return []byte(s), nil
 }
-
 func (s *Status) UnmarshalText(text []byte) error {
 	if s == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidStatus)
+		return ErrInvalidStatus
 	}
 	value, err := parseStatus(string(text))
 	if err != nil {
@@ -88,20 +77,4 @@ func (s *Status) UnmarshalText(text []byte) error {
 	}
 	*s = value
 	return nil
-}
-
-// lifecycleStatus is the one projection of the facts that park or terminate
-// execution. Pausing preserves an unanswered wait; answering it does not
-// resume a pause.
-func lifecycleStatus(termination Termination, paused, waiting bool) Status {
-	switch {
-	case termination.Valid():
-		return termination.Status()
-	case paused:
-		return StatusPaused
-	case waiting:
-		return StatusWaiting
-	default:
-		return StatusRunning
-	}
 }

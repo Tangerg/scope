@@ -16,5 +16,4 @@ func (QualifiedName) JSONSchemaPattern() string { return qualifiedNamePattern.St
 
 var qualifiedNamePattern = regexp.MustCompile(fmt.Sprintf(`^[a-z][a-z0-9._-]{0,%d}$`, maxQualifiedNameBytes-1))
 
-// ValidQualifiedName checks the lowercase ASCII name grammar and byte bound.
 func ValidQualifiedName(name string) bool { return qualifiedNamePattern.MatchString(name) }

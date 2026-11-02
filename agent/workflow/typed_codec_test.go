@@ -1,6 +1,7 @@
-package workflow_test
+package workflow
 
 import (
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run/runtest"
 
 	"context"
@@ -9,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
+
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -34,81 +35,81 @@ func (wrongShape) MarshalJSON() ([]byte, error) { return []byte(`"not an integer
 func (wrongShape) JSONSchemaModel() any         { return int(0) }
 
 func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
-	child := mustDeployment(t, mustDefinition(t, "workflow.codec_child",
+	child := mustProgram(t, mustDefinition(t, "codec_child",
 		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
 	), "codec-child")
-	branches := []workflow.ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}}
+	branches := []ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}}
 	for _, test := range []struct {
 		name       string
 		input      any
-		stage      func() (workflow.Stage, error)
+		stage      func() (Stage, error)
 		diagnostic string
 	}{
-		{"transform_input", 3, func() (workflow.Stage, error) {
-			return workflow.Transform("work", func(context.Context, refusingDecode) (int, error) { return 0, nil })
+		{"transform_input", 3, func() (Stage, error) {
+			return Transform("work", func(context.Context, refusingDecode) (int, error) { return 0, nil })
 		}, errDecodeValue.Error()},
-		{"transform_output", 3, func() (workflow.Stage, error) {
-			return workflow.Transform("work", func(context.Context, int) (refusingEncode, error) { return 0, nil })
+		{"transform_output", 3, func() (Stage, error) {
+			return Transform("work", func(context.Context, int) (refusingEncode, error) { return 0, nil })
 		}, errEncodeValue.Error()},
-		{"transform_output_schema", 3, func() (workflow.Stage, error) {
-			return workflow.Transform("work", func(context.Context, int) (wrongShape, error) { return 0, nil })
+		{"transform_output_schema", 3, func() (Stage, error) {
+			return Transform("work", func(context.Context, int) (wrongShape, error) { return 0, nil })
 		}, "output contract"},
-		{"switch_input", 3, func() (workflow.Stage, error) {
-			return workflow.Switch(workflow.SwitchConfig[refusingDecode]{ID: "work",
-				Cases:  []workflow.SwitchCase{{ID: "child", Program: codecDeployment[refusingDecode, int](t), Budget: mustBudget(t)}},
+		{"switch_input", 3, func() (Stage, error) {
+			return Switch(SwitchConfig[refusingDecode]{ID: "work",
+				Cases:  []SwitchCase{{ID: "child", Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t)}},
 				Select: func(context.Context, refusingDecode) (string, error) { return "child", nil },
 			})
 		}, errDecodeValue.Error()},
-		{"fork_input", 3, func() (workflow.Stage, error) {
-			return workflow.Fork(workflow.ForkConfig[refusingDecode, int, int]{ID: "work", Branches: codecBranches[refusingDecode, int](t), WindowSize: 1,
+		{"fork_input", 3, func() (Stage, error) {
+			return Fork(ForkConfig[refusingDecode, int, int]{ID: "work", Branches: codecBranches[refusingDecode, int](t), WindowSize: 1,
 				Reduce: func(context.Context, refusingDecode, []int) (int, error) { return 0, nil },
 			})
 		}, errDecodeValue.Error()},
-		{"fork_branch", 3, func() (workflow.Stage, error) {
-			return workflow.Fork(workflow.ForkConfig[int, refusingDecode, int]{ID: "work", Branches: codecBranches[int, refusingDecode](t), WindowSize: 1,
+		{"fork_branch", 3, func() (Stage, error) {
+			return Fork(ForkConfig[int, refusingDecode, int]{ID: "work", Branches: codecBranches[int, refusingDecode](t), WindowSize: 1,
 				Reduce: func(context.Context, int, []refusingDecode) (int, error) { return 0, nil },
 			})
 		}, errDecodeValue.Error()},
-		{"fork_output", 3, func() (workflow.Stage, error) {
-			return workflow.Fork(workflow.ForkConfig[int, int, refusingEncode]{ID: "work", Branches: branches, WindowSize: 1,
+		{"fork_output", 3, func() (Stage, error) {
+			return Fork(ForkConfig[int, int, refusingEncode]{ID: "work", Branches: branches, WindowSize: 1,
 				Reduce: func(context.Context, int, []int) (refusingEncode, error) { return 0, nil },
 			})
 		}, errEncodeValue.Error()},
-		{"fork_output_schema", 3, func() (workflow.Stage, error) {
-			return workflow.Fork(workflow.ForkConfig[int, int, wrongShape]{ID: "work", Branches: branches, WindowSize: 1,
+		{"fork_output_schema", 3, func() (Stage, error) {
+			return Fork(ForkConfig[int, int, wrongShape]{ID: "work", Branches: branches, WindowSize: 1,
 				Reduce: func(context.Context, int, []int) (wrongShape, error) { return 0, nil },
 			})
 		}, "result contract"},
-		{"map_input_decode", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[refusingDecode, int]{ID: "work", Program: codecDeployment[refusingDecode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_input_decode", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[refusingDecode, int]{ID: "work", Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, errDecodeValue.Error()},
-		{"map_input_encode", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[refusingEncode, int]{ID: "work", Program: codecDeployment[refusingEncode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_input_encode", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[refusingEncode, int]{ID: "work", Program: codecProgram[refusingEncode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, errEncodeValue.Error()},
-		{"map_input_schema", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[wrongShape, int]{ID: "work", Program: codecDeployment[wrongShape, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_input_schema", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[wrongShape, int]{ID: "work", Program: codecProgram[wrongShape, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, "integer"},
-		{"map_output_decode", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[int, refusingDecode]{ID: "work", Program: codecDeployment[int, refusingDecode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_output_decode", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[int, refusingDecode]{ID: "work", Program: codecProgram[int, refusingDecode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, errDecodeValue.Error()},
-		{"map_output_encode", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[int, refusingEncode]{ID: "work", Program: codecDeployment[int, refusingEncode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_output_encode", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[int, refusingEncode]{ID: "work", Program: codecProgram[int, refusingEncode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, errEncodeValue.Error()},
-		{"map_output_schema", []int{3}, func() (workflow.Stage, error) {
-			return workflow.Map(workflow.MapConfig[int, wrongShape]{ID: "work", Program: codecDeployment[int, wrongShape](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+		{"map_output_schema", []int{3}, func() (Stage, error) {
+			return Map(MapConfig[int, wrongShape]{ID: "work", Program: codecProgram[int, wrongShape](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
 		}, "result contract"},
-		{"loop_decode", 3, func() (workflow.Stage, error) {
-			return workflow.Loop(workflow.LoopConfig[refusingDecode]{ID: "work", Body: codecDeployment[refusingDecode, refusingDecode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+		{"loop_decode", 3, func() (Stage, error) {
+			return Loop(LoopConfig[refusingDecode]{ID: "work", Body: codecProgram[refusingDecode, refusingDecode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, refusingDecode) (bool, error) { return true, nil },
 			})
 		}, errDecodeValue.Error()},
-		{"loop_encode", 3, func() (workflow.Stage, error) {
-			return workflow.Loop(workflow.LoopConfig[refusingEncode]{ID: "work", Body: codecDeployment[refusingEncode, refusingEncode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+		{"loop_encode", 3, func() (Stage, error) {
+			return Loop(LoopConfig[refusingEncode]{ID: "work", Body: codecProgram[refusingEncode, refusingEncode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, refusingEncode) (bool, error) { return true, nil },
 			})
 		}, errEncodeValue.Error()},
-		{"loop_output_schema", 3, func() (workflow.Stage, error) {
-			return workflow.Loop(workflow.LoopConfig[wrongShape]{ID: "work", Body: codecDeployment[wrongShape, wrongShape](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+		{"loop_output_schema", 3, func() (Stage, error) {
+			return Loop(LoopConfig[wrongShape]{ID: "work", Body: codecProgram[wrongShape, wrongShape](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, wrongShape) (bool, error) { return true, nil },
 			})
 		}, "integer"},
@@ -118,14 +119,14 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			deployment := mustDeployment(t, mustDefinition(t, "workflow.codec_"+test.name, stage), test.name)
+			program := mustProgram(t, mustDefinition(t, "codec_"+test.name, stage), test.name)
 			store := run.NewMemoryStore()
-			engine, err := run.New(t.Context(), run.Config{Store: store})
+			runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: store})
 			if err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+				if closeErr := runtime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})
@@ -133,7 +134,7 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := runtest.Observe(t.Context(), engine, deployment, input)
+			result, err := runtest.Observe(t.Context(), runtime, program, input)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,18 +145,18 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 			if _, completed := result.Termination().Output(); completed {
 				t.Fatal("invalid typed value escaped as a completed output")
 			}
-			head, found, err := store.LoadTree(t.Context(), result.ProcessID())
+			head, found, err := store.Load(t.Context(), result.ProcessID())
 			if err != nil || !found {
 				t.Fatalf("codec rejection was not durably committed: found=%t error=%v", found, err)
 			}
-			if _, err := run.ParseTreeSnapshot(head.JSON()); err != nil {
+			if err := head.Validate(); err != nil {
 				t.Fatalf("codec rejection corrupted the retained tree: %v", err)
 			}
 		})
 	}
 }
 
-func codecDeployment[I, O any](t *testing.T) run.Program[run.Payload, run.Payload] {
+func codecProgram[I, O any](t *testing.T) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	input, err := jsonschema.For[I]()
 	if err != nil {
@@ -166,17 +167,17 @@ func codecDeployment[I, O any](t *testing.T) run.Program[run.Payload, run.Payloa
 		t.Fatal(err)
 	}
 	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name: "workflow.codec_child", Description: "Return the admitted wire value without the consuming stage's Go codec.",
+		Name: "codec_child", Description: "Return the admitted wire value without the consuming stage's Go codec.",
 		InputSchema: input, OutputSchema: output,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return mustDeployment(t, codecDefinition{descriptor: descriptor}, "codec-child")
+	return mustProgram(t, codecDefinition{descriptor: descriptor}, "codec-child")
 }
-func codecBranches[I, O any](t *testing.T) []workflow.ForkBranch {
+func codecBranches[I, O any](t *testing.T) []ForkBranch {
 	t.Helper()
-	return []workflow.ForkBranch{{ID: "child", Program: codecDeployment[I, O](t), Budget: mustBudget(t)}}
+	return []ForkBranch{{ID: "child", Program: codecProgram[I, O](t), Budget: mustBudget(t)}}
 }
 
 type codecDefinition struct{ descriptor run.Descriptor }
@@ -200,9 +201,9 @@ func (codecDefinition) Restore(ctx context.Context, state run.ExecutionState) (r
 type codecExecution struct{ input run.Payload }
 
 func (c codecExecution) Snapshot() (run.ExecutionState, error) {
-	return run.ParseExecutionState("workflow.codec_child", c.input.JSON())
+	return run.ParseExecutionState("codec_child", c.input.JSON())
 }
-func (c codecExecution) Step(ctx context.Context, _ []run.Signal) (run.Transition, error) {
+func (c codecExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}

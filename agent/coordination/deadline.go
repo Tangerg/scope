@@ -13,42 +13,30 @@ import (
 
 const deadlineStateKind = "coordination.deadline"
 
-// DeadlineConfig names the immutable deadline Definition. Each execution's
-// absolute instant is supplied as Input and retained in its state.
-type DeadlineConfig struct {
-	Name        string
-	Description string
-}
+type deadlineDefinition struct{ descriptor run.Descriptor }
 
-// Deadline accepts an absolute time.Time and completes with that same instant
-// after DeadlineDispatcher acknowledges reaching it. Step never reads the clock. Restoration
-// retains the absolute deadline rather than restarting a relative delay.
-type Deadline struct{ descriptor run.Descriptor }
-
-func NewDeadline(config DeadlineConfig) (*Deadline, error) {
+func newDeadline(name, description string) (*deadlineDefinition, error) {
 	schema, err := jsonschema.For[time.Time]()
 	if err != nil {
 		return nil, err
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name: config.Name, Description: config.Description, InputSchema: schema, OutputSchema: schema,
-	})
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: name, Description: description, InputSchema: schema, OutputSchema: schema})
 	if err != nil {
-		return nil, fmt.Errorf("%w: deadline descriptor: %w", ErrInvalidConfig, err)
+		return nil, err
 	}
-	return &Deadline{descriptor: descriptor}, nil
+	return &deadlineDefinition{descriptor: descriptor}, nil
 }
 
-func (*Deadline) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+func (*deadlineDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
-func (d *Deadline) Descriptor() run.Descriptor {
+func (d *deadlineDefinition) Descriptor() run.Descriptor {
 	if d == nil {
 		return run.Descriptor{}
 	}
 	return d.descriptor
 }
 
-func (d *Deadline) Start(input run.Payload) (run.Execution, error) {
+func (d *deadlineDefinition) Start(input run.Payload) (run.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -66,7 +54,7 @@ func (d *Deadline) Start(input run.Payload) (run.Execution, error) {
 	return &deadlineExecution{state: state}, nil
 }
 
-func (d *Deadline) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+func (d *deadlineDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -79,7 +67,7 @@ func (d *Deadline) Restore(ctx context.Context, state run.ExecutionState) (run.E
 	return &deadlineExecution{state: decoded}, nil
 }
 
-func (d *Deadline) valid() bool {
+func (d *deadlineDefinition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
@@ -98,11 +86,15 @@ func (d deadlinePhase) valid() bool {
 type deadlineState struct {
 	Deadline time.Time     `json:"deadline"`
 	Phase    deadlinePhase `json:"phase"`
+	Effect   *run.EffectID `json:"effect,omitzero"`
 }
 
 func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
 		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidExecutionState)
+	}
+	if (d.Phase == deadlineAwaiting) != (d.Effect != nil) || d.Effect != nil && !d.Effect.Valid() {
+		return ErrInvalidExecutionState
 	}
 	if !d.Phase.valid() {
 		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidExecutionState, d.Phase)
@@ -112,36 +104,38 @@ func (d deadlineState) validate() error {
 
 type deadlineExecution struct{ state deadlineState }
 
-func (d *deadlineExecution) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
+func (d *deadlineExecution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
 	switch d.state.Phase {
 	case deadlineReady:
-		if len(signals) != 0 {
+		if len(turn.Messages) != 0 {
 			return run.Transition{}, fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol)
 		}
 		effect, err := newTimerEffect(d.state.Deadline)
 		if err != nil {
 			return run.Transition{}, err
 		}
+		d.state.Effect = new(turn.EffectID(0))
 		d.state.Phase = deadlineAwaiting
-		return run.Continue(0, effect)
+		return run.Yield(0, []run.Effect{effect})
 	case deadlineAwaiting:
-		return d.acceptTimer(signals)
+		return d.acceptTimer(turn.Messages)
 	default:
 		return run.Transition{}, fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol)
 	}
 }
 
-func (d *deadlineExecution) acceptTimer(signals []run.Signal) (run.Transition, error) {
-	if len(signals) != 1 {
+func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition, error) {
+	if len(messages) != 1 {
 		return run.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
 	}
-	settlement, err := signals[0].Frame[run.Settlement]()
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+	completion, ok := messages[0].(run.Completion)
+	if !ok || d.state.Effect == nil || completion.Effect != *d.state.Effect {
+		return run.Transition{}, ErrInvalidProtocol
 	}
+	settlement := completion.Outcome
 	payload, err := run.ParsePayload(settlement.Payload())
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: timer settlement payload: %w", ErrInvalidProtocol, err)
@@ -163,6 +157,7 @@ func (d *deadlineExecution) acceptTimer(signals []run.Signal) (run.Transition, e
 	if _, err = payload.Decode[timerReached](); err != nil {
 		return run.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
+	d.state.Effect = nil
 	d.state.Phase = deadlineCompleted
 	output, err := run.EncodePayload(d.state.Deadline)
 	if err != nil {
@@ -177,6 +172,6 @@ func (d *deadlineExecution) Snapshot() (run.ExecutionState, error) {
 
 var _ run.Execution = (*deadlineExecution)(nil)
 
-var _ run.Definition = (*Deadline)(nil)
+var _ run.Definition = (*deadlineDefinition)(nil)
 
 const failureCodeDeadlineInterrupted = "coordination.deadline.interrupted"

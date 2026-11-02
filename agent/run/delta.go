@@ -1,141 +1,54 @@
 package run
 
 import (
-	"bytes"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
-	"errors"
-	"fmt"
+	"sync"
 	"time"
-
-	"github.com/samber/lo"
-
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
 const maxDeltaBytes = 1 << 20
 
-var ErrInvalidDelta = errors.New("run: invalid delta")
-
-// Delta is a bounded, best-effort stream increment from one Effect attempt.
-// EffectSequence preserves emitter admission order. Delta is never replayed from a
-// snapshot and never contributes to the authoritative final Output.
 type Delta struct {
-	processID      ProcessID
-	effectID       EffectID
-	attemptID      EffectAttemptID
-	incarnationID  TreeIncarnationID
-	effectSequence uint64
-	emittedAt      time.Time
-	payload        json.RawMessage
+	effect    EffectID
+	epoch     Epoch
+	sequence  uint64
+	emittedAt time.Time
+	payload   Payload
 }
 
-func newDelta(
-	processID ProcessID,
-	effectID EffectID,
-	incarnationID TreeIncarnationID,
-	attemptID EffectAttemptID,
-	effectSequence uint64,
-	emittedAt time.Time,
-	payload json.RawMessage,
-) (Delta, error) {
-	if !processID.Valid() || !effectID.Valid() || !attemptID.Valid() {
-		return Delta{}, fmt.Errorf("%w: process, effect and attempt IDs are required", ErrInvalidDelta)
-	}
-	if incarnationID != (TreeIncarnationID{}) && !incarnationID.Valid() {
-		return Delta{}, fmt.Errorf("%w: tree incarnation is invalid", ErrInvalidDelta)
-	}
-	if effectSequence == 0 {
-		return Delta{}, fmt.Errorf("%w: Effect sequence must be greater than zero", ErrInvalidDelta)
-	}
-	if emittedAt.IsZero() {
-		return Delta{}, fmt.Errorf("%w: emission time is required", ErrInvalidDelta)
-	}
-	normalized, err := normalizeJSON(payload, maxDeltaBytes)
-	if err != nil {
-		return Delta{}, fmt.Errorf("%w: payload: %w", ErrInvalidDelta, err)
-	}
-	return Delta{
-		processID:      processID,
-		effectID:       effectID,
-		attemptID:      attemptID,
-		incarnationID:  incarnationID,
-		effectSequence: effectSequence,
-		emittedAt:      canonicalTime(emittedAt),
-		payload:        normalized,
-	}, nil
-}
-
-func (d Delta) ProcessID() ProcessID { return d.processID }
-
-// EffectID identifies the logical Effect and remains stable across replay attempts.
-func (d Delta) EffectID() EffectID { return d.effectID }
-
-// AttemptID correlates this increment with EffectStarted, EffectFinished and
-// DeltaDropped facts. Sequence numbers are scoped to this attempt.
-func (d Delta) AttemptID() EffectAttemptID { return d.attemptID }
-
-// TreeIncarnationID returns the active writer that emitted this delta.
-func (d Delta) TreeIncarnationID() (TreeIncarnationID, bool) {
-	return d.incarnationID, d.incarnationID.Valid()
-}
-
-// EffectSequence returns the one-based emitter admission order within the Effect
-// attempt. Delivered sequences increase; dropped payloads leave gaps. Exhausting
-// the sequence space drops further increments from that attempt.
-func (d Delta) EffectSequence() uint64 { return d.effectSequence }
-
-func (d Delta) EmittedAt() time.Time { return d.emittedAt }
-
-// Payload returns an independently owned Strategy-defined increment.
-func (d Delta) Payload() json.RawMessage { return bytes.Clone(d.payload) }
-
+func (d Delta) ProcessID() ProcessID     { return d.effect.Process }
+func (d Delta) EffectID() EffectID       { return d.effect }
+func (d Delta) Epoch() Epoch             { return d.epoch }
+func (d Delta) EffectSequence() uint64   { return d.sequence }
+func (d Delta) EmittedAt() time.Time     { return d.emittedAt }
+func (d Delta) Payload() json.RawMessage { return d.payload.JSON() }
 func (d Delta) Valid() bool {
-	return d.processID.Valid() && d.effectID.Valid() && d.attemptID.Valid() && d.effectSequence > 0 &&
-		(d.incarnationID == (TreeIncarnationID{}) || d.incarnationID.Valid()) &&
-		!d.emittedAt.IsZero() && len(d.payload) > 0
+	return d.effect.Valid() && d.epoch > 0 && d.sequence > 0 && d.payload.Valid()
 }
 
-func (d Delta) MarshalJSON() ([]byte, error) {
-	if !d.Valid() {
-		return nil, ErrInvalidDelta
-	}
-	return jsonv2.Marshal(deltaWire{
-		ProcessID:      d.processID,
-		EffectID:       d.effectID,
-		AttemptID:      d.attemptID,
-		EffectSequence: d.effectSequence,
-		EmittedAt:      d.emittedAt,
-		Payload:        d.payload,
-		IncarnationID:  lo.EmptyableToPtr(d.incarnationID),
-	})
+// One emitter serializes its producers. The channel is Host-owned and must stay
+// open until Runtime.Close returns. Full channels drop increments, never facts.
+type deltaEmitter struct {
+	mu       sync.Mutex
+	request  EffectRequest
+	channel  chan<- Delta
+	sequence uint64
 }
 
-func (d *Delta) UnmarshalJSON(data []byte) error {
-	if d == nil {
-		return fmt.Errorf("%w: nil receiver", ErrInvalidDelta)
+func (d *deltaEmitter) emit(raw json.RawMessage) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.sequence == ^uint64(0) {
+		return
 	}
-	wire, err := jsonwire.Decode[deltaWire](data)
+	d.sequence++
+	normalized, err := normalizeJSON(raw, maxDeltaBytes)
 	if err != nil {
-		return fmt.Errorf("%w: decode: %w", ErrInvalidDelta, err)
+		return
 	}
-	value, err := newDelta(
-		wire.ProcessID, wire.EffectID, lo.FromPtr(wire.IncarnationID), wire.AttemptID,
-		wire.EffectSequence, wire.EmittedAt, wire.Payload,
-	)
-	if err != nil {
-		return err
+	delta := Delta{effect: d.request.ID(), epoch: d.request.Epoch(), sequence: d.sequence, emittedAt: canonicalTime(time.Now()), payload: Payload{data: normalized}}
+	select {
+	case d.channel <- delta:
+	default:
 	}
-	*d = value
-	return nil
-}
-
-type deltaWire struct {
-	AttemptID      EffectAttemptID    `json:"attempt_id"`
-	ProcessID      ProcessID          `json:"process_id"`
-	EffectID       EffectID           `json:"effect_id"`
-	IncarnationID  *TreeIncarnationID `json:"tree_incarnation_id,omitzero"`
-	EffectSequence uint64             `json:"effect_sequence"`
-	EmittedAt      time.Time          `json:"emitted_at"`
-	Payload        json.RawMessage    `json:"payload"`
 }

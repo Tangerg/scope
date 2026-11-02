@@ -12,9 +12,9 @@ import (
 
 const executionStateKind = "workflow"
 
-// DefinitionConfig contains one immutable managed Workflow behavior. Stages
+// definitionConfig contains one immutable managed Workflow behavior. Stages
 // execute in declaration order and must have exactly matching adjacent schemas.
-type DefinitionConfig struct {
+type definitionConfig struct {
 	Name string
 
 	Description string
@@ -22,13 +22,13 @@ type DefinitionConfig struct {
 	Stages []Stage
 }
 
-// Definition is an immutable managed Workflow Strategy.
-type Definition struct {
+// definition is an immutable managed Workflow Strategy.
+type definition struct {
 	descriptor run.Descriptor
 	stages     []Stage
 }
 
-func NewDefinition(config DefinitionConfig) (*Definition, error) {
+func newDefinition(config definitionConfig) (*definition, error) {
 	if len(config.Stages) == 0 || uint64(len(config.Stages)) > math.MaxUint32 {
 		return nil, fmt.Errorf("%w: Stages must contain 1 to %d entries", ErrInvalidDefinitionConfig, uint64(math.MaxUint32))
 	}
@@ -56,17 +56,17 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
 	}
-	return &Definition{descriptor: descriptor, stages: stages}, nil
+	return &definition{descriptor: descriptor, stages: stages}, nil
 }
 
-func (d *Definition) Descriptor() run.Descriptor {
+func (d *definition) Descriptor() run.Descriptor {
 	if d == nil {
 		return run.Descriptor{}
 	}
 	return d.descriptor
 }
 
-func (d *Definition) Start(input run.Payload) (run.Execution, error) {
+func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -77,8 +77,8 @@ func (d *Definition) Start(input run.Payload) (run.Execution, error) {
 	return &execution{definition: d, state: state}, nil
 }
 
-// Restore rejects progress inconsistent with the exact Definition bindings.
-func (d *Definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+// Restore rejects progress inconsistent with the exact definition bindings.
+func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig
 	}
@@ -91,27 +91,27 @@ func (d *Definition) Restore(ctx context.Context, state run.ExecutionState) (run
 	return &execution{definition: d, state: decoded}, nil
 }
 
-func (d *Definition) valid() bool {
+func (d *definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
 // ChildPrograms returns the exact child binding of every Stage.
-func (d *Definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
+func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	if !d.valid() {
 		return nil
 	}
 	var children []run.Program[run.Payload, run.Payload]
 	for _, stage := range d.stages {
 		for _, binding := range stage.childBindings() {
-			children = append(children, binding.deployment)
+			children = append(children, binding.program)
 		}
 	}
 	return children
 }
 
-// Topology returns a fresh, function-free projection of this Definition. An
-// invalid or nil Definition returns the zero Topology.
-func (d *Definition) Topology() Topology {
+// Topology returns a fresh, function-free projection of this definition. An
+// invalid or nil definition returns the zero Topology.
+func (d *definition) Topology() Topology {
 	if !d.valid() {
 		return Topology{}
 	}
@@ -122,4 +122,4 @@ func (d *Definition) Topology() Topology {
 	return Topology{Descriptor: d.descriptor, Stages: stages}
 }
 
-var _ run.Definition = (*Definition)(nil)
+var _ run.Definition = (*definition)(nil)

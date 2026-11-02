@@ -14,7 +14,7 @@ import (
 const (
 	resumeKeyBytes      = 32
 	maximumTokenBytes   = 8 << 10
-	authorizationDomain = "scope.mcp.managed.v1"
+	authorizationDomain = "scope.mcp.managed"
 )
 
 type callAuthority struct {
@@ -30,9 +30,8 @@ type issuer struct {
 	lifetime time.Duration
 }
 type target struct {
-	Root    run.ProcessID
 	Owner   run.ProcessID
-	Wait    run.WaitID
+	Wait    run.WaitKey
 	Expires time.Time
 }
 
@@ -68,15 +67,19 @@ func (i issuer) open(token string, auth []byte) (target, error) {
 	if err != nil {
 		return t, errContinuation
 	}
-	if err = jsonv2.Unmarshal(raw, &t); err != nil || !t.Root.Valid() || !t.Owner.Valid() || !t.Wait.Valid() || !time.Now().Before(t.Expires) {
+	if err = jsonv2.Unmarshal(raw, &t, jsonv2.RejectUnknownMembers(true)); err != nil || !t.Owner.Valid() || !t.Wait.Valid() || !time.Now().Before(t.Expires) {
 		return target{}, errContinuation
 	}
 	return t, nil
 }
 
-func (t target) pendingIn(head run.TreeSnapshot) bool {
-	for _, pending := range head.Pending() {
-		if pending.WaitID == t.Wait && pending.ProcessID == t.Owner {
+func (t target) pendingIn(head run.TreeInspection) bool {
+	process, ok := head.Process(t.Owner)
+	if !ok {
+		return false
+	}
+	for _, wait := range process.Waits {
+		if wait.Key == t.Wait {
 			return true
 		}
 	}

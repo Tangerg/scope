@@ -10,13 +10,13 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// DeadlineDispatcher is the stateless Dispatcher for Deadline. Its call owns and stops its
+// deadlineDispatcher is the stateless Dispatcher for Deadline. Its call owns and stops its
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
 // A reached deadline settles Succeeded with an empty object. Malformed timer
 // payloads and cancellation settle Failed with a JSON diagnostic string, so
 // cancellation never leaves an unknown external outcome.
-type DeadlineDispatcher struct{}
+type deadlineDispatcher struct{}
 
 type timerRequest struct {
 	Deadline time.Time `json:"deadline"`
@@ -52,7 +52,7 @@ func decodeTimerEffect(effect run.Effect) (timerRequest, error) {
 	return request, nil
 }
 
-func (DeadlineDispatcher) Policy(effect run.Effect) run.EffectPolicy {
+func (deadlineDispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	if _, err := decodeTimerEffect(effect); err != nil {
 		return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 	}
@@ -60,7 +60,7 @@ func (DeadlineDispatcher) Policy(effect run.Effect) run.EffectPolicy {
 }
 
 // Dispatch requires a non-nil context and panics if ctx is nil.
-func (DeadlineDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
+func (deadlineDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
 	if !request.Valid() {
 		return run.Settlement{}, ErrInvalidProtocol

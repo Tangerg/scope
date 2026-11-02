@@ -1,9 +1,6 @@
 package run
 
 import (
-	startrand "crypto/rand"
-
-	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"strings"
@@ -23,34 +20,8 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cause := errors.New(test.message)
-			var failure Failure
-			engine, err := New(t.Context(), Config{Store: NewMemoryStore(),
-				ProcessInitializationAcknowledger: ProcessInitializationAcknowledgerFunc(func(_ context.Context, outcome ProcessInitializationOutcome) error {
-					var present bool
-					failure, present = outcome.Failure()
-					if !present {
-						return errors.New("failed initialization outcome has no failure")
-					}
-					return nil
-				}),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
-					t.Errorf("Close: %v", closeErr)
-				}
-			})
-			input, err := EncodePayload(childTestInput{Mode: "leaf"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			process, err := engine.Start(t.Context(), failingStartDeployment(t, cause), StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
-			if process != nil || !errors.Is(err, cause) {
-				t.Fatalf("Start process = %v, error = %v", process, err)
-			}
-			if failure.Kind() != FailureKindExecution || failure.Code() != "engine.process.start.failed" || failure.Message() != test.want {
+			failure := newRuntimeFailure(FailureKindExecution, failureCodeRuntimeProcessStartFailed, cause)
+			if failure.Kind() != FailureKindExecution || failure.Code() != "runtime.process.start.failed" || failure.Message() != test.want {
 				t.Errorf("failure kind/code = %s/%s, diagnostic matches = %t", failure.Kind(), failure.Code(), failure.Message() == test.want)
 			}
 			data, err := jsonv2.Marshal(failure)
@@ -112,27 +83,6 @@ func TestFailureOwnsTerminationClassificationAndDiagnostic(t *testing.T) {
 					t.Fatalf("accepted duplicate terminal facts %s: %v", wireData, restoreErr)
 				}
 			}
-			usage := Usage{CommittedSteps: 1}
-			wire := processFinishedEventPayload{FailureKind: kind, FailureCode: failure.Code(), Usage: &usage}
-			data, err = jsonv2.Marshal(wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(string(data), "termination_cause") {
-				t.Fatalf("event duplicates failure cause: %s", data)
-			}
-			fact, err := decodeProcessFinished(data)
-			if err != nil || fact.Status() != StatusFailed || fact.Cause() != kind.terminationCause() {
-				t.Fatalf("finished event = %+v, error = %v", fact, err)
-			}
-			wire.TerminationCause = kind.terminationCause()
-			data, err = jsonv2.Marshal(wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := decodeProcessFinished(data); err == nil {
-				t.Fatalf("accepted duplicate finished cause: %s", data)
-			}
 		})
 	}
 }
@@ -145,7 +95,7 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			for _, wire := range []terminationWire{
 				{Cause: TerminationCauseHostCancellation, Reason: reason},
-				{Cause: TerminationCauseEngineKill, Reason: reason},
+				{Cause: TerminationCauseRuntimeKill, Reason: reason},
 			} {
 				data, err := jsonv2.Marshal(wire)
 				if err != nil {

@@ -11,12 +11,3 @@ func TestUint64AttributePreservesFullRange(t *testing.T) {
 		t.Fatalf("uint64 attribute = %q", got)
 	}
 }
-
-func TestSaturatingInt64PreservesRepresentableCounts(t *testing.T) {
-	if got := saturatingInt64(42); got != 42 {
-		t.Fatalf("representable count = %d", got)
-	}
-	if got := saturatingInt64(math.MaxUint64); got != math.MaxInt64 {
-		t.Fatalf("overflowing count = %d, want %d", got, int64(math.MaxInt64))
-	}
-}

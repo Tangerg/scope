@@ -1,6 +1,7 @@
-package workflow_test
+package workflow
 
 import (
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run/runtest"
 
 	"context"
@@ -13,7 +14,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
+
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -37,14 +38,14 @@ func TestForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 
 func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	tracker := newBranchTracker("first", "second", "third")
-	branches := make([]workflow.ForkBranch, 0, 3)
+	branches := make([]ForkBranch, 0, 3)
 	for _, id := range []string{"first", "second", "third"} {
-		deployment := newManagedBranchDeployment(t, id, tracker)
-		branches = append(branches, workflow.ForkBranch{
-			ID: id, Program: deployment, Budget: mustBudget(t),
+		program := newManagedBranchProgram(t, id, tracker)
+		branches = append(branches, ForkBranch{
+			ID: id, Program: program, Budget: mustBudget(t),
 		})
 	}
-	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
+	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
 		Reduce: func(_ context.Context, _ forkInput, values []branchOutput) (forkOutput, error) {
 			result := forkOutput{Branches: make([]string, len(values))}
@@ -61,8 +62,8 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	if !stage.Valid() {
 		t.Fatalf("Fork Stage = %#v", stage)
 	}
-	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork", stage), "fork")
-	engine, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	program := mustProgram(t, mustDefinition(t, "test.fork", stage), "fork")
+	runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	resultChannel := make(chan run.Result[run.Payload], 1)
 	errorChannel := make(chan error, 1)
 	go func() {
-		result, runErr := runtest.Observe(context.Background(), engine, deployment, input)
+		result, runErr := runtest.Observe(context.Background(), runtime, program, input)
 		if runErr != nil {
 			errorChannel <- runErr
 			return
@@ -102,33 +103,33 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	if strings.Join(output.Branches, ",") != "first,second,third" || output.Total != 21 {
 		t.Fatalf("Fork output = %#v", output)
 	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+	if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestForkPropagatesLowestFailingBranch(t *testing.T) {
-	branches := make([]workflow.ForkBranch, 0, 2)
+	branches := make([]ForkBranch, 0, 2)
 	for _, id := range []string{"first", "second"} {
 		branchID := id
-		child := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure_"+id,
+		child := mustProgram(t, mustDefinition(t, "test.fork_failure_"+id,
 			mustTransform(t, "fail", func(context.Context, forkInput) (branchOutput, error) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
-		branches = append(branches, workflow.ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
+		branches = append(branches, ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
 	}
-	stage, err := workflow.Fork(workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
+	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
 		Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment := mustDeployment(t, mustDefinition(t, "test.workflow.fork_failure", stage), "fork-failure")
-	engine, _ := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	program := mustProgram(t, mustDefinition(t, "test.fork_failure", stage), "fork-failure")
+	runtime, _ := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
 	input, _ := run.EncodePayload(forkInput{Value: 1})
-	result, err := runtest.Observe(context.Background(), engine, deployment, input)
+	result, err := runtest.Observe(context.Background(), runtime, program, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 		failure.Code() != "execution.step.failed" || failure.Message() != `transform "fail": first failed` {
 		t.Fatalf("Fork failure = %#v", failure)
 	}
-	if err := engine.Close(context.WithoutCancel(t.Context())); err != nil {
+	if err := runtime.Close(context.WithoutCancel(t.Context())); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -152,16 +153,16 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 		{name: "one admitted", admitSibling: true, wantProcesses: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			branches := make([]workflow.ForkBranch, 0, 2)
+			branches := make([]ForkBranch, 0, 2)
 			for _, id := range []string{"refused", "available"} {
-				child := mustDeployment(t, mustDefinition(t, "test.workflow.admission_"+id,
+				child := mustProgram(t, mustDefinition(t, "test.admission_"+id,
 					mustTransform(t, "identity", func(_ context.Context, input forkInput) (numberOutput, error) {
 						return numberOutput(input), nil
 					}),
 				), "admission-"+id)
-				branches = append(branches, workflow.ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
+				branches = append(branches, ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
 			}
-			stage, err := workflow.Fork(workflow.ForkConfig[forkInput, numberOutput, numberOutput]{
+			stage, err := Fork(ForkConfig[forkInput, numberOutput, numberOutput]{
 				ID: "workers", Branches: branches, WindowSize: 2,
 				Reduce: func(context.Context, forkInput, []numberOutput) (numberOutput, error) {
 					t.Error("reducer ran after a failed branch admission")
@@ -171,11 +172,12 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine, err := run.New(t.Context(), run.Config{
-				Store: run.NewMemoryStore(),
+			store := run.NewMemoryStore()
+			runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build,
+				Store: store,
 				ProcessAdmitter: run.ProcessAdmitterFunc(func(_ context.Context, admission run.ProcessAdmission) error {
 					name := admission.ProgramRef().Name()
-					if name == "test.workflow.admission_refused" || name == "test.workflow.admission_available" && !test.admitSibling {
+					if name == "test.admission_refused" || name == "test.admission_available" && !test.admitSibling {
 						return errors.New("branch refused")
 					}
 					return nil
@@ -185,7 +187,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() {
-				if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+				if closeErr := runtime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 					t.Error(closeErr)
 				}
 			})
@@ -193,50 +195,59 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			root := mustDeployment(t, mustDefinition(t, "test.workflow.admission_failure", stage), "admission-failure")
-			result, err := runtest.Observe(t.Context(), engine, root, input)
+			root := mustProgram(t, mustDefinition(t, "test.admission_failure", stage), "admission-failure")
+			result, err := runtest.Observe(t.Context(), runtime, root, input)
 			if err != nil {
 				t.Fatal(err)
 			}
 			failure, failed := result.Termination().Failure()
-			if result.Termination().Status() != run.StatusFailed || !failed || failure.Kind() != run.FailureKindExternal || failure.Code() != "engine.child.admission.rejected" ||
+			if result.Termination().Status() != run.StatusFailed || !failed || failure.Kind() != run.FailureKindExternal || failure.Code() != "runtime.child.admission.rejected" ||
 				failure.Message() != "run: process admission rejected: branch refused" {
 				t.Fatalf("failed admission lost its cause: %#v", failure)
 			}
-			tree, err := engine.CaptureTree(t.Context(), result.ProcessID())
-			if err != nil || len(tree.ProcessSnapshots()) != test.wantProcesses {
-				t.Fatalf("failed admission tree = %d Processes, %v", len(tree.ProcessSnapshots()), err)
+			log, _, err := store.Load(t.Context(), result.ProcessID())
+			if err != nil {
+				t.Fatal(err)
 			}
-			for _, snapshot := range tree.ProcessSnapshots() {
-				if snapshot.Relation().ProcessID() != result.ProcessID() && snapshot.Status() != run.StatusCompleted {
-					t.Fatalf("sibling did not finish before failure propagation: %s", snapshot.Status())
+			starts := 0
+			for _, entry := range log.Entries {
+				switch record := entry.Record.(type) {
+				case run.Started:
+					starts++
+				case run.Exited:
+					if record.Process != result.ProcessID() && record.Termination.Status() != run.StatusCompleted {
+						t.Fatal("sibling failed to drain before parent")
+					}
 				}
+			}
+			if starts != test.wantProcesses {
+				t.Fatalf("started %d, want %d", starts, test.wantProcesses)
 			}
 		})
 	}
 }
 
 func TestForkRequiresExplicitValidWindowAndContracts(t *testing.T) {
-	child := mustDeployment(t, mustDefinition(t, "test.workflow.fork_valid",
+	child := mustProgram(t, mustDefinition(t, "test.fork_valid",
 		mustTransform(t, "valid", func(_ context.Context, input forkInput) (branchOutput, error) {
 			return branchOutput{Branch: "valid", Value: input.Value}, nil
 		}),
 	), "fork-valid")
-	validBranch := workflow.ForkBranch{ID: "valid", Program: child, Budget: mustBudget(t)}
-	for name, config := range map[string]workflow.ForkConfig[forkInput, branchOutput, forkOutput]{
+	validBranch := ForkBranch{ID: "valid", Program: child, Budget: mustBudget(t)}
+	for name, config := range map[string]ForkConfig[forkInput, branchOutput, forkOutput]{
 		"empty": {ID: "workers", WindowSize: 1, Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
 		"zero window size": {
-			ID: "workers", Branches: []workflow.ForkBranch{validBranch},
+			ID: "workers", Branches: []ForkBranch{validBranch},
 			Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
 		"oversized window": {
-			ID: "workers", Branches: []workflow.ForkBranch{validBranch}, WindowSize: 2,
+			ID: "workers", Branches: []ForkBranch{validBranch}, WindowSize: 2,
 			Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil },
 		},
-		"nil reducer": {ID: "workers", Branches: []workflow.ForkBranch{validBranch}, WindowSize: 1},
+		"nil reducer": {ID: "workers", Branches: []ForkBranch{validBranch}, WindowSize: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := workflow.Fork(config); !errors.Is(err, workflow.ErrInvalidStage) {
+			if _, err := Fork(config); !errors.Is(err, ErrInvalidStage) {
 				t.Fatalf("Fork error = %v", err)
 			}
 		})
@@ -284,12 +295,12 @@ type managedBranchDefinition struct {
 	branch     string
 }
 
-func newManagedBranchDeployment(t *testing.T, branch string, tracker *branchTracker) run.Program[run.Payload, run.Payload] {
+func newManagedBranchProgram(t *testing.T, branch string, tracker *branchTracker) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	inputSchema, _ := jsonschema.For[forkInput]()
 	outputSchema, _ := jsonschema.For[branchOutput]()
 	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name:        "test.workflow.branch_" + branch,
+		Name:        "test.branch_" + branch,
 		Description: "Execute one controlled managed Fork branch.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
@@ -297,15 +308,15 @@ func newManagedBranchDeployment(t *testing.T, branch string, tracker *branchTrac
 		t.Fatal(err)
 	}
 	definition := &managedBranchDefinition{descriptor: descriptor, branch: branch}
-	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
+	program, err := run.Bind[run.Payload, run.Payload](conformancetest.Compiler(t), run.BindingConfig{
 		Definition: definition, Dispatcher: managedBranchDispatcher{tracker: tracker},
-		ImplementationDigest: run.ComputeDigest([]byte("managed-branch-implementation")),
-		ConfigurationDigest:  run.ComputeDigest([]byte("managed-branch-" + branch)),
+		Revision:      "managed-branch-implementation",
+		Configuration: "managed-branch-" + branch,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return program
 }
 
 func (m *managedBranchDefinition) Descriptor() run.Descriptor {
@@ -325,7 +336,7 @@ func (m *managedBranchDefinition) Start(input run.Payload) (run.Execution, error
 }
 
 func (m *managedBranchDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if state.Kind() != "test.workflow.branch" {
+	if state.Kind() != "test.branch" {
 		return nil, run.ErrInvalidExecutionState
 	}
 	var execution managedBranchExecution
@@ -344,7 +355,7 @@ type managedBranchExecution struct {
 	Phase  uint8  `json:"phase"`
 }
 
-func (m *managedBranchExecution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
+func (m *managedBranchExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	switch m.Phase {
 	case 0:
 		payload, _ := jsonv2.Marshal(struct {
@@ -356,12 +367,12 @@ func (m *managedBranchExecution) Step(_ context.Context, signals []run.Signal) (
 			return run.Transition{}, err
 		}
 		m.Phase = 1
-		return run.Continue(0, effect)
+		return run.Yield(0, []run.Effect{effect})
 	case 1:
-		if len(signals) != 1 {
+		if len(turn.Messages) != 1 {
 			return run.Transition{}, errors.New("managed branch expected one settlement Signal")
 		}
-		output, err := run.ParsePayload(signals[0].Payload())
+		output, err := run.ParsePayload(turn.Messages[0].(run.Completion).Outcome.Payload())
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -377,7 +388,7 @@ func (m *managedBranchExecution) Snapshot() (run.ExecutionState, error) {
 	if err != nil {
 		return run.ExecutionState{}, err
 	}
-	return run.ParseExecutionState("test.workflow.branch", payload)
+	return run.ParseExecutionState("test.branch", payload)
 }
 
 type managedBranchDispatcher struct{ tracker *branchTracker }

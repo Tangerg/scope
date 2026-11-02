@@ -173,7 +173,7 @@ type remoteTurn struct {
 	Task     sdka2a.TaskID     `json:"task"`
 	Context  string            `json:"context"`
 	Reply    string            `json:"reply"`
-	Wait     string            `json:"wait,omitzero"`
+	Wait     WaitAddress       `json:"wait,omitzero"`
 }
 
 func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (toolcontract.Result, error) {
@@ -184,13 +184,17 @@ func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (
 	var schema corejsonschema.Schema
 	var err error
 	msg := task.Status.Message
-	declared, hasWait := msg.Metadata[WaitIDMetadataKey]
+	declared, hasWait := msg.Metadata[WaitMetadataKey]
 	_, hasSchema := msg.Metadata[AnswerSchemaMetadataKey]
-	wait, valid := declared.(string)
-	if hasWait != hasSchema || hasWait && (!valid || strings.TrimSpace(wait) == "" || strings.TrimSpace(wait) != wait) {
+	var wait WaitAddress
+	if hasWait != hasSchema {
 		return toolcontract.Result{}, fmt.Errorf("%w: incomplete or malformed remote wait binding", ErrInvalidResult)
 	}
 	if hasWait {
+		wait, err = ParseWaitAddress(declared)
+		if err != nil {
+			return toolcontract.Result{}, err
+		}
 		raw, ok := msg.Metadata[AnswerSchemaMetadataKey].(string)
 		if !ok || len(msg.Parts) != 1 || msg.Parts[0] == nil {
 			return toolcontract.Result{}, ErrInvalidResult
@@ -244,22 +248,26 @@ func (r remoteTool) reply(inv toolcontract.Invocation, c toolcontract.Continuati
 	if err := jsonv2.Unmarshal(c.State(), &turn, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return nil, errors.Join(ErrContinuationBinding, err)
 	}
-	if turn.Binding != r.binding || turn.Original != sha256.Sum256(inv.Arguments()) || turn.Task == "" || turn.Context == "" || turn.Reply == "" {
+	if turn.Binding != r.binding || turn.Original != sha256.Sum256(inv.Arguments()) || turn.Task == "" || turn.Context == "" || turn.Reply == "" || turn.Wait != (WaitAddress{}) && !turn.Wait.Valid() {
 		return nil, ErrContinuationBinding
 	}
 	var answer string
 	var message *sdka2a.Message
 	if err := jsonv2.Unmarshal(c.Response(), &answer); err == nil && string(c.Response()) != "null" {
 		message = (textProjection{}).userMessage(answer)
-	} else if turn.Wait != "" {
+	} else if turn.Wait.Valid() {
 		p := sdka2a.NewTextPart(string(c.Response()))
 		p.MediaType = "application/json"
 		message = sdka2a.NewMessage(sdka2a.MessageRoleUser, p)
 	} else {
 		return nil, ErrUnsupportedContent
 	}
-	if turn.Wait != "" {
-		message.Metadata = map[string]any{WaitIDMetadataKey: turn.Wait}
+	if turn.Wait.Valid() {
+		address, err := turn.Wait.Metadata()
+		if err != nil {
+			return nil, err
+		}
+		message.Metadata = map[string]any{WaitMetadataKey: address}
 	}
 	message.TaskID = turn.Task
 	message.ContextID = turn.Context

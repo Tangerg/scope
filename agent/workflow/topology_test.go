@@ -1,4 +1,4 @@
-package workflow_test
+package workflow
 
 import (
 	"bytes"
@@ -8,21 +8,21 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 type expectedTopologyBinding struct {
-	role       workflow.BindingRole
-	id         string
-	deployment run.Program[run.Payload, run.Payload]
+	role    BindingRole
+	id      string
+	program run.Program[run.Payload, run.Payload]
 }
 
 type topologyCase struct {
 	name          string
-	stage         workflow.Stage
-	kind          workflow.StageKind
+	stage         Stage
+	kind          StageKind
 	bindings      []expectedTopologyBinding
 	windowSize    uint32
 	maxItems      uint32
@@ -30,21 +30,21 @@ type topologyCase struct {
 }
 
 func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
-	numberChild := mustTopologyDeployment(
+	numberChild := mustTopologyProgram(
 		t,
 		"test.topology.number",
 		func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
-	alternateNumberChild := mustTopologyDeployment(
+	alternateNumberChild := mustTopologyProgram(
 		t,
 		"test.topology.alternate_number",
 		func(_ context.Context, input numberInput) (numberOutput, error) {
 			return numberOutput(input), nil
 		},
 	)
-	identityChild := mustTopologyDeployment(
+	identityChild := mustTopologyProgram(
 		t,
 		"test.topology.identity",
 		func(_ context.Context, input numberInput) (numberInput, error) { return input, nil },
@@ -62,16 +62,16 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	transform := mustTransform(t, "transform", func(_ context.Context, input numberInput) (numberOutput, error) {
 		return numberOutput(input), nil
 	})
-	call, err := workflow.Call(workflow.CallConfig{
+	call, err := Call(CallConfig{
 		ID: "call", Program: numberChild, Budget: budget, Capabilities: capabilities,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	switcher, err := workflow.Switch(workflow.SwitchConfig[numberInput]{
+	switcher, err := Switch(SwitchConfig[numberInput]{
 		ID:     "switch",
 		Select: func(context.Context, numberInput) (string, error) { return "primary", nil },
-		Cases: []workflow.SwitchCase{
+		Cases: []SwitchCase{
 			{ID: "primary", Program: numberChild, Budget: budget, Capabilities: capabilities},
 			{ID: "fallback", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
@@ -79,9 +79,9 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fork, err := workflow.Fork(workflow.ForkConfig[numberInput, numberOutput, numberOutput]{
+	fork, err := Fork(ForkConfig[numberInput, numberOutput, numberOutput]{
 		ID: "fork",
-		Branches: []workflow.ForkBranch{
+		Branches: []ForkBranch{
 			{ID: "left", Program: numberChild, Budget: budget, Capabilities: capabilities},
 			{ID: "right", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
 		},
@@ -93,14 +93,14 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mapper, err := workflow.Map[numberInput, numberOutput](workflow.MapConfig[numberInput, numberOutput]{
+	mapper, err := Map[numberInput, numberOutput](MapConfig[numberInput, numberOutput]{
 		ID: "map", Program: numberChild, Budget: budget, Capabilities: capabilities,
 		WindowSize: 2, MaxItems: 4,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop, err := workflow.Loop(workflow.LoopConfig[numberInput]{
+	loop, err := Loop(LoopConfig[numberInput]{
 		ID: "loop", Body: identityChild, Budget: budget, Capabilities: capabilities, MaxIterations: run.NewQuota(3),
 		Predicate: func(context.Context, numberInput) (bool, error) { return true, nil },
 	})
@@ -109,23 +109,23 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	}
 
 	tests := []topologyCase{
-		{name: "transform", stage: transform, kind: workflow.StageKindTransform},
-		{name: "call", stage: call, kind: workflow.StageKindCall, bindings: []expectedTopologyBinding{
-			{role: workflow.BindingRoleCall, deployment: numberChild},
+		{name: "transform", stage: transform, kind: StageKindTransform},
+		{name: "call", stage: call, kind: StageKindCall, bindings: []expectedTopologyBinding{
+			{role: BindingRoleCall, program: numberChild},
 		}},
-		{name: "switch", stage: switcher, kind: workflow.StageKindSwitch, bindings: []expectedTopologyBinding{
-			{role: workflow.BindingRoleCase, id: "primary", deployment: numberChild},
-			{role: workflow.BindingRoleCase, id: "fallback", deployment: alternateNumberChild},
+		{name: "switch", stage: switcher, kind: StageKindSwitch, bindings: []expectedTopologyBinding{
+			{role: BindingRoleCase, id: "primary", program: numberChild},
+			{role: BindingRoleCase, id: "fallback", program: alternateNumberChild},
 		}},
-		{name: "fork", stage: fork, kind: workflow.StageKindFork, bindings: []expectedTopologyBinding{
-			{role: workflow.BindingRoleBranch, id: "left", deployment: numberChild},
-			{role: workflow.BindingRoleBranch, id: "right", deployment: alternateNumberChild},
+		{name: "fork", stage: fork, kind: StageKindFork, bindings: []expectedTopologyBinding{
+			{role: BindingRoleBranch, id: "left", program: numberChild},
+			{role: BindingRoleBranch, id: "right", program: alternateNumberChild},
 		}, windowSize: 1},
-		{name: "map", stage: mapper, kind: workflow.StageKindMap, bindings: []expectedTopologyBinding{
-			{role: workflow.BindingRoleItem, deployment: numberChild},
+		{name: "map", stage: mapper, kind: StageKindMap, bindings: []expectedTopologyBinding{
+			{role: BindingRoleItem, program: numberChild},
 		}, windowSize: 2, maxItems: 4},
-		{name: "loop", stage: loop, kind: workflow.StageKindLoop, bindings: []expectedTopologyBinding{
-			{role: workflow.BindingRoleBody, deployment: identityChild},
+		{name: "loop", stage: loop, kind: StageKindLoop, bindings: []expectedTopologyBinding{
+			{role: BindingRoleBody, program: identityChild},
 		}, maxIterations: 3},
 	}
 	for _, test := range tests {
@@ -153,7 +153,7 @@ func assertTopologyCase(
 		wantIterations = run.NewQuota(uint64(test.maxIterations))
 	}
 	if stage.Kind != test.kind || stage.WindowSize != test.windowSize ||
-		stage.MaxItems != test.maxItems || (stage.MaxIterations != nil) != (test.kind == workflow.StageKindLoop) ||
+		stage.MaxItems != test.maxItems || (stage.MaxIterations != nil) != (test.kind == StageKindLoop) ||
 		stage.MaxIterations != nil && *stage.MaxIterations != wantIterations {
 		t.Fatalf("stage=%+v", stage)
 	}
@@ -168,7 +168,7 @@ func assertTopologyCase(
 	if err != nil {
 		t.Fatalf("marshal Topology: %v", err)
 	}
-	if test.kind == workflow.StageKindMap {
+	if test.kind == StageKindMap {
 		var projection struct {
 			Stages []struct {
 				MaxItems uint32 `json:"max_items"`
@@ -186,15 +186,15 @@ func assertTopologyCase(
 func assertTopologyBinding(
 	t *testing.T,
 	index int,
-	binding workflow.BindingTopology,
+	binding BindingTopology,
 	want expectedTopologyBinding,
 	budget run.Budget,
 	capabilities run.CapabilitySet,
 ) {
 	t.Helper()
-	descriptor := want.deployment.Descriptor()
+	descriptor := want.program.Descriptor()
 	if binding.Role != want.role || binding.ID != want.id ||
-		binding.ProgramRef != want.deployment.ProgramRef() ||
+		binding.ProgramRef != want.program.ProgramRef() ||
 		!bytes.Equal(binding.InputSchema.JSON(), descriptor.InputSchema().JSON()) ||
 		!bytes.Equal(binding.OutputSchema.JSON(), descriptor.OutputSchema().JSON()) ||
 		binding.Budget != budget ||
@@ -204,15 +204,15 @@ func assertTopologyBinding(
 }
 
 func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
-	child := mustTopologyDeployment(
+	child := mustTopologyProgram(
 		t,
 		"test.topology.ownership_child",
 		func(_ context.Context, input numberInput) (numberOutput, error) { return numberOutput(input), nil },
 	)
-	stage, err := workflow.Switch(workflow.SwitchConfig[numberInput]{
+	stage, err := Switch(SwitchConfig[numberInput]{
 		ID:     "route",
 		Select: func(context.Context, numberInput) (string, error) { return "first", nil },
-		Cases: []workflow.SwitchCase{
+		Cases: []SwitchCase{
 			{ID: "first", Program: child, Budget: mustBudget(t)},
 			{ID: "second", Program: child, Budget: mustBudget(t)},
 		},
@@ -232,32 +232,32 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 }
 
 func TestNilDefinitionTopologyIsZero(t *testing.T) {
-	var definition *workflow.Definition
+	var definition *definition
 	if topology := definition.Topology(); topology.Descriptor.Valid() || len(topology.Stages) != 0 {
-		t.Fatalf("nil Definition Topology=%+v", topology)
+		t.Fatalf("nil definition Topology=%+v", topology)
 	}
 }
 
-func mustTopologyDeployment[I, O any](
+func mustTopologyProgram[I, O any](
 	t *testing.T,
 	name string,
-	transform workflow.TransformFunc[I, O],
+	transform TransformFunc[I, O],
 ) run.Program[run.Payload, run.Payload] {
 	t.Helper()
-	stage, err := workflow.Transform("apply", transform)
+	stage, err := Transform("apply", transform)
 	if err != nil {
 		t.Fatal(err)
 	}
 	definition := mustDefinition(t, name, stage)
-	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
-		Definition:           definition,
-		ImplementationDigest: run.ComputeDigest([]byte(name + ":implementation")),
-		ConfigurationDigest:  run.ComputeDigest([]byte(name + ":configuration")),
+	program, err := run.Bind[run.Payload, run.Payload](conformancetest.Compiler(t), run.BindingConfig{
+		Definition:    definition,
+		Revision:      name + ":implementation",
+		Configuration: name + ":configuration",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return program
 }
 
 func TestTopologyLimitPresence(t *testing.T) {
@@ -275,7 +275,7 @@ func TestTopologyLimitPresence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			stage := workflow.StageTopology{ID: "test", Kind: workflow.StageKindTransform, InputSchema: schema, OutputSchema: schema, MaxIterations: test.maximum}
+			stage := StageTopology{ID: "test", Kind: StageKindTransform, InputSchema: schema, OutputSchema: schema, MaxIterations: test.maximum}
 			data, err := jsonv2.Marshal(stage)
 			if err != nil {
 				t.Fatal(err)

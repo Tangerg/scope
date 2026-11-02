@@ -43,7 +43,6 @@ type Payload struct {
 	data json.RawMessage
 }
 
-// ParsePayload validates one JSON value and returns an independently owned Payload.
 func ParsePayload(data json.RawMessage) (Payload, error) {
 	normalized, err := normalizeJSON(data, MaxPayloadBytes)
 	if err != nil {

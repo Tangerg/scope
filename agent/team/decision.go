@@ -1,6 +1,10 @@
 package team
 
-import agentrun "github.com/Tangerg/scope/agent/run"
+import (
+	"strings"
+
+	agentrun "github.com/Tangerg/scope/agent/run"
+)
 
 const invalidEnumName = "invalid"
 
@@ -40,39 +44,32 @@ type TaskRequest struct {
 	Input  agentrun.Payload  `json:"input"`
 }
 
-// Task retains one request and its canonical kernel lifecycle facts. A task
-// with neither Start nor Outcome is pending admission; Start alone is a failed
-// admission or an outstanding child; Outcome replaces Start once the child
-// drains, and its Result names the child.
 type Task struct {
-	Request TaskRequest                `json:"request"`
-	Start   *agentrun.ChildStartResult `json:"start,omitzero"`
-	Outcome *agentrun.ChildOutcome     `json:"outcome,omitzero"`
+	Request   TaskRequest           `json:"request"`
+	Process   *agentrun.ProcessID   `json:"process,omitzero"`
+	Outcome   *agentrun.Termination `json:"outcome,omitzero"`
+	Rejection *agentrun.Failure     `json:"rejection,omitzero"`
 }
 
-// processID names the task's child while it runs or after it finished.
 func (t Task) processID() (agentrun.ProcessID, bool) {
-	if t.Outcome != nil {
-		return t.Outcome.Result().ProcessID(), true
+	if t.Process == nil {
+		return agentrun.ProcessID{}, false
 	}
-	if t.Start != nil {
-		return t.Start.ProcessID()
-	}
-	return agentrun.ProcessID{}, false
+	return *t.Process, true
 }
 
 // Control targets an already admitted task. Exactly one of Signal and
 // CancelReason is present. Signal uses the recipient's own input contract and
 // caller-stable identity; cancellation is intent, not proof of resource release.
 type Control struct {
-	Task         agentrun.ChildKey       `json:"task"`
-	Signal       *agentrun.SignalRequest `json:"signal,omitzero"`
-	CancelReason *string                 `json:"cancel_reason,omitzero"`
+	Task         agentrun.ChildKey `json:"task"`
+	Signal       *agentrun.Signal  `json:"signal,omitzero"`
+	CancelReason *string           `json:"cancel_reason,omitzero"`
 }
 
 type ControlReceipt struct {
-	Control Control                      `json:"control"`
-	Result  *agentrun.ChildControlResult `json:"result,omitzero"`
+	Control Control              `json:"control"`
+	Result  *agentrun.Settlement `json:"result,omitzero"`
 }
 
 // Turn is the coordinator's complete portable input. Tasks are cumulative and
@@ -103,10 +100,6 @@ type Decision struct {
 
 func (d Decision) completes() bool { return d.Output.Valid() }
 
-// decided distinguishes a coordinator's Decision from the zero value a turn
-// holds before its coordinator answers.
-func (d Decision) decided() bool { return d.completes() || d.Mode != ModeUndecided }
-
 func (d Decision) validateShape() error {
 	if d.completes() {
 		if d.Mode != ModeUndecided || len(d.Tasks) != 0 || len(d.Controls) != 0 {
@@ -120,8 +113,21 @@ func (d Decision) validateShape() error {
 	return nil
 }
 
+func (c Control) validate() error {
+	if !c.Task.Valid() || (c.Signal == nil) == (c.CancelReason == nil) {
+		return ErrInvalidDecision
+	}
+	if c.Signal != nil && !c.Signal.Valid() {
+		return ErrInvalidDecision
+	}
+	if c.CancelReason != nil && (strings.TrimSpace(*c.CancelReason) != *c.CancelReason || *c.CancelReason == "") {
+		return ErrInvalidDecision
+	}
+	return nil
+}
+
 func (c Control) effect(task *Task) (agentrun.Effect, error) {
-	if task == nil || (c.Signal == nil) == (c.CancelReason == nil) {
+	if task == nil || c.validate() != nil {
 		return agentrun.Effect{}, ErrInvalidDecision
 	}
 	id, started := task.processID()

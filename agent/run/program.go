@@ -14,29 +14,17 @@ import (
 
 var ErrInvalidProgram = errors.New("run: invalid program")
 
-// BindingConfig contains the complete behavior binding for one Program.
-// The digests must cover the exact code artifact and all frozen dispatcher or
-// Strategy configuration that can affect execution or restoration.
+// Bind hashes the declaration after freezing its canonical JSON. Opaque
+// collaborators must be identified by Revision in their declaring configuration.
 type BindingConfig struct {
-	Definition Definition
-
-	// Dispatcher interprets this Definition's external Effects. Nil binds a
-	// Definition that uses only Framework Effects; a dispatcher-targeted Effect
-	// then fails admission before any Effect in its Step can execute.
-	Dispatcher Dispatcher
-
-	ImplementationDigest Digest
-
-	// ConfigurationDigest identifies all frozen behavior-affecting Definition
-	// and Dispatcher configuration, including each finite or unlimited Strategy
-	// quota. Quota JSON preserves that distinction for configuration hashing.
-	// Child bindings are not restated here: Bind folds the ones the
-	// Definition reports through ChildPrograms into the ProgramRef.
-	ConfigurationDigest Digest
+	Definition    Definition
+	Dispatcher    Dispatcher
+	Revision      string
+	Configuration any
 }
 
 // Program is an immutable binding of one Definition, its optional external
-// Dispatcher, and an exact value reference used by Process snapshots.
+// Dispatcher, and an exact value reference used by Process logs.
 type Program[I, O any] struct {
 	_          [0]*func(I) O
 	reference  ProgramRef
@@ -48,10 +36,10 @@ type Program[I, O any] struct {
 	children []Program[Payload, Payload]
 }
 
-// Bind freezes a Definition and Dispatcher under explicit
-// implementation and configuration digests, so recovery resolves the exact
-// behavior a snapshot names rather than whatever now shares its name.
-func Bind[I, O any](config BindingConfig) (Program[I, O], error) {
+func Bind[I, O any](compiler *Compiler, config BindingConfig) (Program[I, O], error) {
+	if compiler == nil || compiler.build == "" {
+		return Program[I, O]{}, ErrInvalidProgram
+	}
 	if lo.IsNil(config.Definition) {
 		return Program[I, O]{}, fmt.Errorf("%w: definition is required", ErrInvalidProgram)
 	}
@@ -72,10 +60,18 @@ func Bind[I, O any](config BindingConfig) (Program[I, O], error) {
 	if err != nil {
 		return Program[I, O]{}, err
 	}
+	for _, child := range children {
+		if child.ProgramRef().Build() != compiler.build {
+			return Program[I, O]{}, fmt.Errorf("%w: child build differs from compiler build", ErrInvalidProgram)
+		}
+	}
+	configuration, err := EncodePayload(config.Configuration)
+	if err != nil {
+		return Program[I, O]{}, fmt.Errorf("%w: configuration: %w", ErrInvalidProgram, err)
+	}
 	reference, err := newProgramRef(programIdentityWire{
-		Name: descriptor.Name(), ContractDigest: descriptor.Digest(),
-		ImplementationDigest: config.ImplementationDigest, ConfigurationDigest: config.ConfigurationDigest,
-		BindingsDigest: bindings,
+		Name: descriptor.Name(), Build: compiler.build, Contract: descriptor.Digest(),
+		Configuration: ComputeDigest(configuration.JSON()), Revision: config.Revision, Children: bindings,
 	})
 	if err != nil {
 		return Program[I, O]{}, fmt.Errorf("%w: %w", ErrInvalidProgram, err)
@@ -144,7 +140,7 @@ func (p Program[I, O]) validateDefinition() error {
 	if err != nil {
 		return err
 	}
-	if bindings != p.reference.BindingsDigest() {
+	if bindings != p.reference.children {
 		return fmt.Errorf("%w: definition child bindings differ from its frozen identity", ErrInvalidProgram)
 	}
 	return nil
@@ -192,11 +188,4 @@ func definitionDescriptor(definition Definition) (Descriptor, error) {
 		return Descriptor{}, fmt.Errorf("%w: %w", ErrInvalidProgram, err)
 	}
 	return descriptor, nil
-}
-
-func (p Program[I, O]) validateEffect(effect Effect) error {
-	if effect.Target() == EffectTargetDispatcher && p.dispatcher == nil {
-		return fmt.Errorf("%w: dispatcher Effect requires a bound dispatcher", ErrInvalidEffect)
-	}
-	return nil
 }

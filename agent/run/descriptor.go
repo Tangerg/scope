@@ -10,10 +10,8 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// MaxDescriptionBytes bounds descriptions of advertised behavior.
 const MaxDescriptionBytes = 4096
 
-// ValidDescription checks descriptive text without repairing or reinterpreting it.
 func ValidDescription(description string) bool {
 	return validBoundedText(description, MaxDescriptionBytes)
 }
@@ -24,11 +22,8 @@ var ErrInvalidDescriptor = errors.New("run: invalid descriptor")
 // Executable implementation and frozen configuration identity belong to a
 // Program, not this contract.
 type DescriptorConfig struct {
-	// Name is a stable lowercase qualified Definition name.
 	Name string
 
-	// Description states the Definition's behavior for human and model-facing
-	// discovery without execution-specific state.
 	Description string
 
 	InputSchema jsonschema.Schema
@@ -119,7 +114,6 @@ func (d Descriptor) ValidateInput(input Payload) error {
 	return nil
 }
 
-// ValidateSignal checks unaddressed Host input before mailbox admission.
 func (d Descriptor) ValidateSignal(input Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDescriptor
@@ -140,8 +134,6 @@ func (d Descriptor) ValidateOutput(output Payload) error {
 	return nil
 }
 
-// EncodeInput converts value into a Payload and validates it against this
-// Descriptor's authoritative input schema.
 func (d Descriptor) EncodeInput[T any](value T) (Payload, error) {
 	if !d.Valid() {
 		return Payload{}, ErrInvalidDescriptor
@@ -156,8 +148,6 @@ func (d Descriptor) EncodeInput[T any](value T) (Payload, error) {
 	return input, nil
 }
 
-// DecodeOutput validates output against this Descriptor's authoritative
-// output schema and strictly decodes it into T.
 func (d Descriptor) DecodeOutput[T any](output Payload) (T, error) {
 	var zero T
 	if !d.Valid() {

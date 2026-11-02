@@ -230,6 +230,11 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		return nil
 	case reflect.TypeFor[json.Number]():
 		return &reflection.Schema{Type: schemaTypeNumber}
+	case reflect.TypeFor[Schema]():
+		return &reflection.Schema{OneOf: []*reflection.Schema{
+			{Type: schemaTypeBoolean},
+			{Type: schemaTypeObject},
+		}}
 	}
 	stringModel := typeOf.Kind() == reflect.String && (typeOf.Implements(reflect.TypeFor[Enumerator]()) || typeOf.Implements(reflect.TypeFor[Patterned]()))
 	if !stringModel && hasCustomEncoding(typeOf) {

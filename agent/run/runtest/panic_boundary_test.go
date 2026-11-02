@@ -18,7 +18,7 @@ func (p panickingCallbacks) Start(run.Payload) (run.Execution, error) { panic(p.
 func (p panickingCallbacks) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
 	panic(p.cause)
 }
-func (p panickingCallbacks) Step(context.Context, []run.Signal) (run.Transition, error) {
+func (p panickingCallbacks) Step(context.Context, run.Turn) (run.Transition, error) {
 	panic(p.cause)
 }
 func (p panickingCallbacks) Snapshot() (run.ExecutionState, error) { panic(p.cause) }
@@ -30,7 +30,7 @@ func TestDefinitionConformancePreservesTypedPanicEvidence(t *testing.T) {
 		"Definition.Descriptor": func() error { _, err := callDescriptor(fixture); return err },
 		"Definition.Start":      func() error { _, err := callStart(fixture, run.Payload{}); return err },
 		"Definition.Restore":    func() error { _, err := callRestore(t.Context(), fixture, run.ExecutionState{}); return err },
-		"Execution.Step":        func() error { _, err := callStep(t.Context(), fixture, nil); return err },
+		"Execution.Step":        func() error { _, err := callStep(t.Context(), fixture, definitionTurn(1)); return err },
 		"Execution.Snapshot":    func() error { _, err := callSnapshot(fixture); return err },
 	} {
 		t.Run(operation, func(t *testing.T) {

@@ -13,10 +13,9 @@ import (
 const invalidEnumName = "invalid"
 
 const (
-	failureSuffixCaseUnknown       = "case_unknown"
-	failureSuffixUnresolvedEffects = "unresolved_effects"
-	failureSuffixNotCompleted      = "not_completed"
-	failureSuffixMaxItemsExceeded  = "max_items_exceeded"
+	failureSuffixCaseUnknown      = "case_unknown"
+	failureSuffixNotCompleted     = "not_completed"
+	failureSuffixMaxItemsExceeded = "max_items_exceeded"
 )
 
 type StageKind string
@@ -50,19 +49,19 @@ type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
 type transformStage func(context.Context, json.RawMessage) (json.RawMessage, error)
 
 type childBinding struct {
-	deployment   run.Program[run.Payload, run.Payload]
+	program      run.Program[run.Payload, run.Payload]
 	budget       run.Budget
 	capabilities run.CapabilitySet
 }
 
-func newChildBinding(deployment run.Program[run.Payload, run.Payload], budget run.Budget, capabilities run.CapabilitySet) (childBinding, bool) {
-	if !deployment.Valid() {
+func newChildBinding(program run.Program[run.Payload, run.Payload], budget run.Budget, capabilities run.CapabilitySet) (childBinding, bool) {
+	if !program.Valid() {
 		return childBinding{}, false
 	}
-	return childBinding{deployment: deployment, budget: budget, capabilities: capabilities}, true
+	return childBinding{program: program, budget: budget, capabilities: capabilities}, true
 }
 
-func (c childBinding) programRef() run.ProgramRef { return c.deployment.ProgramRef() }
+func (c childBinding) programRef() run.ProgramRef { return c.program.ProgramRef() }
 
 func (c childBinding) topology(
 	role BindingRole,
@@ -77,7 +76,7 @@ func (c childBinding) topology(
 	}
 }
 
-// Stage is an immutable operation in one Workflow Definition. Values can only
+// Stage is an immutable operation in one Workflow definition. Values can only
 // be constructed by this package, keeping the execution algebra closed.
 type Stage struct {
 	id           string
@@ -108,7 +107,7 @@ type CallConfig struct {
 }
 
 // Transform constructs one typed pure Stage. JSON schemas derived from I and O
-// remain the authoritative erased boundary used by the Workflow Definition.
+// remain the authoritative erased boundary used by the Workflow definition.
 func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error) {
 	if !run.ValidQualifiedName(id) || transform == nil {
 		return Stage{}, ErrInvalidStage
@@ -194,7 +193,7 @@ func (s Stage) fanoutMemberNoun() string {
 	return "item"
 }
 
-func (s Stage) fanoutOutcome(index uint32, outcome run.ChildOutcome) (*run.Failure, json.RawMessage, error) {
+func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failure, json.RawMessage, error) {
 	subject := string(s.kind) + " Stage " + s.id + " " + s.fanoutMemberLabel(index)
 	failure, output, err := childOutcome(outcome, s.fanoutFailureCode, subject)
 	if failure != nil || err != nil {
@@ -206,21 +205,16 @@ func (s Stage) fanoutOutcome(index uint32, outcome run.ChildOutcome) (*run.Failu
 // childOutcome classifies a finished child that subject names: the Output it
 // completed with, or the Failure that ends the Workflow. Single-child and
 // fan-out bindings both decide with it and differ only in code and subject.
-func childOutcome(outcome run.ChildOutcome, code func(suffix string) string, subject string) (*run.Failure, run.Payload, error) {
-	if !outcome.SubtreeResolved() {
-		failure, err := stepfail.Failure(run.FailureKindExternal, code(failureSuffixUnresolvedEffects), subject+" has unresolved subtree Effects")
-		return &failure, run.Payload{}, err
-	}
-	result := outcome.Result()
-	if result.Termination().Status() != run.StatusCompleted {
-		if failure, failed := result.Termination().Failure(); failed {
+func childOutcome(outcome run.Termination, code func(suffix string) string, subject string) (*run.Failure, run.Payload, error) {
+	if outcome.Status() != run.StatusCompleted {
+		if failure, failed := outcome.Failure(); failed {
 			return &failure, run.Payload{}, nil
 		}
-		failure, err := stepfail.Failure(run.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+result.Termination().Status().String())
+		failure, err := stepfail.Failure(run.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+outcome.Status().String())
 		return &failure, run.Payload{}, err
 	}
 	// A validated Completed termination always carries Output.
-	output, _ := result.Termination().Output()
+	output, _ := outcome.Output()
 	return nil, output, nil
 }
 

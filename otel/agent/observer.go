@@ -4,914 +4,206 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
-	"strconv"
+	"iter"
 	"sync"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Tangerg/scope/agent/run"
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/agent"
-	durationUnit        = "s"
-	stepUnit            = "{step}"
-	effectUnit          = "{effect}"
-	signalUnit          = "{signal}"
-	deltaUnit           = "{delta}"
-	byteUnit            = "By"
-
-	invokeAgentOperationName = "invoke_agent"
-	stepSpanName             = "agent.step"
-	effectSpanName           = "agent.effect"
-
-	processActivationsMetricName     = "agent.process.activations"
-	processExitsMetricName           = "agent.process.exits"
-	invokeAgentDurationMetricName    = "gen_ai.invoke_agent.duration"
-	processCommittedStepsMetricName  = "agent.process.committed_steps"
-	processPreparedEffectsMetricName = "agent.process.prepared_effects"
-	processAcceptedSignalsMetricName = "agent.process.accepted_signals"
-	stepDurationMetricName           = "agent.step.work.duration"
-	stepAdoptionDelayMetricName      = "agent.step.adoption.delay"
-	effectDurationMetricName         = "agent.effect.duration"
-	deltaDropsMetricName             = "agent.delta.dropped"
-
-	processIDAttribute            attribute.Key = "agent.process.id"
-	processRootIDAttribute        attribute.Key = "agent.process.root_id"
-	processParentIDAttribute      attribute.Key = "agent.process.parent_id"
-	processDepthAttribute         attribute.Key = "agent.process.depth"
-	processActivationAttribute    attribute.Key = "agent.process.activation"
-	processStatusAttribute        attribute.Key = "agent.process.status"
-	processCauseAttribute         attribute.Key = "agent.process.cause"
-	processFailureKindAttribute   attribute.Key = "agent.failure.kind"
-	processFailureCodeAttribute   attribute.Key = "agent.failure.code"
-	processEventSequenceAttribute attribute.Key = "agent.process.event_sequence"
-	stepSequenceAttribute         attribute.Key = "agent.step.sequence"
-	stepStatusAttribute           attribute.Key = "agent.step.status"
-	effectIDAttribute             attribute.Key = "agent.effect.id"
-	effectAttemptIDAttribute      attribute.Key = "agent.effect.attempt_id"
-	effectTargetAttribute         attribute.Key = "agent.effect.target"
-	effectStatusAttribute         attribute.Key = "agent.effect.status"
-	eventPhaseAttribute           attribute.Key = "agent.event.phase"
-	deploymentNameAttribute       attribute.Key = "agent.deployment.name"
-	deploymentDigestAttribute     attribute.Key = "agent.deployment.digest"
-	treeIncarnationIDAttribute    attribute.Key = "agent.tree.incarnation_id"
-)
-
-type processActivation string
-
-const (
-	processActivationStarted  processActivation = "started"
-	processActivationRestored processActivation = "restored"
+	instrumentationName               = "github.com/Tangerg/scope/otel/agent"
+	durationUnit                      = "s"
+	byteUnit                          = "By"
+	processStartsMetricName           = "agent.process.starts"
+	processExitsMetricName            = "agent.process.exits"
+	invokeAgentDurationMetricName     = "gen_ai.invoke_agent.duration"
+	processCommittedStepsMetricName   = "agent.process.committed_steps"
+	processPreparedEffectsMetricName  = "agent.process.prepared_effects"
+	processAcceptedMessagesMetricName = "agent.process.accepted_messages"
+	effectDurationMetricName          = "agent.effect.duration"
+	durabilityDurationMetricName      = "agent.log.operation.duration"
+	durabilityBatchBytesMetricName    = "agent.log.batch.bytes"
 )
 
 var (
 	ErrInvalidObserverConfig = errors.New("agent otel: invalid observer configuration")
-	errNilContext            = errors.New("agent otel: nil Context")
-	errIncompleteSpan        = errors.New("agent otel: span completion was not observed")
+	ErrObservationClosed     = errors.New("agent otel: observer is closed")
+	ErrObservationSequence   = errors.New("agent otel: noncontiguous log observation")
 )
 
-// Nil providers use the corresponding OpenTelemetry global providers.
 type ObserverConfig struct {
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
 }
 
-// Observer projects immutable Framework Event facts into OpenTelemetry spans
-// and metrics. It implements run.EventListener and is safe for concurrent
-// calls. Observer never receives Process behavior or application state.
-// Observer values must be constructed with NewObserver and must not be copied
-// after first use.
+// LogSource deliberately exposes no control method: telemetry cannot advance
+// a Process, acknowledge an Effect, or acquire a writer epoch.
+type LogSource interface {
+	ID() run.ProcessID
+	Observe(context.Context, run.LSN) iter.Seq2[run.Entry, error]
+}
+
 type Observer struct {
-	tracer trace.Tracer
-
+	tracer      trace.Tracer
 	instruments observerInstruments
-
-	lifecycleMu sync.Mutex
-	inFlight    sync.WaitGroup
-	closeDone   chan struct{}
-	stateMu     sync.Mutex
-	processes   map[processKey]processSpanRecord
-	steps       map[stepKey]trace.Span
-	effects     map[effectKey]trace.Span
+	mu          sync.Mutex
+	closed      bool
+	readers     map[*logProjection]context.CancelFunc
 }
 
-type processSpanRecord struct {
-	span       trace.Span
-	startedAt  time.Time
-	activation processActivation
-}
-
-type processKey struct {
-	processID     run.ProcessID
-	incarnationID run.TreeIncarnationID
-}
-
-type stepKey struct {
-	process  processKey
-	sequence uint64
-}
-
-type effectKey struct {
-	process   processKey
-	effectID  run.EffectID
-	attemptID run.EffectAttemptID
-}
-
-func processKeyFor(event run.Event) processKey {
-	incarnationID, _ := event.TreeIncarnationID()
-	return processKey{processID: event.Relation().ProcessID(), incarnationID: incarnationID}
-}
-
-type observerInstruments struct {
-	processActivations        metric.Int64Counter
-	processExits              metric.Int64Counter
-	processActivationDuration metric.Float64Histogram
-	processCommittedSteps     metric.Int64Histogram
-	processPreparedEffects    metric.Int64Histogram
-	processAcceptedSignals    metric.Int64Histogram
-	stepDuration              metric.Float64Histogram
-	stepAdoptionDelay         metric.Float64Histogram
-	effectDuration            metric.Float64Histogram
-	deltaDrops                metric.Int64Counter
-	durabilityDuration        metric.Float64Histogram
-	durabilitySnapshotBytes   metric.Int64Histogram
-}
-
-// NewObserver wraps instrument construction failures with ErrInvalidObserverConfig.
-// Export failures remain with the providers and never change Agent state.
 func NewObserver(config ObserverConfig) (*Observer, error) {
-	if config.TracerProvider != nil && lo.IsNil(config.TracerProvider) {
-		return nil, fmt.Errorf("%w: tracer provider is typed nil", ErrInvalidObserverConfig)
+	if config.TracerProvider != nil && lo.IsNil(config.TracerProvider) || config.MeterProvider != nil && lo.IsNil(config.MeterProvider) {
+		return nil, fmt.Errorf("%w: provider is typed nil", ErrInvalidObserverConfig)
 	}
-	if config.MeterProvider != nil && lo.IsNil(config.MeterProvider) {
-		return nil, fmt.Errorf("%w: meter provider is typed nil", ErrInvalidObserverConfig)
+	tracer := config.TracerProvider
+	if tracer == nil {
+		tracer = otel.GetTracerProvider()
 	}
-	tracerProvider := config.TracerProvider
-	if tracerProvider == nil {
-		tracerProvider = otel.GetTracerProvider()
+	meter := config.MeterProvider
+	if meter == nil {
+		meter = otel.GetMeterProvider()
 	}
-	meterProvider := config.MeterProvider
-	if meterProvider == nil {
-		meterProvider = otel.GetMeterProvider()
-	}
-	instruments, err := newObserverInstruments(meterProvider.Meter(instrumentationName))
+	instruments, err := newObserverInstruments(meter.Meter(instrumentationName))
 	if err != nil {
 		return nil, err
 	}
-	return &Observer{
-		tracer:      tracerProvider.Tracer(instrumentationName),
-		instruments: instruments,
-		processes:   make(map[processKey]processSpanRecord),
-		steps:       make(map[stepKey]trace.Span),
-		effects:     make(map[effectKey]trace.Span),
-	}, nil
+	return &Observer{tracer: tracer.Tracer(instrumentationName), instruments: instruments, readers: make(map[*logProjection]context.CancelFunc)}, nil
 }
 
-func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
-	processActivations, err := meter.Int64Counter(
-		processActivationsMetricName,
-		metric.WithDescription("Agent Process runtime activations started or restored."),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process activations counter: %w", ErrInvalidObserverConfig, err)
+// Consume returns the last fully projected LSN, including on cancellation.
+// A resumed reader records only new facts; missing historical span starts are
+// not fabricated. The caller persists the cursor and owns reader scheduling.
+func (o *Observer) Consume(ctx context.Context, source LogSource, after run.LSN) (run.LSN, error) {
+	if ctx == nil || o == nil || o.tracer == nil || lo.IsNil(source) || !source.ID().Valid() || source.ID().Depth() != 0 {
+		return after, ErrInvalidObserverConfig
 	}
-	processExits, err := meter.Int64Counter(
-		processExitsMetricName,
-		metric.WithDescription("Agent Process terminal outcomes."),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process exits counter: %w", ErrInvalidObserverConfig, err)
+	ctx, cancel := context.WithCancel(ctx)
+	projection := newLogProjection(o, source.ID())
+	o.mu.Lock()
+	if o.closed {
+		o.mu.Unlock()
+		cancel()
+		return after, ErrObservationClosed
 	}
-	processActivationDuration, err := meter.Float64Histogram(
-		invokeAgentDurationMetricName,
-		metric.WithDescription("Duration of one in-process agent invocation from start or restore to termination."),
-		metric.WithUnit(durationUnit),
-		metric.WithExplicitBucketBoundaries(0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8, 25.6, 51.2, 102.4, 204.8, 409.6),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process activation duration histogram: %w", ErrInvalidObserverConfig, err)
+	o.readers[projection] = cancel
+	o.mu.Unlock()
+	defer func() {
+		cancel()
+		projection.close()
+		o.mu.Lock()
+		delete(o.readers, projection)
+		close(projection.done)
+		o.mu.Unlock()
+	}()
+	for entry, err := range source.Observe(ctx, after) {
+		if err != nil {
+			return after, err
+		}
+		if entry.LSN == 0 || entry.LSN != after+1 {
+			return after, ErrObservationSequence
+		}
+		if err := projection.apply(ctx, entry); err != nil {
+			return after, err
+		}
+		after = entry.LSN
 	}
-	processCommittedSteps, err := meter.Int64Histogram(
-		processCommittedStepsMetricName,
-		metric.WithDescription("Committed Steps in one terminal Agent Process."),
-		metric.WithUnit(stepUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process committed steps histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	processPreparedEffects, err := meter.Int64Histogram(
-		processPreparedEffectsMetricName,
-		metric.WithDescription("Prepared Effects in one terminal Agent Process."),
-		metric.WithUnit(effectUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process prepared effects histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	processAcceptedSignals, err := meter.Int64Histogram(
-		processAcceptedSignalsMetricName,
-		metric.WithDescription("Accepted Signals in one terminal Agent Process."),
-		metric.WithUnit(signalUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create process accepted signals histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	stepAdoptionDelay, err := meter.Float64Histogram(
-		stepAdoptionDelayMetricName,
-		metric.WithDescription("Completion delivery and tree-owner wait after Step work."),
-		metric.WithUnit(durationUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create step adoption delay histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	stepDuration, err := meter.Float64Histogram(
-		stepDurationMetricName,
-		metric.WithDescription("Monotonic Step, Snapshot, and Restore worker duration, excluding adoption wait."),
-		metric.WithUnit(durationUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create step duration histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	effectDuration, err := meter.Float64Histogram(
-		effectDurationMetricName,
-		metric.WithDescription("Framework or Dispatcher Effect attempt duration."),
-		metric.WithUnit(durationUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create effect duration histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	deltaDrops, err := meter.Int64Counter(
-		deltaDropsMetricName,
-		metric.WithDescription("Best-effort Delta increments dropped before observation."),
-		metric.WithUnit(deltaUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create delta drop counter: %w", ErrInvalidObserverConfig, err)
-	}
-	durabilityDuration, err := meter.Float64Histogram(
-		durabilityDurationMetricName,
-		metric.WithDescription("Duration of one durable protocol acknowledgment attempt."),
-		metric.WithUnit(durationUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create committer duration histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	durabilitySnapshotBytes, err := meter.Int64Histogram(
-		durabilitySnapshotBytesMetricName,
-		metric.WithDescription("Whole-tree snapshot bytes proposed at a durable protocol boundary."),
-		metric.WithUnit(byteUnit),
-	)
-	if err != nil {
-		return observerInstruments{}, fmt.Errorf("%w: create committer snapshot size histogram: %w", ErrInvalidObserverConfig, err)
-	}
-	return observerInstruments{
-		processActivations:        processActivations,
-		processExits:              processExits,
-		processActivationDuration: processActivationDuration,
-		processCommittedSteps:     processCommittedSteps,
-		processPreparedEffects:    processPreparedEffects,
-		processAcceptedSignals:    processAcceptedSignals,
-		stepDuration:              stepDuration,
-		stepAdoptionDelay:         stepAdoptionDelay,
-		effectDuration:            effectDuration,
-		deltaDrops:                deltaDrops,
-		durabilityDuration:        durabilityDuration,
-		durabilitySnapshotBytes:   durabilitySnapshotBytes,
-	}, nil
+	return after, nil
 }
 
-func (o *Observer) OnEvent(ctx context.Context, event run.Event) {
-	if o == nil || !event.Valid() {
-		return
+func (o *Observer) Close(ctx context.Context) error {
+	if ctx == nil || o == nil || o.tracer == nil {
+		return ErrInvalidObserverConfig
 	}
-	if !o.beginObservation() {
-		return
+	o.mu.Lock()
+	o.closed = true
+	readers := make([]<-chan struct{}, 0, len(o.readers))
+	for projection, cancel := range o.readers {
+		cancel()
+		readers = append(readers, projection.done)
 	}
-	defer o.inFlight.Done()
-	if ctx == nil {
-		panic(errNilContext)
-	}
-	switch event.Name() {
-	case run.EventProcessStarted, run.EventProcessRestored:
-		o.startProcess(ctx, event)
-	case run.EventProcessFinished:
-		o.finishProcess(ctx, event)
-	case run.EventRuntimeStopped:
-		o.stopRuntime(ctx, event)
-	case run.EventStepStarted:
-		o.startStep(ctx, event)
-	case run.EventStepFinished:
-		o.finishStep(ctx, event)
-	case run.EventEffectStarted:
-		o.startEffect(ctx, event)
-	case run.EventEffectFinished:
-		o.finishEffect(ctx, event)
-	case run.EventDeltaDropped:
-		o.recordDeltaDrop(ctx, event)
-	default:
-		o.addProcessEvent(event)
-	}
-}
-
-func (o *Observer) beginObservation() bool {
-	o.lifecycleMu.Lock()
-	defer o.lifecycleMu.Unlock()
-	if o.closeDone != nil {
-		return false
-	}
-	o.inFlight.Add(1)
-	return true
-}
-
-// Close prevents new observation, waits for callbacks already in flight, and
-// then ends any incomplete spans. It is safe to call concurrently and is
-// idempotent; normally Runtime.Close leaves no incomplete Process spans.
-func (o *Observer) Close() {
-	if o == nil {
-		return
-	}
-	o.lifecycleMu.Lock()
-	if o.closeDone != nil {
-		done := o.closeDone
-		o.lifecycleMu.Unlock()
-		<-done
-		return
-	}
-	o.closeDone = make(chan struct{})
-	o.lifecycleMu.Unlock()
-	o.inFlight.Wait()
-	defer close(o.closeDone)
-	o.stateMu.Lock()
-	spans := make([]trace.Span, 0, len(o.effects)+len(o.steps)+len(o.processes))
-	for _, record := range o.effects {
-		spans = append(spans, record)
-	}
-	for _, record := range o.steps {
-		spans = append(spans, record)
-	}
-	for _, record := range o.processes {
-		spans = append(spans, record.span)
-	}
-	clear(o.effects)
-	clear(o.steps)
-	clear(o.processes)
-	o.stateMu.Unlock()
-	endedAt := time.Now()
-	for _, span := range spans {
-		recordSpanFailure(span, errIncompleteSpan, endedAt)
-		span.End(trace.WithTimestamp(endedAt))
-	}
-}
-
-func (o *Observer) startProcess(ctx context.Context, event run.Event) {
-	relation := event.Relation()
-	parentContext := ctx
-	if parentID, child := relation.ParentID(); child {
-		o.stateMu.Lock()
-		parent, found := o.processes[processKey{processID: parentID, incarnationID: processKeyFor(event).incarnationID}]
-		o.stateMu.Unlock()
-		if found {
-			parentContext = trace.ContextWithSpan(ctx, parent.span)
+	o.mu.Unlock()
+	for _, done := range readers {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 	}
-	activation := activationForEvent(event)
-	spanAttributes := append(
-		processAttributes(event),
-		semconv.GenAIOperationNameInvokeAgent,
-		semconv.GenAIAgentName(event.ProgramRef().Name()),
-		processActivationAttribute.String(string(activation)),
-	)
-	_, span := o.tracer.Start(
-		parentContext, invokeAgentOperationName+" "+event.ProgramRef().Name(),
-		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithTimestamp(event.OccurredAt()),
-		trace.WithAttributes(spanAttributes...),
-	)
-	record := processSpanRecord{
-		span: span, startedAt: event.OccurredAt(), activation: activation,
-	}
-	o.stateMu.Lock()
-	if _, exists := o.processes[processKeyFor(event)]; exists {
-		o.stateMu.Unlock()
-		span.End(trace.WithTimestamp(event.OccurredAt()))
-		return
-	}
-	o.processes[processKeyFor(event)] = record
-	o.stateMu.Unlock()
-	attributes := append(
-		deploymentMetricAttributes(event),
-		processActivationAttribute.String(string(activation)),
-	)
-	o.instruments.processActivations.Add(ctx, 1, metric.WithAttributes(attributes...))
+	return nil
 }
 
-func (o *Observer) finishProcess(ctx context.Context, event run.Event) {
-	fact, ok := event.ProcessFinished()
-	if !ok {
-		return
+func (o *Observer) enabled() bool {
+	if o == nil || o.tracer == nil {
+		return false
 	}
-	o.stateMu.Lock()
-	record, found := o.processes[processKeyFor(event)]
-	if found {
-		delete(o.processes, processKeyFor(event))
-	}
-	children := o.takeChildSpans(processKeyFor(event))
-	o.stateMu.Unlock()
-	for _, span := range children {
-		recordSpanFailure(span, errIncompleteSpan, event.OccurredAt())
-		span.End(trace.WithTimestamp(event.OccurredAt()))
-	}
-	attributes := append(deploymentMetricAttributes(event),
-		processStatusAttribute.String(fact.Status().String()),
-		processCauseAttribute.String(fact.Cause().String()),
-	)
-	if found {
-		attributes = append(
-			attributes,
-			processActivationAttribute.String(string(record.activation)),
-		)
-	}
-	if failure, failed := fact.Failure(); failed {
-		attributes = append(attributes,
-			processFailureKindAttribute.String(failure.Kind().String()),
-			processFailureCodeAttribute.String(failure.Code()),
-		)
-	}
-	metricOptions := metric.WithAttributes(attributes...)
-	o.instruments.processExits.Add(ctx, 1, metricOptions)
-	usage := fact.Usage()
-	o.instruments.processCommittedSteps.Record(ctx, saturatingInt64(usage.CommittedSteps), metricOptions)
-	o.instruments.processPreparedEffects.Record(ctx, saturatingInt64(usage.PreparedEffects), metricOptions)
-	o.instruments.processAcceptedSignals.Record(ctx, saturatingInt64(usage.AcceptedSignals), metricOptions)
-	if !found {
-		return
-	}
-	durationAttributes := []attribute.KeyValue{
-		semconv.GenAIAgentName(event.ProgramRef().Name()),
-		processActivationAttribute.String(string(record.activation)),
-	}
-	observedError := processError{status: fact.Status(), cause: fact.Cause()}
-	if failure, failed := fact.Failure(); failed {
-		observedError.failure = failure
-	}
-	if processStatusIsError(fact.Status()) {
-		durationAttributes = append(durationAttributes, semconv.ErrorType(observedError))
-	}
-	o.recordActivationDuration(ctx, record, event.OccurredAt(), durationAttributes)
-	spanAttributes := []attribute.KeyValue{
-		processStatusAttribute.String(fact.Status().String()),
-		processCauseAttribute.String(fact.Cause().String()),
-	}
-	if failure, failed := fact.Failure(); failed {
-		spanAttributes = append(spanAttributes,
-			processFailureKindAttribute.String(failure.Kind().String()),
-			processFailureCodeAttribute.String(failure.Code()),
-		)
-	}
-	record.span.SetAttributes(spanAttributes...)
-	if processStatusIsError(fact.Status()) {
-		recordSpanFailure(record.span, observedError, event.OccurredAt())
-	}
-	record.span.End(trace.WithTimestamp(event.OccurredAt()))
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return !o.closed
 }
 
-func (o *Observer) startStep(ctx context.Context, event run.Event) {
-	sequence, ok := event.StepSequence()
-	if !ok {
-		return
+func (o *Observer) WrapStore(next run.Store) (run.Store, error) {
+	if !o.enabled() || lo.IsNil(next) {
+		return nil, ErrInvalidObserverConfig
 	}
-	o.stateMu.Lock()
-	process, found := o.processes[processKeyFor(event)]
-	if !found {
-		o.stateMu.Unlock()
-		return
-	}
-	key := stepKey{process: processKeyFor(event), sequence: sequence}
-	if _, exists := o.steps[key]; exists {
-		o.stateMu.Unlock()
-		return
-	}
-	o.stateMu.Unlock()
-	attributes := append(
-		processAttributes(event),
-		processActivationAttribute.String(string(process.activation)),
-		uint64Attribute(stepSequenceAttribute, sequence),
-	)
-	_, span := o.tracer.Start(
-		trace.ContextWithSpan(ctx, process.span), stepSpanName,
-		trace.WithTimestamp(event.OccurredAt()),
-		trace.WithAttributes(attributes...),
-	)
-	o.stateMu.Lock()
-	if _, exists := o.steps[key]; exists {
-		o.stateMu.Unlock()
-		span.End(trace.WithTimestamp(event.OccurredAt()))
-		return
-	}
-	o.steps[key] = span
-	o.stateMu.Unlock()
+	return &observedStore{observer: o, next: next}, nil
 }
 
-func (o *Observer) finishStep(ctx context.Context, event run.Event) {
-	sequence, ok := event.StepSequence()
-	if !ok {
-		return
-	}
-	key := stepKey{process: processKeyFor(event), sequence: sequence}
-	fact, ok := event.StepFinished()
-	if !ok {
-		return
-	}
-	o.stateMu.Lock()
-	record, found := o.steps[key]
-	if found {
-		delete(o.steps, key)
-	}
-	o.stateMu.Unlock()
-	metricAttributes := append(
-		deploymentMetricAttributes(event),
-		stepStatusAttribute.String(fact.Status().String()),
-	)
-	o.instruments.stepDuration.Record(
-		ctx, fact.WorkDuration().Seconds(), metric.WithAttributes(metricAttributes...),
-	)
-	o.instruments.stepAdoptionDelay.Record(ctx, fact.AdoptionDelay().Seconds(), metric.WithAttributes(metricAttributes...))
-	if !found {
-		return
-	}
-	record.SetAttributes(stepStatusAttribute.String(fact.Status().String()))
-	if fact.Status() == run.StepStatusFailed {
-		recordSpanFailure(record, stepError{}, event.OccurredAt())
-	}
-	record.End(trace.WithTimestamp(event.OccurredAt()))
-}
-
-func (o *Observer) startEffect(ctx context.Context, event run.Event) {
-	effectID, ok := event.EffectID()
-	if !ok {
-		return
-	}
-	fact, ok := event.EffectStarted()
-	if !ok {
-		return
-	}
-	key := effectKey{process: processKeyFor(event), effectID: effectID, attemptID: fact.AttemptID()}
-	o.stateMu.Lock()
-	process, found := o.processes[key.process]
-	if !found {
-		o.stateMu.Unlock()
-		return
-	}
-	if _, exists := o.effects[key]; exists {
-		o.stateMu.Unlock()
-		return
-	}
-	o.stateMu.Unlock()
-	attributes := append(
-		processAttributes(event),
-		processActivationAttribute.String(string(process.activation)),
-		effectIDAttribute.String(effectID.String()),
-		effectAttemptIDAttribute.String(fact.AttemptID().String()),
-		effectTargetAttribute.String(fact.Target().String()),
-	)
-	_, span := o.tracer.Start(
-		trace.ContextWithSpan(ctx, process.span), effectSpanName,
-		trace.WithTimestamp(event.OccurredAt()),
-		trace.WithAttributes(attributes...),
-	)
-	o.stateMu.Lock()
-	if _, exists := o.effects[key]; exists {
-		o.stateMu.Unlock()
-		span.End(trace.WithTimestamp(event.OccurredAt()))
-		return
-	}
-	o.effects[key] = span
-	o.stateMu.Unlock()
-}
-
-func (o *Observer) finishEffect(ctx context.Context, event run.Event) {
-	effectID, ok := event.EffectID()
-	if !ok {
-		return
-	}
-	fact, ok := event.EffectFinished()
-	if !ok {
-		return
-	}
-	key := effectKey{process: processKeyFor(event), effectID: effectID, attemptID: fact.AttemptID()}
-	o.stateMu.Lock()
-	record, found := o.effects[key]
-	if found {
-		delete(o.effects, key)
-	}
-	o.stateMu.Unlock()
-	metricAttributes := append(
-		deploymentMetricAttributes(event),
-		effectTargetAttribute.String(fact.Target().String()),
-		effectStatusAttribute.String(fact.SettlementStatus().String()),
-	)
-	if failure, failed := fact.Failure(); failed {
-		metricAttributes = append(metricAttributes,
-			processFailureKindAttribute.String(failure.Kind().String()),
-			processFailureCodeAttribute.String(failure.Code()),
-		)
-	}
-	o.instruments.effectDuration.Record(
-		ctx, fact.Duration().Seconds(), metric.WithAttributes(metricAttributes...),
-	)
-	if !found {
-		return
-	}
-	record.SetAttributes(metricAttributes...)
-	if fact.SettlementStatus() != run.SettlementStatusSucceeded {
-		recordSpanFailure(record, effectError{
-			target: fact.Target(), settlement: fact.SettlementStatus(),
-		}, event.OccurredAt())
-	}
-	record.End(trace.WithTimestamp(event.OccurredAt()))
-}
-
-func (o *Observer) recordDeltaDrop(ctx context.Context, event run.Event) {
-	fact, ok := event.DeltaDropped()
-	if ok {
-		o.instruments.deltaDrops.Add(
-			ctx, saturatingInt64(fact.Count()),
-			metric.WithAttributes(deploymentMetricAttributes(event)...),
-		)
-	}
-	o.addProcessEvent(event)
-}
-
-func (o *Observer) addProcessEvent(event run.Event) {
-	o.stateMu.Lock()
-	record, found := o.processes[processKeyFor(event)]
-	o.stateMu.Unlock()
-	if !found {
-		return
-	}
-	attributes := []attribute.KeyValue{
-		uint64Attribute(processEventSequenceAttribute, event.ProcessSequence()),
-		eventPhaseAttribute.String(event.Phase().String()),
-	}
-	if step, ok := event.StepSequence(); ok {
-		attributes = append(attributes, uint64Attribute(stepSequenceAttribute, step))
-	}
-	if effectID, ok := event.EffectID(); ok {
-		attributes = append(attributes, effectIDAttribute.String(effectID.String()))
-	}
-	if fact, ok := event.EffectResolved(); ok {
-		attributes = append(attributes,
-			effectTargetAttribute.String(fact.Target().String()),
-			effectStatusAttribute.String(fact.SettlementStatus().String()),
-		)
-	}
-	if fact, ok := event.DeltaDropped(); ok {
-		attributes = append(attributes, effectAttemptIDAttribute.String(fact.AttemptID().String()))
-	}
-	record.span.AddEvent(
-		event.Name(), trace.WithTimestamp(event.OccurredAt()), trace.WithAttributes(attributes...),
-	)
-}
-
-// WrapDispatcher traces the external call at its actual execution boundary.
-// Downstream spans inherit agent.dispatch; attempt and incarnation identity
-// correlate it with the independently delivered agent.effect lifecycle facts.
 func (o *Observer) WrapDispatcher(next run.Dispatcher) (run.Dispatcher, error) {
-	if o == nil || lo.IsNil(o.tracer) {
-		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
-	}
-	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: dispatcher must not be nil", ErrInvalidObserverConfig)
+	if !o.enabled() || lo.IsNil(next) {
+		return nil, ErrInvalidObserverConfig
 	}
 	return &observedDispatcher{observer: o, next: next}, nil
 }
 
-// WrapTreeCommitter observes the existing port so instrumentation cannot select
-// a different commit or fencing path. Metric labels stay bounded to avoid one
-// time series per tree; identities belong only in traces. Adapter diagnostics
-// are excluded because they can contain credentials or payloads. An error other
-// than an explicit conflict remains unresolved because a lost response cannot
-// prove whether storage committed.
-func (o *Observer) WrapTreeCommitter(next run.Store) (run.Store, error) {
-	if o == nil || lo.IsNil(o.tracer) {
-		return nil, fmt.Errorf("%w: observer must be constructed with NewObserver", ErrInvalidObserverConfig)
-	}
-	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: tree committer must not be nil", ErrInvalidObserverConfig)
-	}
-	decorated := &observedTreeCommitter{observer: o, next: next}
-	if heads, ok := next.(run.HeadReader); ok {
-		return observedReadableStore{observedTreeCommitter: decorated, HeadReader: heads}, nil
-	}
-	return decorated, nil
+type observerInstruments struct {
+	processStarts      metric.Int64Counter
+	processExits       metric.Int64Counter
+	processDuration    metric.Float64Histogram
+	steps              metric.Int64Counter
+	effects            metric.Int64Counter
+	messages           metric.Int64Counter
+	effectDuration     metric.Float64Histogram
+	durabilityDuration metric.Float64Histogram
+	durabilityBytes    metric.Int64Histogram
 }
 
-func (o *Observer) observeDurability(ctx context.Context, operation, boundary string, snapshot run.TreeSnapshot, invoke func(context.Context) error) (err error) {
-	if !o.beginObservation() {
-		return invoke(ctx)
-	}
-	defer o.inFlight.Done()
-	if ctx == nil {
-		panic(errNilContext)
-	}
-	attributes := []attribute.KeyValue{durabilityOperationAttribute.String(operation)}
-	if boundary != "" {
-		attributes = append(attributes, durabilityBoundaryAttribute.String(boundary))
-	}
-	ctx, span := o.tracer.Start(ctx, durabilitySpanPrefix+operation, trace.WithAttributes(attributes...))
-	if snapshot.Valid() {
-		span.SetAttributes(
-			processRootIDAttribute.String(snapshot.RootID().String()),
-			durabilityHeadAttribute.String(snapshot.Digest().String()),
-			treeIncarnationIDAttribute.String(snapshot.IncarnationID().String()),
-		)
-	}
-	startedAt := time.Now()
-	defer func() {
-		panicked := recover()
-		outcome := durabilityOutcome(err)
-		if panicked != nil {
-			outcome = durabilityUnresolved
+func newObserverInstruments(meter metric.Meter) (observerInstruments, error) {
+	var instruments observerInstruments
+	var failures []error
+	counter := func(name string, target *metric.Int64Counter) {
+		value, err := meter.Int64Counter(name)
+		if err != nil {
+			failures = append(failures, err)
 		}
-		finishedAt := time.Now()
-		attributes = append(attributes, durabilityOutcomeAttribute.String(outcome))
-		span.SetAttributes(durabilityOutcomeAttribute.String(outcome))
-		if outcome != durabilityAcknowledged {
-			recordSpanFailure(span, durabilityError{outcome: outcome}, finishedAt)
+		*target = value
+	}
+	histogram := func(name string, target *metric.Float64Histogram) {
+		value, err := meter.Float64Histogram(name, metric.WithUnit(durationUnit))
+		if err != nil {
+			failures = append(failures, err)
 		}
-		options := metric.WithAttributes(attributes...)
-		o.instruments.durabilityDuration.Record(ctx, finishedAt.Sub(startedAt).Seconds(), options)
-		if snapshot.Valid() {
-			o.instruments.durabilitySnapshotBytes.Record(ctx, int64(snapshot.EncodedSize()), options)
-		}
-		span.End(trace.WithTimestamp(finishedAt))
-		if panicked != nil {
-			panic(panicked)
-		}
-	}()
-	return invoke(ctx)
-}
-
-func (o *Observer) stopRuntime(ctx context.Context, event run.Event) {
-	fact, ok := event.RuntimeStopped()
-	if !ok {
-		return
+		*target = value
 	}
-	key := processKeyFor(event)
-	o.stateMu.Lock()
-	record, found := o.processes[key]
-	delete(o.processes, key)
-	spans := o.takeChildSpans(key)
-	o.stateMu.Unlock()
-	observedError := runtimeError{failure: fact.Failure()}
-	if found {
-		spans = append(spans, record.span)
-		attributes := []attribute.KeyValue{
-			semconv.GenAIAgentName(event.ProgramRef().Name()),
-			processActivationAttribute.String(string(record.activation)),
-			semconv.ErrorType(observedError),
-		}
-		o.recordActivationDuration(ctx, record, event.OccurredAt(), attributes)
+	counter(processStartsMetricName, &instruments.processStarts)
+	counter(processExitsMetricName, &instruments.processExits)
+	counter(processCommittedStepsMetricName, &instruments.steps)
+	counter(processPreparedEffectsMetricName, &instruments.effects)
+	counter(processAcceptedMessagesMetricName, &instruments.messages)
+	histogram(invokeAgentDurationMetricName, &instruments.processDuration)
+	histogram(effectDurationMetricName, &instruments.effectDuration)
+	histogram(durabilityDurationMetricName, &instruments.durabilityDuration)
+	var err error
+	instruments.durabilityBytes, err = meter.Int64Histogram(durabilityBatchBytesMetricName, metric.WithUnit(byteUnit))
+	if err != nil {
+		failures = append(failures, err)
 	}
-	for _, span := range spans {
-		span.SetAttributes(
-			processFailureKindAttribute.String(observedError.failure.Kind().String()),
-			processFailureCodeAttribute.String(observedError.failure.Code()),
-		)
-		recordSpanFailure(span, observedError, event.OccurredAt())
-		span.End(trace.WithTimestamp(event.OccurredAt()))
+	if len(failures) > 0 {
+		return observerInstruments{}, fmt.Errorf("%w: %w", ErrInvalidObserverConfig, errors.Join(failures...))
 	}
-}
-
-func uint64Attribute(key attribute.Key, value uint64) attribute.KeyValue {
-	return key.String(strconv.FormatUint(value, 10))
-}
-
-func saturatingInt64(value uint64) int64 {
-	if value > math.MaxInt64 {
-		return math.MaxInt64
-	}
-	return int64(value)
-}
-
-func processAttributes(event run.Event) []attribute.KeyValue {
-	reference := event.ProgramRef()
-	relation := event.Relation()
-	values := []attribute.KeyValue{
-		processIDAttribute.String(event.Relation().ProcessID().String()),
-		processRootIDAttribute.String(relation.RootID().String()),
-		processDepthAttribute.Int64(int64(relation.Depth())),
-		deploymentNameAttribute.String(reference.Name()),
-		deploymentDigestAttribute.String(reference.Digest().String()),
-	}
-	if parentID, child := relation.ParentID(); child {
-		values = append(values, processParentIDAttribute.String(parentID.String()))
-	}
-	if incarnationID, durable := event.TreeIncarnationID(); durable {
-		values = append(values, treeIncarnationIDAttribute.String(incarnationID.String()))
-	}
-	return values
-}
-
-func deploymentMetricAttributes(event run.Event) []attribute.KeyValue {
-	reference := event.ProgramRef()
-	return []attribute.KeyValue{
-		deploymentNameAttribute.String(reference.Name()),
-	}
-}
-
-type processError struct {
-	status  run.Status
-	cause   run.TerminationCause
-	failure run.FailureClassification
-}
-
-func (p processError) Error() string {
-	if p.failure.Valid() {
-		return "agent Process " + p.status.String() + ": " +
-			p.failure.Kind().String() + "/" + p.failure.Code()
-	}
-	return "agent Process " + p.status.String() + ": " + p.cause.String()
-}
-
-func (p processError) ErrorType() string {
-	if p.failure.Valid() {
-		return p.failure.Code()
-	}
-	return "agent." + p.cause.String()
-}
-
-type stepError struct{}
-
-func (stepError) Error() string { return "agent Execution Step failed" }
-
-func (stepError) ErrorType() string { return "agent.step.failed" }
-
-type effectError struct {
-	target     run.EffectTarget
-	settlement run.SettlementStatus
-}
-
-func (e effectError) Error() string {
-	return "agent " + e.target.String() + " Effect " + e.settlement.String()
-}
-
-func (e effectError) ErrorType() string { return "agent.effect." + e.settlement.String() }
-
-func recordSpanFailure(span trace.Span, observedError error, occurredAt time.Time) {
-	span.SetAttributes(semconv.ErrorType(observedError))
-	span.RecordError(observedError, trace.WithTimestamp(occurredAt))
-	span.SetStatus(codes.Error, observedError.Error())
-}
-
-func activationForEvent(event run.Event) processActivation {
-	if event.Name() == run.EventProcessRestored {
-		return processActivationRestored
-	}
-	return processActivationStarted
-}
-
-func processStatusIsError(status run.Status) bool {
-	switch status {
-	case run.StatusFailed, run.StatusTimedOut, run.StatusKilled:
-		return true
-	default:
-		return false
-	}
-}
-
-var _ run.EventListener = (*Observer)(nil)
-
-// takeChildSpans transfers active children while stateMu is held.
-func (o *Observer) takeChildSpans(key processKey) []trace.Span {
-	var spans []trace.Span
-	for step, span := range o.steps {
-		if step.process == key {
-			spans = append(spans, span)
-			delete(o.steps, step)
-		}
-	}
-	for effect, span := range o.effects {
-		if effect.process == key {
-			spans = append(spans, span)
-			delete(o.effects, effect)
-		}
-	}
-	return spans
-}
-
-// Delivery time measures listener backlog, not work. A backward wall-clock
-// interval cannot establish an execution duration; omit that sample.
-func (o *Observer) recordActivationDuration(ctx context.Context, record processSpanRecord, ended time.Time, attributes []attribute.KeyValue) {
-	if d := ended.Sub(record.startedAt); d >= 0 {
-		o.instruments.processActivationDuration.Record(trace.ContextWithSpan(ctx, record.span), d.Seconds(), metric.WithAttributes(attributes...))
-	}
+	return instruments, nil
 }

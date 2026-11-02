@@ -35,11 +35,11 @@ func (d *definitionProbe) decorateStart(decorate func(run.Execution) run.Executi
 }
 
 type executionProbe struct {
-	step     func(context.Context, []run.Signal) (run.Transition, error)
+	step     func(context.Context, run.Turn) (run.Transition, error)
 	snapshot func() (run.ExecutionState, error)
 }
 
-func (e *executionProbe) Step(ctx context.Context, signals []run.Signal) (run.Transition, error) {
+func (e *executionProbe) Step(ctx context.Context, signals run.Turn) (run.Transition, error) {
 	return e.step(ctx, signals)
 }
 func (e *executionProbe) Snapshot() (run.ExecutionState, error) { return e.snapshot() }
@@ -73,6 +73,18 @@ func TestDefinitionConformanceRejectsBrokenLifecycleContracts(t *testing.T) {
 		{"restore failure", func(probe *definitionProbe) {
 			probe.restore = func(context.Context, run.ExecutionState) (run.Execution, error) { return nil, cause }
 		}, "Definition.Restore: fixture callback refused"},
+		{"restored step failure", func(probe *definitionProbe) {
+			restore := probe.restore
+			probe.restore = func(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
+				execution, err := restore(ctx, state)
+				if err != nil {
+					return nil, err
+				}
+				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, run.Turn) (run.Transition, error) {
+					return run.Transition{}, cause
+				}}, nil
+			}
+		}, "Execution.Step: fixture callback refused"},
 		{"nil restore", func(probe *definitionProbe) {
 			probe.restore = func(context.Context, run.ExecutionState) (run.Execution, error) {
 				return (*executionProbe)(nil), nil
@@ -90,17 +102,17 @@ func TestDefinitionConformanceRejectsBrokenLifecycleContracts(t *testing.T) {
 		}, "Snapshot returned an invalid state"},
 		{"invalid transition", func(probe *definitionProbe) {
 			probe.decorateStart(func(execution run.Execution) run.Execution {
-				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, []run.Signal) (run.Transition, error) { return run.Transition{}, nil }}
+				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, run.Turn) (run.Transition, error) { return run.Transition{}, nil }}
 			})
 		}, "Step returned an invalid Transition"},
 		{"consumption beyond admitted signals", func(probe *definitionProbe) {
 			probe.decorateStart(func(execution run.Execution) run.Execution {
-				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, []run.Signal) (run.Transition, error) { return run.Continue(1) }}
+				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, run.Turn) (run.Transition, error) { return run.Continue(1) }}
 			})
-		}, "consumed 1 Signals from a prefix of 0"},
+		}, "consumed 1 messages from a prefix of 0"},
 		{"step failure", func(probe *definitionProbe) {
 			probe.decorateStart(func(execution run.Execution) run.Execution {
-				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, []run.Signal) (run.Transition, error) { return run.Transition{}, cause }}
+				return &executionProbe{snapshot: execution.Snapshot, step: func(context.Context, run.Turn) (run.Transition, error) { return run.Transition{}, cause }}
 			})
 		}, "Execution.Step: fixture callback refused"},
 		{"descriptor lost after execution", func(probe *definitionProbe) {
@@ -122,7 +134,7 @@ func TestDefinitionConformanceRejectsBrokenLifecycleContracts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: probe, Input: input})
+			err = verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{InitialTurn: definitionTurn(1), Definition: probe, Input: input})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("broken lifecycle accepted or misreported: %v, want %q", err, test.want)
 			}
@@ -152,11 +164,11 @@ func TestDefinitionConformanceRejectsUnusableInputsAndRestoredCases(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{Definition: definition, Input: wrong}); !errors.Is(err, run.ErrInvalidPayload) {
+	if err := verifyFreshExecutions(t.Context(), DefinitionConformanceConfig{InitialTurn: definitionTurn(1), Definition: definition, Input: wrong}); !errors.Is(err, run.ErrInvalidPayload) {
 		t.Fatalf("input schema mismatch = %v", err)
 	}
 	var typedNil *executionProbe
-	if err := verifyExecutionStep(t.Context(), definition, typedNil, typedNil, nil); err == nil || !strings.Contains(err.Error(), "nil Execution") {
+	if err := verifyExecutionStep(t.Context(), definition, typedNil, typedNil, definitionTurn(1)); err == nil || !strings.Contains(err.Error(), "nil Execution") {
 		t.Fatalf("nil execution pair = %v", err)
 	}
 }
@@ -214,7 +226,7 @@ func TestRestorationConformanceRejectsUnfaithfulOrFailedRecovery(t *testing.T) {
 			}
 			probe := &definitionProbe{describe: base.Descriptor, start: base.Start, restore: base.Restore}
 			test.configure(probe, state)
-			err = verifyRestoredExecutions(t.Context(), probe, ExecutionConformanceCase{State: state})
+			err = verifyRestoredExecutions(t.Context(), probe, ExecutionConformanceCase{Turn: definitionTurn(1), State: state})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("invalid restore accepted: %v, want %s", err, test.want)
 			}
@@ -269,7 +281,7 @@ func TestConformanceReportsFailuresAtEachExecutionComparisonBoundary(t *testing.
 				t.Fatal(err)
 			}
 			probe := &definitionProbe{describe: base.Descriptor, start: base.Start, restore: base.Restore}
-			badStep := func(context.Context, []run.Signal) (run.Transition, error) {
+			badStep := func(context.Context, run.Turn) (run.Transition, error) {
 				if test.different {
 					return run.Complete(0, input)
 				}
@@ -297,7 +309,7 @@ func TestConformanceReportsFailuresAtEachExecutionComparisonBoundary(t *testing.
 					return &executionProbe{snapshot: execution.Snapshot, step: badStep}, nil
 				}
 			}
-			err = verifyExecutionStep(t.Context(), probe, left, right, nil)
+			err = verifyExecutionStep(t.Context(), probe, left, right, definitionTurn(1))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("comparison defect was accepted or misreported: %v, want %s", err, test.want)
 			}
@@ -323,7 +335,7 @@ func TestConformanceRejectsEqualTransitionsWithDifferentResultingState(t *testin
 		t.Fatal(err)
 	}
 	stepped := false
-	changed := &executionProbe{snapshot: right.Snapshot, step: func(ctx context.Context, signals []run.Signal) (run.Transition, error) {
+	changed := &executionProbe{snapshot: right.Snapshot, step: func(ctx context.Context, signals run.Turn) (run.Transition, error) {
 		stepped = true
 		return right.Step(ctx, signals)
 	}}
@@ -333,7 +345,7 @@ func TestConformanceRejectsEqualTransitionsWithDifferentResultingState(t *testin
 		}
 		return right.Snapshot()
 	}
-	err = verifyExecutionStep(t.Context(), definition, left, changed, nil)
+	err = verifyExecutionStep(t.Context(), definition, left, changed, definitionTurn(1))
 	if !errors.Is(err, errConformanceValuesDiffer) || !strings.Contains(err.Error(), "resulting Execution state") {
 		t.Fatalf("equal Transitions hid divergent resulting state: %v", err)
 	}

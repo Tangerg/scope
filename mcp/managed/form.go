@@ -12,13 +12,13 @@ import (
 
 // Project only the flat primitive form vocabulary. Never silently erase a
 // schema constraint or turn a structured question into a guessed prompt.
-func form(q run.PendingWait) (*sdk.ElicitParams, error) {
+func form(q run.Wait) (*sdk.ElicitParams, error) {
 	var message string
-	if jsonv2.Unmarshal(q.Question, &message) != nil || strings.TrimSpace(message) == "" {
+	if jsonv2.Unmarshal(q.Question.JSON(), &message) != nil || strings.TrimSpace(message) == "" {
 		return nil, errForm
 	}
 	var root map[string]json.RawMessage
-	if jsonv2.Unmarshal(q.AnswerSchema, &root) != nil {
+	if jsonv2.Unmarshal(q.AnswerSchema.JSON(), &root) != nil {
 		return nil, errForm
 	}
 	var kind string
@@ -92,5 +92,5 @@ func form(q run.PendingWait) (*sdk.ElicitParams, error) {
 			}
 		}
 	}
-	return &sdk.ElicitParams{Mode: formMode, Message: message, RequestedSchema: q.AnswerSchema}, nil
+	return &sdk.ElicitParams{Mode: formMode, Message: message, RequestedSchema: q.AnswerSchema.JSON()}, nil
 }

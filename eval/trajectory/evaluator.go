@@ -12,21 +12,20 @@ import (
 )
 
 const (
-	metricNamespace                       = "agent"
-	metricMaximumKey                      = "maximum"
-	metricUnitCount                       = "count"
-	metricUnitToken                       = "token"
-	metricUnitSecond                      = "s"
-	MetricTrajectory      eval.MetricName = "trajectory"
-	MetricExpectedOutcome eval.MetricName = "expected_outcome"
-	MetricToolCalls       eval.MetricName = "tool_calls"
-	MetricConsistency     eval.MetricName = "consistency"
-	MetricCommittedSteps  eval.MetricName = "committed_steps"
-	MetricPreparedEffects eval.MetricName = "prepared_effects"
-	MetricAcceptedSignals eval.MetricName = "accepted_signals"
-	MetricDroppedDeltas   eval.MetricName = "dropped_deltas"
-	MetricTotalTokens     eval.MetricName = "total_tokens"
-	MetricElapsed         eval.MetricName = "recording_elapsed"
+	metricNamespace                        = "agent"
+	metricMaximumKey                       = "maximum"
+	metricUnitCount                        = "count"
+	metricUnitToken                        = "token"
+	metricUnitSecond                       = "s"
+	MetricTrajectory       eval.MetricName = "trajectory"
+	MetricExpectedOutcome  eval.MetricName = "expected_outcome"
+	MetricToolCalls        eval.MetricName = "tool_calls"
+	MetricConsistency      eval.MetricName = "consistency"
+	MetricCommittedSteps   eval.MetricName = "committed_steps"
+	MetricPreparedEffects  eval.MetricName = "prepared_effects"
+	MetricAcceptedMessages eval.MetricName = "accepted_messages"
+	MetricTotalTokens      eval.MetricName = "total_tokens"
+	MetricElapsed          eval.MetricName = "recording_elapsed"
 )
 
 // Evaluator deterministically checks the expected terminal outcome, Tool behavior,

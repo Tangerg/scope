@@ -5,316 +5,171 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
-	agentrun "github.com/Tangerg/scope/agent/run"
+	run "github.com/Tangerg/scope/agent/run"
 )
 
+const failureCodeCoordinatorNotCompleted = "team.coordinator.not_completed"
+
 type execution struct {
-	definition *Definition
+	definition *definition
 	state      executionState
 }
 
-func (e *execution) Step(ctx context.Context, signals []agentrun.Signal) (agentrun.Transition, error) {
+func (e *execution) Snapshot() (run.ExecutionState, error) {
+	return run.EncodeExecutionState(stateKind, e.state)
+}
+func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
-		return agentrun.Transition{}, err
+		return run.Transition{}, err
 	}
-	switch e.state.phase() {
-	case phaseReady:
-		if len(signals) != 0 {
-			return agentrun.Transition{}, ErrInvalidProtocol
+	if e.state.Completed {
+		return run.Transition{}, ErrInvalidProtocol
+	}
+	for _, message := range turn.Messages {
+		if err := e.accept(message); err != nil {
+			return run.Transition{}, err
 		}
-		// The first turn has no prior decision; working state is the initial state.
-		return e.startTurn(Decision{}, 0)
-	case phaseStartingTurn:
-		return e.acceptTurnStart(signals)
-	case phaseApplying:
-		return e.acceptActions(signals)
-	case phaseOpening:
-		return e.acceptOpening(signals)
-	case phaseWaiting:
-		return e.acceptOutcomes(ctx, signals)
-	default:
-		return agentrun.Transition{}, ErrInvalidProtocol
 	}
+	consumed := uint32(len(turn.Messages))
+	if e.state.Coordinator != nil {
+		invocation := e.state.Coordinator
+		if invocation.Rejection != nil {
+			return run.Fail(consumed, *invocation.Rejection)
+		}
+		if invocation.Termination == nil {
+			return run.Yield(consumed, nil)
+		}
+		termination := *invocation.Termination
+		if failure, failed := termination.Failure(); failed {
+			return run.Fail(consumed, failure)
+		}
+		output, completed := termination.Output()
+		if !completed {
+			return stepfail.Transition(consumed, run.FailureKindExternal, failureCodeCoordinatorNotCompleted, termination.Reason())
+		}
+		decision, err := output.Decode[Decision]()
+		if err != nil {
+			return run.Transition{}, err
+		}
+		return e.applyDecision(ctx, turn, decision, consumed)
+	}
+	return e.advance(turn, consumed)
 }
-
-// startTurn opens the next coordinator turn. decision is the current turn's
-// already-decoded Decision (the zero Decision for the first turn), so a single
-// Step decodes the coordinator output once and threads it here.
-func (e *execution) startTurn(decision Decision, consumed uint32) (agentrun.Transition, error) {
-	number := e.state.number()
-	if !e.definition.maxTurns.Allows(number, 1) {
-		return agentrun.Transition{}, ErrTurnLimit
+func (e *execution) accept(message run.Message) error {
+	if e.state.Coordinator != nil && !e.state.Coordinator.Done() {
+		matched, err := e.state.Coordinator.Accept(message)
+		if err != nil {
+			return err
+		}
+		if matched {
+			return nil
+		}
 	}
-	if number == math.MaxUint64 {
-		return agentrun.Transition{}, agentrun.ErrCounterExhausted
-	}
-	turn := Turn{Number: number + 1, State: e.state.workingState(decision),
-		Tasks: append([]Task{}, e.state.Tasks...), Controls: append([]ControlReceipt{}, e.state.Controls...),
-		Workers: make([]agentrun.Descriptor, 0, len(e.definition.workers))}
-	for _, worker := range e.definition.workers {
-		turn.Workers = append(turn.Workers, worker.deployment.Descriptor())
-	}
-	input, err := agentrun.EncodePayload(turn)
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	key, err := turnKey(turn.Number)
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	effect, err := agentrun.NewChildStartEffect(e.definition.coordinator.spec(key, input))
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	e.state.Turn = &turnExecution{Number: turn.Number, State: turn.State}
-	e.state.InitialState = agentrun.Payload{}
-	e.state.WaitID = nil
-	return agentrun.Continue(consumed, effect)
-}
-
-func (e *execution) acceptTurnStart(signals []agentrun.Signal) (agentrun.Transition, error) {
-	if len(signals) == 0 {
-		return agentrun.Transition{}, ErrInvalidProtocol
-	}
-	started, err := signals[0].Frame[agentrun.ChildStartResult]()
-	if err != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	batch, err := e.state.batch()
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	indices, err := batch.AcceptStarts([]agentrun.ChildStartResult{started})
-	if err != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	// A refused turn ends the collaboration; the Runtime owns that Failure.
-	if failure, failed := started.Failure(); failed {
-		return agentrun.Fail(1, failure)
-	}
-	e.state.recordStart(indices[0], started)
-	return e.openWait(1)
-}
-
-func (e *execution) openWait(consumed uint32) (agentrun.Transition, error) {
-	e.state.WaitID = nil
-	spec, err := e.state.waitSpec()
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	effect, err := agentrun.NewChildWaitEffect(spec)
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	return agentrun.Continue(consumed, effect)
-}
-
-func (e *execution) acceptOpening(signals []agentrun.Signal) (agentrun.Transition, error) {
-	if len(signals) == 0 {
-		return agentrun.Transition{}, ErrInvalidProtocol
-	}
-	opened, err := signals[0].Frame[agentrun.ChildWaitOpened]()
-	if err != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	batch, err := e.state.batch()
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	id, err := batch.AcceptOpening(opened)
-	if err != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	e.state.WaitID = &id
-	return agentrun.Wait(1, id)
-}
-
-func (e *execution) acceptOutcomes(ctx context.Context, signals []agentrun.Signal) (agentrun.Transition, error) {
-	if len(signals) == 0 {
-		return agentrun.Transition{}, ErrInvalidProtocol
-	}
-	satisfied, err := signals[0].Frame[agentrun.ChildWaitSatisfied]()
-	if err != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	want, err := e.state.waitSpec()
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	batch, err := e.state.batch()
-	if err != nil {
-		return agentrun.Transition{}, err
-	}
-	indices, completionErr := batch.Complete(satisfied, want.Key, want.Boundary, want.Condition)
-	if completionErr != nil {
-		return agentrun.Transition{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, completionErr)
-	}
-	decided := e.state.Turn.Outcome != nil
-	for offset, outcome := range satisfied.Outcomes() {
-		if indices[offset] != len(e.state.Tasks) {
+	for index := range e.state.Tasks {
+		invocation := &e.state.Tasks[index].Invocation
+		if invocation.Done() {
 			continue
 		}
-		// A failed turn ends the collaboration before any decision applies;
-		// the Runtime owns that Failure.
-		failure, failed, err := turnFailure(outcome)
+		matched, err := invocation.Accept(message)
 		if err != nil {
-			return agentrun.Transition{}, err
+			return err
 		}
-		if failed {
-			return agentrun.Fail(1, failure)
+		if matched {
+			if invocation.Termination != nil {
+				e.state.OutcomeArrived = true
+			}
+			return nil
 		}
 	}
-	for offset, outcome := range satisfied.Outcomes() {
-		e.state.recordOutcome(indices[offset], outcome)
+	if completion, ok := message.(run.Completion); ok {
+		for index := range e.state.Controls {
+			control := &e.state.Controls[index]
+			if control.Effect != nil && *control.Effect == completion.Effect {
+				control.Effect = nil
+				control.Result = &completion.Outcome
+				return nil
+			}
+		}
 	}
-	e.state.WaitID = nil
-	if e.state.Turn.Outcome == nil {
-		return e.openWait(1)
-	}
-	decision, decisionErr := e.state.decision()
-	if decisionErr != nil {
-		return agentrun.Transition{}, decisionErr
-	}
-	// A turn decided in an earlier Step starts the next turn; one decided by this
-	// outcome applies first. Both reuse the one decoded Decision.
-	if decided {
-		return e.startTurn(decision, 1)
-	}
-	return e.applyDecision(ctx, decision, 1)
+	return fmt.Errorf("%w: message answers no outstanding team operation", ErrInvalidProtocol)
 }
-
-// turnFailure reports the Failure a finished coordinator turn ends the
-// collaboration with: a failed coordinator, or one whose subtree retains
-// unresolved Effects and so cannot authorize a Decision.
-func turnFailure(outcome agentrun.ChildOutcome) (agentrun.Failure, bool, error) {
-	if !coordinatorOutcomeAuthorizes(outcome) {
-		failure, err := stepfail.Failure(agentrun.FailureKindExternal, failureCodeCoordinatorUnresolvedEffects, "Coordinator subtree has unresolved Effects")
-		return failure, true, err
+func (e *execution) advance(turn run.Turn, consumed uint32) (run.Transition, error) {
+	if e.state.unapplied() || e.state.WaitForTask && !e.state.OutcomeArrived && e.state.remainingCount() > 0 {
+		return run.Yield(consumed, nil)
 	}
-	failure, failed := outcome.Result().Termination().Failure()
-	return failure, failed, nil
+	return e.startTurn(turn, consumed)
 }
-
-func (e *execution) acceptActions(signals []agentrun.Signal) (agentrun.Transition, error) {
-	if len(signals) == 0 {
-		return agentrun.Transition{}, ErrInvalidProtocol
+func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transition, error) {
+	if !e.definition.maxTurns.Allows(e.state.TurnNumber, 1) {
+		return run.Transition{}, ErrTurnLimit
 	}
-	consumed, settled, err := e.acceptTaskStarts(signals)
+	if e.state.TurnNumber == math.MaxUint64 {
+		return run.Transition{}, run.ErrCounterExhausted
+	}
+	number := e.state.TurnNumber + 1
+	input := Turn{Number: number, State: e.state.WorkingState, Tasks: make([]Task, len(e.state.Tasks)), Controls: make([]ControlReceipt, len(e.state.Controls)), Workers: make([]run.Descriptor, len(e.definition.workers))}
+	for index, task := range e.state.Tasks {
+		input.Tasks[index] = task.project()
+	}
+	for index, control := range e.state.Controls {
+		input.Controls[index] = control.project()
+	}
+	for index, worker := range e.definition.workers {
+		input.Workers[index] = worker.program.Descriptor()
+	}
+	payload, err := run.EncodePayload(input)
 	if err != nil {
-		return agentrun.Transition{}, err
+		return run.Transition{}, err
 	}
-	if settled {
-		consumed, settled, err = e.acceptControlResults(signals, consumed)
-		if err != nil {
-			return agentrun.Transition{}, err
-		}
-	}
-	if !settled {
-		return agentrun.Continue(consumed)
-	}
-	decision, err := e.state.decision()
+	key, err := turnKey(number)
 	if err != nil {
-		return agentrun.Transition{}, err
+		return run.Transition{}, err
 	}
-	return e.afterActions(decision, consumed)
-}
-
-func (e *execution) acceptTaskStarts(signals []agentrun.Signal) (consumed uint32, settled bool, err error) {
-	batch, err := e.state.batch()
+	invocation, effect, err := child.Start(runtimeTurn, 0, e.definition.coordinator.spec(key, payload))
 	if err != nil {
-		return 0, false, err
+		return run.Transition{}, err
 	}
-	pending := batch.PendingStarts()
-	count := min(pending, len(signals))
-	if count == 0 {
-		return 0, true, nil
-	}
-	starts := make([]agentrun.ChildStartResult, count)
-	for index := range starts {
-		starts[index], err = signals[index].Frame[agentrun.ChildStartResult]()
-		if err != nil {
-			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-		}
-	}
-	indices, err := batch.AcceptStarts(starts)
-	if err != nil {
-		return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	for offset, index := range indices {
-		e.state.recordStart(index, starts[offset])
-	}
-	return uint32(count), count == pending, nil
+	e.state.TurnNumber = number
+	e.state.Coordinator = &invocation
+	e.state.WaitForTask = false
+	e.state.OutcomeArrived = false
+	return run.Yield(consumed, []run.Effect{effect})
 }
-
-func (e *execution) acceptControlResults(signals []agentrun.Signal, consumed uint32) (total uint32, settled bool, err error) {
-	for index := range e.state.Controls {
-		receipt := &e.state.Controls[index]
-		if receipt.Result != nil {
-			continue
-		}
-		if int(consumed) == len(signals) {
-			return consumed, false, nil
-		}
-		result, parseErr := signals[consumed].Frame[agentrun.ChildControlResult]()
-		if parseErr != nil {
-			return 0, false, fmt.Errorf("%w: %w", ErrInvalidProtocol, parseErr)
-		}
-		receipt.Result = &result
-		consumed++
-	}
-	return consumed, true, nil
-}
-
-func (e *execution) afterActions(decision Decision, consumed uint32) (agentrun.Transition, error) {
-	if e.state.awaitsTasks(decision.Mode) {
-		return e.openWait(consumed)
-	}
-	return e.startTurn(decision, consumed)
-}
-
-func (e *execution) applyDecision(ctx context.Context, decision Decision, consumed uint32) (agentrun.Transition, error) {
+func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision Decision, consumed uint32) (run.Transition, error) {
 	if err := e.state.validateDecision(ctx, e.definition, decision); err != nil {
-		return agentrun.Transition{}, err
-	}
-	effects := make([]agentrun.Effect, 0, len(decision.Tasks)+len(decision.Controls))
-	for _, request := range decision.Tasks {
-		worker, _ := e.definition.worker(request.Worker)
-		effect, err := agentrun.NewChildStartEffect(worker.spec(request.Key, request.Input))
-		if err != nil {
-			return agentrun.Transition{}, err
-		}
-		effects = append(effects, effect)
-	}
-	tasks := e.state.taskIndex()
-	for _, control := range decision.Controls {
-		effect, err := control.effect(tasks[control.Task])
-		if err != nil {
-			return agentrun.Transition{}, err
-		}
-		effects = append(effects, effect)
-	}
-	e.state.Controls = nil
-	for _, request := range decision.Tasks {
-		e.state.Tasks = append(e.state.Tasks, Task{Request: request})
-	}
-	for _, control := range decision.Controls {
-		e.state.Controls = append(e.state.Controls, ControlReceipt{Control: control})
+		return run.Transition{}, err
 	}
 	if decision.completes() {
 		e.state = executionState{Completed: true}
-		return agentrun.Complete(consumed, decision.Output)
+		return run.Complete(consumed, decision.Output)
 	}
-	if len(effects) == 0 {
-		return e.afterActions(decision, consumed)
+	tasks := e.state.taskIndex()
+	effects := make([]run.Effect, 0, len(decision.Tasks)+len(decision.Controls))
+	for _, request := range decision.Tasks {
+		worker, _ := e.definition.worker(request.Worker)
+		invocation, effect, err := child.Start(turn, uint32(len(effects)), worker.spec(request.Key, request.Input))
+		if err != nil {
+			return run.Transition{}, err
+		}
+		e.state.Tasks = append(e.state.Tasks, taskState{Request: request, Invocation: invocation})
+		effects = append(effects, effect)
 	}
-	return agentrun.Continue(consumed, effects...)
+	e.state.Controls = nil
+	for _, control := range decision.Controls {
+		effect, err := control.effect(tasks[control.Task])
+		if err != nil {
+			return run.Transition{}, err
+		}
+		e.state.Controls = append(e.state.Controls, controlState{Control: control, Effect: new(turn.EffectID(uint32(len(effects))))})
+		effects = append(effects, effect)
+	}
+	e.state.Coordinator = nil
+	e.state.WorkingState = decision.State
+	e.state.WaitForTask = decision.Mode == ModeWait
+	if len(effects) != 0 {
+		return run.Yield(consumed, effects)
+	}
+	return e.advance(turn, consumed)
 }
-
-func (e *execution) Snapshot() (agentrun.ExecutionState, error) {
-	return agentrun.EncodeExecutionState(stateKind, e.state)
-}
-
-var _ agentrun.Execution = (*execution)(nil)
-
-const failureCodeCoordinatorUnresolvedEffects = "collaboration.coordinator.unresolved_effects"

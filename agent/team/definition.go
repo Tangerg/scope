@@ -15,7 +15,7 @@ const stateKind = "collaboration"
 // WorkerConfig freezes a child binding and its permanently allocated grants.
 // Workers are selected by Program.Descriptor().Name(), never by routing or
 // a model-supplied ProgramRef, budget, or capability grant.
-// The Definition owns the bound Programs as its ChildPrograms.
+// The definition owns the bound Programs as its ChildPrograms.
 type WorkerConfig struct {
 	Program      agentrun.Program[agentrun.Payload, agentrun.Payload]
 	Budget       agentrun.Budget
@@ -27,11 +27,11 @@ func (w WorkerConfig) valid() bool {
 }
 
 func (w WorkerConfig) binding() childBinding {
-	return childBinding{deployment: w.Program, budget: w.Budget, capabilities: w.Capabilities}
+	return childBinding{program: w.Program, budget: w.Budget, capabilities: w.Capabilities}
 }
 
 type childBinding struct {
-	deployment   agentrun.Program[agentrun.Payload, agentrun.Payload]
+	program      agentrun.Program[agentrun.Payload, agentrun.Payload]
 	budget       agentrun.Budget
 	capabilities agentrun.CapabilitySet
 }
@@ -45,26 +45,26 @@ func (c childBinding) validateCoordinatorContract() error {
 	if err != nil {
 		return err
 	}
-	if !inputSchema.Equal(c.deployment.Descriptor().InputSchema()) ||
-		!outputSchema.Equal(c.deployment.Descriptor().OutputSchema()) {
+	if !inputSchema.Equal(c.program.Descriptor().InputSchema()) ||
+		!outputSchema.Equal(c.program.Descriptor().OutputSchema()) {
 		return fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
 	}
 	return nil
 }
 
 func (c childBinding) spec(key agentrun.ChildKey, input agentrun.Payload) agentrun.ChildSpec {
-	return agentrun.ChildSpec{Key: key, Input: input, ProgramRef: c.deployment.ProgramRef(),
+	return agentrun.ChildSpec{Key: key, Input: input, ProgramRef: c.program.ProgramRef(),
 		Budget: c.budget, Capabilities: c.capabilities}
 }
 
-// DefinitionConfig binds the coordinator, permitted workers, schemas, and
+// definitionConfig binds the coordinator, permitted workers, schemas, and
 // finite collaboration bounds. Coordinator must accept Turn and return Decision
 // with exactly their core/jsonschema.For contracts. It may itself be any Strategy.
 // MaxTasks counts all attempts, including rejected starts. MaxConcurrentTasks
 // counts admitted tasks until their drained outcomes have been observed.
 // The Program configuration digest must cover every field; the coordinator
 // and worker bindings enter the Program identity through ChildPrograms.
-type DefinitionConfig struct {
+type definitionConfig struct {
 	Name         string
 	Description  string
 	Coordinator  WorkerConfig
@@ -81,9 +81,9 @@ type DefinitionConfig struct {
 	MaxControlsPerTurn uint32
 }
 
-// Definition coordinates background tasks through ordinary child Effects.
+// definition coordinates background tasks through ordinary child Effects.
 // It owns decision policy, not a scheduler, mailbox, model client, or session.
-type Definition struct {
+type definition struct {
 	descriptor         agentrun.Descriptor
 	coordinator        childBinding
 	workers            []childBinding
@@ -93,7 +93,7 @@ type Definition struct {
 	maxControlsPerTurn uint32
 }
 
-func NewDefinition(config DefinitionConfig) (*Definition, error) {
+func newDefinition(config definitionConfig) (*definition, error) {
 	if !config.MaxTurns.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxTurns must admit one coordinator turn", ErrInvalidConfig)
 	}
@@ -116,7 +116,7 @@ func NewDefinition(config DefinitionConfig) (*Definition, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	return &Definition{descriptor: descriptor, coordinator: coordinator, workers: workers,
+	return &definition{descriptor: descriptor, coordinator: coordinator, workers: workers,
 		maxTurns: config.MaxTurns, maxTasks: config.MaxTasks,
 		maxConcurrentTasks: config.MaxConcurrentTasks, maxControlsPerTurn: config.MaxControlsPerTurn}, nil
 }
@@ -129,7 +129,7 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 		}
 		child := worker.binding()
 		for _, previous := range workers {
-			if previous.deployment.Descriptor().Name() == child.deployment.Descriptor().Name() {
+			if previous.program.Descriptor().Name() == child.program.Descriptor().Name() {
 				return nil, fmt.Errorf("%w: duplicate worker name", ErrInvalidConfig)
 			}
 		}
@@ -139,35 +139,35 @@ func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
 }
 
 // ChildPrograms reports the coordinator and every worker binding.
-func (d *Definition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
+func (d *definition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentrun.Payload] {
 	if d == nil {
 		return nil
 	}
-	children := []agentrun.Program[agentrun.Payload, agentrun.Payload]{d.coordinator.deployment}
+	children := []agentrun.Program[agentrun.Payload, agentrun.Payload]{d.coordinator.program}
 	for _, worker := range d.workers {
-		children = append(children, worker.deployment)
+		children = append(children, worker.program)
 	}
 	return children
 }
 
-func (d *Definition) Descriptor() agentrun.Descriptor {
+func (d *definition) Descriptor() agentrun.Descriptor {
 	if d == nil {
 		return agentrun.Descriptor{}
 	}
 	return d.descriptor
 }
 
-func (d *Definition) Start(input agentrun.Payload) (agentrun.Execution, error) {
+func (d *definition) Start(input agentrun.Payload) (agentrun.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
-	return &execution{definition: d, state: executionState{InitialState: input}}, nil
+	return &execution{definition: d, state: executionState{WorkingState: input}}, nil
 }
 
-func (d *Definition) Restore(ctx context.Context, state agentrun.ExecutionState) (agentrun.Execution, error) {
+func (d *definition) Restore(ctx context.Context, state agentrun.ExecutionState) (agentrun.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidConfig
 	}
@@ -180,20 +180,20 @@ func (d *Definition) Restore(ctx context.Context, state agentrun.ExecutionState)
 	return &execution{definition: d, state: decoded}, nil
 }
 
-func (d *Definition) valid() bool {
+func (d *definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
-func (d *Definition) worker(name string) (childBinding, bool) {
+func (d *definition) worker(name string) (childBinding, bool) {
 	for _, worker := range d.workers {
-		if worker.deployment.Descriptor().Name() == name {
+		if worker.program.Descriptor().Name() == name {
 			return worker, true
 		}
 	}
 	return childBinding{}, false
 }
 
-func (d *Definition) validateRequest(request TaskRequest) error {
+func (d *definition) validateRequest(request TaskRequest) error {
 	if !request.Key.Valid() || strings.HasPrefix(request.Key.String(), turnPrefix) {
 		return ErrInvalidDecision
 	}
@@ -201,10 +201,10 @@ func (d *Definition) validateRequest(request TaskRequest) error {
 	if !found {
 		return fmt.Errorf("%w: unknown worker %q", ErrInvalidDecision, request.Worker)
 	}
-	if err := worker.deployment.Descriptor().ValidateInput(request.Input); err != nil {
+	if err := worker.program.Descriptor().ValidateInput(request.Input); err != nil {
 		return fmt.Errorf("%w: task input: %w", ErrInvalidDecision, err)
 	}
 	return nil
 }
 
-var _ agentrun.Definition = (*Definition)(nil)
+var _ agentrun.Definition = (*definition)(nil)

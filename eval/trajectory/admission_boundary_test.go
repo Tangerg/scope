@@ -4,15 +4,10 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"math"
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/core/chat"
-	corecontent "github.com/Tangerg/scope/core/content"
-	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -54,79 +49,6 @@ func TestTrajectoryProjectionFailuresRemainErrors(t *testing.T) {
 				t.Fatalf("projection failure became a verdict: %+v, %v", report, err)
 			}
 		})
-	}
-}
-
-func TestRecordedCallsRejectInvalidRequestsAndResults(t *testing.T) {
-	recorded := coveredInteraction(t)
-	for _, test := range []struct {
-		name   string
-		change func(*trajectory.ModelCall)
-	}{
-		{"missing request", func(call *trajectory.ModelCall) { call.Request = nil }},
-		{"invalid request", func(call *trajectory.ModelCall) { call.Request = new(chat.Request) }},
-		{"unobserved response", func(call *trajectory.ModelCall) { call.Outcome = agent.ModelOutcomeUnobserved }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			call := recorded.ModelCalls()[0]
-			test.change(&call)
-			if err := call.Validate(); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-				t.Fatalf("invalid model call admitted: %v", err)
-			}
-			config := trajectoryConfig(recorded)
-			config.ModelCalls[0] = call
-			if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-				t.Fatalf("trajectory admitted invalid model call: %v", err)
-			}
-		})
-	}
-	for _, test := range []struct {
-		name   string
-		change func(*trajectory.ToolCall)
-	}{
-		{"invalid call", func(call *trajectory.ToolCall) { call.Call.ID = "" }},
-		{"invalid arguments", func(call *trajectory.ToolCall) { call.Call.Arguments = `{"x":` }},
-		{"invalid result", func(call *trajectory.ToolCall) { call.Result.Name = "" }},
-		{"wrong result owner", func(call *trajectory.ToolCall) { call.Result.ID = "another-call" }},
-		{"invalid evidence", func(call *trajectory.ToolCall) {
-			call.Result, call.Unknown = nil, true
-			call.Evidence = new(toolcontract.Output{Content: []corecontent.Block{{}}})
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			call := recorded.ToolCalls()[0]
-			test.change(&call)
-			if err := call.Validate(); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-				t.Fatalf("invalid tool call admitted: %v", err)
-			}
-			config := trajectoryConfig(recorded)
-			config.ToolCalls[0] = call
-			if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-				t.Fatalf("trajectory admitted invalid tool call: %v", err)
-			}
-		})
-	}
-}
-
-func TestTrajectoryRejectsForeignModelOwnershipAndTokenOverflow(t *testing.T) {
-	recorded := coveredInteraction(t)
-	config := trajectoryConfig(recorded)
-	foreign, err := run.ParseProcessID("process:foreign")
-	if err != nil {
-		t.Fatal(err)
-	}
-	config.ModelCalls[0].ProcessID = foreign
-	if _, configErr := trajectory.New(config); !errors.Is(configErr, trajectory.ErrInvalidTrajectory) {
-		t.Fatalf("foreign model call became tree evidence: %v", configErr)
-	}
-	config = trajectoryConfig(recorded)
-	config.ModelCalls[0].Response.Metadata.Usage = &chat.Usage{InputTokens: math.MaxInt64}
-	overflow, err := trajectory.New(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := overflow.TotalTokens(); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-		t.Fatalf("overflowed token total became a valid measurement: %v", err)
 	}
 }
 

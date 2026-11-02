@@ -12,12 +12,11 @@ import (
 // panicked records that this boundary recovered a panic; the classifications
 // follow from it and the cause when the error is sealed.
 type callbackError struct {
-	cause    error
-	message  string
-	panicked bool
-	step     Failure
-	dispatch Failure
-	runtime  Failure
+	cause          error
+	message        string
+	panicked       bool
+	step           Failure
+	appendConflict bool
 }
 
 func (c *callbackError) Error() string { return c.message }
@@ -32,11 +31,7 @@ func sealCallbackError(err error) error {
 	_, panicked := errors.AsType[*CallbackPanicError](err)
 	c := &callbackError{cause: err, message: err.Error(), panicked: panicked}
 	c.step, _ = StepFailure(err)
-	c.dispatch = dispatchFailure(err)
-	if panicked {
-		c.dispatch = dispatchPanicFailure()
-	}
-	c.runtime = newTreeRuntimeFailure(err)
+	c.appendConflict = errors.Is(err, ErrCommitConflict) || errors.Is(err, ErrEpochConflict)
 	return c
 }
 
@@ -46,8 +41,6 @@ func callbackPanic(operation string, value any) error {
 	cause := &CallbackPanicError{Operation: operation, Value: value}
 	return &callbackError{
 		cause: cause, message: message, panicked: true,
-		runtime:  newTreeRuntimeFailure(errors.New(message)),
-		dispatch: dispatchPanicFailure(),
 	}
 }
 
@@ -72,4 +65,11 @@ func invokeCallback[T any](operation string, call func() (T, error)) (value T, e
 func invokeCallbackErr(operation string, call func() error) error {
 	_, err := invokeCallback(operation, func() (struct{}, error) { return struct{}{}, call() })
 	return err
+}
+
+func appendConflict(err error) bool {
+	if sealed, ok := errors.AsType[*callbackError](err); ok {
+		return sealed.appendConflict
+	}
+	return errors.Is(err, ErrCommitConflict) || errors.Is(err, ErrEpochConflict)
 }

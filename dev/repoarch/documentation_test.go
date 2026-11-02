@@ -13,7 +13,7 @@ import (
 	"testing"
 )
 
-var documentationOnlyModuleRoots = []string{"core", "examples", "otel", "tools"}
+var documentationOnlyModuleRoots = []string{"agent", "core", "examples", "otel", "tools"}
 
 type moduleDocumentation struct {
 	packageOverviews map[string]bool
@@ -149,7 +149,7 @@ func TestRootReadmeKeepsDirectChatPath(t *testing.T) {
 	}
 	for _, entry := range []string{
 		"examples/chat/main.go", "examples/agent/direct_vs_managed/main.go",
-		"examples/agent/reconciliation/doc.go", "runstores/postgres/doc.go",
+		"examples/agent/reconciliation/doc.go", "agent/run/postgres/doc.go",
 		"examples/go.mod", "go.work",
 	} {
 		if !strings.Contains(content, "]("+entry+")") {

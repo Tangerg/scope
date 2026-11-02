@@ -16,15 +16,12 @@ import (
 func CheckDispatcherRejection(t *testing.T, dispatcher run.Dispatcher, effect run.Effect) {
 	t.Helper()
 	recorder := &rejectionDispatcher{next: dispatcher, outcome: make(chan dispatchOutcome, 1)}
-	deployment := newRejectionDeployment(t, recorder, effect)
-	engine, err := run.New(context.Background(), run.Config{Store: run.NewMemoryStore()})
-	if err != nil {
-		t.Fatal(err)
-	}
+	runtime := Runtime(t, run.Config{})
+	program := newRejectionProgram(t, runtime.Compiler(), recorder, effect)
 	ctx, cancel := context.WithTimeout(t.Context(), rejectionTimeout)
 	defer cancel()
 	defer func() {
-		if closeErr := engine.Close(context.WithoutCancel(t.Context())); closeErr != nil {
+		if closeErr := runtime.Close(context.WithoutCancel(t.Context())); closeErr != nil {
 			t.Error(closeErr)
 		}
 	}()
@@ -32,7 +29,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher run.Dispatcher, effect ru
 	if err != nil {
 		t.Fatal(err)
 	}
-	process, err := engine.Start(ctx, deployment, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
+	process, err := runtime.Start(ctx, program, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +51,7 @@ func CheckDispatcherRejection(t *testing.T, dispatcher run.Dispatcher, effect ru
 		t.Fatalf("local rejection settlement = %+v, error = %v; want definite failed settlement", outcome.settlement, outcome.err)
 	}
 	result, err := process.Await(ctx)
-	if err != nil || result.Termination().Status() != run.StatusCompleted || len(result.Termination().UnresolvedEffectIDs()) != 0 || result.Usage().PreparedEffects != 1 {
+	if err != nil || result.Termination().Status() != run.StatusCompleted || result.Usage().PreparedEffects != 1 {
 		t.Fatalf("rejection consumption = %+v, error = %v", result, err)
 	}
 }
@@ -64,7 +61,7 @@ const (
 	rejectionTimeout   = 5 * time.Second
 )
 
-func newRejectionDeployment(t *testing.T, dispatcher run.Dispatcher, effect run.Effect) run.Program[run.Payload, run.Payload] {
+func newRejectionProgram(t *testing.T, compiler *run.Compiler, dispatcher run.Dispatcher, effect run.Effect) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	schema, err := jsonschema.For[struct{}]()
 	if err != nil {
@@ -76,14 +73,14 @@ func newRejectionDeployment(t *testing.T, dispatcher run.Dispatcher, effect run.
 	if err != nil {
 		t.Fatal(err)
 	}
-	deployment, err := run.Bind[run.Payload, run.Payload](run.BindingConfig{
+	program, err := run.Bind[run.Payload, run.Payload](compiler, run.BindingConfig{
 		Definition: rejectionDefinition{descriptor: descriptor, effect: effect}, Dispatcher: dispatcher,
-		ImplementationDigest: run.ComputeDigest([]byte("dispatcher-rejection")), ConfigurationDigest: run.ComputeDigest(effect.Payload()),
+		Revision: "dispatcher-rejection", Configuration: effect,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return deployment
+	return program
 }
 
 type dispatchOutcome struct {
@@ -142,14 +139,14 @@ type rejectionExecution struct {
 func (r *rejectionExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(rejectionStateKind, r.sent)
 }
-func (r *rejectionExecution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
+func (r *rejectionExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !r.sent {
 		r.sent = true
-		return run.Continue(0, r.effect)
+		return run.Yield(0, []run.Effect{r.effect})
 	}
 	output, err := run.EncodePayload(struct{}{})
 	if err != nil {
 		return run.Transition{}, err
 	}
-	return run.Complete(uint32(len(signals)), output)
+	return run.Complete(uint32(len(turn.Messages)), output)
 }

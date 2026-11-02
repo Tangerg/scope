@@ -5,7 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
@@ -18,7 +18,7 @@ const (
 
 type contextPolicy struct {
 	ID      string
-	Reducer agent.ContextProcessor
+	Reducer interaction.ContextProcessor
 }
 
 type duplicateOutputReference struct {
@@ -30,7 +30,7 @@ type duplicateOutputReference struct {
 // it neither summarizes evidence nor treats an output as permission to act.
 type duplicateToolOutputReducer struct{}
 
-func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -90,4 +90,4 @@ func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ agent.Co
 	return messages, nil
 }
 
-var _ agent.ContextProcessor = duplicateToolOutputReducer{}
+var _ interaction.ContextProcessor = duplicateToolOutputReducer{}

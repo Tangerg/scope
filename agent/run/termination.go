@@ -1,13 +1,10 @@
 package run
 
 import (
-	"cmp"
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"slices"
-
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -16,179 +13,12 @@ const maxTerminationReasonBytes = 4096
 
 var errInvalidTermination = errors.New("run: invalid termination")
 
-type deadlineOwner string
-
-const (
-	deadlineOwnerInvalid deadlineOwner = ""
-	deadlineOwnerParent  deadlineOwner = "parent"
-	deadlineOwnerHost    deadlineOwner = "host"
-)
-
-func (d deadlineOwner) valid() bool {
-	return d == deadlineOwnerParent || d == deadlineOwnerHost
-}
-
-func (d deadlineOwner) String() string {
-	if !d.valid() {
-		return invalidEnumName
-	}
-	return string(d)
-}
-
-type cancellationOwner string
-
-const (
-	cancellationOwnerInvalid cancellationOwner = ""
-	cancellationOwnerParent  cancellationOwner = "parent"
-	cancellationOwnerHost    cancellationOwner = "host"
-)
-
-func (c cancellationOwner) valid() bool {
-	return c == cancellationOwnerParent || c == cancellationOwnerHost
-}
-
-func (c cancellationOwner) String() string {
-	if !c.valid() {
-		return invalidEnumName
-	}
-	return string(c)
-}
-
-type killIntent struct{ reason string }
-
-func newKillIntent(reason string) (killIntent, error) {
-	if err := validateTerminationReason(reason); err != nil {
-		return killIntent{}, err
-	}
-	return killIntent{reason: reason}, nil
-}
-
-func (k killIntent) valid() bool { return k.reason != "" }
-
-// A local Effect timeout remains a settlement Signal; only a Process lifecycle
-// deadline becomes a deadlineIntent.
-type deadlineIntent struct {
-	owner  deadlineOwner
-	reason string
-}
-
-func newDeadlineIntent(owner deadlineOwner, reason string) (deadlineIntent, error) {
-	if !owner.valid() {
-		return deadlineIntent{}, fmt.Errorf("%w: invalid deadline owner", errInvalidTermination)
-	}
-	if err := validateTerminationReason(reason); err != nil {
-		return deadlineIntent{}, err
-	}
-	return deadlineIntent{owner: owner, reason: reason}, nil
-}
-
-func (d deadlineIntent) valid() bool {
-	return d.owner.valid() && d.reason != ""
-}
-
-func (d deadlineIntent) termination() Termination {
-	var cause TerminationCause
-	switch d.owner {
-	case deadlineOwnerParent:
-		cause = TerminationCauseParentDeadline
-	case deadlineOwnerHost:
-		cause = TerminationCauseHostDeadline
-	default:
-		panic("run: invalid deadline owner")
-	}
-	return Termination{cause: cause, reason: d.reason}
-}
-
-type cancellationIntent struct {
-	owner  cancellationOwner
-	reason string
-}
-
-func newCancellationIntent(owner cancellationOwner, reason string) (cancellationIntent, error) {
-	if !owner.valid() {
-		return cancellationIntent{}, fmt.Errorf("%w: invalid cancellation owner", errInvalidTermination)
-	}
-	if err := validateTerminationReason(reason); err != nil {
-		return cancellationIntent{}, err
-	}
-	return cancellationIntent{owner: owner, reason: reason}, nil
-}
-
-func (c cancellationIntent) valid() bool {
-	return c.owner.valid() && c.reason != ""
-}
-
-func (c cancellationIntent) termination() Termination {
-	cause := TerminationCauseParentCancellation
-	if c.owner == cancellationOwnerHost {
-		cause = TerminationCauseHostCancellation
-	}
-	return Termination{cause: cause, reason: c.reason}
-}
-
-// A zero stepOutcome is allowed only when control facts independently terminate
-// a Process. Failure owns failed outcomes; Output owns completed ones.
-type stepOutcome struct {
-	output  Payload
-	failure Failure
-}
-
-func completedOutcome(output Payload) stepOutcome { return stepOutcome{output: output} }
-
-func failedOutcome(failure Failure) (stepOutcome, error) {
-	if !failure.Valid() {
-		return stepOutcome{}, fmt.Errorf("%w: failure: %w", errInvalidTermination, ErrInvalidFailure)
-	}
-	return stepOutcome{failure: failure}, nil
-}
-
-func (s stepOutcome) valid() bool {
-	if s.failure != (Failure{}) {
-		return !s.output.Valid() && s.failure.Valid()
-	}
-	return true
-}
-
-// terminationInputs are the independently recorded facts used by the Runtime's
-// terminal priority matrix. Presence is expressed by validated value objects,
-// not by interpreting an error such as context.Canceled.
-type terminationInputs struct {
-	kill         killIntent
-	deadline     deadlineIntent
-	cancellation cancellationIntent
-	outcome      stepOutcome
-}
-
-// resolve applies kill, deadline, cancellation, and Step outcome in that
-// priority order.
-func (t terminationInputs) resolve() (Termination, error) {
-	if !t.outcome.valid() {
-		return Termination{}, fmt.Errorf("%w: invalid Step outcome", errInvalidTermination)
-	}
-	if t.kill.valid() {
-		return Termination{cause: TerminationCauseEngineKill, reason: t.kill.reason}, nil
-	}
-	if t.deadline.valid() {
-		return t.deadline.termination(), nil
-	}
-	if t.cancellation.valid() {
-		return t.cancellation.termination(), nil
-	}
-	if t.outcome.failure.Valid() {
-		return t.outcome.failure.termination(), nil
-	}
-	if t.outcome.output.Valid() {
-		return Termination{output: t.outcome.output}, nil
-	}
-	return Termination{}, fmt.Errorf("%w: no terminal fact was recorded", errInvalidTermination)
-}
-
 type TerminationCause string
 
 const (
 	TerminationCauseInvalid            TerminationCause = ""
 	TerminationCauseCompletion         TerminationCause = "completion"
-	TerminationCauseEngineKill         TerminationCause = "engine_kill"
+	TerminationCauseRuntimeKill        TerminationCause = "runtime_kill"
 	TerminationCauseParentDeadline     TerminationCause = "parent_deadline"
 	TerminationCauseHostDeadline       TerminationCause = "host_deadline"
 	TerminationCauseParentCancellation TerminationCause = "parent_cancellation"
@@ -201,7 +31,7 @@ const (
 
 func (t TerminationCause) Valid() bool {
 	switch t {
-	case TerminationCauseCompletion, TerminationCauseEngineKill,
+	case TerminationCauseCompletion, TerminationCauseRuntimeKill,
 		TerminationCauseParentDeadline,
 		TerminationCauseHostDeadline, TerminationCauseParentCancellation,
 		TerminationCauseHostCancellation, TerminationCauseExecutionFailure,
@@ -220,12 +50,11 @@ func (t TerminationCause) String() string {
 	return string(t)
 }
 
-// status returns the only terminal Status this cause can explain.
 func (t TerminationCause) status() Status {
 	switch t {
 	case TerminationCauseCompletion:
 		return StatusCompleted
-	case TerminationCauseEngineKill:
+	case TerminationCauseRuntimeKill:
 		return StatusKilled
 	case TerminationCauseParentDeadline, TerminationCauseHostDeadline:
 		return StatusTimedOut
@@ -246,11 +75,10 @@ func (t TerminationCause) status() Status {
 // the remaining control causes own their reason. Status is always derived
 // from the cause.
 type Termination struct {
-	cause               TerminationCause
-	reason              string
-	failure             Failure
-	output              Payload
-	unresolvedEffectIDs []EffectID
+	cause   TerminationCause
+	reason  string
+	failure Failure
+	output  Payload
 }
 
 func validateTerminationReason(reason string) error {
@@ -285,32 +113,12 @@ func (t Termination) Reason() string {
 // present JSON null is a completed output.
 func (t Termination) Output() (Payload, bool) { return t.output, t.output.Valid() }
 
-// Failure returns the classified failure for StatusFailed.
 func (t Termination) Failure() (Failure, bool) {
 	return t.failure, t.Status() == StatusFailed
 }
 
-// UnresolvedEffectIDs returns the canonical identities of external operations
-// that may have occurred but were not durably resolved when the tree stopped.
-func (t Termination) UnresolvedEffectIDs() []EffectID {
-	return slices.Clone(t.unresolvedEffectIDs)
-}
-
-func (t Termination) withUnresolvedEffectIDs(effectIDs []EffectID) Termination {
-	t.unresolvedEffectIDs = canonicalEffectIDs(effectIDs)
-	return t
-}
-
-func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
-	canonical := slices.Clone(effectIDs)
-	slices.SortFunc(canonical, func(left, right EffectID) int {
-		return cmp.Compare(left.String(), right.String())
-	})
-	return slices.Compact(canonical)
-}
-
 func (t Termination) Valid() bool {
-	if !t.Status().Terminal() || !t.canonicalUnresolvedEffectIDs() {
+	if !t.Status().Terminal() {
 		return false
 	}
 	switch {
@@ -319,7 +127,7 @@ func (t Termination) Valid() bool {
 	case t.failure != (Failure{}):
 		return false
 	case t.output.Valid():
-		return t.cause == TerminationCauseInvalid && t.reason == "" && len(t.unresolvedEffectIDs) == 0
+		return t.cause == TerminationCauseInvalid && t.reason == ""
 	default:
 		// Completion and failure causes are owned by Output and Failure.
 		return t.cause != TerminationCauseCompletion && t.Status() != StatusFailed &&
@@ -327,25 +135,14 @@ func (t Termination) Valid() bool {
 	}
 }
 
-func (t Termination) canonicalUnresolvedEffectIDs() bool {
-	for index, effectID := range t.unresolvedEffectIDs {
-		if !effectID.Valid() || index > 0 &&
-			cmp.Compare(t.unresolvedEffectIDs[index-1].String(), effectID.String()) >= 0 {
-			return false
-		}
-	}
-	return true
-}
-
 func (t Termination) MarshalJSON() ([]byte, error) {
 	if !t.Valid() {
 		return nil, errInvalidTermination
 	}
 	wire := terminationWire{
-		Cause:               t.cause,
-		Reason:              t.reason,
-		Output:              t.output,
-		UnresolvedEffectIDs: t.UnresolvedEffectIDs(),
+		Cause:  t.cause,
+		Reason: t.reason,
+		Output: t.output,
 	}
 	if t.failure.Valid() {
 		wire.Failure = &t.failure
@@ -363,7 +160,6 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	}
 	value := Termination{
 		cause: wire.Cause, reason: wire.Reason, output: wire.Output,
-		unresolvedEffectIDs: slices.Clone(wire.UnresolvedEffectIDs),
 	}
 	if wire.Failure != nil {
 		value.failure = *wire.Failure
@@ -375,37 +171,41 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// committedTerminationWire is a Termination as a Process commits it, before
-// publication attaches the unresolved Effects its prepared Step owns.
-type committedTerminationWire struct {
+type terminationWire struct {
 	Cause   TerminationCause `json:"cause,omitzero"`
 	Reason  string           `json:"reason,omitempty"`
 	Failure *Failure         `json:"failure,omitzero"`
 	Output  Payload          `json:"output,omitzero"`
 }
 
-func (t Termination) committedWire() (committedTerminationWire, error) {
-	if !t.Valid() || len(t.unresolvedEffectIDs) != 0 {
-		return committedTerminationWire{}, errInvalidTermination
-	}
-	wire := committedTerminationWire{Cause: t.cause, Reason: t.reason, Output: t.output}
-	if t.failure.Valid() {
-		wire.Failure = &t.failure
-	}
-	return wire, nil
-}
-
-// termination leaves validity to the snapshot that decodes it.
-func (c committedTerminationWire) termination() Termination {
-	return Termination{cause: c.Cause, reason: c.Reason, failure: lo.FromPtr(c.Failure), output: c.Output}
-}
-
-type terminationWire struct {
-	Cause               TerminationCause `json:"cause,omitzero"`
-	Reason              string           `json:"reason,omitempty"`
-	Failure             *Failure         `json:"failure,omitzero"`
-	Output              Payload          `json:"output,omitzero"`
-	UnresolvedEffectIDs []EffectID       `json:"unresolved_effect_ids,omitempty"`
-}
-
 func (Termination) JSONSchemaModel() any { return terminationWire{} }
+
+func (t Termination) equal(other Termination) bool {
+	return t.Cause() == other.Cause() && t.reason == other.reason && t.failure == other.failure && bytes.Equal(t.output.data, other.output.data)
+}
+
+func (t Termination) accepts(cause TerminationCause) bool {
+	return !t.Valid() || cause.priority() > t.Cause().priority()
+}
+
+type terminationPriority uint8
+
+const (
+	terminationPriorityOutcome terminationPriority = iota
+	terminationPriorityCancellation
+	terminationPriorityDeadline
+	terminationPriorityKill
+)
+
+func (t TerminationCause) priority() terminationPriority {
+	switch t {
+	case TerminationCauseRuntimeKill:
+		return terminationPriorityKill
+	case TerminationCauseHostDeadline, TerminationCauseParentDeadline:
+		return terminationPriorityDeadline
+	case TerminationCauseHostCancellation, TerminationCauseParentCancellation:
+		return terminationPriorityCancellation
+	default:
+		return terminationPriorityOutcome
+	}
+}

@@ -15,23 +15,19 @@ var ErrInvalidDigest = errors.New("run: invalid digest")
 // Digest is a canonical SHA-256 content identity. Its zero value is invalid.
 type Digest struct{ identity }
 
-// ParseDigest validates a canonical sha256:<lowercase-hex> identity.
 func ParseDigest(value string) (Digest, error) {
-	id, err := parseHexIdentity(value, digestPrefix, sha256.Size)
-	if err != nil {
+	encoded, found := strings.CutPrefix(value, digestPrefix)
+	if !found || len(encoded) != sha256.Size*2 || encoded != strings.ToLower(encoded) {
+		return Digest{}, ErrInvalidDigest
+	}
+	if _, err := hex.DecodeString(encoded); err != nil {
 		return Digest{}, fmt.Errorf("%w: %w", ErrInvalidDigest, err)
 	}
-	return Digest{id}, nil
+	return Digest{identity{value: value}}, nil
 }
 
-// ComputeDigest returns the canonical SHA-256 identity of data. Callers that
-// assemble a Program use it for reproducible implementation artifacts and
-// canonical frozen configuration bytes.
-//
-// Digests identify exact bytes, not semantic JSON equality. Payload constructors
-// normalize open JSON; typed protocol owners hash their deterministic encoding
-// (struct field order and normalized embedded values). TreeSnapshot retains that
-// encoding and its digest together, so durable stores use Digest without rehashing.
+// Hashes identify canonical bytes. Protocol owners must normalize equivalent
+// JSON before hashing so representation details cannot create another identity.
 func ComputeDigest(data []byte) Digest {
 	sum := sha256.Sum256(data)
 	return digestFromSum(sum[:])

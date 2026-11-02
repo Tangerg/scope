@@ -9,7 +9,7 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/eval"
@@ -55,7 +55,7 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 				calls[index] = trajectory.ToolExpectation{Name: "read_report", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: trajectory.ToolOutcomeSucceeded}
 			}
 			return (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{Actual: *value.Execution.Output, Expected: trajectory.Expectation{
-				Status: agentrun.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls}, Limits: trajectory.Limits{DroppedDeltas: new(uint64(0))},
+				Status: agentrun.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls},
 			}})
 		})})),
 		lo.Must(eval.NewAssessment(eval.AssessmentConfig[sample]{ID: "context", Evaluator: eval.EvaluatorFunc[sample](func(_ context.Context, value sample) (eval.Report, error) {
@@ -90,7 +90,7 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 	for _, policy := range []contextPolicy{{ID: unchangedContextPolicy}, {ID: duplicateOutputPolicyID, Reducer: duplicateToolOutputReducer{}}} {
 		trial, trialErr := eval.NewTrial(eval.TrialConfig[contextTask, trajectory.Trajectory]{Suite: suite,
 			Target: eval.TargetFunc[contextTask, trajectory.Trajectory](func(ctx context.Context, task contextTask) (eval.Execution[trajectory.Trajectory], error) {
-				// Policy identity belongs to deployment configuration, not fixture
+				// Policy identity belongs to program configuration, not fixture
 				// identity: both runs still grade the same inputs and references.
 				recorded, runErr := runTask(ctx, task, policy)
 				if runErr != nil {
@@ -178,7 +178,7 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 		}
 		for position, call := range candidate.ToolCalls() {
 			original := baseline.ToolCalls()[position]
-			if !reflect.DeepEqual(call.Call, original.Call) || !reflect.DeepEqual(call.Result, original.Result) {
+			if !reflect.DeepEqual(call.Call, original.Call) || !reflect.DeepEqual(call.Settlement.Result, original.Settlement.Result) {
 				t.Fatal("context projection rewrote actual Tool receipts")
 			}
 		}
@@ -190,7 +190,7 @@ func TestContextReductionPairedQualityAndSize(t *testing.T) {
 // Tool protocol still complete; otherwise the gate would only test execution.
 type corruptingReducer struct{}
 
-func (corruptingReducer) PrepareContext(_ context.Context, _ agent.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+func (corruptingReducer) PrepareContext(_ context.Context, _ interaction.ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	messages := request.Clone().Messages
 	for _, message := range messages {
 		for _, part := range message.Parts {

@@ -13,9 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/run/runtest"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/fs"
@@ -54,12 +53,11 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				editor = uncertainEditor{}
 			}
 			executable := contractValue(fs.NewEditTool(editor))
-			tools := contractValue(agent.NewToolSet(agent.ToolSetConfig{
-				Name: "contract.tools", Description: "Exercise the filesystem tool boundary.", Tools: []tool.Tool{executable},
-				ImplementationDigest: run.ComputeDigest([]byte("edit-tool")), ConfigurationDigest: run.ComputeDigest([]byte("edit-config")),
-			}))
+			runtime := contractValue(run.New(ctx, run.Config{Store: run.NewMemoryStore(), Build: contractBuild}))
+			defer runtime.Close(context.WithoutCancel(ctx))
+			tools := contractValue(interaction.NewToolSet(interaction.ToolSetConfig{Tools: []tool.Tool{executable}, Revision: "edit-tool"}))
 			var calls atomic.Int32
-			root := contractInteraction(agent.DefinitionConfig{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: run.NewQuota(2), Tools: tools, ToolBudget: run.Budget{Steps: run.NewQuota(16), Effects: run.NewQuota(8), Signals: run.NewQuota(16)}}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+			root := contractInteraction(runtime.Compiler(), interaction.Config{Name: "contract.edit", Description: "Consume filesystem outcomes.", MaxModelCalls: run.NewQuota(2), Tools: tools}, chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 				if calls.Add(1) == 1 {
 					return contractToolCall("edit", `{"path":"file","old_string":"missing","new_string":"new"}`), nil
 				}
@@ -73,41 +71,39 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 				}
 				return contractText("repair the arguments"), nil
 			}))
-			events := &runtest.ObservationRecorder{}
-			engine := contractValue(run.New(t.Context(), run.Config{Store: run.NewMemoryStore(), EventListeners: []run.EventListener{events}}))
-			defer engine.Close(context.WithoutCancel(ctx))
-			input := contractValue(run.EncodePayload(agent.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}))
-			process := contractValue(engine.Start(ctx, root, run.StartRequest[run.Payload]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input}))
-			defer process.Kill(context.WithoutCancel(ctx), "test cleanup")
+			input := interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("edit"))}}
+			process := contractValue(runtime.Start(ctx, root, run.StartRequest[interaction.Input]{ID: run.StartID{Scope: "test", Key: startrand.Text()}, Input: input}))
 			if unknown {
-				if _, err := events.AwaitEvent(ctx, func(event run.Event) bool {
-					fact, ok := event.EffectFinished()
-					return ok && fact.SettlementStatus() == run.SettlementStatusUnknown
-				}); err != nil {
+				committed := awaitContractRecord(t, ctx, process, func(record run.Record) bool {
+					settled, ok := record.(run.EffectSettled)
+					return ok && settled.Outcome.Status() == run.SettlementStatusUnknown
+				}).Record.(run.EffectSettled)
+				if err := process.Cancel(ctx, "retain unknown result until investigated"); err != nil {
 					t.Fatal(err)
 				}
-				if err := process.Cancel(ctx, "retain unknown result"); err != nil {
+				view := contractValue(process.Inspect(ctx))
+				owner, ok := view.Process(process.ID())
+				if !ok || owner.Termination.Valid() || len(owner.PendingEffects) != 1 || calls.Load() != 1 {
+					t.Fatal("cancel hid unknown filesystem work")
+				}
+				settlement := contractValue(interaction.SettleToolResult(root, owner.PendingEffects[0].Request, tool.Result{Output: tool.NewTextOutput("investigation confirmed edit failure")}, interaction.ResultFailed, nil))
+				if err := process.ResolveUnknownEffect(ctx, committed.ID, settlement); err != nil {
 					t.Fatal(err)
 				}
 			}
 			result := contractValue(process.Await(ctx))
-			if err := process.Join(ctx); err != nil {
-				t.Fatal(err)
-			}
-			wantStatus, wantCalls, wantUnknown := run.StatusCompleted, int32(2), 0
+			wantStatus, wantCalls := run.StatusCompleted, int32(2)
 			if unknown {
-				wantStatus, wantCalls, wantUnknown = run.StatusCanceled, 1, 1
+				wantStatus, wantCalls = run.StatusCanceled, 1
 			}
 			if result.Termination().Status() != wantStatus || calls.Load() != wantCalls {
 				t.Fatalf("status=%s calls=%d", result.Termination().Status(), calls.Load())
 			}
-			snapshot := contractValue(engine.CaptureTree(ctx, process.Relation().ProcessID()))
-			count := 0
-			for _, child := range snapshot.ProcessSnapshots() {
-				count += len(child.UnknownEffectIDs())
-			}
-			if count != wantUnknown {
-				t.Fatalf("unknown effects=%d, want %d", count, wantUnknown)
+			view := contractValue(process.Inspect(ctx))
+			for _, owner := range view.Processes {
+				if len(owner.PendingEffects) != 0 {
+					t.Fatal("terminal tree retained unresolved effects")
+				}
 			}
 			if data := contractValue(os.ReadFile(path)); string(data) != "original" {
 				t.Fatalf("rejected edit modified file: %q", data)

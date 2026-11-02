@@ -44,7 +44,7 @@ type execution struct {
 func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.remote", e)
 }
-func (e *execution) Step(_ context.Context, signals []run.Signal) (run.Transition, error) {
+func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	switch {
 	case e.Text == "ask" && e.Phase == 0:
 		schema, err := jsonschema.For[string]()
@@ -55,48 +55,34 @@ func (e *execution) Step(_ context.Context, signals []run.Signal) (run.Transitio
 		if err != nil {
 			return run.Transition{}, err
 		}
-		spec, err := run.NewExternalWaitSpec(run.ExternalWaitSpecConfig{Key: key, Question: json.RawMessage(`"Your name?"`), AnswerSchema: schema})
-		if err != nil {
-			return run.Transition{}, err
-		}
-		effect, err := run.NewWaitEffect(spec)
+		question, err := run.EncodePayload("Your name?")
 		if err != nil {
 			return run.Transition{}, err
 		}
 		e.Phase++
-		return run.Continue(0, effect)
-	case e.Text == "ask" && e.Phase == 1:
-		if len(signals) != 1 {
-			return run.Transition{}, errors.New("missing wait opening")
-		}
-		w, ok := signals[0].WaitID()
-		if !ok {
-			return run.Transition{}, errors.New("invalid wait opening")
-		}
-		e.Phase++
-		return run.Wait(1, w)
+		return run.Yield(0, nil, run.Wait{Key: key, Question: question, AnswerSchema: schema})
 	case e.Text == "ask":
-		if len(signals) != 1 {
+		if len(turn.Messages) != 1 {
 			return run.Transition{}, errors.New("missing answer")
 		}
-		answer, err := run.ParsePayload(signals[0].Payload())
-		if err != nil {
-			return run.Transition{}, err
+		answer, ok := turn.Messages[0].(run.Signal)
+		if !ok {
+			return run.Transition{}, run.ErrInvalidMessage
 		}
-		return run.Complete(1, answer)
+		return run.Complete(1, answer.Payload)
 	case e.Text == "slow" && e.Phase == 0:
 		effect, err := run.NewDispatcherEffect(json.RawMessage(`"blocked"`))
 		if err != nil {
 			return run.Transition{}, err
 		}
 		e.Phase++
-		return run.Continue(0, effect)
+		return run.Yield(0, []run.Effect{effect})
 	default:
-		p, err := run.EncodePayload(e.Text)
+		payload, err := run.EncodePayload(e.Text)
 		if err != nil {
 			return run.Transition{}, err
 		}
-		return run.Complete(uint32(len(signals)), p)
+		return run.Complete(uint32(len(turn.Messages)), payload)
 	}
 }
 
@@ -114,7 +100,7 @@ func (d *dispatch) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.Delt
 	<-d.release
 	return run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"returned"`))
 }
-func program(t *testing.T, d *dispatch) run.Program[run.Payload, run.Payload] {
+func program(t *testing.T, compiler *run.Compiler, d *dispatch) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	s, err := jsonschema.For[string]()
 	if err != nil {
@@ -124,7 +110,7 @@ func program(t *testing.T, d *dispatch) run.Program[run.Payload, run.Payload] {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := run.Bind[string, string](run.BindingConfig{Definition: definition{desc}, Dispatcher: d, ImplementationDigest: run.ComputeDigest([]byte("i")), ConfigurationDigest: run.ComputeDigest([]byte("c"))})
+	p, err := run.Bind[string, string](compiler, run.BindingConfig{Definition: definition{desc}, Dispatcher: d, Revision: "test.remote"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,15 +197,15 @@ func read(t *testing.T, s *httptest.Server, method string, id sdk.TaskID) *sdk.T
 }
 func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 	store := run.NewMemoryStore()
-	owner, err := run.New(t.Context(), run.Config{Store: store})
+	owner, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := run.New(t.Context(), run.Config{Store: store})
+	reader, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := program(t, &dispatch{})
+	p := program(t, owner.Compiler(), &dispatch{})
 	primary := server(t, owner, p)
 	replica := server(t, reader, p)
 	initial := send(t, primary, message("first", "ask"), false)
@@ -227,7 +213,7 @@ func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 		t.Fatalf("expected pending child/parent wait: %+v", initial)
 	}
 	var pending []struct {
-		WaitID string `json:"wait_id"`
+		Address a2a.WaitAddress `json:"address"`
 	}
 	b, err := jsonv2.Marshal(initial.Metadata[managed.PendingKey])
 	if err != nil {
@@ -254,7 +240,7 @@ func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 	reply := message("follow", "Ada")
 	reply["taskId"] = initial.ID
 	reply["contextId"] = initial.ContextID
-	reply["metadata"] = map[string]any{a2a.WaitIDMetadataKey: pending[0].WaitID}
+	reply["metadata"] = map[string]any{a2a.WaitMetadataKey: pending[0].Address}
 	done := send(t, primary, reply, false)
 	if done.Status.State != sdk.TaskStateCompleted || len(done.Artifacts) != 1 || done.Artifacts[0].Parts[0].Text() != "Ada" {
 		t.Fatal(done)
@@ -278,12 +264,12 @@ func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 }
 func TestWireCancellationIsAnIntentUntilExternalCallReturns(t *testing.T) {
 	store := run.NewMemoryStore()
-	rt, err := run.New(t.Context(), run.Config{Store: store})
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := &dispatch{entered: make(chan struct{}), release: make(chan struct{})}
-	s := server(t, rt, program(t, d))
+	s := server(t, rt, program(t, rt.Compiler(), d))
 	started := send(t, s, message("slow-job", "slow"), true)
 	select {
 	case <-d.entered:
@@ -312,16 +298,16 @@ func TestWireCancellationIsAnIntentUntilExternalCallReturns(t *testing.T) {
 	}
 }
 
-// The transport consumer goes away after obtaining the first snapshot. A new
+// The transport consumer goes away after obtaining the first log projection. A new
 // HTTP subscription observes the original execution and its final artifact.
 func TestWireStreamingReconnectDoesNotReplayAdmission(t *testing.T) {
 	store := run.NewMemoryStore()
-	rt, err := run.New(t.Context(), run.Config{Store: store})
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := &dispatch{entered: make(chan struct{}), release: make(chan struct{})}
-	s := server(t, rt, program(t, d))
+	s := server(t, rt, program(t, rt.Compiler(), d))
 	open := func(method string, params any) (*http.Response, *bufio.Scanner) {
 		b, e := jsonv2.Marshal(map[string]any{"jsonrpc": "2.0", "id": "stream", "method": method, "params": params})
 		if e != nil {
@@ -419,11 +405,11 @@ func TestWireStreamingReconnectDoesNotReplayAdmission(t *testing.T) {
 	}
 }
 func TestRejectedMediaPrecedesDurableAdmission(t *testing.T) {
-	rt, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: run.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := server(t, rt, program(t, &dispatch{}))
+	s := server(t, rt, program(t, rt.Compiler(), &dispatch{}))
 	m := message("mime", "hello")
 	m["parts"] = []any{map[string]any{"url": "https://example.invalid/x", "mediaType": "image/png"}}
 	resp := rpc(t, s, "alice", "SendMessage", map[string]any{"message": m})
@@ -452,11 +438,11 @@ func (s signed) RoundTrip(req *http.Request) (*http.Response, error) {
 	return s.base.RoundTrip(r)
 }
 func TestScopeRemoteToolCompletesTheManagedProtocolWait(t *testing.T) {
-	rt, err := run.New(t.Context(), run.Config{Store: run.NewMemoryStore()})
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: run.NewMemoryStore()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := server(t, rt, program(t, &dispatch{}))
+	s := server(t, rt, program(t, rt.Compiler(), &dispatch{}))
 	c := *s.Client()
 	c.Transport = signed{c.Transport}
 	set, err := a2a.OpenToolSet(t.Context(), a2a.Endpoint{CardURL: s.URL, HTTPClient: &c})
@@ -504,26 +490,26 @@ type lostStartReply struct {
 	failReads atomic.Bool
 }
 
-func (l *lostStartReply) CommitCheckpoint(ctx context.Context, c run.TreeCheckpoint) error {
-	if err := l.MemoryStore.CommitCheckpoint(ctx, c); err != nil {
+func (l *lostStartReply) Append(ctx context.Context, batch run.Batch) error {
+	if err := l.MemoryStore.Append(ctx, batch); err != nil {
 		return err
 	}
-	if _, initial := c.Start(); initial && l.attempts.Add(1) == 1 {
+	if batch.After == 0 && l.attempts.Add(1) == 1 {
 		return errors.New("private-backend-diagnostic")
 	}
 	return nil
 }
 
-func (l *lostStartReply) LoadTree(ctx context.Context, root run.ProcessID) (run.TreeSnapshot, bool, error) {
+func (l *lostStartReply) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	if l.failReads.Load() {
-		return run.TreeSnapshot{}, false, errors.New("private-read-diagnostic")
+		return run.Log{}, false, errors.New("private-read-diagnostic")
 	}
-	return l.MemoryStore.LoadTree(ctx, root)
+	return l.MemoryStore.Load(ctx, root)
 }
 
 func TestUnknownStartIsNotAClientRejection(t *testing.T) {
 	storage := &lostStartReply{MemoryStore: run.NewMemoryStore()}
-	rt, err := run.New(t.Context(), run.Config{Store: storage})
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: storage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +518,7 @@ func TestUnknownStartIsNotAClientRejection(t *testing.T) {
 			t.Error(closeErr)
 		}
 	})
-	s := server(t, rt, program(t, &dispatch{}))
+	s := server(t, rt, program(t, rt.Compiler(), &dispatch{}))
 	m := message("stable", "ask")
 	reply := rpc(t, s, "alice", "SendMessage", map[string]any{"message": m, "configuration": map[string]bool{"returnImmediately": true}})
 	var failure struct {

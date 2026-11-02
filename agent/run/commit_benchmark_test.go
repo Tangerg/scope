@@ -1,238 +1,197 @@
 package run
 
 import (
-	startrand "crypto/rand"
-
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
-
-	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// Each admission starts from the same paused tree so retained history does not
-// grow with b.N. Timed work covers DeliverSignals through checkpoint ACK; setup,
-// restoration, and teardown are excluded. The delay models storage waiting,
-// not database throughput or a production adapter's committer guarantees.
+// Each width uses one fully recovered, paused tree and the same number of
+// distinct admissions. Recovery and its garbage collection are outside the
+// measurement, so it measures the steady commit path rather than startup.
 func BenchmarkTreeSignalCommit(b *testing.B) {
 	for _, sample := range []struct {
 		name      string
 		processes int
-		limits    TreeLimits
-	}{
-		{name: "default_root", processes: 1},
-		{name: "default_width", processes: 1 + int(DefaultTreeLimits().MaxActiveChildren)},
-		{name: "expanded_63", processes: 63, limits: TreeLimits{
-			MaxActiveChildren: 63, MaxPendingSignals: 100_000,
-		}},
-	} {
-		deployment, config, snapshot := benchmarkSignalCommitTree(b, sample.processes, sample.limits)
-		batches := []int{1, 64}
-		if sample.processes == 1 {
-			batches = append(batches, int(DefaultTreeLimits().MaxPendingSignals))
-		}
-		for _, batchSize := range batches {
-			requests := make([]SignalRequest, batchSize)
-			for index := range requests {
-				id, err := ParseSignalID(fmt.Sprintf("signal:commit-benchmark-%d", index))
-				if err != nil {
-					b.Fatal(err)
+	}{{"default_root", 1}, {"default_width", 17}, {"expanded_63", 63}} {
+		b.Run(sample.name+"/batch_1/ack_0s", func(b *testing.B) {
+			program, log := signalCommitFixture(b, sample.processes, uint64(b.N)+uint64(sample.processes))
+			records := make([]Record, len(log.Entries))
+			for index, entry := range log.Entries {
+				records[index] = entry.Record
+			}
+			store := NewMemoryStore()
+			if err := store.Append(b.Context(), Batch{Root: log.Root, Records: records}); err != nil {
+				b.Fatal(err)
+			}
+			runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: store}))
+			handle := controlValue(runtime.Recover(b.Context(), program, log.Root))
+			if err := handle.Pause(b.Context(), "synchronize recovered actor"); !errors.Is(err, ErrInvalidProcessControl) {
+				b.Fatal(err)
+			}
+			signals := make([]Signal, b.N)
+			for index := range signals {
+				signals[index] = Signal{ID: controlValue(ParseSignalID(fmt.Sprintf("benchmark-%d", index))), Payload: controlValue(EncodePayload(1))}
+			}
+			latencies := make([]time.Duration, b.N)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for index := range b.N {
+				started := time.Now()
+				accepted, err := handle.DeliverSignals(b.Context(), signals[index])
+				latencies[index] = time.Since(started)
+				if err != nil || !accepted {
+					b.Fatalf("signal admission=%t error=%v", accepted, err)
 				}
-				requests[index], err = NewSignalRequest(id, WaitID{}, json.RawMessage(`{"value":"admitted"}`))
-				if err != nil {
-					b.Fatal(err)
-				}
 			}
-			for _, delay := range []time.Duration{0, time.Millisecond} {
-				name := fmt.Sprintf("%s/batch_%d/ack_%s", sample.name, batchSize, delay)
-				b.Run(name, func(b *testing.B) {
-					var acknowledgmentTime time.Duration
-					var commitLatencies, ackLatencies []time.Duration
-					var snapshotBytes int
-					b.ReportAllocs()
-					for b.Loop() {
-						elapsed, ack, size := benchmarkSignalCommit(b, deployment, config, snapshot, requests, delay)
-						commitLatencies = append(commitLatencies, elapsed)
-						ackLatencies = append(ackLatencies, ack)
-						acknowledgmentTime += ack
-						snapshotBytes = size
-						b.StartTimer()
-					}
-					reportBenchmarkLatencies(b, "commit", commitLatencies)
-					reportBenchmarkLatencies(b, "ack", ackLatencies)
-					b.ReportMetric(float64(acknowledgmentTime.Nanoseconds())/float64(b.N), "ack_ns/op")
-					b.ReportMetric(float64(snapshotBytes), "snapshot_bytes")
-					b.ReportMetric(float64(sample.processes), "processes")
-					b.ReportMetric(float64(batchSize), "signals/op")
-				})
+			b.StopTimer()
+			if err := runtime.Close(b.Context()); err != nil {
+				b.Fatal(err)
 			}
-		}
+			b.ReportMetric(float64(sample.processes), "processes")
+			b.ReportMetric(float64(durationMedian(latencies).Nanoseconds()), "commit_p50_ns")
+		})
 	}
 }
 
-func benchmarkSignalCommit(
-	b *testing.B,
-	deployment Program[Payload, Payload],
-	config Config,
-	snapshot TreeSnapshot,
-	requests []SignalRequest,
-	delay time.Duration,
-) (time.Duration, time.Duration, int) {
-	b.StopTimer()
+func signalCommitFixture(b *testing.B, processes int, pendingMessages uint64) (Program[int, int], Log) {
 	b.Helper()
-	committer := &signalCommitBenchmarkDurability{
-		recordingTreeCommitter: &recordingTreeCommitter{}, delay: delay,
-	}
-	config.Store = committer
-	engine, err := New(context.Background(), config)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer func() {
-		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
-			b.Error(closeErr)
+	store := NewMemoryStore()
+	const expandedChildCapacity = 63
+	runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: store, TreeLimits: TreeLimits{MaxActiveChildren: expandedChildCapacity, MaxPendingMessages: max(defaultMaxPendingMessages, pendingMessages)}}))
+	program := treeFixtureProgram(b, runtime, processes-1, true, true, Budget{})
+	handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: foregroundStartID()}))
+	waiting := 0
+	ctx, cancel := context.WithTimeout(b.Context(), kernelTestTimeout)
+	defer cancel()
+	for entry, err := range handle.Observe(ctx, 0) {
+		if err != nil {
+			b.Fatal(err)
 		}
-	}()
-	process, err := engine.Recover(b.Context(), deployment, snapshot)
-	if err != nil {
+		if stepped, ok := entry.Record.(Stepped); ok && len(stepped.Transition.Waits()) > 0 {
+			waiting++
+		}
+		if waiting == max(1, processes-1) {
+			break
+		}
+	}
+	if err := handle.Pause(ctx, "hold the benchmark fixture"); err != nil {
 		b.Fatal(err)
 	}
-	defer stopRecoveryBenchmarkProcess(b, process)
-	b.StartTimer()
-	started := time.Now()
-	accepted, err := process.DeliverSignals(b.Context(), requests...)
-	elapsed := time.Since(started)
-	b.StopTimer()
-	if err != nil || !accepted {
-		b.Fatalf("DeliverSignals accepted=%t error=%v", accepted, err)
+	if err := runtime.Close(ctx); err != nil {
+		b.Fatal(err)
 	}
-	checkpoints := committer.treeCheckpoints()
-	if len(checkpoints) != 1 {
-		b.Fatalf("signal batch committed %d checkpoints, want 1", len(checkpoints))
+	log, found, err := store.Load(ctx, handle.ID())
+	if err != nil || !found {
+		b.Fatalf("fixture load found=%t error=%v", found, err)
 	}
-	return elapsed, committer.acknowledgmentTime, checkpoints[0].TreeSnapshot().EncodedSize()
+	view := controlValue(log.Inspect())
+	if len(view.Processes) != processes {
+		b.Fatalf("fixture processes=%d want=%d", len(view.Processes), processes)
+	}
+	return program, log
 }
 
-func benchmarkSignalCommitTree(b *testing.B, processCount int, limits TreeLimits) (Program[Payload, Payload], Config, TreeSnapshot) {
-	b.Helper()
-	childDeployment := newChildTestDeployment(b)
-	childInput, err := EncodePayload(childTestInput{Mode: "leaf"})
-	if err != nil {
-		b.Fatal(err)
-	}
-	children := make([]ChildSpec, processCount-1)
-	for index := range children {
-		key, keyErr := ParseChildKey(fmt.Sprintf("commit-benchmark-%d", index))
-		if keyErr != nil {
-			b.Fatal(keyErr)
-		}
-		children[index] = childTestSpec(key, childDeployment.ProgramRef(), childInput)
-	}
-	schema, err := jsonschema.For[executionReplayBenchmarkState]()
-	if err != nil {
-		b.Fatal(err)
-	}
-	signalSchema, err := jsonschema.For[engineTestInput]()
-	if err != nil {
-		b.Fatal(err)
-	}
-	descriptor, err := NewDescriptor(DescriptorConfig{
-		Name: "benchmark.signal_commit", Description: "Measure durable Signal admission.",
-		InputSchema: schema, OutputSchema: schema, SignalSchema: signalSchema,
-	})
-	if err != nil {
-		b.Fatal(err)
-	}
-	definition := &treeRecoveryBenchmarkDefinition{descriptor: descriptor, children: children}
-	deployment, err := Bind[Payload, Payload](BindingConfig{
-		Definition:           definition,
-		ImplementationDigest: ComputeDigest([]byte("tree-commit-benchmark")),
-		ConfigurationDigest:  ComputeDigest(fmt.Appendf(nil, "processes:%d", processCount)),
-	})
-	if err != nil {
-		b.Fatal(err)
-	}
-	committer := &recordingTreeCommitter{}
-	paused := make(chan struct{})
-	config := Config{
-		Store:           committer,
-		ProgramResolver: deploymentMapResolver{childDeployment.ProgramRef(): childDeployment},
-		EventListeners: []EventListener{EventListenerFunc(func(_ context.Context, event Event) {
-			if event.Name() == EventProcessPaused && event.Relation().IsRoot() {
-				close(paused)
+const benchmarkEffectCount = 10_000
+const benchmarkEarlyEffect = 100
+const benchmarkSampleWindow = 40
+
+// Step-to-dispatch samples include runtime admission, serialization, durable
+// append and publication, not merely the Store's inner write. Nearby samples
+// suppress scheduling noise while preserving the actual history sizes.
+func BenchmarkLongRunEffectCommit(b *testing.B) {
+	var early, late, exactEarly, exactLate []time.Duration
+	b.ReportAllocs()
+	for b.Loop() {
+		b.StopTimer()
+		marks := make(chan time.Time, 1)
+		runtime := controlValue(New(b.Context(), Config{Build: kernelTestBuild, Store: NewMemoryStore()}))
+		definition := &effectCommitDefinition{descriptor: kernelDescriptor(b, "benchmark.effect_commit"), marks: marks}
+		dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(_ context.Context, request EffectRequest, _ DeltaEmitter) (Settlement, error) {
+			elapsed := time.Since(<-marks)
+			step := request.ID().Step
+			if step == benchmarkEarlyEffect {
+				exactEarly = append(exactEarly, elapsed)
 			}
-		})},
-		TreeLimits: limits,
-	}
-	engine, err := New(context.Background(), config)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() {
-		if closeErr := engine.Close(context.WithoutCancel(b.Context())); closeErr != nil {
-			b.Error(closeErr)
+			if step == benchmarkEffectCount {
+				exactLate = append(exactLate, elapsed)
+			}
+			if step >= benchmarkEarlyEffect-benchmarkSampleWindow && step <= benchmarkEarlyEffect {
+				early = append(early, elapsed)
+			}
+			if step >= benchmarkEffectCount-benchmarkSampleWindow {
+				late = append(late, elapsed)
+			}
+			return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+		}}
+		program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
+		b.StartTimer()
+		if result, err := runtime.Run(b.Context(), program, 0); err != nil || result != benchmarkEffectCount {
+			b.Fatalf("long run output=%d error=%v", result, err)
 		}
-	})
-	input, err := EncodePayload(executionReplayBenchmarkState{Payload: "commit fixture"})
-	if err != nil {
-		b.Fatal(err)
-	}
-	root, err := engine.Start(context.Background(), deployment, StartRequest[Payload]{ID: StartID{Scope: "test", Key: startrand.Text()}, Input: input})
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() { stopRecoveryBenchmarkProcess(b, root) })
-	select {
-	case <-paused:
-	case <-b.Context().Done():
-		b.Fatal(b.Context().Err())
-	}
-	inspection, err := engine.InspectTree(b.Context(), root.Relation().ProcessID())
-	if err != nil {
-		b.Fatal(err)
-	}
-	for _, inspected := range inspection.Processes {
-		if inspected.Snapshot.Relation().ProcessID() == root.Relation().ProcessID() {
-			continue
+		b.StopTimer()
+		if err := runtime.Close(b.Context()); err != nil {
+			b.Fatal(err)
 		}
-		child, found := engine.Process(inspected.Snapshot.Relation().ProcessID())
-		if !found {
-			b.Fatal("benchmark child is missing")
-		}
-		result, err := child.Await(b.Context())
-		if err != nil || result.Termination().Status() != StatusCompleted {
-			b.Fatalf("benchmark child status=%s error=%v", result.Termination().Status(), err)
-		}
+		b.StartTimer()
 	}
-	checkpoints := committer.treeCheckpoints()
-	snapshot := checkpoints[len(checkpoints)-1].TreeSnapshot()
-	if len(snapshot.ProcessSnapshots()) != processCount {
-		b.Fatalf("benchmark tree has %d Processes, want %d", len(snapshot.ProcessSnapshots()), processCount)
-	}
-	config.EventListeners = nil
-	return deployment, config, snapshot
+	earlyMedian, lateMedian := durationMedian(early), durationMedian(late)
+	b.ReportMetric(float64(earlyMedian.Nanoseconds()), "commit100_p50_ns")
+	b.ReportMetric(float64(lateMedian.Nanoseconds()), "commit10000_p50_ns")
+	b.ReportMetric(float64(lateMedian)/float64(earlyMedian), "history_ratio")
+	b.ReportMetric(benchmarkEffectCount, "effects/run")
+	b.ReportMetric(float64(durationMedian(exactEarly).Nanoseconds()), "commit100_exact_p50_ns")
+	b.ReportMetric(float64(durationMedian(exactLate).Nanoseconds()), "commit10000_exact_p50_ns")
+	b.ReportMetric(float64(durationMedian(exactLate))/float64(durationMedian(exactEarly)), "exact_history_ratio")
 }
 
-type signalCommitBenchmarkDurability struct {
-	*recordingTreeCommitter
-	delay              time.Duration
-	acknowledgmentTime time.Duration
+type effectCommitDefinition struct {
+	descriptor Descriptor
+	marks      chan<- time.Time
 }
 
-func (s *signalCommitBenchmarkDurability) CommitCheckpoint(ctx context.Context, checkpoint TreeCheckpoint) error {
-	started := time.Now()
-	if s.delay > 0 {
-		timer := time.NewTimer(s.delay)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+func (e *effectCommitDefinition) Descriptor() Descriptor                   { return e.descriptor }
+func (*effectCommitDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
+func (e *effectCommitDefinition) Start(Payload) (Execution, error) {
+	return &effectCommitExecution{marks: e.marks}, nil
+}
+func (e *effectCommitDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
+	completed, err := state.Decode[int]("benchmark.effects")
+	if err != nil {
+		return nil, err
 	}
-	err := s.recordingTreeCommitter.CommitCheckpoint(ctx, checkpoint)
-	s.acknowledgmentTime += time.Since(started)
-	return err
+	return &effectCommitExecution{completed: completed, marks: e.marks}, nil
+}
+
+type effectCommitExecution struct {
+	completed int
+	marks     chan<- time.Time
+}
+
+func (e *effectCommitExecution) Snapshot() (ExecutionState, error) {
+	return EncodeExecutionState("benchmark.effects", e.completed)
+}
+func (e *effectCommitExecution) Step(_ context.Context, turn Turn) (Transition, error) {
+	for _, message := range turn.Messages {
+		if _, ok := message.(Completion); !ok {
+			return Transition{}, fmt.Errorf("unexpected benchmark message %T", message)
+		}
+		e.completed++
+	}
+	consumed := uint32(len(turn.Messages))
+	if e.completed == benchmarkEffectCount {
+		return Complete(consumed, controlValue(EncodePayload(e.completed)))
+	}
+	e.marks <- time.Now()
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+}
+
+func durationMedian(samples []time.Duration) time.Duration {
+	ordered := slices.Clone(samples)
+	slices.Sort(ordered)
+	return ordered[len(ordered)/2]
 }

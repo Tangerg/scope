@@ -18,12 +18,7 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-const (
-	defaultViewBuffer              = 32
-	remoteWriterPollInterval       = 250 * time.Millisecond
-	closedSubscriptionPollInterval = 50 * time.Millisecond
-	writerReconciliationInterval   = time.Second
-)
+const remoteLogPollInterval = 250 * time.Millisecond
 
 type Config struct {
 	Runtime *run.Runtime
@@ -36,18 +31,13 @@ type Config struct {
 	Authority func(ctx context.Context, tenant string) (string, error)
 	// Service isolates independently deployed endpoints sharing a runtime store.
 	Service string
-	// Slow subscribers resynchronize from a committed head after this buffer fills.
-	// Zero selects the bounded default.
-	ViewBuffer int
 }
 type handler struct {
 	runtime   *run.Runtime
 	program   run.Program[run.Payload, run.Payload]
-	heads     *run.StartedTrees
 	authority func(context.Context, string) (string, error)
 	service   string
 	streaming bool
-	capacity  int
 	content   contentPolicy
 }
 
@@ -56,16 +46,8 @@ var _ a2asrv.RequestHandler = (*handler)(nil)
 // Tasks derive acceptance and lifecycle facts from readable runtime storage;
 // the protocol endpoint cannot maintain an independent task store.
 func NewHTTPHandler(cfg Config) (http.Handler, error) {
-	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || !utf8.ValidString(cfg.Service) || cfg.ViewBuffer < 0 {
+	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || !utf8.ValidString(cfg.Service) {
 		return nil, errors.New("a2a/managed: runtime, program, card, service and authority are required")
-	}
-	heads, err := cfg.Runtime.StartedTrees()
-	if err != nil {
-		return nil, err
-	}
-	capacity := cfg.ViewBuffer
-	if capacity == 0 {
-		capacity = defaultViewBuffer
 	}
 	card := *cfg.Card
 	card.Capabilities.Extensions = slices.Clone(card.Capabilities.Extensions)
@@ -77,14 +59,14 @@ func NewHTTPHandler(cfg Config) (http.Handler, error) {
 			return nil, fmt.Errorf("%w: external-wait capability is supplied by the binding", a2a.ErrInvalidCard)
 		}
 	}
-	card.Capabilities.Extensions = append(card.Capabilities.Extensions, sdk.AgentExtension{URI: a2a.ExternalWaitExtension, Description: "Select a pending wait by " + a2a.WaitIDMetadataKey + " and answer its declared schema."})
+	card.Capabilities.Extensions = append(card.Capabilities.Extensions, sdk.AgentExtension{URI: a2a.ExternalWaitExtension, Description: "Select a pending wait by " + a2a.WaitMetadataKey + " and answer its declared schema."})
 	content, err := newContentPolicy(card, cfg.Program.Descriptor().OutputSchema().JSON())
 	if err != nil {
 		return nil, err
 	}
 	card.DefaultInputModes = slices.Clone(content.inputs)
 	card.DefaultOutputModes = slices.Clone(content.outputs)
-	h := &handler{runtime: cfg.Runtime, program: cfg.Program, heads: heads, authority: cfg.Authority, service: cfg.Service, streaming: card.Capabilities.Streaming, capacity: capacity, content: content}
+	h := &handler{runtime: cfg.Runtime, program: cfg.Program, authority: cfg.Authority, service: cfg.Service, streaming: card.Capabilities.Streaming, content: content}
 	return a2a.NewProtocolHTTPHandler(&card, h)
 }
 
@@ -99,13 +81,13 @@ func (h *handler) scope(ctx context.Context, tenant string) (string, error) {
 	}
 	return authorityScopePrefix + key, nil
 }
-func (h *handler) load(ctx context.Context, k taskKey) (run.TreeSnapshot, error) {
-	head, ok, err := h.heads.Load(ctx, k.start)
-	if err != nil {
-		return run.TreeSnapshot{}, sdk.ErrInternalError
+func (h *handler) load(ctx context.Context, k taskKey) (run.TreeInspection, error) {
+	head, err := h.runtime.Inspect(ctx, k.start.Root())
+	if errors.Is(err, run.ErrProcessNotFound) {
+		return run.TreeInspection{}, sdk.ErrTaskNotFound
 	}
-	if !ok {
-		return run.TreeSnapshot{}, sdk.ErrTaskNotFound
+	if err != nil {
+		return run.TreeInspection{}, sdk.ErrInternalError
 	}
 	return head, nil
 }
@@ -127,7 +109,7 @@ func (h *handler) admit(ctx context.Context, request *sdk.SendMessageRequest) (t
 		return taskKey{}, err
 	}
 	if request.Message.TaskID == "" {
-		if _, present := request.Message.Metadata[a2a.WaitIDMetadataKey]; present {
+		if _, present := request.Message.Metadata[a2a.WaitMetadataKey]; present {
 			return taskKey{}, sdk.ErrInvalidParams
 		}
 		return key, h.startTask(ctx, key, payload)
@@ -140,21 +122,13 @@ func (h *handler) startTask(ctx context.Context, key taskKey, payload run.Payloa
 	if err == nil {
 		return nil
 	}
-	if _, unknown := errors.AsType[*run.StartError](err); unknown {
-		// The store may have installed the receipt. A different message ID
-		// could duplicate the operation. Host diagnostics stay off the wire.
-		return sdk.NewError(sdk.ErrInternalError, "initial acceptance is uncertain; retry the same message and context IDs")
-	}
-	if _, accepted := errors.AsType[*run.StartAcceptedError](err); accepted {
-		return nil
-	}
 	if _, conflict := errors.AsType[*run.StartConflictError](err); conflict {
 		return sdk.NewError(sdk.ErrInvalidRequest, "message identity already accepted a different input")
 	}
 	if errors.Is(err, run.ErrInvalidPayload) {
 		return sdk.ErrInvalidParams
 	}
-	return sdk.ErrInternalError
+	return sdk.NewError(sdk.ErrInternalError, "initial acceptance is unconfirmed; retry the same message and context IDs")
 }
 
 func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[string]any, payload run.Payload) error {
@@ -162,32 +136,36 @@ func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[stri
 	if err != nil {
 		return err
 	}
-	waitText, ok := metadata[a2a.WaitIDMetadataKey].(string)
-	if !ok {
-		return fmt.Errorf("%w: follow-up requires %s", sdk.ErrInvalidParams, a2a.WaitIDMetadataKey)
-	}
-	wait, err := run.ParseWaitID(waitText)
+	address, err := a2a.ParseWaitAddress(metadata[a2a.WaitMetadataKey])
 	if err != nil {
 		return sdk.ErrInvalidParams
 	}
-	matched, err := head.Answered(wait, payload)
+	process, err := run.ParseProcessID(address.Process)
+	if err != nil || process.Root() != head.Root {
+		return sdk.ErrInvalidParams
+	}
+	wait, err := run.ParseWaitKey(address.Key)
+	if err != nil {
+		return sdk.ErrInvalidParams
+	}
+	matched, err := head.Answered(process, wait, payload)
 	if err != nil {
 		return sdk.NewError(sdk.ErrInvalidRequest, "answer is not consistent with the external wait")
 	}
 	if matched {
 		return nil
 	}
-	local, attached := h.runtime.Process(head.RootID())
-	if !attached || local.TreeIncarnationID() != head.IncarnationID() {
+	local, attached := h.runtime.Process(process)
+	if !attached || local.Epoch() != head.Epoch {
 		return fmt.Errorf("%w: run writer is not attached here", sdk.ErrUnsupportedOperation)
 	}
 	if err = local.Answer(ctx, wait, payload); err == nil {
 		return nil
 	}
-	if errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidSignal) || errors.Is(err, run.ErrInvalidPayload) {
+	if errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidMessage) || errors.Is(err, run.ErrInvalidPayload) {
 		return sdk.NewError(sdk.ErrInvalidRequest, "answer does not match the external wait")
 	}
-	if errors.Is(err, run.ErrTreeIncarnationConflict) {
+	if errors.Is(err, run.ErrEpochConflict) {
 		return sdk.ErrUnsupportedOperation
 	}
 	return sdk.NewError(sdk.ErrInternalError, "answer was not acknowledged; retry the same wait and answer")
@@ -231,15 +209,15 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 		return nil, err
 	}
 	root := rootProcess(head)
-	if root.Status().Terminal() {
+	if root.Status.Terminal() {
 		return nil, sdk.ErrTaskNotCancelable
 	}
-	local, ok := h.runtime.Process(head.RootID())
-	if !ok || local.TreeIncarnationID() != head.IncarnationID() {
+	local, ok := h.runtime.Process(head.Root)
+	if !ok || local.Epoch() != head.Epoch {
 		return nil, sdk.ErrTaskNotCancelable
 	}
 	if err = local.Cancel(ctx, "A2A cancellation requested"); err != nil {
-		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrTreeIncarnationConflict) {
+		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrEpochConflict) {
 			return nil, sdk.ErrTaskNotCancelable
 		}
 		return nil, sdk.NewError(sdk.ErrInternalError, "cancellation was not acknowledged; read the task status")
@@ -276,21 +254,16 @@ func settlesTurn(s sdk.TaskState) bool {
 	return s == sdk.TaskStateCompleted || s == sdk.TaskStateFailed || s == sdk.TaskStateCanceled || s == sdk.TaskStateInputRequired
 }
 
-// Reattachment after gaps or writer replacement must start from an acknowledged
-// head; a stale local writer cannot certify the task projection.
 func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, error] {
 	return func(yield func(*sdk.Task, error) bool) {
-		var last run.Digest
-		emit := func(head run.TreeSnapshot) bool {
-			if !head.Valid() || head.Digest() == last {
+		var after run.LSN
+		emit := func(head run.TreeInspection) bool {
+			if head.Head == after {
 				return true
 			}
-			last = head.Digest()
-			t, err := projectTask(k, head)
-			if !yield(t, err) || err != nil {
-				return false
-			}
-			return !settlesTurn(t.Status.State)
+			after = head.Head
+			task, err := projectTask(k, head)
+			return yield(task, err) && err == nil && !settlesTurn(task.Status.State)
 		}
 		for {
 			head, err := h.load(ctx, k)
@@ -301,61 +274,27 @@ func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, err
 			if !emit(head) {
 				return
 			}
-			local, ok := h.runtime.Process(head.RootID())
-			if !ok || local.TreeIncarnationID() != head.IncarnationID() {
-				select {
-				case <-ctx.Done():
-					yield(nil, ctx.Err())
-					return
-				case <-time.After(remoteWriterPollInterval):
-					continue
-				}
-			}
-			// A different runtime can take over while this local process is still
-			// waiting on a host call. Periodically reconcile with the durable writer.
-			watch, stop := context.WithTimeout(ctx, writerReconciliationInterval)
-			active := true
-			for view, err := range local.Observe(watch, run.Cursor{}, h.capacity) {
-				if err != nil {
-					if !errors.Is(err, run.ErrObservationGap) && !errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-						yield(nil, err)
-						active = false
-					}
-					break
-				}
-				// The store, not a late local writer, certifies the next head. The same
-				// digest may be seen twice during atomic snapshot/subscription attachment.
-				if view.Snapshot.Valid() && view.Snapshot.Digest() != last {
-					acknowledged, err := h.load(ctx, k)
+			if local, ok := h.runtime.Process(head.Root); ok {
+				for _, err := range local.Observe(ctx, after) {
 					if err != nil {
 						yield(nil, err)
-						active = false
-						break
+						return
 					}
-					if acknowledged.IncarnationID() != local.TreeIncarnationID() {
-						break
+					view, err := h.load(ctx, k)
+					if err != nil {
+						yield(nil, err)
+						return
 					}
-					if !emit(acknowledged) {
-						active = false
-						break
+					if !emit(view) {
+						return
 					}
 				}
 			}
-			stop()
-			if !active {
-				return
-			}
-			if err = ctx.Err(); err != nil {
-				yield(nil, err)
-				return
-			}
-			// If the writer has stopped without a durable terminal result, do not
-			// invent one or retry execution. Avoid hot-looping a closed subscription.
 			select {
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 				return
-			case <-time.After(closedSubscriptionPollInterval):
+			case <-time.After(remoteLogPollInterval):
 			}
 		}
 	}
@@ -371,7 +310,7 @@ func (h *handler) events(ctx context.Context, k taskKey, subscribing bool) iter.
 			}
 			if first {
 				// A2A refuses a new subscription to an already terminal task. Decide on the
-				// same snapshot that would be sent first, without a racy preliminary GET.
+				// same log projection that would be sent first, without a racy preliminary GET.
 				if subscribing && t.Status.State.Terminal() {
 					yield(nil, sdk.ErrUnsupportedOperation)
 					return

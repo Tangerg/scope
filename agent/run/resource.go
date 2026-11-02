@@ -9,38 +9,27 @@ import (
 )
 
 // ErrResourceLimitExceeded reports a designed execution bound, not a Runtime defect.
-var ErrResourceLimitExceeded = errors.New("run: resource limit exceeded")
+var ErrResourceLimitExceeded = NewClassifiedError(FailureKindExecution, failureCodeRuntimeResourceLimitExceeded, "run: resource limit exceeded")
 
 // ErrCounterExhausted reports exhausted numeric identity or accounting space,
 // independently of the Host's quota policy. Work stops before a counter wraps.
 // Strategies exhausting their own counters report this same sentinel.
 var ErrCounterExhausted = NewClassifiedError(
-	FailureKindExecution, failureCodeEngineCounterExhausted, "run: counter exhausted",
+	FailureKindExecution, failureCodeRuntimeCounterExhausted, "run: counter exhausted",
 )
 
 const (
-	defaultMaxPendingSignals uint64 = 10_000
-	defaultMaxDepth          uint32 = 16
-	defaultMaxActiveChildren uint32 = 16
+	defaultMaxPendingMessages uint64 = 10_000
+	defaultMaxDepth           uint32 = 16
+	defaultMaxActiveChildren  uint32 = 16
 )
 
-// Usage contains monotonic Framework-owned counters. It deliberately excludes
-// provider pricing and Strategy-specific concepts such as tokens or tool calls.
-// JSON decoding requires every counter, including explicit zeros; partial
-// updates are not execution facts.
+// Counters are projections of committed records; transient delta delivery cannot
+// change durable usage. Each decoded counter must be present, including zero.
 type Usage struct {
-	// CommittedSteps counts finalized Steps.
-	CommittedSteps uint64 `json:"committed_steps" jsonwire:"required"`
-
-	// PreparedEffects counts stable logical Effect identities, not replay attempts.
-	PreparedEffects uint64 `json:"prepared_effects" jsonwire:"required"`
-
-	// AcceptedSignals counts external and Runtime-generated mailbox entries.
-	AcceptedSignals uint64 `json:"accepted_signals" jsonwire:"required"`
-
-	// DroppedDeltas counts increments rejected by validation, the bounded queue,
-	// or exhausted sequence space. It saturates at math.MaxUint64.
-	DroppedDeltas uint64 `json:"dropped_deltas" jsonwire:"required"`
+	CommittedSteps   uint64 `json:"committed_steps" jsonwire:"required"`
+	PreparedEffects  uint64 `json:"prepared_effects" jsonwire:"required"`
+	AcceptedMessages uint64 `json:"accepted_messages" jsonwire:"required"`
 }
 
 func (u *Usage) UnmarshalJSON(data []byte) error {
@@ -61,14 +50,9 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 // unlimited parent grants either kind without a finite debit. Each dimension
 // is independent; a finite parent cannot grant an unlimited child quota.
 type Budget struct {
-	// Steps bounds committed Steps. A finite zero forbids new computation.
-	Steps Quota `json:"steps" jsonwire:"required"`
-	// Effects bounds stable Effect identities prepared across all Steps. A
-	// finite zero permits pure Steps but forbids Effects.
-	Effects Quota `json:"effects" jsonwire:"required"`
-	// Signals bounds accepted external and Runtime-generated Signals. A finite
-	// zero permits computations that need no runtime input or settlements.
-	Signals Quota `json:"signals" jsonwire:"required"`
+	Steps    Quota `json:"steps" jsonwire:"required"`
+	Effects  Quota `json:"effects" jsonwire:"required"`
+	Messages Quota `json:"messages" jsonwire:"required"`
 }
 
 func (b *Budget) UnmarshalJSON(data []byte) error {
@@ -84,20 +68,11 @@ func (b *Budget) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (b Budget) contains(usage Usage, allocated resourceAmounts) bool {
-	return (b.Steps.limited || allocated.Steps == 0) &&
-		(b.Effects.limited || allocated.Effects == 0) &&
-		(b.Signals.limited || allocated.Signals == 0) &&
-		b.Steps.Allows(usage.CommittedSteps, allocated.Steps) &&
-		b.Effects.Allows(usage.PreparedEffects, allocated.Effects) &&
-		b.Signals.Allows(usage.AcceptedSignals, allocated.Signals)
-}
-
 func (b Budget) allocation(requested Budget) (resourceAmounts, bool) {
 	steps, stepsOK := b.Steps.allocation(requested.Steps)
 	effects, effectsOK := b.Effects.allocation(requested.Effects)
-	signals, signalsOK := b.Signals.allocation(requested.Signals)
-	return resourceAmounts{Steps: steps, Effects: effects, Signals: signals}, stepsOK && effectsOK && signalsOK
+	messages, messagesOK := b.Messages.allocation(requested.Messages)
+	return resourceAmounts{Steps: steps, Effects: effects, Messages: messages}, stepsOK && effectsOK && messagesOK
 }
 
 func (b Budget) canAllocate(usage Usage, reserved resourceAmounts, requested Budget) bool {
@@ -107,24 +82,24 @@ func (b Budget) canAllocate(usage Usage, reserved resourceAmounts, requested Bud
 	}
 	return b.Steps.Allows(usage.CommittedSteps, reserved.Steps, debit.Steps) &&
 		b.Effects.Allows(usage.PreparedEffects, reserved.Effects, debit.Effects) &&
-		b.Signals.Allows(usage.AcceptedSignals, reserved.Signals, debit.Signals)
+		b.Messages.Allows(usage.AcceptedMessages, reserved.Messages, debit.Messages)
 }
 
 // Only finite parent dimensions carry debits. This makes rollback exact even
 // when several children hold unlimited grants in other dimensions.
 type resourceAmounts struct {
-	Steps   uint64 `json:"steps"`
-	Effects uint64 `json:"effects"`
-	Signals uint64 `json:"signals"`
+	Steps    uint64 `json:"steps"`
+	Effects  uint64 `json:"effects"`
+	Messages uint64 `json:"messages"`
 }
 
 func (r resourceAmounts) add(other resourceAmounts) (resourceAmounts, bool) {
 	if !resourceQuantitiesFit(math.MaxUint64, r.Steps, other.Steps) ||
 		!resourceQuantitiesFit(math.MaxUint64, r.Effects, other.Effects) ||
-		!resourceQuantitiesFit(math.MaxUint64, r.Signals, other.Signals) {
+		!resourceQuantitiesFit(math.MaxUint64, r.Messages, other.Messages) {
 		return resourceAmounts{}, false
 	}
-	return resourceAmounts{Steps: r.Steps + other.Steps, Effects: r.Effects + other.Effects, Signals: r.Signals + other.Signals}, true
+	return resourceAmounts{Steps: r.Steps + other.Steps, Effects: r.Effects + other.Effects, Messages: r.Messages + other.Messages}, true
 }
 
 func resourceQuantitiesFit(limit uint64, quantities ...uint64) bool {
@@ -138,49 +113,17 @@ func resourceQuantitiesFit(limit uint64, quantities ...uint64) bool {
 	return true
 }
 
-func saturatingCountAdd(value, increment uint64) uint64 {
-	if increment > math.MaxUint64-value {
-		return math.MaxUint64
-	}
-	return value + increment
-}
-
-// TreeLimits is the capacity policy shared by every Process of one root tree.
-// Cumulative counts and snapshot bytes default to unlimited; zero depth,
-// active-child capacity, and pending-Signal capacity inherit DefaultTreeLimits.
-// A tree snapshot carries exactly one TreeLimits, so recovery cannot give
-// members different bounds.
+// Root Started owns the resolved policy. Child records never repeat these
+// limits. Message capacity reserves Completions and child Exits before dispatch,
+// so admitted work can finish even while external Signals arrive.
 type TreeLimits struct {
-	// MaxSnapshotBytes bounds the encoded tree, including completed descendants.
-	// Admission includes each live Process's lifecycle and Framework reservations.
-	// The per-Process overhead described by MaxProcessSnapshotBytes accumulates
-	// across live members; terminal members contribute only their encoded size.
-	// A finite zero denies every new tree snapshot admission.
-	MaxSnapshotBytes Quota `json:"max_snapshot_bytes" jsonwire:"required"`
-
-	// MaxProcessSnapshotBytes bounds each encoded Process snapshot, including
-	// retained history. Admission of a live Process also reserves worst-case
-	// control, termination, diagnostic, and Framework settlement growth; control
-	// strings alone reserve about 144 KiB after JSON escaping. Terminal Processes
-	// need only their encoded size. A finite zero denies every new admission.
-	MaxProcessSnapshotBytes Quota `json:"max_process_snapshot_bytes" jsonwire:"required"`
-
-	// MaxPendingSignals bounds each Process's unconsumed mailbox suffix and the
-	// suffix after its prepared Step consumes inputs and appends settlements.
-	// Every arriving Signal preserves both bounds regardless of its source.
-	// Capacity must fit the uint32 consumed-Signal count in one Transition.
-	MaxPendingSignals uint64 `json:"max_pending_signals" jsonwire:"required"`
-
-	// MaxDepth bounds the root-relative depth of any Process.
-	MaxDepth uint32 `json:"max_depth" jsonwire:"required"`
-	// MaxChildren bounds the lifetime child count of one Process. A finite
-	// zero confines new execution to the root.
-	MaxChildren Quota `json:"max_children" jsonwire:"required"`
-	// MaxActiveChildren bounds concurrent non-terminal children of one Process.
-	MaxActiveChildren uint32 `json:"max_active_children" jsonwire:"required"`
-	// MaxTreeProcesses bounds the lifetime Process count of one tree. A finite
-	// zero is rejected because a tree includes its root.
-	MaxTreeProcesses Quota `json:"max_tree_processes" jsonwire:"required"`
+	MaxRecordBytes     Quota  `json:"max_record_bytes" jsonwire:"required"`
+	MaxCheckpointBytes Quota  `json:"max_checkpoint_bytes" jsonwire:"required"`
+	MaxPendingMessages uint64 `json:"max_pending_messages" jsonwire:"required"`
+	MaxDepth           uint32 `json:"max_depth" jsonwire:"required"`
+	MaxChildren        Quota  `json:"max_children" jsonwire:"required"`
+	MaxActiveChildren  uint32 `json:"max_active_children" jsonwire:"required"`
+	MaxTreeProcesses   Quota  `json:"max_tree_processes" jsonwire:"required"`
 }
 
 func (t *TreeLimits) UnmarshalJSON(data []byte) error {
@@ -197,12 +140,12 @@ func (t *TreeLimits) UnmarshalJSON(data []byte) error {
 }
 
 // DefaultTreeLimits returns conservative structured-concurrency and mailbox
-// bounds; cumulative counts and snapshot bytes remain unlimited.
+// bounds; cumulative counts and record bytes remain unlimited.
 func DefaultTreeLimits() TreeLimits {
 	return TreeLimits{
-		MaxPendingSignals: defaultMaxPendingSignals,
-		MaxDepth:          defaultMaxDepth,
-		MaxActiveChildren: defaultMaxActiveChildren,
+		MaxPendingMessages: defaultMaxPendingMessages,
+		MaxDepth:           defaultMaxDepth,
+		MaxActiveChildren:  defaultMaxActiveChildren,
 	}
 }
 
@@ -213,8 +156,8 @@ func (t TreeLimits) Valid() bool {
 func (t TreeLimits) resolve() (TreeLimits, error) {
 	effective := t
 	defaults := DefaultTreeLimits()
-	if effective.MaxPendingSignals == 0 {
-		effective.MaxPendingSignals = defaults.MaxPendingSignals
+	if effective.MaxPendingMessages == 0 {
+		effective.MaxPendingMessages = defaults.MaxPendingMessages
 	}
 	if effective.MaxDepth == 0 {
 		effective.MaxDepth = defaults.MaxDepth
@@ -232,10 +175,10 @@ func (t TreeLimits) validate() error {
 	switch {
 	case !t.MaxTreeProcesses.Allows(1):
 		return errors.New("MaxTreeProcesses must admit the root Process")
-	case t.MaxPendingSignals == 0:
-		return errors.New("MaxPendingSignals must be greater than zero")
-	case t.MaxPendingSignals > math.MaxUint32:
-		return errors.New("MaxPendingSignals exceeds the representable Transition capacity")
+	case t.MaxPendingMessages == 0:
+		return errors.New("MaxPendingMessages must be greater than zero")
+	case t.MaxPendingMessages > math.MaxUint32:
+		return errors.New("MaxPendingMessages exceeds the representable Transition capacity")
 	case t.MaxDepth == 0:
 		return errors.New("MaxDepth must be greater than zero")
 	case t.MaxActiveChildren == 0:
@@ -247,33 +190,10 @@ func (t TreeLimits) validate() error {
 
 func (t TreeLimits) admitsDepth(depth uint32) bool { return depth <= t.MaxDepth }
 
-// admitsPendingSignals is the one MaxPendingSignals rule: the unconsumed
-// suffix, and the suffix after the prepared Step consumes its inputs and
-// appends reserved settlements, each fit with incoming more Signals. Runtime
-// admission passes prospective arrivals; snapshot validation passes none.
-func (t TreeLimits) admitsPendingSignals(pending, afterPrepared, reserved, incoming uint64) bool {
-	return resourceQuantitiesFit(t.MaxPendingSignals, pending, incoming) &&
-		resourceQuantitiesFit(t.MaxPendingSignals, afterPrepared, reserved, incoming)
-}
-
-// admitsChildren reports whether one Process may hold children lifetime
-// children, active of which are non-terminal. Runtime admission checks the
-// prospective counts; snapshot validation checks the captured ones.
 func (t TreeLimits) admitsChildren(children, active uint64) bool {
 	return t.MaxChildren.Allows(children) && active <= uint64(t.MaxActiveChildren)
 }
 
 func (t TreeLimits) admitsTreeSize(processes uint64) bool {
 	return t.MaxTreeProcesses.Allows(processes)
-}
-
-// processUsage projects Usage from the lifecycle records that own each count.
-// Every adopted Effect left exactly one settlement record in the mailbox, and
-// every other prepared Effect is still in the prepared Step. Dropped deltas
-// leave no record, so they alone are stored.
-func processUsage(committedSteps, acceptedSignals, settledEffects uint64, prepared *preparedStep, droppedDeltas uint64) Usage {
-	return Usage{
-		CommittedSteps: committedSteps, AcceptedSignals: acceptedSignals,
-		PreparedEffects: settledEffects + prepared.settlementSignalCount(), DroppedDeltas: droppedDeltas,
-	}
 }

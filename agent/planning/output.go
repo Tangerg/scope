@@ -122,7 +122,7 @@ func (o Output) PlanningPasses() uint64 {
 
 // Validate checks the outcome against the ordered attempt facts. Goal
 // satisfaction, Action membership, and admission policy require the owning
-// Definition. A repeated Action name is a valid fact, even after a failed attempt.
+// definition. A repeated Action name is a valid fact, even after a failed attempt.
 func (o Output) Validate() error {
 	if !o.Outcome.Valid() {
 		return fmt.Errorf("%w: invalid output outcome", ErrInvalidResult)

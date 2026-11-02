@@ -1,11 +1,9 @@
-package planning_test
+package planning
 
 import (
 	"bytes"
 	jsonv2 "encoding/json/v2"
 	"testing"
-
-	"github.com/Tangerg/scope/agent/planning"
 )
 
 func FuzzWorldStateJSON(f *testing.F) {
@@ -13,7 +11,7 @@ func FuzzWorldStateJSON(f *testing.F) {
 	f.Add([]byte(`{"conditions":[{"key":"world.ready","truth":"true"}]}`))
 	f.Add([]byte(`{"conditions":[{"key":"world.ready","truth":"unknown"}]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var state planning.WorldState
+		var state WorldState
 		if err := jsonv2.Unmarshal(data, &state); err != nil {
 			return
 		}
@@ -21,7 +19,7 @@ func FuzzWorldStateJSON(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var restored planning.WorldState
+		var restored WorldState
 		if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
 			t.Fatal(err)
 		}
@@ -36,7 +34,7 @@ func FuzzPlanJSON(f *testing.F) {
 	f.Add([]byte(`{"actions":["action.prepare","action.finish"]}`))
 	f.Add([]byte(`{"actions":[],"total_cost":1}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var plan planning.Plan
+		var plan Plan
 		if err := jsonv2.Unmarshal(data, &plan); err != nil {
 			return
 		}
@@ -44,7 +42,7 @@ func FuzzPlanJSON(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var restored planning.Plan
+		var restored Plan
 		if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
 			t.Fatal(err)
 		}
@@ -60,7 +58,7 @@ func FuzzOutputJSON(f *testing.F) {
 	f.Add([]byte(`{"outcome":"exhausted","world_state":{"conditions":[]},"attempts":[{"action_name":"action.finish","status":"failed","diagnostic":"refused"}]}`))
 	f.Add([]byte(`{"outcome":"achieved","world_state":{"conditions":[]},"attempts":[]}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var output planning.Output
+		var output Output
 		if err := jsonv2.Unmarshal(data, &output, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return
 		}
@@ -71,7 +69,7 @@ func FuzzOutputJSON(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var restored planning.Output
+		var restored Output
 		if err := jsonv2.Unmarshal(encoded, &restored); err != nil || restored.Validate() != nil {
 			t.Fatalf("accepted Output did not round trip: %v", err)
 		}

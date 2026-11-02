@@ -27,22 +27,19 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
-	root, err := newManagedWorkflow(ctx)
+	store := agentrun.NewMemoryStore()
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-workflow", Store: store})
 	if err != nil {
 		return err
 	}
-	definition, ok := root.Definition().(*workflow.Definition)
-	if !ok {
-		return errors.New("root does not contain a Workflow Definition")
-	}
-	topology := definition.Topology()
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
+	defer func() { err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx))) }()
+	root, err := newManagedWorkflow(runtime.Compiler())
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
+	topology := root.Definition().(interface{ Topology() workflow.Topology }).Topology()
 
-	resultHandle, err := engine.Start(ctx, root, agentrun.StartRequest[request]{ID: agentrun.StartID{Scope: "example", Key: "review"}, Input: request{Text: "  ship managed workflow  "}})
+	resultHandle, err := runtime.Start(ctx, root, agentrun.StartRequest[request]{ID: agentrun.StartID{Scope: "example", Key: "review"}, Input: request{Text: "  ship managed workflow  "}})
 	if err != nil {
 		return err
 	}
@@ -57,9 +54,15 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	tree, err := engine.CaptureTree(ctx, result.ProcessID())
+	log, _, err := store.Load(ctx, result.ProcessID())
 	if err != nil {
 		return err
+	}
+	processes := 0
+	for _, entry := range log.Entries {
+		if _, ok := entry.Record.(agentrun.Started); ok {
+			processes++
+		}
 	}
 	_, err = fmt.Fprintf(
 		output,
@@ -70,7 +73,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		report.Reviews[1].Reviewer,
 		report.Reviews[1].Verdict,
 		len(topology.Stages),
-		len(tree.ProcessSnapshots()),
+		processes,
 	)
 	return err
 }
@@ -99,8 +102,8 @@ type reviewReport struct {
 	Reviews []review `json:"reviews"`
 }
 
-func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewReport], error) {
-	normalizer, err := transformDeployment(
+func newManagedWorkflow(compiler *agentrun.Compiler) (agentrun.Program[request, reviewReport], error) {
+	normalizer, err := transformProgram(compiler,
 		"example.workflow.normalizer",
 		"Normalize one review request.",
 		func(_ context.Context, input request) (normalizedRequest, error) {
@@ -113,7 +116,7 @@ func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewRe
 	// Fork outputs arrive in branch declaration order.
 	reviewers := []string{"clarity", "safety"}
 	budget := agentrun.Budget{
-		Steps: agentrun.NewQuota(workflowChildBudgetUnits), Effects: agentrun.NewQuota(workflowChildBudgetUnits), Signals: agentrun.NewQuota(workflowChildBudgetUnits),
+		Steps: agentrun.NewQuota(workflowChildBudgetUnits), Effects: agentrun.NewQuota(workflowChildBudgetUnits), Messages: agentrun.NewQuota(workflowChildBudgetUnits),
 	}
 	normalize, err := workflow.Call(workflow.CallConfig{
 		ID: "normalize", Program: normalizer, Budget: budget,
@@ -123,11 +126,11 @@ func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewRe
 	}
 	branches := make([]workflow.ForkBranch, 0, len(reviewers))
 	for _, reviewer := range reviewers {
-		deployment, reviewerErr := reviewerDeployment(reviewer)
+		program, reviewerErr := reviewerProgram(compiler, reviewer)
 		if reviewerErr != nil {
 			return agentrun.Program[request, reviewReport]{}, reviewerErr
 		}
-		branches = append(branches, workflow.ForkBranch{ID: reviewer, Program: deployment, Budget: budget})
+		branches = append(branches, workflow.ForkBranch{ID: reviewer, Program: program, Budget: budget})
 	}
 	reviewStage, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, verdict, reviewReport]{
 		ID: "review", Branches: branches, WindowSize: uint32(len(reviewers)),
@@ -142,14 +145,14 @@ func newManagedWorkflow(ctx context.Context) (agentrun.Program[request, reviewRe
 	if err != nil {
 		return agentrun.Program[request, reviewReport]{}, err
 	}
-	return workflow.Compile[request, reviewReport](ctx, workflow.Config{BuildIdentity: agentrun.ComputeDigest([]byte("example-workflow-review-implementation")), CallbackIdentity: agentrun.ComputeDigest([]byte("example-workflow-review-configuration")),
+	return workflow.Compile[request, reviewReport](compiler, workflow.Config{Revision: "review-v1",
 		Name: "example.workflow.review", Description: "Normalize and review one request with managed child Processes.",
 		Stages: []workflow.Stage{normalize, reviewStage},
 	})
 }
 
-func reviewerDeployment(reviewer string) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	return transformDeployment(
+func reviewerProgram(compiler *agentrun.Compiler, reviewer string) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+	return transformProgram(compiler,
 		"example.workflow.reviewer_"+reviewer,
 		"Return one deterministic "+reviewer+" review.",
 		func(_ context.Context, _ normalizedRequest) (verdict, error) {
@@ -158,24 +161,17 @@ func reviewerDeployment(reviewer string) (agentrun.Program[agentrun.Payload, age
 	)
 }
 
-func transformDeployment[I, O any](
-	name string,
-	description string,
+func transformProgram[I, O any](
+	compiler *agentrun.Compiler,
+	name, description string,
+
 	transform workflow.TransformFunc[I, O],
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("apply", transform)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	definition, err := workflow.NewDefinition(workflow.DefinitionConfig{
-		Name: name, Description: description, Stages: []workflow.Stage{stage},
-	})
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	return agentrun.Bind[agentrun.Payload, agentrun.Payload](agentrun.BindingConfig{
-		Definition:           definition,
-		ImplementationDigest: agentrun.ComputeDigest([]byte(name + "-implementation")),
-		ConfigurationDigest:  agentrun.ComputeDigest([]byte(name + "-configuration")),
+	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{
+		Name: name, Description: description, Revision: name, Stages: []workflow.Stage{stage},
 	})
 }

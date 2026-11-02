@@ -35,7 +35,7 @@ type typedFixtureExecution struct {
 	state json.RawMessage
 }
 
-func (t *typedFixtureExecution) Step(context.Context, []Signal) (Transition, error) {
+func (t *typedFixtureExecution) Step(context.Context, Turn) (Transition, error) {
 	output, err := ParsePayload(t.state)
 	if err != nil {
 		return Transition{}, err
@@ -58,7 +58,7 @@ func TestDescriptorOwnsTypedEdges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	transition, err := execution.Step(context.Background(), nil)
+	transition, err := execution.Step(context.Background(), Turn{Process: controlValue(ParseProcessID("fixture")), Step: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

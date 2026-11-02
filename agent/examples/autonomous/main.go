@@ -9,7 +9,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
@@ -20,9 +20,6 @@ const (
 	calculatorToolRequestCall = 1
 	calculatorFinalAnswerCall = 2
 	additionToolName          = "add"
-	additionBudgetSteps       = 8
-	additionBudgetEffects     = 4
-	additionBudgetSignals     = 8
 )
 
 func main() {
@@ -33,6 +30,11 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
+	runtime, err := agentrun.New(ctx, agentrun.Config{Build: "example-autonomous", Store: agentrun.NewMemoryStore()})
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx))) }()
 	client, err := chatclient.New(&calculatorModel{}, chatclient.Config{})
 	if err != nil {
 		return err
@@ -44,30 +46,22 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	build := agentrun.ComputeDigest([]byte("example-autonomous-implementation"))
-	tools, err := agent.NewToolSet(agent.ToolSetConfig{
-		Name: "example.arithmetic", Description: "Execute arithmetic tools.", Tools: []tool.Tool{addition},
-		ImplementationDigest: build, ConfigurationDigest: agentrun.ComputeDigest([]byte("example addition settings")),
+	tools, err := interaction.NewToolSet(interaction.ToolSetConfig{
+		Revision: "addition-v1", Tools: []tool.Tool{addition},
 	})
 	if err != nil {
 		return err
 	}
-	program, err := agent.Compile(ctx, agent.Config{
+	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name: "example.autonomous_calculator", Description: "Use available tools to complete the requested calculation.",
 		Model: client, Tools: tools, MaxModelCalls: agentrun.NewQuota(calculatorFinalAnswerCall),
-		BuildIdentity: build,
-		ModelIdentity: agentrun.ComputeDigest([]byte("example calculator model")),
-		ToolBudget:    agentrun.Budget{Steps: agentrun.NewQuota(additionBudgetSteps), Effects: agentrun.NewQuota(additionBudgetEffects), Signals: agentrun.NewQuota(additionBudgetSignals)},
+		Revision: "calculator-v1",
 	})
 	if err != nil {
 		return err
 	}
-	engine, err := agentrun.New(ctx, agentrun.Config{Store: agentrun.NewMemoryStore()})
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, engine.Close(context.WithoutCancel(ctx))) }()
-	decoded, err := engine.Run(ctx, program, agent.Input{Messages: []chat.Message{
+
+	decoded, err := runtime.Run(ctx, program, interaction.Input{Messages: []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("What is 20 + 22?")),
 	}})
 	if err != nil {

@@ -8,94 +8,101 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Tangerg/scope/agent"
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/eval"
 )
+
+const rootProcessPath = "root"
 
 type behaviorProjection struct {
 	Termination behaviorTermination `json:"termination"`
 	Output      json.RawMessage     `json:"output,omitzero"`
-	Events      []behaviorEvent     `json:"events"`
-	Models      []behaviorModel     `json:"models,omitempty"`
-	Tools       []behaviorTool      `json:"tools,omitempty"`
+	Processes   []behaviorProcess   `json:"processes"`
+	Steps       []behaviorStep      `json:"steps"`
+	Effects     []behaviorEffect    `json:"effects"`
+	Controls    []behaviorControl   `json:"controls"`
+	Models      []behaviorModel     `json:"models"`
+	Tools       []behaviorTool      `json:"tools"`
 }
 
 type behaviorTermination struct {
-	Status            run.Status           `json:"status"`
-	Cause             run.TerminationCause `json:"cause"`
-	FailureKind       run.FailureKind      `json:"failure_kind,omitzero"`
-	FailureCode       string               `json:"failure_code,omitempty"`
-	UnresolvedEffects int                  `json:"unresolved_effects,omitzero"`
+	Status      run.Status           `json:"status"`
+	Cause       run.TerminationCause `json:"cause"`
+	FailureKind run.FailureKind      `json:"failure_kind,omitzero"`
+	FailureCode string               `json:"failure_code,omitzero"`
 }
 
-type behaviorEventStream struct {
-	processID run.ProcessID
-	phase     run.EventPhase
-}
-
-type behaviorEvent struct {
-	ProcessPath      string               `json:"process_path"`
-	Sequence         uint64               `json:"sequence"`
-	StepSequence     uint64               `json:"step_sequence,omitzero"`
-	Name             string               `json:"name"`
-	Phase            run.EventPhase       `json:"phase"`
-	ProcessStatus    run.Status           `json:"process_status,omitzero"`
-	TerminationCause run.TerminationCause `json:"termination_cause,omitempty"`
-	FailureKind      run.FailureKind      `json:"failure_kind,omitzero"`
-	FailureCode      string               `json:"failure_code,omitempty"`
-	StepStatus       run.StepStatus       `json:"step_status,omitzero"`
-	EffectTarget     run.EffectTarget     `json:"effect_target,omitempty"`
-	Settlement       run.SettlementStatus `json:"settlement,omitzero"`
-}
-
-func (b behaviorEvent) compare(other behaviorEvent) int {
-	if order := cmp.Compare(b.ProcessPath, other.ProcessPath); order != 0 {
-		return order
+func behaviorTerminationOf(termination run.Termination) behaviorTermination {
+	value := behaviorTermination{Status: termination.Status(), Cause: termination.Cause()}
+	if failure, present := termination.Failure(); present {
+		value.FailureKind, value.FailureCode = failure.Kind(), failure.Code()
 	}
-	if order := cmp.Compare(b.Phase, other.Phase); order != 0 {
-		return order
-	}
-	return cmp.Compare(b.Sequence, other.Sequence)
+	return value
 }
 
+type behaviorProcess struct {
+	Path        string              `json:"path"`
+	Program     string              `json:"program"`
+	Termination behaviorTermination `json:"termination"`
+}
+type behaviorStep struct {
+	Process string             `json:"process"`
+	Step    uint64             `json:"step"`
+	Kind    run.TransitionKind `json:"kind"`
+}
+type behaviorEffect struct {
+	Process string               `json:"process"`
+	Step    uint64               `json:"step"`
+	Index   uint32               `json:"index"`
+	Target  run.EffectTarget     `json:"target"`
+	Status  run.SettlementStatus `json:"status"`
+}
+type behaviorControl struct {
+	Process  string          `json:"process"`
+	Sequence uint64          `json:"sequence"`
+	Kind     run.ControlKind `json:"kind"`
+}
 type behaviorModel struct {
-	ProcessPath string                 `json:"process_path"`
-	Step        uint64                 `json:"step"`
-	Sequence    uint64                 `json:"sequence"`
-	Outcome     agent.ModelOutcome     `json:"outcome"`
-	ToolCalls   []behaviorToolDecision `json:"tool_calls,omitempty"`
+	Process   string                   `json:"process"`
+	Step      uint64                   `json:"step"`
+	Index     uint32                   `json:"index"`
+	Outcome   interaction.ModelOutcome `json:"outcome"`
+	ToolCalls []behaviorToolDecision   `json:"tool_calls"`
 }
-
 type behaviorToolDecision struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitzero"`
 }
 
 func behaviorModelOf(call ModelCall, path string) (behaviorModel, error) {
-	model := behaviorModel{ProcessPath: path, Step: call.StepSequence, Sequence: call.CallSequence, Outcome: call.Outcome}
+	value := behaviorModel{Process: path, Step: call.EffectID.Step, Index: call.EffectID.Index, Outcome: call.Settlement.Outcome}
 	for _, decision := range call.toolDecisions() {
 		arguments, err := canonicalArguments(decision.Arguments)
 		if err != nil {
-			return behaviorModel{}, err
+			return behaviorModel{}, fmt.Errorf("%w: model tool arguments: %w", ErrInvalidTrajectory, err)
 		}
-		model.ToolCalls = append(model.ToolCalls, behaviorToolDecision{Name: decision.Name, Arguments: arguments})
+		value.ToolCalls = append(value.ToolCalls, behaviorToolDecision{Name: decision.Name, Arguments: arguments})
 	}
-	return model, nil
+	return value, nil
 }
 
 type behaviorTool struct {
-	ProcessPath string              `json:"process_path"`
-	Step        uint64              `json:"step"`
-	Name        string              `json:"name"`
-	Arguments   json.RawMessage     `json:"arguments,omitzero"`
-	Outcome     ToolOutcome         `json:"outcome"`
-	Result      *behaviorToolResult `json:"result,omitzero"`
+	Process        string                  `json:"process"`
+	Step           uint64                  `json:"step"`
+	Index          uint32                  `json:"index"`
+	ContinuationOf *behaviorEffectPosition `json:"continuation_of,omitzero"`
+	Name           string                  `json:"name"`
+	Arguments      json.RawMessage         `json:"arguments,omitzero"`
+	Outcome        ToolOutcome             `json:"outcome"`
+	Result         *behaviorToolResult     `json:"result,omitzero"`
 }
-
+type behaviorEffectPosition struct {
+	Step  uint64 `json:"step"`
+	Index uint32 `json:"index"`
+}
 type behaviorToolResult struct {
-	Name    string              `json:"name"`
 	Output  toolcontract.Output `json:"output"`
 	IsError bool                `json:"is_error,omitzero"`
 }
@@ -103,60 +110,112 @@ type behaviorToolResult struct {
 func behaviorToolOf(call ToolCall, path string) (behaviorTool, error) {
 	arguments, err := canonicalArguments(call.Call.Arguments)
 	if err != nil {
-		return behaviorTool{}, err
+		return behaviorTool{}, fmt.Errorf("%w: tool arguments: %w", ErrInvalidTrajectory, err)
 	}
-	tool := behaviorTool{
-		ProcessPath: path, Step: call.StepSequence,
-		Name:      call.Call.Name,
-		Arguments: arguments, Outcome: call.Outcome(),
-	}
-	if call.Result != nil {
-		result := call.Result.Clone()
-		tool.Result = &behaviorToolResult{Name: result.Name, Output: result.Output, IsError: result.IsError}
-	}
-	return tool, nil
-}
-
-func behaviorTerminationOf(termination run.Termination) behaviorTermination {
-	projection := behaviorTermination{
-		Status: termination.Status(), Cause: termination.Cause(),
-		UnresolvedEffects: len(termination.UnresolvedEffectIDs()),
-	}
-	if failure, present := termination.Failure(); present {
-		projection.FailureKind = failure.Kind()
-		projection.FailureCode = failure.Code()
-	}
-	return projection
-}
-
-func (b *behaviorEvent) apply(event run.Event) {
-	if fact, present := event.ProcessFinished(); present {
-		failure, failed := fact.Failure()
-		b.ProcessStatus = fact.Status()
-		b.TerminationCause = fact.Cause()
-		if failed {
-			b.FailureKind = failure.Kind()
-			b.FailureCode = failure.Code()
+	value := behaviorTool{Process: path, Step: call.EffectID.Step, Index: call.EffectID.Index, Name: call.Call.Name, Arguments: arguments, Outcome: call.Outcome()}
+	if call.ContinuationOf.Valid() {
+		if call.ContinuationOf.Process != call.EffectID.Process {
+			return behaviorTool{}, fmt.Errorf("%w: tool continuation belongs to another process", ErrInvalidTrajectory)
 		}
-		return
+		value.ContinuationOf = &behaviorEffectPosition{Step: call.ContinuationOf.Step, Index: call.ContinuationOf.Index}
 	}
-	if fact, present := event.StepFinished(); present {
-		b.StepStatus = fact.Status()
-		return
+	if call.Settlement != nil && call.Settlement.Result != nil {
+		result := call.Settlement.Result
+		value.Result = &behaviorToolResult{Output: result.Output.Clone(), IsError: result.IsError}
 	}
-	if fact, present := event.EffectStarted(); present {
-		b.EffectTarget = fact.Target()
-		return
+	return value, nil
+}
+
+func projectBehavior(trajectory Trajectory, project eval.Projection[run.Payload, json.RawMessage]) (behaviorProjection, error) {
+	models := trajectory.ModelCalls()
+	paths, err := semanticProcessPaths(trajectory.log, models)
+	if err != nil {
+		return behaviorProjection{}, err
 	}
-	if fact, present := event.EffectFinished(); present {
-		b.EffectTarget = fact.Target()
-		b.Settlement = fact.SettlementStatus()
-		return
+	projection := behaviorProjection{Termination: behaviorTerminationOf(trajectory.Termination())}
+	if output, ok := trajectory.Termination().Output(); ok {
+		encoded, projectErr := project(output)
+		if projectErr != nil {
+			return behaviorProjection{}, fmt.Errorf("project output: %w", projectErr)
+		}
+		value := jsontext.Value(encoded).Clone()
+		if formatErr := value.Format(jsontext.ReorderRawObjects(true)); formatErr != nil {
+			return behaviorProjection{}, fmt.Errorf("%w: output projection must return JSON: %w", ErrInvalidSample, formatErr)
+		}
+		projection.Output = json.RawMessage(value)
 	}
-	if fact, present := event.EffectResolved(); present {
-		b.EffectTarget = fact.Target()
-		b.Settlement = fact.SettlementStatus()
+	processes := make(map[run.ProcessID]behaviorProcess)
+	effects := make(map[run.EffectID]behaviorEffect)
+	controlCounts := make(map[run.ProcessID]uint64)
+	for _, entry := range trajectory.log.Entries {
+		switch record := entry.Record.(type) {
+		case run.Started:
+			processes[record.Process] = behaviorProcess{Path: paths[record.Process], Program: record.Program.Name()}
+		case run.Exited:
+			process := processes[record.Process]
+			process.Termination = behaviorTerminationOf(record.Termination)
+			processes[record.Process] = process
+		case run.Stepped:
+			projection.Steps = append(projection.Steps, behaviorStep{Process: paths[record.Process], Step: record.Step, Kind: record.Transition.Kind()})
+		case run.EffectIntent:
+			effects[record.ID] = behaviorEffect{Process: paths[record.ID.Process], Step: record.ID.Step, Index: record.ID.Index, Target: record.Effect.Target()}
+		case run.EffectSettled:
+			effect := effects[record.ID]
+			effect.Status = record.Outcome.Status()
+			effects[record.ID] = effect
+		case run.ControlRequested:
+			controlCounts[record.Process]++
+			projection.Controls = append(projection.Controls, behaviorControl{Process: paths[record.Process], Sequence: controlCounts[record.Process], Kind: record.Kind})
+		}
 	}
+	for _, process := range processes {
+		projection.Processes = append(projection.Processes, process)
+	}
+	for _, effect := range effects {
+		projection.Effects = append(projection.Effects, effect)
+	}
+	slices.SortFunc(projection.Processes, func(left, right behaviorProcess) int { return cmp.Compare(left.Path, right.Path) })
+	slices.SortFunc(projection.Steps, func(left, right behaviorStep) int {
+		if order := cmp.Compare(left.Process, right.Process); order != 0 {
+			return order
+		}
+		return cmp.Compare(left.Step, right.Step)
+	})
+	slices.SortFunc(projection.Effects, func(left, right behaviorEffect) int {
+		if order := cmp.Compare(left.Process, right.Process); order != 0 {
+			return order
+		}
+		if order := cmp.Compare(left.Step, right.Step); order != 0 {
+			return order
+		}
+		return cmp.Compare(left.Index, right.Index)
+	})
+	slices.SortFunc(projection.Controls, func(left, right behaviorControl) int {
+		if order := cmp.Compare(left.Process, right.Process); order != 0 {
+			return order
+		}
+		return cmp.Compare(left.Sequence, right.Sequence)
+	})
+	slices.SortFunc(models, func(left, right ModelCall) int { return compareSemanticEffects(left.EffectID, right.EffectID, paths) })
+	for _, call := range models {
+		value, projectionErr := behaviorModelOf(call, paths[call.EffectID.Process])
+		if projectionErr != nil {
+			return behaviorProjection{}, projectionErr
+		}
+		projection.Models = append(projection.Models, value)
+	}
+	tools, err := trajectory.semanticToolCalls()
+	if err != nil {
+		return behaviorProjection{}, err
+	}
+	for _, call := range tools {
+		value, projectionErr := behaviorToolOf(call, paths[call.EffectID.Process])
+		if projectionErr != nil {
+			return behaviorProjection{}, projectionErr
+		}
+		projection.Tools = append(projection.Tools, value)
+	}
+	return projection, nil
 }
 
 func canonicalArguments(arguments string) (json.RawMessage, error) {
@@ -170,97 +229,52 @@ func canonicalArguments(arguments string) (json.RawMessage, error) {
 	return json.RawMessage(value), nil
 }
 
-type behaviorChild struct {
+type delegateAddress struct {
 	parent run.ProcessID
 	key    run.ChildKey
 }
 
-// semanticProcessPaths substitutes only child identities that the Interaction owner
-// can derive exactly from a recorded model decision. Custom Strategy ChildKeys
-// remain semantic. Provider-generated ToolCall IDs are retained in the record
-// but cannot perturb this projection's process identity.
-func semanticProcessPaths(root run.ProcessID, events []run.Event, models []ModelCall) (map[run.ProcessID]string, error) {
-	relations, err := processRelationsOf(root, events)
-	if err != nil {
-		return nil, err
-	}
-	segments, err := interactionSegments(models)
-	if err != nil {
-		return nil, err
-	}
-	return relations.paths(root, func(parent run.ProcessID, key run.ChildKey) string {
-		if segment, mapped := segments[behaviorChild{parent, key}]; mapped {
-			return segment
-		}
-		return key.String()
-	})
-}
-
-var interactionChildRoles = [...]struct {
-	name string
-	key  func(modelCall uint64, index uint32, call chat.ToolCall) (run.ChildKey, error)
-}{
-	{"tool", func(modelCall uint64, index uint32, _ chat.ToolCall) (run.ChildKey, error) {
-		return agent.ToolChildKey(modelCall, index)
-	}},
-	{"delegate", func(modelCall uint64, _ uint32, call chat.ToolCall) (run.ChildKey, error) {
-		return agent.DelegateChildKey(modelCall, call)
-	}},
-}
-
-func interactionSegments(models []ModelCall) (map[behaviorChild]string, error) {
-	segments := make(map[behaviorChild]string)
+func semanticProcessPaths(log run.Log, models []ModelCall) (map[run.ProcessID]string, error) {
+	segments := make(map[delegateAddress]string)
+	ordinals := make(map[run.ProcessID]uint64)
 	for _, model := range models {
+		process := model.EffectID.Process
+		ordinals[process]++
 		for index, decision := range model.toolDecisions() {
-			for _, role := range interactionChildRoles {
-				key, err := role.key(model.CallSequence, uint32(index), decision)
-				if err != nil {
-					return nil, err
-				}
-				identity := behaviorChild{model.ProcessID, key}
-				segment := fmt.Sprintf("@interaction/%s/%020d/%010d", role.name, model.CallSequence, index)
-				if previous, exists := segments[identity]; exists && previous != segment {
-					return nil, fmt.Errorf("%w: ambiguous Interaction child attribution", ErrInvalidTrajectory)
-				}
-				segments[identity] = segment
+			key, err := interaction.DelegateChildKey(ordinals[process], decision)
+			if err != nil {
+				return nil, err
 			}
+			segments[delegateAddress{process, key}] = fmt.Sprintf("@delegate/%020d/%010d", ordinals[process], index)
 		}
 	}
-	return segments, nil
+	paths := map[run.ProcessID]string{log.Root: rootProcessPath}
+	for _, entry := range log.Entries {
+		record, ok := entry.Record.(run.Started)
+		if !ok || record.Process == log.Root {
+			continue
+		}
+		parent, hasParent := record.Process.Parent()
+		key, hasKey := record.Process.Key()
+		prefix, parentExists := paths[parent]
+		if !hasParent || !hasKey || !parentExists {
+			return nil, fmt.Errorf("%w: process has no prior parent", ErrInvalidTrajectory)
+		}
+		segment := key.String()
+		if semantic, ok := segments[delegateAddress{parent, key}]; ok {
+			segment = semantic
+		}
+		paths[record.Process] = prefix + "/" + segment
+	}
+	return paths, nil
 }
 
-// semanticCallOrder is the one structural order used by deterministic behavior
-// comparison and exact Tool assertions. It makes no claim about sibling timing.
-type semanticCallOrder struct {
-	paths  map[run.ProcessID]string
-	models []ModelCall
-	tools  []ToolCall
-}
-
-func orderSemanticCalls(root run.ProcessID, events []run.Event, models []ModelCall, tools []ToolCall) (semanticCallOrder, error) {
-	paths, err := semanticProcessPaths(root, events, models)
-	if err != nil {
-		return semanticCallOrder{}, err
+func compareSemanticEffects(left, right run.EffectID, paths map[run.ProcessID]string) int {
+	if order := cmp.Compare(paths[left.Process], paths[right.Process]); order != 0 {
+		return order
 	}
-	attemptOrder := make(map[run.EffectAttemptID]uint64)
-	for _, event := range events {
-		if fact, ok := event.EffectStarted(); ok {
-			attemptOrder[fact.AttemptID()] = event.ProcessSequence()
-		}
+	if order := cmp.Compare(left.Step, right.Step); order != 0 {
+		return order
 	}
-	models = slices.Clone(models)
-	slices.SortFunc(models, func(left, right ModelCall) int {
-		if order := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); order != 0 {
-			return order
-		}
-		return cmp.Compare(attemptOrder[left.AttemptID], attemptOrder[right.AttemptID])
-	})
-	tools = slices.Clone(tools)
-	slices.SortFunc(tools, func(left, right ToolCall) int {
-		if order := strings.Compare(paths[left.ProcessID], paths[right.ProcessID]); order != 0 {
-			return order
-		}
-		return cmp.Compare(attemptOrder[left.AttemptID], attemptOrder[right.AttemptID])
-	})
-	return semanticCallOrder{paths: paths, models: models, tools: tools}, nil
+	return cmp.Compare(left.Index, right.Index)
 }

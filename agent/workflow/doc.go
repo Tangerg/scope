@@ -1,32 +1,26 @@
-// Package workflow provides deterministic orchestration of Framework-managed
-// child Processes. A Workflow is an ordered sequence of sealed Stages; it is
-// not a general in-process task graph, scheduler, journal, or node registry.
+// Package workflow composes deterministic orchestration from Call, Transform,
+// Switch, Fork, Map, and Loop stages. [Compile] freezes the graph and its child
+// Programs using the Runtime's Compiler. A callback Revision identifies opaque
+// code; Configuration records settings captured by that code. Graph bindings,
+// schemas, budgets, and bounds have their sole owner in the stage declarations.
 //
-// Use this package when each delegated operation needs its own Process
-// identity, snapshot, budget, capabilities, cancellation, and tree recovery.
-// Ordinary in-process control flow belongs outside the Agent Framework.
+// Child invocations advance from a Spawn Completion to an Exit. A successful
+// Spawn admits work; only Exit establishes that its subtree has drained. The
+// Runtime owns cancellation, mailbox delivery, persistence, and reaping. Workflow
+// owns only its stage cursor, business values, and outstanding invocations.
 //
-// Stage constructors validate and freeze static bindings. Restore validates
-// execution progress against those bindings without reconstructing them.
-// Fork and Map share window admission, settlement, and ordered output handling.
+// Fork and Map preserve declaration order in their output while admitting
+// bounded windows of child work. A failed admission or child execution preserves
+// its original Failure. A window drains before the workflow adopts its results,
+// propagates a failure, or starts another window.
 //
-// Child admission and execution Failures propagate unchanged, preserving their
-// kind, code, and complete diagnostic text. Fan-out waits for the active window
-// to drain and propagates its first failure in declaration order. The Process
-// tree retains the child identity and Stage binding; Workflow-owned decisions
-// use workflow-prefixed failure codes.
-// Every Stage rejects output adoption when the drained subtree retains unresolved
-// Effects; no subsequent Stage, Loop iteration, or fan-out window starts.
-// Single-child Stages also wait for the child subtree to drain. Restoring any
-// handshake boundary resumes the same invocation and its Runtime-assigned wait.
+// Transform, Switch, Fork, and Loop callbacks run inside discardable Steps.
+// They must be deterministic, bounded, side-effect-free, and cancellation-aware.
+// Context carries cancellation, never hidden domain input. External I/O belongs
+// in a child Program's dispatcher Effects.
 //
-// Transform, Switch, Fork, and Loop callbacks run inside a discardable Step.
-// They must be bounded, deterministic, side-effect-free, and cooperate with
-// context cancellation during CPU work. Context carries cancellation, never
-// hidden domain input. A canceled candidate cannot advance committed state.
-//
-// Definitions reject unaddressed Host Signals through Descriptor.SignalSchema.
-// Runtime-owned settlements are consumed only at their matching protocol phase;
-// Wait openings may share a window with the following completion. InputGate
-// replies, when used as children, must address the child's current WaitID.
+// Persisted execution state contains only progress not already owned by the
+// immutable graph. Restore validates it against the exact compiled graph.
+// Unaddressed Signals are rejected; Completion and Exit messages must match
+// outstanding invocation identities.
 package workflow

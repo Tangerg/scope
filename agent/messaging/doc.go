@@ -1,26 +1,17 @@
-// Package messaging delivers intermediate input through ordinary Dispatcher
-// Effects. A Message freezes one concrete recipient, optional WaitID, and payload.
-// Dispatcher derives its SignalID from the sending EffectID and submits exactly
-// one Signal through a Host-bound DeliveryPort. Mailboxes retain admission,
-// deduplication, accounting, and committed consumption ownership.
+// Package messaging delivers intermediate input through dispatcher Effects.
+// [Message] freezes one recipient, optional WaitKey, and payload. [Dispatcher]
+// derives a SignalID from the sending EffectID and uses one host-bound
+// [DeliveryPort] to admit it. The recipient's Log owns deduplication and admission.
 //
-// The port must authorize the sender and concrete recipient and validate the
-// receiver's payload contract. A logical address must be resolved before the
-// Effect is prepared; replay must never select a replacement gate or episode.
-// The sender and receiver have separate acknowledgment boundaries. No atomic
-// cross-tree transaction or runtime-attested origin is implied by this adapter.
+// The port must authorize sender and recipient, validate the receiver's contract,
+// and preserve the concrete destination across replay. A duplicate admission is
+// successful delivery. Every port error remains uncertain because it cannot
+// disprove an earlier admission, including when the recipient is now terminal.
+// A port can reconcile exact SignalAdmitted records before reporting an error.
+// A missing record in a stale Log establishes nothing.
 //
-// A duplicate single-Signal admission is successful delivery. Every port error
-// remains unknown, including a terminal recipient after an earlier ambiguous
-// attempt. A port can reconcile against the original recipient's authoritative
-// ProcessSnapshot.SignalReceipts, using SignalReceipt.Matches to prove admission
-// even after consumption. Internal wait-opening and child-wait settlement
-// Signals cannot prove external delivery; matching identity and payload alone
-// are insufficient. A missing receipt in an old snapshot proves nothing.
-// Pending Effects may replay under the same identity. Settled Unknown results
-// require explicit adjudication through Handle.ResolveUnknownEffect.
-//
-// Strategies controlling their own direct children use run.NewChildSignalEffect for
-// one tree acknowledgment. This adapter serves Host-authorized delivery across
-// other ownership boundaries, including independent root trees.
+// SameIdentity replay retains the exact Signal. No cross-tree transaction or
+// runtime-attested origin is implied. Strategies controlling direct children use
+// run.NewChildSignalEffect instead; this capability serves host-authorized
+// delivery across other ownership boundaries.
 package messaging

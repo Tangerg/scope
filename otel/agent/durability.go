@@ -2,80 +2,71 @@ package agent
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Tangerg/scope/agent/run"
 )
 
 const (
-	durabilitySpanPrefix                            = "agent.committer."
-	durabilityDurationMetricName                    = "agent.committer.duration"
-	durabilitySnapshotBytesMetricName               = "agent.committer.snapshot.size"
-	durabilityOperationAttribute      attribute.Key = "agent.committer.operation"
-	durabilityBoundaryAttribute       attribute.Key = "agent.committer.boundary"
-	durabilityOutcomeAttribute        attribute.Key = "agent.committer.outcome"
-	durabilityHeadAttribute           attribute.Key = "agent.tree.head_digest"
-
-	durabilityActivateOperation   = "activate"
-	durabilityEffectOperation     = "effect"
-	durabilityCheckpointOperation = "checkpoint"
-	durabilityAcknowledged        = "acknowledged"
-	durabilityOwnershipConflict   = "ownership_conflict"
-	durabilityContentConflict     = "content_conflict"
-	durabilityUnresolved          = "unresolved"
+	logAppendOperation                   = "append"
+	logLoadOperation                     = "load"
+	logOperationAttribute  attribute.Key = "agent.log.operation"
+	logOutcomeAttribute    attribute.Key = "agent.log.outcome"
+	logAcknowledgedOutcome               = "acknowledged"
+	logConflictOutcome                   = "conflict"
+	logUnresolvedOutcome                 = "unresolved"
 )
 
-// Observation decorates writes while retaining exactly the original read authority.
-type observedReadableStore struct {
-	*observedTreeCommitter
-	run.HeadReader
-}
-
-type observedTreeCommitter struct {
+type observedStore struct {
 	observer *Observer
 	next     run.Store
 }
 
-func (o *observedTreeCommitter) ActivateTree(ctx context.Context, activation run.TreeActivation) error {
-	return o.observer.observeDurability(ctx, durabilityActivateOperation, "", activation.TreeSnapshot(), func(ctx context.Context) error {
-		return o.next.ActivateTree(ctx, activation)
-	})
-}
-
-func (o *observedTreeCommitter) CommitEffect(ctx context.Context, boundary run.EffectBoundary) error {
-	return o.observer.observeDurability(ctx, durabilityEffectOperation, boundary.Kind().String(), boundary.TreeSnapshot(), func(ctx context.Context) error {
-		return o.next.CommitEffect(ctx, boundary)
-	})
-}
-
-func (o *observedTreeCommitter) CommitCheckpoint(ctx context.Context, checkpoint run.TreeCheckpoint) error {
-	return o.observer.observeDurability(ctx, durabilityCheckpointOperation, checkpoint.Kind().String(), checkpoint.TreeSnapshot(), func(ctx context.Context) error {
-		return o.next.CommitCheckpoint(ctx, checkpoint)
-	})
-}
-
-func durabilityOutcome(err error) string {
-	switch {
-	case err == nil:
-		return durabilityAcknowledged
-	case errors.Is(err, run.ErrTreeIncarnationConflict):
-		return durabilityOwnershipConflict
-	case errors.Is(err, run.ErrCommitConflict):
-		return durabilityContentConflict
-	default:
-		return durabilityUnresolved
+func (o *observedStore) Append(ctx context.Context, batch run.Batch) error {
+	if !o.observer.enabled() {
+		return o.next.Append(ctx, batch)
 	}
+	ctx, span := o.observer.tracer.Start(ctx, "agent.log.append", trace.WithAttributes(processRootIDAttribute.String(batch.Root.String()), uint64Attribute(epochAttribute, uint64(batch.Epoch)), uint64Attribute(lsnAttribute, uint64(batch.After))))
+	start := time.Now()
+	defer span.End()
+	err := o.next.Append(ctx, batch)
+	o.record(ctx, span, logAppendOperation, start, err)
+	if encoded, encodeErr := jsonv2.Marshal(batch); encodeErr == nil {
+		o.observer.instruments.durabilityBytes.Record(ctx, int64(len(encoded)))
+	}
+	return err
 }
 
-type durabilityError struct{ outcome string }
-
-func (d durabilityError) Error() string     { return "agent committer " + d.outcome }
-func (d durabilityError) ErrorType() string { return "agent.committer." + d.outcome }
-
-var _ run.Store = (*observedTreeCommitter)(nil)
-
-func (o *observedTreeCommitter) LookupStart(ctx context.Context, id run.StartID) (run.StartReceipt, bool, error) {
-	return o.next.LookupStart(ctx, id)
+func (o *observedStore) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
+	if !o.observer.enabled() {
+		return o.next.Load(ctx, root)
+	}
+	ctx, span := o.observer.tracer.Start(ctx, "agent.log.load", trace.WithAttributes(processRootIDAttribute.String(root.String())))
+	start := time.Now()
+	defer span.End()
+	log, found, err := o.next.Load(ctx, root)
+	o.record(ctx, span, logLoadOperation, start, err)
+	return log, found, err
 }
+
+func (o *observedStore) record(ctx context.Context, span trace.Span, operation string, start time.Time, err error) {
+	outcome := logAcknowledgedOutcome
+	if err != nil {
+		outcome = logUnresolvedOutcome
+		if errors.Is(err, run.ErrCommitConflict) || errors.Is(err, run.ErrEpochConflict) {
+			outcome = logConflictOutcome
+		}
+		classifySpan(span, "agent.log."+outcome)
+	}
+	attributes := []attribute.KeyValue{logOperationAttribute.String(operation), logOutcomeAttribute.String(outcome)}
+	span.SetAttributes(attributes...)
+	o.observer.instruments.durabilityDuration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(attributes...))
+}
+
+var _ run.Store = (*observedStore)(nil)

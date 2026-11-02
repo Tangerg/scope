@@ -528,7 +528,7 @@ func moduleLayer(dir string) int {
 		return 0
 	case "agent", "etl", "eval", "otel", "rag", "tools":
 		return 1
-	case "a2a", "mcp", "otel/agent", "runstores/postgres":
+	case "a2a", "mcp", "otel/agent", "agent/run/postgres":
 		return 2
 	case "a2a/managed", "mcp/managed", "otel/eval", "otel/rag":
 		return 3
@@ -575,7 +575,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	if source.dir == "mcp/managed" {
 		return target.dir == "mcp" || target.dir == "agent" || target.dir == "otel"
 	}
-	if source.dir == "runstores/postgres" {
+	if source.dir == "agent/run/postgres" {
 		return target.dir == "agent"
 	}
 	if source.dir == "tools/skills" {

@@ -143,8 +143,8 @@ func TestTypedWireRejectsInvalidUTF8BeforeEncoding(t *testing.T) {
 
 func TestTextBearingProtocolConstructorsRejectInvalidUTF8(t *testing.T) {
 	invalid := string([]byte{0xff})
-	if _, err := Pause(0, invalid); !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("Pause accepted invalid text: %v", err)
+	if err := validateTerminationReason(invalid); err == nil {
+		t.Fatal("control reason accepted invalid text")
 	}
 	if _, err := NewDescriptor(DescriptorConfig{Name: "test", Description: invalid, InputSchema: controlValue(jsonschema.For[wireFixture]()), OutputSchema: controlValue(jsonschema.For[wireFixture]())}); !errors.Is(err, ErrInvalidDescriptor) {
 		t.Fatalf("Descriptor accepted invalid text: %v", err)

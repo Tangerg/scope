@@ -16,9 +16,9 @@ import (
 
 // ToolSequence makes an exact ordered Tool-call assertion explicit. A nil
 // *ToolSequence skips the assertion; a non-nil empty sequence asserts no calls.
-// Order follows semantic process paths; Interaction children use their model
-// call position and Tool index, and repeated calls retain process-local dispatch
-// order. This is not cross-process causal order. Full history is required.
+// Order follows structural process paths and EffectID coordinates. Delegate
+// paths exclude provider-generated call identifiers. This is not cross-process
+// causal order; a complete root history is required.
 type ToolSequence struct {
 	Calls []ToolExpectation `json:"calls"`
 }
@@ -113,33 +113,34 @@ func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
 // Limits defines optional upper bounds. Pointers distinguish an asserted zero
 // from a dimension the case does not evaluate.
 type Limits struct {
-	CommittedSteps  *uint64        `json:"committed_steps,omitzero"`
-	PreparedEffects *uint64        `json:"prepared_effects,omitzero"`
-	AcceptedSignals *uint64        `json:"accepted_signals,omitzero"`
-	DroppedDeltas   *uint64        `json:"dropped_deltas,omitzero"`
-	TotalTokens     *int64         `json:"total_tokens,omitzero"`
-	Elapsed         *time.Duration `json:"elapsed_ns,omitzero"`
+	CommittedSteps   *uint64        `json:"committed_steps,omitzero"`
+	PreparedEffects  *uint64        `json:"prepared_effects,omitzero"`
+	AcceptedMessages *uint64        `json:"accepted_messages,omitzero"`
+	TotalTokens      *int64         `json:"total_tokens,omitzero"`
+	Elapsed          *time.Duration `json:"elapsed_ns,omitzero"`
 }
 
 type limitsWire struct {
-	CommittedSteps  *uint64 `json:"committed_steps,omitzero"`
-	PreparedEffects *uint64 `json:"prepared_effects,omitzero"`
-	AcceptedSignals *uint64 `json:"accepted_signals,omitzero"`
-	DroppedDeltas   *uint64 `json:"dropped_deltas,omitzero"`
-	TotalTokens     *int64  `json:"total_tokens,omitzero"`
-	Elapsed         *int64  `json:"elapsed_ns,omitzero"`
+	CommittedSteps   *uint64 `json:"committed_steps,omitzero"`
+	PreparedEffects  *uint64 `json:"prepared_effects,omitzero"`
+	AcceptedMessages *uint64 `json:"accepted_messages,omitzero"`
+	TotalTokens      *int64  `json:"total_tokens,omitzero"`
+	Elapsed          *int64  `json:"elapsed_ns,omitzero"`
 }
 
 func (l Limits) MarshalJSON() ([]byte, error) {
-	return jsonv2.Marshal(limitsWire{l.CommittedSteps, l.PreparedEffects, l.AcceptedSignals, l.DroppedDeltas, l.TotalTokens, (*int64)(l.Elapsed)})
+	return jsonv2.Marshal(limitsWire{l.CommittedSteps, l.PreparedEffects, l.AcceptedMessages, l.TotalTokens, (*int64)(l.Elapsed)})
 }
 
 func (l *Limits) UnmarshalJSON(data []byte) error {
+	if l == nil {
+		return ErrInvalidSample
+	}
 	var wire limitsWire
 	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
-	*l = Limits{wire.CommittedSteps, wire.PreparedEffects, wire.AcceptedSignals, wire.DroppedDeltas, wire.TotalTokens, (*time.Duration)(wire.Elapsed)}
+	*l = Limits{wire.CommittedSteps, wire.PreparedEffects, wire.AcceptedMessages, wire.TotalTokens, (*time.Duration)(wire.Elapsed)}
 	return nil
 }
 
@@ -177,7 +178,7 @@ func (l Limits) reports(actual Trajectory) ([]eval.Report, error) {
 
 // usageReports ignores unknown tree usage when no usage bound needs it.
 func (l Limits) usageReports(actual Trajectory) ([]eval.Report, error) {
-	if l.CommittedSteps == nil && l.PreparedEffects == nil && l.AcceptedSignals == nil && l.DroppedDeltas == nil {
+	if l.CommittedSteps == nil && l.PreparedEffects == nil && l.AcceptedMessages == nil {
 		return nil, nil
 	}
 	usage, err := actual.TreeUsage()
@@ -192,8 +193,7 @@ func (l Limits) usageReports(actual Trajectory) ([]eval.Report, error) {
 	}{
 		{MetricCommittedSteps, usage.CommittedSteps, l.CommittedSteps},
 		{MetricPreparedEffects, usage.PreparedEffects, l.PreparedEffects},
-		{MetricAcceptedSignals, usage.AcceptedSignals, l.AcceptedSignals},
-		{MetricDroppedDeltas, usage.DroppedDeltas, l.DroppedDeltas},
+		{MetricAcceptedMessages, usage.AcceptedMessages, l.AcceptedMessages},
 	} {
 		if bound.limit == nil {
 			continue
@@ -222,12 +222,13 @@ func (l Limits) tokenReport(actual Trajectory) (eval.Report, error) {
 }
 
 func (l Limits) elapsedReport(actual Trajectory) (eval.Report, error) {
-	if actual.elapsed == nil {
+	elapsed, known := actual.Elapsed()
+	if !known {
 		return eval.Report{}, fmt.Errorf("%w: recording elapsed time is unknown", ErrIncompleteRecording)
 	}
 	return measurementReport(
 		MetricElapsed, metricUnitSecond,
-		actual.elapsed.Seconds(), *actual.elapsed <= *l.Elapsed,
+		elapsed.Seconds(), elapsed <= *l.Elapsed,
 		l.Elapsed.Seconds(),
 	)
 }
@@ -316,19 +317,19 @@ func (s Sample) toolReport() (eval.Report, error) {
 }
 
 func (s Sample) outcomeReport() (eval.Report, error) {
-	if !s.Actual.termination.Valid() {
+	if !s.Actual.Termination().Valid() {
 		return eval.Report{}, fmt.Errorf("%w: root result is unknown", ErrIncompleteRecording)
 	}
-	passed := s.Actual.termination.Status() == s.Expected.Status
+	passed := s.Actual.Termination().Status() == s.Expected.Status
 	feedback := "terminal status matched"
 	if !passed {
 		feedback = fmt.Sprintf(
 			"terminal status was %s, expected %s",
-			s.Actual.termination.Status(), s.Expected.Status,
+			s.Actual.Termination().Status(), s.Expected.Status,
 		)
 	}
 	if passed && !s.Expected.Output.IsZero() {
-		output, completed := s.Actual.termination.Output()
+		output, completed := s.Actual.Termination().Output()
 		passed = completed && bytes.Equal(output.JSON(), s.Expected.Output.JSON())
 		if passed {
 			feedback = "terminal status and output matched"

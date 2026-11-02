@@ -23,7 +23,7 @@ func FixedCost(value float64) CostFunc {
 
 // ActionConfig contains one Action's complete predictive planning semantics.
 // External execution is deliberately absent and is bound separately by a
-// managed Planning Definition.
+// managed Planning definition.
 type ActionConfig struct {
 	// Name is the stable lower-case qualified Action identity.
 	Name string
