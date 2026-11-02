@@ -273,3 +273,18 @@ func waitForKernelStep(t *testing.T, ctx context.Context, handle *Handle[int], s
 	}
 	t.Fatalf("step %d was never committed", step)
 }
+
+func TestSpawnResultIsTheOneCodecOfSpawnOutcomes(t *testing.T) {
+	child := controlValue(ParseProcessID("root/child"))
+	failure := controlValue(NewFailure(FailureKindContract, "test.rejected", "rejected"))
+	if got, _, err := controlValue(spawnedSettlement(child)).SpawnResult(); err != nil || got != child {
+		t.Fatalf("spawned child = %v, %v", got, err)
+	}
+	if got, rejection, err := controlValue(rejectedSettlement(failure)).SpawnResult(); err != nil || got.Valid() || rejection != failure {
+		t.Fatalf("rejection = %v %v, %v", got, rejection, err)
+	}
+	unknown := Settlement{status: SettlementStatusUnknown, payload: nullPayload}
+	if _, _, err := unknown.SpawnResult(); !errors.Is(err, ErrInvalidSettlement) {
+		t.Fatalf("an unknown spawn produced a result: %v", err)
+	}
+}

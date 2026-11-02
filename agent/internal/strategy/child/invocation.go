@@ -71,27 +71,18 @@ func (i *Invocation) Accept(message run.Message) (bool, error) {
 		if i.Request == nil || value.Effect != *i.Request {
 			return false, nil
 		}
-		payload := value.Outcome.Payload()
-		switch value.Outcome.Status() {
-		case run.SettlementStatusSucceeded:
-			process, err := payload.Decode[run.ProcessID]()
-			if err != nil {
-				return false, err
-			}
-			parent, child := process.Parent()
-			if !child || parent != i.Request.Process {
-				return false, ErrInvalidMessage
-			}
-			*i = Invocation{Process: &process}
-		case run.SettlementStatusFailed:
-			failure, err := payload.Decode[run.Failure]()
-			if err != nil || !failure.Valid() {
-				return false, fmt.Errorf("%w: invalid spawn failure", ErrInvalidMessage)
-			}
-			*i = Invocation{Rejection: &failure}
-		default:
+		child, rejection, err := value.Outcome.SpawnResult()
+		if err != nil {
+			return false, fmt.Errorf("%w: %w", ErrInvalidMessage, err)
+		}
+		if !child.Valid() {
+			*i = Invocation{Rejection: &rejection}
+			return true, nil
+		}
+		if parent, _ := child.Parent(); parent != i.Request.Process {
 			return false, ErrInvalidMessage
 		}
+		*i = Invocation{Process: &child}
 		return true, nil
 	case run.Exit:
 		if i.Process == nil || value.Child != *i.Process {

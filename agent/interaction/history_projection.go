@@ -204,24 +204,16 @@ func (h *historyProjector) settledModel(settled run.EffectSettled, model modelCa
 }
 
 func (h *historyProjector) settledDelegateStart(settled run.EffectSettled, call *projectedCall) error {
-	switch settled.Outcome.Status() {
-	case run.SettlementStatusFailed:
-		failure, err := settled.Outcome.Payload().Decode[run.Failure]()
-		if err != nil {
-			return err
-		}
-		return call.round.result(call.index, *rejectedDelegateStartResult(call.toolCall(), failure))
-	case run.SettlementStatusSucceeded:
-		child, err := settled.Outcome.Payload().Decode[run.ProcessID]()
-		if err != nil {
-			return err
-		}
-		h.delegates[child] = call
-		h.projection.delegates = append(h.projection.delegates, DelegateAttribution{reference: settled.ID, modelCallSequence: call.round.sequence, toolCallIndex: call.index, toolCall: call.toolCall(), processID: child})
-		return nil
-	default:
-		return nil
+	child, rejection, err := settled.Outcome.SpawnResult()
+	if err != nil {
+		return err
 	}
+	if !child.Valid() {
+		return call.round.result(call.index, *rejectedDelegateStartResult(call.toolCall(), rejection))
+	}
+	h.delegates[child] = call
+	h.projection.delegates = append(h.projection.delegates, DelegateAttribution{reference: settled.ID, modelCallSequence: call.round.sequence, toolCallIndex: call.index, toolCall: call.toolCall(), processID: child})
+	return nil
 }
 
 func (h *historyProjector) settledToolCall(settled run.EffectSettled, call *projectedCall) error {

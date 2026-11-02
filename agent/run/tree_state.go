@@ -166,7 +166,7 @@ func (t *treeState) settle(settled EffectSettled) error {
 
 func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outcome Settlement) error {
 	if spawn := effect.spawn; spawn != nil {
-		child, err := outcome.payload.Decode[ProcessID]()
+		child, _, err := outcome.SpawnResult()
 		if err != nil || child != t.unsettledChild {
 			return ErrInvalidChildStart
 		}

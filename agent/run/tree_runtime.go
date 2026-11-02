@@ -582,52 +582,48 @@ func (t *treeRuntime) dispatched(result dispatchResult) {
 	}
 }
 
+// framework applies a Send or Cancel to a direct child inside the tree and
+// settles it in the same batch. It performs no external I/O, so its outcome is
+// always definite.
 func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error {
-	effect := intent.Effect
-	var records []Record
-	var output Payload
-	var err error
-	switch {
-	case effect.send != nil:
-		child, childErr := t.state.child(parent.started.Process, effect.send.Child)
-		if childErr != nil {
-			err = childErr
-			break
-		}
-		records, err = t.signals(child, []Signal{effect.send.Signal})
-		output, _ = EncodePayload(struct{}{})
-	case effect.cancel != nil:
-		child, childErr := t.state.child(parent.started.Process, effect.cancel.Child)
-		if childErr != nil {
-			err = childErr
-			break
-		}
-		if child.exited == nil {
-			records = []Record{ControlRequested{Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: canonicalTime(time.Now())}}
-		}
-		output, _ = EncodePayload(struct{}{})
-	default:
-		err = ErrInvalidEffect
-	}
-	status := SettlementStatusSucceeded
+	records, err := t.childControl(parent, intent.Effect)
+	var outcome Settlement
 	if err != nil {
-		failure := newRuntimeFailure(failureKindForError(err, FailureKindContract), failureCodeRuntimeChildRequestInvalid, err)
-		output, _ = EncodePayload(failure)
-		status = SettlementStatusFailed
 		records = nil
+		outcome, err = rejectedSettlement(newRuntimeFailure(failureKindForError(err, FailureKindContract), failureCodeRuntimeChildRequestInvalid, err))
+	} else {
+		outcome, err = appliedSettlement()
 	}
-	outcome, encodeErr := NewSettlement(status, output.JSON())
-	if encodeErr != nil {
-		return encodeErr
+	if err != nil {
+		return err
 	}
 	records = append(records, EffectSettled{ID: intent.ID, Outcome: outcome, At: canonicalTime(time.Now())})
 	if err := t.append(t.ctx, records); err != nil {
 		return err
 	}
-	if effect.cancel != nil {
-		t.cancelJobs(effect.cancel.Child)
+	if cancel := intent.Effect.cancel; cancel != nil {
+		t.cancelJobs(cancel.Child)
 	}
 	return nil
+}
+
+func (t *treeRuntime) childControl(parent *processState, effect Effect) ([]Record, error) {
+	switch {
+	case effect.send != nil:
+		child, err := t.state.child(parent.started.Process, effect.send.Child)
+		if err != nil {
+			return nil, err
+		}
+		return t.signals(child, []Signal{effect.send.Signal})
+	case effect.cancel != nil:
+		child, err := t.state.child(parent.started.Process, effect.cancel.Child)
+		if err != nil || child.exited != nil {
+			return nil, err
+		}
+		return []Record{ControlRequested{Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: canonicalTime(time.Now())}}, nil
+	default:
+		return nil, ErrInvalidEffect
+	}
 }
 
 // Preparing one child at a time avoids a second authority for grants and paths.
@@ -726,16 +722,14 @@ func (t *treeRuntime) childPrepared(result childResult) {
 
 func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, failure Failure) error {
 	var records []Record
-	var output Payload
-	status := SettlementStatusSucceeded
+	var outcome Settlement
+	var err error
 	if child != nil {
 		records = append(records, child.started)
-		output, _ = EncodePayload(child.started.Process)
+		outcome, err = spawnedSettlement(child.started.Process)
 	} else {
-		status = SettlementStatusFailed
-		output, _ = EncodePayload(failure)
+		outcome, err = rejectedSettlement(failure)
 	}
-	outcome, err := NewSettlement(status, output.JSON())
 	if err != nil {
 		return err
 	}
