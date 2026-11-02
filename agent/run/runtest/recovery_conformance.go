@@ -105,6 +105,37 @@ func runRecoveryConformance(t *testing.T, factory func(*testing.T) run.Store) {
 	t.Run("nondeterministic replay is rejected", func(t *testing.T) { checkNondeterministicReplay(t, factory(t)) })
 }
 
+// assertCutHead checks that a crash left exactly the acknowledged prefix.
+func assertCutHead(t *testing.T, log run.Log, batch run.Batch, cut appendCut) {
+	t.Helper()
+	if cut == cutBeforeAppend && log.Head() != batch.After {
+		t.Fatalf("before-append cut advanced head: %d, want %d", log.Head(), batch.After)
+	}
+	if cut == cutAfterAppend && log.Head() != batch.After+run.LSN(len(batch.Records)) {
+		t.Fatal("lost acknowledgment did not leave the exact committed batch")
+	}
+}
+
+func resolveRetainedUnknown(t *testing.T, recovered *run.Handle[run.Payload], root run.ProcessID) {
+	t.Helper()
+	waitForUnknownSettlement(t, recovered)
+	inspection, err := recovered.Inspect(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, ok := inspection.Process(root)
+	if !ok || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
+		t.Fatalf("unacknowledged external result did not remain unknown: %+v", process)
+	}
+	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, []byte(`"result"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recovered.ResolveUnknownEffect(t.Context(), process.PendingEffects[0].Request.ID(), settlement); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func checkRecoveryCut(t *testing.T, store run.Store, kind run.RecordKind, cut appendCut) {
 	gate := newAppendBarrier(store, kind, cut)
 	defer gate.abort()
@@ -141,34 +172,15 @@ func checkRecoveryCut(t *testing.T, store run.Store, kind run.RecordKind, cut ap
 	if kind == run.RecordKindEffectIntent && len(dispatcher.Requests()) != 0 {
 		t.Fatal("dispatcher ran before intent acknowledgment")
 	}
-	if cut == cutBeforeAppend && log.Head() != batch.After {
-		t.Fatalf("before-append cut advanced head: %d, want %d", log.Head(), batch.After)
-	}
-	if cut == cutAfterAppend && log.Head() != batch.After+run.LSN(len(batch.Records)) {
-		t.Fatal("lost acknowledgment did not leave the exact committed batch")
-	}
+	assertCutHead(t, log, batch, cut)
 	recoveredRuntime, recoveredProgram := recoveryRuntime(t, store, definition, dispatcher)
 	recovered, err := recoveredRuntime.Recover(t.Context(), recoveredProgram, batch.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A dispatch whose result never reached the log cannot be known to have failed.
 	if kind == run.RecordKindEffectIntent && cut == cutAfterAppend || kind == run.RecordKindEffectSettled && cut == cutBeforeAppend {
-		waitForUnknownSettlement(t, recovered)
-		inspection, inspectErr := recovered.Inspect(t.Context())
-		if inspectErr != nil {
-			t.Fatal(inspectErr)
-		}
-		process, ok := inspection.Process(batch.Root)
-		if !ok || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
-			t.Fatalf("unacknowledged external result did not remain unknown: %+v", process)
-		}
-		settlement, inspectErr := run.NewSettlement(run.SettlementStatusSucceeded, []byte(`"result"`))
-		if inspectErr != nil {
-			t.Fatal(inspectErr)
-		}
-		if resolveErr := recovered.ResolveUnknownEffect(t.Context(), process.PendingEffects[0].Request.ID(), settlement); resolveErr != nil {
-			t.Fatal(resolveErr)
-		}
+		resolveRetainedUnknown(t, recovered, batch.Root)
 	}
 	result, err := recovered.Await(t.Context())
 	if err != nil || result.Termination().Status() != run.StatusCompleted {

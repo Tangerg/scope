@@ -33,29 +33,35 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 		}
 	}
 	consumed := uint32(len(turn.Messages))
-	if e.state.Coordinator != nil {
-		invocation := e.state.Coordinator
-		if invocation.Rejection != nil {
-			return run.Fail(consumed, *invocation.Rejection)
-		}
-		if invocation.Termination == nil {
-			return run.Yield(consumed, nil)
-		}
-		termination := *invocation.Termination
-		if failure, failed := termination.Failure(); failed {
-			return run.Fail(consumed, failure)
-		}
-		output, completed := termination.Output()
-		if !completed {
-			return stepfail.Transition(consumed, run.FailureKindExternal, failureCodeCoordinatorNotCompleted, termination.Reason())
-		}
-		decision, err := output.Decode[Decision]()
-		if err != nil {
-			return run.Transition{}, err
-		}
-		return e.applyDecision(ctx, turn, decision, consumed)
+	if e.state.Coordinator == nil {
+		return e.advance(turn, consumed)
 	}
-	return e.advance(turn, consumed)
+	return e.followCoordinator(ctx, turn, consumed)
+}
+
+// followCoordinator waits for the current turn's coordinator and applies its
+// decision; a coordinator that ends without one ends the collaboration.
+func (e *execution) followCoordinator(ctx context.Context, turn run.Turn, consumed uint32) (run.Transition, error) {
+	invocation := e.state.Coordinator
+	if invocation.Rejection != nil {
+		return run.Fail(consumed, *invocation.Rejection)
+	}
+	if invocation.Termination == nil {
+		return run.Yield(consumed, nil)
+	}
+	termination := *invocation.Termination
+	if failure, failed := termination.Failure(); failed {
+		return run.Fail(consumed, failure)
+	}
+	output, completed := termination.Output()
+	if !completed {
+		return stepfail.Transition(consumed, run.FailureKindExternal, failureCodeCoordinatorNotCompleted, termination.Reason())
+	}
+	decision, err := output.Decode[Decision]()
+	if err != nil {
+		return run.Transition{}, err
+	}
+	return e.applyDecision(ctx, turn, decision, consumed)
 }
 func (e *execution) accept(message run.Message) error {
 	if e.state.Coordinator != nil && !e.state.Coordinator.Done() {

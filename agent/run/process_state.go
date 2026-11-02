@@ -135,6 +135,17 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	return nil
 }
 
+// failExecution records a Step the runtime rejected; the process then drains
+// its children and pending Effects before it can exit.
+func (p *processState) failExecution(failure Failure) error {
+	if p.exited != nil || p.terminal.Valid() {
+		return ErrInvalidLog
+	}
+	p.terminal = Termination{failure: failure}
+	p.execution = nil
+	return nil
+}
+
 func (p *processState) prepare(intent EffectIntent) error {
 	if intent.ID.Step != p.step || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].equal(intent.Effect) {
 		return ErrInvalidLog

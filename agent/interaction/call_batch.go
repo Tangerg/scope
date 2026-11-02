@@ -62,6 +62,81 @@ func (c callInvocation) obligation() run.EffectID {
 	}
 }
 
+// acceptDelegate applies the delegated child's messages; once the child is
+// rejected or terminates, its outcome becomes the call's result.
+func (c *callInvocation) acceptDelegate(call chat.ToolCall, message run.Message) (bool, error) {
+	matched, err := c.Child.Accept(message)
+	if err != nil || !matched {
+		return matched, err
+	}
+	switch {
+	case c.Child.Rejection != nil:
+		c.Result = rejectedDelegateStartResult(call, *c.Child.Rejection)
+		c.Child = nil
+	case c.Child.Termination != nil:
+		result, err := delegateToolResult(call, *c.Child.Termination)
+		if err != nil {
+			return false, err
+		}
+		c.Result = new(newToolCallResult(result))
+		c.Child = nil
+	}
+	return true, nil
+}
+
+// acceptAnswer turns the answer to this call's open question into the Effect
+// that resumes the tool under the call's original reference.
+func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, next run.EffectID) (run.Effect, bool, error) {
+	if c.Input == nil {
+		return run.Effect{}, false, nil
+	}
+	key, err := c.Input.key()
+	if err != nil || signal.Wait != key {
+		return run.Effect{}, false, err
+	}
+	effect, err := toolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: &toolResume{Reference: c.Reference, InputRequest: c.Input.Request, InputResponse: signal.Payload.JSON()}})
+	if err != nil {
+		return run.Effect{}, false, err
+	}
+	c.Pending = new(next)
+	c.Input = nil
+	return effect, true, nil
+}
+
+// acceptToolSettlement records the outcome of the call's pending Effect: a
+// question, a result, or a host failure that ends the interaction.
+func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run.Completion) (bool, *run.Failure, error) {
+	if c.Pending == nil || completion.Effect != *c.Pending {
+		return false, nil, nil
+	}
+	envelope, failure, err := decodeSettlement(completion.Outcome)
+	if err != nil {
+		return true, nil, err
+	}
+	if failure != "" {
+		diagnostic, failureErr := run.NewFailure(run.FailureKindExternal, failureCodeInteractionHostFailed, failure)
+		return true, &diagnostic, failureErr
+	}
+	if envelope.ToolResult == nil {
+		return false, nil, ErrInvalidProtocol
+	}
+	outcome := envelope.ToolResult
+	c.Pending = nil
+	if outcome.InputRequest != nil {
+		c.Input = &inputWait{Effect: completion.Effect, Request: *outcome.InputRequest}
+		return true, nil, nil
+	}
+	if callErr := outcome.Completion.validateCall(call); callErr != nil {
+		return false, nil, callErr
+	}
+	c.Result = outcome.Completion
+	if outcome.AdvertisementFailure == "" {
+		return true, nil, nil
+	}
+	advertisement, err := run.NewFailure(run.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
+	return true, &advertisement, err
+}
+
 func (c callInvocation) validate(kind callKind, call chat.ToolCall) error {
 	if !c.Reference.Valid() {
 		return ErrInvalidExecutionState

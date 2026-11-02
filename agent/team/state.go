@@ -20,6 +20,29 @@ type taskState struct {
 	Invocation child.Invocation `json:"invocation"`
 }
 
+func (t taskState) validate(definition *definition) error {
+	if err := definition.validateRequest(t.Request); err != nil {
+		return err
+	}
+	if !t.Invocation.Valid() {
+		return ErrInvalidExecutionState
+	}
+	if t.Invocation.Process != nil {
+		if key, _ := t.Invocation.Process.Key(); key != t.Request.Key {
+			return ErrInvalidExecutionState
+		}
+	}
+	if t.Invocation.Termination == nil {
+		return nil
+	}
+	output, completed := t.Invocation.Termination.Output()
+	if !completed {
+		return nil
+	}
+	worker, _ := definition.worker(t.Request.Worker)
+	return worker.program.Descriptor().ValidateOutput(output)
+}
+
 func (t taskState) project() Task {
 	return Task{Request: t.Request, Process: t.Invocation.Process, Outcome: t.Invocation.Termination, Rejection: t.Invocation.Rejection}
 }
@@ -28,6 +51,17 @@ type controlState struct {
 	Control Control         `json:"control"`
 	Effect  *run.EffectID   `json:"effect,omitzero"`
 	Result  *run.Settlement `json:"result,omitzero"`
+}
+
+// valid requires exactly one of a pending Effect and its definite result.
+func (c controlState) valid() bool {
+	if c.Control.validate() != nil || (c.Effect == nil) == (c.Result == nil) {
+		return false
+	}
+	if c.Effect != nil {
+		return c.Effect.Valid()
+	}
+	return c.Result.Valid() && c.Result.Status() != run.SettlementStatusUnknown
 }
 
 func (c controlState) project() ControlReceipt {
@@ -88,73 +122,65 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 		return err
 	}
 	if e.Completed {
-		if e.WorkingState.Valid() || e.Coordinator != nil || e.TurnNumber != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.WaitForTask || e.OutcomeArrived {
-			return ErrInvalidExecutionState
-		}
-		return nil
+		return e.validateCompleted()
 	}
 	if err := definition.descriptor.ValidateInput(e.WorkingState); err != nil {
 		return err
 	}
-	if !definition.maxTurns.Allows(e.TurnNumber) || !definition.maxTasks.Allows(uint64(len(e.Tasks))) || len(e.Controls) > int(definition.maxControlsPerTurn) || e.remainingCount() > int(definition.maxConcurrentTasks) {
+	if !e.withinBounds(definition) || !e.coordinatorValid() {
 		return ErrInvalidExecutionState
-	}
-	if e.Coordinator != nil && (!e.Coordinator.Valid() || e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask) {
-		return ErrInvalidExecutionState
-	}
-	if e.Coordinator != nil && e.Coordinator.Process != nil {
-		expected, err := turnKey(e.TurnNumber)
-		key, _ := e.Coordinator.Process.Key()
-		if err != nil || expected != key {
-			return ErrInvalidExecutionState
-		}
 	}
 	keys := make(map[run.ChildKey]struct{}, len(e.Tasks))
 	for _, task := range e.Tasks {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := definition.validateRequest(task.Request); err != nil {
-			return err
-		}
-		if !task.Invocation.Valid() {
-			return ErrInvalidExecutionState
-		}
-		if task.Invocation.Process != nil {
-			key, _ := task.Invocation.Process.Key()
-			if key != task.Request.Key {
-				return ErrInvalidExecutionState
-			}
-		}
 		if _, exists := keys[task.Request.Key]; exists {
 			return ErrInvalidExecutionState
 		}
-		keys[task.Request.Key] = struct{}{}
-		if task.Invocation.Termination != nil {
-			if output, ok := task.Invocation.Termination.Output(); ok {
-				worker, _ := definition.worker(task.Request.Worker)
-				if err := worker.program.Descriptor().ValidateOutput(output); err != nil {
-					return err
-				}
-			}
+		if err := task.validate(definition); err != nil {
+			return err
 		}
+		keys[task.Request.Key] = struct{}{}
 	}
 	for _, control := range e.Controls {
-		if _, present := keys[control.Control.Task]; !present || control.Control.validate() != nil {
-			return ErrInvalidExecutionState
-		}
-		if (control.Effect == nil) == (control.Result == nil) {
-			return ErrInvalidExecutionState
-		}
-		if control.Effect != nil && !control.Effect.Valid() {
-			return ErrInvalidExecutionState
-		}
-		if control.Result != nil && (!control.Result.Valid() || control.Result.Status() == run.SettlementStatusUnknown) {
+		if _, present := keys[control.Control.Task]; !present || !control.valid() {
 			return ErrInvalidExecutionState
 		}
 	}
 	return nil
 }
+
+// A completed collaboration keeps no state: its output belongs to the runtime.
+func (e executionState) validateCompleted() error {
+	if e.WorkingState.Valid() || e.Coordinator != nil || e.TurnNumber != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.WaitForTask || e.OutcomeArrived {
+		return ErrInvalidExecutionState
+	}
+	return nil
+}
+
+func (e executionState) withinBounds(definition *definition) bool {
+	return definition.maxTurns.Allows(e.TurnNumber) && definition.maxTasks.Allows(uint64(len(e.Tasks))) &&
+		len(e.Controls) <= int(definition.maxControlsPerTurn) && e.remainingCount() <= int(definition.maxConcurrentTasks)
+}
+
+// coordinatorValid checks that an active coordinator belongs to the current
+// turn, whose number names its child key.
+func (e executionState) coordinatorValid() bool {
+	if e.Coordinator == nil {
+		return true
+	}
+	if !e.Coordinator.Valid() || e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask {
+		return false
+	}
+	if e.Coordinator.Process == nil {
+		return true
+	}
+	expected, err := turnKey(e.TurnNumber)
+	key, _ := e.Coordinator.Process.Key()
+	return err == nil && expected == key
+}
+
 func (e executionState) validateDecision(ctx context.Context, definition *definition, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err

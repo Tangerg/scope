@@ -145,7 +145,13 @@ func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payl
 	if err != nil {
 		return nil, err
 	}
+	return r.launch(ctx, work, program, execution, started, intent)
+}
 
+// launch commits a new tree and starts its owner. Losing the commit race to
+// another writer is not an error when that writer accepted the same intent.
+func (r *Runtime) launch(ctx, work context.Context, program Program[Payload, Payload], execution Execution, started Started, intent Digest) (*Handle[Payload], error) {
+	root := started.Process
 	state := newTreeState(root)
 	tree := newTreeRuntime(r, state, work)
 	if err := tree.append(ctx, []Record{started, Activated{Epoch: 1}}); err != nil {
@@ -158,8 +164,7 @@ func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payl
 		return nil, err
 	}
 	p := state.processes[root]
-	p.execution = execution
-	p.program = program
+	p.execution, p.program = execution, program
 	if err := r.publish(tree); err != nil {
 		tree.cancel()
 		return nil, err

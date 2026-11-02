@@ -4,7 +4,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -87,6 +86,45 @@ func (d dispatchFailure) diagnostic(status run.SettlementStatus) (string, error)
 	}
 	return diagnostic, nil
 }
+
+// modelSettlement reads the evidence of a model call that did not succeed. A
+// response recorded beside the failure survives as evidence, never as success.
+func (d dispatchFailure) modelSettlement(status run.SettlementStatus) (ModelSettlement, error) {
+	diagnostic, err := d.diagnostic(status)
+	if err != nil {
+		return ModelSettlement{}, err
+	}
+	if d.Tool != nil {
+		return ModelSettlement{}, ErrInvalidProtocol
+	}
+	result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: diagnostic}
+	if status == run.SettlementStatusUnknown {
+		result.Outcome = ModelOutcomeUnknown
+	}
+	if d.Model != nil {
+		if d.Model.NotExecuted {
+			result.Outcome = ModelOutcomeNotExecuted
+		}
+		result.Response = d.Model.Response.Clone()
+	}
+	return result, result.Validate()
+}
+
+func (d dispatchFailure) toolSettlement(status run.SettlementStatus) (ToolSettlement, error) {
+	diagnostic, err := d.diagnostic(status)
+	if err != nil {
+		return ToolSettlement{}, err
+	}
+	if d.Model != nil {
+		return ToolSettlement{}, ErrInvalidProtocol
+	}
+	result := ToolSettlement{Failure: diagnostic}
+	if d.Tool != nil && d.Tool.Evidence != nil {
+		result.Evidence = new(d.Tool.Evidence.Clone())
+	}
+	return result, nil
+}
+
 func (d dispatchFailure) settlement(status run.SettlementStatus) (run.Settlement, error) {
 	if _, err := d.diagnostic(status); err != nil {
 		return run.Settlement{}, err
@@ -133,29 +171,11 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
 	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload().JSON())
+		failure, err := outcome.Payload().Decode[dispatchFailure]()
 		if err != nil {
 			return ModelSettlement{}, err
 		}
-		diagnostic, err := failure.diagnostic(outcome.Status())
-		if err != nil {
-			return ModelSettlement{}, err
-		}
-		if failure.Tool != nil {
-			return ModelSettlement{}, ErrInvalidProtocol
-		}
-		kind := ModelOutcomeFailed
-		if outcome.Status() == run.SettlementStatusUnknown {
-			kind = ModelOutcomeUnknown
-		}
-		result := ModelSettlement{Outcome: kind, Failure: diagnostic}
-		if failure.Model != nil {
-			if failure.Model.NotExecuted {
-				result.Outcome = ModelOutcomeNotExecuted
-			}
-			result.Response = failure.Model.Response.Clone()
-		}
-		return result, result.Validate()
+		return failure.modelSettlement(outcome.Status())
 	}
 	envelope, err := decodeResult(outcome.Payload().JSON())
 	if err != nil {
@@ -171,22 +191,11 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
 	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](outcome.Payload().JSON())
+		failure, err := outcome.Payload().Decode[dispatchFailure]()
 		if err != nil {
 			return ToolSettlement{}, err
 		}
-		diagnostic, err := failure.diagnostic(outcome.Status())
-		if err != nil {
-			return ToolSettlement{}, err
-		}
-		if failure.Model != nil {
-			return ToolSettlement{}, ErrInvalidProtocol
-		}
-		result := ToolSettlement{Failure: diagnostic}
-		if failure.Tool != nil && failure.Tool.Evidence != nil {
-			result.Evidence = new(failure.Tool.Evidence.Clone())
-		}
-		return result, nil
+		return failure.toolSettlement(outcome.Status())
 	}
 	envelope, err := decodeResult(outcome.Payload().JSON())
 	if err != nil {

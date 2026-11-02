@@ -39,54 +39,18 @@ func (t *treeState) apply(entry Entry) error {
 }
 
 func (t *treeState) applyRecord(record Record) error {
-	if t.unsettledChild.Valid() {
-		settled, ok := record.(EffectSettled)
-		if !ok || settled.Outcome.Status() != SettlementStatusSucceeded {
-			return ErrInvalidLog
-		}
+	if err := t.admitDuringChildStart(record); err != nil {
+		return err
 	}
 	switch value := record.(type) {
 	case Started:
 		return t.start(value)
 	case Activated:
-		if value.Epoch != t.epoch+1 {
-			return ErrEpochConflict
-		}
-		t.epoch = value.Epoch
-		return nil
-	case SignalAdmitted:
-		p, err := t.process(value.Process)
-		if err != nil {
-			return err
-		}
-		return p.admit(value.Signal, t.limits)
-	case Stepped:
-		p, err := t.process(value.Process)
-		if err != nil {
-			return err
-		}
-		return p.advance(value, t.limits)
-	case EffectIntent:
-		p, err := t.process(value.ID.Process)
-		if err != nil {
-			return err
-		}
-		return p.prepare(value)
+		return t.activate(value)
 	case EffectSettled:
 		return t.settle(value)
 	case Exited:
 		return t.exit(value)
-	case ExecutionFailed:
-		p, err := t.process(value.Process)
-		if err != nil {
-			return err
-		}
-		if p.exited != nil || p.terminal.Valid() {
-			return ErrInvalidLog
-		}
-		p.terminal = Termination{failure: value.Failure}
-		p.execution = nil
-		return nil
 	case Reaped:
 		return t.reap(value)
 	case ControlRequested:
@@ -95,6 +59,48 @@ func (t *treeState) applyRecord(record Record) error {
 		// A checkpoint materializes its own prefix; folding the prefix already
 		// produced that state, so the record adds nothing to replay.
 		return nil
+	case SignalAdmitted, Stepped, EffectIntent, ExecutionFailed:
+		return t.applyToProcess(value)
+	default:
+		return ErrInvalidLog
+	}
+}
+
+// admitDuringChildStart enforces that a child's Started is committed together
+// with the settlement of the Spawn that requested it, and nothing else.
+func (t *treeState) admitDuringChildStart(record Record) error {
+	if !t.unsettledChild.Valid() {
+		return nil
+	}
+	if settled, ok := record.(EffectSettled); !ok || settled.Outcome.Status() != SettlementStatusSucceeded {
+		return ErrInvalidLog
+	}
+	return nil
+}
+
+func (t *treeState) activate(activated Activated) error {
+	if activated.Epoch != t.epoch+1 {
+		return ErrEpochConflict
+	}
+	t.epoch = activated.Epoch
+	return nil
+}
+
+// applyToProcess applies a record that changes only the process it names.
+func (t *treeState) applyToProcess(record Record) error {
+	p, err := t.process(recordProcess(record))
+	if err != nil {
+		return err
+	}
+	switch value := record.(type) {
+	case SignalAdmitted:
+		return p.admit(value.Signal, t.limits)
+	case Stepped:
+		return p.advance(value, t.limits)
+	case EffectIntent:
+		return p.prepare(value)
+	case ExecutionFailed:
+		return p.failExecution(value.Failure)
 	default:
 		return ErrInvalidLog
 	}

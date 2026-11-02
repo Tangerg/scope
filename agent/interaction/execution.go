@@ -566,73 +566,21 @@ func (e *execution) advanceCalls(ctx context.Context, turn run.Turn) (run.Transi
 
 func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.ToolCall, invocation *callInvocation, effects *[]run.Effect) (bool, *run.Failure, error) {
 	if invocation.Child != nil {
-		matched, err := invocation.Child.Accept(message)
-		if err != nil || !matched {
-			return matched, nil, err
-		}
-		if invocation.Child.Rejection != nil {
-			invocation.Result = rejectedDelegateStartResult(call, *invocation.Child.Rejection)
-			invocation.Child = nil
-		} else if invocation.Child.Termination != nil {
-			result, err := delegateToolResult(call, *invocation.Child.Termination)
-			if err != nil {
-				return false, nil, err
-			}
-			invocation.Result = new(newToolCallResult(result))
-			invocation.Child = nil
-		}
-		return true, nil, nil
+		matched, err := invocation.acceptDelegate(call, message)
+		return matched, nil, err
 	}
-	if signal, ok := message.(run.Signal); ok {
-		if invocation.Input == nil {
-			return false, nil, nil
+	switch value := message.(type) {
+	case run.Signal:
+		effect, matched, err := invocation.acceptAnswer(call, value, turn.EffectID(uint32(len(*effects))))
+		if matched && err == nil {
+			*effects = append(*effects, effect)
 		}
-		key, err := invocation.Input.key()
-		if err != nil {
-			return false, nil, err
-		}
-		if signal.Wait != key {
-			return false, nil, nil
-		}
-		effect, err := toolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: &toolResume{Reference: invocation.Reference, InputRequest: invocation.Input.Request, InputResponse: signal.Payload.JSON()}})
-		if err != nil {
-			return false, nil, err
-		}
-		invocation.Pending = new(turn.EffectID(uint32(len(*effects))))
-		invocation.Input = nil
-		*effects = append(*effects, effect)
-		return true, nil, nil
-	}
-	completion, ok := message.(run.Completion)
-	if !ok || invocation.Pending == nil || completion.Effect != *invocation.Pending {
+		return matched, nil, err
+	case run.Completion:
+		return invocation.acceptToolSettlement(call, value)
+	default:
 		return false, nil, nil
 	}
-	envelope, failure, err := decodeSettlement(completion.Outcome)
-	if err != nil {
-		return true, nil, err
-	}
-	if failure != "" {
-		diagnostic, err := run.NewFailure(run.FailureKindExternal, failureCodeInteractionHostFailed, failure)
-		return true, &diagnostic, err
-	}
-	if envelope.ToolResult == nil {
-		return false, nil, ErrInvalidProtocol
-	}
-	outcome := envelope.ToolResult
-	invocation.Pending = nil
-	if outcome.InputRequest != nil {
-		invocation.Input = &inputWait{Effect: completion.Effect, Request: *outcome.InputRequest}
-		return true, nil, nil
-	}
-	if err := outcome.Completion.validateCall(call); err != nil {
-		return false, nil, err
-	}
-	invocation.Result = outcome.Completion
-	if outcome.AdvertisementFailure != "" {
-		failure, err := run.NewFailure(run.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
-		return true, &failure, err
-	}
-	return true, nil, nil
 }
 
 const (
