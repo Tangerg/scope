@@ -3,6 +3,8 @@
 // Programs using the Runtime's Compiler. A callback Revision identifies opaque
 // code; Configuration records settings captured by that code. Graph bindings,
 // schemas, budgets, and bounds have their sole owner in the stage declarations.
+// [Adapt] composes Transform, Call, and Transform to fit any child Program to
+// another role's ports, such as an Interaction serving as a Workflow branch.
 //
 // Child invocations advance from a Spawn Completion to an Exit. A successful
 // Spawn admits work; only Exit establishes that its subtree has drained. The

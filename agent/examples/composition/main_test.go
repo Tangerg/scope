@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	agentrun "github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/agent/run/runtest"
-	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/chat"
 )
 
@@ -81,10 +80,7 @@ func TestDefinitionsRejectInvalidBindingsAndBoundaryValues(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	model := compositionValue(newModelProgram(compiler))
 	local := compositionValue(newUppercaseProgram(compiler))
-	if _, err := newCompositionProgram(compiler, agentrun.Program[agentrun.Payload, agentrun.Payload]{}, model); !errors.Is(err, agentrun.ErrInvalidProgram) {
-		t.Fatal(err)
-	}
-	if _, err := newCompositionProgram(compiler, model.Erase(), model); !errors.Is(err, workflow.ErrInvalidDefinitionConfig) {
+	if _, err := newCompositionProgram(compiler, agentrun.Program[textInput, textOutput]{}, model); !errors.Is(err, agentrun.ErrInvalidProgram) {
 		t.Fatal(err)
 	}
 	composed := compositionValue(newCompositionProgram(compiler, local, model))
@@ -92,8 +88,8 @@ func TestDefinitionsRejectInvalidBindingsAndBoundaryValues(t *testing.T) {
 		program agentrun.Program[agentrun.Payload, agentrun.Payload]
 		input   agentrun.Payload
 	}{
-		{local, compositionValue(agentrun.EncodePayload(textInput{Text: "x"}))},
-		{composed, compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "x"}))},
+		{local.Erase(), compositionValue(agentrun.EncodePayload(textInput{Text: "x"}))},
+		{composed.Erase(), compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "x"}))},
 	} {
 		if _, err := row.program.Definition().Start(compositionValue(agentrun.ParsePayload([]byte(`{}`)))); err == nil {
 			t.Fatal("missing required input admitted")
@@ -112,7 +108,7 @@ func TestCompositionRejectsUnaddressedInputAtAdmission(t *testing.T) {
 	local := compositionValue(newUppercaseProgram(runtime.Compiler()))
 	model := compositionValue(newModelProgram(runtime.Compiler()))
 	program := compositionValue(newCompositionProgram(runtime.Compiler(), local, model))
-	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "work"}))}))
+	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[compositionInput]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionInput{Prompt: "work"}}))
 	signal := agentrun.Signal{ID: compositionValue(agentrun.ParseSignalID("unsolicited")), Payload: compositionValue(agentrun.EncodePayload("message"))}
 	if _, err := handle.DeliverSignals(t.Context(), signal); err == nil {
 		t.Fatal("workflow admitted undeclared external input")
@@ -127,11 +123,5 @@ func TestCompositionRejectsMissingModelInputWithoutPublishingOutput(t *testing.T
 	response, err := (compositionModel{}).Call(t.Context(), &chat.Request{})
 	if response != nil || err == nil {
 		t.Fatalf("response=%+v error=%v", response, err)
-	}
-}
-
-func TestIncompleteProcessCannotPublishASemanticOutput(t *testing.T) {
-	if output, err := decodeCompleted[textOutput](agentrun.Result[agentrun.Payload]{}); err == nil || output.Text != "" {
-		t.Fatalf("incomplete process produced %+v, %v", output, err)
 	}
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func unknownComposition(t *testing.T, runtime *agentrun.Runtime, calls *atomic.Int32) (agentrun.Program[agentrun.Payload, agentrun.Payload], agentrun.Program[interaction.Input, interaction.Output]) {
+func unknownComposition(t *testing.T, runtime *agentrun.Runtime, calls *atomic.Int32) (agentrun.Program[compositionInput, compositionOutput], agentrun.Program[interaction.Input, interaction.Output]) {
 	t.Helper()
 	model := compositionValue(interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.uncertain_model", Description: "Preserve an unacknowledged model result.", Revision: "uncertain-v1", Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls.Add(1)
@@ -24,7 +24,7 @@ func unknownComposition(t *testing.T, runtime *agentrun.Runtime, calls *atomic.I
 	return compositionValue(newCompositionProgram(runtime.Compiler(), local, model)), model
 }
 
-func awaitUnknown(t *testing.T, handle *agentrun.Handle[agentrun.Payload]) agentrun.PendingEffect {
+func awaitUnknown(t *testing.T, handle *agentrun.Handle[compositionOutput]) agentrun.PendingEffect {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -56,7 +56,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	runtime := conformancetest.Runtime(t, agentrun.Config{Store: store, CheckpointInterval: 1})
 	var calls atomic.Int32
 	program, model := unknownComposition(t, runtime, &calls)
-	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "recover"}))}))
+	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[compositionInput]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionInput{Prompt: "recover"}}))
 	pending := awaitUnknown(t, handle)
 	if pending.Request.ID().Process.Depth() != 2 {
 		t.Fatal("model was not a nested child")
@@ -76,7 +76,7 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := compositionValue(recovered.Await(t.Context()))
-	output := compositionValue(decodeCompleted[compositionOutput](result))
+	output := compositionValue(result.Output())
 	if output.Local != "RECOVER" || output.Model != "reconciled" || calls.Load() != 1 {
 		t.Fatalf("output=%+v calls=%d", output, calls.Load())
 	}
@@ -91,7 +91,7 @@ func TestCanceledCompositionCannotPublishExitBeforeUnknownDescendantResolves(t *
 	runtime := conformancetest.Runtime(t, agentrun.Config{Store: store})
 	var calls atomic.Int32
 	program, model := unknownComposition(t, runtime, &calls)
-	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "cancel"}))}))
+	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[compositionInput]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionInput{Prompt: "cancel"}}))
 	pending := awaitUnknown(t, handle)
 	if err := handle.Cancel(t.Context(), "request withdrawn"); err != nil {
 		t.Fatal(err)

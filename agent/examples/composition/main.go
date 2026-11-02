@@ -67,36 +67,28 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 
-	embeddedInput, err := localProgram.Descriptor().EncodeInput(textInput{Text: "embedded"})
+	embeddedHandle, err := runtime.Start(ctx, localProgram, agentrun.StartRequest[textInput]{ID: agentrun.StartID{Scope: "example", Key: "embedded"}, Input: textInput{Text: "embedded"}})
 	if err != nil {
 		return err
 	}
-	embeddedResultHandle, err := runtime.Start(ctx, localProgram, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "embeddedResult"}, Input: embeddedInput})
+	embeddedResult, err := embeddedHandle.Await(ctx)
 	if err != nil {
 		return err
 	}
-	embeddedResult, err := embeddedResultHandle.Await(ctx)
-	if err != nil {
-		return err
-	}
-	embedded, err := decodeCompleted[textOutput](embeddedResult)
+	embedded, err := embeddedResult.Output()
 	if err != nil {
 		return err
 	}
 
-	composedInput, err := compositionProgram.Descriptor().EncodeInput(compositionInput{Prompt: "composition"})
+	compositionHandle, err := runtime.Start(ctx, compositionProgram, agentrun.StartRequest[compositionInput]{ID: agentrun.StartID{Scope: "example", Key: "composition"}, Input: compositionInput{Prompt: "composition"}})
 	if err != nil {
 		return err
 	}
-	compositionResultHandle, err := runtime.Start(ctx, compositionProgram, agentrun.StartRequest[agentrun.Payload]{ID: agentrun.StartID{Scope: "example", Key: "compositionResult"}, Input: composedInput})
+	compositionResult, err := compositionHandle.Await(ctx)
 	if err != nil {
 		return err
 	}
-	compositionResult, err := compositionResultHandle.Await(ctx)
-	if err != nil {
-		return err
-	}
-	composed, err := decodeCompleted[compositionOutput](compositionResult)
+	composed, err := compositionResult.Output()
 	if err != nil {
 		return err
 	}
@@ -117,23 +109,23 @@ type textOutput struct {
 
 type uppercaseDefinition struct{ descriptor agentrun.Descriptor }
 
-func newUppercaseProgram(compiler *agentrun.Compiler) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+func newUppercaseProgram(compiler *agentrun.Compiler) (agentrun.Program[textInput, textOutput], error) {
 	inputSchema, err := jsonschema.For[textInput]()
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+		return agentrun.Program[textInput, textOutput]{}, err
 	}
 	outputSchema, err := jsonschema.For[textOutput]()
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+		return agentrun.Program[textInput, textOutput]{}, err
 	}
 	descriptor, err := agentrun.NewDescriptor(agentrun.DescriptorConfig{
 		Name: uppercaseStateKind, Description: "Return input text in uppercase.",
 		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+		return agentrun.Program[textInput, textOutput]{}, err
 	}
-	return agentrun.Bind[agentrun.Payload, agentrun.Payload](compiler, agentrun.BindingConfig{
+	return agentrun.Bind[textInput, textOutput](compiler, agentrun.BindingConfig{
 		Definition: &uppercaseDefinition{descriptor: descriptor},
 		Revision:   "uppercase-v1", Configuration: struct{}{},
 	})
@@ -212,38 +204,43 @@ type compositionOutput struct {
 	Model string `json:"model"`
 }
 
-func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[agentrun.Payload, agentrun.Payload], model agentrun.Program[interaction.Input, interaction.Output]) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
+func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[textInput, textOutput], model agentrun.Program[interaction.Input, interaction.Output]) (agentrun.Program[compositionInput, compositionOutput], error) {
+	var zero agentrun.Program[compositionInput, compositionOutput]
 	if !local.Valid() || !model.Valid() {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, agentrun.ErrInvalidProgram
+		return zero, agentrun.ErrInvalidProgram
 	}
 	leafBudget := agentrun.Budget{
 		Steps: agentrun.NewQuota(compositionChildBudgetSteps), Effects: agentrun.NewQuota(compositionChildBudgetEffects),
 		Messages: agentrun.NewQuota(compositionChildBudgetMessages),
 	}
-	localBranch, err := newLocalBranch(compiler, local, leafBudget)
-	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
-	}
-	modelInput, inputErr := workflow.Transform("build_input", func(_ context.Context, input compositionInput) (interaction.Input, error) {
-		return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
+	localBranch, err := workflow.Adapt(compiler, workflow.AdaptConfig{
+		Name: "example.composition.local", Description: "Adapt a pure Definition to the composition's input and text output.",
+		Revision: "composition-local-branch-v1", Budget: leafBudget,
+	}, local, func(_ context.Context, input compositionInput) (textInput, error) {
+		return textInput{Text: input.Prompt}, nil
+	}, func(_ context.Context, output textOutput) (string, error) {
+		return output.Text, nil
 	})
-	modelCall, callErr := workflow.Call(workflow.CallConfig{ID: "run", Program: model.Erase(), Budget: leafBudget})
-	modelOutput, outputErr := workflow.Transform("decode_output", func(_ context.Context, output interaction.Output) (string, error) {
+	if err != nil {
+		return zero, err
+	}
+	modelBranch, err := workflow.Adapt(compiler, workflow.AdaptConfig{
+		Name: "example.composition.model", Description: "Render model input, invoke it, and decode its output.",
+		Revision: "composition-model-branch-v1", Budget: leafBudget,
+	}, model, func(_ context.Context, input compositionInput) (interaction.Input, error) {
+		return interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart(input.Prompt))}}, nil
+	}, func(_ context.Context, output interaction.Output) (string, error) {
 		return chatclient.Text().Decode(output.ModelResponse)
 	})
-	if graphErr := errors.Join(inputErr, callErr, outputErr); graphErr != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, graphErr
-	}
-	modelBranch, err := bindCompositionWorkflow(compiler, "example.composition.model", "Render model input, invoke it, and decode its output.", []workflow.Stage{modelInput, modelCall, modelOutput})
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+		return zero, err
 	}
 	branchBudget := agentrun.Budget{
 		Steps: agentrun.NewQuota(compositionBranchBudgetSteps), Effects: agentrun.NewQuota(compositionBranchBudgetEffects),
 		Messages: agentrun.NewQuota(compositionBranchBudgetMessages),
 	}
 	branches := []workflow.ForkBranch{
-		compositionLocalIndex: {ID: "local", Program: localBranch, Budget: branchBudget},
+		compositionLocalIndex: {ID: "local", Program: localBranch.Erase(), Budget: branchBudget},
 		compositionModelIndex: {ID: "model", Program: modelBranch.Erase(), Budget: branchBudget},
 	}
 	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
@@ -253,27 +250,12 @@ func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[a
 		},
 	})
 	if err != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
+		return zero, err
 	}
-	return bindCompositionWorkflow(compiler, compositionName, "Compose local and model children under one managed Workflow.", []workflow.Stage{fork})
-}
-
-func newLocalBranch(compiler *agentrun.Compiler, local agentrun.Program[agentrun.Payload, agentrun.Payload], budget agentrun.Budget) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	input, inputErr := workflow.Transform("build_input", func(_ context.Context, input compositionInput) (textInput, error) {
-		return textInput{Text: input.Prompt}, nil
+	return workflow.Compile[compositionInput, compositionOutput](compiler, workflow.Config{
+		Name: compositionName, Description: "Compose local and model children under one managed Workflow.",
+		Revision: "composition-v1", Stages: []workflow.Stage{fork},
 	})
-	call, callErr := workflow.Call(workflow.CallConfig{ID: "run", Program: local, Budget: budget})
-	output, outputErr := workflow.Transform("decode_output", func(_ context.Context, output textOutput) (string, error) {
-		return output.Text, nil
-	})
-	if graphErr := errors.Join(inputErr, callErr, outputErr); graphErr != nil {
-		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, graphErr
-	}
-	return bindCompositionWorkflow(compiler, "example.composition.local", "Adapt a pure Definition to the composition's input and text output.", []workflow.Stage{input, call, output})
-}
-
-func bindCompositionWorkflow(compiler *agentrun.Compiler, name, description string, stages []workflow.Stage) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{Name: name, Description: description, Revision: name, Stages: stages})
 }
 
 type compositionModel struct{}
@@ -286,15 +268,6 @@ func (compositionModel) Call(_ context.Context, request *chat.Request) (*chat.Re
 	return &chat.Response{Output: &chat.Output{
 		Message: &message, FinishReason: chat.FinishReasonStop,
 	}}, nil
-}
-
-func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
-	var zero T
-	erased, ok := result.Termination().Output()
-	if !ok {
-		return zero, fmt.Errorf("process ended with %s", result.Termination().Status())
-	}
-	return erased.Decode[T]()
 }
 
 var _ agentrun.Definition = (*uppercaseDefinition)(nil)
