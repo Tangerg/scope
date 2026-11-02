@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
@@ -47,6 +48,18 @@ type callInvocation struct {
 	Input     *inputWait        `json:"input,omitzero"`
 	Child     *child.Invocation `json:"child,omitzero"`
 	Result    *toolCallResult   `json:"result,omitzero"`
+}
+
+// obligation is the Effect whose settlement the invocation still awaits.
+func (c callInvocation) obligation() run.EffectID {
+	switch {
+	case c.Pending != nil:
+		return *c.Pending
+	case c.Input != nil:
+		return c.Input.Effect
+	default:
+		return run.EffectID{}
+	}
 }
 
 func (c callInvocation) validate(kind callKind, call chat.ToolCall) error {
@@ -134,63 +147,60 @@ func (c callBatch) active() int {
 	}
 	return count
 }
+
+// validate checks the batch's own invariants: started invocations form a prefix
+// in declaration order, and no Effect is owned by two invocations.
 func (c callBatch) validate(ctx context.Context, calls []chat.ToolCall) error {
 	if c.Kind != callTool && c.Kind != callDelegate || len(c.Invocations) == 0 || len(c.Invocations) != len(calls) {
 		return ErrInvalidExecutionState
 	}
-	references := make(map[run.EffectID]int, len(c.Invocations))
-	obligations := make(map[run.EffectID]int, len(c.Invocations))
-	unstarted := false
-	var previous run.EffectID
-	for index, invocation := range c.Invocations {
+	owners := make(map[run.EffectID]int, 2*len(c.Invocations))
+	started := c.started()
+	for index, invocation := range c.Invocations[:started] {
 		if err := ctx.Err(); err != nil {
 			return err
-		}
-		if invocation == nil {
-			if c.Kind == callDelegate {
-				return ErrInvalidExecutionState
-			}
-			unstarted = true
-			continue
-		}
-		if unstarted {
-			return ErrInvalidExecutionState
 		}
 		if err := invocation.validate(c.Kind, calls[index]); err != nil {
 			return err
 		}
-		reference := invocation.Reference
-		if previous.Valid() && (reference.Process != previous.Process || reference.Step < previous.Step ||
-			reference.Step == previous.Step && reference.Index <= previous.Index) {
+		if index > 0 && !c.Invocations[index-1].Reference.Precedes(invocation.Reference) {
 			return ErrInvalidExecutionState
 		}
-		previous = reference
-		references[reference] = index
-		var obligation run.EffectID
-		switch {
-		case invocation.Pending != nil:
-			obligation = *invocation.Pending
-		case invocation.Input != nil:
-			obligation = invocation.Input.Effect
-		}
-		if obligation.Valid() {
-			if _, duplicate := obligations[obligation]; duplicate {
-				return ErrInvalidExecutionState
-			}
-			obligations[obligation] = index
-		}
-	}
-	for effect, invocation := range obligations {
-		if owner, found := references[effect]; found && owner != invocation {
+		if !claimEffect(owners, invocation.Reference, index) || !claimEffect(owners, invocation.obligation(), index) {
 			return ErrInvalidExecutionState
 		}
 	}
-	if c.active() == 0 {
+	unstarted := len(c.Invocations) - started
+	if slices.ContainsFunc(c.Invocations[started:], func(invocation *callInvocation) bool { return invocation != nil }) ||
+		c.Kind == callDelegate && unstarted > 0 || c.active() == 0 {
 		return ErrInvalidExecutionState
 	}
-
 	return nil
 }
+
+// started is the length of the prefix of invocations that have started.
+func (c callBatch) started() int {
+	for index, invocation := range c.Invocations {
+		if invocation == nil {
+			return index
+		}
+	}
+	return len(c.Invocations)
+}
+
+// claimEffect records owner for effect. An invocation may name the same Effect
+// as both reference and obligation, but no Effect belongs to two invocations.
+func claimEffect(owners map[run.EffectID]int, effect run.EffectID, owner int) bool {
+	if !effect.Valid() {
+		return true
+	}
+	if existing, claimed := owners[effect]; claimed {
+		return existing == owner
+	}
+	owners[effect] = owner
+	return true
+}
+
 func (c callBatch) validateBindings(ctx context.Context, definition *definition, calls, remaining []chat.ToolCall, sequence uint64) error {
 	for index, call := range calls {
 		if err := ctx.Err(); err != nil {

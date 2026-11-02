@@ -302,43 +302,32 @@ func (t *treeState) control(control ControlRequested) error {
 	if err != nil {
 		return err
 	}
-	switch control.Kind {
-	case ControlPause:
-		if p.exited != nil || p.paused {
-			return ErrInvalidProcessControl
-		}
-		p.paused = true
-	case ControlResume:
-		if p.exited != nil || !p.paused {
-			return ErrInvalidProcessControl
-		}
-		p.paused = false
-	case ControlCancel, ControlKill, ControlDeadline:
-		for id, member := range t.processes {
-			if !control.Process.Contains(id) || member.exited != nil {
-				continue
-			}
-			cause := TerminationCauseHostCancellation
-			if id != control.Process {
-				cause = TerminationCauseParentCancellation
-			}
-			if control.Kind == ControlKill {
-				cause = TerminationCauseRuntimeKill
-			}
-			if control.Kind == ControlDeadline {
-				cause = TerminationCauseHostDeadline
-				if id != control.Process {
-					cause = TerminationCauseParentDeadline
-				}
-			}
-			if member.terminal.accepts(cause) {
-				member.terminal = Termination{cause: cause, reason: control.Reason}
-			}
-		}
-	default:
+	if !p.acceptsControl(control.Kind) {
 		return ErrInvalidProcessControl
 	}
+	switch control.Kind {
+	case ControlPause:
+		p.paused = true
+	case ControlResume:
+		p.paused = false
+	default:
+		t.terminate(control)
+	}
 	return nil
+}
+
+// terminate records the control's intent on the named process and every live
+// descendant, unless a stronger intent is already recorded there.
+func (t *treeState) terminate(control ControlRequested) {
+	for id, member := range t.processes {
+		if !control.Process.Contains(id) || member.exited != nil {
+			continue
+		}
+		cause := control.Kind.terminationCause(id == control.Process)
+		if member.terminal.accepts(cause) {
+			member.terminal = Termination{cause: cause, reason: control.Reason}
+		}
+	}
 }
 
 func (t *treeState) ordered() []ProcessID {

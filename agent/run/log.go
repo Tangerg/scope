@@ -204,6 +204,23 @@ func (c ControlKind) Valid() bool {
 	}
 }
 
+// terminationCause is what a terminating control records on the process it
+// names (direct) and on each of that process's descendants.
+func (c ControlKind) terminationCause(direct bool) TerminationCause {
+	switch {
+	case c == ControlKill:
+		return TerminationCauseRuntimeKill
+	case c == ControlDeadline && direct:
+		return TerminationCauseHostDeadline
+	case c == ControlDeadline:
+		return TerminationCauseParentDeadline
+	case direct:
+		return TerminationCauseHostCancellation
+	default:
+		return TerminationCauseParentCancellation
+	}
+}
+
 type ControlRequested struct {
 	Process ProcessID   `json:"process"`
 	Kind    ControlKind `json:"kind"`

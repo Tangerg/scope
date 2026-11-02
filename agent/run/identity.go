@@ -188,6 +188,15 @@ type EffectID struct {
 
 func (e EffectID) Valid() bool  { return e.Process.Valid() && e.Step > 0 }
 func (e EffectID) IsZero() bool { return e == EffectID{} }
+
+// Precedes reports whether e was declared before other by the same process.
+// Effects of different processes have no declaration order.
+func (e EffectID) Precedes(other EffectID) bool {
+	if e.Process != other.Process {
+		return false
+	}
+	return e.Step < other.Step || e.Step == other.Step && e.Index < other.Index
+}
 func (e EffectID) String() string {
 	if !e.Valid() {
 		return ""

@@ -206,35 +206,43 @@ func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, err
 		for {
 			commit := h.nextCommit()
 			entries, err := h.runtime.read(ctx, root, cursor)
+			if err == nil && len(entries) == 0 && cursor == after {
+				var finished bool
+				if finished, err = h.finishedAt(ctx, cursor); finished {
+					return
+				}
+			}
 			if err != nil {
 				yield(Entry{}, err)
 				return
 			}
-			if len(entries) == 0 && cursor == after {
-				finished, err := h.finishedAt(ctx, cursor)
-				if err != nil {
-					yield(Entry{}, err)
-					return
-				}
-				if finished {
-					return
-				}
+			next, open := yieldUntilRootExit(root, entries, yield)
+			if !open {
+				return
 			}
-			for _, entry := range entries {
-				if !yield(entry, nil) {
-					return
-				}
-				cursor = entry.LSN
-				if exited, ok := entry.Record.(Exited); ok && exited.Process == root {
-					return
-				}
-			}
+			cursor = max(cursor, next)
 			if err := h.waitForCommit(ctx, commit); err != nil {
 				yield(Entry{}, err)
 				return
 			}
 		}
 	}
+}
+
+// yieldUntilRootExit delivers entries in order and reports the last position
+// delivered and whether observation continues past them.
+func yieldUntilRootExit(root ProcessID, entries []Entry, yield func(Entry, error) bool) (LSN, bool) {
+	var last LSN
+	for _, entry := range entries {
+		if !yield(entry, nil) {
+			return last, false
+		}
+		last = entry.LSN
+		if exited, ok := entry.Record.(Exited); ok && exited.Process == root {
+			return last, false
+		}
+	}
+	return last, true
 }
 
 // finishedAt reports whether position is already the head of a tree whose root
@@ -354,10 +362,23 @@ func (t *TerminationError) Error() string {
 	return fmt.Sprintf("run %s: %s", t.ID, t.Termination.Status())
 }
 
+// command is one Handle request applied by the tree owner. A recordingCommand
+// answers with the records it commits; a replayCommand answers when the
+// redispatched Effect settles.
 type command interface{ command() }
+
+type recordingCommand interface {
+	command
+	records(t *treeRuntime, p *processState) ([]Record, error)
+}
+
 type signalCommand struct{ signals []Signal }
 
 func (signalCommand) command() {}
+
+func (s signalCommand) records(t *treeRuntime, p *processState) ([]Record, error) {
+	return t.signals(p, s.signals)
+}
 
 type controlCommand struct {
 	kind   ControlKind
@@ -366,12 +387,27 @@ type controlCommand struct {
 
 func (controlCommand) command() {}
 
+func (c controlCommand) records(_ *treeRuntime, p *processState) ([]Record, error) {
+	control := ControlRequested{Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: canonicalTime(time.Now())}
+	if !control.valid() || !p.acceptsControl(c.kind) {
+		return nil, ErrInvalidProcessControl
+	}
+	return []Record{control}, nil
+}
+
 type resolveCommand struct {
 	id      EffectID
 	outcome Settlement
 }
 
 func (resolveCommand) command() {}
+
+func (r resolveCommand) records(t *treeRuntime, p *processState) ([]Record, error) {
+	if !p.unknownEffect(r.id) || !r.outcome.Valid() || r.outcome.Status() == SettlementStatusUnknown || t.jobs[r.id] != nil {
+		return nil, ErrEffectNotPending
+	}
+	return []Record{EffectSettled{ID: r.id, Outcome: r.outcome, At: canonicalTime(time.Now())}}, nil
+}
 
 type replayCommand struct{ id EffectID }
 

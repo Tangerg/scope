@@ -161,72 +161,95 @@ func (t *treeRuntime) next() (ProcessID, bool) {
 	return ProcessID{}, false
 }
 
+// run is the tree's single owner goroutine. Pending events are served before
+// new Steps so commands, results and stop requests are never starved by ready
+// work; it returns once no owned work remains and the tree is halted or done.
 func (t *treeRuntime) run() {
 	defer close(t.done)
 	defer t.release()
 	defer t.cancel()
 	if t.recovering {
-		if err := t.resumeEffects(); err != nil {
-			t.fail(err)
+		t.failOn(t.resumeEffects())
+	}
+	events := treeEvents{host: t.host.Done(), stop: t.stopRequested}
+	for !t.finished() {
+		if t.accepting() && (t.servePending(&events) || t.observeHostCancellation(&events) || t.advanceNext()) {
+			continue
+		}
+		t.awaitEvent(&events)
+	}
+}
+
+// treeEvents are the owner's one-shot inputs; each is cleared once handled.
+type treeEvents struct {
+	host <-chan struct{}
+	stop <-chan struct{}
+}
+
+func (t *treeRuntime) accepting() bool { return !t.stopping && t.failure == nil }
+
+func (t *treeRuntime) idle() bool {
+	return len(t.jobs) == 0 && len(t.steps) == 0 && t.preparing == nil
+}
+
+func (t *treeRuntime) finished() bool {
+	if !t.idle() {
+		return false
+	}
+	root := t.state.processes[t.state.root]
+	return !t.accepting() || root != nil && root.exited != nil
+}
+
+func (t *treeRuntime) servePending(events *treeEvents) bool {
+	select {
+	case command := <-t.commands:
+		t.command(command)
+	case result := <-t.results:
+		t.completed(result)
+	case <-events.stop:
+		t.stopRequestedWork(events)
+	default:
+		return false
+	}
+	return true
+}
+
+func (t *treeRuntime) awaitEvent(events *treeEvents) {
+	select {
+	case command := <-t.commands:
+		t.command(command)
+	case result := <-t.results:
+		t.completed(result)
+	case <-events.stop:
+		t.stopRequestedWork(events)
+	case <-events.host:
+		events.host = nil
+		if !t.stopping {
+			t.failOn(t.contextCanceled())
 		}
 	}
-	hostDone := t.host.Done()
-	stopRequested := t.stopRequested
-	for {
-		if t.failure != nil || t.stopping {
-			if len(t.jobs) == 0 && len(t.steps) == 0 && t.preparing == nil {
-				return
-			}
-		}
-		if !t.stopping && t.failure == nil {
-			if root := t.state.processes[t.state.root]; root != nil && root.exited != nil && len(t.jobs) == 0 && len(t.steps) == 0 && t.preparing == nil {
-				return
-			}
-			select {
-			case command := <-t.commands:
-				t.command(command)
-				continue
-			case result := <-t.results:
-				t.completed(result)
-				continue
-			case <-stopRequested:
-				t.stopWork()
-				stopRequested = nil
-				continue
-			default:
-			}
-			if hostDone != nil && t.host.Err() != nil {
-				hostDone = nil
-				if err := t.contextCanceled(); err != nil {
-					t.fail(err)
-				}
-				continue
-			}
-			if id, ready := t.next(); ready {
-				if err := t.advance(id); err != nil {
-					t.fail(err)
-				}
-				continue
-			}
-		}
-		select {
-		case command := <-t.commands:
-			t.command(command)
-		case result := <-t.results:
-			t.completed(result)
-		case <-stopRequested:
-			t.stopWork()
-			stopRequested = nil
-		case <-hostDone:
-			hostDone = nil
-			if t.stopping {
-				continue
-			}
-			if err := t.contextCanceled(); err != nil {
-				t.fail(err)
-			}
-		}
+}
+
+func (t *treeRuntime) stopRequestedWork(events *treeEvents) {
+	t.stopWork()
+	events.stop = nil
+}
+
+func (t *treeRuntime) observeHostCancellation(events *treeEvents) bool {
+	if events.host == nil || t.host.Err() == nil {
+		return false
 	}
+	events.host = nil
+	t.failOn(t.contextCanceled())
+	return true
+}
+
+func (t *treeRuntime) advanceNext() bool {
+	id, ready := t.next()
+	if ready {
+		t.failOn(t.advance(id))
+	}
+	return ready
 }
 
 func (t *treeRuntime) stopWork() {
@@ -237,6 +260,12 @@ func (t *treeRuntime) stopWork() {
 	t.cancel()
 	for _, job := range t.jobs {
 		job.cancel()
+	}
+}
+
+func (t *treeRuntime) failOn(err error) {
+	if err != nil {
+		t.fail(err)
 	}
 }
 
@@ -311,29 +340,21 @@ func (t *treeRuntime) stepped(result stepResult) {
 	}
 	if result.err != nil {
 		if t.ctx.Err() != nil {
-			if err := t.contextCanceled(); err != nil {
-				t.fail(err)
-			}
+			t.failOn(t.contextCanceled())
 			return
 		}
 		failure, classified := StepFailure(result.err)
 		if !classified {
 			failure = newRuntimeFailure(failureKindForError(result.err, FailureKindExecution), failureCodeExecutionStepFailed, result.err)
 		}
-		if err := t.reject(p, failure); err != nil {
-			t.fail(err)
-		}
+		t.failOn(t.reject(p, failure))
 		return
 	}
 	if int(result.transition.Consumed()) > len(job.turn.Messages) {
-		if err := t.reject(p, newRuntimeFailure(FailureKindContract, failureCodeExecutionTransitionInvalid, ErrInvalidTransition)); err != nil {
-			t.fail(err)
-		}
+		t.failOn(t.reject(p, newRuntimeFailure(FailureKindContract, failureCodeExecutionTransitionInvalid, ErrInvalidTransition)))
 		return
 	}
-	if err := t.commitStep(p, job.turn, result.transition); err != nil {
-		t.fail(err)
-	}
+	t.failOn(t.commitStep(p, job.turn, result.transition))
 }
 
 func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transition) error {
@@ -695,9 +716,7 @@ func (t *treeRuntime) childPrepared(result childResult) {
 		t.fail(err)
 		return
 	}
-	if err := t.startNextChild(); err != nil {
-		t.fail(err)
-	}
+	t.failOn(t.startNextChild())
 }
 
 func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, failure Failure) error {
@@ -757,66 +776,60 @@ func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, erro
 }
 
 func (t *treeRuntime) command(request treeCommand) {
-	response := commandResponse{}
-	if t.failure != nil || t.stopping {
-		response.err = ErrClosed
-		request.reply <- response
-		return
-	}
 	p := t.state.processes[request.process]
-	if p == nil {
+	switch {
+	case !t.accepting():
+		request.reply <- commandResponse{err: ErrClosed}
+		return
+	case p == nil:
 		request.reply <- commandResponse{err: ErrProcessNotFound}
 		return
 	}
-	var records []Record
-	switch command := request.operation.(type) {
-	case signalCommand:
-		records, response.err = t.signals(p, command.signals)
-	case controlCommand:
-		control := ControlRequested{Process: request.process, Kind: command.kind, Reason: command.reason, At: canonicalTime(time.Now())}
-		if !control.valid() || p.exited != nil || command.kind == ControlPause && p.paused || command.kind == ControlResume && !p.paused {
-			response.err = ErrInvalidProcessControl
-		} else {
-			records = []Record{control}
-		}
-	case resolveCommand:
-		pending, ok := p.pending[command.id]
-		if !ok || pending.Outcome == nil || pending.Outcome.Status() != SettlementStatusUnknown || !command.outcome.Valid() || command.outcome.Status() == SettlementStatusUnknown || t.jobs[command.id] != nil {
-			response.err = ErrEffectNotPending
-		} else {
-			records = []Record{EffectSettled{ID: command.id, Outcome: command.outcome, At: canonicalTime(time.Now())}}
-		}
+	switch operation := request.operation.(type) {
 	case replayCommand:
-		pending, ok := p.pending[command.id]
-		if !ok || pending.Outcome == nil || t.jobs[command.id] != nil {
-			response.err = ErrEffectNotPending
-		} else if pending.Intent.Policy.Replay != ReplayPolicySameIdentity || p.terminal.Valid() {
-			response.err = ErrEffectReplayForbidden
-		} else {
-			response.err = t.dispatch(command.id, request.reply)
-			if response.err == nil {
-				return
-			}
+		t.replay(request, p, operation.id)
+	case recordingCommand:
+		records, err := operation.records(t, p)
+		if err == nil {
+			err = t.commitRequested(request, records)
 		}
+		request.reply <- commandResponse{accepted: err == nil && len(records) > 0, err: err}
 	default:
-		response.err = ErrInvalidProcessControl
+		request.reply <- commandResponse{err: ErrInvalidProcessControl}
 	}
-	if response.err == nil {
-		response.err = t.append(request.ctx, records)
-		if response.err != nil {
-			_, callback := errors.AsType[*callbackError](response.err)
-			if callback || !errors.Is(response.err, ErrResourceLimitExceeded) {
-				t.fail(response.err)
-			}
+}
+
+// commitRequested appends a Handle's records. Only a request over its resource
+// limit is the caller's error; any other append failure stops this writer.
+func (t *treeRuntime) commitRequested(request treeCommand, records []Record) error {
+	err := t.append(request.ctx, records)
+	if err != nil {
+		_, callback := errors.AsType[*callbackError](err)
+		if callback || !errors.Is(err, ErrResourceLimitExceeded) {
+			t.fail(err)
+		}
+		return err
+	}
+	if control, ok := request.operation.(controlCommand); ok && (control.kind == ControlCancel || control.kind == ControlKill) {
+		t.cancelJobs(request.process)
+	}
+	return nil
+}
+
+// replay redispatches an Unknown Effect that its policy allows to repeat; the
+// reply waits for the new settlement.
+func (t *treeRuntime) replay(request treeCommand, p *processState, id EffectID) {
+	pending, ok := p.pending[id]
+	switch {
+	case !ok || pending.Outcome == nil || t.jobs[id] != nil:
+		request.reply <- commandResponse{err: ErrEffectNotPending}
+	case pending.Intent.Policy.Replay != ReplayPolicySameIdentity || p.terminal.Valid():
+		request.reply <- commandResponse{err: ErrEffectReplayForbidden}
+	default:
+		if err := t.dispatch(id, request.reply); err != nil {
+			request.reply <- commandResponse{err: err}
 		}
 	}
-	if response.err == nil {
-		response.accepted = len(records) > 0
-		if control, ok := request.operation.(controlCommand); ok && (control.kind == ControlCancel || control.kind == ControlKill) {
-			t.cancelJobs(request.process)
-		}
-	}
-	request.reply <- response
 }
 
 type dispatchJob struct {

@@ -49,6 +49,23 @@ func (p *processState) status() Status {
 	}
 }
 
+func (p *processState) acceptsControl(kind ControlKind) bool {
+	switch kind {
+	case ControlPause:
+		return p.exited == nil && !p.paused
+	case ControlResume:
+		return p.exited == nil && p.paused
+	default:
+		return p.exited == nil && kind.Valid()
+	}
+}
+
+// unknownEffect reports whether id settled Unknown and awaits resolution.
+func (p *processState) unknownEffect(id EffectID) bool {
+	pending, ok := p.pending[id]
+	return ok && pending.Outcome != nil && pending.Outcome.Status() == SettlementStatusUnknown
+}
+
 func (p *processState) ready() bool {
 	return p.exited == nil && !p.terminal.Valid() && !p.paused && !p.yielded
 }
