@@ -27,7 +27,7 @@ func (t *treeState) apply(entry Entry) error {
 	if entry.LSN != t.head+1 {
 		return ErrInvalidLog
 	}
-	if err := t.applyRecord(entry.Record); err != nil {
+	if err := t.applyRecord(entry); err != nil {
 		return fmt.Errorf("%w: record %d: %w", ErrInvalidLog, entry.LSN, err)
 	}
 	if t.epoch != entry.Epoch {
@@ -37,13 +37,14 @@ func (t *treeState) apply(entry Entry) error {
 	return nil
 }
 
-func (t *treeState) applyRecord(record Record) error {
+func (t *treeState) applyRecord(entry Entry) error {
+	record := entry.Record
 	if err := t.admitDuringChildStart(record); err != nil {
 		return err
 	}
 	switch value := record.(type) {
 	case Started:
-		return t.start(value)
+		return t.start(value, entry.LSN)
 	case Activated:
 		return t.activate(value)
 	case EffectSettled:
@@ -204,11 +205,11 @@ func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outc
 	return ErrInvalidEffect
 }
 
-func (t *treeState) start(started Started) error {
+func (t *treeState) start(started Started, lsn LSN) error {
 	if !started.valid() || started.Process.Root() != t.root || t.processes[started.Process] != nil {
 		return ErrInvalidChildStart
 	}
-	if err := t.admitStart(started); err != nil {
+	if err := t.admitStart(started, lsn); err != nil {
 		return err
 	}
 	if t.startedProcesses == math.MaxUint64 {
@@ -222,7 +223,7 @@ func (t *treeState) start(started Started) error {
 	return nil
 }
 
-func (t *treeState) admitStart(started Started) error {
+func (t *treeState) admitStart(started Started, lsn LSN) error {
 	parentID, child := started.Process.Parent()
 	if !child {
 		if len(t.processes) != 0 {
@@ -242,7 +243,7 @@ func (t *treeState) admitStart(started Started) error {
 	if !parent.spawns(spec) {
 		return ErrInvalidChildStart
 	}
-	if err := parent.adopt(spec); err != nil {
+	if err := parent.adopt(spec, lsn); err != nil {
 		return err
 	}
 	t.unsettledChild = started.Process
@@ -365,6 +366,23 @@ func (t *treeState) checkpoint() (Checkpoint, error) {
 		value.Processes = append(value.Processes, process)
 	}
 	return value, nil
+}
+
+// reapedSubtree finds the reaped ancestor-or-self of process whose parent is
+// still live, with the LSN at which that parent started it.
+func (t *treeState) reapedSubtree(process ProcessID) (ProcessID, LSN, bool) {
+	for subtree := process; ; {
+		parentID, child := subtree.Parent()
+		if !child {
+			return ProcessID{}, 0, false
+		}
+		if parent := t.processes[parentID]; parent != nil {
+			key, _ := subtree.Key()
+			started, adopted := parent.children[key]
+			return subtree, started, adopted
+		}
+		subtree = parentID
+	}
 }
 
 func projectLog(log Log) (*treeState, error) {

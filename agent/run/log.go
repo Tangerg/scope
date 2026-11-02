@@ -303,13 +303,19 @@ func (c Checkpoint) clone() Checkpoint {
 	return c
 }
 
+// StartedChild records where a child's Started entry sits in the log.
+type StartedChild struct {
+	Key     ChildKey `json:"key"`
+	Started LSN      `json:"started"`
+}
+
 type ProcessCheckpoint struct {
 	Started   Started             `json:"started"`
 	State     ExecutionState      `json:"state,omitzero"`
 	Step      uint64              `json:"step"`
 	Inbox     Inbox               `json:"inbox"`
 	Receipts  []SignalReceipt     `json:"receipts"`
-	ChildKeys []ChildKey          `json:"child_keys"`
+	Children  []StartedChild      `json:"children"`
 	Waits     []Wait              `json:"waits"`
 	Pending   []PendingCheckpoint `json:"pending"`
 	Usage     Usage               `json:"usage"`
@@ -323,10 +329,21 @@ type ProcessCheckpoint struct {
 // A live process is exactly one that still owns ExecutionState; an exit must
 // repeat the terminal intent it completed.
 func (p ProcessCheckpoint) valid() bool {
-	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) {
+	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) || !p.childrenValid() {
 		return false
 	}
 	return p.Exited == nil || p.Terminal != nil && p.Exited.valid() && p.Exited.Process == p.Started.Process && p.Terminal.equal(p.Exited.Termination)
+}
+
+// childrenValid requires the canonical key order the materialization writes,
+// which also rules out a key naming two children.
+func (p ProcessCheckpoint) childrenValid() bool {
+	for index, child := range p.Children {
+		if !child.Key.Valid() || child.Started == 0 || index > 0 && p.Children[index-1].Key.String() >= child.Key.String() {
+			return false
+		}
+	}
+	return true
 }
 
 func (p ProcessCheckpoint) process() *processState {
@@ -336,8 +353,8 @@ func (p ProcessCheckpoint) process() *processState {
 	for _, receipt := range p.Receipts {
 		process.receipts[receipt.ID] = receipt
 	}
-	for _, key := range p.ChildKeys {
-		process.childKeys[key] = struct{}{}
+	for _, child := range p.Children {
+		process.children[child.Key] = child.Started
 	}
 	for _, wait := range p.Waits {
 		process.waits[wait.Key] = wait
@@ -358,7 +375,7 @@ func (p ProcessCheckpoint) process() *processState {
 func (p ProcessCheckpoint) clone() ProcessCheckpoint {
 	p.Inbox = slices.Clone(p.Inbox)
 	p.Receipts = slices.Clone(p.Receipts)
-	p.ChildKeys = slices.Clone(p.ChildKeys)
+	p.Children = slices.Clone(p.Children)
 	p.Waits = slices.Clone(p.Waits)
 	p.Pending = slices.Clone(p.Pending)
 	for index := range p.Pending {

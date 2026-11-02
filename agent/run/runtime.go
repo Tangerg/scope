@@ -423,22 +423,36 @@ func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
 }
 
 func (r *Runtime) read(ctx context.Context, root ProcessID, after LSN) ([]Entry, error) {
-	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
-	defer cancel()
-	entries, err := invokeCallback("Store.Read", func() ([]Entry, error) {
-		var entries []Entry
-		for entry, err := range r.store.Read(ctx, root, after) {
-			if err != nil {
-				return nil, err
-			}
-			if entry.LSN != after+LSN(len(entries))+1 || !entry.belongsTo(root) {
-				return nil, ErrInvalidLog
-			}
-			entries = append(entries, entry)
-		}
-		return entries, nil
+	var entries []Entry
+	err := r.scan(ctx, root, after, func(entry Entry) bool {
+		entries = append(entries, entry)
+		return true
 	})
 	return entries, err
+}
+
+// scan visits root's history after an LSN until visit returns false, so a
+// reader that knows where its facts end stops there instead of at the head.
+func (r *Runtime) scan(ctx context.Context, root ProcessID, after LSN, visit func(Entry) bool) error {
+	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
+	defer cancel()
+	_, err := invokeCallback("Store.Read", func() (struct{}, error) {
+		next := after + 1
+		for entry, err := range r.store.Read(ctx, root, after) {
+			if err != nil {
+				return struct{}{}, err
+			}
+			if entry.LSN != next || !entry.belongsTo(root) {
+				return struct{}{}, ErrInvalidLog
+			}
+			next++
+			if !visit(entry) {
+				break
+			}
+		}
+		return struct{}{}, nil
+	})
+	return err
 }
 
 // Answered reports whether wait already admitted exactly this answer, so a
@@ -475,23 +489,35 @@ func (r *Runtime) receipts(ctx context.Context, process ProcessID) (map[SignalID
 	if live := state.processes[process]; live != nil {
 		return live.receipts, live.exited != nil, nil
 	}
-	history, err := r.read(ctx, process.Root(), 0)
-	if err != nil {
-		return nil, false, err
+	subtree, started, found := state.reapedSubtree(process)
+	if !found {
+		return nil, false, ErrProcessNotFound
 	}
+	return r.reapedReceipts(ctx, process, subtree, started)
+}
+
+// reapedReceipts reads history only across the lifetime of the reaped subtree
+// that contains process: from its Started record to its Reaped record.
+func (r *Runtime) reapedReceipts(ctx context.Context, process, subtree ProcessID, started LSN) (map[SignalID]SignalReceipt, bool, error) {
 	receipts := make(map[SignalID]SignalReceipt)
-	started := false
-	for _, entry := range history {
+	found := false
+	err := r.scan(ctx, process.Root(), started-1, func(entry Entry) bool {
 		switch record := entry.Record.(type) {
 		case Started:
-			started = started || record.Process == process
+			found = found || record.Process == process
 		case SignalAdmitted:
 			if record.Process == process {
 				receipts[record.Signal.ID] = record.Signal.receipt()
 			}
+		case Reaped:
+			return record.Process != process && record.Process != subtree
 		}
+		return true
+	})
+	if err != nil {
+		return nil, false, err
 	}
-	if !started {
+	if !found {
 		return nil, false, ErrProcessNotFound
 	}
 	return receipts, true, nil

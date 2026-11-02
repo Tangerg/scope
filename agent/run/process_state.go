@@ -9,13 +9,16 @@ import (
 )
 
 type processState struct {
-	done             chan struct{}
-	queued           bool
-	started          Started
-	step             uint64
-	inbox            Inbox
-	receipts         map[SignalID]SignalReceipt
-	childKeys        map[ChildKey]struct{}
+	done     chan struct{}
+	queued   bool
+	started  Started
+	step     uint64
+	inbox    Inbox
+	receipts map[SignalID]SignalReceipt
+	// children keeps every key this process has started, even after reaping, so
+	// a key never names a second child. The LSN of each child's Started record
+	// bounds the history read that answers for the subtree once it is reaped.
+	children         map[ChildKey]LSN
 	waits            map[WaitKey]Wait
 	pending          map[EffectID]PendingCheckpoint
 	usage            Usage
@@ -32,7 +35,7 @@ type processState struct {
 }
 
 func newProcessState(started Started) *processState {
-	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), childKeys: make(map[ChildKey]struct{}), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
+	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), children: make(map[ChildKey]LSN), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
 }
 
 func (p *processState) status() Status {
@@ -196,23 +199,23 @@ func (p *processState) spawns(spec ChildSpec) bool {
 
 // startedChildren counts every child this process has started, reaped or not,
 // because each one permanently claimed a key.
-func (p *processState) startedChildren() uint64 { return uint64(len(p.childKeys)) }
+func (p *processState) startedChildren() uint64 { return uint64(len(p.children)) }
 
 func (p *processState) adopted(key ChildKey) bool {
-	_, adopted := p.childKeys[key]
+	_, adopted := p.children[key]
 	return adopted
 }
 
 // adopt debits the child's grant and claims its key for this parent's
 // lifetime; a key never names a second child, even after the first is reaped.
-func (p *processState) adopt(spec ChildSpec) error {
+func (p *processState) adopt(spec ChildSpec, started LSN) error {
 	debit, _ := p.started.Budget.allocation(spec.Budget)
 	allocated, ok := p.allocated.add(debit)
 	if !ok {
 		return ErrCounterExhausted
 	}
 	p.allocated = allocated
-	p.childKeys[spec.Key] = struct{}{}
+	p.children[spec.Key] = started
 	p.activeChildren++
 	p.retainedChildren++
 	return nil
@@ -237,7 +240,9 @@ func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 		value.Terminal = &terminal
 	}
 	value.Receipts = slices.SortedFunc(maps.Values(p.receipts), func(a, b SignalReceipt) int { return strings.Compare(a.ID.String(), b.ID.String()) })
-	value.ChildKeys = slices.SortedFunc(maps.Keys(p.childKeys), func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) })
+	for _, key := range slices.SortedFunc(maps.Keys(p.children), func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) }) {
+		value.Children = append(value.Children, StartedChild{Key: key, Started: p.children[key]})
+	}
 	value.Waits = p.orderedWaits()
 	value.Pending = p.orderedPending()
 	return value

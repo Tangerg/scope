@@ -394,7 +394,8 @@ func TestTerminalSignalRetriesUseTheCommittedReceipt(t *testing.T) {
 }
 
 func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
-	runtime := kernelRuntime(t, Config{})
+	store := &readSpanStore{Store: NewMemoryStore()}
+	runtime := kernelRuntime(t, Config{Store: store})
 	child := lifecycleEchoProgram(t, runtime, "test.child_receipt")
 	parent := &treeFixtureDefinition{descriptor: kernelDescriptor(t, "test.parent_receipt"), children: []Program[Payload, Payload]{child.Erase()}, hold: true}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: parent, Revision: "one"}))
@@ -402,9 +403,13 @@ func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	childID := controlValue(handle.ID().Child(controlValue(ParseChildKey("child-0"))))
+	var childStarted, childReaped LSN
 	for entry, err := range handle.Observe(ctx, 0) {
 		if err != nil {
 			t.Fatal(err)
+		}
+		if started, ok := entry.Record.(Started); ok && started.Process == childID {
+			childStarted = entry.LSN
 		}
 		if stepped, ok := entry.Record.(Stepped); ok && stepped.Process == childID {
 			break
@@ -422,14 +427,23 @@ func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
 			t.Fatal(err)
 		}
 		if reaped, ok := entry.Record.(Reaped); ok && reaped.Process == childID {
+			childReaped = entry.LSN
 			break
 		}
 	}
 	if _, found := runtime.Process(childID); found {
 		t.Fatal("drained child still owns active process state")
 	}
+	store.span.Store(nil)
 	if err := childHandle.Answer(ctx, kernelWait().Key, 42); err != nil {
 		t.Fatalf("reaped child lost acknowledged answer receipt: %v", err)
+	}
+	if span := store.span.Load(); span == nil || span.after != childStarted-1 || span.last != childReaped {
+		t.Fatalf("receipt lookup read %+v, want the child's lifetime (%d, %d]", span, childStarted-1, childReaped)
+	}
+	absent := controlValue(handle.ID().Child(controlValue(ParseChildKey("never-started"))))
+	if _, err := runtime.Answered(ctx, absent, kernelWait().Key, controlValue(EncodePayload(42))); !errors.Is(err, ErrProcessNotFound) {
+		t.Fatalf("unstarted child answered with %v", err)
 	}
 	if err := childHandle.Answer(ctx, kernelWait().Key, 43); !errors.Is(err, ErrSignalConflict) {
 		t.Fatalf("changed answer after Reaped=%v", err)
@@ -439,6 +453,30 @@ func TestReapedChildAnswerRetryUsesHistoricalReceipt(t *testing.T) {
 	}
 	if _, err := handle.Await(ctx); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// readSpanStore records the LSN range of the latest history read, so a test
+// can prove a lookup stopped where its facts end instead of at the head.
+type readSpanStore struct {
+	Store
+	span atomic.Pointer[readSpan]
+}
+
+type readSpan struct{ after, last LSN }
+
+func (r *readSpanStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
+	return func(yield func(Entry, error) bool) {
+		span := &readSpan{after: after, last: after}
+		r.span.Store(span)
+		for entry, err := range r.Store.Read(ctx, root, after) {
+			if err == nil {
+				span.last = entry.LSN
+			}
+			if !yield(entry, err) {
+				return
+			}
+		}
 	}
 }
 

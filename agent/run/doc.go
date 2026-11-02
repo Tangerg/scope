@@ -2,7 +2,10 @@
 // Store.Append acknowledges every Effect intent before dispatch and every
 // settlement before another Step can consume it. A Checkpoint materializes its
 // prefix: recovery starts from the newest one, re-executes only the Steps after
-// it, and rejects code whose replayed Transition differs from the log.
+// it, and rejects code whose replayed Transition differs from the log. The
+// Checkpoint is the authority for its prefix: recovery never re-executes the
+// Steps it covers, so nondeterministic code is detected only in Steps after
+// the newest Checkpoint.
 //
 // A Runtime owns the host Build identity. Its Compiler capability lets strategy
 // packages freeze declarations into Program references without exposing the
@@ -19,9 +22,11 @@
 //
 // Process paths own ancestry. A child key cannot be reused within its parent's
 // lifetime because that would also reuse Effect identities, so each parent
-// keeps the keys it has used; MaxChildren bounds them. A child's state leaves
-// the tree once its Exit is consumed and Reaped is appended, after which its
-// Signal receipts remain answerable from history through Runtime.Answered.
+// keeps every key it has started with the LSN of that child's Started record.
+// The set grows with every child started and is bounded only when
+// TreeLimits.MaxChildren is. A child's state leaves the tree once its Exit is
+// consumed and Reaped is appended; Runtime.Answered then reads only the history
+// of that child's subtree, from its Started record to its Reaped record.
 //
 // Completion carries a definite Effect outcome. An Unknown outcome stays pending
 // until explicit resolution or a permitted replay under the same EffectID. Exit
