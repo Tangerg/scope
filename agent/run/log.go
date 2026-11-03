@@ -292,62 +292,8 @@ func (c Checkpoint) tree(root ProcessID, entry Entry) (*treeState, error) {
 		}
 		state.processes[id] = captured.process()
 	}
-	rootProcess := state.processes[root]
-	if rootProcess == nil {
-		return nil, ErrInvalidLog
-	}
-	state.limits = rootProcess.started.Limits
-	if !state.limits.admitsTreeSize(c.StartedProcesses) {
-		return nil, ErrInvalidLog
-	}
-	claimedStarts := make(map[LSN]struct{})
-	knownProcesses := uint64(1)
-	grants := make(map[ProcessID]resourceAmounts)
-	for id, process := range state.processes {
-		if !state.limits.admitsDepth(id.Depth()) || !resourceQuantitiesFit(c.StartedProcesses, knownProcesses, process.startedChildren()) {
-			return nil, ErrInvalidLog
-		}
-		knownProcesses += process.startedChildren()
-		for _, started := range process.children {
-			if _, duplicate := claimedStarts[started]; duplicate || started >= entry.LSN {
-				return nil, ErrInvalidLog
-			}
-			claimedStarts[started] = struct{}{}
-		}
-		parentID, child := id.Parent()
-		if !child {
-			continue
-		}
-		parent := state.processes[parentID]
-		key, _ := id.Key()
-		if parent == nil || parent.exited != nil || !parent.adopted(key) || process.started.Program.Build() != parent.started.Program.Build() || !parent.started.Capabilities.Allows(process.started.Capabilities) {
-			return nil, ErrInvalidLog
-		}
-		debit, allowed := parent.started.Budget.allocation(process.started.Budget)
-		if !allowed {
-			return nil, ErrInvalidLog
-		}
-		allocated, ok := grants[parentID].add(debit)
-		if !ok {
-			return nil, ErrInvalidLog
-		}
-		grants[parentID] = allocated
-		parent.retainedChildren++
-		if process.exited == nil {
-			parent.activeChildren++
-		}
-	}
-	for id, process := range state.processes {
-		minimum := grants[id]
-		if process.allocated.Steps < minimum.Steps || process.allocated.Effects < minimum.Effects || process.allocated.Messages < minimum.Messages || !state.limits.admitsChildren(process.startedChildren(), uint64(process.activeChildren)) || process.admitMessages(state.limits, 0, nil, 0) != nil {
-			return nil, ErrInvalidLog
-		}
-		if process.exited != nil && (process.retainedChildren != 0 || len(process.pending) != 0) {
-			return nil, ErrInvalidLog
-		}
-		if !state.checkpointExitsValid(process) {
-			return nil, ErrInvalidLog
-		}
+	if err := state.restoreFromCheckpoint(entry.LSN); err != nil {
+		return nil, err
 	}
 	return state, nil
 }

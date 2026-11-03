@@ -102,6 +102,10 @@ func (r resourceAmounts) add(other resourceAmounts) (resourceAmounts, bool) {
 	return resourceAmounts{Steps: r.Steps + other.Steps, Effects: r.Effects + other.Effects, Messages: r.Messages + other.Messages}, true
 }
 
+func (r resourceAmounts) covers(other resourceAmounts) bool {
+	return r.Steps >= other.Steps && r.Effects >= other.Effects && r.Messages >= other.Messages
+}
+
 func resourceQuantitiesFit(limit uint64, quantities ...uint64) bool {
 	remaining := limit
 	for _, quantity := range quantities {

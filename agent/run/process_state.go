@@ -210,19 +210,44 @@ func (p *processState) adopted(key ChildKey) bool {
 	return adopted
 }
 
+// childDebit is the static half of child admission: what p grants a child with
+// these terms. Live admission and checkpoint restoration both apply it, so a
+// restored tree can never hold a grant admission would have refused.
+func (p *processState) childDebit(spec ChildSpec) (resourceAmounts, error) {
+	if spec.ProgramRef.Build() != p.started.Program.Build() {
+		return resourceAmounts{}, ErrInvalidProgram
+	}
+	if !p.started.Capabilities.Allows(spec.Capabilities) {
+		return resourceAmounts{}, ErrResourceLimitExceeded
+	}
+	debit, allowed := p.started.Budget.allocation(spec.Budget)
+	if !allowed {
+		return resourceAmounts{}, ErrResourceLimitExceeded
+	}
+	return debit, nil
+}
+
 // adopt debits the child's grant and claims its key for this parent's
 // lifetime; a key never names a second child, even after the first is reaped.
-func (p *processState) adopt(spec ChildSpec, started LSN) error {
-	debit, _ := p.started.Budget.allocation(spec.Budget)
+func (p *processState) adopt(key ChildKey, debit resourceAmounts, started LSN) error {
 	allocated, ok := p.allocated.add(debit)
 	if !ok {
 		return ErrCounterExhausted
 	}
 	p.allocated = allocated
-	p.children[spec.Key] = started
+	p.children[key] = started
 	p.activeChildren++
 	p.retainedChildren++
 	return nil
+}
+
+// restoredConsistently reports whether checkpointed accounting covers what p
+// has granted its children and still fits the tree's limits.
+func (p *processState) restoredConsistently(limits TreeLimits, granted resourceAmounts) bool {
+	if !p.allocated.covers(granted) || !limits.admitsChildren(p.startedChildren(), uint64(p.activeChildren)) || p.admitMessages(limits, 0, nil, 0) != nil {
+		return false
+	}
+	return p.exited == nil || p.retainedChildren == 0 && len(p.pending) == 0
 }
 
 func (p *processState) checkpoint() (ProcessCheckpoint, error) {

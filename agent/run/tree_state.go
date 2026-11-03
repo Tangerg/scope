@@ -237,13 +237,14 @@ func (t *treeState) admitStart(started Started, lsn LSN) error {
 		return err
 	}
 	spec := started.childSpec()
-	if err := t.admitChild(parent, spec); err != nil {
+	debit, err := t.admitChild(parent, spec)
+	if err != nil {
 		return err
 	}
 	if !parent.spawns(spec) {
 		return ErrInvalidChildStart
 	}
-	if err := parent.adopt(spec, lsn); err != nil {
+	if err := parent.adopt(spec.Key, debit, lsn); err != nil {
 		return err
 	}
 	t.unsettledChild = started.Process
@@ -351,6 +352,72 @@ func (t *treeState) children(parent ProcessID) []ProcessID {
 	return children
 }
 
+// restoreFromCheckpoint re-derives the membership counters a Checkpoint does
+// not store, through the same grant rule live admission applies, and rejects
+// a Checkpoint no sequence of admissions could have produced.
+func (t *treeState) restoreFromCheckpoint(cut LSN) error {
+	root := t.processes[t.root]
+	if root == nil {
+		return ErrInvalidLog
+	}
+	t.limits = root.started.Limits
+	if !t.limits.admitsTreeSize(t.startedProcesses) {
+		return ErrInvalidLog
+	}
+	granted, err := t.restoreChildren(cut)
+	if err != nil {
+		return err
+	}
+	for id, process := range t.processes {
+		if !process.restoredConsistently(t.limits, granted[id]) || !t.checkpointExitsValid(process) {
+			return ErrInvalidLog
+		}
+	}
+	return nil
+}
+
+// restoreChildren returns what each parent has granted its retained children.
+func (t *treeState) restoreChildren(cut LSN) (map[ProcessID]resourceAmounts, error) {
+	claimedStarts := make(map[LSN]struct{})
+	knownProcesses := uint64(1)
+	granted := make(map[ProcessID]resourceAmounts)
+	for id, process := range t.processes {
+		if !t.limits.admitsDepth(id.Depth()) || !resourceQuantitiesFit(t.startedProcesses, knownProcesses, process.startedChildren()) {
+			return nil, ErrInvalidLog
+		}
+		knownProcesses += process.startedChildren()
+		for _, started := range process.children {
+			if _, duplicate := claimedStarts[started]; duplicate || started >= cut {
+				return nil, ErrInvalidLog
+			}
+			claimedStarts[started] = struct{}{}
+		}
+		parentID, child := id.Parent()
+		if !child {
+			continue
+		}
+		parent := t.processes[parentID]
+		key, _ := id.Key()
+		if parent == nil || parent.exited != nil || !parent.adopted(key) {
+			return nil, ErrInvalidLog
+		}
+		debit, err := parent.childDebit(process.started.childSpec())
+		if err != nil {
+			return nil, ErrInvalidLog
+		}
+		total, fits := granted[parentID].add(debit)
+		if !fits {
+			return nil, ErrInvalidLog
+		}
+		granted[parentID] = total
+		parent.retainedChildren++
+		if process.exited == nil {
+			parent.activeChildren++
+		}
+	}
+	return granted, nil
+}
+
 func (t *treeState) checkpointExitsValid(process *processState) bool {
 	var exits uint64
 	for _, message := range process.inbox {
@@ -451,35 +518,34 @@ func (t *treeState) inspect() TreeInspection {
 	return view
 }
 
-func (t *treeState) admitChild(parent *processState, spec ChildSpec) error {
+// admitChild applies the live half of child admission on top of the grant the
+// parent can make, and returns that grant for the parent to debit.
+func (t *treeState) admitChild(parent *processState, spec ChildSpec) (resourceAmounts, error) {
 	if parent.exited != nil || parent.terminal.Valid() {
-		return ErrInvalidChildStart
+		return resourceAmounts{}, ErrInvalidChildStart
 	}
 	if parent.activeChildren == math.MaxUint32 || parent.retainedChildren == math.MaxUint32 {
-		return ErrCounterExhausted
+		return resourceAmounts{}, ErrCounterExhausted
 	}
-	if spec.ProgramRef.Build() != parent.started.Program.Build() {
-		return ErrInvalidProgram
+	debit, err := parent.childDebit(spec)
+	if err != nil {
+		return resourceAmounts{}, err
 	}
 	child, err := parent.started.Process.Child(spec.Key)
 	if err != nil {
-		return err
+		return resourceAmounts{}, err
 	}
 	if parent.adopted(spec.Key) {
-		return ErrInvalidChildStart
+		return resourceAmounts{}, ErrInvalidChildStart
 	}
 	if t.startedProcesses == math.MaxUint64 {
-		return ErrCounterExhausted
+		return resourceAmounts{}, ErrCounterExhausted
 	}
 	if !t.limits.admitsDepth(child.Depth()) || !t.limits.admitsChildren(parent.startedChildren()+1, uint64(parent.activeChildren)+1) || !t.limits.admitsTreeSize(t.startedProcesses+1) {
-		return ErrResourceLimitExceeded
+		return resourceAmounts{}, ErrResourceLimitExceeded
 	}
-	if !parent.started.Budget.canAllocate(parent.usage, parent.allocated, spec.Budget) || !parent.started.Capabilities.Allows(spec.Capabilities) {
-		return ErrResourceLimitExceeded
+	if !parent.started.Budget.canAllocate(parent.usage, parent.allocated, spec.Budget) || !parent.started.Budget.Messages.Allows(parent.usage.AcceptedMessages, parent.allocated.Messages, debit.Messages, parent.reservedMessages(nil)) {
+		return resourceAmounts{}, ErrResourceLimitExceeded
 	}
-	debit, ok := parent.started.Budget.allocation(spec.Budget)
-	if !ok || !parent.started.Budget.Messages.Allows(parent.usage.AcceptedMessages, parent.allocated.Messages, debit.Messages, parent.reservedMessages(nil)) {
-		return ErrResourceLimitExceeded
-	}
-	return nil
+	return debit, nil
 }

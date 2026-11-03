@@ -657,7 +657,7 @@ func (t *treeRuntime) startNextChild() error {
 			continue
 		}
 		spec := *pending.Intent.Effect.spawn
-		if err := t.state.admitChild(parent, spec); err != nil {
+		if _, err := t.state.admitChild(parent, spec); err != nil {
 			if settleErr := t.settleChildRequest(id, nil, newRuntimeFailure(FailureKindContract, failureCodeRuntimeChildRequestInvalid, err)); settleErr != nil {
 				return settleErr
 			}
@@ -718,7 +718,7 @@ func (t *treeRuntime) childPrepared(result childResult) {
 		result.failure = newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished)
 	} else if result.child != nil {
 		spec := parent.pending[result.id].Intent.Effect.spawn
-		if err := t.state.admitChild(parent, *spec); err != nil {
+		if _, err := t.state.admitChild(parent, *spec); err != nil {
 			result.child = nil
 			result.failure = newRuntimeFailure(FailureKindContract, failureCodeRuntimeChildRequestInvalid, err)
 		}
