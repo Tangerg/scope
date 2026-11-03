@@ -50,7 +50,7 @@ func TestReferencesRemainSelfContainedAcrossSections(t *testing.T) {
 			t.Fatalf("invalid reference fixture: %q", source)
 		}
 		t.Run("splitter", func(t *testing.T) {
-			splitter, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: runeTokenizer{}, MaxTokensPerChunk: 1000})
+			splitter, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: runeTokenizer{}, MaxTokensPerChunk: 1000})
 			if err != nil {
 				t.Fatal(err)
 			}

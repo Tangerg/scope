@@ -43,9 +43,9 @@ func TestTokenizerFailureNeverPublishesAPartialMarkdownResult(t *testing.T) {
 	} {
 		t.Run(source, func(t *testing.T) {
 			baseline := &faultTokenizer{}
-			build := func(codec *faultTokenizer) *markdownsplitter.Splitter {
+			build := func(codec *faultTokenizer) *markdownsplitter.TextSplitter {
 				t.Helper()
-				splitter, err := markdownsplitter.NewSplitter(markdownsplitter.SplitterConfig{Tokenizer: codec, MaxTokensPerChunk: 28})
+				splitter, err := markdownsplitter.NewTextSplitter(markdownsplitter.TextSplitterConfig{Tokenizer: codec, MaxTokensPerChunk: 28})
 				if err != nil {
 					t.Fatal(err)
 				}

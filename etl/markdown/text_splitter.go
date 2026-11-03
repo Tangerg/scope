@@ -16,7 +16,6 @@ import (
 	extensionast "github.com/yuin/goldmark/v2/extension/ast"
 	"github.com/yuin/goldmark/v2/parser"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/etl"
 	"github.com/Tangerg/scope/etl/internal/tokenwindow"
@@ -33,9 +32,9 @@ const (
 // losing its semantic boundary.
 var ErrSemanticUnitTooLarge = errors.New("markdown splitter: semantic unit exceeds token limit")
 
-// SplitterConfig configures structure-aware Markdown chunking. Zero limits use
+// TextSplitterConfig configures structure-aware Markdown chunking. Zero limits use
 // documented defaults; negative limits are rejected.
-type SplitterConfig struct {
+type TextSplitterConfig struct {
 	Tokenizer tokenizer.Tokenizer
 
 	MaxTokensPerChunk int
@@ -43,22 +42,20 @@ type SplitterConfig struct {
 	// MaxSearchWork bounds each paragraph prefix search in bytes rendered or
 	// encoded plus tokens decoded; zero uses etl.DefaultMaxSearchWork.
 	MaxSearchWork int
-	IDGenerator   etl.IDGenerator
 }
 
-// Splitter produces token-bounded Markdown chunks without severing tables,
+// TextSplitter is the etl.TextSplitter that produces token-bounded Markdown chunks without severing tables,
 // list items, or code lines. Active heading ancestry is repeated in each chunk
 // so independently retrieved chunks retain their section context.
-type Splitter struct {
+type TextSplitter struct {
 	parser            parser.Parser
 	tokenizer         tokenizer.Tokenizer
 	maxTokensPerChunk int
 	maxChunks         int
 	maxSearchWork     int
-	base              *etl.Splitter
 }
 
-func NewSplitter(config SplitterConfig) (*Splitter, error) {
+func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 	if lo.IsNil(config.Tokenizer) {
 		return nil, errors.New("markdown splitter: tokenizer is required")
 	}
@@ -75,27 +72,18 @@ func NewSplitter(config SplitterConfig) (*Splitter, error) {
 		config.MaxChunks = defaultMaxChunks
 	}
 
-	splitter := &Splitter{
+	return &TextSplitter{
 		parser:            parser.New(parser.WithExtensions(extension.TableParser)),
 		tokenizer:         config.Tokenizer,
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		maxChunks:         config.MaxChunks,
 		maxSearchWork:     config.MaxSearchWork,
-	}
-	base, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc:   splitter.SplitText,
-		IDGenerator: config.IDGenerator,
-	})
-	if err != nil {
-		return nil, err
-	}
-	splitter.base = base
-	return splitter, nil
+	}, nil
 }
 
 // SplitText splits one Markdown source string. Every returned chunk is
 // non-empty and within MaxTokensPerChunk. The total is bounded by MaxChunks.
-func (s *Splitter) SplitText(ctx context.Context, source string) ([]string, error) {
+func (s *TextSplitter) SplitText(ctx context.Context, source string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -122,10 +110,6 @@ func (s *Splitter) SplitText(ctx context.Context, source string) ([]string, erro
 		chunks = append(chunks, sectionChunks...)
 	}
 	return chunks, nil
-}
-
-func (s *Splitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
-	return s.base.Split(ctx, docs)
 }
 
 type blockKind uint8
@@ -192,7 +176,7 @@ func (s *sectionBuilder) finish() []markdownSection {
 	return s.sections
 }
 
-func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
+func (s *TextSplitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
 	source, root, err := resolveReferences(ctx, s.parser, source)
 	if err != nil {
 		return nil, err
@@ -278,7 +262,7 @@ func childSources(source []byte, parent ast.Node, parentEnd int) []string {
 	return parts
 }
 
-func (s *Splitter) splitSection(ctx context.Context, section markdownSection) ([]string, error) {
+func (s *TextSplitter) splitSection(ctx context.Context, section markdownSection) ([]string, error) {
 	prefix := strings.Join(section.headings, "\n\n")
 	if len(section.blocks) == 0 {
 		if err := s.requireFits(ctx, blockAtomic, prefix); err != nil {
@@ -330,7 +314,7 @@ func (s *Splitter) splitSection(ctx context.Context, section markdownSection) ([
 	return chunks, nil
 }
 
-func (s *Splitter) splitBlock(ctx context.Context, prefix string, block markdownBlock) ([]string, error) {
+func (s *TextSplitter) splitBlock(ctx context.Context, prefix string, block markdownBlock) ([]string, error) {
 	fits, err := s.fits(ctx, renderChunk(prefix, block.text))
 	if err != nil {
 		return nil, err
@@ -360,7 +344,7 @@ func (s *Splitter) splitBlock(ctx context.Context, prefix string, block markdown
 	}
 }
 
-func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
+func (s *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
 	paragraph = strings.TrimSpace(paragraph)
 	protected := inlineRanges(s.parser, paragraph)
 	offset := 0
@@ -402,7 +386,7 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 	return chunks, nil
 }
 
-func (s *Splitter) splitTable(ctx context.Context, prefix, table string) ([]string, error) {
+func (s *TextSplitter) splitTable(ctx context.Context, prefix, table string) ([]string, error) {
 	lines := nonEmptyLines(table)
 	if len(lines) < minimumTableLines {
 		return nil, s.semanticUnitError(ctx, blockTable, renderChunk(prefix, table))
@@ -413,7 +397,7 @@ func (s *Splitter) splitTable(ctx context.Context, prefix, table string) ([]stri
 	})
 }
 
-func (s *Splitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
+func (s *TextSplitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
 	lines := strings.Split(code, "\n")
 	opening := lines[0]
 	closing := closingFence(opening)
@@ -427,7 +411,7 @@ func (s *Splitter) splitFencedCode(ctx context.Context, prefix, code string) ([]
 	})
 }
 
-func (s *Splitter) groupSemanticUnits(
+func (s *TextSplitter) groupSemanticUnits(
 	ctx context.Context,
 	prefix string,
 	kind blockKind,
@@ -478,7 +462,7 @@ func (s *Splitter) groupSemanticUnits(
 	return groups, nil
 }
 
-func (s *Splitter) requireFits(ctx context.Context, kind blockKind, value string) error {
+func (s *TextSplitter) requireFits(ctx context.Context, kind blockKind, value string) error {
 	fits, err := s.fits(ctx, value)
 	if err != nil {
 		return err
@@ -489,7 +473,7 @@ func (s *Splitter) requireFits(ctx context.Context, kind blockKind, value string
 	return s.semanticUnitError(ctx, kind, value)
 }
 
-func (s *Splitter) semanticUnitError(ctx context.Context, kind blockKind, value string) error {
+func (s *TextSplitter) semanticUnitError(ctx context.Context, kind blockKind, value string) error {
 	count, err := s.tokenCount(ctx, value)
 	if err != nil {
 		return err
@@ -503,7 +487,7 @@ func (s *Splitter) semanticUnitError(ctx context.Context, kind blockKind, value 
 	)
 }
 
-func (s *Splitter) fits(ctx context.Context, value string) (bool, error) {
+func (s *TextSplitter) fits(ctx context.Context, value string) (bool, error) {
 	count, err := s.tokenCount(ctx, value)
 	if err != nil {
 		return false, err
@@ -511,7 +495,7 @@ func (s *Splitter) fits(ctx context.Context, value string) (bool, error) {
 	return count <= s.maxTokensPerChunk, nil
 }
 
-func (s *Splitter) tokenCount(ctx context.Context, value string) (int, error) {
+func (s *TextSplitter) tokenCount(ctx context.Context, value string) (int, error) {
 	tokens, err := s.tokenizer.Encode(ctx, value)
 	if err != nil {
 		return 0, fmt.Errorf("markdown splitter: measure chunk: %w", err)

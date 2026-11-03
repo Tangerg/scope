@@ -81,7 +81,7 @@ func TestSplittersMeasureFinalTextAfterTrimmingAndRendering(t *testing.T) {
 			if name == "plain" {
 				splitter, err = etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: codec, MaxTokensPerChunk: limit})
 			} else {
-				splitter, err = markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: codec, MaxTokensPerChunk: limit})
+				splitter, err = markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: codec, MaxTokensPerChunk: limit})
 			}
 			if err != nil {
 				t.Fatal(err)

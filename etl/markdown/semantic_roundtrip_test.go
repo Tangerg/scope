@@ -11,7 +11,7 @@ import (
 
 func TestIndentedCodePreserved(t *testing.T) {
 	source := "    secret := 1\n    print(secret)\n"
-	s, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: runeTokenizer{}, MaxTokensPerChunk: 1000})
+	s, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: runeTokenizer{}, MaxTokensPerChunk: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

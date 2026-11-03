@@ -14,13 +14,13 @@ func TestSplitterRejectsFailedOrCanceledPolicyWithoutPublishingChunks(t *testing
 	for _, cancellation := range []bool{false, true} {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
-		splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: func(context.Context, string) ([]string, error) {
+		splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) {
 			if cancellation {
 				cancel()
 				return []string{"partial"}, nil
 			}
 			return []string{"partial"}, cause
-		}})
+		})})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -28,16 +28,16 @@ func TestSplitterRejectsFailedOrCanceledPolicyWithoutPublishingChunks(t *testing
 		if cancellation {
 			want = context.Canceled
 		}
-		if chunks, err := splitter.SplitText(ctx, "source"); chunks != nil || !errors.Is(err, want) {
-			t.Fatalf("SplitText = %q, %v", chunks, err)
+		if chunks, err := splitter.Split(ctx, []*document.Document{{Text: "source"}}); chunks != nil || !errors.Is(err, want) {
+			t.Fatalf("Split = %v, %v", chunks, err)
 		}
 	}
 }
 
 func TestSplitterRejectsInvalidPolicyOutputAndInvalidInputs(t *testing.T) {
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: func(context.Context, string) ([]string, error) {
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) {
 		return []string{"good", "bad\xff"}, nil
-	}})
+	})})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,4 +52,13 @@ func TestSplitterRejectsInvalidPolicyOutputAndInvalidInputs(t *testing.T) {
 	if splitter, err := etl.NewSplitter(etl.SplitterConfig{}); splitter != nil || err == nil {
 		t.Fatalf("missing policy = %v, %v", splitter, err)
 	}
+}
+
+func documentSplitter(t testing.TB, policy etl.TextSplitter, generator etl.IDGenerator) *etl.Splitter {
+	t.Helper()
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: policy, IDGenerator: generator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return splitter
 }

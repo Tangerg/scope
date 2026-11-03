@@ -17,43 +17,55 @@ var (
 	ErrUnsupportedDocumentMedia = errors.New("etl: text splitting does not support document media")
 )
 
+// TextSplitter is the atomic policy a Splitter applies to each document's
+// text: it owns where chunks break, while Splitter owns metadata and lineage.
+type TextSplitter interface {
+	SplitText(ctx context.Context, text string) ([]string, error)
+}
+
+type TextSplitterFunc func(ctx context.Context, text string) ([]string, error)
+
+func (t TextSplitterFunc) SplitText(ctx context.Context, text string) ([]string, error) {
+	return t(ctx, text)
+}
+
 type SplitterConfig struct {
-	// SplitFunc is required.
-	SplitFunc func(context.Context, string) ([]string, error)
+	// TextSplitter is required.
+	TextSplitter TextSplitter
 
 	// IDGenerator, when set, assigns an ID to each emitted chunk.
 	IDGenerator IDGenerator
 }
 
-// Splitter applies a text splitting policy to documents, clones source
-// metadata onto every chunk, and records chunk lineage. Documents containing
-// media are rejected because a text policy cannot assign media to chunks.
+// Splitter applies a TextSplitter to documents, clones source metadata onto
+// every chunk, and records chunk lineage. Documents containing media are
+// rejected because a text policy cannot assign media to chunks.
 type Splitter struct {
-	splitFunc   func(context.Context, string) ([]string, error)
-	idGenerator IDGenerator
+	textSplitter TextSplitter
+	idGenerator  IDGenerator
 }
 
 func NewSplitter(config SplitterConfig) (*Splitter, error) {
-	if config.SplitFunc == nil {
-		return nil, errors.New("etl: split function is required")
+	if lo.IsNil(config.TextSplitter) {
+		return nil, errors.New("etl: text splitter is required")
 	}
 	if config.IDGenerator != nil && lo.IsNil(config.IDGenerator) {
 		return nil, errors.New("etl: ID generator must not be a typed nil")
 	}
 	return &Splitter{
-		splitFunc:   config.SplitFunc,
-		idGenerator: config.IDGenerator,
+		textSplitter: config.TextSplitter,
+		idGenerator:  config.IDGenerator,
 	}, nil
 }
 
-func (s *Splitter) SplitText(ctx context.Context, text string) ([]string, error) {
+func (s *Splitter) splitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := validateTextEncoding(text); err != nil {
 		return nil, err
 	}
-	chunks, err := s.splitFunc(ctx, text)
+	chunks, err := s.textSplitter.SplitText(ctx, text)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +111,7 @@ func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([
 	if doc.Media != nil {
 		return nil, ErrUnsupportedDocumentMedia
 	}
-	chunks, err := s.SplitText(ctx, doc.Text)
+	chunks, err := s.splitText(ctx, doc.Text)
 	if err != nil {
 		return nil, err
 	}

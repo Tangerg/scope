@@ -25,18 +25,21 @@ func TestGeneratedIdentityUsesCanonicalDocumentValidation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{IDGenerator: generator})
+			splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			tokens, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: runeTokenizer{}, IDGenerator: generator})
+			splitter := documentSplitter(t, splitterPolicy, generator)
+			tokensPolicy, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: runeTokenizer{}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			md, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: runeTokenizer{}, IDGenerator: generator})
+			tokens := documentSplitter(t, tokensPolicy, generator)
+			mdPolicy, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: runeTokenizer{}})
 			if err != nil {
 				t.Fatal(err)
 			}
+			md := documentSplitter(t, mdPolicy, generator)
 			input := []*document.Document{{Text: "source"}}
 			for name, operation := range map[string]func(context.Context, []*document.Document) ([]*document.Document, error){"assign": assigner.Assign, "text_split": splitter.Split, "token_split": tokens.Split, "markdown_split": md.Split} {
 				t.Run(name, func(t *testing.T) {
@@ -72,10 +75,11 @@ func TestGeneratedIdentityFailureDoesNotPublishPrefixes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{IDGenerator: generator})
+			splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}
+			splitter := documentSplitter(t, splitterPolicy, generator)
 			operation := assigner.Assign
 			input := []*document.Document{{Text: "first"}, {Text: "second"}}
 			if stage == "split" {
@@ -110,10 +114,11 @@ func TestGeneratedIdentityRejectsCancellationBeforePublication(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{IDGenerator: generator})
+			splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}
+			splitter := documentSplitter(t, splitterPolicy, generator)
 			operation := assigner.Assign
 			if stage == "split" {
 				operation = splitter.Split

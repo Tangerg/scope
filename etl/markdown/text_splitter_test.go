@@ -202,11 +202,14 @@ func TestSplitterEnforcesChunkLimit(t *testing.T) {
 }
 
 func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
-	splitter, err := markdownsplitter.NewSplitter(markdownsplitter.SplitterConfig{
+	splitterPolicy, err := markdownsplitter.NewTextSplitter(markdownsplitter.TextSplitterConfig{
 		Tokenizer:         runeTokenizer{},
 		MaxTokensPerChunk: 4,
-		IDGenerator:       etl.NewSHA256IDGenerator(nil),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: splitterPolicy, IDGenerator: etl.NewSHA256IDGenerator(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,13 +241,13 @@ func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
 
 func TestSplitterValidatesConfigurationAndCancellation(t *testing.T) {
 	var typedNil *nilTokenizer
-	for _, config := range []markdownsplitter.SplitterConfig{
+	for _, config := range []markdownsplitter.TextSplitterConfig{
 		{},
 		{Tokenizer: typedNil},
 		{Tokenizer: runeTokenizer{}, MaxTokensPerChunk: -1},
 		{Tokenizer: runeTokenizer{}, MaxChunks: -1},
 	} {
-		if _, err := markdownsplitter.NewSplitter(config); err == nil {
+		if _, err := markdownsplitter.NewTextSplitter(config); err == nil {
 			t.Fatalf("NewSplitter(%+v) error = nil", config)
 		}
 	}
@@ -262,9 +265,9 @@ type nilTokenizer struct{}
 func (*nilTokenizer) Encode(context.Context, string) ([]int, error) { return nil, nil }
 func (*nilTokenizer) Decode(context.Context, []int) (string, error) { return "", nil }
 
-func newSplitter(t *testing.T, maxTokens, maxChunks int) *markdownsplitter.Splitter {
+func newSplitter(t *testing.T, maxTokens, maxChunks int) *markdownsplitter.TextSplitter {
 	t.Helper()
-	splitter, err := markdownsplitter.NewSplitter(markdownsplitter.SplitterConfig{
+	splitter, err := markdownsplitter.NewTextSplitter(markdownsplitter.TextSplitterConfig{
 		Tokenizer:         runeTokenizer{},
 		MaxTokensPerChunk: maxTokens,
 		MaxChunks:         maxChunks,

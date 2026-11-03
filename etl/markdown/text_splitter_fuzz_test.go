@@ -30,7 +30,7 @@ func FuzzSplitterText(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, source string, encodedLimit uint8) {
 		maxTokens := int(encodedLimit%fuzzMarkdownTokenLimitRange) + 1
-		splitter, err := markdownsplitter.NewSplitter(markdownsplitter.SplitterConfig{
+		splitter, err := markdownsplitter.NewTextSplitter(markdownsplitter.TextSplitterConfig{
 			Tokenizer:         runeTokenizer{},
 			MaxTokensPerChunk: maxTokens,
 			MaxChunks:         fuzzMarkdownChunkLimit,

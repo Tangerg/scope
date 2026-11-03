@@ -14,7 +14,7 @@ import (
 func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
 	gen := etl.NewSHA256IDGenerator(nil)
 	split := func(_ context.Context, s string) ([]string, error) { return strings.Split(s, " "), nil }
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: split, IDGenerator: gen})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(split), IDGenerator: gen})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
 	}
 }
 func TestAnonymousInputCanBeSplitWithoutClaimingAnOriginal(t *testing.T) {
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{SplitFunc: func(_ context.Context, s string) ([]string, error) { return []string{s}, nil }})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(func(_ context.Context, s string) ([]string, error) { return []string{s}, nil })})
 	if err != nil {
 		t.Fatal(err)
 	}

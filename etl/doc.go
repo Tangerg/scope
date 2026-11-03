@@ -2,8 +2,10 @@
 // documents.
 //
 // Format readers extract source data into core document values. Formatters,
-// splitters, identifier assignment, and batching transform those values for a
-// downstream index. Named readers bind the source and revision to the original
+// splitting, identifier assignment, and batching transform those values for a
+// downstream index. A Splitter applies one TextSplitter policy, such as
+// SeparatorSplitter, TokenSplitter, or markdown.TextSplitter, to documents and
+// owns chunk metadata and lineage for every policy. Named readers bind the source and revision to the original
 // bytes in document.Provenance. Splitting appends a chunk to its parent's path,
 // leaving business metadata untouched. Byte positions are present only where a
 // reader can prove an exact half-open interval in the original input.

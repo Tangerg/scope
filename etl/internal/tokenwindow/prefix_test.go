@@ -189,7 +189,7 @@ func TestSplittersPreserveCharactersAcrossVocabularyTokens(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			structured, err := markdown.NewSplitter(markdown.SplitterConfig{
+			structured, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{
 				Tokenizer: codec, MaxTokensPerChunk: limit,
 			})
 			if err != nil {
@@ -201,7 +201,7 @@ func TestSplittersPreserveCharactersAcrossVocabularyTokens(t *testing.T) {
 				chunks, splitErr := splitter.SplitText(t.Context(), "A世B")
 				if limit < 3 {
 					wantErr := etl.ErrChunkBudgetTooSmall
-					if _, structured := splitter.(*markdown.Splitter); structured {
+					if _, structured := splitter.(*markdown.TextSplitter); structured {
 						wantErr = markdown.ErrSemanticUnitTooLarge
 					}
 					if !errors.Is(splitErr, wantErr) || len(chunks) != 0 {
@@ -243,7 +243,7 @@ func TestSplittersDistinguishSearchExhaustionFromImpossibleChunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	structured, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: byteTokenizer{}, MaxTokensPerChunk: 1, MaxSearchWork: 64})
+	structured, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: byteTokenizer{}, MaxTokensPerChunk: 1, MaxSearchWork: 64})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestSplittersDistinguishSearchExhaustionFromImpossibleChunk(t *testing.T) {
 	if _, err := etl.NewTokenSplitter(etl.TokenSplitterConfig{Tokenizer: byteTokenizer{}, MaxSearchWork: -1}); err == nil {
 		t.Fatal("negative search budget accepted")
 	}
-	if _, err := markdown.NewSplitter(markdown.SplitterConfig{Tokenizer: byteTokenizer{}, MaxSearchWork: -1}); err == nil {
+	if _, err := markdown.NewTextSplitter(markdown.TextSplitterConfig{Tokenizer: byteTokenizer{}, MaxSearchWork: -1}); err == nil {
 		t.Fatal("negative search budget accepted")
 	}
 }

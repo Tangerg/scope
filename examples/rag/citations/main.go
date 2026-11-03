@@ -27,6 +27,7 @@ import (
 
 const (
 	policySource           = "manual/returns"
+	passageSeparator       = "\n\n"
 	policy                 = "Return unopened purchases within 30 days."
 	question               = "When can I return an unopened purchase?"
 	documentEmbeddingModel = "passages"
@@ -89,7 +90,11 @@ func ingest(ctx context.Context, encoder *vector.Encoder, source, raw string) (*
 	if err != nil {
 		return nil, err
 	}
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{IDGenerator: ids, SplitFunc: func(_ context.Context, passage string) ([]string, error) { return strings.Split(passage, "\n\n"), nil }})
+	passages, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{Separator: passageSeparator})
+	if err != nil {
+		return nil, err
+	}
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: passages, IDGenerator: ids})
 	if err != nil {
 		return nil, err
 	}

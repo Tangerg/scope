@@ -10,10 +10,11 @@ import (
 )
 
 func TestDocumentStagesHonorCancellationWithoutDocuments(t *testing.T) {
-	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{})
+	splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	splitter := documentSplitter(t, splitterPolicy, nil)
 	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: etl.UUIDGenerator{}})
 	if err != nil {
 		t.Fatal(err)

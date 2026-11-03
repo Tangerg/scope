@@ -8,7 +8,6 @@ import (
 
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/etl/internal/tokenwindow"
 )
@@ -43,10 +42,9 @@ type TokenSplitterConfig struct {
 	// prefix search. Each operation costs at least one; zero uses DefaultMaxSearchWork.
 	MaxSearchWork    int
 	PreserveNewlines bool
-	IDGenerator      IDGenerator
 }
 
-// TokenSplitter splits document text into token-bounded chunks and prefers a
+// TokenSplitter is the TextSplitter that breaks text into token-bounded chunks and prefers a
 // sentence boundary once the configured minimum token count has been reached.
 type TokenSplitter struct {
 	tokenizer         tokenizer.Tokenizer
@@ -55,7 +53,6 @@ type TokenSplitter struct {
 	maxChunks         int
 	maxSearchWork     int
 	preserveNewlines  bool
-	splitter          *Splitter
 }
 
 func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
@@ -85,23 +82,14 @@ func NewTokenSplitter(config TokenSplitterConfig) (*TokenSplitter, error) {
 		)
 	}
 
-	splitter := &TokenSplitter{
+	return &TokenSplitter{
 		tokenizer:         config.Tokenizer,
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		minTokensPerChunk: config.MinTokensPerChunk,
 		maxChunks:         config.MaxChunks,
 		maxSearchWork:     config.MaxSearchWork,
 		preserveNewlines:  config.PreserveNewlines,
-	}
-	base, err := NewSplitter(SplitterConfig{
-		SplitFunc:   splitter.SplitText,
-		IDGenerator: config.IDGenerator,
-	})
-	if err != nil {
-		return nil, err
-	}
-	splitter.splitter = base
-	return splitter, nil
+	}, nil
 }
 
 // SplitText emits trimmed chunks whose final text stays within the token budget.
@@ -180,8 +168,4 @@ func (*TokenSplitter) lastSentenceBoundary(text string) int {
 		}
 	}
 	return boundary
-}
-
-func (t *TokenSplitter) Split(ctx context.Context, docs []*document.Document) ([]*document.Document, error) {
-	return t.splitter.Split(ctx, docs)
 }

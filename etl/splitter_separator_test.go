@@ -10,13 +10,14 @@ import (
 	"github.com/Tangerg/scope/etl"
 )
 
-func TestTextSplitterDefaultsToNewline(t *testing.T) {
-	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{})
+func TestSeparatorSplitterDefaultsToNewline(t *testing.T) {
+	splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	splitter := documentSplitter(t, splitterPolicy, nil)
 
-	texts, err := splitter.SplitText(t.Context(), "a\nb\nc")
+	texts, err := splitterPolicy.SplitText(t.Context(), "a\nb\nc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +35,12 @@ func TestTextSplitterDefaultsToNewline(t *testing.T) {
 	}
 }
 
-func TestTextSplitterPreservesMetadata(t *testing.T) {
-	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{Separator: "|"})
+func TestSeparatorSplitterPreservesMetadata(t *testing.T) {
+	splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{Separator: "|"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	splitter := documentSplitter(t, splitterPolicy, nil)
 
 	doc, _ := document.NewDocument("a|b", nil)
 	_ = doc.Metadata.Set("src", "manual")
@@ -53,16 +55,16 @@ func TestTextSplitterPreservesMetadata(t *testing.T) {
 	}
 }
 
-func TestSplitterRequiresSplitFunc(t *testing.T) {
+func TestSplitterRequiresTextSplitter(t *testing.T) {
 	if _, err := etl.NewSplitter(etl.SplitterConfig{}); err == nil {
-		t.Fatal("missing SplitFunc must error")
+		t.Fatal("missing TextSplitter must error")
 	}
 }
 
 func TestSplitterPropagatesError(t *testing.T) {
 	want := errors.New("split failed")
 	splitter, _ := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(context.Context, string) ([]string, error) { return nil, want },
+		TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) { return nil, want }),
 	})
 	doc, _ := document.NewDocument("x", nil)
 
@@ -73,9 +75,9 @@ func TestSplitterPropagatesError(t *testing.T) {
 
 func TestSplitterDropsEmptyChunks(t *testing.T) {
 	splitter, _ := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(context.Context, string) ([]string, error) {
+		TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) {
 			return []string{"a", "", "b"}, nil
-		},
+		}),
 	})
 	doc, _ := document.NewDocument("x", nil)
 
@@ -87,7 +89,7 @@ func TestSplitterDropsEmptyChunks(t *testing.T) {
 
 func TestSplitterRejectsNilDocument(t *testing.T) {
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(context.Context, string) ([]string, error) { return []string{"chunk"}, nil },
+		TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) { return []string{"chunk"}, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -98,10 +100,11 @@ func TestSplitterRejectsNilDocument(t *testing.T) {
 }
 
 func TestSplitterRejectsMediaOnlyDocument(t *testing.T) {
-	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{})
+	splitterPolicy, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	splitter := documentSplitter(t, splitterPolicy, nil)
 	content, err := media.NewBytes("image/png", []byte("image"))
 	if err != nil {
 		t.Fatal(err)
@@ -118,10 +121,10 @@ func TestSplitterRejectsMediaOnlyDocument(t *testing.T) {
 func TestSplitterRejectsMixedContentBeforeCallingSplitPolicy(t *testing.T) {
 	called := false
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(context.Context, string) ([]string, error) {
+		TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) {
 			called = true
 			return []string{"caption"}, nil
-		},
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -139,8 +142,8 @@ func TestSplitterRejectsMixedContentBeforeCallingSplitPolicy(t *testing.T) {
 	}
 }
 
-func TestTextSplitterRejectsInvalidUTF8Directly(t *testing.T) {
-	splitter, err := etl.NewTextSplitter(etl.TextSplitterConfig{})
+func TestSeparatorSplitterRejectsInvalidUTF8Directly(t *testing.T) {
+	splitter, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,26 +152,26 @@ func TestTextSplitterRejectsInvalidUTF8Directly(t *testing.T) {
 	}
 }
 
-func TestTextSplitterRejectsInvalidUTF8Separator(t *testing.T) {
+func TestSeparatorSplitterRejectsInvalidUTF8Separator(t *testing.T) {
 	for _, separator := range []string{string([]byte{0xff}), string([]byte{0xa9}), "ok" + string([]byte{0xc3})} {
-		if _, err := etl.NewTextSplitter(etl.TextSplitterConfig{Separator: separator}); !errors.Is(err, etl.ErrInvalidTextEncoding) {
-			t.Errorf("NewTextSplitter(%q) error = %v, want ErrInvalidTextEncoding", separator, err)
+		if _, err := etl.NewSeparatorSplitter(etl.SeparatorSplitterConfig{Separator: separator}); !errors.Is(err, etl.ErrInvalidTextEncoding) {
+			t.Errorf("NewSeparatorSplitter(%q) error = %v, want ErrInvalidTextEncoding", separator, err)
 		}
 	}
 }
 
-func TestSplitterChecksCancellationAfterSplitFunc(t *testing.T) {
+func TestSplitterChecksCancellationAfterTextSplitter(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{
-		SplitFunc: func(context.Context, string) ([]string, error) {
+		TextSplitter: etl.TextSplitterFunc(func(context.Context, string) ([]string, error) {
 			cancel()
 			return []string{"uncommitted"}, nil
-		},
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chunks, err := splitter.SplitText(ctx, "source"); chunks != nil || !errors.Is(err, context.Canceled) {
-		t.Fatalf("SplitText = (%v, %v), want nil context.Canceled", chunks, err)
+	if chunks, err := splitter.Split(ctx, []*document.Document{{Text: "source"}}); chunks != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("Split = (%v, %v), want nil context.Canceled", chunks, err)
 	}
 }
