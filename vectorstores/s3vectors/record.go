@@ -35,7 +35,7 @@ func encodeDocument(doc *document.Document) (s3vdoc.Interface, error) {
 	if err := validateKey(doc.ID); err != nil {
 		return nil, err
 	}
-	encoded, err := document.MarshalStoredMetadata(doc)
+	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func decodeDocument(key string, raw s3vdoc.Interface) (*document.Document, error
 		return nil, errors.New("s3vectors: native document does not match the strict current schema or key projection")
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(*wire.Metadata), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(*wire.Metadata)); err != nil {
 		return nil, err
 	}
 	doc.ID, doc.Text = key, *wire.Content

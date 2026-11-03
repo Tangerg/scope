@@ -137,7 +137,7 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 		if doc.Media != nil {
 			return vectorstore.ErrInvalidDocument
 		}
-		facts, err := document.MarshalStoredMetadata(doc)
+		facts, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}

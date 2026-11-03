@@ -113,7 +113,7 @@ func TestUnfilteredSearchUsesNativeRankingWithoutSourceEnumeration(t *testing.T)
 	client, server := net.Pipe()
 	original := document.NewProvenance("source://book", []byte("version 1"))
 	original.Page = 2
-	facts, err := document.MarshalStoredMetadata(&document.Document{Provenance: original})
+	facts, err := (&document.Document{Provenance: original}).MarshalStoredMetadata()
 	if err != nil {
 		t.Fatal(err)
 	}

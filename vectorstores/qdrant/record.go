@@ -96,7 +96,7 @@ func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdran
 		return nil, "", errors.New("qdrant: content and metadata_json must be strings")
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(facts.StringValue), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(facts.StringValue)); err != nil {
 		return nil, "", err
 	}
 	terms, err := keyword.Project(doc.Metadata)
@@ -130,7 +130,7 @@ func encodeRecord(doc *document.Document) (*qdrantclient.PointStruct, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts, err := document.MarshalStoredMetadata(doc)
+	facts, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}

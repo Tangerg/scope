@@ -32,7 +32,7 @@ func encodeDocuments(docs []*document.Document, policy nativePolicy) ([]nativeRe
 		if len(doc.Text) > policy.contentBytes {
 			return nil, ErrDocumentContentTooLong
 		}
-		facts, err := document.MarshalStoredMetadata(doc)
+		facts, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return nil, err
 		}
@@ -104,7 +104,7 @@ func decodeRows(rows milvusclient.ResultSet, policy nativePolicy) ([]nativeRecor
 			values[index] = value
 		}
 		doc := new(document.Document)
-		if err := document.UnmarshalStoredMetadata([]byte(values[2]), doc); err != nil {
+		if err := doc.UnmarshalStoredMetadata([]byte(values[2])); err != nil {
 			return nil, err
 		}
 		doc.ID, doc.Text = values[0], values[1]

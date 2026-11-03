@@ -249,7 +249,7 @@ type storedRecord struct {
 }
 
 func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord, error) {
-	encoded, err := document.MarshalStoredMetadata(doc)
+	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return storedRecord{}, err
 	}
@@ -261,7 +261,7 @@ func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord,
 }
 func decodeStoredRecord(record storedRecord) (*document.Document, error) {
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(record.metadata), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(record.metadata)); err != nil {
 		return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", record.id, err)
 	}
 	doc.ID, doc.Text = record.id, record.content

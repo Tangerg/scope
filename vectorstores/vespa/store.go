@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -75,7 +74,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err := validateText(doc.Text); err != nil {
 			return err
 		}
-		facts, err := document.MarshalStoredMetadata(doc)
+		facts, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}

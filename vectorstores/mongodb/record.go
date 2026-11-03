@@ -171,7 +171,7 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 		return nil, "", err
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(facts)); err != nil {
 		return nil, "", err
 	}
 	expected, err := keyword.Project(doc.Metadata)
@@ -193,7 +193,7 @@ func encodeRecord(doc *document.Document) (bson.M, error) {
 	if doc.Media != nil {
 		return nil, vectorstore.ErrInvalidDocument
 	}
-	facts, err := document.MarshalStoredMetadata(doc)
+	facts, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}

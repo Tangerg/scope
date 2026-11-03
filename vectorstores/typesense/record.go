@@ -39,7 +39,7 @@ func encodeDocument(doc *document.Document) (storedRecord, error) {
 	if err != nil {
 		return storedRecord{}, err
 	}
-	encoded, err := document.MarshalStoredMetadata(doc)
+	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return storedRecord{}, err
 	}

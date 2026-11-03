@@ -85,7 +85,7 @@ func (c *Corpus) CreateDocument(ctx context.Context, doc *document.Document) err
 	}
 	var stored jsontext.Value
 	if doc.Metadata != nil || doc.Provenance != nil {
-		raw, encodeErr := document.MarshalStoredMetadata(doc)
+		raw, encodeErr := doc.MarshalStoredMetadata()
 		if encodeErr != nil {
 			return encodeErr
 		}

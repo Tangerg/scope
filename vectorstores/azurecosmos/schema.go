@@ -118,7 +118,7 @@ func (c containerSchema) decodeDocument(raw []byte, partition string) (*document
 		return nil, "", err
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(*record.Metadata), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(*record.Metadata)); err != nil {
 		return nil, "", err
 	}
 	doc.ID, doc.Text = *record.ID, *record.Content

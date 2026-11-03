@@ -105,7 +105,7 @@ func (c collectionSchema) decodeDocument(raw []byte) (storedRecord, *document.Do
 		return storedRecord{}, nil, err
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(*record.Metadata), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(*record.Metadata)); err != nil {
 		return storedRecord{}, nil, err
 	}
 	doc.ID, doc.Text = id, *record.Content

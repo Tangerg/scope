@@ -167,7 +167,7 @@ func decodeDocument(id, text, facts string, reported []string) (*document.Docume
 		return nil, err
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(facts)); err != nil {
 		return nil, err
 	}
 	expected, err := nativeTerms(doc.Metadata)
@@ -188,7 +188,7 @@ func encodeRecord(doc *document.Document) (*pb.BatchObject, error) {
 	if err := validateObjectID(doc.ID); err != nil {
 		return nil, err
 	}
-	facts, err := document.MarshalStoredMetadata(doc)
+	facts, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}

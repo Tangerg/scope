@@ -119,7 +119,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	statement := fmt.Sprintf("INSERT INTO %s (id,content,%s,embedding) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET content=EXCLUDED.content,%s=EXCLUDED.%s,embedding=EXCLUDED.embedding", s.fullTable, s.metadataColumn, s.metadataColumn, s.metadataColumn)
 	for _, record := range batch.Records {
 		doc := record.Document
-		facts, err := document.MarshalStoredMetadata(doc)
+		facts, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}
@@ -449,7 +449,7 @@ type rowQuerier interface {
 
 func decodeDocument(id []byte, text string, facts []byte) (*document.Document, error) {
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata(facts, doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata(facts); err != nil {
 		return nil, err
 	}
 	doc.ID, doc.Text = string(id), text

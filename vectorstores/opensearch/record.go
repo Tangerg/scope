@@ -121,7 +121,7 @@ func (n nativeSchema) decode(hit searchHit) (*document.Document, error) {
 		return nil, err
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(record.MetadataJSON), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(record.MetadataJSON)); err != nil {
 		return nil, err
 	}
 	doc.ID, doc.Text = hit.ID, record.Content

@@ -48,7 +48,7 @@ type rankedResult struct {
 }
 
 func encodeStoredDocument(doc *document.Document, vector []float64) ([]byte, error) {
-	encoded, err := document.MarshalStoredMetadata(doc)
+	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func decodeStoredRow(raw []byte) (storedCandidate, error) {
 		return storedCandidate{}, errors.New("couchbase: stored record has no CAS")
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(row.Record.Metadata), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(row.Record.Metadata)); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: decode metadata of %s: %w", row.ID, err)
 	}
 	doc.ID, doc.Text = row.ID, row.Record.Content

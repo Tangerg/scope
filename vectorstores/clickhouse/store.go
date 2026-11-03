@@ -283,7 +283,7 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) (err err
 		if narrowErr != nil {
 			return narrowErr
 		}
-		facts, encodeErr := document.MarshalStoredMetadata(r.Document)
+		facts, encodeErr := r.Document.MarshalStoredMetadata()
 		if encodeErr != nil {
 			return encodeErr
 		}
@@ -400,7 +400,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		if err := rows.Scan(&doc.ID, &doc.Text, &encoded, &distance); err != nil {
 			return nil, fmt.Errorf("clickhouse: scan search row: %w", err)
 		}
-		if err := document.UnmarshalStoredMetadata([]byte(encoded), doc); err != nil {
+		if err := doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
 			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
 		}
 		if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 || s.distanceMetric == DistanceCosine && distance > 2 {
@@ -561,7 +561,7 @@ func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filt
 					return errors.New("clickhouse: scan key failed to advance")
 				}
 				after = d.ID
-				if err := document.UnmarshalStoredMetadata([]byte(raw), d); err != nil {
+				if err := d.UnmarshalStoredMetadata([]byte(raw)); err != nil {
 					return err
 				}
 				if err := vectorstore.ValidateDocument(d); err != nil {

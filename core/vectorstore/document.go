@@ -22,7 +22,7 @@ func validatePresentDocument(doc *document.Document) error {
 	if strings.TrimSpace(doc.ID) == "" {
 		return ErrMissingDocumentID
 	}
-	if err := document.ValidateStorageMetadata(doc.Metadata); err != nil {
+	if err := document.ValidateStoredMetadata(doc.Metadata); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
 	return nil

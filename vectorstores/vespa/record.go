@@ -48,7 +48,7 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks current metadata: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(facts)); err != nil {
 		return nativeRecord{}, err
 	}
 	doc.ID, doc.Text = id, text

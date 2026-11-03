@@ -263,7 +263,7 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 }
 
 func (s *Store) documentProperties(doc *document.Document, vector []float64) (map[string]any, error) {
-	encoded, err := document.MarshalStoredMetadata(doc)
+	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, fmt.Errorf("neo4j: encode metadata for %q: %w", doc.ID, err)
 	}
@@ -294,7 +294,7 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 		return nil, errors.New("neo4j: invalid document property types or ID")
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(encoded), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
 		return nil, fmt.Errorf("neo4j: decode metadata for %q: %w", id, err)
 	}
 	doc.ID, doc.Text = id, text

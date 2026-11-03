@@ -178,7 +178,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		facts, err := document.MarshalStoredMetadata(doc)
+		facts, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}

@@ -93,7 +93,7 @@ func (p passage) candidate(corpus string) (rag.Candidate, error) {
 	}
 	doc := &document.Document{Text: p.Text}
 	if len(p.Metadata) != 0 {
-		if err := document.UnmarshalStoredMetadata(p.Metadata, doc); err != nil {
+		if err := doc.UnmarshalStoredMetadata(p.Metadata); err != nil {
 			return rag.Candidate{}, err
 		}
 	}

@@ -149,7 +149,7 @@ func decodeDocument(id v2.DocumentID, text v2.Document, facts v2.DocumentMetadat
 		return nil, fmt.Errorf("chroma: decode native metadata for %q: %w", id, err)
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(wire.JSON), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(wire.JSON)); err != nil {
 		return nil, fmt.Errorf("chroma: decode Core metadata for %q: %w", id, err)
 	}
 	doc.ID, doc.Text = string(id), text.ContentString()
@@ -234,7 +234,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if record.Document.Media != nil {
 			return fmt.Errorf("chroma: %w: records[%d] contains unsupported media", vectorstore.ErrInvalidDocument, i)
 		}
-		raw, err := document.MarshalStoredMetadata(record.Document)
+		raw, err := record.Document.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/media"
@@ -105,3 +106,60 @@ func (d *Document) Validate() error {
 type wireDocument Document
 
 func (Document) JSONSchemaModel() any { return wireDocument{} }
+
+// MarshalStoredMetadata encodes the document's business facts and optional
+// provenance in one native JSON cell. Native filter projections must still
+// be built from d.Metadata, never by indexing this physical representation.
+func (d *Document) MarshalStoredMetadata() ([]byte, error) {
+	if d == nil {
+		return nil, ErrInvalidDocument
+	}
+	if err := ValidateStoredMetadata(d.Metadata); err != nil {
+		return nil, err
+	}
+	if d.Provenance == nil {
+		return d.Metadata.MarshalJSON()
+	}
+	if err := d.Provenance.Validate(); err != nil {
+		return nil, err
+	}
+	cell := maps.Clone(d.Metadata)
+	if err := cell.Set(StoredProvenanceKey, storedOrigin{d.Provenance, d.Metadata == nil}); err != nil {
+		return nil, err
+	}
+	return cell.MarshalJSON()
+}
+
+// UnmarshalStoredMetadata restores both fields without changing the document's
+// identity or content. Invalid native data leaves the document untouched. The
+// raw cell may separately be retained as the backend's conditional-write token.
+func (d *Document) UnmarshalStoredMetadata(data []byte) error {
+	if d == nil {
+		return ErrInvalidDocument
+	}
+	var facts metadata.Map
+	if err := facts.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	var origin storedOrigin
+	if raw, present := facts[StoredProvenanceKey]; present {
+		if err := jsonv2.Unmarshal(raw, &origin, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return fmt.Errorf("%w: invalid stored provenance: %w", ErrInvalidDocument, err)
+		}
+		if origin.Provenance == nil {
+			return fmt.Errorf("%w: absent stored provenance", ErrInvalidDocument)
+		}
+		if err := origin.Provenance.Validate(); err != nil {
+			return fmt.Errorf("%w: stored provenance: %w", ErrInvalidDocument, err)
+		}
+		delete(facts, StoredProvenanceKey)
+		if origin.NullMetadata {
+			if len(facts) > 0 {
+				return fmt.Errorf("%w: fields contradict null business metadata", ErrInvalidDocument)
+			}
+			facts = nil
+		}
+	}
+	d.Metadata, d.Provenance = facts, origin.Provenance
+	return nil
+}

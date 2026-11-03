@@ -17,7 +17,7 @@ func TestPhysicalMetadataRestoresTheExactBusinessViewAndOrigin(t *testing.T) {
 	origin.Bytes = &document.ByteRange{Start: 3, End: 7}
 	for _, facts := range []metadata.Map{nil, {}, {"number": json.RawMessage("9007199254740993"), "null": json.RawMessage("null")}} {
 		source := &document.Document{ID: "one", Text: "text", Metadata: facts, Provenance: origin}
-		raw, err := document.MarshalStoredMetadata(source)
+		raw, err := source.MarshalStoredMetadata()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -25,7 +25,7 @@ func TestPhysicalMetadataRestoresTheExactBusinessViewAndOrigin(t *testing.T) {
 			t.Fatal("serialization modified owned metadata")
 		}
 		copy := &document.Document{ID: "original", Text: "unchanged"}
-		if err = document.UnmarshalStoredMetadata(raw, copy); err != nil {
+		if err = copy.UnmarshalStoredMetadata(raw); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(copy.Metadata, facts) || !reflect.DeepEqual(copy.Provenance, origin) || copy.ID != "original" || copy.Text != "unchanged" {
@@ -36,11 +36,11 @@ func TestPhysicalMetadataRestoresTheExactBusinessViewAndOrigin(t *testing.T) {
 			t.Fatal("origin aliased source")
 		}
 		plain := &document.Document{ID: "one", Text: "text", Metadata: facts}
-		raw, err = document.MarshalStoredMetadata(plain)
+		raw, err = plain.MarshalStoredMetadata()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = document.UnmarshalStoredMetadata(raw, copy); err != nil || copy.Provenance != nil || !reflect.DeepEqual(copy.Metadata, facts) {
+		if err = copy.UnmarshalStoredMetadata(raw); err != nil || copy.Provenance != nil || !reflect.DeepEqual(copy.Metadata, facts) {
 			t.Fatal("absent origin survived replacing a cell", err)
 		}
 	}
@@ -52,13 +52,13 @@ func TestMalformedPhysicalMetadataCannotReplaceTheDocumentOrForgeProvenance(t *t
 	for _, cell := range []string{"null", "{}", `{"provenance":{} }`, `{"provenance":{"source":"s"}}`, `{"provenance":{"page":2},"unknown":true}`, `{"provenance":{"page":2},"null_metadata":true}`} {
 		dst := original.Clone()
 		raw := []byte(`{"ordinary":42,"` + key + `":` + cell + `}`)
-		if err := document.UnmarshalStoredMetadata(raw, dst); !errors.Is(err, document.ErrInvalidDocument) || !reflect.DeepEqual(dst, original) {
+		if err := dst.UnmarshalStoredMetadata(raw); !errors.Is(err, document.ErrInvalidDocument) || !reflect.DeepEqual(dst, original) {
 			t.Fatalf("partial or fabricated origin: %s %#v %v", raw, dst, err)
 		}
 	}
 	collision := original.Clone()
 	collision.Metadata[key] = json.RawMessage(`{"provenance":{"page":9}}`)
-	if _, err := document.MarshalStoredMetadata(collision); !errors.Is(err, document.ErrInvalidDocument) {
+	if _, err := collision.MarshalStoredMetadata(); !errors.Is(err, document.ErrInvalidDocument) {
 		t.Fatalf("reserved user key entered native storage: %v", err)
 	}
 }

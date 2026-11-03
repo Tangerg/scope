@@ -355,7 +355,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	for i, r := range batch.Records {
 		doc := r.Document
 		ids[i] = doc.ID
-		metaJSON, encodeErr := document.MarshalStoredMetadata(doc)
+		metaJSON, encodeErr := doc.MarshalStoredMetadata()
 		if encodeErr != nil {
 			return encodeErr
 		}
@@ -557,7 +557,7 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		}
 		doc := &document.Document{ID: id, Text: content.String}
 		if raw.Valid {
-			if err := document.UnmarshalStoredMetadata([]byte(raw.String), doc); err != nil {
+			if err := doc.UnmarshalStoredMetadata([]byte(raw.String)); err != nil {
 				return nil, fmt.Errorf("mariadb: unmarshal metadata for %s: %w", id, err)
 			}
 		}
@@ -670,7 +670,7 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 		}
 		fields := new(document.Document)
 		if raw.Valid {
-			if err := document.UnmarshalStoredMetadata([]byte(raw.String), fields); err != nil {
+			if err := fields.UnmarshalStoredMetadata([]byte(raw.String)); err != nil {
 				return page, fmt.Errorf("mariadb: decode filter metadata: %w", err)
 			}
 		}

@@ -82,7 +82,7 @@ func (n nativeSchema) decode(key string, fields map[string]string) (*document.Do
 		return nil, err
 	}
 	doc := new(document.Document)
-	if err := document.UnmarshalStoredMetadata([]byte(facts), doc); err != nil {
+	if err := doc.UnmarshalStoredMetadata([]byte(facts)); err != nil {
 		return nil, err
 	}
 	expected, err := tagValues(doc.Metadata)

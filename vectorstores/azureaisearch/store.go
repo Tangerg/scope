@@ -208,7 +208,7 @@ func (s *Store) decodeDocument(row metadata.Map) (*document.Document, error) {
 		return nil, fmt.Errorf("azureaisearch: missing or invalid Core metadata JSON: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
 	}
 	doc := new(document.Document)
-	if err = document.UnmarshalStoredMetadata([]byte(*encoded), doc); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(*encoded)); err != nil {
 		return nil, fmt.Errorf("azureaisearch: decode Core metadata: %w", err)
 	}
 	vector, present, err := row.Decode[[]float32](s.embeddingField)
@@ -276,7 +276,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err := validateID(doc.ID); err != nil {
 			return err
 		}
-		raw, err := document.MarshalStoredMetadata(doc)
+		raw, err := doc.MarshalStoredMetadata()
 		if err != nil {
 			return err
 		}
