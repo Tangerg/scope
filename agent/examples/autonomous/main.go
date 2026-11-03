@@ -35,7 +35,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx))) }()
-	client, err := chatclient.New(&calculatorModel{}, chatclient.Config{})
+	client, err := chatclient.New(&calculatorModel{})
 	if err != nil {
 		return err
 	}

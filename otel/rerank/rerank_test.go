@@ -33,12 +33,9 @@ func TestMiddlewarePreservesCallAndDoesNotObserveContent(t *testing.T) {
 			Model: "served", Usage: &corererank.Usage{InputTokens: 3},
 		},
 	}
-	model, err := middleware.Wrap(corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
+	model := middleware.Call(corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
 		return want, nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := corererank.NewRequest("sensitive query", []string{"sensitive document"})
 	request.Options.Model = "requested"
 	got, err := model.Call(t.Context(), request)
@@ -69,7 +66,7 @@ func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model corererank.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, otelrerank.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 }

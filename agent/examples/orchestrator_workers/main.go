@@ -219,7 +219,7 @@ func parseWorkPlan(ctx context.Context, output interaction.Output) ([]workerTask
 }
 
 func interactionProgram(compiler *agentrun.Compiler, name, description string, model chat.Model) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	client, err := chatclient.New(model, chatclient.Config{})
+	client, err := chatclient.New(model)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}

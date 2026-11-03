@@ -17,12 +17,9 @@ import (
 func TestRetrievePanicEndsObservationAndPropagates(t *testing.T) {
 	middleware, rig := newRig(t)
 	value := &struct{ Secret string }{Secret: "private-panic-payload"}
-	wrapped, err := middleware.Wrap(corerag.RetrieverFunc(func(context.Context, corerag.Query) (corerag.Candidates, error) {
+	wrapped := middleware.Retrieve(corerag.RetrieverFunc(func(context.Context, corerag.Query) (corerag.Candidates, error) {
 		panic(value)
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	query, err := corerag.NewQuery("sensitive query")
 	if err != nil {
 		t.Fatal(err)

@@ -32,7 +32,6 @@ const (
 
 var (
 	ErrInvalidConfig = errors.New("otel/embedding: invalid config")
-	ErrInvalidModel  = errors.New("otel/embedding: invalid model")
 )
 
 type MiddlewareConfig struct {
@@ -95,12 +94,14 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next coreembedding.Model) (coreembedding.Model, error) {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
+// Call instruments next without changing its response or error.
+func (m Middleware) Call(next coreembedding.Model) coreembedding.Model {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
+		return nil
+	}
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) { return nil, err })
 	}
 	return coreembedding.ModelFunc(func(ctx context.Context, request *coreembedding.Request) (response *coreembedding.Response, err error) {
 		startedAt := time.Now()
@@ -115,7 +116,7 @@ func (m Middleware) Wrap(next coreembedding.Model) (coreembedding.Model, error) 
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
-	}), nil
+	})
 }
 
 func (m Middleware) spanName(request *coreembedding.Request) string {

@@ -28,12 +28,9 @@ func TestMiddlewarePreservesCallAndDoesNotObserveContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := &coremoderation.Response{Metadata: &coremoderation.ResponseMetadata{Model: "served"}}
-	model, err := middleware.Wrap(coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) {
+	model := middleware.Call(coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) {
 		return want, nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := coremoderation.NewRequest([]string{"sensitive input"})
 	request.Options.Model = "requested"
 	got, err := model.Call(t.Context(), request)
@@ -60,7 +57,7 @@ func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model coremoderation.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, otelmoderation.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 }

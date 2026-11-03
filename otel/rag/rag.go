@@ -29,8 +29,7 @@ const (
 )
 
 var (
-	ErrInvalidConfig    = errors.New("otel/rag: invalid config")
-	ErrInvalidRetriever = errors.New("otel/rag: invalid retriever")
+	ErrInvalidConfig = errors.New("otel/rag: invalid config")
 )
 
 // Nil providers use the corresponding OpenTelemetry globals.
@@ -69,14 +68,16 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next corerag.Retriever) (corerag.Retriever, error) {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
+// Retrieve instruments next without changing its candidates or error.
+func (m Middleware) Retrieve(next corerag.Retriever) corerag.Retriever {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidRetriever)
+		return nil
 	}
-	return &instrumentedRetriever{middleware: m, next: next}, nil
+	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return corerag.RetrieverFunc(func(context.Context, corerag.Query) (corerag.Candidates, error) { return nil, err })
+	}
+	return &instrumentedRetriever{middleware: m, next: next}
 }
 
 type instrumentedRetriever struct {

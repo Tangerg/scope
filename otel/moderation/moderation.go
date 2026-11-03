@@ -32,7 +32,6 @@ const (
 
 var (
 	ErrInvalidConfig = errors.New("otel/moderation: invalid config")
-	ErrInvalidModel  = errors.New("otel/moderation: invalid model")
 )
 
 type MiddlewareConfig struct {
@@ -89,12 +88,14 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next coremoderation.Model) (coremoderation.Model, error) {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
+// Call instruments next without changing its response or error.
+func (m Middleware) Call(next coremoderation.Model) coremoderation.Model {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
+		return nil
+	}
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) { return nil, err })
 	}
 	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (response *coremoderation.Response, err error) {
 		startedAt := time.Now()
@@ -109,7 +110,7 @@ func (m Middleware) Wrap(next coremoderation.Model) (coremoderation.Model, error
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
-	}), nil
+	})
 }
 
 func (m Middleware) spanName(request *coremoderation.Request) string {

@@ -15,14 +15,14 @@ func TestClientsOwnPreflightEvidence(t *testing.T) {
 	client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls++
 		return nil, errors.New("unexpected model call")
-	}), Config{})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	streamClient, err := NewStreamClient(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		calls++
 		return errorSequence(errors.New("unexpected streamer call"))
-	}), StreamConfig{})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +65,14 @@ func TestClientsPreserveProviderEvidence(t *testing.T) {
 			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls++
 				return nil, failure
-			}), Config{})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
 			streamClient, err := NewStreamClient(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 				calls++
 				return errorSequence(failure)
-			}), StreamConfig{})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,7 +96,7 @@ func TestOutputDecodeFailureFollowsExecutedModel(t *testing.T) {
 	client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls++
 		return responseWithText(t, "not JSON"), nil
-	}), Config{})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}

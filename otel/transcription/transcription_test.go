@@ -31,12 +31,9 @@ func TestMiddlewarePreservesCallAndDoesNotObserveTranscript(t *testing.T) {
 		Output:   &coretranscription.Output{Text: "sensitive transcript"},
 		Metadata: &coretranscription.ResponseMetadata{Model: "served"},
 	}
-	model, err := middleware.Wrap(coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
+	model := middleware.Call(coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
 		return want, nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request := &coretranscription.Request{Options: coretranscription.Options{Model: "requested"}}
 	got, err := model.Call(t.Context(), request)
 	if err != nil || got != want {
@@ -62,7 +59,7 @@ func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model coretranscription.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, oteltranscription.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 }

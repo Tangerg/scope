@@ -16,20 +16,17 @@ var (
 	ErrInvalidClient = errors.New("chatclient: uninitialized client")
 )
 
-// Client is an immutable composition of a chat model and its middleware. It is
+// Client validates and snapshots every request before model is called and
+// decodes typed output. Compose middleware with chat.Wrap before New. It is
 // as safe for concurrent use as the underlying model. Streaming has its own
 // construction boundary in [StreamClient].
 type Client struct {
 	model chat.Model
 }
 
-func New(model chat.Model, config Config) (Client, error) {
+func New(model chat.Model) (Client, error) {
 	if lo.IsNil(model) {
 		return Client{}, ErrNilModel
-	}
-	model = chat.Wrap(model, config.CallMiddleware...)
-	if lo.IsNil(model) {
-		return Client{}, errors.New("chatclient: call middleware returned a nil model")
 	}
 	return Client{model: model}, nil
 }

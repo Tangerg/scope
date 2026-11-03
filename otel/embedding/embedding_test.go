@@ -33,12 +33,9 @@ func TestMiddlewarePreservesCallAndDoesNotObserveContent(t *testing.T) {
 			Model: "served", Usage: &coreembedding.Usage{InputTokens: 3},
 		},
 	}
-	model, err := middleware.Wrap(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
+	model := middleware.Call(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
 		return want, nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := coreembedding.NewRequest([]string{"sensitive input"})
 	request.Options.Model = "requested"
 	got, err := model.Call(t.Context(), request)
@@ -68,7 +65,7 @@ func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model coreembedding.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, otelembedding.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 }

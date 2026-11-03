@@ -33,7 +33,6 @@ const (
 
 var (
 	ErrInvalidConfig   = errors.New("otel/speech: invalid config")
-	ErrInvalidModel    = errors.New("otel/speech: invalid model")
 	ErrInvalidStreamer = errors.New("otel/speech: invalid streamer")
 )
 
@@ -104,12 +103,13 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next corespeech.Model) (corespeech.Model, error) {
-	if err := m.validate(); err != nil {
-		return nil, err
-	}
+// Call instruments next without changing its response or error.
+func (m Middleware) Call(next corespeech.Model) corespeech.Model {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
+		return nil
+	}
+	if err := m.validate(); err != nil {
+		return corespeech.ModelFunc(func(context.Context, *corespeech.Request) (*corespeech.Response, error) { return nil, err })
 	}
 	return corespeech.ModelFunc(func(ctx context.Context, request *corespeech.Request) (response *corespeech.Response, err error) {
 		ctx, observation := m.start(ctx, request, false)
@@ -117,17 +117,19 @@ func (m Middleware) Wrap(next corespeech.Model) (corespeech.Model, error) {
 		response, err = next.Call(ctx, request)
 		observation.observeResponse(response)
 		return response, err
-	}), nil
+	})
 }
 
-// WrapStream decorates one streaming speech capability. Provider work remains
+// Stream decorates one streaming speech capability. Provider work remains
 // lazy and stopping iteration closes the observation synchronously.
-func (m Middleware) WrapStream(next corespeech.Streamer) (corespeech.Streamer, error) {
-	if err := m.validate(); err != nil {
-		return nil, err
-	}
+func (m Middleware) Stream(next corespeech.Streamer) corespeech.Streamer {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidStreamer)
+		return nil
+	}
+	if err := m.validate(); err != nil {
+		return corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
+			return func(yield func(*corespeech.Response, error) bool) { yield(nil, err) }
+		})
 	}
 	return corespeech.StreamerFunc(func(ctx context.Context, request *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 		return func(yield func(*corespeech.Response, error) bool) {
@@ -149,7 +151,7 @@ func (m Middleware) WrapStream(next corespeech.Streamer) (corespeech.Streamer, e
 				}
 			}
 		}
-	}), nil
+	})
 }
 
 func (m Middleware) validate() error {

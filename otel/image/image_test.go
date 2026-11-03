@@ -28,12 +28,9 @@ func TestMiddlewarePreservesCallAndDoesNotObservePrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := &coreimage.Response{}
-	model, err := middleware.Wrap(coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) {
+	model := middleware.Call(coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) {
 		return want, nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := coreimage.NewRequest("sensitive prompt")
 	request.Options.Model = "requested"
 	got, err := model.Call(t.Context(), request)
@@ -60,7 +57,7 @@ func TestMiddlewareRejectsInvalidConstruction(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model coreimage.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, otelimage.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 }

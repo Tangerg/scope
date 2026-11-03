@@ -52,7 +52,7 @@ func newModelPrompt[T any](
 	fallback string,
 	required ...string,
 ) (modelPrompt[T], error) {
-	client, err := chatclient.New(model, chatclient.Config{})
+	client, err := chatclient.New(model)
 	if err != nil {
 		return modelPrompt[T]{}, err
 	}

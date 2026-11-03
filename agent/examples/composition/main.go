@@ -188,7 +188,7 @@ func (u *uppercaseExecution) Snapshot() (agentrun.ExecutionState, error) {
 }
 
 func newModelProgram(compiler *agentrun.Compiler) (agentrun.Program[interaction.Input, interaction.Output], error) {
-	client, err := chatclient.New(compositionModel{}, chatclient.Config{})
+	client, err := chatclient.New(compositionModel{})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}

@@ -32,7 +32,6 @@ const (
 
 var (
 	ErrInvalidConfig = errors.New("otel/rerank: invalid config")
-	ErrInvalidModel  = errors.New("otel/rerank: invalid model")
 )
 
 // Nil providers use the corresponding OpenTelemetry globals.
@@ -94,12 +93,14 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next corererank.Model) (corererank.Model, error) {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
+// Call instruments next without changing its response or error.
+func (m Middleware) Call(next corererank.Model) corererank.Model {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
+		return nil
+	}
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, err })
 	}
 	return corererank.ModelFunc(func(ctx context.Context, request *corererank.Request) (response *corererank.Response, err error) {
 		startedAt := time.Now()
@@ -114,7 +115,7 @@ func (m Middleware) Wrap(next corererank.Model) (corererank.Model, error) {
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
-	}), nil
+	})
 }
 
 func (m Middleware) spanName(request *corererank.Request) string {

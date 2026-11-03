@@ -3,7 +3,7 @@
 // module decorates it from outside so a core-only consumer never inherits the
 // telemetry dependency.
 //
-// Wrap an [github.com/Tangerg/scope/rag.Retriever] with Middleware.Wrap to
+// Decorate a [github.com/Tangerg/scope/rag.Retriever] with Middleware.Retrieve to
 // record a rag.retrieve span and a rag.operation.duration measurement per
 // retrieval. Query text and document content are never recorded; only the
 // operation name and returned document count become attributes. A panicking

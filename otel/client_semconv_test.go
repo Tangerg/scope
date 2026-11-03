@@ -43,12 +43,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
+			wrapped := middleware.Call(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
 				return &coreembedding.Response{Metadata: &coreembedding.ResponseMetadata{Usage: &coreembedding.Usage{InputTokens: 3}}}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &coreembedding.Request{Texts: []string{"input"}, Options: coreembedding.Options{Model: "requested", Dimensions: new(int64(8))}})
 			return err
 		}},
@@ -57,12 +54,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) {
+			wrapped := middleware.Call(coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) {
 				return &coreimage.Response{}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &coreimage.Request{Prompt: "input", Options: coreimage.Options{Model: "requested"}})
 			return err
 		}},
@@ -71,12 +65,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) {
+			wrapped := middleware.Call(coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) {
 				return &coremoderation.Response{}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &coremoderation.Request{Texts: []string{"input"}, Options: coremoderation.Options{Model: "requested"}})
 			return err
 		}},
@@ -85,12 +76,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
+			wrapped := middleware.Call(corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) {
 				return &corererank.Response{Metadata: &corererank.ResponseMetadata{Usage: &corererank.Usage{InputTokens: 3}}}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &corererank.Request{Query: "input", Documents: []string{"document"}, Options: corererank.Options{Model: "requested"}})
 			return err
 		}},
@@ -99,12 +87,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(corespeech.ModelFunc(func(context.Context, *corespeech.Request) (*corespeech.Response, error) {
+			wrapped := middleware.Call(corespeech.ModelFunc(func(context.Context, *corespeech.Request) (*corespeech.Response, error) {
 				return &corespeech.Response{}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &corespeech.Request{Text: "input", Options: corespeech.Options{Model: "requested"}})
 			return err
 		}},
@@ -113,12 +98,9 @@ func TestClientMetricsDescribeOnlyObservedResponse(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			wrapped, err := middleware.Wrap(coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
+			wrapped := middleware.Call(coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
 				return &coretranscription.Response{}, failure
 			}))
-			if err != nil {
-				return err
-			}
 			_, err = wrapped.Call(ctx, &coretranscription.Request{Options: coretranscription.Options{Model: "requested"}})
 			return err
 		}},
@@ -242,7 +224,7 @@ func TestSpeechStreamRecordsChunkLatency(t *testing.T) {
 					t.Fatal(err)
 				}
 				closed := false
-				streamer, err := middleware.WrapStream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
+				streamer := middleware.Stream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 					return func(yield func(*corespeech.Response, error) bool) {
 						defer func() { closed = true }()
 						for _, delay := range []time.Duration{time.Second, 2 * time.Second, 3 * time.Second} {
@@ -254,9 +236,6 @@ func TestSpeechStreamRecordsChunkLatency(t *testing.T) {
 						}
 					}
 				}))
-				if err != nil {
-					t.Fatal(err)
-				}
 				count := 0
 				for _, streamErr := range streamer.Stream(t.Context(), &corespeech.Request{Text: "input", Options: corespeech.Options{Model: "requested"}}) {
 					if streamErr != nil {

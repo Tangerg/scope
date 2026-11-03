@@ -131,7 +131,7 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: metric configuration: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}
-	client, err := chatclient.New(config.Model, chatclient.Config{})
+	client, err := chatclient.New(config.Model)
 	if err != nil {
 		return nil, fmt.Errorf("%w: model: %w", eval.ErrInvalidEvaluatorConfig, err)
 	}

@@ -61,10 +61,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 				return err
 			}
 			model := coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) { return nil, fail() })
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -74,10 +71,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 				return err
 			}
 			model := coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) { return nil, fail() })
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -87,10 +81,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 				return err
 			}
 			model := coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) { return nil, fail() })
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -100,10 +91,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 				return err
 			}
 			model := corererank.ModelFunc(func(context.Context, *corererank.Request) (*corererank.Response, error) { return nil, fail() })
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -113,10 +101,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 				return err
 			}
 			model := corespeech.ModelFunc(func(context.Context, *corespeech.Request) (*corespeech.Response, error) { return nil, fail() })
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -128,10 +113,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 			model := coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
 				return nil, fail()
 			})
-			wrapped, err := middleware.Wrap(model)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Call(model)
 			_, err = wrapped.Call(ctx, nil)
 			return err
 		}},
@@ -159,10 +141,7 @@ func TestModelExceptionsRemainCorrelatedAndContentFree(t *testing.T) {
 			streamer := corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 				return func(yield func(*corespeech.Response, error) bool) { yield(nil, fail()) }
 			})
-			wrapped, err := middleware.WrapStream(streamer)
-			if err != nil {
-				return err
-			}
+			wrapped := middleware.Stream(streamer)
 			for _, streamErr := range wrapped.Stream(ctx, nil) {
 				if streamErr != nil {
 					return streamErr

@@ -49,29 +49,20 @@ func (*pointerStreamer) Stream(context.Context, *chat.Request) iter.Seq2[*chat.R
 }
 
 func TestNewRejectsInvalidConstruction(t *testing.T) {
-	model := callOnly{call: successfulCall}
 	var typedNilModel *pointerModel
 
 	tests := []struct {
-		name   string
-		model  chat.Model
-		config Config
-		want   error
+		name  string
+		model chat.Model
+		want  error
 	}{
 		{name: "nil model", want: ErrNilModel},
 		{name: "typed nil model", model: typedNilModel, want: ErrNilModel},
-		{
-			name:  "middleware returns typed nil model",
-			model: model,
-			config: Config{CallMiddleware: []chat.CallMiddleware{func(chat.Model) chat.Model {
-				return typedNilModel
-			}}},
-		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client, err := New(test.model, test.config)
+			client, err := New(test.model)
 			if err == nil || client.valid() {
 				t.Fatalf("New() = (%v, %v), want zero client and error", client, err)
 			}
@@ -89,7 +80,7 @@ func TestCallProtectsCallerRequest(t *testing.T) {
 		mutateRequestReferences(received)
 		return &chat.Response{Metadata: &chat.ResponseMetadata{ID: "response-1"}}, nil
 	}}
-	client, err := New(model, Config{})
+	client, err := New(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +212,7 @@ func TestCallRejectsInvalidRequestBeforeModel(t *testing.T) {
 	client, err := New(callOnly{call: func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls.Add(1)
 		return nil, nil
-	}}, Config{})
+	}})
 
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +238,7 @@ func TestClientForwardsContextCancellationAndErrors(t *testing.T) {
 			return errorSequence(ctx.Err())
 		},
 	}
-	client, err := New(model, Config{})
+	client, err := New(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +248,7 @@ func TestClientForwardsContextCancellationAndErrors(t *testing.T) {
 		t.Fatalf("Call() = (%v, %v), want context.Canceled", response, err)
 	}
 	count := 0
-	streamClient, err := NewStreamClient(model, StreamConfig{})
+	streamClient, err := NewStreamClient(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,37 +260,6 @@ func TestClientForwardsContextCancellationAndErrors(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("stream yield count = %d, want 1", count)
-	}
-}
-
-func TestCallMiddlewareOrder(t *testing.T) {
-	var events []string
-	middleware := func(name string) chat.CallMiddleware {
-		return func(next chat.Model) chat.Model {
-			return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
-				events = append(events, name+":before")
-				response, err := next.Call(ctx, request)
-				events = append(events, name+":after")
-				return response, err
-			})
-		}
-	}
-	client, err := New(
-		callOnly{call: func(context.Context, *chat.Request) (*chat.Response, error) {
-			events = append(events, "model")
-			return &chat.Response{}, nil
-		}},
-		Config{CallMiddleware: []chat.CallMiddleware{middleware("outer"), nil, middleware("inner")}},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.Call(context.Background(), textRequest("hello")); err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"outer:before", "inner:before", "model", "inner:after", "outer:after"}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %v, want %v", events, want)
 	}
 }
 
@@ -319,7 +279,7 @@ func TestStreamSnapshotsRequestAndReleasesOnStop(t *testing.T) {
 			}
 		},
 	}
-	client, err := NewStreamClient(model, StreamConfig{})
+	client, err := NewStreamClient(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +309,7 @@ func TestStreamSnapshotsRequestAndReleasesOnStop(t *testing.T) {
 }
 
 func TestClientsExposeOnlyTheirRequiredCapabilities(t *testing.T) {
-	client, err := New(callOnly{call: successfulCall}, Config{})
+	client, err := New(callOnly{call: successfulCall})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +318,7 @@ func TestClientsExposeOnlyTheirRequiredCapabilities(t *testing.T) {
 	}
 	streamClient, err := NewStreamClient(streamOnly{stream: func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return oneResponse("stream")
-	}}, StreamConfig{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,15 +330,9 @@ func TestClientsExposeOnlyTheirRequiredCapabilities(t *testing.T) {
 func TestNewStreamClientRejectsInvalidConstruction(t *testing.T) {
 	var typedNil *pointerStreamer
 	for _, streamer := range []chat.Streamer{nil, typedNil} {
-		if _, err := NewStreamClient(streamer, StreamConfig{}); !errors.Is(err, ErrNilStreamer) {
+		if _, err := NewStreamClient(streamer); !errors.Is(err, ErrNilStreamer) {
 			t.Fatalf("error = %v, want ErrNilStreamer", err)
 		}
-	}
-	streamer := streamOnly{stream: func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-		return oneResponse("stream")
-	}}
-	if _, err := NewStreamClient(streamer, StreamConfig{Middleware: []chat.StreamMiddleware{func(chat.Streamer) chat.Streamer { return typedNil }}}); err == nil {
-		t.Fatal("accepted nil middleware result")
 	}
 }
 
@@ -387,7 +341,7 @@ func TestStreamRejectsInvalidRequestBeforeProvider(t *testing.T) {
 	client, err := NewStreamClient(streamOnly{stream: func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		called = true
 		return oneResponse("unexpected")
-	}}, StreamConfig{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,49 +359,6 @@ func TestStreamRejectsInvalidRequestBeforeProvider(t *testing.T) {
 	}
 }
 
-func TestStreamMiddlewareOrder(t *testing.T) {
-	var events []string
-	middleware := func(name string) chat.StreamMiddleware {
-		return func(next chat.Streamer) chat.Streamer {
-			return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-				return func(yield func(*chat.ResponseDelta, error) bool) {
-					events = append(events, name+":before")
-					for response, err := range next.Stream(ctx, request) {
-						if !yield(response, err) {
-							return
-						}
-					}
-					events = append(events, name+":after")
-				}
-			})
-		}
-	}
-	streamer := streamOnly{stream: func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-		return func(yield func(*chat.ResponseDelta, error) bool) {
-			events = append(events, "streamer")
-			yield(&chat.ResponseDelta{FinishReason: chat.FinishReasonStop}, nil)
-		}
-	}}
-	client, err := NewStreamClient(
-		streamer,
-		StreamConfig{
-			Middleware: []chat.StreamMiddleware{middleware("outer"), nil, middleware("inner")},
-		},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, streamErr := range client.Stream(context.Background(), textRequest("hello")) {
-		if streamErr != nil {
-			t.Fatal(streamErr)
-		}
-	}
-	want := []string{"outer:before", "inner:before", "streamer", "inner:after", "outer:after"}
-	if !reflect.DeepEqual(events, want) {
-		t.Fatalf("events = %v, want %v", events, want)
-	}
-}
-
 func TestClientConfigurationIsSafeForConcurrentCalls(t *testing.T) {
 	var calls atomic.Int64
 	client, err := New(
@@ -458,7 +369,6 @@ func TestClientConfigurationIsSafeForConcurrentCalls(t *testing.T) {
 			calls.Add(1)
 			return &chat.Response{}, nil
 		}},
-		Config{},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -490,7 +400,7 @@ func TestClientConfigurationIsSafeForConcurrentCalls(t *testing.T) {
 func TestNilStreamSequenceBecomesTerminalError(t *testing.T) {
 	client, err := NewStreamClient(streamOnly{stream: func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return nil
-	}}, StreamConfig{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := false
-	streamer, err := middleware.WrapStream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
+	streamer := middleware.Stream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 		started = true
 		return func(yield func(*corespeech.Response, error) bool) {
 			yield(&corespeech.Response{
@@ -40,9 +40,6 @@ func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 			}, nil)
 		}
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := corespeech.NewRequest("sensitive text")
 	request.Options.Model = "requested"
 	sequence := streamer.Stream(t.Context(), request)
@@ -79,12 +76,12 @@ func TestMiddlewareRejectsMissingCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	var model corespeech.ModelFunc
-	if _, err := middleware.Wrap(model); !errors.Is(err, otelspeech.ErrInvalidModel) {
-		t.Fatalf("Wrap error = %v", err)
+	if middleware.Call(model) != nil {
+		t.Fatal("a nil model was decorated")
 	}
 	var streamer corespeech.StreamerFunc
-	if _, err := middleware.WrapStream(streamer); !errors.Is(err, otelspeech.ErrInvalidStreamer) {
-		t.Fatalf("WrapStream error = %v", err)
+	if middleware.Stream(streamer) != nil {
+		t.Fatal("a nil streamer was decorated")
 	}
 }
 
@@ -98,12 +95,9 @@ func TestStreamReportsNilSequenceAsInvalidStreamer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	streamer, err := middleware.WrapStream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
+	streamer := middleware.Stream(corespeech.StreamerFunc(func(context.Context, *corespeech.Request) iter.Seq2[*corespeech.Response, error] {
 		return nil
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	request, _ := corespeech.NewRequest("text")
 	var yielded []error
 	for response, streamErr := range streamer.Stream(t.Context(), request) {

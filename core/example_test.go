@@ -20,7 +20,7 @@ func (echoModel) Call(_ context.Context, request *chat.Request) (*chat.Response,
 }
 
 func Example() {
-	client, err := chatclient.New(echoModel{}, chatclient.Config{})
+	client, err := chatclient.New(echoModel{})
 	if err != nil {
 		panic(err)
 	}

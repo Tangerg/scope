@@ -18,7 +18,7 @@ func TestClientOutputUsesTypedOutput(t *testing.T) {
 			return responseWithText(t, `{"name":"tea","steps":["boil","steep"]}`), nil
 		},
 	}
-	client, err := New(model, Config{})
+	client, err := New(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestClientOutputPreservesUnsuccessfulCompletion(t *testing.T) {
 			response.Output.FinishReason = reason
 			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return response, nil
-			}), Config{})
+			}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -65,7 +65,7 @@ func TestClientOutputPreservesRefusalDiagnostic(t *testing.T) {
 	}}
 	client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return response, nil
-	}), Config{})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestClientOutputRequiresCompletedTextParts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop, Message: test.message}}
-			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response, nil }), Config{})
+			client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response, nil }))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +123,7 @@ func TestClientOutputSnapshotsSchema(t *testing.T) {
 		}
 		got.Schema[0] = '['
 		return responseWithText(t, `{"name":"tea","steps":[]}`), nil
-	}}, Config{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestClientOutputRejectsDuplicateOrInvalidFormat(t *testing.T) {
 	client, err := New(callOnly{call: func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls++
 		return responseWithText(t, `{}`), nil
-	}}, Config{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestClientOutputPreservesTransportErrors(t *testing.T) {
 	upstream := errors.New("upstream")
 	client, err := New(callOnly{call: func(context.Context, *chat.Request) (*chat.Response, error) {
 		return nil, upstream
-	}}, Config{})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

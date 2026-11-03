@@ -15,26 +15,17 @@ var ErrNilStreamer = errors.New("chatclient: nil streamer")
 
 var errNilStreamSequence = errors.New("chatclient: streamer returned a nil sequence")
 
-// StreamConfig supplies streaming middleware. The first entry is the outermost
-// wrapper. NewStreamClient consumes the slice without retaining it.
-type StreamConfig struct {
-	Middleware []chat.StreamMiddleware
-}
-
-// StreamClient owns a required streaming capability and its middleware chain.
+// StreamClient owns a required streaming capability; compose middleware with
+// chat.WrapStream before NewStreamClient.
 // It is immutable; concurrent use requires a concurrency-safe Streamer. It does
 // not implement chat.Model or require an unused synchronous capability.
 type StreamClient struct {
 	streamer chat.Streamer
 }
 
-func NewStreamClient(streamer chat.Streamer, config StreamConfig) (StreamClient, error) {
+func NewStreamClient(streamer chat.Streamer) (StreamClient, error) {
 	if lo.IsNil(streamer) {
 		return StreamClient{}, ErrNilStreamer
-	}
-	streamer = chat.WrapStream(streamer, config.Middleware...)
-	if lo.IsNil(streamer) {
-		return StreamClient{}, errors.New("chatclient: stream middleware returned a nil streamer")
 	}
 	return StreamClient{streamer: streamer}, nil
 }

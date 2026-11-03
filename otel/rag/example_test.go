@@ -8,21 +8,18 @@ import (
 	corerag "github.com/Tangerg/scope/rag"
 )
 
-// ExampleMiddleware_Wrap instruments a Retriever without changing its result.
+// ExampleMiddleware_Retrieve instruments a Retriever without changing its result.
 // Nil providers resolve to the OpenTelemetry globals, so a composition root can
 // enable tracing later without touching this wiring.
-func ExampleMiddleware_Wrap() {
+func ExampleMiddleware_Retrieve() {
 	middleware, err := ragotel.NewMiddleware(ragotel.MiddlewareConfig{})
 	if err != nil {
 		panic(err)
 	}
-	retriever, err := middleware.Wrap(corerag.RetrieverFunc(
+	retriever := middleware.Retrieve(corerag.RetrieverFunc(
 		func(context.Context, corerag.Query) (corerag.Candidates, error) {
 			return corerag.Candidates{}, nil
 		}))
-	if err != nil {
-		panic(err)
-	}
 	query, err := corerag.NewQuery("scope documentation")
 	if err != nil {
 		panic(err)

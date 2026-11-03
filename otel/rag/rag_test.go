@@ -60,10 +60,7 @@ func TestMiddlewareObservesExactRetrievalBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	inner := &testRetriever{candidates: corerag.Candidates{{Document: doc, Score: 0.9}}}
-	wrapped, err := middleware.Wrap(inner)
-	if err != nil {
-		t.Fatal(err)
-	}
+	wrapped := middleware.Retrieve(inner)
 	query, err := corerag.NewQuery("sensitive query")
 	if err != nil {
 		t.Fatal(err)
@@ -95,10 +92,7 @@ func TestMiddlewareObservesExactRetrievalBoundary(t *testing.T) {
 func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.T) {
 	middleware, rig := newRig(t)
 	want := fmt.Errorf("retrieval stopped: %w", context.Canceled)
-	wrapped, err := middleware.Wrap(&testRetriever{err: want})
-	if err != nil {
-		t.Fatal(err)
-	}
+	wrapped := middleware.Retrieve(&testRetriever{err: want})
 	query, _ := corerag.NewQuery("query")
 	if _, gotErr := wrapped.Retrieve(t.Context(), query); !errors.Is(gotErr, context.Canceled) {
 		t.Fatalf("Retrieve error = %v", gotErr)
@@ -114,10 +108,7 @@ func TestMiddlewarePreservesRetrieverCancellationPolicy(t *testing.T) {
 	middleware, rig := newRig(t)
 	want := fmt.Errorf("retrieval canceled before dispatch: %w", context.Canceled)
 	inner := &testRetriever{err: want}
-	wrapped, err := middleware.Wrap(inner)
-	if err != nil {
-		t.Fatal(err)
-	}
+	wrapped := middleware.Retrieve(inner)
 	query, err := corerag.NewQuery("query")
 	if err != nil {
 		t.Fatal(err)
@@ -135,14 +126,18 @@ func TestMiddlewarePreservesRetrieverCancellationPolicy(t *testing.T) {
 
 func TestMiddlewareRejectsInvalidConstructionAndRetrievers(t *testing.T) {
 	var zero ragotel.Middleware
-	if wrapped, err := zero.Wrap(&testRetriever{}); wrapped != nil || !errors.Is(err, ragotel.ErrInvalidConfig) {
-		t.Fatalf("zero Wrap = (%v, %v)", wrapped, err)
+	query, err := corerag.NewQuery("question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zero.Retrieve(&testRetriever{}).Retrieve(t.Context(), query); !errors.Is(err, ragotel.ErrInvalidConfig) {
+		t.Fatalf("zero middleware retrieved: %v", err)
 	}
 	middleware, _ := newRig(t)
 	var typedNil *testRetriever
 	for _, candidate := range []corerag.Retriever{nil, typedNil} {
-		if wrapped, err := middleware.Wrap(candidate); wrapped != nil || !errors.Is(err, ragotel.ErrInvalidRetriever) {
-			t.Fatalf("Wrap(%T) = (%v, %v)", candidate, wrapped, err)
+		if wrapped := middleware.Retrieve(candidate); wrapped != nil {
+			t.Fatalf("Retrieve(%T) decorated a nil retriever", candidate)
 		}
 	}
 }

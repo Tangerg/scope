@@ -8,17 +8,14 @@ import (
 	otelembedding "github.com/Tangerg/scope/otel/embedding"
 )
 
-func ExampleMiddleware_Wrap() {
+func ExampleMiddleware_Call() {
 	middleware, err := otelembedding.NewMiddleware(otelembedding.MiddlewareConfig{Provider: "example"})
 	if err != nil {
 		panic(err)
 	}
-	model, err := middleware.Wrap(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
+	model := middleware.Call(coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) {
 		return &coreembedding.Response{Metadata: &coreembedding.ResponseMetadata{Model: "served-model"}}, nil
 	}))
-	if err != nil {
-		panic(err)
-	}
 	request, err := coreembedding.NewRequest([]string{"text"})
 	if err != nil {
 		panic(err)

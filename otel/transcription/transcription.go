@@ -31,7 +31,6 @@ const (
 
 var (
 	ErrInvalidConfig = errors.New("otel/transcription: invalid config")
-	ErrInvalidModel  = errors.New("otel/transcription: invalid model")
 )
 
 type MiddlewareConfig struct {
@@ -88,12 +87,16 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-func (m Middleware) Wrap(next coretranscription.Model) (coretranscription.Model, error) {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
+// Call instruments next without changing its response or error.
+func (m Middleware) Call(next coretranscription.Model) coretranscription.Model {
 	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidModel)
+		return nil
+	}
+	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
+		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
+		return coretranscription.ModelFunc(func(context.Context, *coretranscription.Request) (*coretranscription.Response, error) {
+			return nil, err
+		})
 	}
 	return coretranscription.ModelFunc(func(ctx context.Context, request *coretranscription.Request) (response *coretranscription.Response, err error) {
 		startedAt := time.Now()
@@ -108,7 +111,7 @@ func (m Middleware) Wrap(next coretranscription.Model) (coretranscription.Model,
 		})
 		response, err = next.Call(spanCtx, request)
 		return response, err
-	}), nil
+	})
 }
 
 func (m Middleware) spanName(request *coretranscription.Request) string {

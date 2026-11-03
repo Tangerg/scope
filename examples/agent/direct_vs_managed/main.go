@@ -30,7 +30,7 @@ func main() {
 }
 
 func run(ctx context.Context, output io.Writer) (err error) {
-	directClient, err := chatclient.New(echoModel{prefix: "direct"}, chatclient.Config{})
+	directClient, err := chatclient.New(echoModel{prefix: "direct"})
 	if err != nil {
 		return err
 	}

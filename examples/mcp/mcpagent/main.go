@@ -182,7 +182,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}
-	chatClient, err := chatclient.New(&stubModel{query: config.Query}, chatclient.Config{})
+	chatClient, err := chatclient.New(&stubModel{query: config.Query})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}

@@ -107,7 +107,7 @@ func TestStreamTermination(t *testing.T) {
 					yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("last")}, FinishReason: chat.FinishReasonStop}, nil)
 				}
 			})
-			client, err := chatclient.NewStreamClient(streamer, chatclient.StreamConfig{})
+			client, err := chatclient.NewStreamClient(streamer)
 			if err != nil {
 				t.Fatal(err)
 			}

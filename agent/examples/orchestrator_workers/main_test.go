@@ -60,7 +60,7 @@ func newPlanningDelegateRoot(
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := chatclient.New(model, chatclient.Config{})
+	client, err := chatclient.New(model)
 	if err != nil {
 		t.Fatal(err)
 	}
