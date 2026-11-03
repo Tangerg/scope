@@ -7,16 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/samber/lo"
-
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
 	ragchat "github.com/Tangerg/scope/rag/chat"
 )
-
-var routeKey = lo.Must(rag.NewValueKey[string]("route"))
 
 type fakeChatModel struct {
 	reply   string
@@ -135,10 +131,6 @@ func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
 	}
 
 	q, _ := rag.NewQuery("what is GOAP?")
-	q, err = q.WithValue(routeKey, "docs")
-	if err != nil {
-		t.Fatal(err)
-	}
 	doc, _ := document.NewDocument("GOAP is goal-oriented action planning.", nil)
 
 	augmentation, err := aug.Augment(t.Context(), q, []rag.Candidate{candidate(doc)})
@@ -150,9 +142,6 @@ func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
 	}
 	if q.Text() != "what is GOAP?" {
 		t.Fatalf("retrieval query text was mutated: %q", q.Text())
-	}
-	if v, _, _ := q.Value(routeKey); v != "docs" {
-		t.Fatalf("retrieval query value was mutated: route=%v", v)
 	}
 }
 
@@ -436,10 +425,6 @@ func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
 	}
 
 	q, _ := rag.NewQuery("hi")
-	q, err = q.WithValue(routeKey, "docs")
-	if err != nil {
-		t.Fatal(err)
-	}
 	got, err := exp.Expand(t.Context(), q)
 	if err != nil {
 		t.Fatal(err)
@@ -449,9 +434,6 @@ func TestMultiQueryExpanderUsesStructuredDistinctVariants(t *testing.T) {
 	}
 	if got[0].Text() != "variant 1" {
 		t.Fatalf("first variant = %q", got[0].Text())
-	}
-	if v, _, _ := got[0].Value(routeKey); v != "docs" {
-		t.Fatalf("variant metadata was not preserved: route=%v", v)
 	}
 	if format := model.lastRequest().Options.OutputFormat; format == nil || format.Type != chat.OutputFormatJSONSchema {
 		t.Fatalf("output format = %#v, want JSON Schema", format)

@@ -53,7 +53,7 @@ func TestPreparerTransformsRetrievalWithoutRewritingActiveQuestion(t *testing.T)
 				t.Fatalf("history = %v", history)
 			}
 			history[0].Parts[0].Text = "attempted mutation"
-			return input.Query().WithText("standalone retrieval query")
+			return rag.NewQuery("standalone retrieval query")
 		}),
 	})
 	if err != nil {

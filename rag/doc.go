@@ -38,19 +38,18 @@
 //
 // # Routing and agentic retrieval
 //
-// There is no router stage. Route a query by implementing [Retriever] and
-// switching on a value stored under a [ValueKey]:
+// There is no router stage. Route a query by implementing [Retriever] around
+// the decision the router owns, such as a classifier over the query text:
 //
 //	func (r *routingRetriever) Retrieve(ctx context.Context, q rag.Query) (rag.Candidates, error) {
-//	    route, _, err := q.Value(r.routeKey)
-//	    if err != nil {
-//	        return nil, err
-//	    }
-//	    if route == "logs" {
+//	    if r.isLogQuestion(q.Text()) {
 //	        return r.logs.Retrieve(ctx, q)
 //	    }
 //	    return r.docs.Retrieve(ctx, q)
 //	}
+//
+// Host authority such as a tenant is bound when a Retriever is built for it,
+// never carried by the query.
 //
 // [github.com/Tangerg/scope/rag/tool.NewRetrieval] adapts any composed Retriever
 // to the ordinary core tool contract, so agents need no RAG-specific API.

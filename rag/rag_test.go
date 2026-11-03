@@ -9,16 +9,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-var testQueryValueKey = mustValueKey[string]("test value")
-
-func mustValueKey[T any](name string) rag.ValueKey[T] {
-	key, err := rag.NewValueKey[T](name)
-	if err != nil {
-		panic(err)
-	}
-	return key
-}
-
 func TestNewQuery_RequiresText(t *testing.T) {
 	if _, err := rag.NewQuery(""); !errors.Is(err, rag.ErrInvalidQuery) {
 		t.Fatalf("NewQuery error = %v, want ErrInvalidQuery", err)
@@ -59,62 +49,6 @@ func TestAugmentationOwnsCitationOrder(t *testing.T) {
 func TestQueryValidateRejectsZeroValue(t *testing.T) {
 	if err := new(rag.Query).Validate(); !errors.Is(err, rag.ErrInvalidQuery) {
 		t.Fatalf("zero-value Query.Validate error = %v", err)
-	}
-}
-
-func TestQueryValue(t *testing.T) {
-	q, _ := rag.NewQuery("hi")
-
-	if value, found, err := q.Value(testQueryValueKey); err != nil || found || value != "" {
-		t.Fatalf("Value(missing) = (%q, %v, %v)", value, found, err)
-	}
-	q, err := q.WithValue(testQueryValueKey, "v")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, found, err := q.Value(testQueryValueKey); err != nil || !found || value != "v" {
-		t.Fatalf("Value(test value) = (%q, %v, %v)", value, found, err)
-	}
-}
-
-func TestWithValueReturnsIndependentQuery(t *testing.T) {
-	a, _ := rag.NewQuery("hi")
-	a, _ = a.WithValue(testQueryValueKey, "v")
-	rewritten, _ := a.WithText("rewritten")
-	b, _ := rewritten.WithValue(testQueryValueKey, "modified")
-
-	if value, _, _ := a.Value(testQueryValueKey); value != "v" {
-		t.Fatalf("update leaked into source query: a.k = %v", value)
-	}
-	if value, _, _ := b.Value(testQueryValueKey); value != "modified" {
-		t.Fatalf("updated value = %v", value)
-	}
-	if value, _, _ := rewritten.Value(testQueryValueKey); value != "v" || a.Text() != "hi" || rewritten.Text() != "rewritten" {
-		t.Fatalf("rewritten query changed an existing envelope: text=%q value=%v", rewritten.Text(), value)
-	}
-}
-
-func TestQueryValueKeyRejectsUntypedValuesAndIsolatesSameNameKeys(t *testing.T) {
-	if _, err := rag.NewValueKey[any]("untyped"); !errors.Is(err, rag.ErrInvalidQueryValueKey) {
-		t.Fatalf("NewValueKey[any] error = %v, want ErrInvalidQueryValueKey", err)
-	}
-
-	q, _ := rag.NewQuery("hi")
-	q, _ = q.WithValue(testQueryValueKey, "v")
-	independent := mustValueKey[int](testQueryValueKey.Name())
-	q, err := q.WithValue(independent, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value, found, err := q.Value(independent); err != nil || !found || value != 1 {
-		t.Fatalf("Value(independent key) = (%d, %v, %v)", value, found, err)
-	}
-	if value, found, err := q.Value(testQueryValueKey); err != nil || !found || value != "v" {
-		t.Fatalf("Value(original key) = (%q, %v, %v)", value, found, err)
-	}
-	nilSliceKey := mustValueKey[[]string]("nil slice")
-	if _, err := q.WithValue(nilSliceKey, nil); !errors.Is(err, rag.ErrNilQueryValue) {
-		t.Fatalf("WithValue nil error = %v, want ErrNilQueryValue", err)
 	}
 }
 
@@ -228,7 +162,7 @@ func (f *fakeTransformer) Transform(_ context.Context, q rag.Query) (rag.Query, 
 	if f.err != nil {
 		return rag.Query{}, f.err
 	}
-	return q.WithText(q.Text() + f.suffix)
+	return rag.NewQuery(q.Text() + f.suffix)
 }
 
 func TestWithTransformersFeedsTransformedQueryToRetriever(t *testing.T) {

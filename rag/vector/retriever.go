@@ -39,11 +39,10 @@ type RetrieverConfig struct {
 	// semantic; a store that cannot honor hybrid returns a typed error.
 	SearchMode corevs.SearchMode
 
-	// FilterFunc builds each retrieval's metadata filter from the complete
-	// query and is the filter's only source. A per-query filter is a
-	// caller-owned [rag.ValueKey] read here, so it composes with fixed policy
-	// such as tenant isolation instead of replacing it. Nil applies no filter;
-	// an error fails the retrieval before the store is searched.
+	// FilterFunc builds each retrieval's metadata filter from the query and is
+	// the filter's only source. Host policy such as tenant isolation is bound
+	// into it when the Retriever is built. Nil applies no filter; an error
+	// fails the retrieval before the store is searched.
 	FilterFunc func(ctx context.Context, query rag.Query) (filter.Predicate, error)
 }
 

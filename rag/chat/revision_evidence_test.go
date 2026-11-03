@@ -78,7 +78,7 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 	if refineErr != nil {
 		t.Fatal(refineErr)
 	}
-	search, rewriteErr := rag.WithTransformers(ranked, rag.TransformerFunc(func(_ context.Context, q rag.Query) (rag.Query, error) { return q.WithText("index terms") }))
+	search, rewriteErr := rag.WithTransformers(ranked, rag.TransformerFunc(func(_ context.Context, q rag.Query) (rag.Query, error) { return rag.NewQuery("index terms") }))
 	if rewriteErr != nil {
 		t.Fatal(rewriteErr)
 	}

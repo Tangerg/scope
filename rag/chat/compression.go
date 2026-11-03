@@ -76,7 +76,7 @@ func (c *CompressionTransformer) Transform(ctx context.Context, input Conversati
 		return rag.Query{}, err
 	}
 
-	return queryFromModel(query, compressed)
+	return queryFromModel(compressed)
 }
 
 func (c *CompressionTransformer) formatHistory(ctx context.Context, messages []corechat.Message) (string, error) {

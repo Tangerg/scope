@@ -26,11 +26,11 @@ const (
 // chatclient errors.
 var ErrEmptyModelOutput = errors.New("rag: model returned empty query text")
 
-// queryFromModel folds model-produced text into query. The caller must pass an
-// already-validated query; Query then owns trimming and the non-empty rule, and
-// a response Query rejects is wrapped as [ErrEmptyModelOutput].
-func queryFromModel(query rag.Query, text string) (rag.Query, error) {
-	updated, err := query.WithText(text)
+// queryFromModel turns model-produced text into a query. Query owns trimming
+// and the non-empty rule; a response it rejects is wrapped as
+// [ErrEmptyModelOutput].
+func queryFromModel(text string) (rag.Query, error) {
+	updated, err := rag.NewQuery(text)
 	if err != nil {
 		return rag.Query{}, fmt.Errorf("%w: %w", ErrEmptyModelOutput, err)
 	}

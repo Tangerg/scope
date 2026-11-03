@@ -108,20 +108,13 @@ func TestRetrieverWithoutFilterFuncSearchesUnfiltered(t *testing.T) {
 	}
 }
 
-func TestRetrieverFilterFuncReadsQueryValues(t *testing.T) {
-	yearKey, err := rag.NewValueKey[int]("minimum year")
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestRetrieverFilterFuncBuildsThePredicate(t *testing.T) {
+	minimumYear := 2020
 	store := &fakeVectorSearcher{metadata: metadata.Map{"tenant": []byte(`"acme"`), "year": []byte(`2021`)}}
 	r, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
 		Encoder: demoEncoder(), VectorStore: store,
-		FilterFunc: func(_ context.Context, query rag.Query) (filter.Predicate, error) {
-			year, found, valueErr := query.Value(yearKey)
-			if valueErr != nil || !found {
-				t.Fatalf("FilterFunc query value = %d, %t, %v", year, found, valueErr)
-			}
-			return filter.And(filter.EQ("tenant", "acme"), filter.GE("year", year)), nil
+		FilterFunc: func(context.Context, rag.Query) (filter.Predicate, error) {
+			return filter.And(filter.EQ("tenant", "acme"), filter.GE("year", minimumYear)), nil
 		},
 	})
 	if err != nil {
@@ -129,10 +122,6 @@ func TestRetrieverFilterFuncReadsQueryValues(t *testing.T) {
 	}
 
 	q, _ := rag.NewQuery("hi")
-	q, err = q.WithValue(yearKey, 2020)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := r.Retrieve(t.Context(), q); err != nil {
 		t.Fatal(err)
 	}

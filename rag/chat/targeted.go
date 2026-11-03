@@ -58,5 +58,5 @@ func (t targetedTextTransformer) transform(ctx context.Context, query rag.Query)
 	if err != nil {
 		return rag.Query{}, err
 	}
-	return queryFromModel(query, text)
+	return queryFromModel(text)
 }

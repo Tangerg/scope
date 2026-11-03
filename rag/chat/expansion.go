@@ -83,7 +83,7 @@ func (m multiQueryOutput) queries(source rag.Query, count int, includeOriginal b
 			continue
 		}
 		seen[text] = struct{}{}
-		query, err := source.WithText(text)
+		query, err := rag.NewQuery(text)
 		if err != nil {
 			return nil, err
 		}

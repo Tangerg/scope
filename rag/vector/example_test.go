@@ -2,7 +2,6 @@ package vector_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/core/embedding"
@@ -21,20 +20,12 @@ func (filterPrinter) Query(_ context.Context, request *corevs.Query) (*corevs.Se
 }
 
 func ExampleRetrieverConfig_filterFunc() {
-	tenantKey, err := rag.NewValueKey[string]("tenant")
-	if err != nil {
-		panic(err)
-	}
+	// The tenant is host authority, so it is bound when the retriever is
+	// built for that tenant rather than carried by the model-shaped query.
+	tenant := "acme"
 	retriever, err := ragvectorstore.NewRetriever(ragvectorstore.RetrieverConfig{
 		Encoder: demoEncoder(), VectorStore: filterPrinter{},
-		FilterFunc: func(_ context.Context, query rag.Query) (filter.Predicate, error) {
-			tenant, found, valueErr := query.Value(tenantKey)
-			if valueErr != nil {
-				return nil, valueErr
-			}
-			if !found {
-				return nil, errors.New("tenant is required")
-			}
+		FilterFunc: func(context.Context, rag.Query) (filter.Predicate, error) {
 			return filter.EQ("tenant", tenant), nil
 		},
 	})
@@ -42,10 +33,6 @@ func ExampleRetrieverConfig_filterFunc() {
 		panic(err)
 	}
 	query, err := rag.NewQuery("release notes")
-	if err != nil {
-		panic(err)
-	}
-	query, err = query.WithValue(tenantKey, "acme")
 	if err != nil {
 		panic(err)
 	}
