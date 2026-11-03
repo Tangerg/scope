@@ -1,6 +1,7 @@
-// Package instrument owns the construction rules every Scope instrumentation
-// shares: which OpenTelemetry providers it records through and how configured
-// identities become telemetry dimensions.
+// Package instrument owns the rules every Scope instrumentation shares: which
+// OpenTelemetry providers it records through, how configured identities become
+// telemetry dimensions, and the attributes Scope defines beyond the semantic
+// conventions.
 package instrument
 
 import (
@@ -8,10 +9,15 @@ import (
 
 	"github.com/samber/lo"
 	apiotel "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// InputCountKey counts the inputs of one batched GenAI request, which the
+// semantic conventions do not yet name.
+const InputCountKey = attribute.Key("gen_ai.request.input.count")
 
 // TracerProvider resolves nil to the process global, as the OpenTelemetry API
 // specifies for instrumentation libraries.

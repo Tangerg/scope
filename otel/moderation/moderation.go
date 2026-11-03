@@ -25,7 +25,6 @@ import (
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/moderation"
 	operationName       = "moderate"
-	inputCountAttribute = "gen_ai.request.input.count"
 	errorInvalidRequest = "moderation.invalid_request"
 	errorInvalidOutput  = "moderation.invalid_response"
 )
@@ -122,7 +121,7 @@ func (m Middleware) requestAttributes(request *coremoderation.Request) []attribu
 	if request.Options.Model != "" {
 		attributes = append(attributes, semconv.GenAIRequestModel(request.Options.Model))
 	}
-	return append(attributes, attribute.Int(inputCountAttribute, len(request.Texts)))
+	return append(attributes, instrument.InputCountKey.Int(len(request.Texts)))
 }
 
 func (m Middleware) finish(

@@ -25,7 +25,6 @@ import (
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/embedding"
 	operationName       = "embeddings"
-	inputCountKey       = attribute.Key("gen_ai.request.input.count")
 	errorInvalidRequest = "embedding.invalid_request"
 	errorInvalidOutput  = "embedding.invalid_response"
 )
@@ -131,7 +130,7 @@ func (m Middleware) requestAttributes(request *coreembedding.Request) []attribut
 	if request.Options.Dimensions != nil {
 		attributes = append(attributes, semconv.GenAIEmbeddingsDimensionCountKey.Int64(*request.Options.Dimensions))
 	}
-	return append(attributes, inputCountKey.Int(len(request.Texts)))
+	return append(attributes, instrument.InputCountKey.Int(len(request.Texts)))
 }
 
 func (m Middleware) finish(

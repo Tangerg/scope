@@ -12,7 +12,7 @@ import (
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -96,7 +96,7 @@ func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (out toolcontract.Result, err error) {
 	ctx, span := a2aTracer.Start(ctx, "a2a.agent.call "+r.definition.Name,
 		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithAttributes(attribute.String(attrAgentName, r.definition.Name)),
+		trace.WithAttributes(semconv.GenAIAgentName(r.definition.Name)),
 	)
 	defer func() {
 		if err != nil {
