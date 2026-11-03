@@ -158,7 +158,7 @@ type Invocation struct {
 
 // Prepare validates identity, RFC 7493 JSON syntax, the frozen input schema,
 // and its independent input validator. It does not invoke the executable Tool
-// or authorization policy. Blank arguments are normalized to the empty object.
+// or authorization policy. The invocation's arguments are the Request's Input.
 // A driving runtime may supply a Continuation only for the same call that
 // produced its committed InputRequest.
 func (c Contract) Prepare(call Request, admission Admission) (Invocation, error) {
@@ -174,10 +174,7 @@ func (c Contract) Prepare(call Request, admission Admission) (Invocation, error)
 			ErrInvalidInvocation, call.Name, c.state.name,
 		)
 	}
-	arguments := []byte(call.Arguments)
-	if len(bytes.TrimSpace(arguments)) == 0 {
-		arguments = []byte("{}")
-	}
+	arguments := call.Input()
 	if err := c.validateInput(arguments); err != nil {
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}

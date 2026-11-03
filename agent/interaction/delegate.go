@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
@@ -92,45 +91,38 @@ func (d Delegate) admitResultOutput(output toolcontract.Output) (run.Payload, er
 	return payload, nil
 }
 
-func delegateToolResult(call chat.ToolCall, termination run.Termination) (chat.ToolResult, error) {
+// delegateCallResult is the result a terminated delegated child gives its call.
+func delegateCallResult(termination run.Termination) (toolCallResult, error) {
 	if termination.Status() != run.StatusCompleted {
 		diagnostic := "child ended with " + termination.Status().String() + " (" + termination.Cause().String() + ")"
 		if termination.Reason() != "" {
 			diagnostic += ": " + termination.Reason()
 		}
-		return delegateErrorResult(call, diagnostic), nil
+		return failedCallResult(delegateDiagnostic(diagnostic)), nil
 	}
 	// A validated Completed termination always carries Output.
 	output, _ := termination.Output()
 	toolOutput, err := toolcontract.NewJSONOutput(output.JSON())
 	if err != nil {
-		return chat.ToolResult{}, fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
+		return toolCallResult{}, fmt.Errorf("%w: encode Delegate Tool output: %w", ErrInvalidExecutionState, err)
 	}
-	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: toolOutput}, nil
+	return succeededCallResult(toolOutput), nil
 }
 
-func delegateErrorResult(call chat.ToolCall, diagnostic string) chat.ToolResult {
-	return chat.ToolResult{
-		ID: call.ID, Name: call.Name,
-		Output: toolcontract.NewTextOutput("error: delegated worker " + run.NormalizeDiagnostic(diagnostic)), IsError: true,
-	}
+func delegateDiagnostic(diagnostic string) toolcontract.Output {
+	return toolcontract.NewTextOutput("error: delegated worker " + run.NormalizeDiagnostic(diagnostic))
 }
 
 // rejectedDelegateStartResult is shared by live execution and SettledResults so
 // both report the same model-visible refusal.
-func rejectedDelegateStartResult(call chat.ToolCall, failure run.Failure) *toolCallResult {
-	result := delegateErrorResult(call, "child start failed: "+failure.Code()+": "+failure.Message())
-	completion := newToolCallResult(result)
-	completion.Disposition = ResultRejected
-	return &completion
+func rejectedDelegateStartResult(failure run.Failure) toolCallResult {
+	result := failedCallResult(delegateDiagnostic("child start failed: " + failure.Code() + ": " + failure.Message()))
+	result.Disposition = ResultRejected
+	return result
 }
 
 func (d Delegate) prepareInput(call chat.ToolCall) (run.Payload, error) {
-	arguments := strings.TrimSpace(call.Arguments)
-	if arguments == "" {
-		arguments = "{}"
-	}
-	input, err := run.ParsePayload([]byte(arguments))
+	input, err := run.ParsePayload(call.Request().Input())
 	if err != nil {
 		return run.Payload{}, fmt.Errorf("arguments are not valid JSON: %w", err)
 	}

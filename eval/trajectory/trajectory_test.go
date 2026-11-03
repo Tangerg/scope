@@ -262,7 +262,7 @@ func interactionCoverage(t *testing.T, log run.Log) *trajectory.Coverage {
 			coverage.Models = append(coverage.Models, intent.ID)
 			continue
 		}
-		_, _, call, err := interaction.ToolCallFromEffect(intent.Effect)
+		_, call, err := interaction.ToolCallFromEffect(intent.Effect)
 		if err != nil {
 			t.Fatal(err)
 		}

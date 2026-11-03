@@ -137,30 +137,6 @@ func (m modelCallResult) settlement(maxBytes int) (run.Settlement, error) {
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
 }
 
-// toolCallResult is what executing one ToolCall adds: its output, disposition,
-// and advertisements. The call owns the ID and name that the model-facing
-// chat.ToolResult carries, and the frozen ToolSet owns whether a successful
-// result completes directly, so neither is stored here.
-type toolCallResult struct {
-	Disposition         ResultDisposition `json:"disposition"`
-	Output              tool.Output       `json:"output"`
-	AdvertisedToolNames []string          `json:"advertised_tool_names,omitempty"`
-}
-
-// newToolCallResult keeps what a model-facing result adds to the call it answers.
-func newToolCallResult(result chat.ToolResult) toolCallResult {
-	disposition := ResultSucceeded
-	if result.IsError {
-		disposition = ResultFailed
-	}
-	return toolCallResult{Disposition: disposition, Output: result.Output.Clone()}
-}
-
-// toolResult renders the result the model sees for call.
-func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
-	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output.Clone(), IsError: t.Disposition != ResultSucceeded}
-}
-
 type toolDispatchResult struct {
 	Completion   *toolCallResult    `json:"completion,omitzero"`
 	InputRequest *tool.InputRequest `json:"input_request,omitzero"`
@@ -302,38 +278,6 @@ func (t toolDispatchResult) validate() error {
 		return nil
 	}
 	return t.Completion.validate()
-}
-
-func (t toolCallResult) clone() toolCallResult {
-	t.Output = t.Output.Clone()
-	t.AdvertisedToolNames = slices.Clone(t.AdvertisedToolNames)
-	return t
-}
-
-func (t toolCallResult) validate() error {
-	if !t.Disposition.Valid() {
-		return fmt.Errorf("%w: tool_result disposition is invalid", ErrInvalidProtocol)
-	}
-	if err := t.Output.Validate(); err != nil {
-		return fmt.Errorf("%w: tool_result: %w", ErrInvalidProtocol, err)
-	}
-	if t.Disposition != ResultSucceeded && len(t.AdvertisedToolNames) != 0 {
-		return fmt.Errorf("%w: failed tool_result cannot advertise Tools", ErrInvalidProtocol)
-	}
-	if err := validateAdvertisedToolNames(t.AdvertisedToolNames); err != nil {
-		return fmt.Errorf("%w: tool_result advertised Tools: %w", ErrInvalidProtocol, err)
-	}
-	return nil
-}
-
-func (t toolCallResult) validateCall(call chat.ToolCall) error {
-	if err := t.validate(); err != nil {
-		return err
-	}
-	if err := t.toolResult(call).Validate(); err != nil {
-		return fmt.Errorf("%w: tool_result: %w", ErrInvalidProtocol, err)
-	}
-	return nil
 }
 
 func decodeEffect(data json.RawMessage) (effectEnvelope, error) {

@@ -3,6 +3,7 @@ package tool
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -20,4 +21,13 @@ func (r Request) Validate() error {
 		return fmt.Errorf("%w: name must be non-empty and name and arguments must be valid UTF-8", ErrInvalidRequest)
 	}
 	return nil
+}
+
+// Input is the JSON document the arguments denote. Providers send blank
+// arguments for a call without parameters; blank denotes the empty object.
+func (r Request) Input() []byte {
+	if strings.TrimSpace(r.Arguments) == "" {
+		return []byte("{}")
+	}
+	return []byte(r.Arguments)
 }

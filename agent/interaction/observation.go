@@ -124,22 +124,31 @@ func ModelRequestFromEffect(effect run.Effect) (*chat.Request, bool, error) {
 	}
 	return envelope.ModelCall.request(), true, nil
 }
-func ToolCallFromEffect(effect run.Effect) (chat.ToolCall, run.EffectID, bool, error) {
+
+// ToolCallIntent is the call a committed tool Effect dispatches.
+// ContinuationOf is the Effect of the original call when this Effect resumes it
+// with requested input, and zero for the original dispatch.
+type ToolCallIntent struct {
+	Call           chat.ToolCall
+	ContinuationOf run.EffectID
+}
+
+func ToolCallFromEffect(effect run.Effect) (ToolCallIntent, bool, error) {
 	if effect.Target() != run.EffectTargetDispatcher {
-		return chat.ToolCall{}, run.EffectID{}, false, nil
+		return ToolCallIntent{}, false, nil
 	}
 	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err != nil {
-		return chat.ToolCall{}, run.EffectID{}, false, err
+		return ToolCallIntent{}, false, err
 	}
 	if envelope.operation() != operationToolCall {
-		return chat.ToolCall{}, run.EffectID{}, false, nil
+		return ToolCallIntent{}, false, nil
 	}
-	var reference run.EffectID
+	intent := ToolCallIntent{Call: envelope.ToolCall.Invocation.Call}
 	if envelope.ToolCall.Resume != nil {
-		reference = envelope.ToolCall.Resume.Reference
+		intent.ContinuationOf = envelope.ToolCall.Resume.Reference
 	}
-	return envelope.ToolCall.Invocation.Call, reference, true, nil
+	return intent, true, nil
 }
 func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error) {
 	if !outcome.Valid() {
@@ -192,7 +201,7 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
 			return ToolSettlement{}, ErrInvalidProtocol
 		}
-		return ToolSettlement{Outcome: ToolOutcomeFailed, Failure: failure.Message()}, nil
+		return ToolSettlement{Outcome: ToolOutcomeDispatchFailed, Failure: failure.Message()}, nil
 	}
 	if outcome.Status() == run.SettlementStatusUnknown {
 		evidence, err := outcome.Payload().Decode[dispatchUncertainty]()
@@ -215,10 +224,6 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 	if err := envelope.ToolResult.Completion.validateCall(call); err != nil {
 		return ToolSettlement{}, fmt.Errorf("%w: tool result: %w", ErrInvalidProtocol, err)
 	}
-	result := envelope.ToolResult.Completion.toolResult(call)
-	settled := ToolOutcomeSucceeded
-	if result.IsError {
-		settled = ToolOutcomeError
-	}
-	return ToolSettlement{Outcome: settled, Result: &result}, nil
+	completion := envelope.ToolResult.Completion
+	return ToolSettlement{Outcome: ToolOutcome(completion.Disposition), Result: new(completion.toolResult(call))}, nil
 }

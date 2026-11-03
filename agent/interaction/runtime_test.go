@@ -435,7 +435,7 @@ func TestAdmissionRejectsWholeProposalBeforeAnyToolEffect(t *testing.T) {
 	}
 	for _, entry := range completedLog(t, store, handle.ID()).Entries {
 		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			_, _, toolCall, err := ToolCallFromEffect(intent.Effect)
+			_, toolCall, err := ToolCallFromEffect(intent.Effect)
 			if err != nil || toolCall {
 				t.Fatalf("rejected proposal emitted tool intent: %v", err)
 			}

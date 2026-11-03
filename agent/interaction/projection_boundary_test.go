@@ -33,7 +33,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	if !retainedSchema.Equal(mustValue(jsonschema.Parse(scriptTool{name: "echo"}.Definition().InputSchema))) {
 		t.Fatal("model projection changed the persisted tool contract")
 	}
-	if _, _, toolCall, decodeErr := ToolCallFromEffect(modelEffect); decodeErr != nil || toolCall {
+	if _, toolCall, decodeErr := ToolCallFromEffect(modelEffect); decodeErr != nil || toolCall {
 		t.Fatal("model intent became a tool call", decodeErr)
 	}
 	call := requested("echo", "one")
@@ -42,9 +42,10 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	for _, resume := range []*toolResume{nil, {InputRequest: question, Reference: reference, InputResponse: []byte(`true`)}} {
 		envelope := mustValue(newToolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: resume}))
 		effect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(envelope))))
-		observed, origin, present, decodeErr := ToolCallFromEffect(effect)
-		if decodeErr != nil || !present || observed != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {
-			t.Fatal("tool intent lost its exact call or continuation", observed, origin, decodeErr)
+		observed, present, decodeErr := ToolCallFromEffect(effect)
+		origin := observed.ContinuationOf
+		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {
+			t.Fatal("tool intent lost its exact call or continuation", observed, decodeErr)
 		}
 		if _, isModel, decodeErr := ModelRequestFromEffect(effect); decodeErr != nil || isModel {
 			t.Fatal("tool intent became a model request", decodeErr)
@@ -56,7 +57,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		if value, found, decodeErr := ModelRequestFromEffect(effect); decodeErr != nil || found || value != nil {
 			t.Fatal("kernel effect acquired model semantics", decodeErr)
 		}
-		if _, _, found, decodeErr := ToolCallFromEffect(effect); decodeErr != nil || found {
+		if _, found, decodeErr := ToolCallFromEffect(effect); decodeErr != nil || found {
 			t.Fatal("kernel effect acquired tool semantics", decodeErr)
 		}
 	}
@@ -65,7 +66,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		if _, _, decodeErr := ModelRequestFromEffect(effect); decodeErr == nil {
 			t.Fatal("malformed model protocol admitted", raw)
 		}
-		if _, _, _, decodeErr := ToolCallFromEffect(effect); decodeErr == nil {
+		if _, _, decodeErr := ToolCallFromEffect(effect); decodeErr == nil {
 			t.Fatal("malformed tool protocol admitted", raw)
 		}
 	}
@@ -115,7 +116,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	}
 	failed := mustValue(failedSettlement(errors.New("local admission rejected")))
 	observedFailure := mustValue(ToolSettlementFromOutcome(call, failed))
-	if observedFailure.Failure != "local admission rejected" || observedFailure.Result != nil || observedFailure.Evidence != nil {
+	if observedFailure.Outcome != ToolOutcomeDispatchFailed || observedFailure.Failure != "local admission rejected" || observedFailure.Result != nil || observedFailure.Evidence != nil {
 		t.Fatal("definite local rejection acquired external evidence")
 	}
 	uncertain := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.NewTextOutput("unconfirmed output"))}}).settlement())
@@ -138,7 +139,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	for _, disposition := range []ResultDisposition{ResultSucceeded, ResultFailed, ResultRejected} {
 		outcome := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: disposition, Output: tool.NewTextOutput("result")}}).settlement())
 		observed := mustValue(ToolSettlementFromOutcome(call, outcome))
-		if observed.Result == nil || observed.Result.ID != call.ID || observed.Result.Name != call.Name || observed.Result.IsError != (disposition != ResultSucceeded) {
+		if observed.Outcome != ToolOutcome(disposition) || !observed.Outcome.Valid() || observed.Result == nil || observed.Result.ID != call.ID || observed.Result.Name != call.Name || observed.Result.IsError != (disposition != ResultSucceeded) {
 			t.Fatal("model-visible result changed its call or disposition")
 		}
 		if !disposition.Valid() || disposition.String() != string(disposition) {

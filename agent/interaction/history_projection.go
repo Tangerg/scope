@@ -209,7 +209,7 @@ func (h *historyProjector) settledDelegateStart(settled run.EffectSettled, call 
 		return err
 	}
 	if !child.Valid() {
-		return call.round.result(call.index, *rejectedDelegateStartResult(call.toolCall(), rejection))
+		return call.round.result(call.index, rejectedDelegateStartResult(rejection))
 	}
 	h.delegates[child] = call
 	h.projection.delegates = append(h.projection.delegates, DelegateAttribution{reference: settled.ID, modelCallSequence: call.round.sequence, toolCallIndex: call.index, toolCall: call.toolCall(), processID: child})
@@ -245,11 +245,11 @@ func (h *historyProjector) exited(exited run.Exited) error {
 			return fmt.Errorf("%w: delegated output: %w", ErrInvalidResult, err)
 		}
 	}
-	result, err := delegateToolResult(call.toolCall(), exited.Termination)
+	result, err := delegateCallResult(exited.Termination)
 	if err != nil {
 		return err
 	}
-	return call.round.result(call.index, newToolCallResult(result))
+	return call.round.result(call.index, result)
 }
 
 // projectedCall is one proposed call and the question it is waiting on, if any;

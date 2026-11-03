@@ -143,51 +143,54 @@ func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSte
 }
 
 func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
-	envelope, failure, steer, consumed, err := collectEffectResult(turn.Messages, operationPrepare, e.state.PendingEffect)
+	arrival, err := collectEffectResult(turn.Messages, operationPrepare, e.state.PendingEffect)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	if envelope.operation() == "" && failure == "" {
-		if err = e.state.addSteer(steer); err != nil {
-			return run.Transition{}, err
-		}
-		return run.Yield(consumed, nil)
+	if !arrival.settled {
+		return e.awaitPendingEffect(arrival)
 	}
 	e.state.PendingEffect = nil
-	if failure != "" {
-		return stepfail.Transition(consumed, run.FailureKindExternal, failureCodeInteractionHostFailed, failure)
+	if arrival.failure != "" {
+		return stepfail.Transition(arrival.consumed, run.FailureKindExternal, failureCodeInteractionHostFailed, arrival.failure)
 	}
-	if err = e.state.replaceModelContext(envelope.Prepared.Messages); err != nil {
+	if err = e.state.replaceModelContext(arrival.result.Prepared.Messages); err != nil {
 		return run.Transition{}, err
 	}
 	applied := e.state.Preparation.Applied
 	e.state.Preparation = nil
-	if err = e.state.addSteer(steer); err != nil {
+	if err = e.state.addSteer(arrival.steer); err != nil {
 		return run.Transition{}, err
 	}
 	extra, err := e.state.applyPendingSteer()
 	if err != nil {
 		return run.Transition{}, err
 	}
-	return e.emitModel(turn, consumed, append(applied, extra...), false)
+	return e.emitModel(turn, arrival.consumed, append(applied, extra...), false)
+}
+
+// awaitPendingEffect keeps steering that arrived before the awaited settlement.
+func (e *execution) awaitPendingEffect(arrival effectArrival) (run.Transition, error) {
+	if err := e.state.addSteer(arrival.steer); err != nil {
+		return run.Transition{}, err
+	}
+	return run.Yield(arrival.consumed, nil)
 }
 
 func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transition, error) {
-	envelope, hostFailure, steer, consumedMessages, err := collectEffectResult(turn.Messages, operationModelCall, e.state.PendingEffect)
+	arrival, err := collectEffectResult(turn.Messages, operationModelCall, e.state.PendingEffect)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	if envelope.operation() == "" && hostFailure == "" {
-		if err = e.state.addSteer(steer); err != nil {
-			return run.Transition{}, err
-		}
-		return run.Yield(consumedMessages, nil)
+	if !arrival.settled {
+		return e.awaitPendingEffect(arrival)
 	}
+	consumedMessages := arrival.consumed
 	e.state.PendingEffect = nil
-	if hostFailure != "" {
-		return stepfail.Transition(consumedMessages, run.FailureKindExternal, failureCodeInteractionHostFailed, hostFailure)
+	if arrival.failure != "" {
+		return stepfail.Transition(consumedMessages, run.FailureKindExternal, failureCodeInteractionHostFailed, arrival.failure)
 	}
-	response := envelope.ModelResult.Response.Clone()
+	response := arrival.result.ModelResult.Response.Clone()
 	calls, err := validatedToolCalls(response)
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidModelResponse, err)
@@ -200,7 +203,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
 	}
-	if addSteerErr := e.state.addSteer(steer); addSteerErr != nil {
+	if addSteerErr := e.state.addSteer(arrival.steer); addSteerErr != nil {
 		return run.Transition{}, addSteerErr
 	}
 	if len(calls) == 0 {
@@ -208,8 +211,8 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 	}
 	round := &toolCallRound{Response: response}
 	if round.truncated() {
-		for _, call := range calls {
-			round.reject(call, "tool call was not executed because model output reached its token limit; emit the complete call again")
+		for range calls {
+			round.reject("tool call was not executed because model output reached its token limit; emit the complete call again")
 		}
 	} else {
 		rejection, err := e.definition.admitProposals(ctx, calls, e.state.AdvertisedToolNames)
@@ -217,8 +220,8 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 			return run.Transition{}, err
 		}
 		if rejection != "" {
-			for _, call := range calls {
-				round.reject(call, rejection)
+			for range calls {
+				round.reject(rejection)
 			}
 		}
 	}
@@ -395,34 +398,42 @@ func collectSteerSignals(messages []run.Message) (steerBatch, uint32, error) {
 	return batch, uint32(len(messages)), nil
 }
 
-func collectEffectResult(messages []run.Message, expected operation, id *run.EffectID) (resultEnvelope, string, steerBatch, uint32, error) {
-	var result resultEnvelope
-	var diagnostic string
-	var steer steerBatch
-	found := false
+// effectArrival is what one Step received while awaiting a pending Effect.
+// Steering may arrive without the settlement; failure is the diagnostic of a
+// settlement that did not succeed.
+type effectArrival struct {
+	settled  bool
+	result   resultEnvelope
+	failure  string
+	steer    steerBatch
+	consumed uint32
+}
+
+func collectEffectResult(messages []run.Message, expected operation, id *run.EffectID) (effectArrival, error) {
+	arrival := effectArrival{consumed: uint32(len(messages))}
 	for _, message := range messages {
 		switch value := message.(type) {
 		case run.Signal:
-			if err := steer.collectInput(value); err != nil {
-				return resultEnvelope{}, "", steerBatch{}, 0, err
+			if err := arrival.steer.collectInput(value); err != nil {
+				return effectArrival{}, err
 			}
 		case run.Completion:
-			if found || id == nil || value.Effect != *id {
-				return resultEnvelope{}, "", steerBatch{}, 0, ErrInvalidProtocol
+			if arrival.settled || id == nil || value.Effect != *id {
+				return effectArrival{}, ErrInvalidProtocol
 			}
 			envelope, failure, err := decodeSettlement(value.Outcome)
 			if err != nil {
-				return resultEnvelope{}, "", steerBatch{}, 0, err
+				return effectArrival{}, err
 			}
 			if failure == "" && envelope.operation() != expected {
-				return resultEnvelope{}, "", steerBatch{}, 0, ErrInvalidProtocol
+				return effectArrival{}, ErrInvalidProtocol
 			}
-			found, result, diagnostic = true, envelope, failure
+			arrival.settled, arrival.result, arrival.failure = true, envelope, failure
 		default:
-			return resultEnvelope{}, "", steerBatch{}, 0, ErrInvalidProtocol
+			return effectArrival{}, ErrInvalidProtocol
 		}
 	}
-	return result, diagnostic, steer, uint32(len(messages)), nil
+	return arrival, nil
 }
 
 func (e *execution) prepareDelegateCalls(ctx context.Context, turn run.Turn, calls []chat.ToolCall) ([]run.Effect, error) {
@@ -566,7 +577,7 @@ func (e *execution) advanceCalls(ctx context.Context, turn run.Turn) (run.Transi
 
 func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.ToolCall, invocation *callInvocation, effects *[]run.Effect) (bool, *run.Failure, error) {
 	if invocation.Child != nil {
-		matched, err := invocation.acceptDelegate(call, message)
+		matched, err := invocation.acceptDelegate(message)
 		return matched, nil, err
 	}
 	switch value := message.(type) {

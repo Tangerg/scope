@@ -25,11 +25,12 @@ const (
 	phaseCompleted
 )
 
-// executionState is the complete Strategy-owned recovery state. WorkingContext
-// owns messages and options; the Program owns Tools. ToolRound owns each pending round.
 type contextPreparation struct {
 	Applied []run.SignalID `json:"applied,omitempty"`
 }
+
+// executionState is the complete Strategy-owned recovery state. WorkingContext
+// owns messages and options; the Program owns Tools. ToolRound owns each pending round.
 type executionState struct {
 	PendingEffect       *run.EffectID       `json:"pending_effect,omitzero"`
 	Preparation         *contextPreparation `json:"preparation,omitzero"`

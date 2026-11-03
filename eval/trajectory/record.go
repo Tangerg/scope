@@ -122,14 +122,14 @@ func (c *callProjection) intent(record run.EffectIntent, role effectRole) error 
 		}
 		c.models[record.ID] = ModelCall{EffectID: record.ID, Request: request.Clone()}
 	case effectRoleTool:
-		call, reference, recognized, err := interaction.ToolCallFromEffect(record.Effect)
+		intent, recognized, err := interaction.ToolCallFromEffect(record.Effect)
 		if err != nil {
 			return fmt.Errorf("%w: tool intent %s: %w", ErrInvalidTrajectory, record.ID, err)
 		}
 		if !recognized {
 			return fmt.Errorf("%w: tool intent %s has a different protocol", ErrInvalidTrajectory, record.ID)
 		}
-		c.tools[record.ID] = ToolCall{EffectID: record.ID, ContinuationOf: reference, Call: call}
+		c.tools[record.ID] = ToolCall{EffectID: record.ID, ContinuationOf: intent.ContinuationOf, Call: intent.Call}
 	}
 	return nil
 }

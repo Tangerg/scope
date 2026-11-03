@@ -92,7 +92,7 @@ func TestOneProviderCallCannotAcquireTwoInitialEffectOwners(t *testing.T) {
 	var intents []run.EffectIntent
 	for _, entry := range log.Entries {
 		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			if _, _, recognized, _ := ToolCallFromEffect(intent.Effect); recognized {
+			if _, recognized, _ := ToolCallFromEffect(intent.Effect); recognized {
 				intents = append(intents, intent)
 			}
 		}
@@ -272,7 +272,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 	var model, invocation run.EffectIntent
 	for _, entry := range log.Entries {
 		if intent, ok := entry.Record.(run.EffectIntent); ok {
-			if _, _, isTool, _ := ToolCallFromEffect(intent.Effect); isTool {
+			if _, isTool, _ := ToolCallFromEffect(intent.Effect); isTool {
 				invocation = intent
 			} else if _, isModel, _ := ModelRequestFromEffect(intent.Effect); isModel {
 				model = intent

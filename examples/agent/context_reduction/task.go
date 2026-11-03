@@ -218,19 +218,19 @@ func captureContext(ctx context.Context, root *agentrun.Handle[interaction.Outpu
 		if !ok || intent.Effect.Target() != agentrun.EffectTargetDispatcher {
 			continue
 		}
-		_, model, err := interaction.ModelRequestFromEffect(intent.Effect)
+		_, isModel, err := interaction.ModelRequestFromEffect(intent.Effect)
 		if err != nil {
 			return trajectory.Trajectory{}, err
 		}
-		if model {
+		if isModel {
 			coverage.Models = append(coverage.Models, intent.ID)
 			continue
 		}
-		_, _, call, err := interaction.ToolCallFromEffect(intent.Effect)
+		_, isTool, err := interaction.ToolCallFromEffect(intent.Effect)
 		if err != nil {
 			return trajectory.Trajectory{}, err
 		}
-		if call {
+		if isTool {
 			coverage.Tools = append(coverage.Tools, intent.ID)
 		} else {
 			coverage.Other = append(coverage.Other, intent.ID)

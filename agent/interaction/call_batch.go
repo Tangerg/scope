@@ -64,21 +64,21 @@ func (c callInvocation) obligation() run.EffectID {
 
 // acceptDelegate applies the delegated child's messages; once the child is
 // rejected or terminates, its outcome becomes the call's result.
-func (c *callInvocation) acceptDelegate(call chat.ToolCall, message run.Message) (bool, error) {
+func (c *callInvocation) acceptDelegate(message run.Message) (bool, error) {
 	matched, err := c.Child.Accept(message)
 	if err != nil || !matched {
 		return matched, err
 	}
 	switch {
 	case c.Child.Rejection != nil:
-		c.Result = rejectedDelegateStartResult(call, *c.Child.Rejection)
+		c.Result = new(rejectedDelegateStartResult(*c.Child.Rejection))
 		c.Child = nil
 	case c.Child.Termination != nil:
-		result, err := delegateToolResult(call, *c.Child.Termination)
+		result, err := delegateCallResult(*c.Child.Termination)
 		if err != nil {
 			return false, err
 		}
-		c.Result = new(newToolCallResult(result))
+		c.Result = &result
 		c.Child = nil
 	}
 	return true, nil

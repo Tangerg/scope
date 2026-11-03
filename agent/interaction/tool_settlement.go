@@ -7,22 +7,24 @@ import (
 
 // ToolOutcome classifies one committed tool call. Every projection of a tool
 // settlement reads it rather than re-deriving it from the settlement's parts.
+// The outcomes of a result the model received are its ResultDisposition.
 type ToolOutcome string
 
 const (
-	ToolOutcomeInvalid   ToolOutcome = ""
-	ToolOutcomeSucceeded ToolOutcome = "succeeded"
-	// ToolOutcomeError means the model received the Tool's error result.
-	ToolOutcomeError         ToolOutcome = "error"
+	ToolOutcomeInvalid       ToolOutcome = ""
+	ToolOutcomeSucceeded                 = ToolOutcome(ResultSucceeded)
+	ToolOutcomeFailed                    = ToolOutcome(ResultFailed)
+	ToolOutcomeRejected                  = ToolOutcome(ResultRejected)
 	ToolOutcomeInputRequired ToolOutcome = "input_required"
-	// ToolOutcomeFailed means dispatch failed definitely; no result reached the model.
-	ToolOutcomeFailed  ToolOutcome = "failed"
-	ToolOutcomeUnknown ToolOutcome = "unknown"
+	// ToolOutcomeDispatchFailed means dispatch failed definitely; no result
+	// reached the model.
+	ToolOutcomeDispatchFailed ToolOutcome = "dispatch_failed"
+	ToolOutcomeUnknown        ToolOutcome = "unknown"
 )
 
 func (t ToolOutcome) Valid() bool {
 	switch t {
-	case ToolOutcomeSucceeded, ToolOutcomeError, ToolOutcomeInputRequired, ToolOutcomeFailed, ToolOutcomeUnknown:
+	case ToolOutcomeSucceeded, ToolOutcomeFailed, ToolOutcomeRejected, ToolOutcomeInputRequired, ToolOutcomeDispatchFailed, ToolOutcomeUnknown:
 		return true
 	default:
 		return false

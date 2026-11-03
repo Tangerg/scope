@@ -19,8 +19,8 @@ func TestToolOutcomeReadsTheCommittedSettlement(t *testing.T) {
 	if got := (trajectory.ToolCall{}).Outcome(); got != interaction.ToolOutcomeInvalid {
 		t.Fatalf("pending outcome=%q", got)
 	}
-	settled := trajectory.ToolCall{Settlement: &interaction.ToolSettlement{Outcome: interaction.ToolOutcomeError, Result: &chat.ToolResult{IsError: true}}}
-	if got := settled.Outcome(); got != interaction.ToolOutcomeError {
+	settled := trajectory.ToolCall{Settlement: &interaction.ToolSettlement{Outcome: interaction.ToolOutcomeFailed, Result: &chat.ToolResult{IsError: true}}}
+	if got := settled.Outcome(); got != interaction.ToolOutcomeFailed {
 		t.Fatalf("settled outcome=%q", got)
 	}
 }

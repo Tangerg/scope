@@ -121,10 +121,8 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 	return nil
 }
 
-func (t *toolCallRound) reject(call chat.ToolCall, diagnostic string) {
-	result := newToolCallResult(rejectedToolResult(call, diagnostic))
-	result.Disposition = ResultRejected
-	t.Results = append(t.Results, result)
+func (t *toolCallRound) reject(diagnostic string) {
+	t.Results = append(t.Results, rejectedCallResult(diagnostic))
 }
 
 func (t *toolCallRound) validateComplete(ctx context.Context) error {

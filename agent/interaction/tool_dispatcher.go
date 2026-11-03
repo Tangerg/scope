@@ -19,20 +19,11 @@ type preparedToolCall struct {
 	call       chat.ToolCall
 	binding    tool.Binding
 	invocation tool.Invocation
-	rejection  *chat.ToolResult
+	rejection  *toolCallResult
 	// defect holds an input-validator panic, kept separate from rejection: it is
 	// an internal fault that settles the dispatch as a definite failure rather
 	// than a model-correctable argument error.
 	defect error
-}
-
-func (p preparedToolCall) completion(result chat.ToolResult, rejected bool, advertised []string) *toolCallResult {
-	completion := newToolCallResult(result)
-	completion.AdvertisedToolNames = advertised
-	if rejected {
-		completion.Disposition = ResultRejected
-	}
-	return &completion
 }
 
 // toolDispatcher executes bound Tools. Its manifest is the one index of each
@@ -72,20 +63,13 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 		// failure that propagates to the parent, never a model-visible result.
 		return failedSettlement(errToolInputValidatorDefect)
 	}
-	result, advertised, required, rejected, err := t.callTool(ctx, prepared)
-	if err != nil && result.ID == "" {
+	outcome, err := t.callTool(ctx, prepared)
+	if err != nil {
 		failure := toolUncertainty{Diagnostic: run.NormalizeDiagnostic(err.Error())}
 		if evidence, ok := errors.AsType[*tool.CallError](err); ok && evidence.Validate() == nil {
 			failure.Evidence = new(evidence.Evidence())
 		}
 		return (dispatchUncertainty{Tool: &failure}).settlement()
-	}
-	outcome := toolDispatchResult{Completion: prepared.completion(result, rejected, advertised)}
-	if err != nil {
-		outcome.AdvertisementFailure = run.NormalizeDiagnostic(err.Error())
-	}
-	if required != nil {
-		outcome = toolDispatchResult{InputRequest: required}
 	}
 	return outcome.settlement()
 }
@@ -127,45 +111,30 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool, middlewar
 	return nil
 }
 
-func (t *toolDispatcher) callTool(
-	ctx context.Context,
-	prepared preparedToolCall,
-) (
-	result chat.ToolResult,
-	advertisedToolNames []string,
-	required *tool.InputRequest,
-	rejected bool,
-	err error,
-) {
-	call := prepared.call
+// callTool returns the definite outcome of the prepared call. An error means
+// the outcome is unknown; a completed call whose advertisement then fails keeps
+// its result and records the failure beside it.
+func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall) (outcome toolDispatchResult, err error) {
 	if prepared.rejection != nil {
-		return prepared.rejection.Clone(), nil, nil, true, nil
+		return toolDispatchResult{Completion: new(prepared.rejection.clone())}, nil
 	}
-	binding := prepared.binding
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			result = chat.ToolResult{}
-			advertisedToolNames = nil
-			required = nil
-			err = &run.CallbackPanicError{Operation: "Tool.Call", Value: recovered}
+			outcome, err = toolDispatchResult{}, &run.CallbackPanicError{Operation: "Tool.Call", Value: recovered}
 		}
 	}()
-	output, err := binding.Call(ctx, prepared.invocation)
-	result, required, rejected, err = modelToolResult(call, output, err)
+	result, err := prepared.binding.Call(ctx, prepared.invocation)
+	outcome, err = settleToolCall(result, err)
+	if err != nil || outcome.Completion == nil || outcome.Completion.Disposition != ResultSucceeded {
+		return outcome, err
+	}
+	names, err := t.adviseDeferred(ctx, prepared.call.Name, prepared.invocation, result)
 	if err != nil {
-		return chat.ToolResult{}, nil, nil, false, err
+		outcome.AdvertisementFailure = run.NormalizeDiagnostic(err.Error())
+		return outcome, nil
 	}
-	if required != nil {
-		return chat.ToolResult{}, nil, required, false, nil
-	}
-	if result.IsError {
-		return result, nil, nil, rejected, nil
-	}
-	names, err := t.adviseDeferred(ctx, call.Name, prepared.invocation, output)
-	if err != nil {
-		return result, nil, nil, false, err
-	}
-	return result, names, nil, false, nil
+	outcome.Completion.AdvertisedToolNames = names
+	return outcome, nil
 }
 
 // adviseDeferred collects the deferred Tool names a successful call reveals.
@@ -210,8 +179,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 	prepared := preparedToolCall{call: call}
 	binding, found := t.bindings[call.Name]
 	if !found {
-		result := rejectedToolResult(call, fmt.Sprintf("tool %q is not available", call.Name))
-		prepared.rejection = &result
+		prepared.rejection = new(rejectedCallResult(fmt.Sprintf("tool %q is not available", call.Name)))
 		return prepared
 	}
 	prepared.binding = binding
@@ -221,8 +189,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 			prepared.defect = err
 			return prepared
 		}
-		result := rejectedToolResult(call, "invalid arguments: "+run.NormalizeDiagnostic(err.Error()))
-		prepared.rejection = &result
+		prepared.rejection = new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(err.Error())))
 		return prepared
 	}
 	prepared.invocation = invocation

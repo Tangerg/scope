@@ -30,7 +30,7 @@ type toolSettlementBarrier struct {
 func (t *toolSettlementBarrier) Append(ctx context.Context, batch run.Batch) error {
 	for _, record := range batch.Records {
 		if intent, ok := record.(run.EffectIntent); ok && intent.Effect.Target() == run.EffectTargetDispatcher {
-			_, _, isTool, err := ToolCallFromEffect(intent.Effect)
+			_, isTool, err := ToolCallFromEffect(intent.Effect)
 			if err != nil {
 				return err
 			}
