@@ -39,7 +39,7 @@ func (o *outcomeStore) Append(ctx context.Context, batch run.Batch) error {
 		if err != nil {
 			return err
 		}
-		if kind == string(o.readyKind) {
+		if kind == o.readyKind {
 			o.once.Do(func() { o.ready <- batch.Root })
 		}
 	}

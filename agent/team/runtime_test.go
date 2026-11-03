@@ -183,15 +183,15 @@ func TestTaskExitDuringCoordinatorTurnRemainsVisibleToNextTurn(t *testing.T) {
 	definition := program.Definition()
 	execution := require(definition.Start(input("initial"))).(*execution)
 	first := require(execution.Step(t.Context(), testTurn(1)))
-	spec := require(run.ParseChildStartEffect(first.Effects()[0]))
+	spec := childStart(t, first.Effects()[0])
 	coordinatorID := require(testTurn(1).Process.Child(spec.Key))
 	second := testTurn(2, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(coordinatorID).JSON()))}, run.Exit{Child: coordinatorID, Termination: completed(Decision{Mode: ModeContinue, State: input("working"), Tasks: []TaskRequest{request("task", "test.worker", "value")}})})
 	started := require(execution.Step(t.Context(), second))
-	taskSpec := require(run.ParseChildStartEffect(started.Effects()[0]))
+	taskSpec := childStart(t, started.Effects()[0])
 	taskID := require(testTurn(1).Process.Child(taskSpec.Key))
 	third := testTurn(3, run.Completion{Effect: second.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(taskID).JSON()))})
 	next := require(execution.Step(t.Context(), third))
-	nextSpec := require(run.ParseChildStartEffect(next.Effects()[0]))
+	nextSpec := childStart(t, next.Effects()[0])
 	nextCoordinator := require(testTurn(1).Process.Child(nextSpec.Key))
 	fourth := testTurn(4, run.Completion{Effect: third.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(nextCoordinator).JSON()))}, run.Exit{Child: taskID, Termination: completed("finished")}, run.Exit{Child: nextCoordinator, Termination: completed(Decision{Mode: ModeWait, State: input("working")})})
 	state := require(execution.Snapshot())
@@ -218,4 +218,13 @@ func TestTeamRejectsContradictoryRestoredOwnership(t *testing.T) {
 	for _, kind := range []reflect.Type{reflect.TypeFor[definition](), reflect.TypeFor[execution]()} {
 		conformancetest.AssertNoProcessAuthority(t, kind)
 	}
+}
+
+func childStart(t testing.TB, effect run.Effect) run.ChildSpec {
+	t.Helper()
+	spec, ok := effect.ChildStart()
+	if !ok {
+		t.Fatal("effect does not start a child")
+	}
+	return spec
 }

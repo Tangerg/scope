@@ -50,7 +50,7 @@ func (a *appendBarrier) Append(ctx context.Context, batch run.Batch) error {
 		if err != nil {
 			return err
 		}
-		if kind == string(a.kind) {
+		if kind == a.kind {
 			selected = true
 			break
 		}

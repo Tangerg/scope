@@ -78,13 +78,6 @@ func NewChildStartEffect(spec ChildSpec) (Effect, error) {
 	return Effect{spawn: &spec}, nil
 }
 
-func ParseChildStartEffect(effect Effect) (ChildSpec, error) {
-	if effect.spawn == nil {
-		return ChildSpec{}, ErrInvalidChildStart
-	}
-	return *effect.spawn, nil
-}
-
 func NewChildSignalEffect(child ProcessID, signal Signal) (Effect, error) {
 	if !child.Valid() || !signal.Valid() {
 		return Effect{}, ErrInvalidChildControl

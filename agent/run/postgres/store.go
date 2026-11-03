@@ -298,7 +298,7 @@ func (s *Store) writeEntries(ctx context.Context, tx pgx.Tx, root run.ProcessID,
 		}
 		positions[i] = strconv.FormatUint(uint64(entry.LSN), 10)
 		epochs[i] = strconv.FormatUint(uint64(entry.Epoch), 10)
-		kinds[i], bodies[i] = kind, body
+		kinds[i], bodies[i] = string(kind), body
 	}
 	_, err := tx.Exec(ctx, "INSERT INTO "+s.tables.log+"(root,lsn,epoch,kind,body) SELECT $1,r.lsn::numeric,r.epoch::numeric,r.kind,r.body FROM unnest($2::text[],$3::text[],$4::text[],$5::bytea[]) r(lsn,epoch,kind,body)", root.String(), positions, epochs, kinds, bodies)
 	return err
@@ -330,7 +330,7 @@ func decodeEntry(position, epoch, kind string, body []byte) (run.Entry, error) {
 	if err != nil {
 		return run.Entry{}, err
 	}
-	record, err := run.DecodeRecord(kind, body)
+	record, err := run.DecodeRecord(run.RecordKind(kind), body)
 	if err != nil {
 		return run.Entry{}, err
 	}

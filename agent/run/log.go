@@ -539,7 +539,7 @@ func validateRecord(record Record) error {
 	return nil
 }
 
-func EncodeRecord(record Record) (string, []byte, error) {
+func EncodeRecord(record Record) (RecordKind, []byte, error) {
 	if err := validateRecord(record); err != nil {
 		return "", nil, err
 	}
@@ -547,13 +547,13 @@ func EncodeRecord(record Record) (string, []byte, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrInvalidLog, err)
 	}
-	return string(record.recordKind()), encoded, nil
+	return record.recordKind(), encoded, nil
 }
 
-func DecodeRecord(kind string, data []byte) (Record, error) {
+func DecodeRecord(kind RecordKind, data []byte) (Record, error) {
 	var value Record
 	var err error
-	switch RecordKind(kind) {
+	switch kind {
 	case RecordKindStarted:
 		value, err = decodeLogRecord[Started](data)
 	case RecordKindActivated:
@@ -635,7 +635,7 @@ func (e *Entry) UnmarshalJSON(data []byte) error {
 type entryWire struct {
 	LSN   LSN             `json:"lsn"`
 	Epoch Epoch           `json:"epoch"`
-	Kind  string          `json:"kind"`
+	Kind  RecordKind      `json:"kind"`
 	Body  json.RawMessage `json:"body"`
 }
 

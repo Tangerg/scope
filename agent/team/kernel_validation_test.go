@@ -195,7 +195,7 @@ func TestTeamSignalControlKeepsReceiptSeparateFromTaskExit(t *testing.T) {
 		t.Fatal("control receipt was mistaken for drained task completion")
 	}
 	next := require(restored.Step(t.Context(), testTurn(4, run.Exit{Child: process, Termination: completed("finished")})))
-	turnSpec := require(run.ParseChildStartEffect(next.Effects()[0]))
+	turnSpec := childStart(t, next.Effects()[0])
 	observed := require(turnSpec.Input.Decode[Turn]())
 	if len(observed.Controls) != 1 || observed.Controls[0].Result == nil || observed.Controls[0].Result.Status() != run.SettlementStatusSucceeded || observed.Tasks[0].Outcome == nil || observed.Tasks[0].Process != nil {
 		t.Fatalf("next coordinator turn lost one of its independent outcomes: %+v", observed)
@@ -218,7 +218,7 @@ func TestTeamTaskExitCannotStandInForAnOutstandingControlReceipt(t *testing.T) {
 	restored := require(definition.Restore(t.Context(), require(execution.Snapshot())))
 	receipt := run.Completion{Effect: testTurn(2).EffectID(0), Outcome: require(run.NewFailedSettlement(require(run.NewFailure(run.FailureKindContract, "test.task.finished", "task was already finished")), run.Payload{}))}
 	next := require(restored.Step(t.Context(), testTurn(4, receipt)))
-	turnSpec := require(run.ParseChildStartEffect(next.Effects()[0]))
+	turnSpec := childStart(t, next.Effects()[0])
 	observed := require(turnSpec.Input.Decode[Turn]())
 	if len(observed.Controls) != 1 || observed.Controls[0].Result == nil || observed.Controls[0].Result.Status() != run.SettlementStatusFailed || len(observed.Tasks) != 1 || observed.Tasks[0].Outcome == nil {
 		t.Fatalf("recovery lost the independently committed exit or control failure: %+v", observed)
@@ -291,7 +291,7 @@ func TestTeamCoordinatorFailureRetainsItsClassification(t *testing.T) {
 			completion := run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewFailedSettlement(failure, run.Payload{}))}
 			messages := []run.Message{completion}
 			if test.termination != nil {
-				spec := require(run.ParseChildStartEffect(started.Effects()[0]))
+				spec := childStart(t, started.Effects()[0])
 				process := require(testTurn(1).Process.Child(spec.Key))
 				completion.Outcome = require(run.NewSettlement(run.SettlementStatusSucceeded, input(process).JSON()))
 				messages = []run.Message{completion, run.Exit{Child: process, Termination: *test.termination}}

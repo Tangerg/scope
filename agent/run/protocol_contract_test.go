@@ -137,10 +137,10 @@ func TestEffectsAndTransitionsUseOneCurrentWireSchema(t *testing.T) {
 			t.Fatalf("transition wire %s: %v", wire, err)
 		}
 	}
-	if spec, err := ParseChildStartEffect(effects[1]); err != nil || spec.ProgramRef != program.ProgramRef() || spec.Key.String() != "child" {
-		t.Fatalf("spawn declaration changed: %+v %v", spec, err)
+	if spec, ok := effects[1].ChildStart(); !ok || spec.ProgramRef != program.ProgramRef() || spec.Key.String() != "child" {
+		t.Fatalf("spawn declaration changed: %+v", spec)
 	}
-	if _, err := ParseChildStartEffect(effects[0]); !errors.Is(err, ErrInvalidChildStart) {
+	if _, ok := effects[0].ChildStart(); ok {
 		t.Fatal("Call was decoded as Spawn")
 	}
 	for _, raw := range []string{`{}`, `{"call":0,"spawn":{}}`, `{"operation":"wait","payload":{}}`, `{"send":{"child":"root","signal":{}}}`, `{"cancel":{"child":"root","reason":" "}}`} {

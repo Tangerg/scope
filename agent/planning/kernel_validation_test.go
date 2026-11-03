@@ -291,8 +291,8 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 	planningValue(execution.Step(t.Context(), validationTurn(1)))
 	spawn := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
-	if _, err := run.ParseChildStartEffect(spawn.Effects()[0]); err != nil {
-		t.Fatal(err)
+	if _, ok := spawn.Effects()[0].ChildStart(); !ok {
+		t.Fatal("planning did not start a child")
 	}
 	failure := planningValue(run.NewFailure(run.FailureKindContract, "test.child.rejected", "admission refused"))
 	rejected := run.Completion{Effect: validationTurn(2).EffectID(0), Outcome: planningValue(run.NewFailedSettlement(failure, run.Payload{}))}

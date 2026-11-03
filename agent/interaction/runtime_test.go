@@ -573,3 +573,12 @@ func TestCompileOwnsConfigurationIdentityAndExactModelRequest(t *testing.T) {
 		t.Fatalf("request=%+v found=%v err=%v", request, found, err)
 	}
 }
+
+func childStart(t testing.TB, effect run.Effect) run.ChildSpec {
+	t.Helper()
+	spec, ok := effect.ChildStart()
+	if !ok {
+		t.Fatal("effect does not start a child")
+	}
+	return spec
+}

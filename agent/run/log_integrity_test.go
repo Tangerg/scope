@@ -328,13 +328,16 @@ func TestRecordBoundaryRejectsPointersAndForeignVariants(t *testing.T) {
 }
 
 func TestLogWireRejectsInvalidCoordinatesAndVariants(t *testing.T) {
-	for _, wire := range []struct{ kind, body string }{
+	for _, wire := range []struct {
+		kind RecordKind
+		body string
+	}{
 		{"unknown", `{}`},
-		{string(RecordKindActivated), `{}`},
-		{string(RecordKindActivated), `{"epoch":0}`},
-		{string(RecordKindActivated), `{"epoch":1,"epoch":2}`},
-		{string(RecordKindActivated), `{"epoch":1,"other":true}`},
-		{string(RecordKindSignalAdmitted), `null`},
+		{RecordKindActivated, `{}`},
+		{RecordKindActivated, `{"epoch":0}`},
+		{RecordKindActivated, `{"epoch":1,"epoch":2}`},
+		{RecordKindActivated, `{"epoch":1,"other":true}`},
+		{RecordKindSignalAdmitted, `null`},
 	} {
 		if _, err := DecodeRecord(wire.kind, []byte(wire.body)); !errors.Is(err, ErrInvalidLog) {
 			t.Fatalf("decoded invalid %s %s: %v", wire.kind, wire.body, err)

@@ -136,9 +136,9 @@ func (h *historyProjector) intendedToolCall(effect run.EffectID, request toolDis
 }
 
 func (h *historyProjector) intendedDelegate(intent run.EffectIntent) error {
-	spec, err := run.ParseChildStartEffect(intent.Effect)
-	if err != nil {
-		return err
+	spec, ok := intent.Effect.ChildStart()
+	if !ok {
+		return run.ErrInvalidChildStart
 	}
 	round := h.rounds[intent.ID.Process]
 	if round == nil {

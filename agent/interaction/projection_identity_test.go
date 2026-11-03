@@ -204,13 +204,13 @@ func TestDelegateIntentProjectionRequiresTheExactDeclaredBinding(t *testing.T) {
 		}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			spec := mustValue(run.ParseChildStartEffect(intent.Effect))
+			spec := childStart(t, intent.Effect)
 			row.change(&spec)
 			changed := replaceLoggedEffect(t, log, intent.ID, mustValue(run.NewChildStartEffect(spec)))
 			assertProjectionRejection(t, program, changed)
 		})
 	}
-	spec := mustValue(run.ParseChildStartEffect(intent.Effect))
+	spec := childStart(t, intent.Effect)
 	child := mustValue(handle.ID().Child(spec.Key))
 	control := mustValue(run.NewChildCancelEffect(child, "not a delegated start"))
 	assertProjectionRejection(t, program, replaceLoggedEffect(t, log, intent.ID, control))

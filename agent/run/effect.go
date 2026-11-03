@@ -61,6 +61,14 @@ func (e Effect) intrinsicPolicy() (EffectPolicy, bool) {
 }
 
 func (e Effect) Payload() Payload { return e.call }
+
+// ChildStart reports the child a framework Effect starts.
+func (e Effect) ChildStart() (ChildSpec, bool) {
+	if e.spawn == nil {
+		return ChildSpec{}, false
+	}
+	return *e.spawn, true
+}
 func (e Effect) Valid() bool {
 	count := 0
 	if e.call.Valid() {
