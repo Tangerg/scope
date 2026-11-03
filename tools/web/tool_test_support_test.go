@@ -18,3 +18,11 @@ func invokeTestTool(ctx context.Context, executable toolcontract.Tool, arguments
 	result, err := binding.Call(ctx, invocation)
 	return result.Output, err
 }
+
+// settledCause reads the diagnostic behind a Binding-settled definite failure.
+func settledCause(err error) error {
+	if failure, definite := toolcontract.ClassifyFailure(err); definite {
+		return failure.Cause()
+	}
+	return err
+}

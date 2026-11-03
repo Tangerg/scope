@@ -15,8 +15,8 @@ const toolName = "http_request"
 
 // Tool requires a Client so every invocation enforces its frozen network policy.
 type Tool struct {
+	toolcontract.Func[Request, *Response]
 	client *Client
-	inner  toolcontract.Func[Request, *Response]
 }
 
 func NewTool(client *Client) (*Tool, error) {
@@ -24,20 +24,16 @@ func NewTool(client *Client) (*Tool, error) {
 		return nil, ErrNilClient
 	}
 	t := &Tool{client: client}
-	inner, err := toolcontract.NewFunc[Request, *Response](
+	typed, err := toolcontract.NewFunc[Request, *Response](
 		toolcontract.FuncConfig{Name: toolName, Description: description},
 		t.request,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("httpreq: build tool: %w", err)
 	}
-	t.inner = inner
+	t.Func = typed
 	return t, nil
 }
-
-func (t *Tool) Definition() toolcontract.Definition { return t.inner.Definition() }
-
-func (t *Tool) InputValidator() func([]byte) error { return t.inner.InputValidator() }
 
 const description = `Execute a single HTTP request and return the response.
 - The "url" must be a fully-formed absolute http(s) URL.
@@ -48,11 +44,7 @@ const description = `Execute a single HTTP request and return the response.
 - For body with JSON content, pass a JSON-encoded string as "body" and set Content-Type via "headers".
 - Use this for arbitrary REST/JSON APIs. Prefer the dedicated web_search / web_fetch tools for general web pages.`
 
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return t.inner.Call(ctx, invocation)
-}
-
-func (t *Tool) request(ctx context.Context, _ toolcontract.IdempotencyKey, request Request) (*Response, error) {
+func (t *Tool) request(ctx context.Context, request Request) (*Response, error) {
 	response, err := t.client.Do(ctx, &request)
 	if admission, ok := errors.AsType[*admissionError](err); ok {
 		return nil, admissionFailure(admission)

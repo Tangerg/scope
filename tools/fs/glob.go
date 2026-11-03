@@ -8,7 +8,6 @@ import (
 
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // GlobRequest narrows the executor's immutable authority to a relative subtree;
@@ -42,8 +41,8 @@ type GlobResponse struct {
 var _ toolcontract.Tool = (*GlobTool)(nil)
 
 type GlobTool struct {
+	toolcontract.Func[GlobRequest, GlobResponse]
 	executor Globber
-	typed    toolcontract.Func[GlobRequest, GlobResponse]
 }
 
 func NewGlobTool(executor Globber) (*GlobTool, error) {
@@ -52,8 +51,9 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 	}
 	t := &GlobTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe,
-			Name: "glob",
+		toolcontract.FuncConfig{
+			Effect: toolcontract.EffectSafe,
+			Name:   "glob",
 			Description: "List file paths matching a doublestar pattern. Use patterns such as **/*.go or src/**/*.ts. " +
 				"Use grep to search file contents.",
 		},
@@ -62,31 +62,21 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewGlobTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
-}
-
-func (g *GlobTool) Definition() toolcontract.Definition {
-	return g.typed.Definition()
 }
 
 func (g *GlobTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-func (g *GlobTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return g.typed.Call(ctx, invocation)
-}
-
-func (g *GlobTool) glob(ctx context.Context, _ toolcontract.IdempotencyKey, req GlobRequest) (GlobResponse, error) {
+func (g *GlobTool) glob(ctx context.Context, req GlobRequest) (GlobResponse, error) {
 	res, err := g.executor.Glob(ctx, req)
 	if err != nil {
-		return GlobResponse{}, toolresult.ReadFailure("fs.glob", err)
+		return GlobResponse{}, lookupError("fs.glob", err)
 	}
 	return res, nil
 }
-
-func (g *GlobTool) InputValidator() func([]byte) error { return g.typed.InputValidator() }
 
 func (GlobRequest) JSONSchemaConstraints() jsonschema.Constraints {
 	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{

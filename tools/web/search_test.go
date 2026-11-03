@@ -113,7 +113,7 @@ func TestSearchResponseAdmissionOwnsQueryAndResultLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := invokeTestTool(t.Context(), tool, `{"query":"scope","max_results":1}`); !errors.Is(err, ErrInvalidSearchResponse) {
+	if _, err := invokeTestTool(t.Context(), tool, `{"query":"scope","max_results":1}`); !errors.Is(settledCause(err), ErrInvalidSearchResponse) {
 		t.Fatalf("tool accepted excess results: %v", err)
 	}
 	request.MaxResults = 0

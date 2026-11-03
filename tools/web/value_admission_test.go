@@ -44,7 +44,7 @@ func TestSearchRejectsLossyPublishedTimeBeforeToolCompletion(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := invokeTestTool(t.Context(), tool, `{"query":"query"}`); !errors.Is(err, ErrInvalidSearchResponse) {
+		if _, err := invokeTestTool(t.Context(), tool, `{"query":"query"}`); !errors.Is(settledCause(err), ErrInvalidSearchResponse) {
 			t.Fatalf("Call() = %v for %v", err, value)
 		}
 	}

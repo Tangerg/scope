@@ -32,21 +32,16 @@ type RetrievalOutput struct {
 	Candidates rag.Candidates `json:"candidates"`
 }
 
-// Retrieval adapts a [rag.Retriever] to the ordinary [coretool.Tool] contract. It
-// can be advertised immediately or placed in an agent's DeferredTools set.
-type Retrieval struct {
-	function coretool.Func[RetrievalRequest, RetrievalOutput]
-}
-
-var _ coretool.Tool = Retrieval{}
-
-func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
+// NewRetrieval adapts a [rag.Retriever] to the ordinary [coretool.Tool]
+// contract. It can be advertised immediately or placed in an agent's
+// DeferredTools set.
+func NewRetrieval(config RetrievalConfig) (coretool.Func[RetrievalRequest, RetrievalOutput], error) {
 	if lo.IsNil(config.Retriever) {
-		return Retrieval{}, rag.ErrNilRetriever
+		return coretool.Func[RetrievalRequest, RetrievalOutput]{}, rag.ErrNilRetriever
 	}
-	function, err := coretool.NewFunc(
+	return coretool.NewFunc(
 		coretool.FuncConfig{Name: config.Name, Description: config.Description, Effect: coretool.EffectSafe},
-		func(ctx context.Context, _ coretool.IdempotencyKey, input RetrievalRequest) (RetrievalOutput, error) {
+		func(ctx context.Context, input RetrievalRequest) (RetrievalOutput, error) {
 			query, err := rag.NewQuery(input.Query)
 			if err != nil {
 				return RetrievalOutput{}, inputFailure(fmt.Errorf("rag: retrieval tool query: %w", err))
@@ -67,19 +62,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 			return RetrievalOutput{Candidates: candidates}, nil
 		},
 	)
-	if err != nil {
-		return Retrieval{}, err
-	}
-	return Retrieval{function: function}, nil
 }
-
-func (r Retrieval) Definition() coretool.Definition { return r.function.Definition() }
-
-func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (coretool.Result, error) {
-	return r.function.Call(ctx, invocation)
-}
-
-func (r Retrieval) InputValidator() func([]byte) error { return r.function.InputValidator() }
 
 // inputFailure reports a query rejected before the retriever runs as a definite,
 // model-visible Tool failure rather than an uncertain error.

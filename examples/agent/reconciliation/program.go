@@ -17,13 +17,7 @@ const (
 )
 
 func newProgram(compiler *agentrun.Compiler, remote *remoteLedger, model *receiptModel) (agentrun.Program[interaction.Input, interaction.Output], error) {
-	recordNote, err := tool.NewFunc(tool.FuncConfig{Name: recordNoteToolName, Description: "Record one note remotely."},
-		func(ctx context.Context, key tool.IdempotencyKey, input note) (string, error) {
-			if err := remote.submit(ctx, key, input); err != nil {
-				return "", err
-			}
-			return "", errors.New("remote: response lost after recording the outcome")
-		})
+	recordNote, err := newRecordNoteTool(remote)
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
@@ -72,4 +66,34 @@ func (r *receiptModel) Call(ctx context.Context, request *chat.Request) (*chat.R
 			ID: "call:record", Name: recordNoteToolName, Arguments: `{"text":"release note"}`,
 		}))), FinishReason: chat.FinishReasonToolCalls,
 	}}, nil
+}
+
+// recordNoteTool submits under the call's idempotency key, so it implements
+// Tool around a Signature rather than adapting a function of its arguments.
+type recordNoteTool struct {
+	tool.Signature[note, string]
+	remote *remoteLedger
+}
+
+func newRecordNoteTool(remote *remoteLedger) (recordNoteTool, error) {
+	signature, err := tool.NewSignature[note, string]()
+	if err != nil {
+		return recordNoteTool{}, err
+	}
+	return recordNoteTool{Signature: signature, remote: remote}, nil
+}
+
+func (r recordNoteTool) Definition() tool.Definition {
+	return tool.Definition{Name: recordNoteToolName, Description: "Record one note remotely.", InputSchema: r.InputSchema()}
+}
+
+func (r recordNoteTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+	input, err := r.Decode(invocation)
+	if err != nil {
+		return tool.Result{}, err
+	}
+	if err := r.remote.submit(ctx, invocation.IdempotencyKey(), input); err != nil {
+		return tool.Result{}, err
+	}
+	return tool.Result{}, errors.New("remote: response lost after recording the outcome")
 }

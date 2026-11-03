@@ -172,7 +172,7 @@ func TestFetchToolRejectsAResponseInAnotherFormat(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := invokeTestTool(t.Context(), executable, `{"url":"https://example.com","format":"markdown"}`); !errors.Is(err, ErrInvalidFetchResponse) {
+			if _, err := invokeTestTool(t.Context(), executable, `{"url":"https://example.com","format":"markdown"}`); !errors.Is(settledCause(err), ErrInvalidFetchResponse) {
 				t.Fatalf("another format replaced the requested representation: %v", err)
 			}
 		})

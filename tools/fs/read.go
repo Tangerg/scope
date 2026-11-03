@@ -7,7 +7,6 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // StartLine is one-based to match editors, grep, and language servers.
@@ -30,8 +29,8 @@ var _ toolcontract.Tool = (*ReadTool)(nil)
 
 // ReadTool declares parallel calls on the strength of the Reader contract.
 type ReadTool struct {
+	toolcontract.Func[ReadRequest, ReadResponse]
 	executor Reader
-	typed    toolcontract.Func[ReadRequest, ReadResponse]
 }
 
 func NewReadTool(executor Reader) (*ReadTool, error) {
@@ -40,8 +39,9 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	}
 	t := &ReadTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe,
-			Name: "read",
+		toolcontract.FuncConfig{
+			Effect: toolcontract.EffectSafe,
+			Name:   "read",
 			Description: "Read a text file from the filesystem. Returns the requested line range with the total line count and a truncation flag. " +
 				"By default returns the admitted file up to the backend's input, line, and output bounds; pass start_line and max_lines to page by 1-based line number. " +
 				"Call this in parallel when you need several files at once. " +
@@ -52,30 +52,22 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewReadTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
-}
-
-func (r *ReadTool) Definition() toolcontract.Definition {
-	return r.typed.Definition()
 }
 
 func (r *ReadTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return r.typed.Call(ctx, invocation)
-}
-
-func (r *ReadTool) read(ctx context.Context, _ toolcontract.IdempotencyKey, req ReadRequest) (ReadResponse, error) {
+func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
 	res, err := r.executor.Read(ctx, ReadInput{
 		Path:   req.Path,
 		Offset: max(req.StartLine-1, 0),
 		Limit:  req.MaxLines,
 	})
 	if err != nil {
-		return ReadResponse{}, toolresult.ReadFailure("fs.read", err)
+		return ReadResponse{}, lookupError("fs.read", err)
 	}
 	return ReadResponse{
 		Content:    res.Content,
@@ -85,5 +77,3 @@ func (r *ReadTool) read(ctx context.Context, _ toolcontract.IdempotencyKey, req 
 		Truncated:  res.Truncated,
 	}, nil
 }
-
-func (r *ReadTool) InputValidator() func([]byte) error { return r.typed.InputValidator() }

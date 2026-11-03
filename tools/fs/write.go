@@ -21,8 +21,8 @@ type WriteResponse struct {
 var _ toolcontract.Tool = (*WriteTool)(nil)
 
 type WriteTool struct {
+	toolcontract.Func[WriteRequest, WriteResponse]
 	executor Writer
-	typed    toolcontract.Func[WriteRequest, WriteResponse]
 }
 
 func NewWriteTool(executor Writer) (*WriteTool, error) {
@@ -41,24 +41,14 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewWriteTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
 }
 
-func (w *WriteTool) Definition() toolcontract.Definition {
-	return w.typed.Definition()
-}
-
-func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return w.typed.Call(ctx, invocation)
-}
-
-func (w *WriteTool) write(ctx context.Context, _ toolcontract.IdempotencyKey, req WriteRequest) (WriteResponse, error) {
+func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse, error) {
 	res, err := w.executor.Write(ctx, req)
 	if err != nil {
 		return WriteResponse{}, mutationError("fs.write", res, err)
 	}
 	return res, nil
 }
-
-func (w *WriteTool) InputValidator() func([]byte) error { return w.typed.InputValidator() }

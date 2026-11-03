@@ -40,7 +40,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 		return err
 	}
 	addition, err := tool.NewFunc(tool.FuncConfig{Name: additionToolName, Description: "Add two numbers and return their sum."},
-		func(_ context.Context, _ tool.IdempotencyKey, input additionInput) (string, error) {
+		func(_ context.Context, input additionInput) (string, error) {
 			return fmt.Sprintf("%g", input.Left+input.Right), nil
 		})
 	if err != nil {

@@ -153,8 +153,8 @@ type Alert struct {
 var _ toolcontract.Tool = (*Tool)(nil)
 
 type Tool struct {
+	toolcontract.Func[Request, *Response]
 	writer io.Writer
-	typed  toolcontract.Func[Request, *Response]
 }
 
 // New creates an offline tool. With an explicit date, output is deterministic.
@@ -167,6 +167,7 @@ func New(writer io.Writer) *Tool {
 	typed, err := toolcontract.NewFunc[Request, *Response](
 		toolcontract.FuncConfig{
 			Name:        "get_synthetic_weather",
+			Effect:      toolcontract.EffectSafe,
 			Description: "Generate a deterministic synthetic weather report for a location and date, optionally including hourly conditions and air quality. The result is test data, not real weather.",
 		},
 		t.generate,
@@ -174,15 +175,13 @@ func New(writer io.Writer) *Tool {
 	if err != nil {
 		panic(fmt.Sprintf("fakeweather: invalid static tool contract: %v", err))
 	}
-	t.typed = typed
+	t.Func = typed
 	return t
 }
 
-func (t *Tool) Definition() toolcontract.Definition { return t.typed.Definition() }
-
 func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
 	t.log("validated_request", string(invocation.Arguments()))
-	out, err := t.typed.Call(ctx, invocation)
+	out, err := t.Func.Call(ctx, invocation)
 	if err == nil {
 		modelOutput, _ := out.Output.Text()
 		t.log("model_response", modelOutput)
@@ -190,7 +189,7 @@ func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (to
 	return out, err
 }
 
-func (t *Tool) generate(_ context.Context, _ toolcontract.IdempotencyKey, req Request) (*Response, error) {
+func (t *Tool) generate(_ context.Context, req Request) (*Response, error) {
 	req.Location = strings.TrimSpace(req.Location)
 	if req.Location == "" {
 		return nil, errors.New("fakeweather: location is required")
@@ -208,5 +207,3 @@ func (t *Tool) generate(_ context.Context, _ toolcontract.IdempotencyKey, req Re
 func (t *Tool) log(key, value string) {
 	_, _ = fmt.Fprintf(t.writer, "[fakeweather] %s: %s\n", key, value)
 }
-
-func (t *Tool) InputValidator() func([]byte) error { return t.typed.InputValidator() }

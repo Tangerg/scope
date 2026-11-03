@@ -25,7 +25,7 @@ type contextKey struct{}
 
 func TestNewFuncBuildsImmutableTypedTool(t *testing.T) {
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "add", Description: "add two integers"},
-		func(ctx context.Context, _ tool.IdempotencyKey, input addInput) (int, error) {
+		func(ctx context.Context, input addInput) (int, error) {
 			if got := ctx.Value(contextKey{}); got != "value" {
 				t.Fatalf("context value = %v", got)
 			}
@@ -59,7 +59,7 @@ func TestNewFuncBuildsImmutableTypedTool(t *testing.T) {
 }
 
 func TestNewFuncRejectsInvalidConstruction(t *testing.T) {
-	valid := func(context.Context, tool.IdempotencyKey, struct{}) (string, error) { return "", nil }
+	valid := func(context.Context, struct{}) (string, error) { return "", nil }
 	tests := []struct {
 		name string
 		run  func() error
@@ -77,15 +77,15 @@ func TestNewFuncRejectsInvalidConstruction(t *testing.T) {
 			return err
 		}},
 		{name: "scalar input", run: func() error {
-			_, err := tool.NewFunc(tool.FuncConfig{Name: "scalar"}, func(context.Context, tool.IdempotencyKey, string) (string, error) { return "", nil })
+			_, err := tool.NewFunc(tool.FuncConfig{Name: "scalar"}, func(context.Context, string) (string, error) { return "", nil })
 			return err
 		}},
 		{name: "interface input", run: func() error {
-			_, err := tool.NewFunc(tool.FuncConfig{Name: "interface"}, func(context.Context, tool.IdempotencyKey, any) (string, error) { return "", nil })
+			_, err := tool.NewFunc(tool.FuncConfig{Name: "interface"}, func(context.Context, any) (string, error) { return "", nil })
 			return err
 		}},
 		{name: "pointer chain input", run: func() error {
-			_, err := tool.NewFunc(tool.FuncConfig{Name: "pointers"}, func(context.Context, tool.IdempotencyKey, **addInput) (string, error) { return "", nil })
+			_, err := tool.NewFunc(tool.FuncConfig{Name: "pointers"}, func(context.Context, **addInput) (string, error) { return "", nil })
 			return err
 		}},
 	}
@@ -113,7 +113,7 @@ func TestFuncDecodesStrictObjectArguments(t *testing.T) {
 		Value string `json:"value,omitempty"`
 	}
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "optional"},
-		func(_ context.Context, _ tool.IdempotencyKey, input *optionalInput) (string, error) {
+		func(_ context.Context, input *optionalInput) (string, error) {
 			if input == nil {
 				t.Fatal("pointer input was not allocated")
 			}
@@ -143,7 +143,7 @@ func TestFuncValidatesArgumentsAgainstDerivedSchema(t *testing.T) {
 		Limit int    `json:"limit,omitzero" jsonschema:"minimum=1,maximum=3"`
 	}
 	function, err := tool.NewFunc(tool.FuncConfig{Name: "constrained"},
-		func(_ context.Context, _ tool.IdempotencyKey, input constrainedInput) (string, error) {
+		func(_ context.Context, input constrainedInput) (string, error) {
 			return input.Query, nil
 		},
 	)
@@ -168,7 +168,7 @@ func TestFuncValidatesArgumentsAgainstDerivedSchema(t *testing.T) {
 func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 	t.Run("defined string is verbatim", func(t *testing.T) {
 		type text string
-		function, err := tool.NewFunc(tool.FuncConfig{Name: "text"}, func(context.Context, tool.IdempotencyKey, struct{}) (text, error) {
+		function, err := tool.NewFunc(tool.FuncConfig{Name: "text"}, func(context.Context, struct{}) (text, error) {
 			return "plain", nil
 		})
 		if err != nil {
@@ -183,7 +183,7 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 		type output struct {
 			OK bool `json:"ok"`
 		}
-		composite, err := tool.NewFunc(tool.FuncConfig{Name: "composite"}, func(context.Context, tool.IdempotencyKey, struct{}) (output, error) {
+		composite, err := tool.NewFunc(tool.FuncConfig{Name: "composite"}, func(context.Context, struct{}) (output, error) {
 			return output{OK: true}, nil
 		})
 		if err != nil {
@@ -193,7 +193,7 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 			t.Fatalf("composite Call = %#v, %v", got, callErr)
 		}
 
-		raw, err := tool.NewFunc(tool.FuncConfig{Name: "raw"}, func(context.Context, tool.IdempotencyKey, struct{}) (json.RawMessage, error) {
+		raw, err := tool.NewFunc(tool.FuncConfig{Name: "raw"}, func(context.Context, struct{}) (json.RawMessage, error) {
 			return json.RawMessage(`{"ok":true}`), nil
 		})
 		if err != nil {
@@ -205,7 +205,7 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 	})
 
 	t.Run("empty output stays empty", func(t *testing.T) {
-		function, err := tool.NewFunc(tool.FuncConfig{Name: "empty"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+		function, err := tool.NewFunc(tool.FuncConfig{Name: "empty"}, func(context.Context, struct{}) (string, error) {
 			return "", nil
 		})
 		if err != nil {
@@ -218,7 +218,7 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 
 	t.Run("function error is preserved", func(t *testing.T) {
 		want := errors.New("failed")
-		function, err := tool.NewFunc(tool.FuncConfig{Name: "error"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+		function, err := tool.NewFunc(tool.FuncConfig{Name: "error"}, func(context.Context, struct{}) (string, error) {
 			return "partial", want
 		})
 		if err != nil {
@@ -230,7 +230,7 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 	})
 
 	t.Run("unrepresentable output is rejected before execution", func(t *testing.T) {
-		_, err := tool.NewFunc(tool.FuncConfig{Name: "channel"}, func(context.Context, tool.IdempotencyKey, struct{}) (chan int, error) {
+		_, err := tool.NewFunc(tool.FuncConfig{Name: "channel"}, func(context.Context, struct{}) (chan int, error) {
 			t.Fatal("unrepresentable output type executed")
 			return nil, nil
 		})
@@ -244,13 +244,13 @@ func TestFuncRejectsInvalidTextOutput(t *testing.T) {
 	type textValue string
 	for name, text := range map[string]string{"invalid": "\xff", "empty": "", "unicode": "确认\x00\n"} {
 		t.Run(name, func(t *testing.T) {
-			plain, err := tool.NewFunc(tool.FuncConfig{Name: "plain"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+			plain, err := tool.NewFunc(tool.FuncConfig{Name: "plain"}, func(context.Context, struct{}) (string, error) {
 				return text, nil
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			defined, err := tool.NewFunc(tool.FuncConfig{Name: "defined"}, func(context.Context, tool.IdempotencyKey, struct{}) (textValue, error) {
+			defined, err := tool.NewFunc(tool.FuncConfig{Name: "defined"}, func(context.Context, struct{}) (textValue, error) {
 				return textValue(text), nil
 			})
 			if err != nil {
@@ -281,7 +281,7 @@ func TestFuncRejectsInvalidTextOutput(t *testing.T) {
 
 func TestFuncCancelledContextDoesNotExecute(t *testing.T) {
 	calls := 0
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, struct{}) (string, error) {
 		calls++
 		return "executed", nil
 	})
@@ -299,7 +299,7 @@ func TestFuncCancelledContextDoesNotExecute(t *testing.T) {
 func TestFuncPreservesCompletedOutputOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "effect"}, func(context.Context, struct{}) (string, error) {
 		cancel()
 		return "written", nil
 	})
@@ -313,7 +313,7 @@ func TestFuncPreservesCompletedOutputOnCancellation(t *testing.T) {
 }
 
 func TestFuncConcurrentCalls(t *testing.T) {
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "concurrent"}, func(_ context.Context, _ tool.IdempotencyKey, input addInput) (int, error) {
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "concurrent"}, func(_ context.Context, input addInput) (int, error) {
 		return input.A + input.B, nil
 	})
 	if err != nil {
@@ -351,7 +351,7 @@ func (e *evenInput) UnmarshalJSON(raw []byte) error {
 
 func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 	executions := 0
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "even"}, func(_ context.Context, _ tool.IdempotencyKey, input evenInput) (int, error) {
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "even"}, func(_ context.Context, input evenInput) (int, error) {
 		executions++
 		return input.N, nil
 	})
@@ -402,7 +402,7 @@ func TestFuncAdmissionCoversDecoderRepresentationRules(t *testing.T) {
 		Bytes    []byte  `json:"bytes,omitempty"`
 		Value    any     `json:"value,omitzero"`
 	}
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "representable"}, func(context.Context, tool.IdempotencyKey, input) (string, error) { return "accepted", nil })
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "representable"}, func(context.Context, input) (string, error) { return "accepted", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +435,7 @@ func TestFuncRejectsUnrepresentableStringNumberSchema(t *testing.T) {
 	type input struct {
 		Number int8 `json:"number,string"`
 	}
-	_, err := tool.NewFunc(tool.FuncConfig{Name: "quoted"}, func(context.Context, tool.IdempotencyKey, input) (string, error) {
+	_, err := tool.NewFunc(tool.FuncConfig{Name: "quoted"}, func(context.Context, input) (string, error) {
 		t.Fatal("schema derivation executed the function")
 		return "", nil
 	})
@@ -447,7 +447,7 @@ func TestFuncRejectsUnrepresentableStringNumberSchema(t *testing.T) {
 func isolatedFunctionContract(t *testing.T) (tool.Contract, weak.Pointer[[1024]byte]) {
 	t.Helper()
 	resource := new([1024]byte)
-	function, err := tool.NewFunc(tool.FuncConfig{Name: "resource"}, func(context.Context, tool.IdempotencyKey, struct{}) (int, error) {
+	function, err := tool.NewFunc(tool.FuncConfig{Name: "resource"}, func(context.Context, struct{}) (int, error) {
 		return int(resource[0]), nil
 	})
 	if err != nil {

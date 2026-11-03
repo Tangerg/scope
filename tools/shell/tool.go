@@ -36,8 +36,8 @@ var _ toolcontract.Tool = (*Tool)(nil)
 // Tool retains Host-selected execution authority; model arguments cannot
 // change the shell, working directory, or process policy.
 type Tool struct {
+	toolcontract.Func[Request, Response]
 	executor Executor
-	typed    toolcontract.Func[Request, Response]
 }
 
 type Config struct {
@@ -62,19 +62,11 @@ func NewTool(config Config) (*Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("shell.NewTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
 }
 
-func (t *Tool) Definition() toolcontract.Definition {
-	return t.typed.Definition()
-}
-
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return t.typed.Call(ctx, invocation)
-}
-
-func (t *Tool) run(ctx context.Context, _ toolcontract.IdempotencyKey, req Request) (Response, error) {
+func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	res, err := t.executor.Run(ctx, Input{
 		Cmd:     req.Command,
 		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,
@@ -95,15 +87,7 @@ func (t *Tool) run(ctx context.Context, _ toolcontract.IdempotencyKey, req Reque
 	_, containsEvidence := errors.AsType[*toolcontract.CallError](err)
 	if !containsFailure && !containsEvidence && (errors.Is(err, ErrEmptyCommand) || errors.Is(err, ErrInvalidInput)) {
 		cause := fmt.Errorf("shell.tool: run: %w", err)
-		failure, failureErr := toolcontract.NewFailure(toolcontract.FailureConfig{
-			Kind: toolcontract.FailureKindFailed, Cause: cause, Output: toolcontract.NewTextOutput(cause.Error()),
-		})
-		if failureErr != nil {
-			return Response{}, errors.Join(cause, failureErr)
-		}
-		return Response{}, failure
+		return Response{}, toolresult.Correctable(cause.Error(), cause)
 	}
 	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
 }
-
-func (t *Tool) InputValidator() func([]byte) error { return t.typed.InputValidator() }

@@ -37,6 +37,27 @@ type contractState struct {
 	validate    func([]byte) error
 }
 
+// settle decides what an execution error proves. A safe call changes no state,
+// so unless the execution itself was interrupted its error is a complete
+// outcome; leaving it unknown would only stall a driver waiting for evidence
+// that cannot exist. Cancellation stays unknown so the driver can replay.
+func (c *contractState) settle(ctx context.Context, err error) error {
+	if c.effect != EffectSafe || ctx.Err() != nil {
+		return err
+	}
+	if _, definite := ClassifyFailure(err); definite {
+		return err
+	}
+	if _, undecided := errors.AsType[*AuthorizationError](err); undecided {
+		return err
+	}
+	failure, buildErr := NewFailure(FailureConfig{Kind: FailureKindFailed, Cause: err, Output: NewTextOutput(fmt.Sprintf("error: tool %q failed", c.name))})
+	if buildErr != nil {
+		return errors.Join(err, buildErr)
+	}
+	return failure
+}
+
 // Contract is the immutable trust boundary from an untrusted Request to
 // an Invocation. It retains the frozen definition, compiled schema, and input
 // validator without retaining an executable Tool. It is safe for concurrent use
@@ -193,7 +214,7 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 	}
 	result, err := b.call(ctx, invocation, 0)
 	if err != nil {
-		return Result{}, err
+		return Result{}, b.contract.state.settle(ctx, err)
 	}
 	if err := result.Validate(); err != nil {
 		return Result{}, fmt.Errorf("tool: result: %w", err)

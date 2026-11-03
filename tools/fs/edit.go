@@ -25,8 +25,8 @@ type EditResponse struct {
 var _ toolcontract.Tool = (*EditTool)(nil)
 
 type EditTool struct {
+	toolcontract.Func[EditRequest, EditResponse]
 	executor Editor
-	typed    toolcontract.Func[EditRequest, EditResponse]
 }
 
 func NewEditTool(executor Editor) (*EditTool, error) {
@@ -46,24 +46,14 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewEditTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
 }
 
-func (e *EditTool) Definition() toolcontract.Definition {
-	return e.typed.Definition()
-}
-
-func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return e.typed.Call(ctx, invocation)
-}
-
-func (e *EditTool) edit(ctx context.Context, _ toolcontract.IdempotencyKey, req EditRequest) (EditResponse, error) {
+func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, error) {
 	res, err := e.executor.Edit(ctx, req)
 	if err != nil {
 		return EditResponse{}, mutationError("fs.edit", res, err)
 	}
 	return res, nil
 }
-
-func (e *EditTool) InputValidator() func([]byte) error { return e.typed.InputValidator() }

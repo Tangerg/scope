@@ -5,12 +5,14 @@ import (
 	"fmt"
 )
 
-// Func composes a Signature with typed execution. The opaque key is immutable
-// invocation evidence; its backend, not this adapter, owns deduplication.
+// Func composes a Signature with a function of the call's arguments. A Tool
+// whose effect depends on the call itself, such as one deduplicating on its
+// IdempotencyKey or resuming a Continuation, implements Tool around a
+// Signature instead, because those facts belong to the Invocation.
 type Func[In, Out any] struct {
 	config    FuncConfig
 	signature Signature[In, Out]
-	function  func(context.Context, IdempotencyKey, In) (Out, error)
+	function  func(context.Context, In) (Out, error)
 }
 
 type FuncConfig struct {
@@ -19,7 +21,7 @@ type FuncConfig struct {
 	Effect      Effect
 }
 
-func NewFunc[In, Out any](config FuncConfig, function func(context.Context, IdempotencyKey, In) (Out, error)) (Func[In, Out], error) {
+func NewFunc[In, Out any](config FuncConfig, function func(context.Context, In) (Out, error)) (Func[In, Out], error) {
 	if function == nil {
 		return Func[In, Out]{}, fmt.Errorf("%w: function is nil", ErrInvalidTool)
 	}
@@ -55,7 +57,7 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result,
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return Result{}, ctxErr
 	}
-	output, err := f.function(ctx, invocation.IdempotencyKey(), input)
+	output, err := f.function(ctx, input)
 	if err != nil {
 		return Result{}, err
 	}

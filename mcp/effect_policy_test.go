@@ -62,7 +62,7 @@ func TestRegistrationPublishesOnlySupportedEffectGuarantees(t *testing.T) {
 	for _, effect := range []tool.Effect{tool.EffectSafe, tool.EffectIdempotent, tool.EffectUnsafe} {
 		t.Run(string(effect), func(t *testing.T) {
 			executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect", Effect: effect},
-				func(context.Context, tool.IdempotencyKey, struct{}) (string, error) { return "done", nil })
+				func(context.Context, struct{}) (string, error) { return "done", nil })
 			require.NoError(t, err)
 			binding, err := tool.Bind(executable)
 			require.NoError(t, err)

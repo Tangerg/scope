@@ -10,11 +10,13 @@
 // context or an error. The driving runtime owns call identity, checkpoint
 // commitment, input waits, and routing each answer back to the requesting call.
 // Func adapts ordinary
-// typed functions that always complete; resumable Tools implement Tool directly.
+// typed functions of their arguments; Tools that need the call's identity or a
+// Continuation implement Tool around a Signature.
 //
 // Failure owns a complete unsuccessful invocation outcome. CallError instead
 // carries observed evidence through an ordinary error without declaring an
 // outcome or retry policy; its evidence is not a model-visible ToolResult.
-// Effect declares replay safety independently of failure certainty and
-// concurrency. A replayable tool can still require serialized execution.
+// Effect declares replay safety independently of concurrency: a replayable
+// tool can still require serialized execution. A safe call's error is a
+// definite Failure unless its execution was canceled.
 package tool

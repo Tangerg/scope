@@ -13,7 +13,7 @@ func TestBindingEnforcesItsFrozenOutputSchemaAfterMiddleware(t *testing.T) {
 	type response struct {
 		Count int `json:"count"`
 	}
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "count"}, func(context.Context, tool.IdempotencyKey, struct{}) (response, error) { return response{Count: 2}, nil })
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "count"}, func(context.Context, struct{}) (response, error) { return response{Count: 2}, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBindingEnforcesItsFrozenOutputSchemaAfterMiddleware(t *testing.T) {
 }
 
 func TestSignaturePreservesRawOutputInsteadOfEncodingItsWrapper(t *testing.T) {
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "raw"}, func(context.Context, tool.IdempotencyKey, struct{}) (tool.Output, error) {
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "raw"}, func(context.Context, struct{}) (tool.Output, error) {
 		return tool.Output{Content: []content.Block{{Kind: content.Text, Text: "visible"}}, Details: []byte(`[1,null]`)}, nil
 	})
 	if err != nil {
@@ -60,7 +60,7 @@ func TestSignaturePreservesRawOutputInsteadOfEncodingItsWrapper(t *testing.T) {
 }
 
 func TestSignatureTextDoesNotAdvertiseAStructuredOutputItDoesNotProduce(t *testing.T) {
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "text"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) { return "", nil })
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "text"}, func(context.Context, struct{}) (string, error) { return "", nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestInterfaceOutputAlwaysUsesItsDeclaredJSONCodec(t *testing.T) {
 		{value: nil, wire: `null`},
 		{value: []int{1, 2}, wire: `[1,2]`},
 	} {
-		executable, err := tool.NewFunc(tool.FuncConfig{Name: "dynamic"}, func(context.Context, tool.IdempotencyKey, struct{}) (any, error) {
+		executable, err := tool.NewFunc(tool.FuncConfig{Name: "dynamic"}, func(context.Context, struct{}) (any, error) {
 			return sample.value, nil
 		})
 		if err != nil {

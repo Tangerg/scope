@@ -34,6 +34,8 @@ func Register(server *sdkmcp.Server, tools ...toolcontract.Binding) error {
 		if len(definition.OutputSchema) != 0 {
 			descriptor.OutputSchema = definition.OutputSchema
 		}
+		// Served calls carry no idempotency key, so only a safe Tool's promise
+		// survives this boundary; IdempotentHint would overstate it.
 		if definition.Effect == toolcontract.EffectSafe {
 			descriptor.Annotations = &sdkmcp.ToolAnnotations{ReadOnlyHint: true}
 		}

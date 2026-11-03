@@ -11,7 +11,7 @@ import (
 	ragtool "github.com/Tangerg/scope/rag/tool"
 )
 
-func ExampleRetrieval() {
+func ExampleNewRetrieval() {
 	retriever := rag.RetrieverFunc(func(_ context.Context, query rag.Query) (rag.Candidates, error) {
 		doc, err := document.NewDocument(query.Text(), nil)
 		if err != nil {

@@ -62,7 +62,7 @@ func TestMissingFileIsAModelVisibleFailure(t *testing.T) {
 		t.Fatalf("missing file left an unresolved effect: %v", err)
 	}
 	text, ok := failure.Output().Text()
-	if !ok || text != "error: fs.read failed" {
+	if !ok || text != "error: fs.read: file does not exist" {
 		t.Fatalf("unsafe or absent model feedback: %q", text)
 	}
 }

@@ -71,12 +71,12 @@ func TestCursorCannotContinueBeyondItsExactSnapshot(t *testing.T) {
 		{Offset: 0, Snapshot: strings.Repeat("a", 64)},
 		{Offset: 1, Snapshot: "short"},
 	} {
-		_, err := set.list(t.Context(), "", ListSkillsRequest{Cursor: cursor})
+		_, err := set.list(t.Context(), ListSkillsRequest{Cursor: cursor})
 		assertCursorFailure(t, err)
 	}
-	_, err := set.list(t.Context(), "", ListSkillsRequest{Cursor: &Cursor{Offset: 100, Snapshot: strings.Repeat("a", 64)}})
+	_, err := set.list(t.Context(), ListSkillsRequest{Cursor: &Cursor{Offset: 100, Snapshot: strings.Repeat("a", 64)}})
 	assertCursorFailure(t, err)
-	_, err = set.readResource(t.Context(), "", ReadSkillResourceRequest{
+	_, err = set.readResource(t.Context(), ReadSkillResourceRequest{
 		Name: "pdf-processing", Path: "references/REFERENCE.md", Cursor: &Cursor{Offset: 1, Snapshot: strings.Repeat("a", 64)},
 	})
 	assertCursorFailure(t, err)

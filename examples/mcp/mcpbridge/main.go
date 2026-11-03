@@ -31,7 +31,7 @@ func run(ctx context.Context) (err error) {
 			Name:        echoToolName,
 			Description: "echo the input text",
 		},
-		func(_ context.Context, _ tool.IdempotencyKey, p echoInput) (string, error) { return p.Text, nil },
+		func(_ context.Context, p echoInput) (string, error) { return p.Text, nil },
 	)
 	if err != nil {
 		return fmt.Errorf("create echo tool: %w", err)

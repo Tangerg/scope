@@ -35,7 +35,7 @@ func TestMCPPublishesOnlyOneCompleteInvocationFailure(t *testing.T) {
 		{name: "independent failure", cause: errors.Join(failure, otherFailure)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			executable, err := tool.NewFunc(tool.FuncConfig{Name: "execute"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "execute"}, func(context.Context, struct{}) (string, error) {
 				return "", test.cause
 			})
 			require.NoError(t, err)

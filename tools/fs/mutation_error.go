@@ -15,11 +15,5 @@ func mutationError(operation string, response any, cause error) error {
 		return toolresult.WithEvidence(operation, response, cause)
 	}
 	cause = fmt.Errorf("%s: %w", operation, cause)
-	failure, err := tool.NewFailure(tool.FailureConfig{
-		Kind: tool.FailureKindFailed, Cause: cause, Output: tool.NewTextOutput(cause.Error()),
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
+	return toolresult.Correctable(cause.Error(), cause)
 }

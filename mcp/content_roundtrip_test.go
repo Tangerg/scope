@@ -96,7 +96,7 @@ func TestTypedOutputSchemaSurvivesRegistrationAndDiscovery(t *testing.T) {
 		Doubled int `json:"doubled"`
 	}
 	executable, err := tool.NewFunc(tool.FuncConfig{Name: "double"},
-		func(_ context.Context, _ tool.IdempotencyKey, arguments input) (output, error) {
+		func(_ context.Context, arguments input) (output, error) {
 			return output{Doubled: 2 * arguments.Value}, nil
 		})
 	require.NoError(t, err)

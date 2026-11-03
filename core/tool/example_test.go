@@ -39,7 +39,7 @@ func Example() {
 	add, err := tool.NewFunc(tool.FuncConfig{
 		Name:        "add",
 		Description: "add two integers",
-	}, func(_ context.Context, _ tool.IdempotencyKey, value input) (int, error) {
+	}, func(_ context.Context, value input) (int, error) {
 		return value.A + value.B, nil
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func ExampleNewFailure() {
 }
 
 func ExampleNewGuard() {
-	executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect"}, func(context.Context, tool.IdempotencyKey, struct{}) (string, error) {
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "inspect"}, func(context.Context, struct{}) (string, error) {
 		return "inspected", nil
 	})
 	if err != nil {

@@ -14,7 +14,7 @@ import (
 var _ toolcontract.Tool = (*FetchTool)(nil)
 
 type FetchTool struct {
-	readOnlyTool
+	toolcontract.Func[FetchRequest, *FetchResponse]
 	fetcher Fetcher
 }
 
@@ -23,29 +23,29 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 		return nil, ErrMissingFetcher
 	}
 	f := &FetchTool{fetcher: fetcher}
-	inner, err := toolcontract.NewFunc(
+	typed, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: "web_fetch", Description: webFetchDescription},
 		f.fetch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("web: build fetch tool: %w", err)
 	}
-	f.inner = inner
+	f.Func = typed
 	return f, nil
 }
 
-func (f *FetchTool) fetch(ctx context.Context, _ toolcontract.IdempotencyKey, request FetchRequest) (*FetchResponse, error) {
+func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, inputFailure(err)
+		return nil, toolresult.Correctable(err.Error(), err)
 	}
 	response, err := f.fetcher.Fetch(ctx, prepared)
 	if err != nil {
 		// An unsupported format is rejected before any backend call: definite, not uncertain.
 		if errors.Is(err, ErrUnsupportedFormat) {
-			return nil, inputFailure(err)
+			return nil, toolresult.Correctable(err.Error(), err)
 		}
-		return nil, toolresult.ReadFailure("web.fetch", err)
+		return nil, fmt.Errorf("web.fetch: %w", err)
 	}
 	if validationErr := response.ValidateFor(prepared); validationErr != nil {
 		return nil, fmt.Errorf("web: validate fetch response: %w", validationErr)
@@ -56,3 +56,7 @@ func (f *FetchTool) fetch(ctx context.Context, _ toolcontract.IdempotencyKey, re
 const webFetchDescription = `Fetch a fully formed HTTP(S) URL. Returns page content in markdown (default), html, or text format.
 Use this to read a supplied URL or inspect a search result beyond its snippet.
 Network access, authentication, redirects, and JavaScript rendering depend on the configured fetcher.`
+
+func (*FetchTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
+	return func(toolcontract.Invocation) (string, bool) { return "", true }
+}

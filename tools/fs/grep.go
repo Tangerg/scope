@@ -9,7 +9,6 @@ import (
 
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // GrepRequest patterns use ripgrep syntax. Matches stay within a single line
@@ -82,8 +81,8 @@ type GrepResponse struct {
 var _ toolcontract.Tool = (*GrepTool)(nil)
 
 type GrepTool struct {
+	toolcontract.Func[GrepRequest, GrepResponse]
 	executor Grepper
-	typed    toolcontract.Func[GrepRequest, GrepResponse]
 }
 
 func NewGrepTool(executor Grepper) (*GrepTool, error) {
@@ -92,8 +91,9 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	}
 	t := &GrepTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe,
-			Name: "grep",
+		toolcontract.FuncConfig{
+			Effect: toolcontract.EffectSafe,
+			Name:   "grep",
 			Description: "Search file contents with a ripgrep regular expression. Use this instead of running grep or rg through shell. " +
 				"Set output_mode=files_with_matches when only file paths are needed; use count for per-file match counts. " +
 				"Set multiline=true only for patterns that span line breaks.",
@@ -103,31 +103,21 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewGrepTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
-}
-
-func (g *GrepTool) Definition() toolcontract.Definition {
-	return g.typed.Definition()
 }
 
 func (g *GrepTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return g.typed.Call(ctx, invocation)
-}
-
-func (g *GrepTool) grep(ctx context.Context, _ toolcontract.IdempotencyKey, req GrepRequest) (GrepResponse, error) {
+func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, error) {
 	res, err := g.executor.Grep(ctx, req)
 	if err != nil {
-		return GrepResponse{}, toolresult.ReadFailure("fs.grep", err)
+		return GrepResponse{}, lookupError("fs.grep", err)
 	}
 	return res, nil
 }
-
-func (g *GrepTool) InputValidator() func([]byte) error { return g.typed.InputValidator() }
 
 func (GrepRequest) JSONSchemaConstraints() jsonschema.Constraints {
 	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{

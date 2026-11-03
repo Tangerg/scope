@@ -102,7 +102,7 @@ func TestRetrievalToolRejectsBlankQueryAsDefiniteFailure(t *testing.T) {
 	}
 }
 
-func TestRetrievalToolPreservesRetrieverErrors(t *testing.T) {
+func TestRetrievalToolSettlesRetrieverErrorsAsDefiniteFailures(t *testing.T) {
 	want := errors.New("retrieval failed")
 	retrievalTool, err := ragtool.NewRetrieval(ragtool.RetrievalConfig{
 		Name:        "search",
@@ -114,7 +114,8 @@ func TestRetrievalToolPreservesRetrieverErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := invokeTestTool(t.Context(), retrievalTool, `{"query":"question"}`); !errors.Is(err, want) {
+	_, err = invokeTestTool(t.Context(), retrievalTool, `{"query":"question"}`)
+	if failure, definite := tool.ClassifyFailure(err); !definite || !errors.Is(failure.Cause(), want) {
 		t.Fatalf("retrieval error = %v", err)
 	}
 }
@@ -144,8 +145,15 @@ func TestRetrievalRejectsInvalidOrCanceledResults(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, callErr := invokeTestTool(ctx, retrieval, `{"query":"question"}`); !errors.Is(callErr, test.want) {
-				t.Fatalf("Call error = %v, want %v", callErr, test.want)
+			_, callErr := invokeTestTool(ctx, retrieval, `{"query":"question"}`)
+			if test.cancel {
+				if !errors.Is(callErr, test.want) {
+					t.Fatalf("Call error = %v, want %v", callErr, test.want)
+				}
+				return
+			}
+			if failure, definite := tool.ClassifyFailure(callErr); !definite || !errors.Is(failure.Cause(), test.want) {
+				t.Fatalf("Call error = %v, want a definite failure caused by %v", callErr, test.want)
 			}
 		})
 	}

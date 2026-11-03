@@ -40,8 +40,8 @@ var _ toolcontract.Tool = (*ApplyPatchTool)(nil)
 
 // ApplyPatchTool preserves both complete and partial PatchApplier outcomes.
 type ApplyPatchTool struct {
+	toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
 	executor PatchApplier
-	typed    toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
 }
 
 func NewApplyPatchTool(executor PatchApplier) (*ApplyPatchTool, error) {
@@ -97,16 +97,8 @@ deleted file mode 100644
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewApplyPatchTool: %w", err)
 	}
-	t.typed = typed
+	t.Func = typed
 	return t, nil
-}
-
-func (a *ApplyPatchTool) Definition() toolcontract.Definition {
-	return a.typed.Definition()
-}
-
-func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return a.typed.Call(ctx, invocation)
 }
 
 // MutationPaths returns the sorted, unique file endpoints named by an invocation,
@@ -136,12 +128,10 @@ func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 	return slices.Compact(paths), nil
 }
 
-func (a *ApplyPatchTool) apply(ctx context.Context, _ toolcontract.IdempotencyKey, req ApplyPatchRequest) (ApplyPatchResponse, error) {
+func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
 		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)
 	}
 	return res, nil
 }
-
-func (a *ApplyPatchTool) InputValidator() func([]byte) error { return a.typed.InputValidator() }

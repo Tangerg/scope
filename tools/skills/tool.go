@@ -120,7 +120,7 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	return []toolcontract.Tool{list, load, readResource}, nil
 }
 
-func (t *toolSet) list(ctx context.Context, _ toolcontract.IdempotencyKey, request ListSkillsRequest) (ListPage, error) {
+func (t *toolSet) list(ctx context.Context, request ListSkillsRequest) (ListPage, error) {
 	if err := request.Cursor.validate(); err != nil {
 		return ListPage{}, inputFailure(err)
 	}
@@ -156,7 +156,7 @@ func (t *toolSet) list(ctx context.Context, _ toolcontract.IdempotencyKey, reque
 	return page, nil
 }
 
-func (t *toolSet) load(ctx context.Context, _ toolcontract.IdempotencyKey, request LoadSkillRequest) (TextPage, error) {
+func (t *toolSet) load(ctx context.Context, request LoadSkillRequest) (TextPage, error) {
 	if err := skillsrc.ValidateName(request.Name); err != nil {
 		return TextPage{}, inputFailure(err)
 	}
@@ -177,7 +177,7 @@ func (t *toolSet) load(ctx context.Context, _ toolcontract.IdempotencyKey, reque
 	return page, nil
 }
 
-func (t *toolSet) readResource(ctx context.Context, _ toolcontract.IdempotencyKey, request ReadSkillResourceRequest) (TextPage, error) {
+func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceRequest) (TextPage, error) {
 	if err := skillsrc.ValidateResourceRequest(request.Name, request.Path); err != nil {
 		return TextPage{}, inputFailure(err)
 	}
