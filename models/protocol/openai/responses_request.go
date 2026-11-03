@@ -242,7 +242,7 @@ func mapResponsesToolResults(parts []corechat.Part) ([]responses.ResponseInputIt
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(parts))
 	for index := range parts {
 		result := parts[index].ToolResult
-		output, err := mapResponsesToolOutput(result.Output)
+		output, err := mapResponsesToolOutput(result.MarkedOutput())
 		if err != nil {
 			return nil, fmt.Errorf("parts[%d].tool_result.output: %w", index, err)
 		}

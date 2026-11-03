@@ -151,3 +151,35 @@ func TestToolOutputPreservesEmptyJSONValues(t *testing.T) {
 		})
 	}
 }
+
+func TestToolResultMarkedOutputCarriesTheErrorFlagInBand(t *testing.T) {
+	text := toolcontract.NewTextOutput("file not found")
+	structured, err := toolcontract.NewJSONOutput(json.RawMessage(`{"code":404}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		result  chat.ToolResult
+		want    string
+		content int
+	}{
+		{name: "success is unchanged", result: chat.ToolResult{Output: text}, want: "file not found", content: 1},
+		{name: "structured success is unchanged", result: chat.ToolResult{Output: structured}, want: `{"code":404}`, content: 0},
+		{name: "text error", result: chat.ToolResult{Output: text, IsError: true}, want: "error: file not found", content: 2},
+		{name: "structured error", result: chat.ToolResult{Output: structured, IsError: true}, want: `error: {"code":404}`, content: 2},
+		{name: "empty error", result: chat.ToolResult{IsError: true}, want: "error: ", content: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			marked := test.result.MarkedOutput()
+			got, ok := marked.Text()
+			if !ok || got != test.want || len(marked.Content) != test.content || marked.Validate() != nil {
+				t.Fatalf("MarkedOutput() = %+v (%q, %v)", marked, got, ok)
+			}
+		})
+	}
+	media := chat.ToolResult{IsError: true, Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Text, Text: "see image"}}}}
+	if marked := media.MarkedOutput(); marked.Content[0].Text != "error: " || media.Output.Content[0].Text != "see image" {
+		t.Fatal("marking mutated the result or lost the marker")
+	}
+}

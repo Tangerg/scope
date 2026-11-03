@@ -22,12 +22,7 @@ func (t *toolCallRound) answered() bool {
 	if t.Response == nil || t.Response.Output == nil || t.Response.Output.Message == nil {
 		return false
 	}
-	calls := 0
-	for _, part := range t.Response.Output.Message.Parts {
-		if part.Kind == chat.PartToolCall {
-			calls++
-		}
-	}
+	calls := len(t.Response.Output.Message.ToolCalls())
 	return calls != 0 && calls == len(t.Results)
 }
 

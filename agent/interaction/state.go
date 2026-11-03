@@ -433,17 +433,5 @@ func validatedToolCalls(response *chat.Response) ([]chat.ToolCall, error) {
 	if response.Output == nil || response.Output.Message == nil {
 		return nil, nil
 	}
-	var calls []chat.ToolCall
-	seenCallIDs := make(map[string]struct{})
-	for _, part := range response.Output.Message.Parts {
-		if part.Kind != chat.PartToolCall {
-			continue
-		}
-		if _, duplicate := seenCallIDs[part.ToolCall.ID]; duplicate {
-			return nil, fmt.Errorf("interaction: duplicate tool call ID %q", part.ToolCall.ID)
-		}
-		seenCallIDs[part.ToolCall.ID] = struct{}{}
-		calls = append(calls, *part.ToolCall)
-	}
-	return calls, nil
+	return response.Output.Message.ToolCalls(), nil
 }

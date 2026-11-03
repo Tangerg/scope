@@ -222,15 +222,7 @@ func (m Middleware) snapshotRequest(request *chat.Request) (*chat.Request, error
 // A tool-calling assistant leaves the turn open. The caller supplies its tool
 // exchange until a final assistant closes the turn and the store owns it.
 func completesTurn(message *chat.Message) bool {
-	if message == nil || message.Role != chat.RoleAssistant {
-		return false
-	}
-	for _, part := range message.Parts {
-		if part.Kind == chat.PartToolCall {
-			return false
-		}
-	}
-	return true
+	return message != nil && message.Role == chat.RoleAssistant && len(message.ToolCalls()) == 0
 }
 
 type historyMessages []chat.Message

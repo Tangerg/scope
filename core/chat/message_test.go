@@ -189,3 +189,26 @@ func TestRoleValid(t *testing.T) {
 		t.Fatal("future role must be invalid")
 	}
 }
+
+func TestMessageToolCallsAreUniquelyIdentified(t *testing.T) {
+	first := chat.ToolCall{ID: "call-1", Name: "lookup", Arguments: `{}`}
+	second := chat.ToolCall{ID: "call-2", Name: "lookup", Arguments: `{}`}
+	assistant := chat.NewAssistantMessage(chat.NewTextPart("checking"), chat.NewToolCallPart(first), chat.NewToolCallPart(second))
+	if err := assistant.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := assistant.ToolCalls(); !reflect.DeepEqual(got, []chat.ToolCall{first, second}) {
+		t.Fatalf("ToolCalls() = %+v", got)
+	}
+	if calls := chat.NewUserMessage(chat.NewTextPart("hi")).ToolCalls(); calls != nil {
+		t.Fatalf("user message proposed calls: %+v", calls)
+	}
+	duplicateCall := chat.NewAssistantMessage(chat.NewToolCallPart(first), chat.NewToolCallPart(first))
+	result := chat.ToolResult{ID: "call-1", Name: "lookup", Output: toolcontract.NewTextOutput("done")}
+	duplicateResult := chat.NewToolMessage(result, result)
+	for _, message := range []chat.Message{duplicateCall, duplicateResult} {
+		if err := message.Validate(); !errors.Is(err, chat.ErrInvalidMessage) {
+			t.Fatalf("duplicate correlation ID admitted: %v", err)
+		}
+	}
+}

@@ -109,6 +109,19 @@ func (m *Message) Text() string {
 	return text.String()
 }
 
+// ToolCalls returns the calls an assistant message proposes, in order.
+func (m Message) ToolCalls() []ToolCall {
+	var calls []ToolCall
+	for i := range m.Parts {
+		if m.Parts[i].Kind == PartToolCall {
+			calls = append(calls, *m.Parts[i].ToolCall)
+		}
+	}
+	return calls
+}
+
+// Validate requires each tool call and result ID to be unique within its
+// message: the ID is how a result answers its call.
 func (m Message) Validate() error {
 	if !m.Role.Valid() {
 		return fmt.Errorf("%w: unknown role %q", ErrInvalidMessage, m.Role)
@@ -119,6 +132,7 @@ func (m Message) Validate() error {
 	if err := m.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidMessage, err)
 	}
+	ids := make(map[string]struct{})
 	for i := range m.Parts {
 		part := m.Parts[i]
 		if err := part.Validate(); err != nil {
@@ -127,6 +141,14 @@ func (m Message) Validate() error {
 		if !m.Role.allowsPart(part.Kind) {
 			return fmt.Errorf("%w: role %q does not allow part kind %q", ErrInvalidMessage, m.Role, part.Kind)
 		}
+		id, correlated := part.correlationID()
+		if !correlated {
+			continue
+		}
+		if _, duplicate := ids[id]; duplicate {
+			return fmt.Errorf("%w: parts[%d]: duplicate %s ID %q", ErrInvalidMessage, i, part.Kind, id)
+		}
+		ids[id] = struct{}{}
 	}
 	return nil
 }

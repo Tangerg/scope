@@ -2,8 +2,10 @@ package chat
 
 import (
 	"fmt"
+	"slices"
 	"unicode/utf8"
 
+	corecontent "github.com/Tangerg/scope/core/content"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -47,6 +49,9 @@ func (t ToolCall) Validate() error {
 	return nil
 }
 
+// ToolResult answers one ToolCall. IsError is the only representation of an
+// unsuccessful result: producers write the explanation into Output, and a
+// protocol without an error flag renders the flag through MarkedOutput.
 type ToolResult struct {
 	ID      string              `json:"id"`
 	Name    string              `json:"name"`
@@ -58,6 +63,25 @@ func (t ToolResult) Clone() ToolResult {
 	clone := t
 	clone.Output = t.Output.Clone()
 	return clone
+}
+
+// toolErrorMarker carries IsError in-band where the protocol has no flag for it.
+const toolErrorMarker = "error: "
+
+// MarkedOutput is the Output a protocol without a tool-error flag sends: an
+// error result leads with a text marker so the model can still tell it from a
+// successful one. Structured details become text because they would otherwise
+// follow the marker as an ignored fallback.
+func (t ToolResult) MarkedOutput() toolcontract.Output {
+	output := t.Output.Clone()
+	if !t.IsError {
+		return output
+	}
+	if len(output.Content) == 0 && len(output.Details) != 0 {
+		output.Content = []corecontent.Block{{Kind: corecontent.Text, Text: string(output.Details)}}
+	}
+	output.Content = slices.Insert(output.Content, 0, corecontent.Block{Kind: corecontent.Text, Text: toolErrorMarker})
+	return output
 }
 
 func (t ToolResult) Validate() error {

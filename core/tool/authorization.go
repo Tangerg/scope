@@ -76,7 +76,7 @@ func (g Guard) Call(next Caller) Caller {
 			return Result{}, err
 		}
 		if !allowed {
-			failure, err := NewFailure(FailureConfig{Kind: FailureKindRejected, Output: NewTextOutput(fmt.Sprintf("error: tool %q is not authorized", name))})
+			failure, err := NewFailure(FailureConfig{Kind: FailureKindRejected, Output: NewTextOutput(fmt.Sprintf("tool %q is not authorized", name))})
 			if err != nil {
 				return Result{}, err
 			}

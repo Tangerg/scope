@@ -21,7 +21,7 @@ func lookupError(operation string, cause error) error {
 	cause = fmt.Errorf("%s: %w", operation, cause)
 	for _, target := range correctableLookupErrors {
 		if errors.Is(cause, target) {
-			return toolresult.Correctable(fmt.Sprintf("error: %s: %s", operation, target), cause)
+			return toolresult.Correctable(fmt.Sprintf("%s: %s", operation, target), cause)
 		}
 	}
 	return cause

@@ -116,6 +116,18 @@ func (p Part) Content() (corecontent.Block, bool) {
 	return corecontent.Block{Kind: corecontent.Kind(p.Kind), Text: p.Text, Media: p.Media, Citations: p.Citations, Metadata: p.Metadata}, true
 }
 
+// correlationID is the ID that pairs a tool call with its result.
+func (p Part) correlationID() (string, bool) {
+	switch {
+	case p.Kind == PartToolCall && p.ToolCall != nil:
+		return p.ToolCall.ID, true
+	case p.Kind == PartToolResult && p.ToolResult != nil:
+		return p.ToolResult.ID, true
+	default:
+		return "", false
+	}
+}
+
 func (p Part) Validate() error {
 	if block, isContent := p.Content(); isContent {
 		if len(p.ReasoningState) > 0 || p.ToolCall != nil || p.ToolResult != nil {

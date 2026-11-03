@@ -61,3 +61,22 @@ func TestOpenAIChatToolOutputRejectsMediaInsteadOfDroppingIt(t *testing.T) {
 		t.Fatalf("mapRequestMessage error = %v", err)
 	}
 }
+
+func TestFlaglessToolResultsCarryTheErrorFlagInBand(t *testing.T) {
+	failed := corechat.ToolResult{ID: "call", Name: "inspect", Output: toolcontract.NewTextOutput("file not found"), IsError: true}
+	mapped, err := mapRequestMessage(corechat.NewToolMessage(failed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mapped) != 1 || mapped[0].OfTool == nil || mapped[0].OfTool.Content.OfString.Value != "error: file not found" {
+		t.Fatalf("chat completions tool message = %#v", mapped)
+	}
+	items, err := mapResponsesToolResults(corechat.NewToolMessage(failed).Parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := items[0].OfFunctionCallOutput.Output.OfResponseFunctionCallOutputItemArray
+	if len(content) != 2 || content[0].OfInputText == nil || content[0].OfInputText.Text != "error: " || content[1].OfInputText.Text != "file not found" {
+		t.Fatalf("responses tool output = %#v", items)
+	}
+}

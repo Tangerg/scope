@@ -68,7 +68,7 @@ func TestBindingSettlesSafeErrorsAsDefiniteFailures(t *testing.T) {
 				}
 				return
 			}
-			if text, _ := failure.Output().Text(); failure.Kind() != tool.FailureKindFailed || text != `error: tool "lookup" failed` || !errors.Is(failure.Cause(), cause) {
+			if text, _ := failure.Output().Text(); failure.Kind() != tool.FailureKindFailed || text != `tool "lookup" failed` || !errors.Is(failure.Cause(), cause) {
 				t.Fatalf("failure = %v %q", failure.Kind(), text)
 			}
 		})

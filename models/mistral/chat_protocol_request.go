@@ -72,7 +72,7 @@ func mapChatRequestMessages(messages []corechat.Message) ([]chatMessage, error) 
 				if toolResult == nil {
 					return nil, fmt.Errorf("mistral: messages[%d].parts[%d]: missing tool result", messageIndex, partIndex)
 				}
-				content, ok := toolResult.Output.Text()
+				content, ok := toolResult.MarkedOutput().Text()
 				if !ok {
 					return nil, fmt.Errorf("mistral: messages[%d].parts[%d]: media Tool output is unsupported", messageIndex, partIndex)
 				}

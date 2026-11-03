@@ -52,7 +52,6 @@ func TestUnfinishedOrAmbiguousModelCallsCannotExecuteTools(t *testing.T) {
 			response.Output.FinishReason = chat.FinishReasonStop
 			return response
 		}(), failureCodeInteractionModelToolCallsNotCompleted},
-		{"duplicate call identity", callResponse(requested("write", "same"), requested("write", "same")), "interaction.model.invalid_response"},
 		{"no finished assistant message", &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}, "interaction.model.invalid_response"},
 	} {
 		t.Run(row.name, func(t *testing.T) {

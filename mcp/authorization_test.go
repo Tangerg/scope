@@ -62,7 +62,7 @@ func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 				require.Equal(t, tool.FailureKindFailed, failure.Kind())
 				text, textOnly := failure.Output().Text()
 				require.True(t, textOnly)
-				require.Equal(t, `error: tool "inspect" is not authorized`, text)
+				require.Equal(t, `tool "inspect" is not authorized`, text)
 			} else {
 				require.False(t, found, "undecided authorization became a definite Tool result")
 				protocolError, found := errors.AsType[*jsonrpc.Error](err)

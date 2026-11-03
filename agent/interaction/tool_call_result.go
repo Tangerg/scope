@@ -30,7 +30,7 @@ func failedCallResult(output tool.Output) toolCallResult {
 // rejectedCallResult refuses a call before its Tool runs; diagnostic is the
 // complete model-visible explanation.
 func rejectedCallResult(diagnostic string) toolCallResult {
-	return toolCallResult{Disposition: ResultRejected, Output: tool.NewTextOutput("error: " + diagnostic)}
+	return toolCallResult{Disposition: ResultRejected, Output: tool.NewTextOutput(diagnostic)}
 }
 
 // settleToolCall projects only definite outcomes into model context. Unclassified

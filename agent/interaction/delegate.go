@@ -110,7 +110,7 @@ func delegateCallResult(termination run.Termination) (toolCallResult, error) {
 }
 
 func delegateDiagnostic(diagnostic string) toolcontract.Output {
-	return toolcontract.NewTextOutput("error: delegated worker " + run.NormalizeDiagnostic(diagnostic))
+	return toolcontract.NewTextOutput("delegated worker " + run.NormalizeDiagnostic(diagnostic))
 }
 
 // rejectedDelegateStartResult is shared by live execution and SettledResults so

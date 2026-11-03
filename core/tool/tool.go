@@ -51,7 +51,7 @@ func (c *contractState) settle(ctx context.Context, err error) error {
 	if _, undecided := errors.AsType[*AuthorizationError](err); undecided {
 		return err
 	}
-	failure, buildErr := NewFailure(FailureConfig{Kind: FailureKindFailed, Cause: err, Output: NewTextOutput(fmt.Sprintf("error: tool %q failed", c.name))})
+	failure, buildErr := NewFailure(FailureConfig{Kind: FailureKindFailed, Cause: err, Output: NewTextOutput(fmt.Sprintf("tool %q failed", c.name))})
 	if buildErr != nil {
 		return errors.Join(err, buildErr)
 	}

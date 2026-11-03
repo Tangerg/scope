@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"bytes"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -333,6 +334,9 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(wire)))
 		assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, invocation.ID, outcome))
 	}
-	duplicate := mustValue((modelCallResult{Response: callResponse(requested("echo", "same"), requested("echo", "same"))}).settlement(run.MaxPayloadBytes))
+	// The encoder rejects duplicate call IDs, so the log is forged at the wire.
+	distinct := mustValue((modelCallResult{Response: callResponse(requested("echo", "same"), requested("echo", "other"))}).settlement(run.MaxPayloadBytes))
+	forged := bytes.ReplaceAll(distinct.Payload().JSON(), []byte(`"other"`), []byte(`"same"`))
+	duplicate := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, forged))
 	assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, model.ID, duplicate))
 }

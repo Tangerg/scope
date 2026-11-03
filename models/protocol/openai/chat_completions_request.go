@@ -65,7 +65,7 @@ func mapRequestMessage(message corechat.Message) ([]openaisdk.ChatCompletionMess
 			if result == nil {
 				return nil, fmt.Errorf("parts[%d]: missing tool result", i)
 			}
-			text, ok := result.Output.Text()
+			text, ok := result.MarkedOutput().Text()
 			if !ok {
 				return nil, fmt.Errorf("parts[%d]: OpenAI Chat Completions does not support media Tool output", i)
 			}

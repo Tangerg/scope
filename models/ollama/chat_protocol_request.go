@@ -206,7 +206,7 @@ func mapProtocolMessages(messages []corechat.Message) ([]nativeMessage, error) {
 		case corechat.RoleTool:
 			for j := range message.Parts {
 				result := message.Parts[j].ToolResult
-				content, ok := result.Output.Text()
+				content, ok := result.MarkedOutput().Text()
 				if !ok {
 					return nil, fmt.Errorf("ollama: messages[%d].parts[%d]: media Tool output is unsupported", i, j)
 				}

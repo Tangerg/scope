@@ -128,6 +128,9 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return nil, nil }),
 		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return &chat.Response{}, nil }),
 		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { panic("model call panicked") }),
+		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return callResponse(requested("write", "same"), requested("write", "same")), nil
+		}),
 	} {
 		backend := dispatcher{model: CallModel(model)}
 		response, err := backend.callModelResponse(t.Context(), testInput().request(), nil)
