@@ -28,7 +28,7 @@ func ExampleMiddleware_Wrap() {
 	}
 	report := coreeval.Report{
 		Metric:   metric,
-		Decision: &coreeval.Decision{Policy: eval.Policy{Name: "correctness"}, Verdict: coreeval.VerdictPass},
+		Decision: &coreeval.Decision{Policy: coreeval.Policy{Name: "correctness"}, Verdict: coreeval.VerdictPass},
 		Score:    &score,
 	}
 	assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{

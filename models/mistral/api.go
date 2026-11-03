@@ -14,7 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
