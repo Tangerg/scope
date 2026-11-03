@@ -52,7 +52,7 @@ func qualitySuite(t *testing.T) *eval.Suite[eval.TrialSample[contextTask, trajec
 				if encodeErr != nil {
 					return eval.Report{}, encodeErr
 				}
-				calls[index] = trajectory.ToolExpectation{Name: "read_report", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: trajectory.ToolOutcomeSucceeded}
+				calls[index] = trajectory.ToolExpectation{Name: "read_report", Arguments: new(trajectory.ToolArguments(arguments)), Outcome: interaction.ToolOutcomeSucceeded}
 			}
 			return (trajectory.Evaluator{}).Evaluate(ctx, trajectory.Sample{Actual: *value.Execution.Output, Expected: trajectory.Expectation{
 				Status: agentrun.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: calls},

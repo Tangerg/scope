@@ -9,13 +9,6 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-type ToolSettlement struct {
-	Result        *chat.ToolResult `json:"result,omitzero"`
-	InputRequired bool             `json:"input_required,omitzero"`
-	Failure       string           `json:"failure,omitzero"`
-	Evidence      *tool.Output     `json:"evidence,omitzero"`
-}
-
 const (
 	failureCodeDispatchRejected = "interaction.dispatch.rejected"
 	failureCodeModelFailed      = "interaction.model.failed"
@@ -87,7 +80,7 @@ func (d dispatchUncertainty) toolSettlement() (ToolSettlement, error) {
 	if d.Tool == nil {
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
-	result := ToolSettlement{Failure: diagnostic}
+	result := ToolSettlement{Outcome: ToolOutcomeUnknown, Failure: diagnostic}
 	if d.Tool.Evidence != nil {
 		result.Evidence = new(d.Tool.Evidence.Clone())
 	}
@@ -199,7 +192,7 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
 			return ToolSettlement{}, ErrInvalidProtocol
 		}
-		return ToolSettlement{Failure: failure.Message()}, nil
+		return ToolSettlement{Outcome: ToolOutcomeFailed, Failure: failure.Message()}, nil
 	}
 	if outcome.Status() == run.SettlementStatusUnknown {
 		evidence, err := outcome.Payload().Decode[dispatchUncertainty]()
@@ -217,11 +210,15 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
 	if envelope.ToolResult.InputRequest != nil {
-		return ToolSettlement{InputRequired: true}, nil
+		return ToolSettlement{Outcome: ToolOutcomeInputRequired}, nil
 	}
 	if err := envelope.ToolResult.Completion.validateCall(call); err != nil {
 		return ToolSettlement{}, fmt.Errorf("%w: tool result: %w", ErrInvalidProtocol, err)
 	}
 	result := envelope.ToolResult.Completion.toolResult(call)
-	return ToolSettlement{Result: &result}, nil
+	settled := ToolOutcomeSucceeded
+	if result.IsError {
+		settled = ToolOutcomeError
+	}
+	return ToolSettlement{Outcome: settled, Result: &result}, nil
 }

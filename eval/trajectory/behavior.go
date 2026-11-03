@@ -95,7 +95,7 @@ type behaviorTool struct {
 	ContinuationOf *behaviorEffectPosition `json:"continuation_of,omitzero"`
 	Name           string                  `json:"name"`
 	Arguments      json.RawMessage         `json:"arguments,omitzero"`
-	Outcome        ToolOutcome             `json:"outcome"`
+	Outcome        interaction.ToolOutcome `json:"outcome,omitzero"`
 	Result         *behaviorToolResult     `json:"result,omitzero"`
 }
 type behaviorEffectPosition struct {

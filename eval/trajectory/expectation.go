@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
@@ -64,9 +65,9 @@ func (t ToolArguments) Validate() error {
 // An unknown actual outcome cannot decide an expected definite outcome and
 // returns ErrIncompleteRecording; a name or argument mismatch still fails.
 type ToolExpectation struct {
-	Name      string         `json:"name"`
-	Arguments *ToolArguments `json:"arguments,omitzero"`
-	Outcome   ToolOutcome    `json:"outcome,omitempty"`
+	Name      string                  `json:"name"`
+	Arguments *ToolArguments          `json:"arguments,omitzero"`
+	Outcome   interaction.ToolOutcome `json:"outcome,omitempty"`
 }
 
 func (t ToolExpectation) Validate() error {
@@ -81,7 +82,7 @@ func (t ToolExpectation) Validate() error {
 			return err
 		}
 	}
-	if t.Outcome != ToolOutcomeInvalid && !t.Outcome.Valid() {
+	if t.Outcome != interaction.ToolOutcomeInvalid && !t.Outcome.Valid() {
 		return fmt.Errorf("%w: tool outcome is invalid", ErrInvalidSample)
 	}
 	return nil
@@ -104,10 +105,13 @@ func (t ToolExpectation) matches(actual ToolCall) (bool, error) {
 			return false, nil
 		}
 	}
-	if actual.Outcome() == ToolOutcomeUnknown && t.Outcome != ToolOutcomeInvalid && t.Outcome != ToolOutcomeUnknown {
-		return false, fmt.Errorf("%w: Tool outcome is unknown; expected %s", ErrIncompleteRecording, t.Outcome)
+	if t.Outcome == interaction.ToolOutcomeInvalid {
+		return true, nil
 	}
-	return t.Outcome == ToolOutcomeInvalid || actual.Outcome() == t.Outcome, nil
+	if outcome := actual.Outcome(); outcome != t.Outcome && (outcome == interaction.ToolOutcomeUnknown || outcome == interaction.ToolOutcomeInvalid) {
+		return false, fmt.Errorf("%w: Tool outcome is %q; expected %s", ErrIncompleteRecording, outcome, t.Outcome)
+	}
+	return actual.Outcome() == t.Outcome, nil
 }
 
 // Limits defines optional upper bounds. Pointers distinguish an asserted zero

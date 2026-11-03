@@ -336,7 +336,7 @@ func TestCommittedLogProjectsModelToolUsageAndEvaluator(t *testing.T) {
 	if models[0].Request == nil || len(models[0].Request.Tools) != 1 || models[0].Request.Tools[0].Name != "weather" {
 		t.Fatal("exact dispatched tool advertisement missing")
 	}
-	if models[0].Settlement.Outcome != interaction.ModelOutcomeSucceeded || tools[0].Outcome() != trajectory.ToolOutcomeSucceeded {
+	if models[0].Settlement.Outcome != interaction.ModelOutcomeSucceeded || tools[0].Outcome() != interaction.ToolOutcomeSucceeded {
 		t.Fatal("settlements changed")
 	}
 	usage, err := recorded.TreeUsage()
@@ -348,7 +348,7 @@ func TestCommittedLogProjectsModelToolUsageAndEvaluator(t *testing.T) {
 		t.Fatalf("tokens=%d error=%v", tokens, err)
 	}
 	maximumSteps, maximumTokens := usage.CommittedSteps, int64(10)
-	report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "weather", Outcome: trajectory.ToolOutcomeSucceeded}}}, Limits: trajectory.Limits{CommittedSteps: &maximumSteps, TotalTokens: &maximumTokens}}})
+	report, err := (trajectory.Evaluator{}).Evaluate(t.Context(), trajectory.Sample{Actual: recorded, Expected: trajectory.Expectation{Status: run.StatusCompleted, Tools: &trajectory.ToolSequence{Calls: []trajectory.ToolExpectation{{Name: "weather", Outcome: interaction.ToolOutcomeSucceeded}}}, Limits: trajectory.Limits{CommittedSteps: &maximumSteps, TotalTokens: &maximumTokens}}})
 	if err != nil || report.Verdict() != eval.VerdictPass {
 		t.Fatalf("report=%+v error=%v", report, err)
 	}

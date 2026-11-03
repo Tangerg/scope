@@ -219,7 +219,7 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 		return false
 	})
 	projection := mustValue(ToolSettlementFromOutcome(requested("panic", "call"), pending.Outcome))
-	if projection.Result != nil || projection.InputRequired || projection.Failure == "" || pending.Failure != nil {
+	if projection.Result != nil || projection.Outcome != ToolOutcomeUnknown || projection.Failure == "" || pending.Failure != nil {
 		t.Fatal("panic established an outcome or lost typed tool evidence")
 	}
 	settlement := mustValue(SettleToolResult(program, pending.Request, tool.Result{Output: tool.NewTextOutput("investigated write")}, ResultSucceeded, nil))

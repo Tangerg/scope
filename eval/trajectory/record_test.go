@@ -15,29 +15,13 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-func TestToolOutcomeDistinguishesPendingDispatchFailureAndToolResult(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		call trajectory.ToolCall
-		want trajectory.ToolOutcome
-	}{
-		{"pending", trajectory.ToolCall{}, trajectory.ToolOutcomePending},
-		{"dispatch failed", trajectory.ToolCall{Status: run.SettlementStatusFailed, Settlement: &interaction.ToolSettlement{Failure: "not executed"}}, trajectory.ToolOutcomeFailed},
-		{"dispatch uncertain", trajectory.ToolCall{Status: run.SettlementStatusUnknown, Settlement: &interaction.ToolSettlement{Failure: "acknowledgment lost"}}, trajectory.ToolOutcomeUnknown},
-		{"successful result", trajectory.ToolCall{Status: run.SettlementStatusSucceeded, Settlement: &interaction.ToolSettlement{Result: &chat.ToolResult{}}}, trajectory.ToolOutcomeSucceeded},
-		{"tool error", trajectory.ToolCall{Status: run.SettlementStatusSucceeded, Settlement: &interaction.ToolSettlement{Result: &chat.ToolResult{IsError: true}}}, trajectory.ToolOutcomeError},
-		{"input required", trajectory.ToolCall{Status: run.SettlementStatusSucceeded, Settlement: &interaction.ToolSettlement{InputRequired: true}}, trajectory.ToolOutcomeInputRequired},
-		{"missing result", trajectory.ToolCall{Status: run.SettlementStatusSucceeded, Settlement: &interaction.ToolSettlement{}}, trajectory.ToolOutcomeInvalid},
-		{"missing status", trajectory.ToolCall{Settlement: &interaction.ToolSettlement{}}, trajectory.ToolOutcomeInvalid},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := test.call.Outcome(); got != test.want {
-				t.Fatalf("outcome=%q, want %q", got, test.want)
-			}
-			if test.want.Valid() != (test.want != trajectory.ToolOutcomeInvalid) {
-				t.Fatalf("outcome validity contradicts classification %q", test.want)
-			}
-		})
+func TestToolOutcomeReadsTheCommittedSettlement(t *testing.T) {
+	if got := (trajectory.ToolCall{}).Outcome(); got != interaction.ToolOutcomeInvalid {
+		t.Fatalf("pending outcome=%q", got)
+	}
+	settled := trajectory.ToolCall{Settlement: &interaction.ToolSettlement{Outcome: interaction.ToolOutcomeError, Result: &chat.ToolResult{IsError: true}}}
+	if got := settled.Outcome(); got != interaction.ToolOutcomeError {
+		t.Fatalf("settled outcome=%q", got)
 	}
 }
 
@@ -90,7 +74,7 @@ func TestInputRequiredContinuationUsesTheOriginalEffectIdentity(t *testing.T) {
 	}
 	waiting := captureInteraction(t, handle)
 	calls := waiting.ToolCalls()
-	if len(calls) != 1 || calls[0].Outcome() != trajectory.ToolOutcomeInputRequired || calls[0].ContinuationOf.Valid() {
+	if len(calls) != 1 || calls[0].Outcome() != interaction.ToolOutcomeInputRequired || calls[0].ContinuationOf.Valid() {
 		t.Fatalf("input request=%+v", calls)
 	}
 	if waiting.HistoryComplete() {
@@ -104,7 +88,7 @@ func TestInputRequiredContinuationUsesTheOriginalEffectIdentity(t *testing.T) {
 	}
 	completed := captureInteraction(t, handle)
 	calls = completed.ToolCalls()
-	if len(calls) != 2 || calls[0].Outcome() != trajectory.ToolOutcomeInputRequired || calls[1].Outcome() != trajectory.ToolOutcomeSucceeded || calls[1].ContinuationOf != calls[0].EffectID {
+	if len(calls) != 2 || calls[0].Outcome() != interaction.ToolOutcomeInputRequired || calls[1].Outcome() != interaction.ToolOutcomeSucceeded || calls[1].ContinuationOf != calls[0].EffectID {
 		t.Fatalf("logical continuation identity changed: %+v", calls)
 	}
 	if calls[0].EffectID.Process != calls[1].EffectID.Process {
@@ -128,7 +112,7 @@ func TestUnknownToolRetainsEvidenceWithoutClaimingAFinalResult(t *testing.T) {
 	awaitUnknown(t, handle)
 	actual := captureInteraction(t, handle)
 	calls := actual.ToolCalls()
-	if len(calls) != 1 || calls[0].Outcome() != trajectory.ToolOutcomeUnknown || calls[0].Settlement.Result != nil || calls[0].Settlement.Evidence == nil || calls[0].Settlement.Failure == "" {
+	if len(calls) != 1 || calls[0].Outcome() != interaction.ToolOutcomeUnknown || calls[0].Settlement.Result != nil || calls[0].Settlement.Evidence == nil || calls[0].Settlement.Failure == "" {
 		t.Fatalf("unknown evidence became a result: %+v", calls)
 	}
 	if _, err := actual.TreeUsage(); !errors.Is(err, trajectory.ErrIncompleteRecording) {

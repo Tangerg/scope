@@ -122,7 +122,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	evidence := mustValue(ToolSettlementFromOutcome(call, uncertain))
 	evidence.Evidence.Content[0].Text = "changed"
 	retained := mustValue(ToolSettlementFromOutcome(call, uncertain))
-	if retained.Evidence.Content[0].Text != "unconfirmed output" || retained.Result != nil || retained.InputRequired {
+	if retained.Evidence.Content[0].Text != "unconfirmed output" || retained.Result != nil || retained.Outcome != ToolOutcomeUnknown {
 		t.Fatal("unknown evidence became final or was mutated")
 	}
 	emptyEvidence := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.Output)}}).settlement())
@@ -132,7 +132,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	}
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	input := mustValue(ToolSettlementFromOutcome(call, mustValue((toolDispatchResult{InputRequest: &question}).settlement())))
-	if !input.InputRequired || input.Result != nil || input.Failure != "" {
+	if input.Outcome != ToolOutcomeInputRequired || input.Result != nil || input.Failure != "" {
 		t.Fatal("input request became a final tool result")
 	}
 	for _, disposition := range []ResultDisposition{ResultSucceeded, ResultFailed, ResultRejected} {

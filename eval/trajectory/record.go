@@ -8,27 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-type ToolOutcome string
-
-const (
-	ToolOutcomeInvalid       ToolOutcome = ""
-	ToolOutcomePending       ToolOutcome = "pending"
-	ToolOutcomeSucceeded     ToolOutcome = "succeeded"
-	ToolOutcomeError         ToolOutcome = "error"
-	ToolOutcomeInputRequired ToolOutcome = "input_required"
-	ToolOutcomeFailed        ToolOutcome = "failed"
-	ToolOutcomeUnknown       ToolOutcome = "unknown"
-)
-
-func (t ToolOutcome) Valid() bool {
-	switch t {
-	case ToolOutcomePending, ToolOutcomeSucceeded, ToolOutcomeError, ToolOutcomeInputRequired, ToolOutcomeFailed, ToolOutcomeUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
 // These detached projections cannot advance a call. The intent and latest
 // settlement in Trajectory.Log remain its only persisted representation.
 type ModelCall struct {
@@ -63,7 +42,6 @@ type ToolCall struct {
 	EffectID       run.EffectID                `json:"effect_id"`
 	ContinuationOf run.EffectID                `json:"continuation_of,omitzero"`
 	Call           chat.ToolCall               `json:"call"`
-	Status         run.SettlementStatus        `json:"status,omitzero"`
 	Settlement     *interaction.ToolSettlement `json:"settlement,omitzero"`
 }
 
@@ -82,29 +60,14 @@ func (t ToolCall) Clone() ToolCall {
 	}
 	return t
 }
-func (t ToolCall) Outcome() ToolOutcome {
+
+// Outcome is the committed classification of the call, or ToolOutcomeInvalid
+// while its intent awaits a settlement.
+func (t ToolCall) Outcome() interaction.ToolOutcome {
 	if t.Settlement == nil {
-		return ToolOutcomePending
+		return interaction.ToolOutcomeInvalid
 	}
-	switch t.Status {
-	case run.SettlementStatusUnknown:
-		return ToolOutcomeUnknown
-	case run.SettlementStatusFailed:
-		return ToolOutcomeFailed
-	case run.SettlementStatusSucceeded:
-		if t.Settlement.InputRequired {
-			return ToolOutcomeInputRequired
-		}
-		if t.Settlement.Result == nil {
-			return ToolOutcomeInvalid
-		}
-		if t.Settlement.Result.IsError {
-			return ToolOutcomeError
-		}
-		return ToolOutcomeSucceeded
-	default:
-		return ToolOutcomeInvalid
-	}
+	return t.Settlement.Outcome
 }
 
 type callProjection struct {
@@ -189,7 +152,7 @@ func (c *callProjection) settle(record run.EffectSettled) error {
 		c.models[record.ID] = call
 	}
 	if call, ok := c.tools[record.ID]; ok {
-		var settlement interaction.ToolSettlement
+		settlement := interaction.ToolSettlement{Outcome: interaction.ToolOutcomeUnknown}
 		if record.Failure != nil {
 			settlement.Failure = record.Failure.Message()
 		} else {
@@ -199,7 +162,7 @@ func (c *callProjection) settle(record run.EffectSettled) error {
 				return fmt.Errorf("%w: tool settlement %s: %w", ErrInvalidTrajectory, record.ID, err)
 			}
 		}
-		call.Status, call.Settlement = record.Outcome.Status(), &settlement
+		call.Settlement = &settlement
 		if !call.Outcome().Valid() {
 			return fmt.Errorf("%w: invalid tool settlement %s", ErrInvalidTrajectory, record.ID)
 		}
