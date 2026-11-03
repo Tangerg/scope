@@ -5,7 +5,6 @@ go 1.27.3
 require (
 	github.com/Tangerg/scope/core v0.59.0
 	github.com/jackc/pgx/v5 v5.12.0
-	github.com/samber/lo v1.53.0
 )
 
 require (
@@ -17,6 +16,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
+	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/sync v0.24.0 // indirect

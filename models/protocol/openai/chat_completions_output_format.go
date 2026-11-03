@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-func applyChatOutputFormat(format *corechat.OutputFormat, target *openaisdk.ChatCompletionNewParams, dialect Dialect) error {
+func applyChatOutputFormat(format *corechat.OutputFormat, target *openaisdk.ChatCompletionNewParams, dialect DialectConfig) error {
 	if format == nil {
 		return nil
 	}

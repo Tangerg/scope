@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/samber/lo"
@@ -192,12 +193,18 @@ func (s *sectionBuilder) finish() []markdownSection {
 }
 
 func (s *Splitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
-	root := s.parser.Parse(source)
+	source, root, err := resolveReferences(ctx, s.parser, source)
+	if err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	var builder sectionBuilder
 	for node := root.FirstChild(); node != nil; node = node.NextSibling() {
+		if _, definition := node.(*ast.LinkReferenceDefinition); definition {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -354,9 +361,20 @@ func (s *Splitter) splitBlock(ctx context.Context, prefix string, block markdown
 }
 
 func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
-	render := func(body string) string { return renderChunk(prefix, strings.TrimSpace(body)) }
+	paragraph = strings.TrimSpace(paragraph)
+	protected := inlineRanges(s.parser, paragraph)
+	offset := 0
+	render := func(body string) string {
+		boundary := offset + len(body)
+		for _, span := range protected {
+			if span.containsBoundary(boundary) {
+				return ""
+			}
+		}
+		return renderChunk(prefix, strings.TrimSpace(body))
+	}
 	var chunks []string
-	for paragraph = strings.TrimSpace(paragraph); paragraph != ""; {
+	for paragraph != "" {
 		if len(chunks) == s.maxChunks {
 			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
 		}
@@ -369,9 +387,16 @@ func (s *Splitter) splitParagraph(ctx context.Context, prefix, paragraph string)
 		}
 		if decoded == "" {
 			_, size := utf8.DecodeRuneInString(paragraph)
-			return nil, s.semanticUnitError(ctx, blockParagraph, render(paragraph[:size]))
+			for _, span := range protected {
+				if span.containsBoundary(offset + size) {
+					size = span.end - offset
+				}
+			}
+			return nil, s.semanticUnitError(ctx, blockParagraph, renderChunk(prefix, paragraph[:size]))
 		}
-		paragraph = strings.TrimSpace(paragraph[len(decoded):])
+		rest := paragraph[len(decoded):]
+		paragraph = strings.TrimSpace(rest)
+		offset += len(decoded) + len(rest) - len(strings.TrimLeftFunc(rest, unicode.IsSpace))
 		chunks = append(chunks, strings.TrimSpace(decoded))
 	}
 	return chunks, nil

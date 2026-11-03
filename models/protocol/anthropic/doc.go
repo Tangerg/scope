@@ -8,7 +8,8 @@
 // retains the SDK's response-header deadline without limiting a streaming body.
 // The official binding uses the Anthropic v2 SDK's native API revision and
 // bearer authentication. Sampling controls are not accepted by that API.
-// Compatible bindings declare their own wire revision and credential header;
+// [Dialect.Revision], [Dialect.APIKeyScheme], and [Dialect.SupportsSampling]
+// bind independent wire, authentication, and capability facts explicitly;
 // other headers cannot replace or add credentials. The SDK owns its retry policy.
 //
 // Constructors:

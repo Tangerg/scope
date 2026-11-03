@@ -28,7 +28,7 @@ func compiledDelegate(t testing.TB, compiler *run.Compiler, name string, transfo
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegate, err := NewDelegate(DelegateConfig{Name: name, Description: "Apply the declared operation.", Program: program.Erase()})
+	delegate, err := NewDelegate(DelegateConfig{Name: name, Description: "Apply the declared operation.", Child: run.ChildBinding{Program: program.Erase()}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,19 +117,13 @@ func (c capabilityPanicTool) ReturnsDirectResult() bool {
 	}
 	return false
 }
-func (c capabilityPanicTool) Idempotent() bool {
-	if c.mode == "idempotent" {
-		panic("invalid idempotency declaration")
-	}
-	return false
-}
+
 func (c capabilityPanicTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	if c.mode == "concurrent" {
 		panic("invalid concurrency declaration")
 	}
 	return nil
 }
-func (c capabilityPanicTool) Unwrap() tool.Tool                  { panic("invalid wrapper capability") }
 func (c capabilityPanicTool) InputValidator() func([]byte) error { return nil }
 
 func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
@@ -141,9 +135,7 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 		{Revision: "unrepresentable alias", Tools: []tool.Tool{scriptTool{name: "工具"}}},
 		{Revision: "duplicate", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
-		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "idempotent"}}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
-		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "wrapper"}}},
 	} {
 		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Configured() {
 			t.Fatalf("invalid tool declaration admitted: %+v, %v", config, err)
@@ -159,8 +151,8 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 	delegate := compiledDelegate(t, compiler, "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
 	for _, config := range []DelegateConfig{
 		{}, {Name: "worker", Description: "Missing child."},
-		{Name: "Invalid Name", Description: "Invalid model name.", Program: delegate.program},
-		{Name: "worker", Program: delegate.program},
+		{Name: "Invalid Name", Description: "Invalid model name.", Child: delegate.child},
+		{Name: "worker", Child: delegate.child},
 	} {
 		if value, err := NewDelegate(config); !errors.Is(err, ErrInvalidDelegate) || value.Valid() {
 			t.Fatal("invalid delegate admitted", value, err)

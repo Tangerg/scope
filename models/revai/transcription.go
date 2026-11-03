@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
@@ -80,31 +81,37 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
 }
 
-func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (_ *transcription.Response, invocationErr error) {
+	performedWork := false
+	defer func() {
+		if invocationErr != nil && performedWork {
+			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
+		}
+	}()
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
 	for _, field := range []string{fieldMediaURL, fieldLanguage, fieldTranscriber} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)}
 		}
 	}
 	if raw, exists := nativeFields[fieldSourceConfig]; exists {
 		var sourceFields map[string]json.RawMessage
 		if decodeErr := jsonv2.Unmarshal(raw, &sourceFields); decodeErr != nil {
-			return nil, fmt.Errorf("revai: source_config: %w", decodeErr)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: source_config: %w", decodeErr)}
 		}
 		for field := range sourceFields {
 			if field != fieldAuthHeaders {
-				return nil, fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)
+				return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)}
 			}
 		}
 	}
@@ -112,12 +119,12 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	jobOptsValue, _, err := effectiveOptions.Extensions.Decode[jobOptions](RequestExtensionKey)
 	jobOpts := &jobOptsValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	jobOpts.Language = effectiveOptions.Language
 	jobOpts.Transcriber = effectiveOptions.Model
 	if jobOpts.Transcriber != ModelMachine && jobOpts.Transcriber != ModelHuman {
-		return nil, fmt.Errorf("revai: transcription model must be %q or %q, got %q", ModelMachine, ModelHuman, jobOpts.Transcriber)
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: transcription model must be %q or %q, got %q", ModelMachine, ModelHuman, jobOpts.Transcriber)}
 	}
 
 	var job *job
@@ -129,11 +136,11 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		job, err = t.api.submitURL(ctx, *jobOpts)
 	} else {
 		if jobOpts.SourceConfig != nil {
-			return nil, errors.New("revai: source_config requires URI audio")
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("revai: source_config requires URI audio")}
 		}
 		audio, audioErr := req.Audio.Bytes()
 		if audioErr != nil {
-			return nil, audioErr
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: audioErr}
 		}
 		job, err = t.api.upload(ctx, audio, req.Audio.MIME, *jobOpts)
 	}
@@ -141,6 +148,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, err
 	}
 
+	performedWork = true
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
 		return nil, err

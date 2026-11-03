@@ -2,7 +2,6 @@ package inmemory
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"sync"
 
@@ -15,39 +14,52 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
-// Store is a concurrency-safe in-process history store with a usable zero value.
-// Writes snapshot inputs; reads return independently owned values. Missing
-// conversations are empty, and all history is lost when the process exits.
+// Store holds messages, append receipts, and closed identities under one lock.
+// Its zero value is usable. All records are lost when the process exits.
 type Store struct {
-	mu       sync.RWMutex
-	messages map[history.ConversationID][]chat.Message
+	mu            sync.RWMutex
+	conversations map[history.ConversationID]*conversation
 }
 
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
-	if err := ctx.Err(); err != nil {
-		return history.WriteOutcome{}, err
-	}
-	if err := conversationID.Validate(); err != nil {
-		return history.WriteOutcome{}, err
-	}
-	if len(messages) == 0 {
-		return history.WriteOutcome{}, nil
-	}
-	messageSnapshot, err := snapshotMessages(messages)
-	if err != nil {
-		return history.WriteOutcome{}, err
-	}
+type conversation struct {
+	messages []chat.Message
+	appends  map[history.AppendID]string
+	closed   bool
+}
 
+func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return history.Receipt{}, err
+	}
+	if err := batch.Validate(); err != nil {
+		return history.Receipt{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
-		return history.WriteOutcome{}, err
+		return history.Receipt{}, err
 	}
-	if s.messages == nil {
-		s.messages = make(map[history.ConversationID][]chat.Message)
+	if s.conversations == nil {
+		s.conversations = make(map[history.ConversationID]*conversation)
 	}
-	s.messages[conversationID] = append(s.messages[conversationID], messageSnapshot...)
-	return history.WriteOutcome{Accepted: len(messages)}, nil
+	id := batch.ConversationID()
+	stored := s.conversations[id]
+	if stored == nil {
+		stored = &conversation{appends: make(map[history.AppendID]string)}
+		s.conversations[id] = stored
+	}
+	if stored.closed {
+		return history.Receipt{}, history.ErrConversationClosed
+	}
+	digest, found := stored.appends[batch.ID()]
+	if found && digest != batch.Digest() {
+		return history.Receipt{}, history.ErrAppendConflict
+	}
+	if !found {
+		stored.messages = append(stored.messages, batch.Messages()...)
+		stored.appends[batch.ID()] = batch.Digest()
+	}
+	return history.Receipt{ConversationID: id, ID: batch.ID(), Digest: batch.Digest()}, nil
 }
 
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {
@@ -57,18 +69,20 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	if err := conversationID.Validate(); err != nil {
 		return nil, err
 	}
-
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if err := ctx.Err(); err != nil {
-		s.mu.RUnlock()
 		return nil, err
 	}
-	stored := slices.Clone(s.messages[conversationID])
-	s.mu.RUnlock()
-	if len(stored) == 0 {
+	stored := s.conversations[conversationID]
+	if stored == nil || stored.closed {
 		return []chat.Message{}, nil
 	}
-	return snapshotMessages(stored)
+	messages := make([]chat.Message, len(stored.messages))
+	for index := range stored.messages {
+		messages[index] = stored.messages[index].Clone()
+	}
+	return messages, nil
 }
 
 func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) error {
@@ -83,7 +97,17 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	delete(s.messages, conversationID)
+	if s.conversations == nil {
+		s.conversations = make(map[history.ConversationID]*conversation)
+	}
+	stored := s.conversations[conversationID]
+	if stored == nil {
+		stored = &conversation{}
+		s.conversations[conversationID] = stored
+	}
+	stored.messages = nil
+	stored.appends = nil
+	stored.closed = true
 	return nil
 }
 
@@ -92,26 +116,16 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 		return nil, err
 	}
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if err := ctx.Err(); err != nil {
-		s.mu.RUnlock()
 		return nil, err
 	}
-	ids := make([]history.ConversationID, 0, len(s.messages))
-	for conversationID := range s.messages {
-		ids = append(ids, conversationID)
+	ids := make([]history.ConversationID, 0, len(s.conversations))
+	for id, stored := range s.conversations {
+		if !stored.closed {
+			ids = append(ids, id)
+		}
 	}
-	s.mu.RUnlock()
 	slices.Sort(ids)
 	return ids, nil
-}
-
-func snapshotMessages(messages []chat.Message) ([]chat.Message, error) {
-	cloned := make([]chat.Message, len(messages))
-	for index := range messages {
-		if err := messages[index].Validate(); err != nil {
-			return nil, fmt.Errorf("history/inmemory: messages[%d]: %w", index, err)
-		}
-		cloned[index] = messages[index].Clone()
-	}
-	return cloned, nil
 }

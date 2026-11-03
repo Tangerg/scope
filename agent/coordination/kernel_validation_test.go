@@ -3,7 +3,6 @@ package coordination
 import (
 	"bytes"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -134,8 +133,6 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 		nil, {external}, {run.Completion{Effect: turn(1).EffectID(1), Outcome: settled(timerReached{})}},
 		{run.Completion{Effect: turn(1).EffectID(0)}},
 		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))}},
-		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusFailed, []byte(`42`)))}},
-		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusFailed, []byte(`""`)))}},
 		{run.Completion{Effect: turn(1).EffectID(0), Outcome: settled("not a reached receipt")}},
 	} {
 		restored := require(definition.Restore(t.Context(), waiting))
@@ -144,7 +141,7 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 		}
 	}
 	failed := require(definition.Restore(t.Context(), waiting))
-	failure := require(failed.Step(t.Context(), turn(2, run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusFailed, []byte(`"timer interrupted"`)))})))
+	failure := require(failed.Step(t.Context(), turn(2, run.Completion{Effect: turn(1).EffectID(0), Outcome: require(timerFailureSettlement(errors.New("timer interrupted")))})))
 	diagnostic, failedStep := failure.Failure()
 	if !failedStep || diagnostic.Code() != failureCodeDeadlineInterrupted {
 		t.Fatal("timer failure lost its classified cause")
@@ -285,7 +282,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 	execution := require(program.Definition().Start(input))
 	require(execution.Step(t.Context(), turn(1)))
 	failure := require(run.NewFailure(run.FailureKindContract, "test.rejected", "spawn rejected"))
-	outcome := require(run.NewSettlement(run.SettlementStatusFailed, require(jsonv2.Marshal(failure))))
+	outcome := require(run.NewFailedSettlement(failure, run.Payload{}))
 	transition := require(execution.Step(t.Context(), turn(2, run.Completion{Effect: turn(1).EffectID(0), Outcome: outcome})))
 	output, ok := transition.Output()
 	result := require(output.Decode[FirstSuccessResult]())

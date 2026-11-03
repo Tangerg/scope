@@ -42,6 +42,7 @@ func TestPollReportsAnUnrecognizedState(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: options,
 		BaseURL:        server.URL,
+		OutputOrigins:  []string{server.URL},
 		PollInterval:   10 * time.Millisecond,
 		// Short enough that a regression to "keep waiting" fails as a timeout
 		// instead of hanging the suite.

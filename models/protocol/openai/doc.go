@@ -75,9 +75,13 @@
 // commentary and final answers retain their original boundaries during replay.
 //
 // Provider packages with an OpenAI-compatible endpoint reuse the protocol
-// through [NewChatCompletions] and select one typed [Dialect]. This
+// through [NewChatCompletions] and select one typed [DialectConfig]. This
 // keeps provider-only fields such as reasoning_content out of OpenAI's native
-// behavior while sharing the standard wire mapping.
+// behavior while sharing the standard wire mapping. Construction freezes that
+// configuration; its provider namespace supplies both extension keys and the
+// reasoning codec's replay issuer. Later configuration edits cannot relabel
+// previously constructed adapters. APIKey alone supplies credentials; Headers
+// cannot replace or add a second authentication source.
 // Moderation reads the native category flags and scores before the SDK's scalar
 // fields can erase absence. Each reported category needs both a flag and score;
 // future category names are retained. Slash and hyphen normalization must not

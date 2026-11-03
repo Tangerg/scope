@@ -1,10 +1,9 @@
 package postgres
 
 import (
-	"fmt"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"regexp"
-
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -18,20 +17,13 @@ func validIdentifier(value string) bool {
 	return len(value) <= maxIdentifierBytes && identifierPattern.MatchString(value)
 }
 
-func encodeMessages(messages []chat.Message) ([][]byte, error) {
-	return lo.MapErr(messages, func(message chat.Message, index int) ([]byte, error) {
-		raw, err := message.MarshalJSON()
-		if err != nil {
-			return nil, fmt.Errorf("message %d: %w", index, err)
-		}
-		return raw, nil
-	})
-}
-
-func decodeMessage(raw []byte) (chat.Message, error) {
-	var message chat.Message
-	if err := message.UnmarshalJSON(raw); err != nil {
-		return chat.Message{}, err
+func decodeMessages(raw []byte) ([]chat.Message, error) {
+	var messages []chat.Message
+	if err := jsonv2.Unmarshal(raw, &messages); err != nil {
+		return nil, err
 	}
-	return message, nil
+	if len(messages) == 0 {
+		return nil, errors.New("stored append has no messages")
+	}
+	return messages, nil
 }

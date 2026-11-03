@@ -103,7 +103,7 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	var children []run.Program[run.Payload, run.Payload]
 	for _, stage := range d.stages {
 		for _, binding := range stage.childBindings() {
-			children = append(children, binding.program)
+			children = append(children, binding.Program)
 		}
 	}
 	return children

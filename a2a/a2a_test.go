@@ -165,6 +165,7 @@ func TestRoundTrip(t *testing.T) {
 
 	toolSet, err := a2a.OpenToolSet(ctx, a2a.Endpoint{
 		CardURL: ts.URL,
+		Effect:  toolcontract.EffectSafe,
 		ConcurrencyPolicy: func(invocation toolcontract.Invocation) (string, bool) {
 			return string(invocation.Arguments()), true
 		},
@@ -183,6 +184,9 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("ToolSet contains %d tools, want 1", len(tools))
 	}
 	tool := tools[0]
+	if tool.Definition().Effect != toolcontract.EffectSafe {
+		t.Fatal("host replay guarantee was lost during discovery")
+	}
 	tools[0] = nil
 	if got := toolSet.Tools(); len(got) != 1 || got[0] == nil {
 		t.Fatal("mutating a ToolSet snapshot changed the owned tool view")

@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	sdkmcp "github.com/Tangerg/go-sdk/mcp"
+
 	"github.com/Tangerg/go-sdk/jsonrpc"
 	"github.com/stretchr/testify/require"
 
@@ -36,12 +38,16 @@ func TestAuthorizationOutcomeSurvivesMCPBoundary(t *testing.T) {
 			})
 			require.NoError(t, err)
 			guard, err := tool.NewGuard(tool.GuardConfig{
-				Tool: executable, Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+				Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 					return false, test.cause
 				}),
 			})
 			require.NoError(t, err)
-			session, cleanup := connectPair(t, t.Context(), guard)
+			binding, err := tool.Bind(executable, guard.Call)
+			require.NoError(t, err)
+			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "authorization"}, nil)
+			require.NoError(t, scopemcp.Register(server, binding))
+			session, cleanup := connectServer(t, t.Context(), server)
 			defer cleanup()
 			remote, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
 			require.NoError(t, err)

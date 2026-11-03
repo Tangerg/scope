@@ -19,7 +19,7 @@ func TestTreeUsageIncludesReapedChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call, err := workflow.Call(workflow.CallConfig{ID: "child", Program: child.Erase()})
+	call, err := workflow.Call(workflow.CallConfig{ID: "child", Child: run.ChildBinding{Program: child.Erase()}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 )
 
@@ -66,7 +67,7 @@ func TestResponsesStreamCompletionWaitsForNativeBody(t *testing.T) {
 				if text := accumulator.Text(); text != "answer" {
 					t.Fatalf("Stream text = %q, want partial answer", text)
 				}
-				if corechat.ClassifyFailure(streamErr) != corechat.CallFailureUnknown {
+				if invocation.ClassifyFailure(streamErr) != invocation.FailureUnknown {
 					t.Fatalf("contradictory or interrupted completion claimed definite failure: %v", streamErr)
 				}
 				return

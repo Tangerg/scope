@@ -15,7 +15,7 @@ import (
 
 // ToolConcurrencyPolicy supplies a Host classifier for calls from one model
 // response. Its result follows the scheduling contract of
-// [github.com/Tangerg/scope/agent.ConcurrentTool].
+// [github.com/Tangerg/scope/agent/interaction.ConcurrentTool].
 // The adapter does not serialize direct Tool.Call invocations.
 // The invocation has passed schema validation. The callback must be
 // deterministic, side-effect-free, and safe for concurrent use and replay.
@@ -55,6 +55,10 @@ type Endpoint struct {
 	// ConcurrencyPolicy belongs to the host because distinct remote task IDs do
 	// not establish resource independence. Nil supplies no overlap declaration.
 	ConcurrencyPolicy ToolConcurrencyPolicy
+
+	// Effect is the host's replay guarantee for this endpoint. A message ID or
+	// task ID alone does not prove durable deduplication; the default is unsafe.
+	Effect toolcontract.Effect
 }
 
 const (

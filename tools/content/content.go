@@ -24,6 +24,10 @@ func New(data []byte) Content { return Content{data: bytes.Clone(data)} }
 
 func (c Content) Bytes() []byte { return bytes.Clone(c.data) }
 
+func (Content) JSONSchemaModel() any {
+	return contentWire[string]{}
+}
+
 // Text reports whether the entire content is valid UTF-8. It never guesses an
 // encoding or repairs a truncated sequence.
 func (c Content) Text() (string, bool) {
@@ -40,14 +44,14 @@ func (c Content) MarshalJSON() ([]byte, error) {
 		format = encodingBase64
 		data = base64.StdEncoding.EncodeToString(c.data)
 	}
-	return jsonv2.Marshal(contentWire{Encoding: format, Data: &data})
+	return jsonv2.Marshal(contentWire[string]{Encoding: format, Data: data})
 }
 
 func (c *Content) UnmarshalJSON(data []byte) error {
 	if c == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidContent)
 	}
-	var wire contentWire
+	var wire contentWire[*string]
 	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidContent, err)
 	}
@@ -84,7 +88,11 @@ const (
 	encodingBase64 encoding = "base64"
 )
 
-type contentWire struct {
+func (encoding) JSONSchemaEnum() []string {
+	return []string{string(encodingUTF8), string(encodingBase64)}
+}
+
+type contentWire[Data any] struct {
 	Encoding encoding `json:"encoding"`
-	Data     *string  `json:"data"`
+	Data     Data     `json:"data"`
 }

@@ -42,15 +42,11 @@ const (
 // Fields names the provider's documented alternatives. Field identity survives
 // accumulation so historical reasoning is replayed under the key that issued it.
 type TextReasoningConfig struct {
-	Provider string
-	Fields   []TextReasoningField
-	Replay   TextReasoningReplay
+	Fields []TextReasoningField
+	Replay TextReasoningReplay
 }
 
 func (t TextReasoningConfig) Validate() error {
-	if err := validateProvider(t.Provider); err != nil {
-		return fmt.Errorf("openai: text reasoning provider: %w", err)
-	}
 	if len(t.Fields) == 0 {
 		return errors.New("openai: text reasoning fields are required")
 	}
@@ -65,21 +61,9 @@ func (t TextReasoningConfig) Validate() error {
 	return nil
 }
 
-func TextReasoningDialect(config TextReasoningConfig) (Dialect, error) {
-	if err := config.Validate(); err != nil {
-		return Dialect{}, err
-	}
-	config.Fields = slices.Clone(config.Fields)
-	codec := textReasoningCodec{config: config}
-	return Dialect{
-		Provider: config.Provider, TokenLimitField: TokenLimitMaxTokens,
-		request:  codec,
-		response: func() responseDialect { return &textReasoningStream{config: config} },
-	}, nil
-}
-
 type textReasoningCodec struct {
-	config TextReasoningConfig
+	provider string
+	config   TextReasoningConfig
 }
 
 func (t textReasoningCodec) PrepareRequest(source *corechat.Request, target *openaisdk.ChatCompletionNewParams) error {
@@ -116,7 +100,7 @@ func (t textReasoningCodec) prepareMessage(message corechat.Message, wireIndex i
 		if err != nil {
 			return fmt.Errorf("parts[%d].metadata[%q]: %w", index, textReasoningProviderKey, err)
 		}
-		if issuer != t.config.Provider {
+		if issuer != t.provider {
 			continue
 		}
 		partField, found, err := part.Metadata.Decode[TextReasoningField](textReasoningFieldKey)
@@ -143,8 +127,9 @@ func (t textReasoningCodec) prepareMessage(message corechat.Message, wireIndex i
 // Each stream owns its selected wire field; a shared model must not carry one
 // request's model-specific reasoning shape into a concurrent request.
 type textReasoningStream struct {
-	config TextReasoningConfig
-	field  TextReasoningField
+	provider string
+	config   TextReasoningConfig
+	field    TextReasoningField
 }
 
 func (t *textReasoningStream) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, _ uint64) error {
@@ -160,7 +145,7 @@ func (t *textReasoningStream) FinalizeDelta(source openaisdk.ChatCompletionChunk
 			return fmt.Errorf("%w: reasoning field changed from %q to %q", corechat.ErrInvalidResponse, t.field, field)
 		}
 		t.field = field
-		part, err := NewTextReasoningPart(t.config.Provider, field, text)
+		part, err := NewTextReasoningPart(t.provider, field, text)
 		if err != nil {
 			return err
 		}

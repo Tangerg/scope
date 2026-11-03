@@ -34,6 +34,7 @@ var (
 
 type Store struct {
 	client         RedisClient
+	scanNodes      func(context.Context, func(context.Context, *goredis.Client) error) error
 	indexName      string
 	schema         nativeSchema
 	space          vectorstore.SpaceID
@@ -44,7 +45,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	s := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), space: config.Space, writeBatchSize: cmp.Or(config.WriteBatchSize, DefaultWriteBatchSize)}
+	s := &Store{client: config.Client, scanNodes: config.ScanNodes, indexName: cmp.Or(config.IndexName, DefaultIndexName), space: config.Space, writeBatchSize: cmp.Or(config.WriteBatchSize, DefaultWriteBatchSize)}
 	var err error
 	s.schema, err = s.readSchema(ctx)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -54,14 +55,14 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	modelName, contents, config, err := s.binding.buildAPITTSRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	if modelErr := validateUnarySpeechModel(modelName); modelErr != nil {
-		return nil, modelErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: modelErr}
 	}
 
 	apiResp, err := s.binding.api.chatCompletion(ctx, modelName, contents, config)

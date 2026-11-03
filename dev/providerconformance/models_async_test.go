@@ -68,7 +68,7 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 			}).Validate()
 		},
 		"luma": func(interval, timeout time.Duration) error {
-			return (luma.ImageModelConfig{
+			return (luma.ImageModelConfig{OutputOrigins: []string{"https://assets.example"},
 				APIKey: "key", DefaultOptions: imageOptions["luma"],
 				PollInterval: interval, PollTimeout: timeout,
 			}).Validate()

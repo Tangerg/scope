@@ -45,7 +45,11 @@ func Example() {
 	if err != nil {
 		panic(err)
 	}
-	registry, err := tool.NewRegistry(add)
+	bound, err := tool.Bind(add)
+	if err != nil {
+		panic(err)
+	}
+	registry, err := tool.NewRegistry(bound)
 	if err != nil {
 		panic(err)
 	}
@@ -99,7 +103,6 @@ func ExampleNewGuard() {
 		panic(err)
 	}
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			return false, nil
 		}),
@@ -107,7 +110,7 @@ func ExampleNewGuard() {
 	if err != nil {
 		panic(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		panic(err)
 	}

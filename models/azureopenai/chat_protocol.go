@@ -11,8 +11,8 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
-	OpenAIRequestExtensionKey     = "azureopenai/openai_request"
-	OpenAIStreamChunkExtensionKey = "azureopenai/openai_stream_chunk"
+	OpenAIRequestExtensionKey     = providerID + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -34,8 +34,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.Dialect{
-		Provider: protocolProvider,
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.DialectConfig{
+		Provider: providerID,
 		// Azure documents that reasoning models "will only work with the
 		// max_completion_tokens parameter when using the Chat Completions
 		// API", and lists max_tokens among the parameters those models do

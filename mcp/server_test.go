@@ -68,7 +68,7 @@ func (t testTool) Call(ctx context.Context, invocation tool.Invocation) (tool.Re
 func connectPair(t *testing.T, ctx context.Context, registered ...tool.Tool) (*sdkmcp.ClientSession, func()) {
 	t.Helper()
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "scope-srv"}, nil)
-	require.NoError(t, scopemcp.Register(srv, registered...))
+	require.NoError(t, registerTestTools(srv, registered...))
 	return connectServer(t, ctx, srv)
 }
 
@@ -224,7 +224,7 @@ func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
 
 func TestRegister_RejectsNilArgs(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
-	require.ErrorIs(t, scopemcp.Register(nil, newEchoTool()), scopemcp.ErrNilServer)
+	require.ErrorIs(t, registerTestTools(nil, newEchoTool()), scopemcp.ErrNilServer)
 
 	for _, test := range []struct {
 		name string
@@ -234,7 +234,7 @@ func TestRegister_RejectsNilArgs(t *testing.T) {
 		{name: "typed nil", tool: (*badSchemaTool)(nil)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := scopemcp.Register(srv, test.tool)
+			err := registerTestTools(srv, test.tool)
 			require.ErrorIs(t, err, tool.ErrInvalidTool)
 		})
 	}
@@ -243,9 +243,9 @@ func TestRegister_RejectsNilArgs(t *testing.T) {
 func TestRegister_RejectsInvalidSchema(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
 
-	require.Error(t, scopemcp.Register(srv, badSchemaTool{}))
+	require.Error(t, registerTestTools(srv, badSchemaTool{}))
 
-	err := scopemcp.Register(srv, missingSchemaTypeTool{})
+	err := registerTestTools(srv, missingSchemaTypeTool{})
 	require.ErrorContains(t, err, `input schema type must be "object"`)
 }
 
@@ -265,7 +265,7 @@ func TestRegister_RefusesEverySchemaShapeTheServerCannotHold(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
-			err := scopemcp.Register(srv, testTool{definition: tool.Definition{
+			err := registerTestTools(srv, testTool{definition: tool.Definition{
 				Name:        "shape",
 				InputSchema: json.RawMessage(test.schema),
 			}})
@@ -277,10 +277,10 @@ func TestRegister_RefusesEverySchemaShapeTheServerCannotHold(t *testing.T) {
 
 func TestRegister_RejectsDuplicateBatchAtomically(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
-	err := scopemcp.Register(srv, newConstantTool("duplicate"), newConstantTool("duplicate"))
+	err := registerTestTools(srv, newConstantTool("duplicate"), newConstantTool("duplicate"))
 	require.ErrorIs(t, err, tool.ErrDuplicateTool)
 
-	require.NoError(t, scopemcp.Register(srv, newConstantTool("after")))
+	require.NoError(t, registerTestTools(srv, newConstantTool("after")))
 	client, cleanup := connectServer(t, t.Context(), srv)
 	defer cleanup()
 	listed, err := client.ListTools(t.Context(), nil)
@@ -292,7 +292,7 @@ func TestRegister_RejectsDuplicateBatchAtomically(t *testing.T) {
 func TestRegister_SnapshotsDefinitionOnce(t *testing.T) {
 	srv := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "x"}, nil)
 	tool := &definitionOnceTool{}
-	require.NoError(t, scopemcp.Register(srv, tool))
+	require.NoError(t, registerTestTools(srv, tool))
 
 	client, cleanup := connectServer(t, t.Context(), srv)
 	defer cleanup()
@@ -363,4 +363,19 @@ func TestDirectRegistrationCannotReplayAContinuationAsANewWrite(t *testing.T) {
 	if err == nil || out != nil || calls.Load() != 0 {
 		t.Fatalf("unexpected fresh write: %v %v calls=%d", out, err, calls.Load())
 	}
+}
+
+func registerTestTools(server *sdkmcp.Server, executables ...tool.Tool) error {
+	if server == nil {
+		return scopemcp.ErrNilServer
+	}
+	bindings := make([]tool.Binding, 0, len(executables))
+	for _, executable := range executables {
+		binding, err := tool.Bind(executable)
+		if err != nil {
+			return err
+		}
+		bindings = append(bindings, binding)
+	}
+	return scopemcp.Register(server, bindings...)
 }

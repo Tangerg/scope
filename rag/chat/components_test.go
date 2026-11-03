@@ -518,7 +518,7 @@ func TestCompressionTransformer_UsesHistory(t *testing.T) {
 	}
 
 	q, _ := rag.NewQuery("follow-up")
-	q, err = q.WithValue(ragchat.HistoryValueKey(), []chat.Message{
+	input, err := ragchat.NewConversationQuery(q, []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("first turn")),
 		chat.NewAssistantMessage(chat.NewTextPart("first reply")),
 	})
@@ -526,7 +526,7 @@ func TestCompressionTransformer_UsesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := tr.Transform(t.Context(), q)
+	out, err := tr.Transform(t.Context(), input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +556,7 @@ func TestCompressionTransformerRejectsEmptyModelOutput(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := transformer.Transform(t.Context(), query)
+			result, err := transformer.Transform(t.Context(), mustConversationQuery(t, query, nil))
 			if !errors.Is(err, test.wantErr) || result.Text() != "" {
 				t.Fatalf("Transform = %q, %v; want no query and %v", result.Text(), err, test.wantErr)
 			}
@@ -582,7 +582,7 @@ func TestCompressionTransformerPreservesUnsuccessfulCompletion(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			result, err := transformer.Transform(t.Context(), query)
+			result, err := transformer.Transform(t.Context(), mustConversationQuery(t, query, nil))
 			if !errors.Is(err, chatclient.ErrInvalidOutput) || result.Text() != "" {
 				t.Fatalf("Transform = %q, %v; want identifiable %s completion", result.Text(), err, reason)
 			}

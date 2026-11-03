@@ -13,8 +13,10 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
+const providerID = "deepseek"
+
 const (
-	OpenAIStreamChunkExtensionKey = "deepseek/openai_stream_chunk"
+	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -45,10 +47,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "deepseek", Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways})
-	if err != nil {
-		return nil, fmt.Errorf("deepseek: configure reasoning dialect: %w", err)
-	}
+	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways}}
 	dialect.NativeOutputFormat = func(formatType corechat.OutputFormatType) bool {
 		return formatType == corechat.OutputFormatText || formatType == corechat.OutputFormatJSON
 	}

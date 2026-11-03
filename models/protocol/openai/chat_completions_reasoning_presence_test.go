@@ -55,12 +55,9 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 			config := openai.ChatCompletionsConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 			}
-			dialect, err := openai.ReasoningDetailsDialect(openai.ReasoningDetailsConfig{
-				Provider: "provider", TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
+				TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,
+			}}
 			model, err := openai.NewChatCompletions(t.Context(), config, dialect)
 			if err != nil {
 				t.Fatal(err)
@@ -83,12 +80,9 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 				t.Fatal(decodeErr)
 			}
 			if test.replayProvider != "" {
-				dialect, err = openai.ReasoningDetailsDialect(openai.ReasoningDetailsConfig{
-					Provider: test.replayProvider, TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,
-				})
-				if err != nil {
-					t.Fatal(err)
-				}
+				dialect = openai.DialectConfig{Provider: test.replayProvider, TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
+					TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,
+				}}
 				model, err = openai.NewChatCompletions(t.Context(), config, dialect)
 				if err != nil {
 					t.Fatal(err)

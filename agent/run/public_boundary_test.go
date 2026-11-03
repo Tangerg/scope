@@ -124,7 +124,13 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 	for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusFailed, SettlementStatusUnknown} {
 		t.Run(status.String(), func(t *testing.T) {
 			raw := json.RawMessage(` {"value": 1} `)
-			settlement := controlValue(NewSettlement(status, raw))
+			var settlement Settlement
+			if status == SettlementStatusFailed {
+				failure := controlValue(NewFailure(FailureKindExternal, "test.operation.failed", "operation failed"))
+				settlement = controlValue(NewFailedSettlement(failure, controlValue(ParsePayload(raw))))
+			} else {
+				settlement = controlValue(NewSettlement(status, raw))
+			}
 			raw[0] = '['
 			returned := settlement.Payload().JSON()
 			returned[0] = '['
@@ -147,14 +153,21 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 	if settlement, err := NewSettlement(SettlementStatusInvalid, json.RawMessage(`null`)); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
 		t.Fatalf("missing status accepted: %v", err)
 	}
+	if _, err := NewSettlement(SettlementStatusFailed, json.RawMessage(`null`)); !errors.Is(err, ErrInvalidSettlement) {
+		t.Fatalf("untyped failure constructor accepted: %v", err)
+	}
 	for _, raw := range []json.RawMessage{nil, json.RawMessage(`{`), json.RawMessage(`null null`), json.RawMessage(`{"value":1,"value":2}`)} {
 		if settlement, err := NewSettlement(SettlementStatusSucceeded, raw); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
 			t.Fatalf("malformed settlement payload admitted: %s, %v", raw, err)
 		}
 	}
-	accepted := controlValue(NewSettlement(SettlementStatusFailed, json.RawMessage(`null`)))
+	diagnostic := controlValue(NewFailure(FailureKindExternal, "test.operation.failed", "operation failed"))
+	accepted := controlValue(NewFailedSettlement(diagnostic, Payload{}))
 	for _, raw := range []string{
 		`{"status":"invalid","payload":null}`,
+		`{"status":"failed","payload":null}`,
+		`{"status":"failed","failure":{"kind":"external","code":"test.operation.failed","message":""}}`,
+		`{"status":"succeeded","payload":null,"failure":{"kind":"external","code":"test.operation.failed","message":"failed"}}`,
 		`{"status":"succeeded"}`,
 		`{"payload":null}`,
 		`{"status":"succeeded","payload":null,"success":true}`,
@@ -780,5 +793,17 @@ func TestCanceledHandleCommandsCannotPublishAdmission(t *testing.T) {
 	result := controlValue(active.Await(ctx))
 	if output, err := result.Output(); err != nil || output != 42 {
 		t.Fatalf("rejected commands consumed the real answer: %d, %v", output, err)
+	}
+}
+
+func TestFailedSettlementRequiresDiagnosticAndKeepsDomainEvidenceSeparate(t *testing.T) {
+	if _, err := NewFailedSettlement(Failure{}, Payload{}); !errors.Is(err, ErrInvalidFailure) {
+		t.Fatal(err)
+	}
+	for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusUnknown} {
+		settlement := controlValue(NewSettlement(status, []byte(`{"failure":"domain data"}`)))
+		if failure, present := settlement.Failure(); present || failure.Valid() {
+			t.Fatal("domain payload was mistaken for a definite-failure diagnostic")
+		}
 	}
 }

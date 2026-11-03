@@ -10,33 +10,9 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-const stateKind = "collaboration"
+const stateKind = "team"
 
-// WorkerConfig freezes a child binding and its permanently allocated grants.
-// Workers are selected by Program.Descriptor().Name(), never by routing or
-// a model-supplied ProgramRef, budget, or capability grant.
-// The definition owns the bound Programs as its ChildPrograms.
-type WorkerConfig struct {
-	Program      agentrun.Program[agentrun.Payload, agentrun.Payload]
-	Budget       agentrun.Budget
-	Capabilities agentrun.CapabilitySet
-}
-
-func (w WorkerConfig) valid() bool {
-	return w.Program.Valid()
-}
-
-func (w WorkerConfig) binding() childBinding {
-	return childBinding{program: w.Program, budget: w.Budget, capabilities: w.Capabilities}
-}
-
-type childBinding struct {
-	program      agentrun.Program[agentrun.Payload, agentrun.Payload]
-	budget       agentrun.Budget
-	capabilities agentrun.CapabilitySet
-}
-
-func (c childBinding) validateCoordinatorContract() error {
+func validateCoordinatorContract(binding agentrun.ChildBinding) error {
 	inputSchema, err := jsonschema.For[Turn]()
 	if err != nil {
 		return err
@@ -45,16 +21,11 @@ func (c childBinding) validateCoordinatorContract() error {
 	if err != nil {
 		return err
 	}
-	if !inputSchema.Equal(c.program.Descriptor().InputSchema()) ||
-		!outputSchema.Equal(c.program.Descriptor().OutputSchema()) {
+	if !inputSchema.Equal(binding.Program.Descriptor().InputSchema()) ||
+		!outputSchema.Equal(binding.Program.Descriptor().OutputSchema()) {
 		return fmt.Errorf("%w: coordinator must accept Turn and return Decision", ErrInvalidConfig)
 	}
 	return nil
-}
-
-func (c childBinding) spec(key agentrun.ChildKey, input agentrun.Payload) agentrun.ChildSpec {
-	return agentrun.ChildSpec{Key: key, Input: input, ProgramRef: c.program.ProgramRef(),
-		Budget: c.budget, Capabilities: c.capabilities}
 }
 
 // definitionConfig binds the coordinator, permitted workers, schemas, and
@@ -67,8 +38,8 @@ func (c childBinding) spec(key agentrun.ChildKey, input agentrun.Payload) agentr
 type definitionConfig struct {
 	Name         string
 	Description  string
-	Coordinator  WorkerConfig
-	Workers      []WorkerConfig
+	Coordinator  agentrun.ChildBinding
+	Workers      []agentrun.ChildBinding
 	StateSchema  jsonschema.Schema
 	OutputSchema jsonschema.Schema
 	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
@@ -85,8 +56,8 @@ type definitionConfig struct {
 // It owns decision policy, not a scheduler, mailbox, model client, or session.
 type definition struct {
 	descriptor         agentrun.Descriptor
-	coordinator        childBinding
-	workers            []childBinding
+	coordinator        agentrun.ChildBinding
+	workers            []agentrun.ChildBinding
 	maxTurns           agentrun.Quota
 	maxTasks           agentrun.Quota
 	maxConcurrentTasks uint32
@@ -97,13 +68,13 @@ func newDefinition(config definitionConfig) (*definition, error) {
 	if !config.MaxTurns.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxTurns must admit one coordinator turn", ErrInvalidConfig)
 	}
-	if !config.Coordinator.valid() || len(config.Workers) == 0 || !config.StateSchema.Valid() ||
+	if !config.Coordinator.Valid() || len(config.Workers) == 0 || !config.StateSchema.Valid() ||
 		!config.OutputSchema.Valid() ||
 		config.MaxConcurrentTasks == 0 || config.MaxControlsPerTurn == 0 {
 		return nil, ErrInvalidConfig
 	}
-	coordinator := config.Coordinator.binding()
-	if err := coordinator.validateCoordinatorContract(); err != nil {
+	coordinator := config.Coordinator
+	if err := validateCoordinatorContract(coordinator); err != nil {
 		return nil, err
 	}
 	workers, err := newWorkerBindings(config.Workers)
@@ -121,15 +92,15 @@ func newDefinition(config definitionConfig) (*definition, error) {
 		maxConcurrentTasks: config.MaxConcurrentTasks, maxControlsPerTurn: config.MaxControlsPerTurn}, nil
 }
 
-func newWorkerBindings(configs []WorkerConfig) ([]childBinding, error) {
-	workers := make([]childBinding, 0, len(configs))
+func newWorkerBindings(configs []agentrun.ChildBinding) ([]agentrun.ChildBinding, error) {
+	workers := make([]agentrun.ChildBinding, 0, len(configs))
 	for _, worker := range configs {
-		if !worker.valid() {
+		if !worker.Valid() {
 			return nil, ErrInvalidConfig
 		}
-		child := worker.binding()
+		child := worker
 		for _, previous := range workers {
-			if previous.program.Descriptor().Name() == child.program.Descriptor().Name() {
+			if previous.Program.Descriptor().Name() == child.Program.Descriptor().Name() {
 				return nil, fmt.Errorf("%w: duplicate worker name", ErrInvalidConfig)
 			}
 		}
@@ -143,9 +114,9 @@ func (d *definition) ChildPrograms() []agentrun.Program[agentrun.Payload, agentr
 	if d == nil {
 		return nil
 	}
-	children := []agentrun.Program[agentrun.Payload, agentrun.Payload]{d.coordinator.program}
+	children := []agentrun.Program[agentrun.Payload, agentrun.Payload]{d.coordinator.Program}
 	for _, worker := range d.workers {
-		children = append(children, worker.program)
+		children = append(children, worker.Program)
 	}
 	return children
 }
@@ -184,13 +155,13 @@ func (d *definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
-func (d *definition) worker(name string) (childBinding, bool) {
+func (d *definition) worker(name string) (agentrun.ChildBinding, bool) {
 	for _, worker := range d.workers {
-		if worker.program.Descriptor().Name() == name {
+		if worker.Program.Descriptor().Name() == name {
 			return worker, true
 		}
 	}
-	return childBinding{}, false
+	return agentrun.ChildBinding{}, false
 }
 
 func (d *definition) validateRequest(request TaskRequest) error {
@@ -201,7 +172,7 @@ func (d *definition) validateRequest(request TaskRequest) error {
 	if !found {
 		return fmt.Errorf("%w: unknown worker %q", ErrInvalidDecision, request.Worker)
 	}
-	if err := worker.program.Descriptor().ValidateInput(request.Input); err != nil {
+	if err := worker.Program.Descriptor().ValidateInput(request.Input); err != nil {
 		return fmt.Errorf("%w: task input: %w", ErrInvalidDecision, err)
 	}
 	return nil

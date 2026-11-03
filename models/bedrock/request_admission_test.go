@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/bedrock"
 )
@@ -32,7 +32,7 @@ func TestChatRejectsUnknownNativeControlsBeforeIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := model.Call(t.Context(), request)
-			if response != nil || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted || calls.Load() != 0 {
+			if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
 				t.Fatalf("response=%v error=%v provider calls=%d", response, err, calls.Load())
 			}
 		})

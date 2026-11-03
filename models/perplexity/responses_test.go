@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/perplexity"
@@ -104,7 +105,7 @@ func TestAgentResponsesRejectsSonarAndDuplicateOwnersBeforeIO(t *testing.T) {
 				t.Fatal(setErr)
 			}
 			_, err = model.Call(t.Context(), request)
-			if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || calls != 0 {
+			if invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls != 0 {
 				t.Fatalf("error=%v calls=%d", err, calls)
 			}
 		})
@@ -124,7 +125,7 @@ func TestAgentResponsesRequiresCoreModelBeforeIO(t *testing.T) {
 		t.Fatal(setErr)
 	}
 	_, err = model.Call(t.Context(), request)
-	if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || !strings.Contains(err.Error(), "model is required") || calls != 0 {
+	if invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !strings.Contains(err.Error(), "model is required") || calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, calls)
 	}
 }

@@ -350,18 +350,35 @@ func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 // failedSettlement settles a dispatcher Effect as definitely failed with
 // cause as its diagnostic payload.
 func failedSettlement(cause error) (run.Settlement, error) {
-	return (dispatchFailure{Diagnostic: run.NormalizeDiagnostic(cause.Error())}).settlement(run.SettlementStatusFailed)
+	failure, err := run.NewFailure(run.FailureKindContract, failureCodeDispatchRejected, run.NormalizeDiagnostic(cause.Error()))
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	return run.NewFailedSettlement(failure, run.Payload{})
 }
 
 func decodeSettlement(settlement run.Settlement) (resultEnvelope, string, error) {
-	if settlement.Status() != run.SettlementStatusSucceeded {
-		failure, err := jsonwire.Decode[dispatchFailure](settlement.Payload().JSON())
+	if !settlement.Valid() {
+		return resultEnvelope{}, "", ErrInvalidProtocol
+	}
+	if settlement.Status() == run.SettlementStatusFailed {
+		failure, _ := settlement.Failure()
+		if settlement.Payload().Valid() {
+			if _, err := ModelSettlementFromOutcome(settlement); err != nil {
+				return resultEnvelope{}, "", err
+			}
+		}
+		return resultEnvelope{}, failure.Message(), nil
+	}
+	if settlement.Status() == run.SettlementStatusUnknown {
+		evidence, err := jsonwire.Decode[dispatchUncertainty](settlement.Payload().JSON())
 		if err != nil {
 			return resultEnvelope{}, "", err
 		}
-		diagnostic, err := failure.diagnostic(settlement.Status())
+		diagnostic, err := evidence.diagnostic()
 		return resultEnvelope{}, diagnostic, err
 	}
+
 	envelope, err := decodeResult(settlement.Payload().JSON())
 	return envelope, "", err
 }

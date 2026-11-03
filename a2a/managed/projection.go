@@ -30,7 +30,7 @@ func rootProcess(head run.TreeInspection) run.ProcessInspection {
 	return root
 }
 
-func projectTask(k taskKey, head run.TreeInspection) (*sdk.Task, error) {
+func projectTask(k taskKey, head run.TreeInspection, content contentPolicy) (*sdk.Task, error) {
 	root := rootProcess(head)
 	if !root.ID.Valid() {
 		return nil, sdk.ErrInternalError
@@ -43,7 +43,7 @@ func projectTask(k taskKey, head run.TreeInspection) (*sdk.Task, error) {
 		case run.StatusCompleted:
 			task.Status.State = sdk.TaskStateCompleted
 			if payload, ok := root.Termination.Output(); ok {
-				task.Artifacts = []*sdk.Artifact{{ID: resultArtifactID, Parts: []*sdk.Part{jsonPart(payload.JSON())}}}
+				task.Artifacts = []*sdk.Artifact{{ID: resultArtifactID, Parts: []*sdk.Part{content.part(payload.JSON())}}}
 			}
 		case run.StatusCanceled, run.StatusKilled:
 			task.Status.State = sdk.TaskStateCanceled
@@ -69,7 +69,7 @@ func projectTask(k taskKey, head run.TreeInspection) (*sdk.Task, error) {
 		}
 		task.Metadata[PendingKey] = questions
 		task.Status.State = sdk.TaskStateInputRequired
-		task.Status.Message = sdk.NewMessageForTask(sdk.MessageRoleAgent, task, jsonPart(questions[0].Question))
+		task.Status.Message = sdk.NewMessageForTask(sdk.MessageRoleAgent, task, content.part(questions[0].Question))
 		task.Status.Message.Metadata = map[string]any{a2a.WaitMetadataKey: address, a2a.AnswerSchemaMetadataKey: string(questions[0].AnswerSchema)}
 	}
 	return task, nil

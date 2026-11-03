@@ -18,8 +18,10 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/anthropic"
+	"github.com/Tangerg/scope/models/assemblyai"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 	"github.com/Tangerg/scope/models/cohere"
+	"github.com/Tangerg/scope/models/deepgram"
 	"github.com/Tangerg/scope/models/elevenlabs"
 	"github.com/Tangerg/scope/models/gladia"
 	"github.com/Tangerg/scope/models/google"
@@ -28,21 +30,103 @@ import (
 	"github.com/Tangerg/scope/models/jina"
 	"github.com/Tangerg/scope/models/mistral"
 	"github.com/Tangerg/scope/models/nomic"
+	"github.com/Tangerg/scope/models/ollama"
 	"github.com/Tangerg/scope/models/openai"
 	"github.com/Tangerg/scope/models/openrouter"
+	"github.com/Tangerg/scope/models/prodia"
+	"github.com/Tangerg/scope/models/replicate"
+	"github.com/Tangerg/scope/models/revai"
+	"github.com/Tangerg/scope/models/stability"
 	"github.com/Tangerg/scope/models/voyage"
 	"github.com/Tangerg/scope/models/xiaomi"
 )
 
 type modelOriginCall struct {
-	name     string
-	header   string // when fixed by this binding rather than its external SDK
-	noAPIKey bool
-	call     func(context.Context, string, *http.Client) error
+	name          string
+	header        string // when fixed by this binding rather than its external SDK
+	noAPIKey      bool
+	safeHTTPError bool
+	call          func(context.Context, string, *http.Client) error
 }
 
 func modelOriginCalls() []modelOriginCall {
 	return []modelOriginCall{
+		{name: "assemblyai", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := assemblyai.NewTranscriptionModel(ctx, assemblyai.TranscriptionModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: transcription.Options{Model: assemblyai.ModelUniversal2}})
+			if err != nil {
+				return err
+			}
+			audio, err := media.NewBytes("audio/wav", []byte("audio"))
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &transcription.Request{Audio: audio})
+			return err
+		}},
+		{name: "deepgram", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := deepgram.NewTranscriptionModel(ctx, deepgram.TranscriptionModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: transcription.Options{Model: "nova-3"}})
+			if err != nil {
+				return err
+			}
+			audio, err := media.NewBytes("audio/wav", []byte("audio"))
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &transcription.Request{Audio: audio})
+			return err
+		}},
+		{name: "revai", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := revai.NewTranscriptionModel(ctx, revai.TranscriptionModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: transcription.Options{Model: revai.ModelMachine}})
+			if err != nil {
+				return err
+			}
+			audio, err := media.NewBytes("audio/wav", []byte("audio"))
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &transcription.Request{Audio: audio})
+			return err
+		}},
+		{name: "prodia", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := prodia.NewImageModel(ctx, prodia.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: prodia.JobFlux2DevTextToImage}})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
+			return err
+		}},
+		{name: "stability", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := stability.NewImageModel(ctx, stability.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: stability.ModelCore}})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
+			return err
+		}},
+		{name: "replicate", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := replicate.NewImageModel(ctx, replicate.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: replicate.ModelFluxSchnell}, InputSchema: replicate.FluxSchnellImageInputSchema()})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
+			return err
+		}},
+		{name: "ollama chat", noAPIKey: true, call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := ollama.NewChat(ctx, ollama.ChatConfig{BaseURL: endpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "test"}})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("private prompt"))}})
+			return err
+		}},
+		{name: "ollama embedding", noAPIKey: true, call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := ollama.NewEmbeddingModel(ctx, ollama.EmbeddingModelConfig{BaseURL: endpoint, HTTPClient: client, DefaultOptions: embedding.Options{Model: "test"}})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &embedding.Request{Texts: []string{"private document"}})
+			return err
+		}},
 		{name: "openai", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client})
 			if err != nil {
@@ -83,7 +167,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}})
 			return err
 		}},
-		{name: "google interactions", header: "x-goog-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "google interactions", safeHTTPError: true, header: "x-goog-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := google.NewImageModel(ctx, google.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: google.ModelGemini31FlashImage}})
 			if err != nil {
 				return err
@@ -102,7 +186,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
 			return err
 		}},
-		{name: "blackforestlabs", header: "x-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "blackforestlabs", safeHTTPError: true, header: "x-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := blackforestlabs.NewImageModel(ctx, blackforestlabs.ImageModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: image.Options{Model: blackforestlabs.ModelFlux11Pro}})
 			if err != nil {
 				return err
@@ -110,7 +194,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &image.Request{Prompt: "image"})
 			return err
 		}},
-		{name: "elevenlabs", header: "xi-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "elevenlabs", safeHTTPError: true, header: "xi-api-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := elevenlabs.NewSpeechModel(ctx, elevenlabs.SpeechModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: elevenlabs.ModelMultilingualV2, Voice: "voice"}})
 			if err != nil {
 				return err
@@ -118,7 +202,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &speech.Request{Text: "hello"})
 			return err
 		}},
-		{name: "hume", header: "X-Hume-API-Key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "hume", safeHTTPError: true, header: "X-Hume-API-Key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := hume.NewSpeechModel(ctx, hume.SpeechModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: hume.ModelOctave1, Voice: "voice"}})
 			if err != nil {
 				return err
@@ -126,7 +210,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &speech.Request{Text: "hello"})
 			return err
 		}},
-		{name: "gladia", header: "x-gladia-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "gladia", safeHTTPError: true, header: "x-gladia-key", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := gladia.NewTranscriptionModel(ctx, gladia.TranscriptionModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: transcription.Options{Model: gladia.ModelSolaria1}})
 			if err != nil {
 				return err
@@ -138,7 +222,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &transcription.Request{Audio: audio})
 			return err
 		}},
-		{name: "jina", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "jina", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := jina.NewEmbeddingModel(ctx, jina.EmbeddingModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: embedding.Options{Model: "test"}})
 			if err != nil {
 				return err
@@ -146,7 +230,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &embedding.Request{Texts: []string{"hello"}})
 			return err
 		}},
-		{name: "nomic", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "nomic", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := nomic.NewEmbeddingModel(ctx, nomic.EmbeddingModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: embedding.Options{Model: "test"}})
 			if err != nil {
 				return err
@@ -154,7 +238,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &embedding.Request{Texts: []string{"hello"}})
 			return err
 		}},
-		{name: "voyage", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "voyage", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := voyage.NewEmbeddingModel(ctx, voyage.EmbeddingModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: embedding.Options{Model: "test"}})
 			if err != nil {
 				return err
@@ -162,7 +246,7 @@ func modelOriginCalls() []modelOriginCall {
 			_, err = model.Call(ctx, &embedding.Request{Texts: []string{"hello"}})
 			return err
 		}},
-		{name: "mistral", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
+		{name: "mistral", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := mistral.NewChat(ctx, mistral.ChatConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "test"}})
 			if err != nil {
 				return err
@@ -200,7 +284,7 @@ func (m *modelOriginTransport) RoundTrip(request *http.Request) (*http.Response,
 	var auth []originCredential
 	for name, values := range request.Header {
 		for _, v := range values {
-			if v == "sentinel" || v == "Bearer sentinel" {
+			if v == "sentinel" || v == "Bearer sentinel" || v == "Token sentinel" {
 				auth = append(auth, originCredential{name, v})
 			}
 		}

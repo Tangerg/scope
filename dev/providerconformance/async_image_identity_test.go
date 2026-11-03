@@ -30,7 +30,7 @@ func TestAsyncImageBindsPolledIdentityBeforeDownload(t *testing.T) {
 			return fmt.Sprintf(`{"id":%q,"status":"Ready","result":{"sample":%q}}`, id, base+"/output.png")
 		}},
 		{"luma", func(ctx context.Context, base string) (image.Model, error) {
-			return luma.NewImageModel(ctx, luma.ImageModelConfig{APIKey: "test", BaseURL: base, DefaultOptions: image.Options{Model: luma.ModelUni1}})
+			return luma.NewImageModel(ctx, luma.ImageModelConfig{APIKey: "test", BaseURL: base, OutputOrigins: []string{base}, DefaultOptions: image.Options{Model: luma.ModelUni1}})
 		}, func(id, _ string) string {
 			return fmt.Sprintf(`{"id":%q,"state":"queued"}`, id)
 		}, func(id, base string) string {

@@ -1,27 +1,34 @@
 package cosmosdb
 
 import (
-	"fmt"
+	jsonv2 "encoding/json/v2"
+	"errors"
 
-	"github.com/samber/lo"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/chat"
 )
 
-func encodeMessages(messages []chat.Message) ([][]byte, error) {
-	return lo.MapErr(messages, func(message chat.Message, index int) ([]byte, error) {
-		raw, err := message.MarshalJSON()
-		if err != nil {
-			return nil, fmt.Errorf("message %d: %w", index, err)
-		}
-		return raw, nil
-	})
+func decodeMessages(raw []byte) ([]chat.Message, error) {
+	var messages []chat.Message
+	if err := jsonv2.Unmarshal(raw, &messages); err != nil {
+		return nil, err
+	}
+	if len(messages) == 0 {
+		return nil, errors.New("stored append has no messages")
+	}
+	return messages, nil
 }
 
-func decodeMessage(raw []byte) (chat.Message, error) {
-	var message chat.Message
-	if err := message.UnmarshalJSON(raw); err != nil {
-		return chat.Message{}, err
+func strongItemOptions() *azcosmos.ItemOptions {
+	consistency := requiredConsistency
+	return &azcosmos.ItemOptions{ConsistencyLevel: &consistency}
+}
+
+func responseStatus(err error) int {
+	if response, ok := errors.AsType[*azcore.ResponseError](err); ok {
+		return response.StatusCode
 	}
-	return message, nil
+	return 0
 }

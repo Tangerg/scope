@@ -13,9 +13,9 @@ import (
 	"time"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -30,6 +30,9 @@ type ImageModelConfig struct {
 	DefaultOptions image.Options
 	BaseURL        string
 	HTTPClient     *http.Client
+	// OutputOrigins is the host-authorized set of origins for presigned assets.
+	// The output client never borrows API credentials or the HTTP client cookie jar.
+	OutputOrigins  []string
 	PollInterval   time.Duration
 	PollTimeout    time.Duration
 	MaxOutputBytes int64
@@ -54,7 +57,8 @@ func (i ImageModelConfig) Validate() error {
 	if i.MaxOutputBytes < 0 {
 		return errors.New("luma: MaxOutputBytes must not be negative")
 	}
-	return nil
+	_, err := newOutputPolicy(context.Background(), i.OutputOrigins)
+	return err
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -82,12 +86,9 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	httpClient := *http.DefaultClient
-	if config.HTTPClient != nil {
-		httpClient = *config.HTTPClient
-	}
-	if lo.IsNil(httpClient.Transport) {
-		httpClient.Transport = http.DefaultTransport
+	outputs, err := newOutputPolicy(ctx, config.OutputOrigins)
+	if err != nil {
+		return nil, err
 	}
 	pollInterval := config.PollInterval
 	if pollInterval == 0 {
@@ -100,31 +101,31 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	return &ImageModel{
 		api:            api,
 		defaultOptions: config.DefaultOptions.Clone(),
-		httpClient:     &httpClient,
+		httpClient:     outputs.client(config.HTTPClient),
 		pollInterval:   pollInterval,
 		pollTimeout:    pollTimeout,
 		maxOutputBytes: cmp.Or(config.MaxOutputBytes, DefaultMaxOutputBytes),
 	}, nil
 }
 
-func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.Response, error) {
+func (i *ImageModel) Call(ctx context.Context, request *image.Request) (_ *image.Response, invocationErr error) {
 	if i == nil || i.api == nil {
-		return nil, errors.New("luma: nil ImageModel")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("luma: nil ImageModel")}
 	}
 	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("luma: request: %w", err)
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: request: %w", err)}
 	}
 	effectiveOptions, err := i.defaultOptions.Resolve(request.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions(effectiveOptions); rejectUnsupportedOptionsErr != nil {
-		return nil, rejectUnsupportedOptionsErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: rejectUnsupportedOptionsErr}
 	}
 
 	options, _, err := effectiveOptions.Extensions.Decode[ImageRequestOptions](ImageRequestExtensionKey)
 	if err != nil {
-		return nil, fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)}
 	}
 	params := lumaagents.GenerationNewParams{
 		Prompt: lumaagents.F(request.Prompt),
@@ -135,7 +136,7 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(options.Type))
 	}
 	if params.Type.Value != lumaagents.GenerationNewParamsTypeImage && params.Type.Value != lumaagents.GenerationNewParamsTypeImageEdit {
-		return nil, fmt.Errorf("luma: extension %q type %q is not an image operation", ImageRequestExtensionKey, params.Type.Value)
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: extension %q type %q is not an image operation", ImageRequestExtensionKey, params.Type.Value)}
 	}
 	if options.AspectRatio != "" {
 		params.AspectRatio = lumaagents.F(lumaagents.GenerationNewParamsAspectRatio(options.AspectRatio))
@@ -167,7 +168,7 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:
 			params.OutputFormat = lumaagents.F(lumaagents.GenerationNewParamsOutputFormatJpeg)
 		default:
-			return nil, fmt.Errorf("luma: output format %q is unsupported; use image/png or image/jpeg", effectiveOptions.OutputFormat)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: output format %q is unsupported; use image/png or image/jpeg", effectiveOptions.OutputFormat)}
 		}
 	}
 
@@ -175,6 +176,11 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 	if err != nil {
 		return nil, fmt.Errorf("luma: create generation: %w", err)
 	}
+	defer func() {
+		if invocationErr != nil {
+			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
+		}
+	}()
 	completed, err := i.pollUntilDone(ctx, submitted.ID)
 	if err != nil {
 		return nil, err

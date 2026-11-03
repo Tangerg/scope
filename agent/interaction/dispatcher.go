@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -182,15 +184,15 @@ func (d *dispatcher) callModelResponse(ctx context.Context, request *chat.Reques
 	}
 	if response != nil {
 		if validateErr := response.Validate(); validateErr != nil {
-			return nil, &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: invalid model response: %w", errors.Join(err, validateErr))}
+			return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("interaction: invalid model response: %w", errors.Join(err, validateErr))}
 		}
 	}
-	if (response != nil || accumulator.HasDeltas()) && chat.ClassifyFailure(err) == chat.CallFailureNotExecuted {
-		err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: fmt.Errorf("interaction: model generation contradicts non-execution: %w", err)}
+	if (response != nil || accumulator.HasDeltas()) && invocation.ClassifyFailure(err) == invocation.FailureNotExecuted {
+		err = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("interaction: model generation contradicts non-execution: %w", err)}
 	}
 	if err != nil {
-		kind := chat.ClassifyFailure(err)
-		if kind == chat.CallFailureFailed || kind == chat.CallFailureNotExecuted {
+		kind := invocation.ClassifyFailure(err)
+		if kind == invocation.FailureFailed || kind == invocation.FailureNotExecuted {
 			return response, err
 		}
 		return response, fmt.Errorf("interaction: model outcome unknown: %w", err)
@@ -214,7 +216,7 @@ func (d *dispatcher) callModel(
 				operation = "chat.Streamer.Stream"
 			}
 			response = nil
-			err = &chat.CallFailure{Kind: chat.CallFailureUnknown, Cause: &run.CallbackPanicError{Operation: operation, Value: recovered}}
+			err = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: &run.CallbackPanicError{Operation: operation, Value: recovered}}
 		}
 	}()
 	if d.streamer == nil {

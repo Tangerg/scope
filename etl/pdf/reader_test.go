@@ -50,7 +50,7 @@ func TestNewReaderRejectsSourceBeyondBudget(t *testing.T) {
 func TestNewReaderAcceptsConfig(t *testing.T) {
 	src := bytes.NewReader([]byte("not really a pdf"))
 	if _, err := pdf.NewReader(src, int64(src.Len()),
-		pdf.ReaderConfig{PerPage: true, SourceName: "ignored.pdf", Password: "hunter2"},
+		pdf.ReaderConfig{PerPage: true, SourceName: "ignored.pdf", UserPassword: []byte("hunter2")},
 	); err != nil {
 		t.Fatalf("constructor rejected valid config: %v", err)
 	}

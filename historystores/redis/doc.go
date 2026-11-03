@@ -1,28 +1,17 @@
 // Package redis is a history Store backed by Redis via go-redis.
 //
-// Each conversation maps to a Redis list keyed by
-// `<KeyPrefix><conversationID>` (default prefix `chat:history:`).
-// Messages are RPUSH'd as canonical [chat.Message] JSON, so a
-// LRANGE 0 -1 preserves list order. One Write is one RPUSH carrying every
-// message, so the append is atomic. A lost reply makes its outcome uncertain.
-// When TTL is configured, append and expiry refresh execute in one transaction,
-// whose command errors do not roll back successful commands. WriteOutcome
-// retains a confirmed append even if expiry refresh fails.
+// Each immutable history.Batch is one ordered list entry. A single Lua script
+// checks the permanent closed gate and append receipt before adding the batch,
+// recording its digest and refreshing the message-list TTL. Both keys share a
+// conversation hash tag, so the same operation works on Redis Cluster. A lost
+// reply is safe to retry under the same Batch identity, including SDK retries.
+// Expired messages never remove receipts or make old batches eligible again.
+// Clear permanently closes the ID and removes its messages; reuse a new ID for
+// a new conversation. Durable ledger keys require a persistence and eviction
+// policy that does not discard them independently of application lifecycle.
 //
-// Enumeration requires an explicit complete keyspace traversal because a
-// decorated client's routing behavior cannot establish its topology. Each node
-// is scanned to completion with its own cursor. Concurrent writes can still
-// change membership during SCAN; complete coverage is not a linearizable snapshot.
-// Invalid stored conversation IDs and unavailable nodes fail without a partial list.
-//
-// For a cluster, set StoreConfig.ScanNodes to client.ForEachMaster. For a single
-// node, supply a traversal that visits that client:
-//
-//	client := goredis.NewClient(&goredis.Options{...})
-//	store, _ := redis.NewStore(ctx, redis.StoreConfig{
-//		Client: client,
-//		ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
-//			return visit(ctx, client)
-//		},
-//	})
+// Enumeration requires explicit complete keyspace traversal: decorated command
+// routing cannot establish topology. Each node's SCAN cursor runs to completion;
+// concurrent mutations can affect membership. For a cluster bind ScanNodes to
+// ClusterClient.ForEachMaster; for one node supply a callback visiting its Client.
 package redis

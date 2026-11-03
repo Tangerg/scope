@@ -13,7 +13,11 @@ func Example() {
 	ctx := context.Background()
 	store := new(inmemory.Store)
 	message := chat.NewUserMessage(chat.NewTextPart("hello"))
-	if _, err := store.Write(ctx, history.ConversationID("demo"), message); err != nil {
+	batch, err := history.NewBatch("demo", "first-turn", message)
+	if err != nil {
+		panic(err)
+	}
+	if _, err = store.Append(ctx, batch); err != nil {
 		panic(err)
 	}
 	messages, err := store.Read(ctx, history.ConversationID("demo"))

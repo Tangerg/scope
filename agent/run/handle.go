@@ -388,7 +388,7 @@ type controlCommand struct {
 func (controlCommand) command() {}
 
 func (c controlCommand) records(_ *treeRuntime, p *processState) ([]Record, error) {
-	control := ControlRequested{Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: canonicalTime(time.Now())}
+	control := ControlRequested{Origin: ControlOriginHost, Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: canonicalTime(time.Now())}
 	if !control.valid() || !p.acceptsControl(c.kind) {
 		return nil, ErrInvalidProcessControl
 	}

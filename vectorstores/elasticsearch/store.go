@@ -124,9 +124,9 @@ func (s *Store) read(ctx context.Context, method, path string, query url.Values,
 	}
 	if int64(len(raw)) > limit {
 		if limit < s.maxResponseBytes {
-			return nil, vectorstore.ErrScanBudget
+			return raw, vectorstore.ErrScanBudget
 		}
-		return nil, errors.New("elasticsearch: native response exceeds MaxResponseBytes")
+		return raw, errors.New("elasticsearch: native response exceeds MaxResponseBytes")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return raw, &httpFailure{status: response.StatusCode, body: string(raw)}

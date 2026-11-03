@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 type EmbeddingModelConfig struct {
@@ -37,12 +38,12 @@ type EmbeddingModel struct {
 	defaultOptions embedding.Options
 }
 
-func NewEmbeddingModel(_ context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
+func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	api, err := newAPI(apiConfig{
+	api, err := newAPI(ctx, apiConfig{
 		BaseURL:    config.BaseURL,
 		HTTPClient: config.HTTPClient,
 	})
@@ -148,11 +149,11 @@ func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, req *embedd
 
 func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effective := *req
 	effective.Options = options
@@ -160,7 +161,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := e.api.embed(ctx, apiReq)

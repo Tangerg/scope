@@ -329,9 +329,13 @@ func (t *treeState) terminate(control ControlRequested) {
 		if !control.Process.Contains(id) || member.exited != nil {
 			continue
 		}
-		cause := control.Kind.terminationCause(id == control.Process)
+		origin := control.Origin
+		if id != control.Process {
+			origin = ControlOriginParent
+		}
+		cause := control.Kind.terminationCause(origin)
 		if member.terminal.accepts(cause) {
-			member.terminal = Termination{cause: cause, reason: control.Reason}
+			member.terminate(Termination{cause: cause, reason: control.Reason})
 		}
 	}
 }
@@ -345,6 +349,20 @@ func (t *treeState) children(parent ProcessID) []ProcessID {
 		}
 	}
 	return children
+}
+
+func (t *treeState) checkpointExitsValid(process *processState) bool {
+	var exits uint64
+	for _, message := range process.inbox {
+		if exit, ok := message.(Exit); ok {
+			child := t.processes[exit.Child]
+			if child == nil || child.exited == nil || !exit.Termination.equal(child.exited.Termination) {
+				return false
+			}
+			exits++
+		}
+	}
+	return exits == uint64(process.retainedChildren-process.activeChildren)
 }
 
 func (t *treeState) ordered() []ProcessID {

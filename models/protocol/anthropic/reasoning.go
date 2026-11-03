@@ -27,7 +27,7 @@ func NewThinkingPart(text string, signature []byte) (corechat.Part, error) {
 		return corechat.Part{}, errors.New("anthropic: thinking signature is required")
 	}
 	part := corechat.NewReasoningPart(text, signature)
-	if err := setProtocolReasoningState(&part, protocolProvider, protocolReasoningThinking); err != nil {
+	if err := setProtocolReasoningState(&part, ProviderID, protocolReasoningThinking); err != nil {
 		return corechat.Part{}, err
 	}
 	return part, nil
@@ -40,7 +40,7 @@ func NewRedactedThinkingPart(data []byte) (corechat.Part, error) {
 		return corechat.Part{}, errors.New("anthropic: redacted thinking data is required")
 	}
 	part := corechat.NewReasoningPart("", data)
-	if err := setProtocolReasoningState(&part, protocolProvider, protocolReasoningRedacted); err != nil {
+	if err := setProtocolReasoningState(&part, ProviderID, protocolReasoningRedacted); err != nil {
 		return corechat.Part{}, err
 	}
 	return part, nil

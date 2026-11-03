@@ -16,12 +16,12 @@ type fanoutSource interface {
 	windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) (inputs []run.Payload, count uint32, err error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32)
-	bindings() []childBinding
+	bindings() []run.ChildBinding
 }
 
 type fanoutMember struct {
 	id      string
-	binding childBinding
+	binding run.ChildBinding
 }
 
 // fanoutWindowLen is how many of count members the window at start covers:

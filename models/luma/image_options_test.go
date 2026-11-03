@@ -47,7 +47,7 @@ func TestImageNativeOptionsThroughPublicCall(t *testing.T) {
 			if err := opts.Extensions.Set(luma.ImageRequestExtensionKey, extension); err != nil {
 				t.Fatal(err)
 			}
-			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -72,7 +72,7 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 			if err := opts.Extensions.Set(luma.ImageRequestExtensionKey, map[string]any{field: nil}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: opts})
 			if err != nil {
 				t.Fatal(err)
 			}

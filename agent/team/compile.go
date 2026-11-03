@@ -10,8 +10,8 @@ import (
 type Config struct {
 	Name        string
 	Description string
-	Coordinator WorkerConfig
-	Workers     []WorkerConfig
+	Coordinator agentrun.ChildBinding
+	Workers     []agentrun.ChildBinding
 	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
 	MaxTurns agentrun.Quota
 	// MaxTasks is unlimited by default; finite zero forbids worker startups.
@@ -40,7 +40,7 @@ func Compile[I, O any](compiler *agentrun.Compiler, cfg Config) (agentrun.Progra
 		Budget       agentrun.Budget
 		Capabilities agentrun.CapabilitySet
 	}
-	binding := func(b childBinding) grant { return grant{b.program.ProgramRef(), b.budget, b.capabilities} }
+	binding := func(b agentrun.ChildBinding) grant { return grant{b.Program.ProgramRef(), b.Budget, b.Capabilities} }
 	workers := make([]grant, 0, len(def.workers))
 	for _, b := range def.workers {
 		workers = append(workers, binding(b))

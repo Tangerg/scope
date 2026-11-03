@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -55,7 +57,7 @@ func (m *Middleware) screen(ctx context.Context, scope Scope, text string) error
 }
 
 func (m *Middleware) screenInput(ctx context.Context, request *chat.Request) error {
-	if request == nil {
+	if request == nil || !m.config.Scope.inspects(ScopeInput) {
 		return nil
 	}
 	for index := range request.Messages {
@@ -71,7 +73,7 @@ func (m *Middleware) screenInput(ctx context.Context, request *chat.Request) err
 }
 
 func (m *Middleware) screenOutput(ctx context.Context, response *chat.Response) error {
-	if response == nil {
+	if response == nil || !m.config.Scope.inspects(ScopeOutput) {
 		return nil
 	}
 	return m.screen(ctx, ScopeOutput, response.Output.Text())
@@ -82,16 +84,16 @@ func (m *Middleware) screenOutput(ctx context.Context, response *chat.Response) 
 func (m *Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		if err := m.screenInput(ctx, request); err != nil {
-			return nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err}
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 		}
 
 		response, err := next.Call(ctx, request)
 		if screeningErr := m.screenOutput(ctx, response); screeningErr != nil {
-			kind := chat.CallFailureFailed
-			if err != nil && chat.ClassifyFailure(err) != chat.CallFailureFailed {
-				kind = chat.CallFailureUnknown
+			kind := invocation.FailureFailed
+			if err != nil && invocation.ClassifyFailure(err) != invocation.FailureFailed {
+				kind = invocation.FailureUnknown
 			}
-			return nil, &chat.CallFailure{Kind: kind, Cause: errors.Join(err, screeningErr)}
+			return nil, &invocation.Failure{Kind: kind, Cause: errors.Join(err, screeningErr)}
 		}
 		return response, err
 	})
@@ -105,13 +107,17 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 	return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
 			if err := m.screenInput(ctx, request); err != nil {
-				yield(nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 				return
 			}
 
 			sequence := next.Stream(ctx, request)
 			if sequence == nil {
 				yield(nil, ErrNilStream)
+				return
+			}
+			if !m.config.Scope.inspects(ScopeOutput) {
+				sequence(yield)
 				return
 			}
 			stream := safeguardStream{ctx: ctx, middleware: m, yield: yield}
@@ -139,7 +145,7 @@ func (s *safeguardStream) consume(chunk *chat.ResponseDelta, streamErr error) bo
 		return s.stop(fmt.Errorf("safeguard: accumulate stream: %w", err))
 	}
 	if err := s.middleware.screen(s.ctx, ScopeOutput, s.accumulator.Text()); err != nil {
-		return s.stop(&chat.CallFailure{Kind: chat.CallFailureFailed, Cause: err})
+		return s.stop(&invocation.Failure{Kind: invocation.FailureFailed, Cause: err})
 	}
 	if !s.yield(chunk, nil) {
 		s.stopped = true

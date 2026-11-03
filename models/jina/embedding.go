@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 type EmbeddingModelConfig struct {
@@ -128,11 +129,11 @@ func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, req *embeddin
 
 func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveRequest := *req
 	effectiveRequest.Options = options
@@ -140,7 +141,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	apiReq, err := e.buildAPIRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := e.api.embedding(ctx, apiReq)

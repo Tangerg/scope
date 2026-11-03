@@ -23,7 +23,7 @@ import (
 const (
 	// RequestExtensionKey stores provider-owned top-level Messages API fields in
 	// a Core request for fields without a provider-neutral equivalent.
-	RequestExtensionKey          = "anthropic/request"
+	RequestExtensionKey          = ProviderID + "/request"
 	protocolReasoningKindKey     = "anthropic/reasoning_kind"
 	protocolReasoningProviderKey = "anthropic/reasoning_provider"
 	protocolContentBlockIndexKey = "anthropic/content_block_index"
@@ -34,7 +34,7 @@ const (
 	protocolUsageKey             = "anthropic/usage"
 )
 
-func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect, allowSampling bool) (*anthropicsdk.MessageNewParams, error) {
+func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect) (*anthropicsdk.MessageNewParams, error) {
 	options, err := defaults.Resolve(req.Options)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: options: %w", err)
@@ -64,8 +64,8 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
 		}
 	}
-	// The native API removed these keys entirely. Only compatible endpoints
-	// selecting the previous external wire contract receive their values.
+	// Revision and sampling support are independent endpoint capabilities;
+	// metadata headers cannot enable request fields.
 	for _, sampling := range []struct {
 		name  string
 		value any
@@ -78,7 +78,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		if !sampling.set {
 			continue
 		}
-		if !allowSampling {
+		if !dialect.SupportsSampling {
 			return nil, fmt.Errorf("anthropic: options.%s is not supported by the native Messages API", sampling.name)
 		}
 		if fields == nil {

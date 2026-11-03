@@ -6,7 +6,7 @@ import (
 
 // InputValidatingTool supplies the input admission rules that JSON Schema
 // cannot express, such as Go numeric syntax or a custom JSON decoder's domain
-// constraints. Bind freezes the declaration through the wrapping chain.
+// constraints. Bind captures the declaration directly from the executable before composing middleware.
 type InputValidatingTool interface {
 	// InputValidator returns an independent, immutable validator. Neither the
 	// returned function nor anything it captures may retain an executable Tool
@@ -23,9 +23,9 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 			err = fmt.Errorf("input validation declaration: %w", &InputValidationPanicError{Value: recovered})
 		}
 	}()
-	capability, found, err := Capability[InputValidatingTool](executable)
-	if err != nil || !found {
-		return nil, err
+	capability, found := executable.(InputValidatingTool)
+	if !found {
+		return nil, nil
 	}
 	return capability.InputValidator(), nil
 }

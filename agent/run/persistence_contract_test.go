@@ -173,7 +173,7 @@ func TestLogRejectsFactsWithoutTheirOwningProcess(t *testing.T) {
 		Exited{Process: missing, Termination: Termination{output: started.Input}, At: started.At},
 		ExecutionFailed{Process: missing, Failure: failure, At: started.At},
 		Reaped{Process: missing},
-		ControlRequested{Process: missing, Kind: ControlPause, Reason: "pause", At: started.At},
+		ControlRequested{Origin: ControlOriginHost, Process: missing, Kind: ControlPause, Reason: "pause", At: started.At},
 	} {
 		if _, _, err := EncodeRecord(record); err != nil {
 			t.Fatalf("record must have a valid envelope: %T %v", record, err)
@@ -199,8 +199,8 @@ func TestLogRejectsProgressThatDoesNotFollowItsPrefix(t *testing.T) {
 	escalated.Policy.RequiredCapabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("files.write"))))
 	complete := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))}
 	failure := ExecutionFailed{Process: log.Root, Failure: controlValue(NewFailure(FailureKindExecution, "test.failure", "rejected")), At: started.At}
-	pause := ControlRequested{Process: log.Root, Kind: ControlPause, Reason: "hold", At: started.At}
-	resume := ControlRequested{Process: log.Root, Kind: ControlResume, At: started.At}
+	pause := ControlRequested{Origin: ControlOriginHost, Process: log.Root, Kind: ControlPause, Reason: "hold", At: started.At}
+	resume := ControlRequested{Origin: ControlOriginHost, Process: log.Root, Kind: ControlResume, At: started.At}
 	for _, test := range []struct {
 		name    string
 		records []Record

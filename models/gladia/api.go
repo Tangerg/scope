@@ -43,7 +43,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -178,7 +178,7 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string) (*uploa
 		return nil, fmt.Errorf("gladia: upload failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("gladia: upload http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("gladia: upload %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.AudioURL == "" {
 		return nil, errors.New("gladia: upload response omitted audio_url")
@@ -201,7 +201,7 @@ func (a *api) createTranscription(ctx context.Context, req *transcriptionRequest
 		return nil, fmt.Errorf("gladia: create failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("gladia: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("gladia: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.ID == "" {
 		return nil, fmt.Errorf("%w: gladia: created transcription requires id", transcription.ErrInvalidResponse)
@@ -219,7 +219,7 @@ func (a *api) getTranscription(ctx context.Context, id string) (*transcriptionRe
 		return nil, fmt.Errorf("gladia: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("gladia: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("gladia: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.ID != id {
 		return nil, fmt.Errorf("%w: gladia: polled transcription id %q differs from submitted id %q", transcription.ErrInvalidResponse, out.ID, id)

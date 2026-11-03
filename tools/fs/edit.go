@@ -66,4 +66,4 @@ func (e *EditTool) edit(ctx context.Context, _ toolcontract.IdempotencyKey, req 
 	return res, nil
 }
 
-func (e *EditTool) Unwrap() toolcontract.Tool { return e.typed }
+func (e *EditTool) InputValidator() func([]byte) error { return e.typed.InputValidator() }

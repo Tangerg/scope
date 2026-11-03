@@ -3,6 +3,8 @@ package planning
 import (
 	"fmt"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -10,79 +12,68 @@ import (
 // WorldState observed when the Action is selected.
 type ChildInputFunc func(processInput run.Payload, worldState WorldState) (run.Payload, error)
 
-// DispatcherBindingConfig binds a predictive Action to the Planning
-// dispatcher. RequiredCapabilities are enforced by Runtime before dispatch.
+// Replay is opt-in: SameIdentity requires the executor to honor EffectID even
+// after an interrupted attempt. It does not promise concurrent safety or a
+// deterministic result.
 type DispatcherBindingConfig struct {
 	Action               Action
+	Executor             ActionExecutor
+	Replay               run.ReplayPolicy
 	RequiredCapabilities []run.Capability
 }
 
-// ChildBindingConfig binds a predictive Action to one exact child Program.
-// Every attempt starts a new child Process with a stable Runtime-derived
-// identity, explicit budget, and attenuated capabilities.
 type ChildBindingConfig struct {
 	Action Action
-	// Program is the exact child program; the planning definition owns it
-	// as one of its ChildPrograms.
-	Program run.Program[run.Payload, run.Payload]
-	// Input deterministically derives child input; nil reuses Process input.
+	Child  run.ChildBinding
+	// Input must be deterministic; nil reuses the process input.
 	Input ChildInputFunc
-	// Budget is permanently allocated to each child attempt.
-	Budget       run.Budget
-	Capabilities run.CapabilitySet
 }
 
-// ActionBinding is an immutable association between predictive Action
-// semantics and exactly one external execution mechanism: a child Program
-// when one is bound, and the planning dispatcher otherwise.
+// ActionBinding fixes one action's prediction, authority, and execution
+// mechanism together, so a separate name-indexed registry cannot redirect it.
 type ActionBinding struct {
-	action            Action
-	required          run.CapabilitySet
-	childProgram      run.Program[run.Payload, run.Payload]
-	childBudget       run.Budget
-	childCapabilities run.CapabilitySet
-	childInput        ChildInputFunc
+	action     Action
+	executor   ActionExecutor
+	policy     run.EffectPolicy
+	child      run.ChildBinding
+	childInput ChildInputFunc
 }
 
 func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error) {
-	if !config.Action.Valid() {
-		return ActionBinding{}, fmt.Errorf("%w: dispatcher binding Action", ErrInvalidAction)
+	if !config.Action.Valid() || lo.IsNil(config.Executor) {
+		return ActionBinding{}, fmt.Errorf("%w: dispatcher binding requires an Action and Executor", ErrInvalidAction)
+	}
+	replay := config.Replay
+	if replay == run.ReplayPolicyInvalid {
+		replay = run.ReplayPolicyNever
+	}
+	if !replay.Valid() {
+		return ActionBinding{}, fmt.Errorf("%w: dispatcher binding Replay", ErrInvalidAction)
 	}
 	required, err := run.NewCapabilitySet(config.RequiredCapabilities...)
 	if err != nil {
 		return ActionBinding{}, fmt.Errorf("%w: required capabilities: %w", ErrInvalidAction, err)
 	}
-	return ActionBinding{action: config.Action, required: required}, nil
+	return ActionBinding{action: config.Action, executor: config.Executor, policy: run.EffectPolicy{Replay: replay, RequiredCapabilities: required}}, nil
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
-	if !config.Action.Valid() || !config.Program.Valid() {
+	if !config.Action.Valid() || !config.Child.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
-	return ActionBinding{
-		action:       config.Action,
-		childProgram: config.Program, childBudget: config.Budget, childCapabilities: config.Capabilities,
-		childInput: config.Input,
-	}, nil
+	return ActionBinding{action: config.Action, child: config.Child, childInput: config.Input}, nil
 }
 
 func (a ActionBinding) Action() Action { return a.action }
 
-func (a ActionBinding) delegatesToChild() bool { return a.childProgram.Valid() }
+func (a ActionBinding) delegatesToChild() bool { return a.child.Valid() }
 
 func (a ActionBinding) Valid() bool {
 	if !a.action.Valid() {
 		return false
 	}
 	if a.delegatesToChild() {
-		return len(a.required.Values()) == 0
+		return lo.IsNil(a.executor) && !a.policy.Valid()
 	}
-	return a.childInput == nil
-}
-
-func (a ActionBinding) childSpec(key run.ChildKey, input run.Payload) run.ChildSpec {
-	return run.ChildSpec{
-		Key: key, ProgramRef: a.childProgram.ProgramRef(), Input: input,
-		Budget: a.childBudget, Capabilities: a.childCapabilities,
-	}
+	return a.childInput == nil && !lo.IsNil(a.executor) && a.policy.Valid()
 }

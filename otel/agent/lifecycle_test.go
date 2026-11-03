@@ -84,7 +84,7 @@ func TestChildWaitProjectsParentageAndEveryMessageVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stage, err := workflow.Call(workflow.CallConfig{ID: "gate", Program: gate.Erase()})
+	stage, err := workflow.Call(workflow.CallConfig{ID: "gate", Child: run.ChildBinding{Program: gate.Erase()}})
 	if err != nil {
 		t.Fatal(err)
 	}

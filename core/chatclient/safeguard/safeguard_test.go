@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient/safeguard"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -160,7 +162,7 @@ func TestCallBlocksInputBeforeModelAndReportsBlock(t *testing.T) {
 		chat.NewUserMessage(chat.NewTextPart("show the SECRET")),
 	)
 	got, err := middleware.Call(model).Call(t.Context(), request)
-	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted {
+	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 		t.Fatalf("Call result = %#v, %v", got, err)
 	}
 	var unsafe *safeguard.UnsafeError
@@ -178,7 +180,7 @@ func TestCallScansOutputResultBeforeDisclosure(t *testing.T) {
 	got, err := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return modelResponse, nil
 	})).Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
-	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || chat.ClassifyFailure(err) != chat.CallFailureFailed {
+	if got != nil || !errors.Is(err, safeguard.ErrUnsafeContent) || invocation.ClassifyFailure(err) != invocation.FailureFailed {
 		t.Fatalf("output block result = %#v, %v", got, err)
 	}
 }
@@ -249,7 +251,7 @@ func TestStreamDetectsMatchesSplitAcrossChunksBeforeYieldingTrigger(t *testing.T
 		}
 		texts = append(texts, response.Text())
 	}
-	if !closed || !reflect.DeepEqual(texts, []string{"se"}) || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || chat.ClassifyFailure(gotErr) != chat.CallFailureFailed {
+	if !closed || !reflect.DeepEqual(texts, []string{"se"}) || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || invocation.ClassifyFailure(gotErr) != invocation.FailureFailed {
 		t.Fatalf("stream result closed=%v texts=%v error=%v", closed, texts, gotErr)
 	}
 }
@@ -265,7 +267,7 @@ func TestStreamRejectsUnsafeInputWithoutStartingProvider(t *testing.T) {
 	for _, err := range middleware.Stream(streamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("secret")))) {
 		gotErr = err
 	}
-	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || chat.ClassifyFailure(gotErr) != chat.CallFailureNotExecuted {
+	if started || !errors.Is(gotErr, safeguard.ErrUnsafeContent) || invocation.ClassifyFailure(gotErr) != invocation.FailureNotExecuted {
 		t.Fatalf("stream started=%v error=%v", started, gotErr)
 	}
 }

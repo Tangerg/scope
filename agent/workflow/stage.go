@@ -48,34 +48,6 @@ type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
 
 type transformStage func(context.Context, json.RawMessage) (json.RawMessage, error)
 
-type childBinding struct {
-	program      run.Program[run.Payload, run.Payload]
-	budget       run.Budget
-	capabilities run.CapabilitySet
-}
-
-func newChildBinding(program run.Program[run.Payload, run.Payload], budget run.Budget, capabilities run.CapabilitySet) (childBinding, bool) {
-	if !program.Valid() {
-		return childBinding{}, false
-	}
-	return childBinding{program: program, budget: budget, capabilities: capabilities}, true
-}
-
-func (c childBinding) programRef() run.ProgramRef { return c.program.ProgramRef() }
-
-func (c childBinding) topology(
-	role BindingRole,
-	id string,
-	inputSchema jsonschema.Schema,
-	outputSchema jsonschema.Schema,
-) BindingTopology {
-	return BindingTopology{
-		Role: role, ID: id, ProgramRef: c.programRef(),
-		InputSchema: inputSchema, OutputSchema: outputSchema,
-		Budget: c.budget, Capabilities: c.capabilities,
-	}
-}
-
 // Stage is an immutable operation in one Workflow definition. Values can only
 // be constructed by this package, keeping the execution algebra closed.
 type Stage struct {
@@ -84,7 +56,7 @@ type Stage struct {
 	inputSchema  jsonschema.Schema
 	outputSchema jsonschema.Schema
 	transform    transformStage
-	call         childBinding
+	call         run.ChildBinding
 	switcher     switchStage
 	fanout       fanoutStage
 	loop         loopStage
@@ -93,17 +65,8 @@ type Stage struct {
 // CallConfig declares one exact child Program and its non-renewable
 // Framework resource allocation.
 type CallConfig struct {
-	// ID is unique within the Workflow and remains stable across restoration.
-	ID string
-
-	// Program is the exact child program. The Workflow owns it as
-	// one of its ChildPrograms.
-	Program run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent when the child starts.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	ID    string
+	Child run.ChildBinding
 }
 
 // Transform constructs one typed pure Stage. JSON schemas derived from I and O
@@ -152,11 +115,11 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 // Call constructs one managed child-Process Stage. No child Process is created
 // until the Workflow Execution returns a Framework NewChildStartEffect Effect.
 func Call(config CallConfig) (Stage, error) {
-	binding, valid := newChildBinding(config.Program, config.Budget, config.Capabilities)
-	if !run.ValidQualifiedName(config.ID) || !valid {
+	binding := config.Child
+	if !run.ValidQualifiedName(config.ID) || !binding.Valid() {
 		return Stage{}, ErrInvalidStage
 	}
-	descriptor := config.Program.Descriptor()
+	descriptor := binding.Program.Descriptor()
 	return Stage{
 		id: config.ID, kind: StageKindCall,
 		inputSchema: descriptor.InputSchema(), outputSchema: descriptor.OutputSchema(),
@@ -219,12 +182,12 @@ func childOutcome(outcome run.Termination, code func(suffix string) string, subj
 }
 
 // childBindings returns every child binding of the Stage in topology order.
-func (s Stage) childBindings() []childBinding {
+func (s Stage) childBindings() []run.ChildBinding {
 	switch s.kind {
 	case StageKindCall:
-		return []childBinding{s.call}
+		return []run.ChildBinding{s.call}
 	case StageKindSwitch:
-		bindings := make([]childBinding, len(s.switcher.cases))
+		bindings := make([]run.ChildBinding, len(s.switcher.cases))
 		for index, candidate := range s.switcher.cases {
 			bindings[index] = candidate.binding
 		}
@@ -232,7 +195,7 @@ func (s Stage) childBindings() []childBinding {
 	case StageKindFork, StageKindMap:
 		return s.fanout.source.bindings()
 	case StageKindLoop:
-		return []childBinding{s.loop.binding}
+		return []run.ChildBinding{s.loop.binding}
 	default:
 		return nil
 	}
@@ -246,12 +209,12 @@ func (s Stage) topology() StageTopology {
 	switch s.kind {
 	case StageKindCall:
 		projected.Bindings = []BindingTopology{
-			s.call.topology(BindingRoleCall, "", s.inputSchema, s.outputSchema),
+			bindingTopology(s.call, BindingRoleCall, "", s.inputSchema, s.outputSchema),
 		}
 	case StageKindSwitch:
 		projected.Bindings = make([]BindingTopology, len(s.switcher.cases))
 		for index, candidate := range s.switcher.cases {
-			projected.Bindings[index] = candidate.binding.topology(
+			projected.Bindings[index] = bindingTopology(candidate.binding,
 				BindingRoleCase, candidate.id, s.inputSchema, s.outputSchema,
 			)
 		}
@@ -260,7 +223,7 @@ func (s Stage) topology() StageTopology {
 		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
 	case StageKindLoop:
 		projected.MaxIterations = new(s.loop.maxIterations)
-		projected.Bindings = []BindingTopology{s.loop.binding.topology(
+		projected.Bindings = []BindingTopology{bindingTopology(s.loop.binding,
 			BindingRoleBody, "", s.inputSchema, s.inputSchema,
 		)}
 	}

@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 const (
@@ -39,15 +41,15 @@ type api struct {
 	httpClient *http.Client
 }
 
-func newAPI(config apiConfig) (*api, error) {
+func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	u, err := url.Parse(cmp.Or(config.BaseURL, DefaultBaseURL))
 	if err != nil {
 		return nil, errors.New("ollama: BaseURL must be a valid URL")
 	}
 
-	httpClient := config.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	httpClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: u.String()})
+	if err != nil {
+		return nil, err
 	}
 
 	return &api{baseURL: u, httpClient: httpClient}, nil

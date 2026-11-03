@@ -2,6 +2,7 @@ package history_test
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
 	"reflect"
@@ -9,179 +10,161 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
+	"github.com/Tangerg/scope/core/history/inmemory"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
-type outcomeStore struct {
-	outcome history.WriteOutcome
-	err     error
-	saved   []chat.Message
+type interruptedStore struct {
+	inmemory.Store
+	commit      bool
+	acknowledge bool
+	cause       error
 }
 
-func (o *outcomeStore) Read(context.Context, history.ConversationID) ([]chat.Message, error) {
-	return []chat.Message{}, nil
-}
-
-func (o *outcomeStore) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
-	if o.err != nil {
-		o.saved = append(o.saved, cloneMessages(messages[:o.outcome.Accepted])...)
-		return o.outcome, o.err
-	}
-	o.saved = append(o.saved, cloneMessages(messages)...)
-	return history.WriteOutcome{Accepted: len(messages)}, nil
-}
-
-func TestCommitErrorPreservesCompletedGenerationAndWriteFacts(t *testing.T) {
-	for _, outcome := range []history.WriteOutcome{{}, {Accepted: 1}, {Uncertain: true}, {Accepted: 1, Uncertain: true}, {Accepted: 2}} {
-		for _, streaming := range []bool{false, true} {
-			cause := errors.New("persistence failed")
-			store := &outcomeStore{outcome: outcome, err: cause}
-			middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: "conversation"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			ctx := t.Context()
-			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
-			if err != nil {
-				t.Fatal(err)
-			}
-			calls := 0
-			terminal := false
-			if streaming {
-				streamer := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
-					return func(yield func(*chat.ResponseDelta, error) bool) {
-						calls++
-						yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("answer")}, FinishReason: chat.FinishReasonStop}, nil)
-					}
-				})
-				for delta, streamErr := range middleware.Stream(streamer).Stream(ctx, request) {
-					if delta != nil && delta.FinishReason == chat.FinishReasonStop {
-						terminal = true
-					}
-					if streamErr != nil {
-						if !terminal {
-							t.Fatal("commit error preceded generation")
-						}
-						err = streamErr
-					}
-				}
-			} else {
-				response, callErr := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-					calls++
-					return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("answer"))), FinishReason: chat.FinishReasonStop}}, nil
-				})).Call(ctx, request)
-				if response.Text() != "answer" {
-					t.Fatal("completed response lost")
-				}
-				err = callErr
-			}
-			failure, ok := errors.AsType[*history.CommitError](err)
-			if !ok || !errors.Is(err, cause) || failure.ConversationID() != "conversation" || failure.Outcome() != outcome {
-				t.Fatalf("failure=%#v error=%v", failure, err)
-			}
-			kind := chat.CallFailureFailed
-			if outcome.Uncertain {
-				kind = chat.CallFailureUnknown
-			}
-			if got := chat.ClassifyFailure(err); got != kind {
-				t.Fatalf("history classification=%s want=%s", got, kind)
-			}
-			want := []chat.Message{chat.NewUserMessage(chat.NewTextPart("question")), chat.NewAssistantMessage(chat.NewTextPart("answer"))}
-			if !reflect.DeepEqual(failure.Messages(), want) {
-				t.Fatalf("messages = %#v", failure.Messages())
-			}
-			snapshot := failure.Messages()
-			snapshot[0].Parts[0].Text = "mutated"
-			request.Messages[0].Parts[0].Text = "mutated"
-			if !reflect.DeepEqual(failure.Messages(), want) {
-				t.Fatal("commit error retained mutable caller state")
-			}
-			if !outcome.Uncertain {
-				store.err = nil
-				if _, saveErr := store.Write(ctx, failure.ConversationID(), failure.Messages()[outcome.Accepted:]...); saveErr != nil {
-					t.Fatal(saveErr)
-				}
-				if !reflect.DeepEqual(store.saved, want) {
-					t.Fatalf("recovery duplicated or lost messages: %#v", store.saved)
-				}
-			}
-			if calls != 1 {
-				t.Fatalf("generation ran %d times", calls)
-			}
+func (i *interruptedStore) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
+	var receipt history.Receipt
+	if i.commit {
+		var err error
+		receipt, err = i.Store.Append(ctx, batch)
+		if err != nil {
+			return receipt, err
 		}
 	}
+	if !i.acknowledge {
+		receipt = history.Receipt{}
+	}
+	return receipt, i.cause
 }
 
-func TestWriteOutcomeRejectsContradictoryFacts(t *testing.T) {
-	cause := errors.New("write failed")
+func TestCommitErrorRetriesTheSameCompleteBatchWithoutRegeneration(t *testing.T) {
 	for _, test := range []struct {
-		outcome history.WriteOutcome
-		count   int
-		err     error
+		name                string
+		commit, acknowledge bool
 	}{
-		{history.WriteOutcome{Accepted: -1}, 1, cause},
-		{history.WriteOutcome{Accepted: 2}, 1, cause},
-		{history.WriteOutcome{}, -1, cause},
-		{history.WriteOutcome{Accepted: 1, Uncertain: true}, 1, cause},
-		{history.WriteOutcome{}, 1, nil},
-		{history.WriteOutcome{Uncertain: true}, 1, nil},
+		{"before commit", false, false}, {"lost acknowledgment", true, false}, {"acknowledged ancillary failure", true, true},
 	} {
-		if err := test.outcome.ValidateFor(test.count, test.err); !errors.Is(err, history.ErrInvalidWriteOutcome) {
-			t.Fatalf("Validate(%#v) = %v", test, err)
+		for _, streaming := range []bool{false, true} {
+			mode := " call"
+			if streaming {
+				mode = " stream"
+			}
+			t.Run(test.name+mode, func(t *testing.T) {
+				cause := errors.New("persistence interrupted")
+				store := &interruptedStore{commit: test.commit, acknowledge: test.acknowledge, cause: cause}
+				middleware := mustMiddleware(t, store)
+				request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question")))
+				calls := 0
+				var err error
+				if streaming {
+					terminal := false
+					next := chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+						return func(yield func(*chat.ResponseDelta, error) bool) {
+							calls++
+							yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("answer")}, FinishReason: chat.FinishReasonStop}, nil)
+						}
+					})
+					for delta, failure := range middleware.Stream(next).Stream(t.Context(), request) {
+						if delta != nil && delta.FinishReason == chat.FinishReasonStop {
+							terminal = true
+						}
+						if failure != nil {
+							if !terminal {
+								t.Fatal("commit error preceded generation")
+							}
+							err = failure
+						}
+					}
+				} else {
+					generated, failure := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+						calls++
+						return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
+					})).Call(t.Context(), request)
+					if generated.Text() != "answer" {
+						t.Fatal("completed generation was lost")
+					}
+					err = failure
+				}
+				failure, ok := errors.AsType[*history.CommitError](err)
+				if !ok || !errors.Is(err, cause) || failure.Batch().ConversationID() != "conversation-1" || failure.Batch().ID() == "" {
+					t.Fatalf("missing retry identity: %v", err)
+				}
+				kind := invocation.FailureUnknown
+				if test.acknowledge {
+					kind = invocation.FailureFailed
+					if failure.Receipt().ValidateFor(failure.Batch()) != nil {
+						t.Fatal("acknowledged receipt was lost")
+					}
+				}
+				if got := invocation.ClassifyFailure(err); got != kind {
+					t.Fatalf("classification=%s want=%s", got, kind)
+				}
+				want := []chat.Message{chat.NewUserMessage(chat.NewTextPart("question")), chat.NewAssistantMessage(chat.NewTextPart("answer"))}
+				request.Messages[0].Parts[0].Text = "mutated"
+				messages := failure.Batch().Messages()
+				messages[0].Parts[0].Text = "mutated copy"
+				if !reflect.DeepEqual(failure.Batch().Messages(), want) {
+					t.Fatal("retry batch retained mutable caller state")
+				}
+				encoded, encodeErr := jsonv2.Marshal(failure.Batch())
+				if encodeErr != nil {
+					t.Fatal(encodeErr)
+				}
+				var retry history.Batch
+				if decodeErr := jsonv2.Unmarshal(encoded, &retry); decodeErr != nil {
+					t.Fatal(decodeErr)
+				}
+				for range 2 {
+					receipt, retryErr := store.Store.Append(t.Context(), retry)
+					if retryErr != nil || receipt.ValidateFor(retry) != nil {
+						t.Fatal(receipt, retryErr)
+					}
+				}
+				saved, readErr := store.Read(t.Context(), retry.ConversationID())
+				if readErr != nil || !reflect.DeepEqual(saved, want) || calls != 1 {
+					t.Fatalf("retry duplicated history or generation: saved=%v calls=%d error=%v", saved, calls, readErr)
+				}
+			})
 		}
-	}
-	if err := (history.WriteOutcome{Accepted: 2}).ValidateFor(2, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := (history.WriteOutcome{}).ValidateFor(0, nil); err != nil {
-		t.Fatal(err)
 	}
 }
 
-type contradictoryStore struct{ outcomeStore }
+type contradictoryStore struct{ recordingStore }
 
-func (c *contradictoryStore) Write(context.Context, history.ConversationID, ...chat.Message) (history.WriteOutcome, error) {
-	return history.WriteOutcome{}, nil
+func (*contradictoryStore) Append(context.Context, history.Batch) (history.Receipt, error) {
+	return history.Receipt{}, nil
 }
 
 func TestCommitRejectsUnacknowledgedSuccess(t *testing.T) {
-	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: &contradictoryStore{}, ConversationID: "conversation"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("answer"))), FinishReason: chat.FinishReasonStop}}
-	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response, nil })
-	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("question")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := middleware.Call(model).Call(t.Context(), request)
+	model := mustMiddleware(t, &contradictoryStore{}).Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
+	}))
+	generated, err := model.Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question"))))
 	failure, ok := errors.AsType[*history.CommitError](err)
-	if got != response || !ok || !errors.Is(err, history.ErrInvalidWriteOutcome) || failure.Outcome() != (history.WriteOutcome{Uncertain: true}) {
-		t.Fatalf("response=%p failure=%#v error=%v", got, failure, err)
+	if generated.Text() != "answer" || !ok || !errors.Is(err, history.ErrInvalidReceipt) || failure.Receipt() != (history.Receipt{}) || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
+		t.Fatalf("contradictory acknowledgment lost facts: %v", err)
 	}
 }
 
 type rewritingStore struct{ recordingStore }
 
-func (*rewritingStore) Write(_ context.Context, _ history.ConversationID, batch ...chat.Message) (history.WriteOutcome, error) {
-	for i := range batch {
-		batch[i].Parts[0].Text = "rewritten"
+func (*rewritingStore) Append(_ context.Context, batch history.Batch) (history.Receipt, error) {
+	messages := batch.Messages()
+	for index := range messages {
+		messages[index].Parts[0].Text = "rewritten"
 	}
-	return history.WriteOutcome{Accepted: 1, Uncertain: true}, errors.New("store disconnected")
+	encoded := batch.EncodedMessages()
+	encoded[0] = 'x'
+	return history.Receipt{}, errors.New("store disconnected")
 }
 
 func TestWriterCannotRewriteGenerationOrReconciliationEvidence(t *testing.T) {
-	middleware := mustMiddleware(t, new(rewritingStore))
-	model := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	model := mustMiddleware(t, new(rewritingStore)).Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return response(chat.NewAssistantMessage(chat.NewTextPart("model answer"))), nil
 	}))
 	generated, err := model.Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question"))))
 	failure, ok := errors.AsType[*history.CommitError](err)
-	if !ok || failure.Outcome() != (history.WriteOutcome{Accepted: 1, Uncertain: true}) {
-		t.Fatalf("lost write outcome: %v", err)
+	if !ok || generated.Text() != "model answer" {
+		t.Fatalf("writer rewrote completed generation: %v", err)
 	}
-	if got := generated.Text(); got != "model answer" {
-		t.Fatalf("writer changed completed generation to %q", got)
-	}
-	assertMessages(t, failure.Messages(), messageKey{chat.RoleUser, "question"}, messageKey{chat.RoleAssistant, "model answer"})
+	assertMessages(t, failure.Batch().Messages(), messageKey{chat.RoleUser, "question"}, messageKey{chat.RoleAssistant, "model answer"})
 }

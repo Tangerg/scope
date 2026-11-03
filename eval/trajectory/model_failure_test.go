@@ -12,6 +12,7 @@ import (
 	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
@@ -23,7 +24,7 @@ func completedResponse(text string, usage *chat.Usage) *chat.Response {
 
 func TestModelFailureRetainsPartialResponseAndAccounting(t *testing.T) {
 	response := completedResponse("generated before postprocessing failed", &chat.Usage{InputTokens: 17, OutputTokens: 11})
-	cause := &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("history commit rejected")}
+	cause := &invocation.Failure{Kind: invocation.FailureFailed, Cause: errors.New("history commit rejected")}
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response, cause })
 	handle, _, _ := startInteraction(t, model, nil, run.NewMemoryStore())
 	result, err := handle.Await(t.Context())
@@ -54,16 +55,16 @@ func TestModelFailureRetainsPartialResponseAndAccounting(t *testing.T) {
 func TestModelNonexecutionAndMissingAccountingRemainDistinct(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		kind      chat.CallFailureKind
+		kind      invocation.FailureKind
 		outcome   interaction.ModelOutcome
 		zeroKnown bool
 	}{
-		{"not executed", chat.CallFailureNotExecuted, interaction.ModelOutcomeNotExecuted, true},
-		{"failed", chat.CallFailureFailed, interaction.ModelOutcomeFailed, false},
+		{"not executed", invocation.FailureNotExecuted, interaction.ModelOutcomeNotExecuted, true},
+		{"failed", invocation.FailureFailed, interaction.ModelOutcomeFailed, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-				return nil, &chat.CallFailure{Kind: test.kind, Cause: errors.New("classified model failure")}
+				return nil, &invocation.Failure{Kind: test.kind, Cause: errors.New("classified model failure")}
 			})
 			handle, _, _ := startInteraction(t, model, nil, run.NewMemoryStore())
 			if _, err := handle.Await(t.Context()); err != nil {

@@ -19,14 +19,14 @@ func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 		return value
 	}
 	dispatcher := newToolDispatcher()
-	if err := dispatcher.bindTool(makeTool("report.write"), false); err != nil {
+	if err := dispatcher.bindTool(makeTool("report.write"), false, nil); err != nil {
 		t.Fatal(err)
 	}
 	definitions := dispatcher.manifest.initialDefinitions()
 	if len(definitions) != 1 || definitions[0].Name != "report_write" {
 		t.Fatalf("advertised tools: %v", definitions)
 	}
-	if err := dispatcher.bindTool(makeTool("report/write"), false); err == nil {
+	if err := dispatcher.bindTool(makeTool("report/write"), false, nil); err == nil {
 		t.Fatal("ambiguous alias admitted")
 	}
 	for _, name := range []string{"report.write", "unseen"} {

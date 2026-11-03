@@ -19,7 +19,6 @@ import (
 )
 
 const (
-	maximumErrorResponseBytes           = int64(64 * 1024)
 	minimumTranscriptionSpeakers        = 1
 	maximumTranscriptionSpeakers        = 32
 	minimumDiarizationThreshold         = 0.1
@@ -62,7 +61,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -129,13 +128,10 @@ func (a *api) textToSpeechStream(ctx context.Context, voiceID, outputFormat stri
 		return nil, nil, fmt.Errorf("elevenlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		raw := resp.RawBody()
-		defer raw.Close()
-		errBody, readErr := io.ReadAll(io.LimitReader(raw, maximumErrorResponseBytes))
-		if readErr != nil {
-			return nil, nil, fmt.Errorf("elevenlabs: http %d; read error response: %w", resp.StatusCode(), readErr)
+		if body := resp.RawBody(); body != nil {
+			_ = body.Close()
 		}
-		return nil, nil, fmt.Errorf("elevenlabs: http %d: %s", resp.StatusCode(), string(errBody))
+		return nil, nil, fmt.Errorf("elevenlabs: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return resp.RawBody(), resp.Header(), nil
 }
@@ -287,7 +283,7 @@ func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, 
 		return nil, fmt.Errorf("elevenlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("elevenlabs: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("elevenlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("elevenlabs: decode response facts: %w", err)

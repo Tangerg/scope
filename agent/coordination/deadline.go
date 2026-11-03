@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/restore"
-	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -138,13 +137,9 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 	settlement := completion.Outcome
 	payload := settlement.Payload()
 	if settlement.Status() == run.SettlementStatusFailed {
-		diagnostic, decodeErr := payload.Decode[string]()
-		if decodeErr != nil || !run.ValidDiagnostic(diagnostic) {
+		failure, valid := settlement.Failure()
+		if !valid {
 			return run.Transition{}, fmt.Errorf("%w: invalid timer failure diagnostic", ErrInvalidProtocol)
-		}
-		failure, failureErr := stepfail.Failure(run.FailureKindExternal, failureCodeDeadlineInterrupted, diagnostic)
-		if failureErr != nil {
-			return run.Transition{}, failureErr
 		}
 		return run.Fail(1, failure)
 	}
@@ -170,5 +165,3 @@ func (d *deadlineExecution) Snapshot() (run.ExecutionState, error) {
 var _ run.Execution = (*deadlineExecution)(nil)
 
 var _ run.Definition = (*deadlineDefinition)(nil)
-
-const failureCodeDeadlineInterrupted = "coordination.deadline.interrupted"

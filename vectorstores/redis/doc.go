@@ -22,7 +22,9 @@
 // distinct key is charged before its HASH payload is fetched; bytes count the
 // key plus the four field names and values, excluding protocol framing. A second
 // atomic size check rejects concurrent growth; vanished keys are charged for
-// their names. ClusterClient visits all masters; Ring is unsupported. A slow
+// their names. The host binds ScanNodes to the complete authoritative keyspace;
+// ClusterClient.ForEachMaster supports decorated clients without type discovery.
+// Ring.ForEachShard is insufficient because it can skip unavailable shards. A slow
 // scan may hit its deadline and has no snapshot isolation. No partial search
 // result is returned. DeleteMatching finishes selection then compares current
 // canonical metadata before deleting each record; earlier deletions may survive

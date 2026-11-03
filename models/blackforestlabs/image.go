@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -86,11 +87,11 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	model, apiReq, err := i.buildRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	async, final, err := i.runGeneration(ctx, model, apiReq)
 	if err != nil {
@@ -98,7 +99,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	}
 	value, err := i.downloadGeneratedImage(ctx, final.Result.Sample, apiReq.OutputFormat)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	return mapImageResponse(value, async, final)
 }
@@ -172,7 +173,7 @@ func (i *ImageModel) runGeneration(ctx context.Context, model string, request *g
 	}
 	final, err := i.pollUntilDone(ctx, async)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	if final.Result.Sample == "" {
 		return nil, nil, errors.New("blackforestlabs: ready output has no sample URL")

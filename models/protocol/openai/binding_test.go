@@ -64,7 +64,7 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 			return model == nil, err
 		},
 		"compatible NewChatCompletions": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, openai.Dialect{Provider: "deepseek", TokenLimitField: openai.TokenLimitMaxTokens})
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, openai.DialectConfig{Provider: "deepseek", TokenLimitField: openai.TokenLimitMaxTokens})
 			return model == nil, err
 		},
 	}

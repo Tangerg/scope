@@ -11,6 +11,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -162,11 +163,11 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 
 func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	options, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effective := *req
 	effective.Options = options
@@ -174,7 +175,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	modelName, contents, config, err := e.buildAPIRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := e.api.embedding(ctx, modelName, contents, config)

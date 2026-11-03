@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/protocol/openai"
 	"github.com/Tangerg/scope/models/together"
 )
@@ -120,7 +121,7 @@ func TestReasoningReplayRejectsMixedFieldOwners(t *testing.T) {
 	response, err := model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("hello")), corechat.NewAssistantMessage(first, second, corechat.NewTextPart("answer")), corechat.NewUserMessage(corechat.NewTextPart("next")),
 	}})
-	if response != nil || corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted {
+	if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 		t.Fatalf("Call = %v, %v", response, err)
 	}
 }

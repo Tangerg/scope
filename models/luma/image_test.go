@@ -53,6 +53,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
+		OutputOrigins:  []string{server.URL},
 		PollInterval:   10 * time.Millisecond,
 		PollTimeout:    5 * time.Second,
 	})
@@ -73,6 +74,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
+		OutputOrigins:  []string{server.URL},
 		PollInterval:   10 * time.Millisecond,
 		PollTimeout:    5 * time.Second,
 		MaxOutputBytes: 2,
@@ -107,7 +109,7 @@ func TestImageRejectsNullGenerationAtSubmissionAndPoll(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: luma.ModelUni1}, PollInterval: time.Millisecond})
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: image.Options{Model: luma.ModelUni1}, PollInterval: time.Millisecond})
 			if err != nil {
 				t.Fatal(err)
 			}

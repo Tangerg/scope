@@ -123,7 +123,7 @@ func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transi
 		input.Controls[index] = control.project()
 	}
 	for index, worker := range e.definition.workers {
-		input.Workers[index] = worker.program.Descriptor()
+		input.Workers[index] = worker.Program.Descriptor()
 	}
 	payload, err := run.EncodePayload(input)
 	if err != nil {
@@ -133,7 +133,11 @@ func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transi
 	if err != nil {
 		return run.Transition{}, err
 	}
-	invocation, effect, err := child.Start(runtimeTurn, 0, e.definition.coordinator.spec(key, payload))
+	spec, err := e.definition.coordinator.Spec(key, payload)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	invocation, effect, err := child.Start(runtimeTurn, 0, spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -155,7 +159,11 @@ func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision D
 	effects := make([]run.Effect, 0, len(decision.Tasks)+len(decision.Controls))
 	for _, request := range decision.Tasks {
 		worker, _ := e.definition.worker(request.Worker)
-		invocation, effect, err := child.Start(turn, uint32(len(effects)), worker.spec(request.Key, request.Input))
+		spec, err := worker.Spec(request.Key, request.Input)
+		if err != nil {
+			return run.Transition{}, err
+		}
+		invocation, effect, err := child.Start(turn, uint32(len(effects)), spec)
 		if err != nil {
 			return run.Transition{}, err
 		}

@@ -124,7 +124,7 @@ func validateProviderConstructor(
 	}
 	if parameterCount != 2 {
 		dialectType := namedType(function.Type.Params.List[len(function.Type.Params.List)-1].Type)
-		if parameterCount != 3 || dialectType != "Dialect" && dialectType != "ResponsesDialect" {
+		if parameterCount != 3 || dialectType != "Dialect" && dialectType != "DialectConfig" && dialectType != "ResponsesDialect" {
 			t.Errorf("%s: constructor with config has %d parameters", name, parameterCount)
 		} else if dialectType == "ResponsesDialect" {
 			if _, ok := validateReceivers[dialectType]; !ok {

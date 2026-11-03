@@ -30,7 +30,7 @@ func TestRetrievalToolExposesStrictSchemaAndCandidates(t *testing.T) {
 	}
 	var executable tool.Tool = retrievalTool
 	definition := executable.Definition()
-	if definition.Name != "search_knowledge" || !strings.Contains(string(definition.InputSchema), `"query"`) {
+	if definition.Name != "search_knowledge" || definition.Effect != tool.EffectSafe || !strings.Contains(string(definition.InputSchema), `"query"`) {
 		t.Fatalf("definition = %#v", definition)
 	}
 

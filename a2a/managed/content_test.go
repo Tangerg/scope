@@ -6,6 +6,10 @@ import (
 	"testing"
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
+
+	"github.com/Tangerg/scope/a2a"
+	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 func TestJSONContentDoesNotRoundAnAgentAnswer(t *testing.T) {
@@ -102,9 +106,65 @@ func TestProjectedPartsPreserveExactJSONAndStringMeaning(t *testing.T) {
 		{raw: `null`, mediaType: "application/json", text: "null"},
 		{raw: `{"amount":9007199254740993}`, mediaType: "application/json", text: `{"amount":9007199254740993}`},
 	} {
-		part := jsonPart([]byte(sample.raw))
+		part := (contentPolicy{outputs: []string{mediaTypePlainText, mediaTypeJSON}}).part([]byte(sample.raw))
 		if part.MediaType != sample.mediaType || part.Text() != sample.text {
 			t.Fatalf("raw=%s part=%+v", sample.raw, part)
 		}
+	}
+}
+
+func TestQuestionsUseTheSameDeclaredOutputPolicyAsFinalArtifacts(t *testing.T) {
+	root, err := run.ParseProcessID("question-modes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := run.ParseWaitKey("confirm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	answerSchema, err := jsonschema.For[bool]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, outputSchema, accepted, question, text string
+	}{
+		{"structured question in text", `{"type":"string"}`, mediaTypePlainText, `{"confirm":"Proceed?","amount":9007199254740993}`, `{"confirm":"Proceed?","amount":9007199254740993}`},
+		{"string question in JSON", `{"type":"object"}`, mediaTypeJSON, `"Proceed?"`, `"Proceed?"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			policy, err := newContentPolicy(sdk.AgentCard{}, []byte(test.outputSchema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &sdk.SendMessageRequest{Message: sdk.NewMessage(sdk.MessageRoleUser, sdk.NewTextPart("start")), Config: &sdk.SendMessageConfig{AcceptedOutputModes: []string{test.accepted}}}
+			if _, err = policy.prepare(request); err != nil {
+				t.Fatal(err)
+			}
+			question, err := run.ParsePayload([]byte(test.question))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantText := test.text
+			if test.accepted == mediaTypePlainText {
+				wantText = string(question.JSON())
+			}
+			head := run.TreeInspection{Root: root, Processes: []run.ProcessInspection{{ID: root, Status: run.StatusWaiting, Waits: []run.Wait{{Key: key, Question: question, AnswerSchema: answerSchema}}}}}
+			task, err := projectTask(taskKey{id: "task", context: "context"}, head, policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			message := task.Status.Message
+			if message == nil || len(message.Parts) != 1 || message.Parts[0].MediaType != test.accepted || message.Parts[0].Text() != wantText {
+				t.Fatalf("question escaped the declared output modes: %+v", message)
+			}
+			if message.Metadata[a2a.AnswerSchemaMetadataKey] != string(answerSchema.JSON()) || message.Metadata[a2a.WaitMetadataKey] == nil {
+				t.Fatal("question encoding discarded its answer contract or address")
+			}
+			pending := task.Metadata[PendingKey].([]pendingQuestion)
+			if len(pending) != 1 || string(pending[0].Question) != string(question.JSON()) || string(pending[0].AnswerSchema) != string(answerSchema.JSON()) {
+				t.Fatalf("question metadata lost exact values: %+v", pending)
+			}
+		})
 	}
 }

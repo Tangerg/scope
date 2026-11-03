@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 )
 
@@ -30,7 +31,7 @@ func TestResponsesRejectsContradictoryTerminalFacts(t *testing.T) {
 			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))}}
 			model := newResponsesModel(t, server.URL, "model")
 			response, err := model.Call(t.Context(), request)
-			if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || chat.ClassifyFailure(err) != chat.CallFailureUnknown {
+			if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
 				t.Fatalf("response=%v error=%v", response, err)
 			}
 		})

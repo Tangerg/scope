@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
@@ -72,32 +73,38 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
 }
 
-func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (_ *transcription.Response, invocationErr error) {
+	performedWork := false
+	defer func() {
+		if invocationErr != nil && performedWork {
+			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
+		}
+	}()
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	for _, field := range []string{fieldAudioURL, fieldModel} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)}
 		}
 	}
 	if language, ok := nativeFields[fieldLanguageConfig].(map[string]any); ok {
 		if _, exists := language[fieldLanguages]; exists {
-			return nil, fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)}
 		}
 	}
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](RequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq.Model = effectiveOptions.Model
 	if effectiveOptions.Language != "" {
@@ -107,7 +114,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		apiReq.LanguageConfig.Languages = []string{effectiveOptions.Language}
 	}
 	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
-		return nil, validateTranscriptionRequestErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptionRequestErr}
 	}
 	if req.Audio.Source.Kind == media.SourceURI {
 		apiReq.AudioURL = req.Audio.Source.URI
@@ -115,13 +122,14 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		var audio []byte
 		audio, err = req.Audio.Bytes()
 		if err != nil {
-			return nil, err
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 		}
 		var uploaded *uploadResponse
 		uploaded, err = t.api.upload(ctx, audio, req.Audio.MIME)
 		if err != nil {
 			return nil, err
 		}
+		performedWork = true
 		apiReq.AudioURL = uploaded.AudioURL
 	}
 
@@ -130,6 +138,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, err
 	}
 
+	performedWork = true
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
 		return nil, err

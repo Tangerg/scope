@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
@@ -73,12 +75,12 @@ func TestUnfinishedOrAmbiguousModelCallsCannotExecuteTools(t *testing.T) {
 }
 
 func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
-	for _, kind := range []chat.CallFailureKind{chat.CallFailureFailed, chat.CallFailureNotExecuted} {
+	for _, kind := range []invocation.FailureKind{invocation.FailureFailed, invocation.FailureNotExecuted} {
 		runtime := conformancetest.Runtime(t, run.Config{})
 		calls := 0
 		program := compileTest(t, runtime, Config{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			calls++
-			return nil, &chat.CallFailure{Kind: kind, Cause: errors.New("definite provider rejection")}
+			return nil, &invocation.Failure{Kind: kind, Cause: errors.New("definite provider rejection")}
 		})})
 		result, err := startInteraction(t, runtime, program).Await(t.Context())
 		if err != nil {

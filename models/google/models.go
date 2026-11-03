@@ -23,20 +23,20 @@ const (
 	DefaultBaseURL = protocol.DefaultBaseURL
 	BaseURLOpenAI  = "https://generativelanguage.googleapis.com/v1beta/openai"
 
-	RequestExtensionKey  = "google/request"
-	ResponseExtensionKey = "google/response"
+	RequestExtensionKey  = protocol.RequestExtensionKey
+	ResponseExtensionKey = protocol.ResponseExtensionKey
 
-	SpeechRequestExtensionKey         = "google/speech_request"
-	SpeechResponseExtensionKey        = "google/speech_response"
-	TranscriptionRequestExtensionKey  = "google/transcription_request"
-	TranscriptionResponseExtensionKey = "google/transcription_response"
-	EmbeddingRequestExtensionKey      = "google/embedding_request"
-	EmbeddingResponseExtensionKey     = "google/embedding_response"
-	ImageRequestExtensionKey          = "google/image_request"
-	ImageResponseExtensionKey         = "google/image_response"
+	SpeechRequestExtensionKey         = protocol.SpeechRequestExtensionKey
+	SpeechResponseExtensionKey        = protocol.SpeechResponseExtensionKey
+	TranscriptionRequestExtensionKey  = protocol.TranscriptionRequestExtensionKey
+	TranscriptionResponseExtensionKey = protocol.TranscriptionResponseExtensionKey
+	EmbeddingRequestExtensionKey      = protocol.EmbeddingRequestExtensionKey
+	EmbeddingResponseExtensionKey     = protocol.EmbeddingResponseExtensionKey
+	ImageRequestExtensionKey          = protocol.ImageRequestExtensionKey
+	ImageResponseExtensionKey         = protocol.ImageResponseExtensionKey
 
-	OpenAIRequestExtensionKey     = "google/openai_request"
-	OpenAIStreamChunkExtensionKey = "google/openai_stream_chunk"
+	OpenAIRequestExtensionKey     = protocolProvider + openaiprotocol.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = protocolProvider + openaiprotocol.CompatibleStreamExtensionSuffix
 
 	ModelGemini36Flash      = protocol.ModelGemini36Flash
 	ModelGemini35Flash      = protocol.ModelGemini35Flash
@@ -55,7 +55,7 @@ const (
 	ModelGeminiEmbedding2 = protocol.ModelGeminiEmbedding2
 )
 
-const protocolProvider = "google"
+const protocolProvider = protocol.GoogleProviderID
 
 func protocolClient(apiKey, baseURL string, httpClient *http.Client) protocol.ClientConfig {
 	return protocol.ClientConfig{APIKey: apiKey, BaseURL: baseURL, HTTPClient: httpClient}
@@ -126,7 +126,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	}
 	protocol, err := openaiprotocol.NewChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
-		openaiprotocol.Dialect{Provider: protocolProvider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
+		openaiprotocol.DialectConfig{Provider: protocolProvider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)
 	if err != nil {
 		return nil, err

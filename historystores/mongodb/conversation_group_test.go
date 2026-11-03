@@ -19,6 +19,7 @@ type groupingCollection struct {
 	MessageCollection
 	documents []any
 	pipeline  any
+	closed    bool
 }
 
 func (g *groupingCollection) Aggregate(
@@ -28,6 +29,10 @@ func (g *groupingCollection) Aggregate(
 ) (*mongo.Cursor, error) {
 	g.pipeline = pipeline
 	return mongo.NewCursorFromDocuments(g.documents, nil, nil)
+}
+
+func (g *groupingCollection) FindOneAndUpdate(_ context.Context, _ any, _ any, _ ...options.Lister[options.FindOneAndUpdateOptions]) *mongo.SingleResult {
+	return mongo.NewSingleResultFromDocument(conversationGate{Closed: g.closed}, nil, nil)
 }
 
 // MongoDB documents three limits on the distinct command that all share one
@@ -61,12 +66,12 @@ func TestConversationsGroupsRatherThanUsingDistinct(t *testing.T) {
 	want := mongo.Pipeline{
 		bson.D{{Key: "$group", Value: bson.D{{Key: fieldID, Value: "$" + fieldConversationID}}}},
 	}
-	if len(pipeline) != len(want) || pipeline[0][0].Key != want[0][0].Key {
-		t.Fatalf("pipeline = %v, want a single $group stage", pipeline)
+	if len(pipeline) != 2 || pipeline[0][0].Key != operatorMatch || pipeline[1][0].Key != want[0][0].Key {
+		t.Fatalf("pipeline = %v, want a visible-append match followed by $group", pipeline)
 	}
-	group, ok := pipeline[0][0].Value.(bson.D)
+	group, ok := pipeline[1][0].Value.(bson.D)
 	if !ok || len(group) != 1 || group[0].Key != fieldID || group[0].Value != "$"+fieldConversationID {
-		t.Fatalf("$group stage = %v, want grouping by $%s", pipeline[0][0].Value, fieldConversationID)
+		t.Fatalf("$group stage = %v, want grouping by $%s", pipeline[1][0].Value, fieldConversationID)
 	}
 }
 
@@ -91,5 +96,18 @@ func TestConversationsRefusesAnInvalidStoredID(t *testing.T) {
 	collection := &groupingCollection{documents: []any{bson.D{{Key: "_id", Value: ""}}}}
 	if _, err := storeFor(t, collection).Conversations(t.Context()); err == nil {
 		t.Fatal("Conversations() = nil error, want the invalid stored ID reported")
+	}
+}
+
+func storeFor(t *testing.T, collection MessageCollection) *Store {
+	t.Helper()
+	return &Store{collection: collection, transact: func(ctx context.Context, apply func(context.Context) error) error { return apply(ctx) }}
+}
+
+func TestConversationsHidesClosedConversationBeforeCleanup(t *testing.T) {
+	collection := &groupingCollection{documents: []any{bson.D{{Key: fieldID, Value: "closed"}}}, closed: true}
+	ids, err := storeFor(t, collection).Conversations(t.Context())
+	if err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("Conversations = %v, %v", ids, err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -27,7 +28,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 		{name: "unknown incomplete reason", status: "incomplete", detail: `"incomplete_details":{"reason":"unknown"},`, want: chat.FinishReasonOther},
 		{name: "partial tool call", status: "incomplete", detail: `"incomplete_details":{"reason":"max_output_tokens"},`, output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{"}`, want: chat.FinishReasonLength},
 		{name: "refusal and tool call", status: "completed", output: `{"type":"function_call","id":"fc_1","call_id":"call_1","name":"lookup","arguments":"{}"},{"type":"message","id":"refusal-1","role":"assistant","content":[{"type":"refusal","refusal":"declined"}]}`, want: chat.FinishReasonRefusal},
-		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "chat: failed: openai responses: failed: server_error: generation failed"},
+		{name: "failed", status: "failed", detail: `"error":{"code":"server_error","message":"generation failed"},`, wantError: "invocation: failed: openai responses: failed: server_error: generation failed"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,7 +66,7 @@ func TestResponsesTerminalStatesMatchAcrossCallAndStream(t *testing.T) {
 					t.Fatal("failed response exposed a successful result")
 				}
 				for _, err := range []error{callErr, streamErr} {
-					if chat.ClassifyFailure(err) != chat.CallFailureFailed {
+					if invocation.ClassifyFailure(err) != invocation.FailureFailed {
 						t.Fatalf("native failure lost execution evidence: %v", err)
 					}
 				}
@@ -150,7 +151,7 @@ func TestResponsesStreamRejectsErrorAndPrematureEOF(t *testing.T) {
 			if test.name != "error event" && !errors.Is(got, chat.ErrInvalidResponse) {
 				t.Fatalf("error = %v, want ErrInvalidResponse", got)
 			}
-			if chat.ClassifyFailure(got) != chat.CallFailureUnknown {
+			if invocation.ClassifyFailure(got) != invocation.FailureUnknown {
 				t.Fatalf("stream without a known terminal status claimed definite failure: %v", got)
 			}
 		})

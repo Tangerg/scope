@@ -1,10 +1,13 @@
 package interaction
 
 import (
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 func TestModelSettlementKeepsDefiniteFailureEvidence(t *testing.T) {
@@ -13,8 +16,8 @@ func TestModelSettlementKeepsDefiniteFailureEvidence(t *testing.T) {
 		cause   error
 		outcome ModelOutcome
 	}{
-		{name: "not executed", cause: &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("request rejected")}, outcome: ModelOutcomeNotExecuted},
-		{name: "definite failure", cause: &chat.CallFailure{Kind: chat.CallFailureFailed, Cause: errors.New("provider refused completion")}, outcome: ModelOutcomeFailed},
+		{name: "not executed", cause: &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("request rejected")}, outcome: ModelOutcomeNotExecuted},
+		{name: "definite failure", cause: &invocation.Failure{Kind: invocation.FailureFailed, Cause: errors.New("provider refused completion")}, outcome: ModelOutcomeFailed},
 		{name: "unknown", cause: errors.New("lost response"), outcome: ModelOutcomeUnknown},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -23,6 +26,30 @@ func TestModelSettlementKeepsDefiniteFailureEvidence(t *testing.T) {
 				t.Fatalf("settlement=%+v, want %s", settlement, test.outcome)
 			}
 		})
+	}
+}
+
+func TestFailedSettlementKeepsCompletedGenerationAcrossPersistence(t *testing.T) {
+	response := finalResponse("generated before commit failed")
+	response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 17, OutputTokens: 5}}
+	cause := &invocation.Failure{Kind: invocation.FailureFailed, Cause: errors.New("history commit rejected")}
+	settled := mustValue(modelFailureSettlement(response, cause))
+	failure, found := settled.Failure()
+	if !found || failure.Message() != cause.Error() || settled.Status() != run.SettlementStatusFailed {
+		t.Fatal("definite failure diagnostic escaped its run owner")
+	}
+	encoded := mustValue(jsonv2.Marshal(settled))
+	var restored run.Settlement
+	if err := jsonv2.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	response.Metadata.Usage.InputTokens = 99
+	projected := mustValue(ModelSettlementFromOutcome(restored))
+	if projected.Outcome != ModelOutcomeFailed || projected.Failure != failure.Message() || projected.Response.Output.Text() != "generated before commit failed" || projected.Response.Metadata.Usage.TotalTokens() != 22 {
+		t.Fatalf("completed work was lost or advanced separately: %+v", projected)
+	}
+	if _, err := ToolSettlementFromOutcome(requested("tool", "call"), restored); err == nil {
+		t.Fatal("tool projection admitted model-owned generation")
 	}
 }
 

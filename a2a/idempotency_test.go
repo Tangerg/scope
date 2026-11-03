@@ -56,6 +56,9 @@ func TestRemoteCallSendsItsIdempotencyKeyAsTheMessageID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if binding.Contract().Effect() != tool.EffectUnsafe {
+		t.Fatal("message identity was mistaken for an endpoint replay guarantee")
+	}
 	request := tool.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"record"}`}
 	for _, admission := range []tool.Admission{{IdempotencyKey: "call-1"}, {IdempotencyKey: "call-1"}, {}} {
 		invocation, prepareErr := binding.Contract().Prepare(request, admission)

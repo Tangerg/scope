@@ -19,8 +19,6 @@ import (
 	toolotel "github.com/Tangerg/scope/otel/tool"
 )
 
-type marked interface{ Marked() }
-
 type testTool struct {
 	result string
 	err    error
@@ -38,8 +36,6 @@ func (t *testTool) Call(ctx context.Context, invocation coretool.Invocation) (co
 	t.called = trace.SpanFromContext(ctx).SpanContext().IsValid() && string(invocation.Arguments()) == `{"key":"secret"}`
 	return coretool.Result{Output: coretool.NewTextOutput(t.result)}, t.err
 }
-
-func (*testTool) Marked() {}
 
 type telemetryRig struct {
 	spans  *tracetest.SpanRecorder
@@ -68,11 +64,7 @@ func newRig(t *testing.T) (toolotel.Middleware, *telemetryRig) {
 func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	middleware, rig := newRig(t)
 	inner := &testTool{result: "sensitive-result"}
-	wrapped, err := middleware.Wrap(inner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := coretool.Bind(wrapped)
+	binding, err := coretool.Bind(inner, middleware.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,9 +76,6 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 	text, textOK := result.Output.Text()
 	if err != nil || !textOK || text != inner.result || !inner.called {
 		t.Fatalf("Call = (%q, %v), context observed = %t", text, err, inner.called)
-	}
-	if _, found, err := coretool.Capability[marked](wrapped); err != nil || !found {
-		t.Fatalf("wrapped capability = found:%t error:%v", found, err)
 	}
 	if len(rig.spans.Ended()) == 0 {
 		t.Fatal("expected a recorded span")
@@ -119,11 +108,7 @@ func TestMiddlewareTracesAndMeasuresExactToolBoundary(t *testing.T) {
 func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.T) {
 	middleware, rig := newRig(t)
 	want := fmt.Errorf("tool stopped: %w", context.Canceled)
-	wrapped, err := middleware.Wrap(&testTool{err: want})
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding, err := coretool.Bind(wrapped)
+	binding, err := coretool.Bind(&testTool{err: want}, middleware.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,16 +127,16 @@ func TestMiddlewareClassifiesWrappedCancellationWithoutChangingError(t *testing.
 	assertHistogramAttribute(t, durationMetric(t, rig.reader), "error.type", "context.canceled")
 }
 
-func TestMiddlewareRejectsNilAndInvalidTools(t *testing.T) {
+func TestMiddlewareRejectsUnconfiguredExecution(t *testing.T) {
 	var zero toolotel.Middleware
-	if wrapped, err := zero.Wrap(&testTool{}); wrapped != nil || !errors.Is(err, toolotel.ErrInvalidConfig) {
-		t.Fatalf("zero Wrap = (%v, %v)", wrapped, err)
+	if _, err := zero.Call(&testTool{}).Call(t.Context(), coretool.Invocation{}); !errors.Is(err, toolotel.ErrInvalidConfig) {
+		t.Fatalf("zero middleware: %v", err)
 	}
 	middleware, _ := newRig(t)
 	var typedNil *testTool
-	for _, candidate := range []coretool.Tool{nil, typedNil} {
-		if wrapped, err := middleware.Wrap(candidate); wrapped != nil || !errors.Is(err, toolotel.ErrInvalidTool) {
-			t.Fatalf("Wrap(%T) = (%v, %v)", candidate, wrapped, err)
+	for _, candidate := range []coretool.Caller{nil, typedNil} {
+		if _, err := middleware.Call(candidate).Call(t.Context(), coretool.Invocation{}); !errors.Is(err, toolotel.ErrInvalidTool) {
+			t.Fatalf("nil caller: %v", err)
 		}
 	}
 }

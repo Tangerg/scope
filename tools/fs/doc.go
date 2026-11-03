@@ -13,7 +13,7 @@
 // again; each side closes the handle it owns.
 //
 // ApplyPatchTool.MutationPaths exposes prospective patch endpoints without I/O;
-// hosts discover it through core/tool.Capability for approval or locking.
+// hosts inspect that direct capability before binding approval or locking policy.
 // Mutation tools carry ordinary backend errors and acknowledged effects as
 // core/tool.CallError evidence for evaluation and reconciliation, not as a
 // result for the model. Backends establish definite failure or refusal with

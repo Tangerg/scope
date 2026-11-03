@@ -41,7 +41,11 @@ func run(ctx context.Context) (err error) {
 		&sdkmcp.Implementation{Name: "scope-bridge"},
 		nil,
 	)
-	if registerErr := scopemcp.Register(server, echo); registerErr != nil {
+	binding, err := tool.Bind(echo)
+	if err != nil {
+		return err
+	}
+	if registerErr := scopemcp.Register(server, binding); registerErr != nil {
 		return fmt.Errorf("register echo tool: %w", registerErr)
 	}
 

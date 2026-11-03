@@ -16,7 +16,7 @@ func TestImageOptionsRejectUnmappedOrNullControlsBeforeIO(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
 			t.Cleanup(server.Close)
-			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: luma.ModelUni1}})
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: image.Options{Model: luma.ModelUni1}})
 			if err != nil {
 				t.Fatal(err)
 			}

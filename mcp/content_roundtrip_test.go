@@ -45,6 +45,8 @@ func TestRemoteOutputSchemaAdmission(t *testing.T) {
 		{name: "missing property", schema: objectSchema, details: `{}`, invalid: true},
 		{name: "missing content", schema: objectSchema, invalid: true},
 		{name: "nullable null", schema: `{"type":["integer","null"]}`, details: `null`},
+		{name: "array content", schema: `{"type":"array","items":{"type":"integer"}}`, details: `[1,2]`},
+		{name: "boolean content", schema: `{"type":"boolean"}`, details: `false`},
 		{name: "null is not absent", schema: `{"type":"null"}`, invalid: true},
 		{name: "exact large integer", schema: `{"type":"integer"}`, details: `9007199254740993`},
 		{name: "noninteger result", schema: `{"type":"integer"}`, details: `0.5`, invalid: true},
@@ -86,6 +88,38 @@ func TestRemoteOutputSchemaAdmission(t *testing.T) {
 	}
 }
 
+func TestTypedOutputSchemaSurvivesRegistrationAndDiscovery(t *testing.T) {
+	type input struct {
+		Value int `json:"value"`
+	}
+	type output struct {
+		Doubled int `json:"doubled"`
+	}
+	executable, err := tool.NewFunc(tool.FuncConfig{Name: "double"},
+		func(_ context.Context, _ tool.IdempotencyKey, arguments input) (output, error) {
+			return output{Doubled: 2 * arguments.Value}, nil
+		})
+	require.NoError(t, err)
+	binding, err := tool.Bind(executable)
+	require.NoError(t, err)
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "typed-output"}, nil)
+	require.NoError(t, scopemcp.Register(server, binding))
+	session := connectContentServer(t, server)
+	listed, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	require.Len(t, listed.Tools, 1)
+	advertised, err := jsonv2.Marshal(listed.Tools[0].OutputSchema)
+	require.NoError(t, err)
+	require.JSONEq(t, string(binding.Contract().Definition().OutputSchema), string(advertised))
+	discovered, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
+	require.NoError(t, err)
+	require.Len(t, discovered, 1)
+	require.JSONEq(t, string(advertised), string(discovered[0].Definition().OutputSchema))
+	result, err := invokeTestTool(t.Context(), discovered[0], `{"value":21}`)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"doubled":42}`, string(result.Details))
+}
+
 func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	annotations := &sdkmcp.Annotations{Audience: []sdkmcp.Role{"assistant"}, Priority: 0.75, LastModified: "2026-09-27T00:00:00Z"}
 	meta := sdkmcp.Meta{"example/value": json.RawMessage(`{"id":9007199254740993,"fraction":0.12345678901234567890123456789,"nested":[18446744073709551615,null,{},[]]}`)}
@@ -125,7 +159,7 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 		require.Equal(t, output.Content[index].Metadata, messages[0].Parts[0].Metadata)
 	}
 	proxy := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "proxy"}, nil)
-	require.NoError(t, scopemcp.Register(proxy, tools...))
+	require.NoError(t, registerTestTools(proxy, tools...))
 	proxySession := connectContentServer(t, proxy)
 	result, err := proxySession.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "read", Arguments: json.RawMessage(`{}`)})
 	require.NoError(t, err)
@@ -145,7 +179,7 @@ func TestCoreContentMetadataAndCitationsRoundTrip(t *testing.T) {
 	}}}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "core-source"}, nil)
 	local := contentOutputTool{output: output}
-	require.NoError(t, scopemcp.Register(server, local))
+	require.NoError(t, registerTestTools(server, local))
 	session := connectContentServer(t, server)
 	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
 	require.NoError(t, err)
@@ -173,7 +207,7 @@ func TestCoreMediaNamesRoundTrip(t *testing.T) {
 		output.Content = append(output.Content, corecontent.Block{Kind: chat.PartMedia, Media: value})
 	}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "named-media"}, nil)
-	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
+	require.NoError(t, registerTestTools(server, contentOutputTool{output: output}))
 	session := connectContentServer(t, server)
 
 	result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "content", Arguments: json.RawMessage(`{}`)})
@@ -223,7 +257,7 @@ func TestCoreMediaIdentityAndMetadataRoundTrip(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "identified-media"}, nil)
-			require.NoError(t, scopemcp.Register(server, local))
+			require.NoError(t, registerTestTools(server, local))
 			session := connectContentServer(t, server)
 			tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
 			require.NoError(t, err)
@@ -263,7 +297,7 @@ func TestMediaReferencesDoNotCrossMCP(t *testing.T) {
 	require.NoError(t, err)
 	output := tool.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: reference}}}
 	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "reference-media"}, nil)
-	require.NoError(t, scopemcp.Register(server, contentOutputTool{output: output}))
+	require.NoError(t, registerTestTools(server, contentOutputTool{output: output}))
 	session := connectContentServer(t, server)
 	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{})
 	require.NoError(t, err)

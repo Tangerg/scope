@@ -143,6 +143,7 @@ package_budget=(
   "core/internal/arch none"
   "core/internal/modelid 100"
   "core/internal/ptr 100.0"
+  "core/invocation 90"
   "core/jsonschema 89.4"
   "core/media 92.9"
   "core/metadata 86.2"

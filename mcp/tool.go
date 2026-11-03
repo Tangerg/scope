@@ -80,7 +80,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	if res != nil && res.NeedsInput() {
 		return r.input(invocation, res)
 	}
-	output, err := remoteResult{remoteName: remoteName, value: res, outputSchema: r.descriptor.outputSchema}.unwrap()
+	output, err := remoteResult{remoteName: remoteName, value: res}.unwrap()
 	return toolcontract.Result{Output: output}, err
 }
 

@@ -12,7 +12,9 @@ import (
 
 // Reader is the read backend used by ReadTool. Implementations must support
 // concurrent calls, including calls through other tools sharing the backend;
-// ReadTool advertises parallel reads on that promise.
+// ReadTool advertises parallel reads on that promise. Reads, globs and searches
+// never request mutations of application state; completed errors with no usable
+// output are definite failures, while cancellation preserves uncertainty.
 type Reader interface {
 	Read(ctx context.Context, in ReadInput) (ReadOutput, error)
 }

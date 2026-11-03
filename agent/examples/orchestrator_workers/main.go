@@ -167,7 +167,7 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 		return nil, err
 	}
 	decompose, err := workflow.Call(workflow.CallConfig{
-		ID: "decompose", Program: o.decomposer, Budget: budget,
+		ID: "decompose", Child: agentrun.ChildBinding{Program: o.decomposer, Budget: budget},
 	})
 	if err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 		return nil, err
 	}
 	execute, err := workflow.Map(workflow.MapConfig[workerTask, workerResult]{
-		ID: "execute", Program: o.worker, Budget: budget,
+		ID: "execute", Child: agentrun.ChildBinding{Program: o.worker, Budget: budget},
 		WindowSize: workerParallelism, MaxItems: maximumPlannedTasks,
 	})
 	if err != nil {
@@ -188,7 +188,7 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 		return nil, err
 	}
 	synthesize, err := workflow.Call(workflow.CallConfig{
-		ID: "synthesize", Program: o.synthesizer, Budget: budget,
+		ID: "synthesize", Child: agentrun.ChildBinding{Program: o.synthesizer, Budget: budget},
 	})
 	if err != nil {
 		return nil, err

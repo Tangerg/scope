@@ -1,7 +1,9 @@
 package repoarch
 
 import (
+	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"maps"
 	"os"
@@ -93,6 +95,10 @@ func TestModalityModelBoundariesValidateRequests(t *testing.T) {
 func TestProviderExtensionKeysAreSemanticAndNamespaced(t *testing.T) {
 	t.Parallel()
 
+	constants := extensionKeyConstants{}
+	walkProductionGoFiles(t, modelsRoot(t), func(path string, _ *token.FileSet, file *ast.File) {
+		constants.collect(path, file)
+	})
 	walkProductionGoFiles(t, modelsRoot(t), func(path string, fset *token.FileSet, file *ast.File) {
 		prefix := extensionProvider(path) + "/"
 		for _, declaration := range file.Decls {
@@ -101,7 +107,7 @@ func TestProviderExtensionKeysAreSemanticAndNamespaced(t *testing.T) {
 				continue
 			}
 			for _, specification := range general.Specs {
-				checkExtensionValueSpec(t, fset, path, prefix, specification.(*ast.ValueSpec))
+				checkExtensionValueSpec(t, fset, path, prefix, specification.(*ast.ValueSpec), constants)
 			}
 		}
 	})
@@ -113,6 +119,7 @@ func checkExtensionValueSpec(
 	relative string,
 	prefix string,
 	values *ast.ValueSpec,
+	constants extensionKeyConstants,
 ) {
 	t.Helper()
 	for index, name := range values.Names {
@@ -123,19 +130,104 @@ func checkExtensionValueSpec(
 		if !strings.HasSuffix(name.Name, "ExtensionKey") || index >= len(values.Values) {
 			continue
 		}
-		literal, ok := values.Values[index].(*ast.BasicLit)
-		if !ok || literal.Kind != token.STRING {
-			t.Errorf("%s:%d %s must be a string literal", relative, fset.Position(name.Pos()).Line, name.Name)
+		resolved, err := constants.resolve(filepath.Dir(relative), name.Name, make(map[string]bool))
+		if err != nil || resolved.Kind() != constant.String {
+			t.Errorf("%s:%d %s must resolve to a string constant: %v", relative, fset.Position(name.Pos()).Line, name.Name, err)
 			continue
 		}
-		value, err := strconv.Unquote(literal.Value)
-		if err != nil || !strings.HasPrefix(value, prefix) {
+		value := constant.StringVal(resolved)
+		if !strings.HasPrefix(value, prefix) {
 			t.Errorf("%s:%d %s = %q, want prefix %q", relative, fset.Position(name.Pos()).Line, name.Name, value, prefix)
 		}
 		if strings.HasSuffix(value, "/options") {
 			t.Errorf("%s:%d %s = %q is ambiguous; name the request modality", relative, fset.Position(name.Pos()).Line, name.Name, value)
 		}
 	}
+}
+
+type extensionKeyConstant struct {
+	expression ast.Expr
+	imports    map[string]string
+}
+
+// A derived key must satisfy the same invariant as a literal. Resolution follows
+// its declared owner, including protocol constants imported by provider leaves.
+type extensionKeyConstants map[string]map[string]extensionKeyConstant
+
+func (e extensionKeyConstants) collect(path string, file *ast.File) {
+	directory := filepath.Dir(path)
+	if e[directory] == nil {
+		e[directory] = make(map[string]extensionKeyConstant)
+	}
+	imports := make(map[string]string)
+	for _, imported := range file.Imports {
+		path, err := strconv.Unquote(imported.Path.Value)
+		if err != nil {
+			continue
+		}
+		alias := filepath.Base(path)
+		if imported.Name != nil {
+			alias = imported.Name.Name
+		}
+		imports[alias] = path
+	}
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.CONST {
+			continue
+		}
+		for _, specification := range general.Specs {
+			values := specification.(*ast.ValueSpec)
+			for index, name := range values.Names {
+				if index < len(values.Values) {
+					e[directory][name.Name] = extensionKeyConstant{expression: values.Values[index], imports: imports}
+				}
+			}
+		}
+	}
+}
+
+func (e extensionKeyConstants) resolve(directory, name string, active map[string]bool) (constant.Value, error) {
+	identity := directory + "/" + name
+	definition, found := e[directory][name]
+	if !found || active[identity] {
+		return constant.MakeUnknown(), fmt.Errorf("unresolved or cyclic constant %s", identity)
+	}
+	active[identity] = true
+	defer delete(active, identity)
+	return e.evaluate(directory, definition.imports, definition.expression, active)
+}
+
+func (e extensionKeyConstants) evaluate(directory string, imports map[string]string, expression ast.Expr, active map[string]bool) (constant.Value, error) {
+	switch value := expression.(type) {
+	case *ast.BasicLit:
+		return constant.MakeFromLiteral(value.Value, value.Kind, 0), nil
+	case *ast.ParenExpr:
+		return e.evaluate(directory, imports, value.X, active)
+	case *ast.Ident:
+		return e.resolve(directory, value.Name, active)
+	case *ast.SelectorExpr:
+		qualifier, ok := value.X.(*ast.Ident)
+		if ok {
+			const modelsImportPrefix = "github.com/Tangerg/scope/models/"
+			if path, found := strings.CutPrefix(imports[qualifier.Name], modelsImportPrefix); found {
+				return e.resolve(filepath.FromSlash(path), value.Sel.Name, active)
+			}
+		}
+	case *ast.BinaryExpr:
+		left, err := e.evaluate(directory, imports, value.X, active)
+		if err != nil {
+			return constant.MakeUnknown(), err
+		}
+		right, err := e.evaluate(directory, imports, value.Y, active)
+		if err != nil {
+			return constant.MakeUnknown(), err
+		}
+		if value.Op == token.ADD && left.Kind() == constant.String && right.Kind() == constant.String {
+			return constant.BinaryOp(left, value.Op, right), nil
+		}
+	}
+	return constant.MakeUnknown(), fmt.Errorf("unsupported extension-key expression %T", expression)
 }
 
 func extensionProvider(relative string) string {

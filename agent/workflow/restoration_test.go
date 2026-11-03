@@ -18,15 +18,15 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call, err := Call(CallConfig{ID: "call", Program: leaf.Erase()})
+	call, err := Call(CallConfig{ID: "call", Child: run.ChildBinding{Program: leaf.Erase()}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	choose, err := Switch(SwitchConfig[int]{ID: "choose", Cases: []SwitchCase{{ID: "increment", Program: leaf.Erase()}}, Select: func(context.Context, int) (string, error) { return "increment", nil }})
+	choose, err := Switch(SwitchConfig[int]{ID: "choose", Cases: []SwitchCase{{ID: "increment", Child: run.ChildBinding{Program: leaf.Erase()}}}, Select: func(context.Context, int) (string, error) { return "increment", nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fork, err := Fork(ForkConfig[int, int, int]{ID: "fork", Branches: []ForkBranch{{ID: "a", Program: leaf.Erase()}, {ID: "b", Program: leaf.Erase()}, {ID: "c", Program: leaf.Erase()}}, WindowSize: 2, Reduce: func(_ context.Context, _ int, outputs []int) (int, error) {
+	fork, err := Fork(ForkConfig[int, int, int]{ID: "fork", Branches: []ForkBranch{{ID: "a", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "b", Child: run.ChildBinding{Program: leaf.Erase()}}, {ID: "c", Child: run.ChildBinding{Program: leaf.Erase()}}}, WindowSize: 2, Reduce: func(_ context.Context, _ int, outputs []int) (int, error) {
 		sum := 0
 		for _, value := range outputs {
 			sum += value
@@ -36,7 +36,7 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loop, err := Loop(LoopConfig[int]{ID: "loop", Body: leaf.Erase(), MaxIterations: run.NewQuota(3), Predicate: func(_ context.Context, value int) (bool, error) { return value >= 10, nil }})
+	loop, err := Loop(LoopConfig[int]{ID: "loop", Body: run.ChildBinding{Program: leaf.Erase()}, MaxIterations: run.NewQuota(3), Predicate: func(_ context.Context, value int) (bool, error) { return value >= 10, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 			t.Fatal(value, decodeErr)
 		}
 	})
-	mapped, err := Map(MapConfig[int, int]{ID: "map", Program: leaf.Erase(), MaxItems: 5, WindowSize: 2})
+	mapped, err := Map(MapConfig[int, int]{ID: "map", Child: run.ChildBinding{Program: leaf.Erase()}, MaxItems: 5, WindowSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func mustPayload(t *testing.T, value any) run.Payload {
 
 func TestRestoreRejectsUnownedAndContradictoryWorkflowProgress(t *testing.T) {
 	leaf := mustProgram(t, mustDefinition(t, "test.leaf", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "leaf")
-	stage, err := Map(MapConfig[int, int]{ID: "map", Program: leaf, MaxItems: 4, WindowSize: 2})
+	stage, err := Map(MapConfig[int, int]{ID: "map", Child: run.ChildBinding{Program: leaf}, MaxItems: 4, WindowSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

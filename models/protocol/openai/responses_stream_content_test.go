@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 )
 
@@ -50,7 +51,7 @@ func TestResponsesContentMustMatchTerminalProjection(t *testing.T) {
 				if err != nil || response == nil {
 					t.Fatalf("Call = %v, %v", response, err)
 				}
-			} else if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || chat.ClassifyFailure(err) != chat.CallFailureUnknown {
+			} else if response != nil || !errors.Is(err, chat.ErrInvalidResponse) || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
 				t.Fatalf("Call = %v, %v", response, err)
 			}
 			var accumulator chat.ResponseAccumulator

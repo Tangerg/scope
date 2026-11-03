@@ -190,7 +190,7 @@ func (h *handler) GetTask(ctx context.Context, p *sdk.GetTaskRequest) (*sdk.Task
 	if err != nil {
 		return nil, err
 	}
-	return projectTask(k, head)
+	return projectTask(k, head, h.content)
 }
 func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sdk.Task, error) {
 	if p == nil {
@@ -226,7 +226,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 	if err != nil {
 		return nil, err
 	}
-	return projectTask(k, head)
+	return projectTask(k, head, h.content)
 }
 func (h *handler) SendMessage(ctx context.Context, p *sdk.SendMessageRequest) (sdk.SendMessageResult, error) {
 	k, err := h.admit(ctx, p)
@@ -238,7 +238,7 @@ func (h *handler) SendMessage(ctx context.Context, p *sdk.SendMessageRequest) (s
 		if err != nil {
 			return nil, err
 		}
-		return projectTask(k, head)
+		return projectTask(k, head, h.content)
 	}
 	for task, err := range h.views(ctx, k) {
 		if err != nil {
@@ -262,7 +262,7 @@ func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, err
 				return true
 			}
 			after = head.Head
-			task, err := projectTask(k, head)
+			task, err := projectTask(k, head, h.content)
 			return yield(task, err) && err == nil && !settlesTurn(task.Status.State)
 		}
 		for {

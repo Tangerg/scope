@@ -37,7 +37,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stage, err := Loop(LoopConfig[loopValue]{
-				ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: test.maximum,
+				ID: "improve", Body: run.ChildBinding{Program: body, Budget: mustBudget(t)}, MaxIterations: test.maximum,
 				Predicate: func(_ context.Context, value loopValue) (bool, error) { return value.Value >= test.threshold, nil },
 			})
 			if err != nil {
@@ -89,7 +89,7 @@ func TestLoopPropagatesBodyFailure(t *testing.T) {
 		}),
 	), "failing-loop-body")
 	stage, err := Loop(LoopConfig[loopValue]{
-		ID: "improve", Body: body, Budget: mustBudget(t), MaxIterations: run.NewQuota(2),
+		ID: "improve", Body: run.ChildBinding{Program: body, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return false, nil },
 	})
 	if err != nil {
@@ -120,16 +120,16 @@ func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
 		mustTransform(t, "wrong", func(context.Context, textValue) (textValue, error) { return textValue{}, nil }),
 	), "wrong-loop-body")
 	valid := LoopConfig[loopValue]{
-		ID: "improve", Body: validBody, Budget: mustBudget(t), MaxIterations: run.NewQuota(2),
+		ID: "improve", Body: run.ChildBinding{Program: validBody, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(2),
 		Predicate: func(context.Context, loopValue) (bool, error) { return true, nil },
 	}
 	for name, config := range map[string]LoopConfig[loopValue]{
-		"zero finite maximum": {MaxIterations: run.NewQuota(0), ID: valid.ID, Body: valid.Body, Budget: valid.Budget, Predicate: valid.Predicate},
+		"zero finite maximum": {MaxIterations: run.NewQuota(0), ID: valid.ID, Body: valid.Body, Predicate: valid.Predicate},
 		"nil predicate": {
-			ID: valid.ID, Body: valid.Body, Budget: valid.Budget, MaxIterations: valid.MaxIterations,
+			ID: valid.ID, Body: valid.Body, MaxIterations: valid.MaxIterations,
 		},
 		"body mismatch": {
-			ID: valid.ID, Body: wrongBody, Budget: valid.Budget,
+			ID: valid.ID, Body: run.ChildBinding{Program: wrongBody, Budget: valid.Body.Budget},
 			MaxIterations: valid.MaxIterations, Predicate: valid.Predicate,
 		},
 	} {

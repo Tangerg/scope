@@ -36,7 +36,10 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	topology := root.Definition().(interface{ Topology() workflow.Topology }).Topology()
+	topology, err := workflow.TopologyOf(root)
+	if err != nil {
+		return err
+	}
 
 	resultHandle, err := runtime.Start(ctx, root, agentrun.StartRequest[request]{ID: agentrun.StartID{Scope: "example", Key: "review"}, Input: request{Text: "  ship managed workflow  "}})
 	if err != nil {
@@ -115,7 +118,7 @@ func newManagedWorkflow(compiler *agentrun.Compiler) (agentrun.Program[request, 
 		Steps: agentrun.NewQuota(workflowChildBudgetUnits), Effects: agentrun.NewQuota(workflowChildBudgetUnits), Messages: agentrun.NewQuota(workflowChildBudgetUnits),
 	}
 	normalize, err := workflow.Call(workflow.CallConfig{
-		ID: "normalize", Program: normalizer, Budget: budget,
+		ID: "normalize", Child: agentrun.ChildBinding{Program: normalizer, Budget: budget},
 	})
 	if err != nil {
 		return agentrun.Program[request, reviewReport]{}, err
@@ -126,7 +129,7 @@ func newManagedWorkflow(compiler *agentrun.Compiler) (agentrun.Program[request, 
 		if reviewerErr != nil {
 			return agentrun.Program[request, reviewReport]{}, reviewerErr
 		}
-		branches = append(branches, workflow.ForkBranch{ID: reviewer, Program: program, Budget: budget})
+		branches = append(branches, workflow.ForkBranch{ID: reviewer, Child: agentrun.ChildBinding{Program: program, Budget: budget}})
 	}
 	reviewStage, err := workflow.Fork(workflow.ForkConfig[normalizedRequest, verdict, reviewReport]{
 		ID: "review", Branches: branches, WindowSize: uint32(len(reviewers)),

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
@@ -143,17 +144,21 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, apiRequest, err := s.prepareRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	final, err := s.predictions.run(ctx, effectiveOptions.Model, apiRequest)
 	if err != nil {
 		return nil, err
 	}
-	return s.response(ctx, effectiveOptions, final)
+	response, err := s.response(ctx, effectiveOptions, final)
+	if err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	return response, nil
 }
 
 func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *predictionRequest, error) {

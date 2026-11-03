@@ -33,13 +33,16 @@ type scriptTool struct {
 }
 
 func (s scriptTool) Definition() tool.Definition {
-	return tool.Definition{Name: s.name, Description: "Run the scripted operation.", InputSchema: json.RawMessage(objectToolSchema)}
+	effect := tool.EffectUnsafe
+	if s.idempotent {
+		effect = tool.EffectIdempotent
+	}
+	return tool.Definition{Effect: effect, Name: s.name, Description: "Run the scripted operation.", InputSchema: json.RawMessage(objectToolSchema)}
 }
 func (s scriptTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
 	return s.invoke(ctx, input)
 }
 func (s scriptTool) ReturnsDirectResult() bool                               { return s.direct }
-func (s scriptTool) Idempotent() bool                                        { return s.idempotent }
 func (s scriptTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) { return s.classify }
 func (s scriptTool) AdvertiseDeferred(ctx context.Context, input tool.Invocation, result tool.Result) ([]string, error) {
 	if s.advertise == nil {
@@ -457,7 +460,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	delegate, err := NewDelegate(DelegateConfig{Name: "worker", Description: "Double the requested value.", Program: childProgram.Erase()})
+	delegate, err := NewDelegate(DelegateConfig{Name: "worker", Description: "Double the requested value.", Child: run.ChildBinding{Program: childProgram.Erase()}})
 	if err != nil {
 		t.Fatal(err)
 	}

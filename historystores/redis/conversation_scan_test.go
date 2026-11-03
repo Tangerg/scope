@@ -47,9 +47,9 @@ func (p *pagedScanner) Scan(ctx context.Context, cursor uint64, _ string, _ int6
 
 func newCollector() *conversationCollector {
 	return &conversationCollector{
-		keyPrefix: DefaultKeyPrefix,
-		match:     DefaultKeyPrefix + "*",
-		ids:       make(map[history.ConversationID]struct{}),
+		keys:  conversationKeyspace{prefix: DefaultKeyPrefix},
+		match: (conversationKeyspace{prefix: DefaultKeyPrefix}).pattern(),
+		ids:   make(map[history.ConversationID]struct{}),
 	}
 }
 
@@ -59,9 +59,9 @@ func TestScanDrivesOneNodeCursorToCompletion(t *testing.T) {
 	t.Parallel()
 
 	scanner := &pagedScanner{pages: [][]string{
-		{DefaultKeyPrefix + "alpha"},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("alpha")},
 		{},
-		{DefaultKeyPrefix + "beta", DefaultKeyPrefix + "alpha"},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("beta"), (conversationKeyspace{prefix: DefaultKeyPrefix}).messages("alpha")},
 	}}
 
 	collector := newCollector()
@@ -86,8 +86,8 @@ func TestCollectorMergesNodesAndDeduplicates(t *testing.T) {
 
 	collector := newCollector()
 	for _, keys := range [][]string{
-		{DefaultKeyPrefix + "gamma", DefaultKeyPrefix + "alpha"},
-		{DefaultKeyPrefix + "beta", DefaultKeyPrefix + "gamma"},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("gamma"), (conversationKeyspace{prefix: DefaultKeyPrefix}).messages("alpha")},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("beta"), (conversationKeyspace{prefix: DefaultKeyPrefix}).messages("gamma")},
 	} {
 		if err := collector.scan(t.Context(), &pagedScanner{pages: [][]string{keys}}); err != nil {
 			t.Fatalf("scan() = %v, want nil", err)
@@ -105,7 +105,7 @@ func TestScanReportsANodeFailure(t *testing.T) {
 	t.Parallel()
 
 	scanner := &pagedScanner{
-		pages:  [][]string{{DefaultKeyPrefix + "alpha"}, {DefaultKeyPrefix + "beta"}},
+		pages:  [][]string{{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("alpha")}, {(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("beta")}},
 		failAt: 2,
 	}
 
@@ -170,8 +170,8 @@ func singleNode(client *goredis.Client) func(context.Context, func(context.Conte
 
 func TestConversationsScansTheConfiguredKeyspace(t *testing.T) {
 	scanner := &pagedScanner{pages: [][]string{
-		{DefaultKeyPrefix + "beta"},
-		{DefaultKeyPrefix + "alpha"},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("beta")},
+		{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("alpha")},
 	}}
 	client := scannedClient(t, scanner)
 	store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: singleNode(client)})
@@ -202,7 +202,7 @@ func TestDecoratedClusterKeepsCompleteEnumeration(t *testing.T) {
 		},
 		NewClient: func(options *goredis.Options) *goredis.Client {
 			node := goredis.NewClient(options)
-			node.AddHook(scanHook{scanner: &pagedScanner{pages: [][]string{{DefaultKeyPrefix + options.Addr}}}})
+			node.AddHook(scanHook{scanner: &pagedScanner{pages: [][]string{{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages(history.ConversationID(options.Addr))}}}})
 			return node
 		},
 	})
@@ -219,7 +219,7 @@ func TestDecoratedClusterKeepsCompleteEnumeration(t *testing.T) {
 }
 
 func TestConversationsRejectsPartialKeyspaceOnFailure(t *testing.T) {
-	client := scannedClient(t, &pagedScanner{pages: [][]string{{DefaultKeyPrefix + "first"}}})
+	client := scannedClient(t, &pagedScanner{pages: [][]string{{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("first")}}})
 	cause := errors.New("second node unavailable")
 	store, err := NewStore(t.Context(), StoreConfig{
 		Client: client,
@@ -249,8 +249,8 @@ func TestConversationsRejectsMalformedStoredIdentities(t *testing.T) {
 	for _, id := range []string{"", " padded", "control\n", string([]byte{0xff})} {
 		t.Run(id, func(t *testing.T) {
 			client := scannedClient(t, &pagedScanner{pages: [][]string{
-				{DefaultKeyPrefix + "valid"},
-				{DefaultKeyPrefix + id},
+				{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages("valid")},
+				{(conversationKeyspace{prefix: DefaultKeyPrefix}).messages(history.ConversationID(id))},
 			}})
 			store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: singleNode(client)})
 			if err != nil {

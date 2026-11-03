@@ -16,44 +16,36 @@ var (
 	ErrWindowTooSmall = errors.New("history: message window too small")
 )
 
-var _ Store = WindowStore{}
+var _ Reader = WindowReader{}
 
-// WindowStore projects reads to at most limit messages while preserving a
+// WindowReader projects reads to at most limit messages while preserving a
 // merged system message followed by a suffix of complete conversation turns.
 // A user message starts a turn; every following assistant and tool message
-// remains in that turn until the next user message. Writes and clears pass
-// through to the authoritative Store. Read returns ErrWindowTooSmall rather
+// remains in that turn until the next user message. This projection owns no
+// write or clear authority. Read returns ErrWindowTooSmall rather
 // than splitting the newest complete turn, and the merged system message counts
 // toward the configured limit.
-type WindowStore struct {
-	store Store
-	limit int
+type WindowReader struct {
+	reader Reader
+	limit  int
 }
 
-func NewWindowStore(store Store, limit int) (WindowStore, error) {
-	if lo.IsNil(store) {
-		return WindowStore{}, ErrNilStore
+func NewWindowReader(reader Reader, limit int) (WindowReader, error) {
+	if lo.IsNil(reader) {
+		return WindowReader{}, ErrNilReader
 	}
 	if limit <= 0 {
-		return WindowStore{}, fmt.Errorf("%w: limit must be greater than zero", ErrInvalidWindow)
+		return WindowReader{}, fmt.Errorf("%w: limit must be greater than zero", ErrInvalidWindow)
 	}
-	return WindowStore{store: store, limit: limit}, nil
+	return WindowReader{reader: reader, limit: limit}, nil
 }
 
-func (w WindowStore) Write(ctx context.Context, conversationID ConversationID, messages ...chat.Message) (WriteOutcome, error) {
-	return w.store.Write(ctx, conversationID, messages...)
-}
-
-func (w WindowStore) Read(ctx context.Context, conversationID ConversationID) ([]chat.Message, error) {
-	messages, err := w.store.Read(ctx, conversationID)
+func (w WindowReader) Read(ctx context.Context, conversationID ConversationID) ([]chat.Message, error) {
+	messages, err := w.reader.Read(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	return newMessageWindow(messages, w.limit).project()
-}
-
-func (w WindowStore) Clear(ctx context.Context, conversationID ConversationID) error {
-	return w.store.Clear(ctx, conversationID)
 }
 
 type conversationTurn []chat.Message

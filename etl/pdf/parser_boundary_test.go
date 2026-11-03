@@ -31,7 +31,7 @@ func TestParserInterruptionDoesNotReturnDocuments(t *testing.T) {
 		for _, panics := range []bool{false, true} {
 			ctx, cancel := context.WithCancel(t.Context())
 			source := interruptedSource{source: bytes.NewReader(payload), cancel: cancel, panic: panics}
-			reader, err := pdf.NewReader(source, int64(len(payload)), pdf.ReaderConfig{Password: password})
+			reader, err := pdf.NewReader(source, int64(len(payload)), pdf.ReaderConfig{UserPassword: []byte(password)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -49,7 +49,7 @@ func TestParserInterruptionDoesNotReturnDocuments(t *testing.T) {
 
 func TestPasswordDoesNotPreventReadingAnUnencryptedPDF(t *testing.T) {
 	payload := testPDF("public text")
-	reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{Password: "unused"})
+	reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{UserPassword: []byte("unused")})
 	if err != nil {
 		t.Fatal(err)
 	}

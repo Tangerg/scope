@@ -209,4 +209,4 @@ func (t *Tool) log(key, value string) {
 	_, _ = fmt.Fprintf(t.writer, "[fakeweather] %s: %s\n", key, value)
 }
 
-func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }
+func (t *Tool) InputValidator() func([]byte) error { return t.typed.InputValidator() }

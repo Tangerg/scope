@@ -37,26 +37,17 @@ type actionCall struct {
 
 // The settlement status owns whether an operation succeeded. A successful
 // sensing settlement carries the observed world state and a successful Action
-// settlement carries nothing; a failed settlement carries settlementFailure.
+// settlement carries nothing; a failed settlement carries run.Failure.
 type senseResult struct {
 	WorldState WorldState `json:"world_state" jsonwire:"required"`
 }
 
 type actionCompleted struct{}
 
-// settlementFailure explains a failed settlement: either the host rejected
-// the operation, or the operation itself definitely failed.
-type settlementFailure struct {
-	HostError  string `json:"host_error,omitempty"`
-	Diagnostic string `json:"diagnostic,omitempty"`
-}
-
-func (s settlementFailure) valid() bool {
-	if s.HostError != "" {
-		return s.Diagnostic == "" && run.ValidDiagnostic(s.HostError)
-	}
-	return run.ValidDiagnostic(s.Diagnostic)
-}
+const (
+	failureCodePlanningHostRejected    = "planning.host.rejected"
+	failureCodePlanningOperationFailed = "planning.operation.failed"
+)
 
 func newSenseEffect(input run.Payload) (run.Effect, error) {
 	if !input.Valid() {
@@ -106,7 +97,7 @@ func (e effectEnvelope) valid() bool {
 
 func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	if cause != nil {
-		return failedSettlement(settlementFailure{Diagnostic: run.NormalizeDiagnostic(cause.Error())})
+		return failedSettlement(run.FailureKindExternal, failureCodePlanningOperationFailed, cause.Error())
 	}
 	payload, err := jsonv2.Marshal(senseResult{WorldState: state}, jsonv2.Deterministic(true))
 	if err != nil {
@@ -115,17 +106,17 @@ func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
 }
 
-func failedSettlement(failure settlementFailure) (run.Settlement, error) {
-	payload, err := jsonv2.Marshal(failure, jsonv2.Deterministic(true))
+func failedSettlement(kind run.FailureKind, code, diagnostic string) (run.Settlement, error) {
+	failure, err := run.NewFailure(kind, code, run.NormalizeDiagnostic(diagnostic))
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusFailed, payload)
+	return run.NewFailedSettlement(failure, run.Payload{})
 }
 
 // decodeSettlement reads the single dispatcher settlement of the awaited
 // operation. A failed settlement returns its explanation instead of a result.
-func decodeSettlement[T any](messages []run.Message, expected *run.EffectID) (T, *settlementFailure, error) {
+func decodeSettlement[T any](messages []run.Message, expected *run.EffectID) (T, *run.Failure, error) {
 	var result T
 	if len(messages) != 1 {
 		return result, nil, fmt.Errorf("%w: exactly one settlement Signal is required", ErrInvalidProtocol)
@@ -137,8 +128,8 @@ func decodeSettlement[T any](messages []run.Message, expected *run.EffectID) (T,
 	settlement := completion.Outcome
 	var err error
 	if settlement.Status() == run.SettlementStatusFailed {
-		failure, decodeErr := jsonwire.Decode[settlementFailure](settlement.Payload().JSON())
-		if decodeErr != nil || !failure.valid() {
+		failure, valid := settlement.Failure()
+		if !valid {
 			return result, nil, fmt.Errorf("%w: invalid settlement failure", ErrInvalidProtocol)
 		}
 		return result, &failure, nil

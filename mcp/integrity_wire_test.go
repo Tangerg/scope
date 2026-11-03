@@ -167,7 +167,7 @@ func TestServingEmbeddedResourceCannotReclassifyURI(t *testing.T) {
 			}
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "invalid-source"}, nil)
 			executable := testTool{definition: tool.Definition{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}, call: func(context.Context, tool.Invocation) (tool.Output, error) { return part, nil }}
-			if err := scopemcp.Register(server, executable); err != nil {
+			if err := registerTestTools(server, executable); err != nil {
 				t.Fatal(err)
 			}
 			session := connectContentServer(t, server)

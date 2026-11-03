@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -36,7 +37,7 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 			DefaultOptions: corechat.Options{Model: "gpt-default-must-be-overridden"},
 			BaseURL:        server.URL,
 		},
-		newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}),
+		newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}),
 	)
 	if err != nil {
 		t.Fatalf("NewChatCompletions: %v", err)
@@ -136,7 +137,7 @@ func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 	t.Cleanup(server.Close)
 	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
-	}, scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
+	}, scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {
 		t.Fatalf("NewChatCompletions: %v", err)
 	}
@@ -159,7 +160,7 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 			config := scopeopenai.ChatCompletionsConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "test-model"},
 			}
-			dialect := scopeopenai.Dialect{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens}
+			dialect := scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens}
 			request, err := corechat.NewRequest(corechat.NewUserMessage(corechat.NewTextPart("hello")))
 			if err != nil {
 				t.Fatal(err)
@@ -182,7 +183,7 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = model.Call(t.Context(), request)
-			if corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted || !strings.Contains(err.Error(), "produces one output") {
+			if invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !strings.Contains(err.Error(), "produces one output") {
 				t.Fatalf("Call error = %v; want preflight output-count rejection", err)
 			}
 		})

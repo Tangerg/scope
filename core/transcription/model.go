@@ -6,6 +6,9 @@ import "context"
 // validate requests before I/O, reject explicit options they cannot represent,
 // and return responses that pass Validate; provider defaults and identity
 // belong to provider construction.
+// Failures use [github.com/Tangerg/scope/core/invocation.ClassifyFailure] for
+// evidence about the complete call. A nested failure cannot prove that earlier
+// provider work did not run, and no failure kind authorizes retry.
 type Model interface {
 	// Call transcribes one validated media request without retaining or mutating
 	// it. The returned provider-neutral response belongs to the caller, and

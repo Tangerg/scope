@@ -27,6 +27,9 @@ func OpenToolSet(ctx context.Context, endpoints ...Endpoint) (*ToolSet, error) {
 	toolSet := &ToolSet{}
 	seen := make(map[string]struct{}, len(endpoints))
 	for _, endpoint := range endpoints {
+		if !endpoint.Effect.Valid() {
+			return nil, errors.Join(fmt.Errorf("%w: invalid endpoint effect", toolcontract.ErrInvalidDefinition), toolSet.Close())
+		}
 		client, card, err := dial(ctx, endpoint)
 		if err != nil {
 			return nil, errors.Join(err, toolSet.Close())
@@ -36,6 +39,7 @@ func OpenToolSet(ctx context.Context, endpoints ...Endpoint) (*ToolSet, error) {
 		remote, err := newRemoteTool(remoteToolConfig{
 			client: client, card: card, name: endpoint.Name,
 			concurrencyPolicy: endpoint.ConcurrencyPolicy,
+			effect:            endpoint.Effect,
 		})
 		if err != nil {
 			return nil, errors.Join(err, toolSet.Close())

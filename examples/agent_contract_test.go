@@ -89,14 +89,14 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 				{Key: contractValue(run.ParseChildKey("loser")), ProgramRef: loser.ProgramRef(), Input: contractValue(run.EncodePayload(interaction.Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}})), Budget: childBudget},
 			}
 			prepare := contractValue(workflow.Transform("candidates", func(context.Context, struct{}) ([]run.ChildSpec, error) { return candidates, nil }))
-			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Program: race.Erase(), Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Messages: run.NewQuota(64)}}))
+			call := contractValue(workflow.Call(workflow.CallConfig{ID: "race", Child: run.ChildBinding{Program: race.Erase(), Budget: run.Budget{Steps: run.NewQuota(64), Effects: run.NewQuota(48), Messages: run.NewQuota(64)}}}))
 			delegate := contractValue(workflow.Compile[struct{}, coordination.FirstSuccessResult](compiler, workflow.Config{Name: "contract.composite", Description: "Publish a drained competition result.", Stages: []workflow.Stage{prepare, call}, Revision: "fixed-candidates"}))
 			delegateBudget := run.Budget{Steps: run.NewQuota(96), Effects: run.NewQuota(80), Messages: run.NewQuota(96)}
 			var rootCalls atomic.Int32
 			var program run.Program[run.Payload, run.Payload]
 			var input run.Payload
 			if strategy == "interaction" {
-				binding := contractValue(interaction.NewDelegate(interaction.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Program: delegate.Erase(), Budget: delegateBudget}))
+				binding := contractValue(interaction.NewDelegate(interaction.DelegateConfig{Name: "delegate", Description: "Run the composite delegate.", Child: run.ChildBinding{Program: delegate.Erase(), Budget: delegateBudget}}))
 				program = contractInteraction(compiler, interaction.Config{Name: "contract.parent", Description: "Continue only after delegate quiescence.", MaxModelCalls: run.NewQuota(2), Delegates: []interaction.Delegate{binding}}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					if rootCalls.Add(1) == 1 {
 						return contractToolCall("delegate", `{}`), nil
@@ -107,7 +107,7 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 			} else {
 				done := contractValue(planning.NewCondition("world.done", planning.TruthTrue))
 				action := contractValue(planning.NewAction(planning.ActionConfig{Name: "action.delegate", Description: "Run the composite delegate.", Effects: []planning.Condition{done}}))
-				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: delegate.Erase(), Budget: delegateBudget}))
+				binding := contractValue(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Child: run.ChildBinding{Program: delegate.Erase(), Budget: delegateBudget}}))
 				program = contractValue(planning.Compile[struct{}](compiler, planning.Config{Name: "contract.parent", Description: "Sense only after child quiescence.", Goal: contractValue(planning.NewGoal(planning.GoalConfig{Name: "goal.done", Description: "Complete the task.", Conditions: []planning.Condition{done}})), Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}), MaxActionAttempts: run.NewQuota(2), Revision: "sense-after-child", Sensor: planning.SensorFunc(func(context.Context, planning.SenseRequest) (planning.WorldState, error) {
 					if rootCalls.Add(1) > 1 {
 						return planning.NewWorldState(done)

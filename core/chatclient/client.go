@@ -8,6 +8,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 var (
@@ -40,10 +41,10 @@ func New(model chat.Model, config Config) (Client, error) {
 func (c Client) Output[T any](ctx context.Context, req *chat.Request, format Format[T]) (T, error) {
 	var zero T
 	if !c.valid() {
-		return zero, ErrInvalidClient
+		return zero, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrInvalidClient}
 	}
 	if err := format.validate(); err != nil {
-		return zero, err
+		return zero, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	contract := format.Contract()
 	response, err := c.call(ctx, req, &contract)
@@ -53,7 +54,7 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format For
 // Call snapshots and validates req before the middleware and model boundary.
 func (c Client) Call(ctx context.Context, req *chat.Request) (*chat.Response, error) {
 	if !c.valid() {
-		return nil, ErrInvalidClient
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrInvalidClient}
 	}
 	return c.call(ctx, req, nil)
 }
@@ -61,7 +62,7 @@ func (c Client) Call(ctx context.Context, req *chat.Request) (*chat.Response, er
 func (c Client) call(ctx context.Context, req *chat.Request, format *chat.OutputFormat) (*chat.Response, error) {
 	prepared, err := prepareRequest(req, format)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	return c.model.Call(ctx, prepared)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/openai/openai-go/v3"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -155,11 +156,11 @@ func openAIImageMedia(mimeType, uri, encoded string) (*media.Media, error) {
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq, err := i.buildAPIImageRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := i.api.image(ctx, apiReq)

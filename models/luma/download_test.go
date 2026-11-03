@@ -51,7 +51,7 @@ func TestOutputDownloadSnapshotsBorrowedClientAndResolvesTypedNilTransport(t *te
 				host.Transport = absent
 			}
 			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{
-				APIKey: "test", BaseURL: "https://api.example/v1", HTTPClient: host,
+				APIKey: "test", BaseURL: "https://api.example/v1", OutputOrigins: []string{"https://asset.example"}, HTTPClient: host,
 				DefaultOptions: image.Options{Model: luma.ModelUni1},
 			})
 			if err != nil {

@@ -9,22 +9,18 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-func TestGuardFreezesDefinitionAndLeavesCompilationToBinding(t *testing.T) {
+func TestGuardLeavesContractCompilationToBinding(t *testing.T) {
 	executable := newStubTool("dynamic")
 	executable.definition.InputSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"invalid"}}}`)
-	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
-			t.Fatal("invalid schema must fail before authorization")
-			return true, nil
-		}),
-	})
+	guard, err := tool.NewGuard(tool.GuardConfig{Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+		t.Fatal("invalid contract reached authorization")
+		return true, nil
+	})})
 	if err != nil {
 		t.Fatal(err)
 	}
-	executable.definition.InputSchema = json.RawMessage(`{"type":"object"}`)
-	if _, bindErr := tool.Bind(guard); !errors.Is(bindErr, tool.ErrInvalidTool) {
-		t.Fatalf("Bind accepted frozen invalid schema: %v", bindErr)
+	if _, err := tool.Bind(executable, guard.Call); !errors.Is(err, tool.ErrInvalidTool) {
+		t.Fatalf("invalid schema admitted: %v", err)
 	}
 }
 
@@ -32,7 +28,6 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	var inspected tool.Authorization
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(_ context.Context, authorization tool.Authorization) (bool, error) {
 			inspected = authorization
 			return true, nil
@@ -41,12 +36,12 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if executable.definition.Load() != 1 {
-		t.Fatalf("Definition called %d times, want exactly once", executable.definition.Load())
-	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if executable.definition.Load() != 1 {
+		t.Fatalf("Definition called %d times, want exactly once", executable.definition.Load())
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{
 		Name: "search", Arguments: `{"query":"scope"}`,
@@ -63,7 +58,7 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 	definition, arguments := inspected.Definition(), inspected.Arguments()
 	definition.InputSchema[0] = '['
 	arguments[0] = '['
-	if guard.Definition().InputSchema[0] != '{' || string(inspected.Arguments()) != `{"query":"scope"}` {
+	if binding.Contract().Definition().InputSchema[0] != '{' || string(inspected.Arguments()) != `{"query":"scope"}` {
 		t.Fatal("Authorization exposed guard-owned state")
 	}
 	if executable.calls.Load() != 1 {
@@ -74,7 +69,6 @@ func TestGuardAuthorizesValidatedInvocationBeforeExecution(t *testing.T) {
 func TestGuardDenialSkipsExecution(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			return false, nil
 		}),
@@ -82,7 +76,7 @@ func TestGuardDenialSkipsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +100,6 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	authorizations := 0
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			authorizations++
 			return true, nil
@@ -115,7 +108,7 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +131,6 @@ func TestGuardHonorsCancellationBeforePolicy(t *testing.T) {
 func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			return false, context.DeadlineExceeded
 		}),
@@ -146,7 +138,7 @@ func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,36 +158,18 @@ func TestGuardKeepsPolicyDeadlineBehindAuthorizationBoundary(t *testing.T) {
 	}
 }
 
-func TestGuardValidatesConstructionAndPreservesCapabilities(t *testing.T) {
+func TestGuardValidatesConstruction(t *testing.T) {
 	var nilAuthorizer tool.AuthorizerFunc
-	allow := tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) { return true, nil })
-	for _, config := range []tool.GuardConfig{
-		{},
-		{Authorizer: allow},
-		{Tool: markedTool{}},
-		{Tool: markedTool{}, Authorizer: nilAuthorizer},
-	} {
+	for _, config := range []tool.GuardConfig{{}, {Authorizer: nilAuthorizer}} {
 		if _, err := tool.NewGuard(config); !errors.Is(err, tool.ErrInvalidTool) {
-			t.Fatalf("NewGuard(%#v) error = %v", config, err)
+			t.Fatalf("invalid guard accepted: %v", err)
 		}
 	}
-
-	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: markedTool{},
-		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
-			return true, nil
-		}),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	marker, found, err := tool.Capability[capabilityMarker](guard)
-	if err != nil || !found || marker.Marker() != "inner" {
-		t.Fatalf("Capability = (%v, %v, %v)", marker, found, err)
-	}
-
 	var zero tool.Guard
-	if _, err := zero.Call(t.Context(), tool.Invocation{}); !errors.Is(err, tool.ErrInvalidTool) {
-		t.Fatalf("zero Guard.Call error = %v", err)
+	if _, err := zero.Call(tool.CallerFunc(func(context.Context, tool.Invocation) (tool.Result, error) {
+		t.Fatal("invalid guard executed")
+		return tool.Result{}, nil
+	})).Call(t.Context(), tool.Invocation{}); !errors.Is(err, tool.ErrInvalidTool) {
+		t.Fatalf("zero guard: %v", err)
 	}
 }

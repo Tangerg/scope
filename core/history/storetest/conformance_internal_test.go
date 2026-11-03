@@ -18,8 +18,8 @@ func (brokenReader) Read(context.Context, history.ConversationID) ([]chat.Messag
 
 type brokenWriter struct{}
 
-func (brokenWriter) Write(context.Context, history.ConversationID, ...chat.Message) (history.WriteOutcome, error) {
-	return history.WriteOutcome{}, errors.New("broken writer ignored its contract")
+func (brokenWriter) Append(context.Context, history.Batch) (history.Receipt, error) {
+	return history.Receipt{}, errors.New("broken writer ignored its contract")
 }
 
 type brokenClearer struct{}
@@ -48,12 +48,8 @@ func TestChecksAcceptConformingStoreAndFlagBrokenOne(t *testing.T) {
 		readerRejectsInvalidConversation(good, ctx), readerRejectsInvalidConversation(brokenReader{}, ctx))
 	assertCheck(t, "writer canceled",
 		writerRejectsCanceled(good, canceledCtx), writerRejectsCanceled(brokenWriter{}, canceledCtx))
-	assertCheck(t, "writer invalid conversation",
-		writerRejectsInvalidConversation(good, ctx), writerRejectsInvalidConversation(brokenWriter{}, ctx))
-	assertCheck(t, "writer invalid message",
-		writerRejectsInvalidMessage(good, ctx), writerRejectsInvalidMessage(brokenWriter{}, ctx))
-	assertCheck(t, "writer empty no-op",
-		writerTreatsEmptyMessagesAsNoop(good, ctx), writerTreatsEmptyMessagesAsNoop(brokenWriter{}, ctx))
+	assertCheck(t, "writer invalid batch",
+		writerRejectsInvalidBatch(good, ctx), writerRejectsInvalidBatch(brokenWriter{}, ctx))
 	assertCheck(t, "clearer canceled",
 		clearerRejectsCanceled(good, canceledCtx), clearerRejectsCanceled(brokenClearer{}, canceledCtx))
 	assertCheck(t, "clearer invalid conversation",

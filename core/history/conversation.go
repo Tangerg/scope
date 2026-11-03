@@ -28,19 +28,25 @@ func (c ConversationID) String() string {
 }
 
 func (c ConversationID) Validate() error {
-	value := c.String()
+	if err := validateIdentifier(c.String()); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidConversationID, err)
+	}
+	return nil
+}
+
+func validateIdentifier(value string) error {
 	if value == "" {
-		return fmt.Errorf("%w: empty", ErrInvalidConversationID)
+		return errors.New("empty identity")
 	}
 	if !utf8.ValidString(value) {
-		return fmt.Errorf("%w: invalid UTF-8", ErrInvalidConversationID)
+		return errors.New("invalid UTF-8")
 	}
 	if strings.TrimSpace(value) != value {
-		return fmt.Errorf("%w: leading or trailing whitespace", ErrInvalidConversationID)
+		return errors.New("leading or trailing whitespace")
 	}
 	for _, character := range value {
 		if unicode.IsControl(character) {
-			return fmt.Errorf("%w: contains control character %U", ErrInvalidConversationID, character)
+			return fmt.Errorf("contains control character %U", character)
 		}
 	}
 	return nil

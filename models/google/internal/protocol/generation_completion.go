@@ -10,21 +10,12 @@ import (
 // Speech and transcription have no partial-output result. Their terminal
 // GenerateContent response must establish a successful single candidate.
 func validateProtocolCompletion(response *genai.GenerateContentResponse) error {
-	if response == nil {
-		return errors.New("nil generation response")
-	}
-	if err := protocolPromptBlockError(response); err != nil {
+	candidate, err := singleGenerationCandidate(response)
+	if err != nil {
 		return err
 	}
-	if len(response.Candidates) != 1 {
-		return fmt.Errorf("generation returned %d candidates, want 1", len(response.Candidates))
-	}
-	candidate := response.Candidates[0]
 	if candidate == nil {
-		return errors.New("nil generation candidate")
-	}
-	if candidate.Index != 0 {
-		return fmt.Errorf("generation candidate index is %d, want 0", candidate.Index)
+		return errors.New("generation has no candidates")
 	}
 	return ValidateGenerationCompletion(response)
 }

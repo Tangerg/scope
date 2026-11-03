@@ -2,13 +2,21 @@ package anthropic
 
 import corechat "github.com/Tangerg/scope/core/chat"
 
+const (
+	CompatibleRequestExtensionSuffix = "/anthropic_request"
+	CompatibleStreamExtensionSuffix  = "/anthropic_stream_event"
+)
+
 // Dialect declares the protocol differences selected by an
 // Anthropic-compatible provider adapter.
 type Dialect struct {
 	// Provider scopes opaque reasoning state to the API that issued it. It is
 	// required even when the provider uses Anthropic's wire shape because signed
 	// thinking is not portable across vendors.
-	Provider string
+	Provider         string
+	Revision         MessagesRevision
+	APIKeyScheme     APIKeyScheme
+	SupportsSampling bool
 	// NativeJSONSchema reports whether this endpoint implements Anthropic's
 	// output_config.format JSON Schema control. Compatible providers that do not
 	// declare it reject that output format with ErrUnsupportedOutputFormat.
@@ -20,15 +28,15 @@ type Dialect struct {
 }
 
 func protocolRequestExtensionKey(provider string) string {
-	if provider == protocolProvider {
+	if provider == ProviderID {
 		return RequestExtensionKey
 	}
-	return provider + "/anthropic_request"
+	return provider + CompatibleRequestExtensionSuffix
 }
 
 func protocolStreamEventExtensionKey(provider string) string {
-	if provider == protocolProvider {
+	if provider == ProviderID {
 		return StreamEventExtensionKey
 	}
-	return provider + "/anthropic_stream_event"
+	return provider + CompatibleStreamExtensionSuffix
 }

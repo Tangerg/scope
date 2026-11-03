@@ -16,11 +16,13 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
+const providerID = "openrouter"
+
 const (
-	OpenAIRequestExtensionKey        = "openrouter/openai_request"
-	OpenAIStreamChunkExtensionKey    = "openrouter/openai_stream_chunk"
-	AnthropicRequestExtensionKey     = "openrouter/anthropic_request"
-	AnthropicStreamEventExtensionKey = "openrouter/anthropic_stream_event"
+	OpenAIRequestExtensionKey        = providerID + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey    = providerID + openai.CompatibleStreamExtensionSuffix
+	AnthropicRequestExtensionKey     = providerID + anthropic.CompatibleRequestExtensionSuffix
+	AnthropicStreamEventExtensionKey = providerID + anthropic.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -46,18 +48,11 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect, err := openai.ReasoningDetailsDialect(openai.ReasoningDetailsConfig{
-		Provider:        "openrouter",
+	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxCompletionTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
 		TextField:       "reasoning",
 		DetailsField:    "reasoning_details",
 		ReplayPlainText: true,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("openrouter: configure reasoning dialect: %w", err)
-	}
-	// The shared reasoning dialect defaults to max_tokens, which OpenRouter's
-	// reference calls "deprecated, use max_completion_tokens".
-	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	}}
 	dialect.PrepareRequest = prepareOpenAIRequest
 	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
@@ -94,14 +89,11 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamMo
 		return nil, err
 	}
 	headers := providerHeaders(config.AppURL, config.AppTitle)
-	headers.Set("Anthropic-Version", "2023-06-01")
-	headers["X-Api-Key"] = nil
-	headers.Set("Authorization", "Bearer "+config.APIKey)
 	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{
 		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
 		BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient,
 		Headers: headers,
-	}, anthropic.Dialect{Provider: "openrouter"})
+	}, anthropic.Dialect{Provider: providerID, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeBearer, SupportsSampling: true})
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct Anthropic-compatible chat: %w", err)
 	}

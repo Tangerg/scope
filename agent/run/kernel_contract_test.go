@@ -280,7 +280,7 @@ func TestSpawnResultIsTheOneCodecOfSpawnOutcomes(t *testing.T) {
 	if got, _, err := controlValue(spawnedSettlement(child)).SpawnResult(); err != nil || got != child {
 		t.Fatalf("spawned child = %v, %v", got, err)
 	}
-	if got, rejection, err := controlValue(rejectedSettlement(failure)).SpawnResult(); err != nil || got.Valid() || rejection != failure {
+	if got, rejection, err := controlValue(NewFailedSettlement(failure, Payload{})).SpawnResult(); err != nil || got.Valid() || rejection != failure {
 		t.Fatalf("rejection = %v %v, %v", got, rejection, err)
 	}
 	unknown := Settlement{status: SettlementStatusUnknown, payload: nullPayload}

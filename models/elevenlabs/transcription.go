@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
@@ -63,36 +64,36 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
 	for _, field := range []string{"model_id", "language_code"} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)}
 		}
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](TranscriptionRequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq.ModelID = effectiveOptions.Model
 	apiReq.LanguageCode = effectiveOptions.Language
 	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
-		return nil, validateTranscriptionRequestErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptionRequestErr}
 	}
 
 	audio, err := req.Audio.Bytes()
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := t.api.transcription(ctx, audio, req.Audio.MIME, apiReq)

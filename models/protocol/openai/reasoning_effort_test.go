@@ -14,7 +14,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 	model := &ChatCompletions{
 		api:      &api{},
 		defaults: corechat.Options{Model: "gpt-5"},
-		dialect:  Dialect{Provider: "openai", TokenLimitField: TokenLimitMaxCompletionTokens},
+		dialect:  chatDialect{DialectConfig: DialectConfig{Provider: "openai", TokenLimitField: TokenLimitMaxCompletionTokens}},
 	}
 	params, err := model.buildRequest(request)
 	if err != nil {

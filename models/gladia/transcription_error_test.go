@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/gladia"
@@ -41,7 +42,8 @@ func TestTranscriptionReportsProviderFailureCode(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := model.Call(t.Context(), &transcription.Request{Audio: audio})
-			if response != nil || err == nil || err.Error() != test.want {
+			failure, ok := errors.AsType[*invocation.Failure](err)
+			if response != nil || !ok || failure.Kind != invocation.FailureUnknown || failure.Cause.Error() != test.want {
 				t.Fatalf("Call = %#v, %v; want %q", response, err, test.want)
 			}
 			if calls != 2 {

@@ -20,7 +20,7 @@ func Example() {
 
 func ExampleNewMiddleware() {
 	store := new(inmemory.Store)
-	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: "customer-42"})
+	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Reader: store, Writer: store, ConversationID: "customer-42"})
 	if err != nil {
 		panic(err)
 	}

@@ -19,7 +19,7 @@ func TestTransformAndCallRunAsManagedChildProcess(t *testing.T) {
 		}),
 	), "child")
 	call, err := Call(CallConfig{
-		ID: "managed_child", Program: child, Budget: mustBudget(t),
+		ID: "managed_child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +71,7 @@ func TestCallPropagatesChildFailure(t *testing.T) {
 		}),
 	), "failing-child")
 	call, err := Call(CallConfig{
-		ID: "failing_child", Program: child, Budget: mustBudget(t),
+		ID: "failing_child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "test.call_target",
 		mustTransform(t, "identity", func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }),
 	), "call-target")
-	_, err := Call(CallConfig{ID: "child", Program: child})
+	_, err := Call(CallConfig{ID: "child", Child: run.ChildBinding{Program: child}})
 	if err != nil {
 		t.Fatalf("Call error = %v", err)
 	}
@@ -162,7 +162,7 @@ func mustProgram(t *testing.T, definition run.Definition, identity string) run.P
 func TestDefinitionChildBindingsDistinguishPrograms(t *testing.T) {
 	identity := func(_ context.Context, input numberInput) (numberInput, error) { return input, nil }
 	root := func(child run.Program[run.Payload, run.Payload]) run.Program[run.Payload, run.Payload] {
-		stage, err := Call(CallConfig{ID: "child", Program: child})
+		stage, err := Call(CallConfig{ID: "child", Child: run.ChildBinding{Program: child}})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -30,7 +30,7 @@ func TestNativeClaudeSamplingContract(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			request := validNativeRequest(t)
 			request.Options = tt.options
-			_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, dialect, false)
+			_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, dialect)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want substring %q", err, tt.want)
 			}
@@ -41,7 +41,7 @@ func TestNativeClaudeSamplingContract(t *testing.T) {
 func TestNativeClaudeRejectsZeroMaxTokens(t *testing.T) {
 	request := validNativeRequest(t)
 	request.Options.MaxOutputTokens = new(int64(0))
-	_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false)
+	_, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
 	if err == nil || !strings.Contains(err.Error(), "max_output_tokens must be greater than zero") {
 		t.Fatalf("error = %v, want max_output_tokens validation failure", err)
 	}
@@ -54,7 +54,7 @@ func TestNativeClaudeRejectsCompetingStreamControl(t *testing.T) {
 			if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]json.RawMessage{"stream": value}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !strings.Contains(err.Error(), "owned by Core") {
 				t.Fatalf("stream admission error = %v", err)
 			}
 		})
@@ -69,7 +69,7 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	request.ToolChoice = &corechat.ToolChoice{
 		Mode: corechat.ToolChoiceNamed, Name: "lookup", Parallelism: corechat.ToolParallelismSingle,
 	}
-	params, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}, false)
+	params, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
 	if err != nil {
 		t.Fatal(err)
 	}

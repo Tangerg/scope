@@ -24,6 +24,14 @@ const (
 	defaultResponseHeaderTimeout = 10 * time.Minute
 )
 
+const (
+	headerAuthorization      = "Authorization"
+	headerProxyAuthorization = "Proxy-Authorization"
+	headerAPIKey             = "Api-Key"
+	headerXAPIKey            = "X-Api-Key"
+	headerCookie             = "Cookie"
+)
+
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
@@ -34,7 +42,7 @@ type apiConfig struct {
 // A compatible provider must never send its credential to the official
 // endpoint or an unrelated SDK environment default.
 func requireBindingEndpoint(provider, endpoint string) error {
-	if provider != protocolProvider && endpoint == "" {
+	if provider != ProviderID && endpoint == "" {
 		return errors.New("openai protocol: a compatible binding requires an explicit endpoint")
 	}
 	return nil
@@ -79,7 +87,19 @@ func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, 
 	}
 	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
 	options = append(options, option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+	headers := make(http.Header, len(a.Headers))
 	for name, values := range a.Headers {
+		key := http.CanonicalHeaderKey(name)
+		switch key {
+		case headerAuthorization, headerProxyAuthorization, headerAPIKey, headerXAPIKey, headerCookie:
+			return nil, fmt.Errorf("openai: header %q is owned by the credential binding", key)
+		}
+		if _, duplicate := headers[key]; duplicate {
+			return nil, fmt.Errorf("openai: duplicate header %q", key)
+		}
+		headers[key] = values
+	}
+	for name, values := range headers {
 		for _, value := range values {
 			options = append(options, option.WithHeader(name, value))
 		}

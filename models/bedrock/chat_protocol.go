@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -129,7 +130,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		input, model, err := c.buildConverseStreamInput(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		stream, err := c.api.converseStream(ctx, input)

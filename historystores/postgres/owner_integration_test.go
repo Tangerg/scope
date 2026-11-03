@@ -7,10 +7,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,7 +45,7 @@ func nativeTable(t *testing.T, pool *pgxpool.Pool) string {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
-		if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+pgx.Identifier{"public", table}.Sanitize()); err != nil {
+		if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+pgx.Identifier{"public", table}.Sanitize()+"; DROP TABLE IF EXISTS "+pgx.Identifier{"public", table + "_conversations"}.Sanitize()); err != nil {
 			t.Error(err)
 		}
 	})
@@ -73,19 +75,21 @@ func TestNativeCanonicalMessageWire(t *testing.T) {
 			if validationErr := message.Validate(); validationErr != nil {
 				t.Fatal(validationErr)
 			}
-			outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), message)
-			if err != nil || outcome != (history.WriteOutcome{Accepted: 1}) {
-				t.Fatalf("canonical write: outcome=%+v error=%v", outcome, err)
+			batch := newBatch(t, message)
+			receipt, err := store.Append(t.Context(), batch)
+			if err != nil || receipt.ValidateFor(batch) != nil {
+				t.Fatalf("canonical write: receipt=%+v error=%v", receipt, err)
 			}
 			messages, err := store.Read(t.Context(), history.ConversationID("conversation"))
-			if err != nil || !reflect.DeepEqual(messages, []chat.Message{message}) {
+			restored, batchErr := history.NewBatch("conversation", "append", messages...)
+			if err != nil || batchErr != nil || restored.Digest() != batch.Digest() {
 				t.Fatalf("canonical round trip: messages=%+v error=%v, want=%+v", messages, err, message)
 			}
 		})
 	}
 }
 
-func TestNativeWriteRequiresEveryInsertAcknowledgment(t *testing.T) {
+func TestNativeAppendRequiresItsInsertAcknowledgment(t *testing.T) {
 	pool := nativePool(t)
 	table := nativeTable(t, pool)
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, TableName: table, InitializeSchema: true})
@@ -94,10 +98,8 @@ func TestNativeWriteRequiresEveryInsertAcknowledgment(t *testing.T) {
 	}
 	first := chat.NewUserMessage(chat.NewTextPart("first"))
 	skipped := chat.NewUserMessage(chat.NewTextPart("skipped"))
-	raw, err := skipped.MarshalJSON()
-	if err != nil {
-		t.Fatal(err)
-	}
+	batch := newBatch(t, first, skipped)
+	raw := batch.EncodedMessages()
 	qualified := pgx.Identifier{"public", table}.Sanitize()
 	function := pgx.Identifier{"public", table + "_skip"}.Sanitize()
 	t.Cleanup(func() {
@@ -107,14 +109,14 @@ func TestNativeWriteRequiresEveryInsertAcknowledgment(t *testing.T) {
 			t.Error(cleanupErr)
 		}
 	})
-	statement := "CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.message = decode('" + hex.EncodeToString(raw) + "', 'hex') THEN RETURN NULL; END IF; RETURN NEW; END $$; " +
+	statement := "CREATE FUNCTION " + function + "() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.messages = decode('" + hex.EncodeToString(raw) + "', 'hex') THEN RETURN NULL; END IF; RETURN NEW; END $$; " +
 		"CREATE TRIGGER skip_message BEFORE INSERT ON " + qualified + " FOR EACH ROW EXECUTE FUNCTION " + function + "()"
 	if _, execErr := pool.Exec(t.Context(), statement); execErr != nil {
 		t.Fatal(execErr)
 	}
-	outcome, err := store.Write(t.Context(), "conversation", first, skipped)
-	if err == nil || outcome != (history.WriteOutcome{}) {
-		t.Fatalf("missing acknowledgment accepted: outcome=%+v error=%v", outcome, err)
+	receipt, err := store.Append(t.Context(), batch)
+	if err == nil || receipt != (history.Receipt{}) {
+		t.Fatalf("missing acknowledgment accepted: receipt=%+v error=%v", receipt, err)
 	}
 	messages, err := store.Read(t.Context(), "conversation")
 	if err != nil || len(messages) != 0 {
@@ -128,7 +130,7 @@ func TestNativeConstructionRejectsJSONB(t *testing.T) {
 			pool := nativePool(t)
 			table := nativeTable(t, pool)
 			qualified := pgx.Identifier{"public", table}.Sanitize()
-			if _, err := pool.Exec(t.Context(), "CREATE TABLE "+qualified+" (seq BIGSERIAL PRIMARY KEY, conversation_id TEXT NOT NULL, message JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"); err != nil {
+			if _, err := pool.Exec(t.Context(), "CREATE TABLE "+pgx.Identifier{"public", table + "_conversations"}.Sanitize()+" (conversation_id TEXT PRIMARY KEY, closed BOOLEAN NOT NULL); CREATE TABLE "+qualified+" (seq BIGSERIAL PRIMARY KEY, conversation_id TEXT NOT NULL, append_id TEXT NOT NULL, digest TEXT NOT NULL, messages JSONB)"); err != nil {
 				t.Fatal(err)
 			}
 			store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, TableName: table, InitializeSchema: initialize})
@@ -139,33 +141,56 @@ func TestNativeConstructionRejectsJSONB(t *testing.T) {
 	}
 }
 
-func TestNativeWriteValidatesWholeBatchAndPreservesOrder(t *testing.T) {
+func TestNativeAppendRetriesAndClosureAcrossStoreInstances(t *testing.T) {
 	pool := nativePool(t)
-	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, TableName: nativeTable(t, pool), InitializeSchema: true})
+	table := nativeTable(t, pool)
+	first, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, TableName: table, InitializeSchema: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	first := chat.NewUserMessage(chat.NewTextPart("first"))
-	second := chat.NewAssistantMessage(chat.NewTextPart("second"))
-	if outcome, err := store.Write(t.Context(), "conversation", first, chat.Message{}); err == nil || outcome != (history.WriteOutcome{}) {
-		t.Fatalf("invalid batch accepted: outcome=%+v error=%v", outcome, err)
-	}
-	if messages, err := store.Read(t.Context(), "conversation"); err != nil || len(messages) != 0 {
-		t.Fatalf("invalid batch wrote a prefix: messages=%v error=%v", messages, err)
-	}
-	if outcome, err := store.Write(t.Context(), "conversation", first, second); err != nil || outcome != (history.WriteOutcome{Accepted: 2}) {
-		t.Fatalf("valid batch: outcome=%+v error=%v", outcome, err)
-	}
-	if messages, err := store.Read(t.Context(), "conversation"); err != nil || !reflect.DeepEqual(messages, []chat.Message{first, second}) {
-		t.Fatalf("argument order lost: messages=%v error=%v", messages, err)
-	}
-	if ids, err := store.Conversations(t.Context()); err != nil || !reflect.DeepEqual(ids, []history.ConversationID{"conversation"}) {
-		t.Fatalf("conversation listing: ids=%v error=%v", ids, err)
-	}
-	if err := store.Clear(t.Context(), "conversation"); err != nil {
+	second, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, TableName: table})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if messages, err := store.Read(t.Context(), "conversation"); err != nil || len(messages) != 0 {
-		t.Fatalf("clear did not remove conversation: messages=%v error=%v", messages, err)
+	batch := newBatch(t, chat.NewUserMessage(chat.NewTextPart("first")), chat.NewAssistantMessage(chat.NewTextPart("second")))
+	var group sync.WaitGroup
+	for _, store := range []*postgres.Store{first, second} {
+		group.Go(func() {
+			receipt, err := store.Append(t.Context(), batch)
+			if err != nil || receipt.ValidateFor(batch) != nil {
+				t.Errorf("concurrent append: receipt=%+v error=%v", receipt, err)
+			}
+		})
+	}
+	group.Wait()
+	messages, err := first.Read(t.Context(), "conversation")
+	if err != nil || !reflect.DeepEqual(messages, batch.Messages()) {
+		t.Fatalf("dedup/order: messages=%v error=%v", messages, err)
+	}
+	changed := newBatch(t, chat.NewUserMessage(chat.NewTextPart("different")))
+	if _, err := second.Append(t.Context(), changed); !errors.Is(err, history.ErrAppendConflict) {
+		t.Fatalf("identity reused: %v", err)
+	}
+	if err := first.Clear(t.Context(), "conversation"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Append(t.Context(), batch); !errors.Is(err, history.ErrConversationClosed) {
+		t.Fatalf("closed retry accepted: %v", err)
+	}
+	if messages, err := second.Read(t.Context(), "conversation"); err != nil || messages == nil || len(messages) != 0 {
+		t.Fatalf("closed read: %v, %v", messages, err)
+	}
+	if ids, err := second.Conversations(t.Context()); err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("closed listing: %v, %v", ids, err)
+	}
+	if err := first.Clear(t.Context(), "unknown"); err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := history.NewBatch("unknown", "append", chat.NewUserMessage(chat.NewTextPart("later")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Append(t.Context(), unknown); !errors.Is(err, history.ErrConversationClosed) {
+		t.Fatalf("unknown identity reopened: %v", err)
 	}
 }

@@ -165,13 +165,18 @@ func TestForegroundContextControlsTheTreeButStartDetaches(t *testing.T) {
 			}
 			select {
 			case err := <-returned:
-				if !errors.Is(err, wantErr) {
-					t.Fatalf("foreground context outcome: %v", err)
+				var interrupted *RuntimeError
+				if !errors.Is(err, wantErr) || !errors.As(err, &interrupted) || interrupted.ProcessID() != root || interrupted.Epoch() != 1 || interrupted.After() == 0 {
+					t.Fatalf("foreground context outcome lost its recovery identity: %v", err)
 				}
 			case <-observation.Done():
 				t.Fatal("foreground execution ignored caller cancellation")
 			}
-			result := controlValue(observer.Await(observation))
+			if _, present := runtime.Process(root); present {
+				t.Fatal("Run retained its anonymous local writer")
+			}
+			recovered := controlValue(runtime.Recover(observation, program, root))
+			result := controlValue(recovered.Await(observation))
 			if result.Termination().Cause() != wantCause {
 				t.Fatalf("foreground context cause=%s", result.Termination().Cause())
 			}
@@ -816,7 +821,7 @@ func TestFrameworkControlsCannotActOnAnotherParentsChild(t *testing.T) {
 					if !ok || completion.Outcome.Status() != SettlementStatusFailed {
 						return Transition{}, errors.New("unauthorized framework operation succeeded")
 					}
-					failure := controlValue(controlValue(ParsePayload(completion.Outcome.Payload().JSON())).Decode[Failure]())
+					failure, _ := completion.Outcome.Failure()
 					if failure.Kind() != FailureKindContract || failure.Code() != failureCodeRuntimeChildRequestInvalid {
 						return Transition{}, errors.New("framework rejection lost its contract classification")
 					}
@@ -905,7 +910,7 @@ func TestMutatedChildBindingCannotReachItsExecution(t *testing.T) {
 			if record.Outcome.Status() != SettlementStatusFailed {
 				t.Fatal("mutated child declaration acquired a successful receipt")
 			}
-			failure := controlValue(controlValue(ParsePayload(record.Outcome.Payload().JSON())).Decode[Failure]())
+			failure, _ := record.Outcome.Failure()
 			rejected = failure.Kind() == FailureKindContract && failure.Code() == failureCodeRuntimeChildRequestInvalid
 		}
 	}

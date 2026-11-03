@@ -9,6 +9,7 @@ import (
 	"io"
 	"iter"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -28,12 +29,12 @@ func NewStreamingSpeechModel(ctx context.Context, config SpeechModelConfig) (*St
 func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
 	return func(yield func(*speech.Response, error) bool) {
 		if err := req.Validate(); err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		request, err := s.binding.buildAPIRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		if request.Utterances[0].Voice == nil && request.InstantMode == nil {
@@ -41,7 +42,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			request.InstantMode = &instantMode
 		}
 		if len(request.IncludeTimestampTypes) != 0 {
-			yield(nil, errors.New("hume: speech stream: include_timestamp_types cannot be represented by Core audio-only stream responses"))
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("hume: speech stream: include_timestamp_types cannot be represented by Core audio-only stream responses")})
 			return
 		}
 		body, err := s.binding.api.ttsStream(ctx, request)

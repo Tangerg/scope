@@ -7,6 +7,7 @@ import (
 	"io"
 	"iter"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -49,35 +50,32 @@ func (s *StreamingSpeechModel) Call(ctx context.Context, req *speech.Request) (*
 func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
 	return func(yield func(*speech.Response, error) bool) {
 		if err := req.Validate(); err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		modelName, contents, config, err := s.binding.buildAPITTSRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		if modelName != ModelGemini31FlashTTSPreview {
-			yield(nil, fmt.Errorf("google: speech: model %q does not support streaming; use %q", modelName, ModelGemini31FlashTTSPreview))
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("google: speech: model %q does not support streaming; use %q", modelName, ModelGemini31FlashTTSPreview)})
 			return
 		}
 
 		var pending *speech.Response
 		var format speechAudioFormat
-		finished := false
-		var servedModel string
+		var generation generationStream
 		for chunk, err := range s.binding.api.chatCompletionStream(ctx, modelName, contents, config) {
 			if err != nil {
 				yield(nil, err)
 				return
 			}
 
-			if chunk == nil {
-				yield(nil, fmt.Errorf("google: %w: nil speech chunk", speech.ErrInvalidResponse))
+			next, err := generation.advance(chunk)
+			if err != nil {
+				yield(nil, fmt.Errorf("google: speech: %w: %w", speech.ErrInvalidResponse, err))
 				return
-			}
-			if chunk.ModelVersion != "" {
-				servedModel = chunk.ModelVersion
 			}
 			resp, err := s.binding.buildTTSResponse(chunk, &format)
 			if err != nil {
@@ -86,10 +84,6 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 					return
 				}
 			} else {
-				if finished {
-					yield(nil, fmt.Errorf("google: %w: audio after speech completion", speech.ErrInvalidResponse))
-					return
-				}
 				if pending != nil && !yield(pending, nil) {
 					return
 				}
@@ -100,12 +94,12 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 					yield(nil, fmt.Errorf("google: speech: %w: %w", speech.ErrInvalidResponse, err))
 					return
 				}
-				finished = true
 			}
+			generation = next
 			// Retaining the final audio chunk lets terminal metadata travel with
 			// valid audio without introducing empty Core speech responses.
 			if pending != nil {
-				pending.Metadata.Model = servedModel
+				pending.Metadata.Model = generation.modelVersion
 				if err := pending.Metadata.Extra.Set(protocolKey(s.binding.provider, "speech_response"), chunk); err != nil {
 					yield(nil, err)
 					return
@@ -116,7 +110,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, err)
 			return
 		}
-		if !finished {
+		if !generation.finished() {
 			yield(nil, fmt.Errorf("google: speech stream: %w", io.ErrUnexpectedEOF))
 			return
 		}

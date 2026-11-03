@@ -1,6 +1,7 @@
 package history_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -11,20 +12,20 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-func TestNewWindowStoreValidatesConstruction(t *testing.T) {
-	if _, err := history.NewWindowStore(nil, 1); !errors.Is(err, history.ErrNilStore) {
-		t.Fatalf("nil store error = %v", err)
+func TestNewWindowReaderValidatesConstruction(t *testing.T) {
+	if _, err := history.NewWindowReader(nil, 1); !errors.Is(err, history.ErrNilReader) {
+		t.Fatalf("nil reader error = %v", err)
 	}
 	var typedNil *inmemory.Store
-	if _, err := history.NewWindowStore(typedNil, 1); !errors.Is(err, history.ErrNilStore) {
-		t.Fatalf("typed-nil store error = %v", err)
+	if _, err := history.NewWindowReader(typedNil, 1); !errors.Is(err, history.ErrNilReader) {
+		t.Fatalf("typed-nil reader error = %v", err)
 	}
-	if _, err := history.NewWindowStore(new(inmemory.Store), 0); !errors.Is(err, history.ErrInvalidWindow) {
+	if _, err := history.NewWindowReader(new(inmemory.Store), 0); !errors.Is(err, history.ErrInvalidWindow) {
 		t.Fatalf("invalid limit error = %v", err)
 	}
 }
 
-func TestWindowStoreMergesSystemAndKeepsRecentMessages(t *testing.T) {
+func TestWindowReaderMergesSystemAndKeepsRecentMessages(t *testing.T) {
 	base := new(inmemory.Store)
 	firstSystem := chat.NewSystemMessage("first")
 	firstSystem.Metadata = metadata.Map{}
@@ -40,10 +41,10 @@ func TestWindowStoreMergesSystemAndKeepsRecentMessages(t *testing.T) {
 	for _, text := range []string{"two", "three", "four"} {
 		messages = append(messages, chat.NewUserMessage(chat.NewTextPart(text)))
 	}
-	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := appendMessages(t, base, "c", messages...); err != nil {
 		t.Fatal(err)
 	}
-	window, err := history.NewWindowStore(base, 3)
+	window, err := history.NewWindowReader(base, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestWindowStoreMergesSystemAndKeepsRecentMessages(t *testing.T) {
 	}
 }
 
-func TestWindowStoreKeepsCompleteToolTurn(t *testing.T) {
+func TestWindowReaderKeepsCompleteToolTurn(t *testing.T) {
 	base := new(inmemory.Store)
 	messages := []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("old question")),
@@ -76,10 +77,10 @@ func TestWindowStoreKeepsCompleteToolTurn(t *testing.T) {
 		),
 		chat.NewAssistantMessage(chat.NewTextPart("new answer")),
 	}
-	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := appendMessages(t, base, "c", messages...); err != nil {
 		t.Fatal(err)
 	}
-	window, err := history.NewWindowStore(base, 4)
+	window, err := history.NewWindowReader(base, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestWindowStoreKeepsCompleteToolTurn(t *testing.T) {
 	}
 }
 
-func TestWindowStoreRejectsSplitNewestTurn(t *testing.T) {
+func TestWindowReaderRejectsSplitNewestTurn(t *testing.T) {
 	base := new(inmemory.Store)
 	messages := []chat.Message{
 		chat.NewSystemMessage("system"),
@@ -105,10 +106,10 @@ func TestWindowStoreRejectsSplitNewestTurn(t *testing.T) {
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "read", Arguments: `{}`})),
 		chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "read", Output: toolcontract.NewTextOutput("result")}),
 	}
-	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := appendMessages(t, base, "c", messages...); err != nil {
 		t.Fatal(err)
 	}
-	window, err := history.NewWindowStore(base, 3)
+	window, err := history.NewWindowReader(base, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,17 +118,17 @@ func TestWindowStoreRejectsSplitNewestTurn(t *testing.T) {
 	}
 }
 
-func TestWindowStorePreservesStandaloneNewestUserTurn(t *testing.T) {
+func TestWindowReaderPreservesStandaloneNewestUserTurn(t *testing.T) {
 	base := new(inmemory.Store)
 	messages := []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("old question")),
 		chat.NewAssistantMessage(chat.NewTextPart("old answer")),
 		chat.NewUserMessage(chat.NewTextPart("new question")),
 	}
-	if _, err := base.Write(t.Context(), "c", messages...); err != nil {
+	if _, err := appendMessages(t, base, "c", messages...); err != nil {
 		t.Fatal(err)
 	}
-	window, err := history.NewWindowStore(base, 1)
+	window, err := history.NewWindowReader(base, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +141,7 @@ func TestWindowStorePreservesStandaloneNewestUserTurn(t *testing.T) {
 	}
 }
 
-func TestWindowStorePreservesSystemPartStructure(t *testing.T) {
+func TestWindowReaderPreservesSystemPartStructure(t *testing.T) {
 	base := new(inmemory.Store)
 	part := chat.NewTextPart("metadata-bearing instruction")
 	part.Metadata = metadata.Map{}
@@ -149,10 +150,10 @@ func TestWindowStorePreservesSystemPartStructure(t *testing.T) {
 	}
 	first := chat.Message{Role: chat.RoleSystem, Parts: []chat.Part{chat.NewTextPart("first"), part}}
 	second := chat.NewSystemMessage("second")
-	if _, err := base.Write(t.Context(), "c", first, second); err != nil {
+	if _, err := appendMessages(t, base, "c", first, second); err != nil {
 		t.Fatal(err)
 	}
-	window, err := history.NewWindowStore(base, 1)
+	window, err := history.NewWindowReader(base, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,29 +177,36 @@ func TestWindowStorePreservesSystemPartStructure(t *testing.T) {
 	}
 }
 
-func TestWindowStoreDelegatesWritesAndClear(t *testing.T) {
+func TestWindowReaderExposesOnlyReadAuthority(t *testing.T) {
 	base := new(inmemory.Store)
-	window, err := history.NewWindowStore(base, 2)
+	window, err := history.NewWindowReader(base, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := window.Write(t.Context(), "b", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
+	if _, writes := any(window).(history.Writer); writes {
+		t.Fatal("read projection acquired write authority")
+	}
+	if _, clears := any(window).(history.Clearer); clears {
+		t.Fatal("read projection acquired clear authority")
+	}
+	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Reader: window, Writer: base, ConversationID: "window"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := window.Write(t.Context(), "a", chat.NewUserMessage(chat.NewTextPart("one"))); err != nil {
+	model := middleware.Call(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return response(chat.NewAssistantMessage(chat.NewTextPart("answer"))), nil
+	}))
+	if _, err := model.Call(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question")))); err != nil {
 		t.Fatal(err)
 	}
-	if err := window.Clear(t.Context(), "a"); err != nil {
-		t.Fatal(err)
-	}
-	if got, _ := window.Read(t.Context(), "a"); got == nil || len(got) != 0 {
-		t.Fatalf("after Clear = %#v", got)
+	if messages, err := window.Read(t.Context(), "window"); err != nil || len(messages) != 2 {
+		t.Fatalf("explicit reader/writer composition lost the completed turn: %v %v", messages, err)
 	}
 }
 
-func TestWindowStoreLargeLimitUsesOnlyActualHistory(t *testing.T) {
+func TestWindowReaderLargeLimitUsesOnlyActualHistory(t *testing.T) {
 	base := new(inmemory.Store)
-	window, err := history.NewWindowStore(base, int(^uint(0)>>1))
+	window, err := history.NewWindowReader(base, int(^uint(0)>>1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +215,7 @@ func TestWindowStoreLargeLimitUsesOnlyActualHistory(t *testing.T) {
 		if err != nil || got == nil || len(got) != count {
 			t.Fatalf("Read after %d writes = %v, %v", count, got, err)
 		}
-		if _, err := base.Write(t.Context(), "conversation", chat.NewUserMessage(chat.NewTextPart("turn"))); err != nil {
+		if _, err := appendMessages(t, base, "conversation", chat.NewUserMessage(chat.NewTextPart("turn"))); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const protocolProvider = "azureopenai"
+const providerID = "azureopenai"
 
 type Config struct {
 	APIKey     string

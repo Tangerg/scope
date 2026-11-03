@@ -96,7 +96,7 @@ func NewActionSettlement(result ActionResult) (run.Settlement, error) {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
 	if !result.Succeeded() {
-		return failedSettlement(settlementFailure{Diagnostic: result.Diagnostic()})
+		return failedSettlement(run.FailureKindExternal, failureCodePlanningOperationFailed, result.Diagnostic())
 	}
 	payload, err := jsonv2.Marshal(actionCompleted{})
 	if err != nil {

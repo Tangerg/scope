@@ -265,13 +265,13 @@ func newPatternChildren(compiler *agentrun.Compiler) (patternChildren, error) {
 
 func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workflow.Stage, error) {
 	normalize, err := workflow.Call(workflow.CallConfig{
-		ID: "normalize", Program: children.normalizer, Budget: budget,
+		ID: "normalize", Child: agentrun.ChildBinding{Program: children.normalizer, Budget: budget},
 	})
 	if err != nil {
 		return nil, err
 	}
 	summarize, err := workflow.Call(workflow.CallConfig{
-		ID: "summarize", Program: children.summarizer, Budget: budget,
+		ID: "summarize", Child: agentrun.ChildBinding{Program: children.summarizer, Budget: budget},
 	})
 	if err != nil {
 		return nil, err
@@ -280,16 +280,16 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 		ID:     "route",
 		Select: selectPatternRoute,
 		Cases: []workflow.SwitchCase{
-			{ID: urgentRouteID, Program: children.urgent, Budget: budget},
-			{ID: standardRouteID, Program: children.standard, Budget: budget},
+			{ID: urgentRouteID, Child: agentrun.ChildBinding{Program: children.urgent, Budget: budget}},
+			{ID: standardRouteID, Child: agentrun.ChildBinding{Program: children.standard, Budget: budget}},
 		},
 	})
 	if err != nil {
 		return nil, err
 	}
 	sections := []workflow.ForkBranch{
-		{ID: factsSectionID, Program: children.facts, Budget: budget},
-		{ID: risksSectionID, Program: children.risks, Budget: budget},
+		{ID: factsSectionID, Child: agentrun.ChildBinding{Program: children.facts, Budget: budget}},
+		{ID: risksSectionID, Child: agentrun.ChildBinding{Program: children.risks, Budget: budget}},
 	}
 	section, err := workflow.Fork(workflow.ForkConfig[routedState, sectionContent, findingBundle]{
 		ID: "section", Branches: sections, WindowSize: sectionWindowSize,
@@ -308,10 +308,10 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	vote, err := workflow.Fork(workflow.ForkConfig[findingBundle, ballot, patternReport]{
 		ID: "vote",
 		Branches: []workflow.ForkBranch{
-			{ID: approveFirstBallotID, Program: children.approveFirst, Budget: budget},
-			{ID: rejectFirstBallotID, Program: children.rejectFirst, Budget: budget},
-			{ID: rejectSecondBallotID, Program: children.rejectSecond, Budget: budget},
-			{ID: approveSecondBallotID, Program: children.approveSecond, Budget: budget},
+			{ID: approveFirstBallotID, Child: agentrun.ChildBinding{Program: children.approveFirst, Budget: budget}},
+			{ID: rejectFirstBallotID, Child: agentrun.ChildBinding{Program: children.rejectFirst, Budget: budget}},
+			{ID: rejectSecondBallotID, Child: agentrun.ChildBinding{Program: children.rejectSecond, Budget: budget}},
+			{ID: approveSecondBallotID, Child: agentrun.ChildBinding{Program: children.approveSecond, Budget: budget}},
 		},
 		WindowSize: voteWindowSize,
 		Reduce:     reduceBallots,

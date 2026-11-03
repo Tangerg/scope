@@ -232,22 +232,6 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 	}
 }
 
-type cyclicCapabilityTool struct{}
-
-func (c *cyclicCapabilityTool) Definition() tool.Definition {
-	return tool.Definition{Name: "cycle", Description: "Reject a cyclic capability wrapper.", InputSchema: []byte(objectToolSchema)}
-}
-func (c *cyclicCapabilityTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
-	return tool.Result{}, errors.New("must not execute")
-}
-func (c *cyclicCapabilityTool) Unwrap() tool.Tool { return c }
-
-func TestOptionalCapabilityRejectsACyclicWrapper(t *testing.T) {
-	if _, err := toolCapability(new(cyclicCapabilityTool), "IdempotentTool.Idempotent", IdempotentTool.Idempotent); !errors.Is(err, tool.ErrInvalidWrappingChain) {
-		t.Fatal(err)
-	}
-}
-
 func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))

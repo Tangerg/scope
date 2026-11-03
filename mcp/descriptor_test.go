@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/Tangerg/scope/core/jsonschema"
+
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,8 +22,10 @@ func TestDescriptorOutputSchemaPreservesExactNumbers(t *testing.T) {
 	snapshot, err := newDescriptorSnapshot(sdkmcp.Tool{Name: "exact", InputSchema: json.RawMessage(`{"type":"object"}`),
 		OutputSchema: json.RawMessage(`{"type":"integer","const":9007199254740993}`)}, "exact")
 	require.NoError(t, err)
-	require.NoError(t, snapshot.outputSchema.Validate([]byte(`9007199254740993`)))
-	require.Error(t, snapshot.outputSchema.Validate([]byte(`9007199254740992`)))
+	schema, err := jsonschema.Parse(snapshot.definition.OutputSchema)
+	require.NoError(t, err)
+	require.NoError(t, schema.Validate([]byte(`9007199254740993`)))
+	require.Error(t, schema.Validate([]byte(`9007199254740992`)))
 }
 
 func TestDescriptorSnapshotOwnsOnlyProjectedSDKValues(t *testing.T) {
@@ -44,8 +48,10 @@ func TestDescriptorSnapshotOwnsOnlyProjectedSDKValues(t *testing.T) {
 	assert.Equal(t, "public", snapshot.definition.Name)
 	assert.Equal(t, "original", snapshot.definition.Description)
 	assert.JSONEq(t, `{"type":"object","properties":{"x":{"type":"string"}}}`, string(snapshot.definition.InputSchema))
-	require.NoError(t, snapshot.outputSchema.Validate([]byte(`3`)))
-	require.Error(t, snapshot.outputSchema.Validate([]byte(`"3"`)))
+	schema, err := jsonschema.Parse(snapshot.definition.OutputSchema)
+	require.NoError(t, err)
+	require.NoError(t, schema.Validate([]byte(`3`)))
+	require.Error(t, schema.Validate([]byte(`"3"`)))
 	assert.False(t, *snapshot.toolAnnotations.DestructiveHint)
 	assert.False(t, *snapshot.toolAnnotations.OpenWorldHint)
 }

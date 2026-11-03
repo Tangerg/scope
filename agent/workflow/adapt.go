@@ -40,7 +40,7 @@ func Adapt[I, A, B, O any](
 	output TransformFunc[B, O],
 ) (run.Program[I, O], error) {
 	inputStage, inputErr := Transform(adaptInputStage, input)
-	childStage, childErr := Call(CallConfig{ID: adaptChildStage, Program: child.Erase(), Budget: config.Budget, Capabilities: config.Capabilities})
+	childStage, childErr := Call(CallConfig{ID: adaptChildStage, Child: run.ChildBinding{Program: child.Erase(), Budget: config.Budget, Capabilities: config.Capabilities}})
 	outputStage, outputErr := Transform(adaptOutputStage, output)
 	if err := errors.Join(inputErr, childErr, outputErr); err != nil {
 		return run.Program[I, O]{}, err

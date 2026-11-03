@@ -12,6 +12,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
@@ -224,14 +225,14 @@ func (i *ImageModel) buildResponse(apiResp *genai.GenerateContentResponse) (*ima
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if i == nil || i.client == nil {
-		return nil, errors.New("vertexai: image: nil model")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("vertexai: image: nil model")}
 	}
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	modelName, contents, config, err := i.buildRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiResp, err := i.client.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {

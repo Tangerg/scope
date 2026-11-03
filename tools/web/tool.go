@@ -23,7 +23,10 @@ func inputFailure(cause error) error {
 }
 
 type readOnlyTool struct {
-	inner toolcontract.Tool
+	inner interface {
+		toolcontract.Tool
+		toolcontract.InputValidatingTool
+	}
 }
 
 func (r readOnlyTool) Definition() toolcontract.Definition { return r.inner.Definition() }
@@ -36,4 +39,4 @@ func (readOnlyTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, b
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
 }
 
-func (r readOnlyTool) Unwrap() toolcontract.Tool { return r.inner }
+func (r readOnlyTool) InputValidator() func([]byte) error { return r.inner.InputValidator() }

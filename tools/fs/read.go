@@ -7,6 +7,7 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // StartLine is one-based to match editors, grep, and language servers.
@@ -39,7 +40,7 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	}
 	t := &ReadTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe,
 			Name: "read",
 			Description: "Read a text file from the filesystem. Returns the requested line range with the total line count and a truncation flag. " +
 				"By default returns the admitted file up to the backend's input, line, and output bounds; pass start_line and max_lines to page by 1-based line number. " +
@@ -74,7 +75,7 @@ func (r *ReadTool) read(ctx context.Context, _ toolcontract.IdempotencyKey, req 
 		Limit:  req.MaxLines,
 	})
 	if err != nil {
-		return ReadResponse{}, fmt.Errorf("fs.read: %w", err)
+		return ReadResponse{}, toolresult.ReadFailure("fs.read", err)
 	}
 	return ReadResponse{
 		Content:    res.Content,
@@ -85,4 +86,4 @@ func (r *ReadTool) read(ctx context.Context, _ toolcontract.IdempotencyKey, req 
 	}, nil
 }
 
-func (r *ReadTool) Unwrap() toolcontract.Tool { return r.typed }
+func (r *ReadTool) InputValidator() func([]byte) error { return r.typed.InputValidator() }

@@ -371,7 +371,7 @@ func TestWrapperConstructionRejectsTypedNilAndClosedObserver(t *testing.T) {
 func BenchmarkLogObservation(b *testing.B) {
 	h := newObserverHarness(b)
 	root, _ := run.ParseProcessID("root")
-	batch := run.Batch{Root: root, Epoch: 1, After: 2, Records: []run.Record{run.ControlRequested{Process: root, Kind: run.ControlPause, Reason: "benchmark", At: time.Unix(1, 0)}}}
+	batch := run.Batch{Root: root, Epoch: 1, After: 2, Records: []run.Record{run.ControlRequested{Origin: run.ControlOriginHost, Process: root, Kind: run.ControlPause, Reason: "benchmark", At: time.Unix(1, 0)}}}
 	store, err := h.observer.WrapStore(&rejectedStore{})
 	if err != nil {
 		b.Fatal(err)

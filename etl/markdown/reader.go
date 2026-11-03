@@ -115,7 +115,10 @@ func (r *Reader) readWhole(raw []byte, p *document.Provenance) ([]*document.Docu
 
 // Content before the first split heading forms an unnamed lead-in section.
 func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, error) {
-	root := r.parser.Parse(raw)
+	raw, root, err := resolveReferences(ctx, r.parser, raw)
+	if err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -126,6 +129,9 @@ func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, e
 	)
 
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
+		if _, definition := n.(*ast.LinkReferenceDefinition); definition {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}

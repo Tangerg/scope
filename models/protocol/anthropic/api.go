@@ -24,11 +24,12 @@ const (
 )
 
 type apiConfig struct {
-	APIKey     string
-	BaseURL    string
-	HTTPClient *http.Client
-	Headers    http.Header
-	Provider   string
+	APIKey       string
+	BaseURL      string
+	HTTPClient   *http.Client
+	Headers      http.Header
+	Revision     MessagesRevision
+	APIKeyScheme APIKeyScheme
 }
 
 func (a apiConfig) validate() error {
@@ -59,69 +60,38 @@ func (a apiConfig) endpoint() (string, error) {
 	return baseURL, nil
 }
 
-// compatibleRevision is the deployed Messages contract of third-party gateways.
-const compatibleMessagesRevision = "2023-06-01"
-
-func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, bool, error) {
+func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, error) {
 	baseURL, err := a.endpoint()
 	if err != nil {
-		return nil, false, err
+		return nil, err
+	}
+	if err = a.Revision.Validate(); err != nil {
+		return nil, err
+	}
+	credentialHeader, credentialValue, err := a.APIKeyScheme.credential(a.APIKey)
+	if err != nil {
+		return nil, err
 	}
 	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: a.httpClient(), BaseURL: baseURL})
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	headers := make(http.Header, len(a.Headers))
 	for name, values := range a.Headers {
 		key := http.CanonicalHeaderKey(name)
+		switch key {
+		case headerAuthorization, headerProxyAuthorization, headerXAPIKey, headerAPIKey, headerCookie, headerAnthropicVersion:
+			return nil, fmt.Errorf("anthropic: header %q is owned by the credential or wire binding", key)
+		}
 		if _, duplicate := headers[key]; duplicate {
-			return nil, false, fmt.Errorf("anthropic: duplicate header %q", key)
+			return nil, fmt.Errorf("anthropic: duplicate header %q", key)
 		}
 		headers[key] = values
 	}
-	compatible := false
-	if versions, supplied := headers["Anthropic-Version"]; supplied {
-		if a.Provider == protocolProvider || len(versions) != 1 || versions[0] != compatibleMessagesRevision {
-			return nil, false, errors.New("anthropic: unsupported Messages revision for this binding")
-		}
-		compatible = true
-	}
-	// The API key is the only credential source. A gateway may select a
-	// different header, but cannot add a second key or send two credentials.
-	defaultKey := "Authorization"
-	if compatible {
-		defaultKey = "X-Api-Key"
-	}
-	auth := http.Header{}
-	expected := func(name string) string {
-		if name == "Authorization" {
-			return "Bearer " + a.APIKey
-		}
-		return a.APIKey
-	}
-	auth.Set(defaultKey, expected(defaultKey))
-	for _, name := range []string{"Authorization", "X-Api-Key", "Api-Key"} {
-		if values, present := headers[name]; present {
-			delete(headers, name)
-			if len(values) == 0 {
-				auth.Del(name)
-				continue
-			}
-			if len(values) != 1 || values[0] != expected(name) {
-				return nil, false, fmt.Errorf("anthropic: header %q conflicts with the bound API key", name)
-			}
-			auth.Set(name, values[0])
-		}
-	}
-	if len(auth) != 1 {
-		return nil, false, errors.New("anthropic: exactly one API credential header is required")
-	}
-	options := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithAPIKey(a.APIKey), option.WithBaseURL(baseURL), option.WithHTTPClient(client)}
-	if auth.Get("Authorization") == "" {
-		options = append(options, option.WithHeaderDel("Authorization"))
-		for name, values := range auth {
-			headers[name] = values
-		}
+	options := []option.RequestOption{
+		option.WithoutEnvironmentDefaults(), option.WithBaseURL(baseURL), option.WithHTTPClient(client),
+		option.WithHeader(headerAnthropicVersion, string(a.Revision)),
+		option.WithHeader(credentialHeader, credentialValue),
 	}
 	for name, values := range headers {
 		if len(values) == 0 {
@@ -132,7 +102,7 @@ func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, 
 			options = append(options, option.WithHeader(name, value))
 		}
 	}
-	return options, compatible, nil
+	return options, nil
 }
 
 // WithoutEnvironmentDefaults also omits the SDK's HTTP default. Restore its
@@ -151,17 +121,16 @@ func (a apiConfig) httpClient() *http.Client {
 }
 
 type api struct {
-	compatibleRevision bool
-	client             *anthropicsdk.Client
+	client *anthropicsdk.Client
 }
 
 func newAPI(ctx context.Context, config apiConfig) (*api, error) {
-	options, compatible, err := config.requestOptions(ctx)
+	options, err := config.requestOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
 	client := anthropicsdk.NewClient(options...)
-	return &api{client: &client, compatibleRevision: compatible}, nil
+	return &api{client: &client}, nil
 }
 
 func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {

@@ -71,11 +71,11 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 	}
 	result, advertised, required, rejected, err := t.callTool(ctx, prepared)
 	if err != nil && result.ID == "" {
-		failure := toolFailure{Diagnostic: run.NormalizeDiagnostic(err.Error())}
+		failure := toolUncertainty{Diagnostic: run.NormalizeDiagnostic(err.Error())}
 		if evidence, ok := errors.AsType[*tool.CallError](err); ok && evidence.Validate() == nil {
 			failure.Evidence = new(evidence.Evidence())
 		}
-		return (dispatchFailure{Tool: &failure}).settlement(run.SettlementStatusUnknown)
+		return (dispatchUncertainty{Tool: &failure}).settlement()
 	}
 	outcome := toolDispatchResult{Completion: prepared.completion(result, rejected, advertised)}
 	if err != nil {
@@ -87,8 +87,8 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 	return outcome.settlement()
 }
 
-func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
-	binding, err := tool.Bind(executable)
+func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool, middlewares []tool.CallMiddleware) error {
+	binding, err := tool.Bind(executable, middlewares...)
 	if err != nil {
 		return err
 	}
@@ -104,10 +104,6 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if err != nil {
 		return err
 	}
-	idempotent, err := toolCapability(executable, "IdempotentTool.Idempotent", IdempotentTool.Idempotent)
-	if err != nil {
-		return err
-	}
 	concurrent, err := toolCapability(executable, "ConcurrentTool.ConcurrencyPolicy", ConcurrentTool.ConcurrencyPolicy)
 	if err != nil {
 		return err
@@ -120,7 +116,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool) error {
 	if advertiser != nil {
 		t.advertisers[publicName] = advertiser
 	}
-	entry.direct, entry.idempotent, entry.concurrent = direct, idempotent, concurrent
+	entry.direct, entry.concurrent = direct, concurrent
 	t.manifest.entries[publicName] = entry
 	if !deferred {
 		t.manifest.initialNames = append(t.manifest.initialNames, publicName)
@@ -230,8 +226,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 	return prepared
 }
 
-// toolCapability resolves an optional declaration through the Tool's wrapping
-// chain. Declarations are read once at binding, so a panic there is a defect of
+// toolCapability reads a consumer-owned declaration directly from the Tool. Declarations are read once at binding, so a panic there is a defect of
 // the Tool that must reject construction rather than surface during recovery.
 func toolCapability[C, V any](executable tool.Tool, declaration string, read func(C) V) (value V, err error) {
 	defer func() {
@@ -240,10 +235,7 @@ func toolCapability[C, V any](executable tool.Tool, declaration string, read fun
 			value, err = zero, &run.CallbackPanicError{Operation: declaration, Value: recovered}
 		}
 	}()
-	capability, found, err := tool.Capability[C](executable)
-	if err != nil {
-		return value, fmt.Errorf("%s: %w", declaration, err)
-	}
+	capability, found := executable.(C)
 	if !found {
 		return value, nil
 	}

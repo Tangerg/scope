@@ -37,7 +37,7 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 				t.Fatal(err)
 			}
 			called := false
-			model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", DefaultOptions: defaults}, Dialect{Provider: "openai", TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: func(source *corechat.Request, _ *CompatibleRequest) error {
+			model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", DefaultOptions: defaults}, DialectConfig{Provider: "openai", TokenLimitField: TokenLimitMaxCompletionTokens, PrepareRequest: func(source *corechat.Request, _ *CompatibleRequest) error {
 				called = true
 				value, found, decodeErr := source.Options.Extensions.Decode[string]("test/typed")
 				if decodeErr != nil || !found || value != wantTyped {
@@ -79,7 +79,7 @@ func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
 func TestCompatibleRequestCannotOverwriteCoreFields(t *testing.T) {
 	for _, field := range []string{"model", "messages", "tools", "max_tokens", "max_completion_tokens", "temperature", "top_p", "reasoning_effort", "response_format", "tool_choice", "parallel_tool_calls", "stream"} {
 		t.Run(field, func(t *testing.T) {
-			model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", BaseURL: "https://compatible.example.test/v1", DefaultOptions: corechat.Options{Model: "test-model"}}, Dialect{Provider: "test", TokenLimitField: TokenLimitMaxTokens, PrepareRequest: func(_ *corechat.Request, target *CompatibleRequest) error { return target.SetExtraField(field, nil) }})
+			model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", BaseURL: "https://compatible.example.test/v1", DefaultOptions: corechat.Options{Model: "test-model"}}, DialectConfig{Provider: "test", TokenLimitField: TokenLimitMaxTokens, PrepareRequest: func(_ *corechat.Request, target *CompatibleRequest) error { return target.SetExtraField(field, nil) }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestCompatibleRequestCannotOverwriteCoreFields(t *testing.T) {
 }
 
 func TestDisabledRawExtensionIsRejected(t *testing.T) {
-	model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", BaseURL: "https://compatible.example.test/v1", DefaultOptions: corechat.Options{Model: "test-model"}}, Dialect{Provider: "test", TokenLimitField: TokenLimitMaxTokens, DisableRawRequestExtension: true})
+	model, err := NewChatCompletions(t.Context(), ChatCompletionsConfig{APIKey: "test", BaseURL: "https://compatible.example.test/v1", DefaultOptions: corechat.Options{Model: "test-model"}}, DialectConfig{Provider: "test", TokenLimitField: TokenLimitMaxTokens, DisableRawRequestExtension: true})
 	if err != nil {
 		t.Fatal(err)
 	}

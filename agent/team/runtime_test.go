@@ -32,9 +32,9 @@ func transformed[I, O any](t *testing.T, runtime *run.Runtime, name string, tran
 }
 func compileTeam(t *testing.T, runtime *run.Runtime, coordinator run.Program[run.Payload, run.Payload], workers ...run.Program[run.Payload, run.Payload]) run.Program[string, string] {
 	t.Helper()
-	config := Config{Name: "test.team", Description: "Coordinate declared workers.", Coordinator: WorkerConfig{Program: coordinator}, MaxTurns: run.NewQuota(8), MaxTasks: run.NewQuota(8), MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
+	config := Config{Name: "test.team", Description: "Coordinate declared workers.", Coordinator: run.ChildBinding{Program: coordinator}, MaxTurns: run.NewQuota(8), MaxTasks: run.NewQuota(8), MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
 	for _, worker := range workers {
-		config.Workers = append(config.Workers, WorkerConfig{Program: worker})
+		config.Workers = append(config.Workers, run.ChildBinding{Program: worker})
 	}
 	program, err := Compile[string, string](runtime.Compiler(), config)
 	if err != nil {

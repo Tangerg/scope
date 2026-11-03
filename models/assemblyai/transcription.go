@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
@@ -97,32 +98,38 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	}, nil
 }
 
-func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (_ *transcription.Response, invocationErr error) {
+	performedWork := false
+	defer func() {
+		if invocationErr != nil && performedWork {
+			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
+		}
+	}()
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
 	for _, field := range []string{fieldAudioURL, fieldLanguageCode} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)}
 		}
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptRequest](RequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq.SpeechModels = prioritizedSpeechModels(effectiveOptions.Model, apiReq.SpeechModels)
 	if validateTranscriptRequestErr := apiReq.validate(); validateTranscriptRequestErr != nil {
-		return nil, validateTranscriptRequestErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptRequestErr}
 	}
 	apiReq.LanguageCode = effectiveOptions.Language
 
@@ -132,13 +139,14 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		var audio []byte
 		audio, err = req.Audio.Bytes()
 		if err != nil {
-			return nil, err
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 		}
 		var uploaded *uploadResponse
 		uploaded, err = t.api.upload(ctx, audio)
 		if err != nil {
 			return nil, err
 		}
+		performedWork = true
 		apiReq.AudioURL = uploaded.UploadURL
 	}
 
@@ -147,6 +155,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, err
 	}
 
+	performedWork = true
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
 		return nil, err

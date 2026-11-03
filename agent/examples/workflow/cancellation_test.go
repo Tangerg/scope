@@ -1,24 +1,26 @@
 package main
 
 import (
-	"github.com/Tangerg/scope/agent/run/runtest"
-
 	"context"
 	"testing"
 
 	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run/runtest"
 )
 
-func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
+func TestCanceledExampleJoinsPendingChildAdmissionBeforeClosing(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	admittedChild := false
+	joined := make(chan struct{})
 	runtime, err := agentrun.New(t.Context(), agentrun.Config{Build: "example-cancellation",
 		Store: agentrun.NewMemoryStore(),
-		ProcessAdmitter: agentrun.ProcessAdmitterFunc(func(_ context.Context, admission agentrun.ProcessAdmission) error {
+		ProcessAdmitter: agentrun.ProcessAdmitterFunc(func(admissionContext context.Context, admission agentrun.ProcessAdmission) error {
 			if _, child := admission.ProcessID().Parent(); child {
-				admittedChild = true
+				defer close(joined)
 				cancel()
+				// Cancellation must reach the owned admission before it can finish.
+				<-admissionContext.Done()
+				return admissionContext.Err()
 			}
 			return nil
 		}),
@@ -40,7 +42,12 @@ func TestCanceledExampleJoinsEveryOwnedChildBeforeClosing(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := runtest.Observe(ctx, runtime, root.Erase(), input)
-	if err != nil || !admittedChild || result.Termination().Status() != agentrun.StatusCanceled {
-		t.Fatalf("cancellation result = %s, child admission = %t, error = %v", result.Termination().Status(), admittedChild, err)
+	if err != nil || result.Termination().Status() != agentrun.StatusCanceled {
+		t.Fatalf("cancellation result = %s, error = %v", result.Termination().Status(), err)
+	}
+	select {
+	case <-joined:
+	default:
+		t.Fatal("cancellation returned before child admission joined")
 	}
 }

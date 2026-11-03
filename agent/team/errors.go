@@ -8,29 +8,29 @@ import (
 
 // ErrInvalidConfig rejects construction before execution and therefore carries
 // no Failure classification.
-var ErrInvalidConfig = errors.New("collaboration: invalid configuration")
+var ErrInvalidConfig = errors.New("team: invalid configuration")
 
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping
 // one is the only way a Step error acquires its classification.
 var (
 	ErrInvalidDecision = agentrun.NewClassifiedError(
 		agentrun.FailureKindContract,
-		"collaboration.decision.invalid",
-		"collaboration: invalid decision",
+		"team.decision.invalid",
+		"team: invalid decision",
 	)
 	ErrInvalidExecutionState = agentrun.NewClassifiedError(
 		agentrun.FailureKindContract,
-		"collaboration.state.invalid",
-		"collaboration: invalid execution state",
+		"team.state.invalid",
+		"team: invalid execution state",
 	)
 	ErrInvalidProtocol = agentrun.NewClassifiedError(
 		agentrun.FailureKindContract,
-		"collaboration.protocol.invalid",
-		"collaboration: invalid execution protocol",
+		"team.protocol.invalid",
+		"team: invalid execution protocol",
 	)
 	ErrTurnLimit = agentrun.NewClassifiedError(
 		agentrun.FailureKindExecution,
-		"collaboration.limit.turns",
-		"collaboration: turn limit reached",
+		"team.limit.turns",
+		"team: turn limit reached",
 	)
 )

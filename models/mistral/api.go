@@ -8,40 +8,19 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const maximumErrorResponseBytes = 1 << 20
+const headerRequestID = "Request-Id"
+const headerXRequestID = "X-Request-Id"
 
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
 	HTTPClient *http.Client
-}
-
-type APIError struct {
-	Operation  string
-	StatusCode int
-	RequestID  string
-	Message    string
-}
-
-func (a *APIError) Error() string {
-	if a == nil {
-		return "mistral: nil API error"
-	}
-	detail := fmt.Sprintf("mistral: %s returned HTTP %d", a.Operation, a.StatusCode)
-	if a.Message != "" {
-		detail += ": " + a.Message
-	}
-	if a.RequestID != "" {
-		detail += " (request_id=" + a.RequestID + ")"
-	}
-	return detail
 }
 
 func (a apiConfig) validate() error {
@@ -62,7 +41,7 @@ func (a *api) embedding(ctx context.Context, request *embeddingRequest) (*embedd
 		return nil, fmt.Errorf("mistral: embedding request: %w", err)
 	}
 	if !response.IsSuccess() {
-		return nil, newAPIError("embeddings", response.StatusCode(), response.Header(), response.Body())
+		return nil, responseError("embeddings", response)
 	}
 	return &result, nil
 }
@@ -76,7 +55,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.JSONMarshal = func(value any) ([]byte, error) { return jsonv2.Marshal(value) }
 	client.JSONUnmarshal = func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }
 	client.
@@ -110,7 +89,7 @@ func (a *api) moderation(ctx context.Context, req *moderationRequest) (*moderati
 		return nil, fmt.Errorf("mistral: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("mistral: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("mistral: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }
@@ -134,38 +113,13 @@ func (a *api) chatCompletionStream(ctx context.Context, request *chatCompletionR
 	if response.IsSuccess() {
 		return body, nil
 	}
-	defer body.Close()
-	payload, readErr := io.ReadAll(io.LimitReader(body, maximumErrorResponseBytes))
-	if readErr != nil {
-		return nil, fmt.Errorf("mistral: read chat completion stream error: %w", readErr)
+	if body != nil {
+		_ = body.Close()
 	}
-	return nil, newAPIError("chat completion stream", response.StatusCode(), response.Header(), payload)
+	return nil, responseError("chat completion stream", response)
 }
 
-func newAPIError(operation string, statusCode int, header http.Header, body []byte) error {
-	requestID := header.Get("request-id")
-	if requestID == "" {
-		requestID = header.Get("x-request-id")
-	}
-	message := strings.TrimSpace(string(body))
-	var payload struct {
-		Message string `json:"message"`
-		Detail  any    `json:"detail"`
-	}
-	if jsonv2.Unmarshal(body, &payload) == nil {
-		switch {
-		case payload.Message != "":
-			message = payload.Message
-		case payload.Detail != nil:
-			if encoded, err := jsonv2.Marshal(payload.Detail); err == nil {
-				message = string(encoded)
-			}
-		}
-	}
-	return &APIError{
-		Operation:  operation,
-		StatusCode: statusCode,
-		RequestID:  requestID,
-		Message:    message,
-	}
+func responseError(operation string, response *resty.Response) error {
+	requestID := cmp.Or(response.Header().Get(headerRequestID), response.Header().Get(headerXRequestID))
+	return fmt.Errorf("mistral: %s: %w", operation, httpclient.NewResponseError(response.StatusCode(), requestID))
 }

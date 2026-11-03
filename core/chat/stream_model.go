@@ -5,6 +5,8 @@ import (
 	"errors"
 	"iter"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/samber/lo"
 )
 
@@ -25,7 +27,7 @@ func NewStreamModel(source Streamer) (*StreamModel, error) {
 func (s *StreamModel) Stream(ctx context.Context, request *Request) iter.Seq2[*ResponseDelta, error] {
 	if s == nil || lo.IsNil(s.source) {
 		return func(yield func(*ResponseDelta, error) bool) {
-			yield(nil, &CallFailure{Kind: CallFailureNotExecuted, Cause: errMissingStreamer})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errMissingStreamer})
 		}
 	}
 	return s.source.Stream(ctx, request)

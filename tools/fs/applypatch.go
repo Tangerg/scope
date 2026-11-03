@@ -144,4 +144,4 @@ func (a *ApplyPatchTool) apply(ctx context.Context, _ toolcontract.IdempotencyKe
 	return res, nil
 }
 
-func (a *ApplyPatchTool) Unwrap() toolcontract.Tool { return a.typed }
+func (a *ApplyPatchTool) InputValidator() func([]byte) error { return a.typed.InputValidator() }

@@ -8,7 +8,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-// Gemini declares eighteen finish reasons, and which Core reason each becomes
+// Which Core reason each native finish reason becomes
 // is a decision a caller acts on: content-filter tells them the policy withheld
 // the output, length tells them to continue, other tells them nothing portable
 // is known. The sibling adapters each pin their provider's enum this way; this
@@ -34,6 +34,7 @@ func TestNormalizeFinishReasonCoversTheSDKEnum(t *testing.T) {
 		{reason: genai.FinishReasonUnspecified, want: ""},
 		{reason: genai.FinishReasonStop, want: corechat.FinishReasonStop},
 		{reason: genai.FinishReasonMaxTokens, want: corechat.FinishReasonLength},
+		{reason: genai.FinishReasonContinuation, want: corechat.FinishReasonLength},
 
 		{reason: genai.FinishReasonSafety, want: corechat.FinishReasonContentFilter},
 		{reason: genai.FinishReasonRecitation, want: corechat.FinishReasonContentFilter},

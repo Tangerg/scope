@@ -165,7 +165,7 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	}
 	var children []run.Program[run.Payload, run.Payload]
 	for _, delegate := range d.delegates {
-		children = append(children, delegate.program)
+		children = append(children, delegate.child.Program)
 	}
 	return children
 }

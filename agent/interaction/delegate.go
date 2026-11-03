@@ -20,33 +20,24 @@ type DelegateConfig struct {
 
 	Description string
 
-	// Program is the exact child program. An Interaction
-	// configured with this Delegate owns it as one of its ChildPrograms.
-	Program run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent for each invocation.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	Child run.ChildBinding
 }
 
 // Delegate is an immutable, model-visible binding to one exact managed child
 // Program. It is a composition value owned by Interaction, not an
 // executable Tool or a second Process-start entry point.
 type Delegate struct {
-	definition   toolcontract.Definition
-	program      run.Program[run.Payload, run.Payload]
-	budget       run.Budget
-	capabilities run.CapabilitySet
+	definition toolcontract.Definition
+	child      run.ChildBinding
 }
 
 // NewDelegate fixes the target at construction; model selection cannot change
 // its Program, budget, or capabilities.
 func NewDelegate(config DelegateConfig) (Delegate, error) {
-	if !config.Program.Valid() || !run.ValidDescription(config.Description) {
+	if !config.Child.Valid() || !run.ValidDescription(config.Description) {
 		return Delegate{}, ErrInvalidDelegate
 	}
-	descriptor := config.Program.Descriptor()
+	descriptor := config.Child.Program.Descriptor()
 	if err := chat.ValidateToolName(config.Name); err != nil {
 		return Delegate{}, fmt.Errorf("%w: %w", ErrInvalidDelegate, err)
 	}
@@ -58,22 +49,20 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 		return Delegate{}, fmt.Errorf("%w: model contract: %w", ErrInvalidDelegate, err)
 	}
 	return Delegate{
-		definition: definition, program: config.Program,
-		budget:       config.Budget,
-		capabilities: config.Capabilities,
+		definition: definition, child: config.Child,
 	}, nil
 }
 
 func (d Delegate) Valid() bool {
 	return d.definition.Validate() == nil && run.ValidDescription(d.definition.Description) &&
-		d.program.Valid()
+		d.child.Valid()
 }
 
 func (d Delegate) validateInput(input run.Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
 	}
-	return d.program.Descriptor().InputSchema().Validate(input.JSON())
+	return d.child.Program.Descriptor().InputSchema().Validate(input.JSON())
 }
 
 // validateOutput is the one OutputSchema admission a successful Delegate result
@@ -86,7 +75,7 @@ func (d Delegate) validateOutput(output run.Payload) error {
 	if !output.Valid() {
 		return fmt.Errorf("%w: Delegate result output is invalid", ErrInvalidDelegate)
 	}
-	return d.program.Descriptor().OutputSchema().Validate(output.JSON())
+	return d.child.Program.Descriptor().OutputSchema().Validate(output.JSON())
 }
 
 // admitResultOutput is validateOutput for a raw result: a success carrying no
@@ -160,7 +149,7 @@ func (d Delegate) childSpec(sequence uint64, call chat.ToolCall) (run.ChildSpec,
 	if err != nil {
 		return run.ChildSpec{}, err
 	}
-	return run.ChildSpec{Key: key, ProgramRef: d.program.ProgramRef(), Input: input, Budget: d.budget, Capabilities: d.capabilities}, nil
+	return d.child.Spec(key, input)
 }
 
 func (d Delegate) validateChild(spec run.ChildSpec, sequence uint64, call chat.ToolCall) error {

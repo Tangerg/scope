@@ -15,7 +15,6 @@ type descriptorSnapshot struct {
 	remoteName      string
 	definition      toolcontract.Definition
 	toolAnnotations sdkmcp.ToolAnnotations
-	outputSchema    jsonschema.Schema
 }
 
 func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descriptorSnapshot, error) {
@@ -38,10 +37,11 @@ func newDescriptorSnapshot(descriptor sdkmcp.Tool, publicName string) (descripto
 		if err != nil {
 			return descriptorSnapshot{}, fmt.Errorf("mcp: encode tool output schema: %w", err)
 		}
-		snapshot.outputSchema, err = jsonschema.Parse(raw)
+		compiled, err := jsonschema.Parse(raw)
 		if err != nil {
-			return descriptorSnapshot{}, fmt.Errorf("mcp: compile tool output schema: %w", err)
+			return descriptorSnapshot{}, fmt.Errorf("mcp: output schema: %w", err)
 		}
+		snapshot.definition.OutputSchema = compiled.JSON()
 	}
 	if descriptor.Annotations != nil {
 		snapshot.toolAnnotations = cloneToolAnnotations(*descriptor.Annotations)

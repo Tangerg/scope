@@ -17,7 +17,7 @@ import (
 
 // Atomic admission prevents partially registered catalogs. Handlers retain
 // the admitted identities because Tools may mutate after registration.
-func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
+func Register(server *sdkmcp.Server, tools ...toolcontract.Binding) error {
 	if server == nil {
 		return ErrNilServer
 	}
@@ -27,24 +27,28 @@ func Register(server *sdkmcp.Server, tools ...toolcontract.Tool) error {
 	}
 	for _, definition := range registry.Definitions() {
 		executable, _ := registry.Resolve(definition.Name)
-		tool := serverTool{executable: executable, name: definition.Name}
+		tool := serverTool{executable: executable}
 		// The low-level AddTool keeps the Tool's own schema; the generic SDK
 		// helper would replace it with a reflected one.
-		server.AddTool(new(sdkmcp.Tool{
-			Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema,
-		}), tool.handle)
+		descriptor := &sdkmcp.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema}
+		if len(definition.OutputSchema) != 0 {
+			descriptor.OutputSchema = definition.OutputSchema
+		}
+		if definition.Effect == toolcontract.EffectSafe {
+			descriptor.Annotations = &sdkmcp.ToolAnnotations{ReadOnlyHint: true}
+		}
+		server.AddTool(descriptor, tool.handle)
 	}
 	return nil
 }
 
 type serverTool struct {
 	executable toolcontract.Binding
-	name       string
 }
 
 // Ordinary errors cannot prove a tool outcome, and diagnostics must not reach the model.
 func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
-	toolName := s.name
+	toolName := s.executable.Contract().Name()
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.serve "+toolName,
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(semconv.GenAIToolName(toolName)),

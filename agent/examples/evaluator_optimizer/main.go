@@ -320,13 +320,13 @@ func newIterationProgram(
 		Steps: agentrun.NewQuota(workerBudgetSteps), Effects: agentrun.NewQuota(workerBudgetEffects), Messages: agentrun.NewQuota(workerBudgetMessages),
 	}
 	optimize, err := workflow.Call(workflow.CallConfig{
-		ID: "optimize", Program: optimizer, Budget: workerBudget,
+		ID: "optimize", Child: agentrun.ChildBinding{Program: optimizer, Budget: workerBudget},
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
 	evaluate, err := workflow.Call(workflow.CallConfig{
-		ID: "evaluate", Program: evaluator, Budget: workerBudget,
+		ID: "evaluate", Child: agentrun.ChildBinding{Program: evaluator, Budget: workerBudget},
 	})
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
@@ -374,7 +374,7 @@ func newOptimizationRoot(
 		Steps: agentrun.NewQuota(iterationBudgetSteps), Effects: agentrun.NewQuota(iterationBudgetEffects), Messages: agentrun.NewQuota(iterationBudgetMessages),
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
-		ID: "refine", Body: iteration, Budget: iterationBudget,
+		ID: "refine", Body: agentrun.ChildBinding{Program: iteration, Budget: iterationBudget},
 		MaxIterations: agentrun.NewQuota(uint64(maxIterations)),
 		Predicate: func(_ context.Context, state optimizationState) (bool, error) {
 			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {

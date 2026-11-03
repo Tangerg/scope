@@ -11,6 +11,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 // DefaultOptions are copied during construction; callers may select the model
@@ -36,10 +37,10 @@ func (r ResponsesConfig) Validate() error {
 const (
 	// ResponsesRequestExtensionKey stores official Responses API parameters in
 	// a Core request for fields without a provider-neutral equivalent.
-	ResponsesRequestExtensionKey = "openai/responses_request"
+	ResponsesRequestExtensionKey = ProviderID + "/responses_request"
 	// ResponsesResponseExtensionKey preserves the complete official Responses
 	// API response, including output item types Core does not normalize.
-	ResponsesResponseExtensionKey = "openai/responses_response"
+	ResponsesResponseExtensionKey = ProviderID + "/responses_response"
 	responsesItemTypeMessage      = "message"
 	responsesItemTypeReasoning    = "reasoning"
 	responsesItemTypeFunctionCall = "function_call"
@@ -120,7 +121,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := r.buildResponsesRequest(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		stream, err := r.api.responseNewStream(ctx, params)

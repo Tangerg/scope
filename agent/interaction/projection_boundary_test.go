@@ -75,12 +75,14 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	call := requested("echo", "one")
 	model := mustValue((modelCallResult{Response: finalResponse("done")}).settlement(run.MaxPayloadBytes))
 	toolResult := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("echo")}}).settlement())
-	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), mustValue(run.NewSettlement(run.SettlementStatusFailed, []byte(`null`)))} {
+	failure := mustValue(run.NewFailure(run.FailureKindExternal, failureCodeModelFailed, "rejected"))
+	nullDetails := mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(`null`)))))
+	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
 		if _, err := ModelSettlementFromOutcome(outcome); err == nil {
 			t.Fatal("model decoder admitted another or missing outcome")
 		}
 	}
-	for _, outcome := range []run.Settlement{{}, model, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), mustValue(run.NewSettlement(run.SettlementStatusFailed, []byte(`null`)))} {
+	for _, outcome := range []run.Settlement{{}, model, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
 		if _, err := ToolSettlementFromOutcome(call, outcome); err == nil {
 			t.Fatal("tool decoder admitted another or missing outcome")
 		}
@@ -98,7 +100,12 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 		{run.SettlementStatusUnknown, `{"tool":{"diagnostic":" "}}`},
 		{run.SettlementStatusUnknown, `{"tool":{"diagnostic":"lost","evidence":{"content":[{"kind":"unknown"}]}}}`},
 	} {
-		outcome := mustValue(run.NewSettlement(sample.status, []byte(sample.wire)))
+		var outcome run.Settlement
+		if sample.status == run.SettlementStatusFailed {
+			outcome = mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(sample.wire)))))
+		} else {
+			outcome = mustValue(run.NewSettlement(sample.status, []byte(sample.wire)))
+		}
 		if _, err := ModelSettlementFromOutcome(outcome); err == nil {
 			t.Fatal("invalid failure became model evidence", sample.wire)
 		}
@@ -111,14 +118,14 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	if observedFailure.Failure != "local admission rejected" || observedFailure.Result != nil || observedFailure.Evidence != nil {
 		t.Fatal("definite local rejection acquired external evidence")
 	}
-	uncertain := mustValue((dispatchFailure{Tool: &toolFailure{Diagnostic: "acknowledgment lost", Evidence: new(tool.NewTextOutput("unconfirmed output"))}}).settlement(run.SettlementStatusUnknown))
+	uncertain := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.NewTextOutput("unconfirmed output"))}}).settlement())
 	evidence := mustValue(ToolSettlementFromOutcome(call, uncertain))
 	evidence.Evidence.Content[0].Text = "changed"
 	retained := mustValue(ToolSettlementFromOutcome(call, uncertain))
 	if retained.Evidence.Content[0].Text != "unconfirmed output" || retained.Result != nil || retained.InputRequired {
 		t.Fatal("unknown evidence became final or was mutated")
 	}
-	emptyEvidence := mustValue((dispatchFailure{Tool: &toolFailure{Diagnostic: "acknowledgment lost", Evidence: new(tool.Output)}}).settlement(run.SettlementStatusUnknown))
+	emptyEvidence := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.Output)}}).settlement())
 	empty := mustValue(ToolSettlementFromOutcome(call, emptyEvidence))
 	if empty.Evidence == nil || empty.Evidence.Validate() != nil || empty.Result != nil {
 		t.Fatal("present empty evidence was treated as absent or final")

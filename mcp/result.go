@@ -7,14 +7,12 @@ import (
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
 	corecontent "github.com/Tangerg/scope/core/content"
-	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/tool"
 )
 
 type remoteResult struct {
-	remoteName   string
-	value        *sdkmcp.CallToolResult
-	outputSchema jsonschema.Schema
+	remoteName string
+	value      *sdkmcp.CallToolResult
 }
 
 func (r remoteResult) unwrap() (tool.Output, error) {
@@ -39,11 +37,7 @@ func (r remoteResult) unwrap() (tool.Output, error) {
 		}
 		return tool.Output{}, failure
 	}
-	if r.outputSchema.Valid() {
-		if validationErr := r.outputSchema.Validate(output.Details); validationErr != nil {
-			return tool.Output{}, fmt.Errorf("mcp: tool %q structured content does not match its output schema: %w", r.remoteName, validationErr)
-		}
-	}
+
 	return output, nil
 }
 

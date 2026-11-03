@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/httpclient"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/mistral"
 )
@@ -291,11 +292,11 @@ func TestChatReturnsStructuredAPIError(t *testing.T) {
 	_, err = model.Call(t.Context(), &corechat.Request{Messages: []corechat.Message{
 		corechat.NewUserMessage(corechat.NewTextPart("hello")),
 	}})
-	var apiError *mistral.APIError
+	var apiError *httpclient.ResponseError
 	if !errors.As(err, &apiError) {
-		t.Fatalf("error = %T %v; want *mistral.APIError", err, err)
+		t.Fatalf("error = %T %v; want *httpclient.ResponseError", err, err)
 	}
-	if apiError.StatusCode != http.StatusUnprocessableEntity || apiError.RequestID != "req-123" || apiError.Message != "invalid reasoning_effort" {
+	if apiError.HTTPStatus() != http.StatusUnprocessableEntity || apiError.RequestID() != "req-123" || strings.Contains(err.Error(), "invalid reasoning_effort") {
 		t.Fatalf("API error = %#v", apiError)
 	}
 }

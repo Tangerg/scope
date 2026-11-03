@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
+	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
 func TestCompileFreezesCallbackSettingsAndIncludesTheirIdentity(t *testing.T) {
@@ -50,7 +51,7 @@ func TestCompileFreezesCallbackSettingsAndIncludesTheirIdentity(t *testing.T) {
 func TestDeclarativeGraphRejectsUnownedCallbackConfiguration(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	child := mustProgram(t, mustDefinition(t, "test.identity", mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })), "identity")
-	call, err := Call(CallConfig{ID: "child", Program: child})
+	call, err := Call(CallConfig{ID: "child", Child: agentrun.ChildBinding{Program: child}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,5 +61,9 @@ func TestDeclarativeGraphRejectsUnownedCallbackConfiguration(t *testing.T) {
 	program, err := Compile[int, int](compiler, Config{Name: "test.call", Description: "Use one declarative child.", Stages: []Stage{call}})
 	if err != nil || !program.Valid() {
 		t.Fatal(err)
+	}
+	topology, err := TopologyOf(program)
+	if err != nil || len(topology.Stages) != 1 || topology.Stages[0].Bindings[0].ProgramRef != child.ProgramRef() {
+		t.Fatalf("public topology lost the compiled child binding: %+v %v", topology, err)
 	}
 }

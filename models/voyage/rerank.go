@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/rerank"
 )
 
@@ -114,21 +115,21 @@ func (r *RerankModel) buildResponse(apiResponse *rerankResponse) (*rerank.Respon
 
 func (r *RerankModel) Call(ctx context.Context, request *rerank.Request) (*rerank.Response, error) {
 	if err := request.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveRequest := *request
 	var err error
 	effectiveRequest.Options, err = r.defaultOptions.Resolve(request.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	if err = effectiveRequest.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	request = &effectiveRequest
 	apiRequest, err := r.buildAPIRequest(request)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiResponse, err := r.api.rerank(ctx, apiRequest)
 	if err != nil {

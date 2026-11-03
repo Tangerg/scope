@@ -8,6 +8,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/transcription"
 )
 
@@ -111,11 +112,11 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 
 func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq, err := a.buildAPITranslationRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := a.api.translation(ctx, apiReq)

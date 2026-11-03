@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 func TestMessagesRejectContentThatCannotSurviveHistoryReplay(t *testing.T) {
@@ -76,7 +77,7 @@ func TestMessagesRejectContentThatCannotSurviveHistoryReplay(t *testing.T) {
 					}
 				}
 			}
-			if !errors.Is(streamFailure, errors.ErrUnsupported) || corechat.ClassifyFailure(streamFailure) == corechat.CallFailureNotExecuted || visible.String() != test.visibleText {
+			if !errors.Is(streamFailure, errors.ErrUnsupported) || invocation.ClassifyFailure(streamFailure) == invocation.FailureNotExecuted || visible.String() != test.visibleText {
 				t.Fatalf("Stream text = %q, error = %v; want %q and executed unsupported failure", visible.String(), streamFailure, test.visibleText)
 			}
 		})

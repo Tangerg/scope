@@ -135,8 +135,8 @@ func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact 
 	observed.span.SetAttributes(attributes...)
 	if fact.Outcome.Status() != run.SettlementStatusSucceeded {
 		classification := "agent.effect." + fact.Outcome.Status().String()
-		if fact.Failure != nil {
-			classification = fact.Failure.Code()
+		if failure, failed := fact.Outcome.Failure(); failed {
+			classification = failure.Code()
 		}
 		classifySpan(observed.span, classification)
 	}

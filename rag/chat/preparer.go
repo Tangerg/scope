@@ -25,14 +25,11 @@ var (
 	ErrNoFinalUserMessage = errors.New("rag: chat request must end with a user message")
 )
 
-var historyValueKey = lo.Must(rag.NewValueKey[[]corechat.Message]("chat history"))
-
-// HistoryValueKey returns the typed query slot for the immutable history
-// snapshot produced by [Preparer] before the active user turn.
-func HistoryValueKey() rag.ValueKey[[]corechat.Message] { return historyValueKey }
-
 type PreparerConfig struct {
 	Retriever rag.Retriever
+	// QueryTransformer resolves conversational context for retrieval only;
+	// augmentation still receives the active user question. Nil preserves it.
+	QueryTransformer ConversationTransformer
 
 	// Augmenter folds retrieved documents into the outgoing user message.
 	// Required; use [rag.IdentityAugmenter] for retrieval without prompt changes.
@@ -51,13 +48,14 @@ func (p PreparerConfig) validate() error {
 
 // Preparer owns retrieval and augmentation at the start of a user turn.
 // It is immutable after construction and safe for concurrent use when its
-// Retriever and Augmenter are safe for concurrent use. Unchanged augmentation
+// Retriever, Augmenter and QueryTransformer are safe for concurrent use. Unchanged augmentation
 // preserves every user Part. Text rewrites require exactly one text Part and
 // preserve all other Parts and their relative positions; ambiguous rewrites
 // fail with [rag.ErrInvalidAugmentation] before calling the model.
 type Preparer struct {
-	retriever rag.Retriever
-	augmenter rag.Augmenter
+	retriever        rag.Retriever
+	augmenter        rag.Augmenter
+	queryTransformer ConversationTransformer
 }
 
 // PreparedRequest owns an immutable augmented request and its retrieval evidence.
@@ -121,19 +119,8 @@ func (p PreparedRequest) retrievalQuery() (rag.Query, error) {
 	if err != nil {
 		return rag.Query{}, fmt.Errorf("rag: build query from final user message: %w", err)
 	}
-	query, err = query.WithValue(historyValueKey, p.history())
-	if err != nil {
-		return rag.Query{}, fmt.Errorf("rag: attach chat history: %w", err)
-	}
-	return query, nil
-}
 
-func (p PreparedRequest) history() []corechat.Message {
-	history := make([]corechat.Message, len(p.request.Messages)-1)
-	for index := range history {
-		history[index] = p.request.Messages[index].Clone()
-	}
-	return history
+	return query, nil
 }
 
 // Evidence is the retrieval result for one prepared request. It belongs to RAG
@@ -153,7 +140,7 @@ func NewPreparer(config PreparerConfig) (*Preparer, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	return &Preparer{retriever: config.Retriever, augmenter: config.Augmenter}, nil
+	return &Preparer{retriever: config.Retriever, augmenter: config.Augmenter, queryTransformer: config.QueryTransformer}, nil
 }
 
 // Prepare snapshots request and retrieves evidence for its final user message.
@@ -170,7 +157,11 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return PreparedRequest{}, ctxErr
 	}
-	candidates, err := p.retriever.Retrieve(ctx, query)
+	retrievalQuery, err := p.transformQuery(ctx, prepared, query)
+	if err != nil {
+		return PreparedRequest{}, err
+	}
+	candidates, err := p.retriever.Retrieve(ctx, retrievalQuery)
 	if err != nil {
 		return PreparedRequest{}, err
 	}
@@ -196,6 +187,27 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 		return PreparedRequest{}, err
 	}
 	return prepared, nil
+}
+
+func (p *Preparer) transformQuery(ctx context.Context, prepared PreparedRequest, query rag.Query) (rag.Query, error) {
+	if lo.IsNil(p.queryTransformer) {
+		return query, nil
+	}
+	input, err := NewConversationQuery(query, prepared.request.Messages[:len(prepared.request.Messages)-1])
+	if err != nil {
+		return rag.Query{}, err
+	}
+	transformed, err := p.queryTransformer.Transform(ctx, input)
+	if err != nil {
+		return rag.Query{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return rag.Query{}, err
+	}
+	if err := transformed.Validate(); err != nil {
+		return rag.Query{}, err
+	}
+	return transformed, nil
 }
 
 // Call runs the prepared request through next. Evidence remains on the prepared

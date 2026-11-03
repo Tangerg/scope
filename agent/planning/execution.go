@@ -73,10 +73,10 @@ func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transit
 		return run.Transition{}, err
 	}
 	if failure != nil {
-		if failure.HostError != "" {
-			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.HostError)
+		if failure.Kind() == run.FailureKindContract {
+			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.Message())
 		}
-		return stepfail.Transition(1, run.FailureKindExternal, failureCodePlanningSensingFailed, failure.Diagnostic)
+		return stepfail.Transition(1, run.FailureKindExternal, failureCodePlanningSensingFailed, failure.Message())
 	}
 	e.state.WorldState = sensed.WorldState
 	if e.state.awaitingConfirmation() {
@@ -162,7 +162,11 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding A
 	if err != nil {
 		return run.Transition{}, err
 	}
-	invocation, effect, err := child.Start(turn, 0, binding.childSpec(key, childInput))
+	spec, err := binding.child.Spec(key, childInput)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	invocation, effect, err := child.Start(turn, 0, spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -179,10 +183,10 @@ func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
 		return run.Transition{}, err
 	}
 	if failure != nil {
-		if failure.HostError != "" {
-			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.HostError)
+		if failure.Kind() == run.FailureKindContract {
+			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.Message())
 		}
-		e.state.recordFailedAction(failure.Diagnostic)
+		e.state.recordFailedAction(failure.Message())
 	}
 	return e.requestSense(turn, 1)
 }

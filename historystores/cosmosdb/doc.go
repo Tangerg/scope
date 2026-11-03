@@ -1,47 +1,27 @@
-// Package cosmosdb is a history Store backed by Azure Cosmos DB
-// (NoSQL API) via the official Azure SDK.
+// Package cosmosdb stores history in an Azure Cosmos DB for NoSQL container.
 //
-// Each message is stored as a document with a collision-resistant random ID:
+// The container must use /conversation_id as its hash partition key and its
+// account must support Strong consistency. NewStore verifies both conditions
+// through read-only SDK requests. Every read, query, and transaction requests
+// Strong consistency; the service rejects accounts that cannot supply it.
+// Multi-region writes with asynchronous conflict resolution cannot establish
+// this Store's single-owner append and permanent-closure guarantees.
 //
-//	{
-//	    "id":              "4ZK3VZQF...",
-//	    "conversation_id": "u-42",
-//	    "seq":             "1716210000000123456",
-//	    "message":         "<json>",
-//	    "created_at":      "2026-05-20T08:00:00Z"
-//	}
+// A permanent conversation document owns closure and append order. Append
+// compares its ETag and creates one immutable batch item in the same partition
+// transaction. Batch owns encoding and digest; the backend never rehashes it.
+// The same append identity and digest receives the original receipt, while
+// changed content conflicts. Failed transport acknowledgment remains unknown;
+// only a confirmed conditional rollback is retried internally. The service's
+// transactional payload limit applies to the complete append; a batch is never
+// split across commits. Receipt and gate items explicitly disable TTL.
 //
-// `conversation_id` is the partition key, set when provisioning the
-// container: every read and delete is scoped to one partition by it, so
-// [NewStore] reads the container and refuses one partitioned elsewhere with
-// [ErrIncompatibleContainer] rather than letting Cosmos reject the first
-// write, far from the wiring that chose the container.
-//
-// One Write is one transactional batch. Because every message in a Write
-// carries the same conversation id, the batch satisfies Cosmos's rule that
-// "all operations within a TransactionalBatch must operate on items within the
-// same partition key", and so earns its guarantee: "if any operation fails,
-// the entire transaction is rolled back". A rolled-back batch still arrives as
-// a successful HTTP call, so Write reads the batch's own outcome rather than
-// the call's, and names the operation Cosmos faulted — every other one carries
-// 424 to say it was rolled back rather than that it failed. Cosmos caps a
-// batch at [MaxMessagesPerWrite] operations and Write refuses a larger one,
-// because splitting it across batches would trade that guarantee for a
-// partial conversation. A confirmed rollback returns zero accepted messages;
-// transport failures report an uncertain outcome.
-//
-// Reads issue a single-partition query and order the materialized
-// documents by (`seq`, `id`) without requiring a Cosmos composite index. `seq`
-// is a fixed-width decimal string so lexicographic ordering is numeric and
-// Cosmos' floating-point JSON number representation cannot lose nanosecond
-// precision. A store-local sequence generator reserves one contiguous range
-// per Write and remains monotonic across local clock regression. Concurrent
-// calls and writes from distinct Store instances have no defined relative
-// order.
-//
-// Example:
-//
-//	cosmos, _ := azcosmos.NewClient(endpoint, cred, nil)
-//	container, _ := cosmos.NewContainer("scope", "chat_history")
-//	store, _ := cosmosdb.NewStore(ctx, cosmosdb.StoreConfig{Container: container})
+// Clear first closes the permanent gate atomically, immediately hiding all
+// messages and rejecting every append, including old retries. It then removes
+// payload items while retaining that gate. If cleanup fails, Clear returns the
+// error and a later Clear resumes deletion; closure is never undone. This keeps
+// closure atomic even when a conversation exceeds Cosmos's transaction limit.
+// Reads pin the initial sequence and recheck closure, so concurrent appends or
+// cleanup cannot expose a partial batch or a partially cleared conversation.
+// The Store does not close its caller-owned ContainerClient.
 package cosmosdb

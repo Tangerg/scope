@@ -2,6 +2,7 @@ package history
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"iter"
@@ -10,6 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 var ErrNilStream = errors.New("history: middleware: nil stream sequence")
@@ -17,27 +19,32 @@ var ErrNilStream = errors.New("history: middleware: nil stream sequence")
 // MiddlewareConfig binds history to one explicit partition. Calls that do not
 // use history should use the undecorated model.
 type MiddlewareConfig struct {
-	Store          ReadWriter
+	Reader         Reader
+	Writer         Writer
 	ConversationID ConversationID
 }
 
 // Middleware replays and persists history around synchronous and streaming
 // chat capabilities. It is immutable and as safe for concurrent use as its
-// Store, but it does not serialize Read/model/Write turns of one conversation.
+// Reader and Writer, but it does not serialize Read/model/Append turns of one conversation.
 // Its zero value is invalid; construct it with NewMiddleware.
 type Middleware struct {
-	store          ReadWriter
+	reader         Reader
+	writer         Writer
 	conversationID ConversationID
 }
 
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
-	if lo.IsNil(config.Store) {
-		return Middleware{}, ErrNilStore
+	if lo.IsNil(config.Reader) {
+		return Middleware{}, ErrNilReader
+	}
+	if lo.IsNil(config.Writer) {
+		return Middleware{}, ErrNilWriter
 	}
 	if err := config.ConversationID.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	return Middleware{store: config.Store, conversationID: config.ConversationID}, nil
+	return Middleware{reader: config.Reader, writer: config.Writer, conversationID: config.ConversationID}, nil
 }
 
 // Call is a [chat.CallMiddleware]. The response result is the canonical
@@ -47,7 +54,7 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 	return chat.ModelFunc(func(ctx context.Context, request *chat.Request) (*chat.Response, error) {
 		prepared, fresh, err := m.prepare(ctx, request)
 		if err != nil {
-			return nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err}
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 		}
 		response, err := next.Call(ctx, prepared)
 		if err != nil {
@@ -82,7 +89,7 @@ func (m Middleware) stream(
 ) {
 	prepared, fresh, err := m.prepare(ctx, request)
 	if err != nil {
-		yield(nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: err})
+		yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 		return
 	}
 	sequence := next.Stream(ctx, prepared)
@@ -147,7 +154,7 @@ func (m Middleware) prepare(
 	if err != nil {
 		return nil, nil, err
 	}
-	stored, err := m.store.Read(ctx, m.conversationID)
+	stored, err := m.reader.Read(ctx, m.conversationID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: read history: %w", err)
 	}
@@ -180,22 +187,24 @@ func (m Middleware) persist(
 	if !completesTurn(assistant) {
 		return nil
 	}
-	// A failed or partial write is reconciled against the submitted batch,
-	// including when an adapter reuses or rewrites its argument buffers.
 	messages := append(fresh, assistant.Clone())
-	outcome, err := m.store.Write(ctx, m.conversationID, messages.clone()...)
-	if invalid := outcome.ValidateFor(len(messages), err); invalid != nil {
-		err = errors.Join(err, invalid)
-		// Contradictory adapter facts cannot authorize a retry of any message.
-		outcome = WriteOutcome{Uncertain: len(messages) > 0}
+	batch, err := NewBatch(m.conversationID, AppendID(rand.Text()), messages...)
+	if err != nil {
+		return &invocation.Failure{Kind: invocation.FailureFailed, Cause: err}
+	}
+	receipt, err := m.writer.Append(ctx, batch)
+	confirmed := receipt.ValidateFor(batch) == nil
+	if !confirmed && (err == nil || receipt != (Receipt{})) {
+		err = errors.Join(err, ErrInvalidReceipt)
+		receipt = Receipt{}
 	}
 	if err != nil {
-		failure := &CommitError{conversationID: m.conversationID, messages: messages, outcome: outcome, cause: err}
-		kind := chat.CallFailureFailed
-		if outcome.Uncertain {
-			kind = chat.CallFailureUnknown
+		failure := &CommitError{batch: batch, receipt: receipt, cause: err}
+		kind := invocation.FailureUnknown
+		if confirmed || errors.Is(err, ErrConversationClosed) || errors.Is(err, ErrAppendConflict) {
+			kind = invocation.FailureFailed
 		}
-		return &chat.CallFailure{Kind: kind, Cause: failure}
+		return &invocation.Failure{Kind: kind, Cause: failure}
 	}
 	return nil
 }

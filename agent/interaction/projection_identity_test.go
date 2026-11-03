@@ -195,7 +195,7 @@ func TestDelegateIntentProjectionRequiresTheExactDeclaredBinding(t *testing.T) {
 		change func(*run.ChildSpec)
 	}{
 		{"child key", func(spec *run.ChildSpec) { spec.Key = mustValue(run.ParseChildKey("undeclared")) }},
-		{"program", func(spec *run.ChildSpec) { spec.ProgramRef = foreign.program.ProgramRef() }},
+		{"program", func(spec *run.ChildSpec) { spec.ProgramRef = foreign.child.Program.ProgramRef() }},
 		{"input", func(spec *run.ChildSpec) { spec.Input = mustValue(run.EncodePayload(delegateValue{Value: 4})) }},
 		{"budget", func(spec *run.ChildSpec) { spec.Budget.Steps = run.NewQuota(1) }},
 		{"capabilities", func(spec *run.ChildSpec) {

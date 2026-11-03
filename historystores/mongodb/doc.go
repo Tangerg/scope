@@ -1,50 +1,18 @@
-// Package mongodb is a history Store backed by MongoDB via the
-// official mongo-driver v2.
+// Package mongodb persists immutable append batches through MongoDB transactions.
 //
-// Each message is a document in the configured collection:
+// A permanent conversation gate serializes appends and closure. Each append
+// document holds the Batch owner's digest and complete canonical message bytes;
+// a transaction publishes both together and allocates their stored order. All
+// transactional operations use the collection's own client, snapshot reads,
+// primary routing and majority commit acknowledgment. A deployment without
+// transaction support fails instead of falling back to partial InsertMany.
 //
-//	{
-//	    "_id":             ObjectId(...),     // assigned by the driver
-//	    "conversation_id": "u-42",
-//	    "seq":             1716210000000123456,
-//	    "message":         "<json>",          // canonical chat.Message wire shape
-//	    "created_at":      ISODate(...),
-//	}
-//
-// Documents are read by (`seq`, `_id`). A store-local sequence generator
-// reserves one contiguous range per Write and remains monotonic across local
-// clock regression. Concurrent calls and writes from distinct Store instances
-// have no defined relative order.
-//
-// Enumeration groups rather than using the distinct command, even though
-// listing conversations is exactly a distinct query. MongoDB documents three
-// limits on distinct that all share one remedy: on a sharded cluster it "may
-// return orphaned documents", which here would be conversation ids the owning
-// shard no longer holds; its single result document is bounded by the maximum
-// BSON size, which would cap how many conversations a store may hold; and on a
-// sharded collection inside a transaction it is unavailable. For each, MongoDB
-// says to "use the aggregation pipeline with the $group stage instead", which
-// also streams through a cursor.
-//
-// Write acknowledgment. The collection must use an acknowledged write concern.
-// Under w: 0 MongoDB sends no reply, so the driver reports success for messages
-// it never learned the fate of; Write and Clear reject that result instead of
-// passing the silence on as a stored conversation.
-//
-// Write atomicity. One Write is one ordered insertMany, which is not atomic
-// across documents: MongoDB "stops after an error" with "documents that
-// precede the invalid document in the documents array" already "written to the
-// collection". Rolling them back would need a distributed transaction, which a
-// standalone deployment does not offer, so a failed Write can leave a prefix of
-// its messages stored. WriteOutcome identifies the acknowledged prefix. A
-// write-concern error or lost connection makes the remaining outcome uncertain,
-// including when a write-concern failure accompanies a document rejection.
-//
-// Example:
-//
-//	col := client.Database("scope").Collection("chat_history")
-//	store, _ := mongodb.NewStore(ctx, mongodb.StoreConfig{
-//	    Collection:       col,
-//	    InitializeSchema: true, // create the conversation_id index
-//	})
+// Clear commits permanent closure before a separate cleanup transaction.
+// Read and listing lock the same gate before observing messages, so a stale
+// snapshot or failed cleanup cannot reopen a closed conversation. Listing
+// checks each gate in its own short transaction; it is not a global snapshot.
+// The permanent tombstone replaces their receipts because all future appends
+// under a closed conversation ID are rejected. Receipt records for an open
+// conversation must not be deleted by TTL or an external retention policy.
+// The host owns the native client and collection lifecycle.
 package mongodb

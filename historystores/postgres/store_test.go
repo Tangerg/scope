@@ -75,20 +75,20 @@ func TestConfigAcceptsValidIdentifiers(t *testing.T) {
 	}
 }
 
-func TestWriteConfirmsNoEffectWhenTransactionCannotBegin(t *testing.T) {
-	pool := protocolPool(t, protocolStep{query: "SELECT message FROM \"public\".\"chat_history\" LIMIT 0", replies: messageDescription()})
+func TestAppendDoesNotAcknowledgeWhenTransactionCannotBegin(t *testing.T) {
+	pool := protocolPool(t, protocolStep{query: schemaQuery, replies: messageDescription()})
 	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	pool.Close()
-	outcome, err := store.Write(t.Context(), history.ConversationID("conversation"), chat.NewUserMessage(chat.NewTextPart("hello")))
+	receipt, err := store.Append(t.Context(), newBatch(t, chat.NewUserMessage(chat.NewTextPart("hello"))))
 	if err == nil {
 		t.Fatal("expected transaction admission error")
 	}
-	if outcome != (history.WriteOutcome{}) {
-		t.Fatalf("outcome = %+v, want no effect before transaction admission", outcome)
+	if receipt != (history.Receipt{}) {
+		t.Fatalf("receipt = %+v before transaction admission", receipt)
 	}
 }
 
@@ -98,6 +98,7 @@ func TestNamesMustNotAliasPostgresTruncationOrCaseFolding(t *testing.T) {
 		t.Fatal("64-byte table name could alias another table")
 	}
 	cfg.TableName = strings.Repeat("b", 63)
+	cfg.ConversationTableName = "conversations"
 	if err := cfg.Validate(); err != nil {
 		t.Fatal("host-owned index name is irrelevant to reads", err)
 	}
@@ -106,7 +107,7 @@ func TestNamesMustNotAliasPostgresTruncationOrCaseFolding(t *testing.T) {
 		t.Fatal("derived index silently truncated")
 	}
 	ctx := t.Context()
-	pool := protocolPool(t, protocolStep{query: `SELECT message FROM "TenantA"."History" LIMIT 0`, replies: messageDescription()})
+	pool := protocolPool(t, protocolStep{query: strings.NewReplacer("public", "TenantA", "chat_history", "History").Replace(schemaQuery), replies: messageDescription()})
 	if _, err := postgres.NewStore(ctx, postgres.StoreConfig{Pool: pool, SchemaName: "TenantA", TableName: "History"}); err != nil {
 		t.Fatal(err)
 	}

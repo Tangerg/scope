@@ -22,7 +22,9 @@ func ExampleNewStore() {
 	if err := client.FTCreate(ctx, "documents", &goredis.FTCreateOptions{OnHash: true, Prefix: []any{"documents:" + space.StorageKey() + ":"}}, &goredis.FieldSchema{FieldName: "embedding", FieldType: goredis.SearchFieldTypeVector, VectorArgs: &goredis.FTVectorArgs{FlatOptions: &goredis.FTFlatOptions{Type: "FLOAT32", Dim: 2, DistanceMetric: "COSINE"}}}).Err(); err != nil {
 		panic(err)
 	}
-	store, err := redis.NewStore(ctx, redis.StoreConfig{Client: client, IndexName: "documents", Space: space})
+	store, err := redis.NewStore(ctx, redis.StoreConfig{Client: client, ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+		return visit(ctx, client)
+	}, IndexName: "documents", Space: space})
 	if err != nil {
 		panic(err)
 	}

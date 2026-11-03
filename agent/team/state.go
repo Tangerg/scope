@@ -9,7 +9,7 @@ import (
 	run "github.com/Tangerg/scope/agent/run"
 )
 
-const turnPrefix = "collaboration.turn."
+const turnPrefix = "team.turn."
 
 func turnKey(number uint64) (run.ChildKey, error) {
 	return run.ParseChildKey(fmt.Sprintf("%s%d", turnPrefix, number))
@@ -40,7 +40,7 @@ func (t taskState) validate(definition *definition) error {
 		return nil
 	}
 	worker, _ := definition.worker(t.Request.Worker)
-	return worker.program.Descriptor().ValidateOutput(output)
+	return worker.Program.Descriptor().ValidateOutput(output)
 }
 
 func (t taskState) project() Task {

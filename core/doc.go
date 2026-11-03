@@ -25,7 +25,7 @@
 // classify failures identically. Chat extends that triple with its own protocol
 // errors because its wire additionally models tool calls, parts, and usage.
 // Classify protocol errors with errors.Is; never match on message text. Chat's
-// CallFailure owns execution evidence for one complete invocation. Its
+// invocation.Failure owns execution evidence for one complete model invocation. Its
 // ClassifyFailure function preserves that scope across composed calls while
 // errors.Is and errors.As retain the underlying diagnostics.
 // JSON decoders reject unknown struct members before replacing the receiver,

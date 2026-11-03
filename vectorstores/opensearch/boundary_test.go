@@ -152,7 +152,7 @@ func TestNativeBodyOwnershipAndBounds(t *testing.T) {
 	}
 	body = &failingBody{Reader: strings.NewReader(strings.Repeat("x", 17))}
 	store.client = bodyClient{body: body}
-	if raw, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); err == nil || raw != nil || !body.closed {
+	if raw, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); err == nil || len(raw) != 17 || !body.closed {
 		t.Fatalf("response bound failed: %s, %v", raw, err)
 	}
 }
@@ -297,7 +297,7 @@ func TestNativeStreamingTransportEnforcesBoundBeforeBuffering(t *testing.T) {
 		}
 	})
 	store := &Store{client: client, maxResponseBytes: 16}
-	if raw, requestErr := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); requestErr == nil || raw != nil || body.read != 17 || !body.closed {
+	if raw, requestErr := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); requestErr == nil || len(raw) != 17 || body.read != 17 || !body.closed {
 		t.Fatalf("native transport buffered past boundary: read=%d closed=%v raw=%s error=%v", body.read, body.closed, raw, requestErr)
 	}
 }

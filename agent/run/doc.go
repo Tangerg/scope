@@ -17,7 +17,9 @@
 // the same StartID to retry submission; a conflicting declaration is rejected.
 // Recover explicitly acquires a new writer Epoch. A duplicate Start never takes
 // over another writer. Run instead attaches the foreground operation to its
-// context. Close cancels and joins local work without declaring an uncertain
+// context and joins and releases its anonymous local writer before returning.
+// An interrupted Run returns RuntimeError with the durable recovery identity.
+// Close cancels and joins local work without declaring an uncertain
 // external operation stopped; unresolved Effects remain in the durable log.
 //
 // Process paths own ancestry. A child key cannot be reused within its parent's

@@ -1,34 +1,21 @@
-// Package neo4j is a history Store backed by Neo4j via the official
-// Go driver (v6).
+// Package neo4j stores history through the official Neo4j driver.
 //
-// Storage model:
+// Each append node contains one Core Batch's canonical bytes and digest. A
+// separate, unique conversation node owns closure and the last allocated append sequence.
+// Append, Clear, and Read acquire a native write lock on that gate before reading
+// dependent state; Neo4j's default read-committed isolation alone cannot prevent
+// a read followed by a competing append or closure.
 //
-//	(:ChatMessage {
-//	    conversation_id: "u-42",
-//	    seq:             <int64 nanos>,
-//	    message:         "<json>",
-//	    created_at:      <datetime>
-//	})
+// NewStore verifies the required node uniqueness constraints even when the Host
+// provisions them. InitializeSchema creates those constraints and the read
+// index. Append executes as one native transaction. Repeated batch
+// identities return the existing receipt only when the digest matches and the
+// conversation is still open. Clear commits permanent closure before removing
+// message payloads in a separate transaction. Cleanup failures leave the gate
+// closed and a later Clear resumes removal. Retained digests do not authorize
+// a retry after closure.
 //
-// A composite index on (`conversation_id`, `seq`) is created by
-// InitializeSchema=true so reads stream in insertion order without a
-// full collection scan. A store-local sequence generator reserves one
-// contiguous range per Write and remains monotonic across local clock
-// regression. Concurrent calls and writes from distinct Store instances have
-// no defined relative order.
-//
-// Write atomicity. One Write is one UNWIND ... CREATE statement, so it applies
-// whole or not at all. A driver error does not prove rollback: losing the
-// acknowledgment may hide a completed commit. WriteOutcome reports uncertainty
-// on execution errors; callers must reconcile before resubmitting the batch.
-//
-// Example:
-//
-//	drv, _ := neo4j.NewDriver("neo4j://...", auth)
-//	defer drv.Close(ctx)
-//	store, _ := neo4jstore.NewStore(ctx, neo4jstore.StoreConfig{
-//	    Driver:           drv,
-//	    Database:         "neo4j",
-//	    InitializeSchema: true,
-//	})
+// Driver-managed retries reuse the same immutable Batch. A missing commit
+// acknowledgment never produces a receipt, and a later identical Append safely
+// reconciles it. Store does not own or close the supplied Driver.
 package neo4j

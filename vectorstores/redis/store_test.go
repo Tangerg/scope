@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vec
 }
 
 type protocolFixture struct {
+	mu                         sync.Mutex
 	t                          *testing.T
 	client                     *goredis.Client
 	info                       map[string]any
@@ -93,6 +95,8 @@ func (p *protocolFixture) ProcessPipelineHook(_ goredis.ProcessPipelineHook) gor
 	}
 }
 func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		command.SetErr(err)
 		return err
@@ -280,9 +284,13 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 	}
 	return nil
 }
+func (p *protocolFixture) scanNodes(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+	return visit(ctx, p.client)
+}
+
 func (p *protocolFixture) store(size int) *Store {
 	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", Space: fixtureSpace, WriteBatchSize: size})
+	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, ScanNodes: p.scanNodes, IndexName: "documents", Space: fixtureSpace, WriteBatchSize: size})
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -400,7 +408,7 @@ func TestNativeSchemaOwnsMetricAndNamespace(t *testing.T) {
 			case "missing dimension":
 				field["dim"] = 0
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
+			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, ScanNodes: fixture.scanNodes, IndexName: "documents", Space: fixtureSpace})
 			if store != nil || !errors.Is(err, ErrIncompatibleIndex) {
 				t.Fatalf("store=%#v, error=%v", store, err)
 			}

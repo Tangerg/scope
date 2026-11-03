@@ -146,7 +146,7 @@ func TestNativeBodyOwnershipAndBounds(t *testing.T) {
 	}
 	body = &failingBody{Reader: strings.NewReader(strings.Repeat("x", 17))}
 	store.client = bodyClient{body: body}
-	if raw, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); err == nil || raw != nil || !body.closed {
+	if raw, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); err == nil || len(raw) != 17 || !body.closed {
 		t.Fatalf("response bound failed: %s, %v", raw, err)
 	}
 }

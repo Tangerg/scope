@@ -104,7 +104,21 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 		return zero, err
 	}
 	result, err := typedHandle[O](handle).Await(ctx)
+	// Run owns the anonymous writer; only Start and Recover transfer that
+	// lifetime to a Handle. The durable log remains available for recovery.
+	if handle.tree != nil {
+		handle.tree.stop()
+		<-handle.tree.done
+		r.mu.Lock()
+		if r.roots[handle.id] == handle.tree {
+			delete(r.roots, handle.id)
+		}
+		r.mu.Unlock()
+	}
 	if err != nil {
+		if handle.tree != nil {
+			return zero, handle.tree.interrupted(err)
+		}
 		return zero, err
 	}
 	return result.Output()
@@ -160,13 +174,13 @@ func (r *Runtime) launch(ctx, work context.Context, program Program[Payload, Pay
 				return r.accepted(current, intent)
 			}
 		}
-		return nil, err
+		return nil, tree.interrupted(err)
 	}
 	p := state.processes[root]
 	p.execution, p.program = execution, program
 	if err := r.publish(tree); err != nil {
 		tree.cancel()
-		return nil, err
+		return nil, tree.interrupted(err)
 	}
 	handle := &Handle[Payload]{runtime: r, tree: tree, process: p, id: root, program: program.ProgramRef(), epoch: state.epoch}
 	tree.enqueue(root)

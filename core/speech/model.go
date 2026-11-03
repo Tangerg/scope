@@ -8,6 +8,9 @@ import (
 // Model is the synchronous provider-neutral speech generation SPI.
 // Implementations validate requests before I/O, reject explicit options they
 // cannot represent, and return responses that pass Validate.
+// Failures use [github.com/Tangerg/scope/core/invocation.ClassifyFailure] for
+// evidence about the complete call. A nested failure cannot prove that earlier
+// provider work did not run, and no failure kind authorizes retry.
 type Model interface {
 	// Call produces one complete audio response from a validated request. It
 	// must not retain or mutate request, transfers response ownership to the

@@ -164,12 +164,14 @@ func TestPreparerAugmentsRequestAndOwnsEvidence(t *testing.T) {
 func TestPreparerPreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	var capturedHistory []chat.Message
 	retriever := rag.RetrieverFunc(func(_ context.Context, query rag.Query) (rag.Candidates, error) {
-		var err error
-		capturedHistory, _, err = query.Value(ragchat.HistoryValueKey())
-		return nil, err
+		return nil, nil
 	})
 	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: retriever, Augmenter: rag.IdentityAugmenter(),
+		QueryTransformer: ragchat.ConversationTransformerFunc(func(_ context.Context, input ragchat.ConversationQuery) (rag.Query, error) {
+			capturedHistory = input.History()
+			return input.Query(), nil
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)

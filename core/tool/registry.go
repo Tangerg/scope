@@ -22,7 +22,7 @@ type Registry struct {
 	entries map[string]Binding
 }
 
-func NewRegistry(initial ...Tool) (*Registry, error) {
+func NewRegistry(initial ...Binding) (*Registry, error) {
 	registry := &Registry{}
 	if err := registry.Register(initial...); err != nil {
 		return nil, err
@@ -30,7 +30,7 @@ func NewRegistry(initial ...Tool) (*Registry, error) {
 	return registry, nil
 }
 
-func (r *Registry) Register(values ...Tool) error {
+func (r *Registry) Register(values ...Binding) error {
 	if r == nil {
 		return ErrInvalidRegistry
 	}
@@ -40,10 +40,9 @@ func (r *Registry) Register(values ...Tool) error {
 
 	pending := make(map[string]Binding, len(values))
 	names := make([]string, 0, len(values))
-	for index, value := range values {
-		binding, err := Bind(value)
-		if err != nil {
-			return fmt.Errorf("tools[%d]: %w", index, err)
+	for index, binding := range values {
+		if binding.contract.state == nil || binding.executable == nil {
+			return fmt.Errorf("tools[%d]: %w", index, ErrInvalidTool)
 		}
 		name := binding.Contract().Name()
 		if _, duplicate := pending[name]; duplicate {

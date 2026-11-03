@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -245,17 +246,21 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, apiRequest, err := i.prepareRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	final, err := i.predictions.run(ctx, effectiveOptions.Model, apiRequest)
 	if err != nil {
 		return nil, err
 	}
-	return i.response(ctx, effectiveOptions, final)
+	response, err := i.response(ctx, effectiveOptions, final)
+	if err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	return response, nil
 }
 
 func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predictionRequest, error) {

@@ -8,14 +8,14 @@ import (
 	"iter"
 	"net/http"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
 // Exported defaults keep constructor behavior visible and overridable.
 const (
-	DefaultMaxResponseBytes   = int64(32 * 1024 * 1024)
-	maximumErrorResponseBytes = int64(64 * 1024)
+	DefaultMaxResponseBytes = int64(32 * 1024 * 1024)
 )
 
 type SpeechModelConfig struct {
@@ -192,12 +192,12 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
 	return func(yield func(*speech.Response, error) bool) {
 		if err := req.Validate(); err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		text, params, err := s.buildAPIRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		body, hdr, err := s.api.speakStream(ctx, text, params)

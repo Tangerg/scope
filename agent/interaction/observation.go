@@ -16,16 +16,19 @@ type ToolSettlement struct {
 	Evidence      *tool.Output     `json:"evidence,omitzero"`
 }
 
-// The outer Settlement owns success, failure, and uncertainty. These payloads
-// add evidence without retaining another writable outcome discriminator.
-type modelFailure struct {
-	Diagnostic  string         `json:"diagnostic"`
-	Response    *chat.Response `json:"response,omitzero"`
-	NotExecuted bool           `json:"not_executed,omitzero"`
+const (
+	failureCodeDispatchRejected = "interaction.dispatch.rejected"
+	failureCodeModelFailed      = "interaction.model.failed"
+	failureCodeModelNotExecuted = "interaction.model.not_executed"
+)
+
+type modelUncertainty struct {
+	Diagnostic string         `json:"diagnostic"`
+	Response   *chat.Response `json:"response,omitzero"`
 }
 
-func (m modelFailure) validate() error {
-	if !run.ValidDiagnostic(m.Diagnostic) || m.NotExecuted && m.Response != nil {
+func (m modelUncertainty) validate() error {
+	if !run.ValidDiagnostic(m.Diagnostic) {
 		return ErrInvalidProtocol
 	}
 	if m.Response != nil {
@@ -34,12 +37,12 @@ func (m modelFailure) validate() error {
 	return nil
 }
 
-type toolFailure struct {
+type toolUncertainty struct {
 	Diagnostic string       `json:"diagnostic"`
 	Evidence   *tool.Output `json:"evidence,omitzero"`
 }
 
-func (t toolFailure) validate() error {
+func (t toolUncertainty) validate() error {
 	if !run.ValidDiagnostic(t.Diagnostic) {
 		return ErrInvalidProtocol
 	}
@@ -49,91 +52,70 @@ func (t toolFailure) validate() error {
 	return nil
 }
 
-type dispatchFailure struct {
-	Diagnostic string        `json:"diagnostic,omitzero"`
-	Model      *modelFailure `json:"model,omitzero"`
-	Tool       *toolFailure  `json:"tool,omitzero"`
+type dispatchUncertainty struct {
+	Model *modelUncertainty `json:"model,omitzero"`
+	Tool  *toolUncertainty  `json:"tool,omitzero"`
 }
 
-func (d dispatchFailure) diagnostic(status run.SettlementStatus) (string, error) {
-	if status != run.SettlementStatusFailed && status != run.SettlementStatusUnknown ||
-		d.Model != nil && d.Model.NotExecuted && status != run.SettlementStatusFailed ||
-		d.Tool != nil && status != run.SettlementStatusUnknown {
+func (d dispatchUncertainty) diagnostic() (string, error) {
+	if (d.Model == nil) == (d.Tool == nil) {
 		return "", ErrInvalidProtocol
-	}
-
-	count := 0
-	diagnostic := d.Diagnostic
-	if diagnostic != "" {
-		count++
 	}
 	if d.Model != nil {
-		count++
-		if err := d.Model.validate(); err != nil {
-			return "", err
-		}
-		diagnostic = d.Model.Diagnostic
+		return d.Model.Diagnostic, d.Model.validate()
 	}
-	if d.Tool != nil {
-		count++
-		if err := d.Tool.validate(); err != nil {
-			return "", err
-		}
-		diagnostic = d.Tool.Diagnostic
-	}
-	if count != 1 || !run.ValidDiagnostic(diagnostic) {
-		return "", ErrInvalidProtocol
-	}
-	return diagnostic, nil
+	return d.Tool.Diagnostic, d.Tool.validate()
 }
 
-// modelSettlement reads the evidence of a model call that did not succeed. A
-// response recorded beside the failure survives as evidence, never as success.
-func (d dispatchFailure) modelSettlement(status run.SettlementStatus) (ModelSettlement, error) {
-	diagnostic, err := d.diagnostic(status)
+func (d dispatchUncertainty) modelSettlement() (ModelSettlement, error) {
+	diagnostic, err := d.diagnostic()
 	if err != nil {
 		return ModelSettlement{}, err
 	}
-	if d.Tool != nil {
+	if d.Model == nil {
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
-	result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: diagnostic}
-	if status == run.SettlementStatusUnknown {
-		result.Outcome = ModelOutcomeUnknown
-	}
-	if d.Model != nil {
-		if d.Model.NotExecuted {
-			result.Outcome = ModelOutcomeNotExecuted
-		}
-		result.Response = d.Model.Response.Clone()
-	}
+	result := ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic, Response: d.Model.Response.Clone()}
 	return result, result.Validate()
 }
 
-func (d dispatchFailure) toolSettlement(status run.SettlementStatus) (ToolSettlement, error) {
-	diagnostic, err := d.diagnostic(status)
+func (d dispatchUncertainty) toolSettlement() (ToolSettlement, error) {
+	diagnostic, err := d.diagnostic()
 	if err != nil {
 		return ToolSettlement{}, err
 	}
-	if d.Model != nil {
+	if d.Tool == nil {
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
 	result := ToolSettlement{Failure: diagnostic}
-	if d.Tool != nil && d.Tool.Evidence != nil {
+	if d.Tool.Evidence != nil {
 		result.Evidence = new(d.Tool.Evidence.Clone())
 	}
 	return result, nil
 }
 
-func (d dispatchFailure) settlement(status run.SettlementStatus) (run.Settlement, error) {
-	if _, err := d.diagnostic(status); err != nil {
+func (d dispatchUncertainty) settlement() (run.Settlement, error) {
+	if _, err := d.diagnostic(); err != nil {
 		return run.Settlement{}, err
 	}
 	encoded, err := jsonv2.Marshal(d)
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(status, encoded)
+	return run.NewSettlement(run.SettlementStatusUnknown, encoded)
+}
+
+// A failed model call can still own completed generation and usage. The run
+// envelope owns its diagnostic and outcome; these details retain only evidence.
+type failedModelDetails struct {
+	Response *chat.Response `json:"response"`
+}
+
+func (f failedModelDetails) validate() error {
+	if f.Response == nil {
+		return ErrInvalidProtocol
+	}
+	return f.Response.Validate()
 }
 
 func ModelRequestFromEffect(effect run.Effect) (*chat.Request, bool, error) {
@@ -170,33 +152,63 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 	if !outcome.Valid() {
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
-	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := outcome.Payload().Decode[dispatchFailure]()
+	switch outcome.Status() {
+	case run.SettlementStatusUnknown:
+		evidence, err := outcome.Payload().Decode[dispatchUncertainty]()
 		if err != nil {
 			return ModelSettlement{}, err
 		}
-		return failure.modelSettlement(outcome.Status())
+		return evidence.modelSettlement()
+	case run.SettlementStatusFailed:
+		failure, _ := outcome.Failure()
+		result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: failure.Message()}
+		if failure.Code() == failureCodeModelNotExecuted {
+			result.Outcome = ModelOutcomeNotExecuted
+		}
+		if outcome.Payload().Valid() {
+			if failure.Code() != failureCodeModelFailed {
+				return ModelSettlement{}, ErrInvalidProtocol
+			}
+			details, err := outcome.Payload().Decode[failedModelDetails]()
+			if err != nil {
+				return ModelSettlement{}, err
+			}
+			if err := details.validate(); err != nil {
+				return ModelSettlement{}, err
+			}
+			result.Response = details.Response.Clone()
+		}
+		return result, result.Validate()
+	default:
+		envelope, err := decodeResult(outcome.Payload().JSON())
+		if err != nil {
+			return ModelSettlement{}, err
+		}
+		if envelope.ModelResult == nil {
+			return ModelSettlement{}, ErrInvalidProtocol
+		}
+		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: envelope.ModelResult.Response.Clone()}, nil
 	}
-	envelope, err := decodeResult(outcome.Payload().JSON())
-	if err != nil {
-		return ModelSettlement{}, err
-	}
-	if envelope.ModelResult == nil {
-		return ModelSettlement{}, ErrInvalidProtocol
-	}
-	return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: envelope.ModelResult.Response.Clone()}, nil
 }
 func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (ToolSettlement, error) {
 	if !outcome.Valid() || call.Validate() != nil {
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
-	if outcome.Status() != run.SettlementStatusSucceeded {
-		failure, err := outcome.Payload().Decode[dispatchFailure]()
+	if outcome.Status() == run.SettlementStatusFailed {
+		failure, _ := outcome.Failure()
+		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
+			return ToolSettlement{}, ErrInvalidProtocol
+		}
+		return ToolSettlement{Failure: failure.Message()}, nil
+	}
+	if outcome.Status() == run.SettlementStatusUnknown {
+		evidence, err := outcome.Payload().Decode[dispatchUncertainty]()
 		if err != nil {
 			return ToolSettlement{}, err
 		}
-		return failure.toolSettlement(outcome.Status())
+		return evidence.toolSettlement()
 	}
+
 	envelope, err := decodeResult(outcome.Payload().JSON())
 	if err != nil {
 		return ToolSettlement{}, err

@@ -21,6 +21,13 @@ func TestNewToolValidatesPublicDefinition(t *testing.T) {
 	}
 }
 
+func TestInvalidEffectIsRejectedBeforeEndpointDiscovery(t *testing.T) {
+	_, err := OpenToolSet(t.Context(), Endpoint{Effect: toolcontract.Effect("invalid")})
+	if !errors.Is(err, toolcontract.ErrInvalidDefinition) {
+		t.Fatalf("invalid effect reached card resolution: %v", err)
+	}
+}
+
 func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	remote, err := newRemoteTool(remoteToolConfig{
 		client: new(a2aclient.Client),

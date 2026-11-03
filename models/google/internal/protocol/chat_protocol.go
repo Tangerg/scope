@@ -9,6 +9,7 @@ import (
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 type ChatConfig struct {
@@ -65,7 +66,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		modelName, contents, config, err := c.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		mapper := newProtocolResponseMapper(c.provider)

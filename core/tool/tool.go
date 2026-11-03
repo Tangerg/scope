@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 
@@ -19,29 +20,20 @@ var (
 // Tool executes invocations admitted by its exact frozen Contract. Errors carry
 // no retry, pause, or abort policy; the driving runtime owns those decisions.
 type Tool interface {
+	Caller
 	// Definition returns a detached, valid schema snapshot. Callers may expose or
 	// mutate the returned value without changing subsequent calls or execution.
 	Definition() Definition
-	// Call executes one schema-validated invocation. Implementations still own
-	// capability-specific semantic validation. Ordinary failure is returned as
-	// error without assigning retry or control-flow meaning. Implementations must
-	// honor ctx and must not retain the invocation or its arguments.
-	// A successful Result completes or requests input. On error, the returned
-	// result is not consumed; use [Failure] to preserve
-	// complete failure content, including acknowledged partial effects. Use
-	// [CallError] for non-final execution evidence without asserting an outcome.
-	Call(ctx context.Context, invocation Invocation) (Result, error)
 }
 
-// contractState is the frozen trust boundary. The compiled input Schema owns the
-// input-schema fact: it already carries the canonical JSON the Definition
-// projects, so storing a separate Definition would keep a second,
-// possibly key-reordered, copy of the same schema. Only the name and description,
-// which the Schema does not hold, are kept alongside it.
+// Compiled schemas own the canonical JSON projected by Definition. Keeping a
+// separate mutable definition would let admission and advertised schemas drift.
 type contractState struct {
 	name        string
 	description string
 	input       corejsonschema.Schema
+	output      corejsonschema.Schema
+	effect      Effect
 	validate    func([]byte) error
 }
 
@@ -56,12 +48,13 @@ type Contract struct {
 // Binding associates one immutable Contract with the Tool that executes it.
 // Calls may run concurrently when the underlying Tool supports concurrent use.
 type Binding struct {
-	contract   Contract
-	executable Tool
+	contract    Contract
+	executable  Caller
+	middlewares []CallMiddleware
 }
 
 // Bind freezes and validates executable. Definition is read exactly once.
-func Bind(executable Tool) (Binding, error) {
+func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 	if lo.IsNil(executable) {
 		return Binding{}, fmt.Errorf("%w: tool is nil", ErrInvalidTool)
 	}
@@ -73,19 +66,39 @@ func Bind(executable Tool) (Binding, error) {
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input schema: %w", ErrInvalidTool, err)
 	}
+	var output corejsonschema.Schema
+	if len(definition.OutputSchema) != 0 {
+		output, err = corejsonschema.Parse(definition.OutputSchema)
+		if err != nil {
+			return Binding{}, fmt.Errorf("%w: output schema: %w", ErrInvalidTool, err)
+		}
+	}
+	for index, middleware := range middlewares {
+		if middleware == nil {
+			return Binding{}, fmt.Errorf("%w: middleware[%d] is nil", ErrInvalidTool, index)
+		}
+	}
 	validator, err := inputValidator(executable)
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
 	}
 	return Binding{
-		contract:   Contract{state: &contractState{name: definition.Name, description: definition.Description, input: input, validate: validator}},
-		executable: executable,
+		contract:    Contract{state: &contractState{name: definition.Name, description: definition.Description, input: input, output: output, effect: definition.Effect, validate: validator}},
+		executable:  executable,
+		middlewares: slices.Clone(middlewares),
 	}, nil
 }
 
 // Contract returns the exact frozen contract used to prepare this Binding's
 // invocations. Retaining it does not retain the executable Tool.
 func (b Binding) Contract() Contract { return b.contract }
+
+func (c Contract) Effect() Effect {
+	if c.state == nil {
+		return EffectUnsafe
+	}
+	return c.state.effect
+}
 
 // Name identifies the frozen execution target without copying its schema.
 func (c Contract) Name() string {
@@ -103,9 +116,11 @@ func (c Contract) Definition() Definition {
 		return Definition{}
 	}
 	return Definition{
-		Name:        c.state.name,
-		Description: c.state.description,
-		InputSchema: c.state.input.JSON(),
+		Name:         c.state.name,
+		Description:  c.state.description,
+		InputSchema:  c.state.input.JSON(),
+		OutputSchema: c.state.output.JSON(),
+		Effect:       c.state.effect,
 	}
 }
 
@@ -114,6 +129,7 @@ func (c Contract) Definition() Definition {
 // promote an untrusted model proposal into an executable invocation.
 type Invocation struct {
 	contract       *contractState
+	provenance     *invocationIdentity
 	arguments      []byte
 	idempotencyKey IdempotencyKey
 	continuation   *Continuation
@@ -151,7 +167,7 @@ func (c Contract) Prepare(call Request, admission Admission) (Invocation, error)
 	if admission.Continuation != nil {
 		continuation = new(*admission.Continuation)
 	}
-	return Invocation{contract: c.state, arguments: arguments, idempotencyKey: admission.IdempotencyKey, continuation: continuation}, nil
+	return Invocation{contract: c.state, provenance: new(invocationIdentity), arguments: arguments, idempotencyKey: admission.IdempotencyKey, continuation: continuation}, nil
 }
 
 func (c Contract) validateInput(arguments []byte) (err error) {
@@ -175,7 +191,19 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 	if b.contract.state == nil || invocation.contract != b.contract.state {
 		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
-	return b.executable.Call(ctx, invocation)
+	result, err := b.call(ctx, invocation, 0)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := result.Validate(); err != nil {
+		return Result{}, fmt.Errorf("tool: result: %w", err)
+	}
+	if result.InputRequest == nil && b.contract.state.output.Valid() {
+		if err := b.contract.state.output.Validate(result.Output.Details); err != nil {
+			return Result{}, fmt.Errorf("%w: structured output: %w", ErrInvalidResult, err)
+		}
+	}
+	return result, nil
 }
 
 // Arguments returns an owned copy of the validated JSON object.
@@ -189,3 +217,26 @@ func (i Invocation) Continuation() (Continuation, bool) {
 	}
 	return *i.continuation, true
 }
+
+func (b Binding) call(ctx context.Context, invocation Invocation, index int) (Result, error) {
+	if index == len(b.middlewares) {
+		return b.executable.Call(ctx, invocation)
+	}
+	forward := &callContinuation{invocation: invocation, next: CallerFunc(func(ctx context.Context, invocation Invocation) (Result, error) {
+		return b.call(ctx, invocation, index+1)
+	})}
+	defer forward.close()
+	next := b.middlewares[index](forward)
+	if lo.IsNil(next) {
+		return Result{}, fmt.Errorf("%w: middleware[%d] returned nil", ErrInvalidTool, index)
+	}
+	result, err := next.Call(ctx, invocation)
+	if validationErr := forward.validate(result); validationErr != nil {
+		return Result{}, validationErr
+	}
+	return result, err
+}
+
+func (i Invocation) Definition() Definition { return (Contract{state: i.contract}).Definition() }
+
+type invocationIdentity byte

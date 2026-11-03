@@ -2,6 +2,8 @@ package redis
 
 import (
 	"context"
+	_ "embed"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -21,7 +23,17 @@ import (
 // against one instance should override it rather than rely on this value.
 const DefaultKeyPrefix = "chat:history:"
 
-const historyAppendCommand = "rpush"
+//go:embed history.lua
+var historyScript string
+
+const (
+	operationAppend       = "append"
+	operationRead         = "read"
+	operationClear        = "clear"
+	scriptAccepted  int64 = 1
+	scriptConflict  int64 = -1
+	scriptClosed    int64 = -2
+)
 
 var scanPatternEscaper = strings.NewReplacer(
 	`\`, `\\`,
@@ -32,10 +44,7 @@ var scanPatternEscaper = strings.NewReplacer(
 )
 
 type RedisClient interface {
-	Process(context.Context, goredis.Cmder) error
-	TxPipeline() goredis.Pipeliner
-	LRange(context.Context, string, int64, int64) *goredis.StringSliceCmd
-	Del(context.Context, ...string) *goredis.IntCmd
+	Eval(context.Context, string, []string, ...any) *goredis.Cmd
 }
 
 type StoreConfig struct {
@@ -73,12 +82,12 @@ var (
 
 // Store persists each conversation as an ordered Redis list through a
 // caller-owned client. It never closes the client; when TTL is configured,
-// append and expiry refresh share one transaction so retention cannot lag a
-// successful write.
+// append, durable receipt and message expiry share one script. Receipts and
+// closed conversation markers never inherit the message TTL.
 type Store struct {
 	client    RedisClient
 	scanNodes func(context.Context, func(context.Context, *goredis.Client) error) error
-	keyPrefix string
+	keys      conversationKeyspace
 	ttl       time.Duration
 }
 
@@ -93,94 +102,80 @@ func NewStore(_ context.Context, config StoreConfig) (*Store, error) {
 	return &Store{
 		client:    config.Client,
 		scanNodes: config.ScanNodes,
-		keyPrefix: config.KeyPrefix,
+		keys:      conversationKeyspace{prefix: config.KeyPrefix},
 		ttl:       config.TTL,
 	}, nil
 }
 
-func (s *Store) key(conversationID history.ConversationID) string {
-	return s.keyPrefix + conversationID.String()
+func (s *Store) scriptKeys(id history.ConversationID) []string {
+	return []string{s.keys.messages(id), s.keys.ledger(id)}
 }
 
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
-	if err = ctx.Err(); err != nil {
-		return outcome, err
+func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return history.Receipt{}, err
 	}
-	if err = conversationID.Validate(); err != nil {
-		return outcome, err
+	if err := batch.Validate(); err != nil {
+		return history.Receipt{}, err
 	}
-	if len(messages) == 0 {
-		return history.WriteOutcome{Accepted: len(messages)}, nil
+	ttl := int64(0)
+	if s.ttl > 0 {
+		ttl = max(1, s.ttl.Milliseconds())
 	}
-
-	encoded, err := encodeMessages(messages)
+	status, err := s.client.Eval(ctx, historyScript, s.scriptKeys(batch.ConversationID()), operationAppend, batch.ID().String(), batch.Digest(), string(batch.EncodedMessages()), ttl).Int64()
 	if err != nil {
-		return outcome, fmt.Errorf("redis: write: encode messages: %w", err)
+		return history.Receipt{}, fmt.Errorf("redis: append batch: %w", err)
 	}
-	arguments := make([]any, 2, len(encoded)+2)
-	arguments[0], arguments[1] = historyAppendCommand, s.key(conversationID)
-	for _, raw := range encoded {
-		arguments = append(arguments, raw)
+	switch status {
+	case scriptConflict:
+		return history.Receipt{}, history.ErrAppendConflict
+	case scriptClosed:
+		return history.Receipt{}, history.ErrConversationClosed
+	case scriptAccepted:
+		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
+	default:
+		return history.Receipt{}, fmt.Errorf("redis: unexpected append acknowledgment %d", status)
 	}
-
-	key := s.key(conversationID)
-	appendCommand := &historyAppend{IntCmd: goredis.NewIntCmd(ctx, arguments...)}
-	outcome.Uncertain = true
-	if s.ttl == 0 {
-		if err = s.client.Process(ctx, appendCommand); err != nil {
-			return outcome, fmt.Errorf("redis: write: append messages: %w", err)
-		}
-		return history.WriteOutcome{Accepted: len(messages)}, nil
-	}
-	transaction := s.client.TxPipeline()
-	if err = transaction.Process(ctx, appendCommand); err != nil {
-		return history.WriteOutcome{}, fmt.Errorf("redis: queue history append: %w", err)
-	}
-	transaction.PExpire(ctx, key, s.ttl)
-	if _, err = transaction.Exec(ctx); err != nil {
-		if appendCommand.Err() == nil {
-			outcome = history.WriteOutcome{Accepted: len(messages)}
-		}
-		return outcome, fmt.Errorf("redis: write: append messages and refresh expiry: %w", err)
-	}
-	return history.WriteOutcome{Accepted: len(messages)}, nil
 }
 
-func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = conversationID.Validate(); err != nil {
+	if err := conversationID.Validate(); err != nil {
 		return nil, err
 	}
-
-	var encodedMessages []string
-	encodedMessages, err = s.client.LRange(ctx, s.key(conversationID), 0, -1).Result()
+	encoded, err := s.client.Eval(ctx, historyScript, s.scriptKeys(conversationID), operationRead).StringSlice()
 	if err != nil {
-		return nil, fmt.Errorf("redis: read: fetch messages: %w", err)
+		return nil, fmt.Errorf("redis: read batches: %w", err)
 	}
-
-	storedMessages = make([]chat.Message, 0, len(encodedMessages))
-	for index, raw := range encodedMessages {
-		message, err := decodeMessage([]byte(raw))
-		if err != nil {
-			return nil, fmt.Errorf("redis: read: decode message %d: %w", index, err)
+	messages := []chat.Message{}
+	for index, raw := range encoded {
+		var batch []chat.Message
+		if err := jsonv2.Unmarshal([]byte(raw), &batch); err != nil {
+			return nil, fmt.Errorf("redis: decode batch %d: %w", index, err)
 		}
-		storedMessages = append(storedMessages, message)
+		if len(batch) == 0 {
+			return nil, errors.New("redis: stored batch is empty")
+		}
+		messages = append(messages, batch...)
 	}
-	return storedMessages, nil
+	return messages, nil
 }
 
-func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err = conversationID.Validate(); err != nil {
+	if err := conversationID.Validate(); err != nil {
 		return err
 	}
-
-	if err = s.client.Del(ctx, s.key(conversationID)).Err(); err != nil {
-		return fmt.Errorf("redis: clear: delete conversation: %w", err)
+	status, err := s.client.Eval(ctx, historyScript, s.scriptKeys(conversationID), operationClear).Int64()
+	if err != nil {
+		return fmt.Errorf("redis: close conversation: %w", err)
+	}
+	if status != scriptAccepted {
+		return fmt.Errorf("redis: unexpected clear acknowledgment %d", status)
 	}
 	return nil
 }
@@ -197,9 +192,9 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 	}
 
 	collector := &conversationCollector{
-		keyPrefix: s.keyPrefix,
-		match:     scanPatternEscaper.Replace(s.keyPrefix) + "*",
-		ids:       make(map[history.ConversationID]struct{}),
+		keys:  s.keys,
+		match: s.keys.pattern(),
+		ids:   make(map[history.ConversationID]struct{}),
 	}
 
 	if err := s.scanNodes(ctx, collector.scanNode); err != nil {
@@ -209,8 +204,8 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 }
 
 type conversationCollector struct {
-	keyPrefix string
-	match     string
+	keys  conversationKeyspace
+	match string
 
 	mu  sync.Mutex
 	ids map[history.ConversationID]struct{}
@@ -252,15 +247,12 @@ func (c *conversationCollector) collect(keys []string) error {
 	defer c.mu.Unlock()
 
 	for _, key := range keys {
-		id, ok := strings.CutPrefix(key, c.keyPrefix)
-		if !ok {
-			// MATCH should preclude this, but guard against the
-			// prefix incidentally matching unintended keys.
-			continue
+		conversationID, ok, err := c.keys.conversation(key)
+		if err != nil {
+			return err
 		}
-		conversationID := history.ConversationID(id)
-		if err := conversationID.Validate(); err != nil {
-			return fmt.Errorf("redis: list conversations: invalid stored ID %q: %w", id, err)
+		if !ok {
+			continue
 		}
 		c.ids[conversationID] = struct{}{}
 	}
@@ -280,9 +272,3 @@ func (c *conversationCollector) sorted() []history.ConversationID {
 	slices.Sort(ids)
 	return ids
 }
-
-// A history append may already have taken effect when its reply is lost.
-// Its command owns the execution permission before entering the SDK.
-type historyAppend struct{ *goredis.IntCmd }
-
-func (*historyAppend) NoRetry() bool { return true }

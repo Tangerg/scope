@@ -13,3 +13,7 @@ func TestRun(t *testing.T) {
 		Lister: true,
 	})
 }
+
+func TestRunAtomic(t *testing.T) {
+	storetest.RunAtomic(t, new(inmemory.Store))
+}

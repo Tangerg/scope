@@ -74,7 +74,6 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	for _, message := range []run.Message{
 		run.Completion{Effect: id},
 		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`3`)))},
-		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusFailed, []byte(`{}`)))},
 		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))},
 	} {
 		invocation := Invocation{Request: &id}
@@ -83,7 +82,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 		}
 	}
 	invocation := Invocation{Request: &id}
-	if accepted, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusFailed, value(run.EncodePayload(failure)).JSON()))}); !accepted || err != nil || invocation.Request != nil || invocation.Rejection == nil {
+	if accepted, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewFailedSettlement(failure, run.Payload{}))}); !accepted || err != nil || invocation.Request != nil || invocation.Rejection == nil {
 		t.Fatal("admission failure was not transferred", err)
 	}
 	invocation = Invocation{Process: &process}

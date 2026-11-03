@@ -7,6 +7,8 @@ import (
 	"iter"
 	"testing"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
@@ -60,7 +62,7 @@ func TestStreamingUnknownOutcomesRetainCompletedGeneration(t *testing.T) {
 		{"nil increment", func(yield func(*chat.ResponseDelta, error) bool) { yield(nil, nil) }, false},
 		{"partial then refusal", func(yield func(*chat.ResponseDelta, error) bool) {
 			if yield(textDelta("partial", ""), nil) {
-				yield(nil, &chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("continuation refused")})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("continuation refused")})
 			}
 		}, false},
 		{"completed then nil", func(yield func(*chat.ResponseDelta, error) bool) {
@@ -80,7 +82,7 @@ func TestStreamingUnknownOutcomesRetainCompletedGeneration(t *testing.T) {
 		}, true},
 		{"partial then panic", func(yield func(*chat.ResponseDelta, error) bool) {
 			if yield(textDelta("partial", ""), nil) {
-				panic(&chat.CallFailure{Kind: chat.CallFailureNotExecuted, Cause: errors.New("panic is not a refusal acknowledgement")})
+				panic(&invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("panic is not a refusal acknowledgement")})
 			}
 		}, false},
 	} {
@@ -129,7 +131,7 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 	} {
 		backend := dispatcher{model: model}
 		response, err := backend.callModelResponse(t.Context(), testInput().request(), nil)
-		if response != nil || err == nil || chat.ClassifyFailure(err) != chat.CallFailureUnknown {
+		if response != nil || err == nil || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
 			t.Fatalf("invalid model generation became definite: %+v %v", response, err)
 		}
 	}

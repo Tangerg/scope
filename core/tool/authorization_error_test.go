@@ -29,7 +29,6 @@ func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 				defer cancel()
 				executable := &countingTool{name: "search"}
 				guard, err := tool.NewGuard(tool.GuardConfig{
-					Tool: executable,
 					Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 						if cancelExecution {
 							cancel()
@@ -40,7 +39,7 @@ func TestGuardSeparatesInternalErrorsFromCurrentInvocation(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				binding, err := tool.Bind(guard)
+				binding, err := tool.Bind(executable, guard.Call)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -70,7 +69,6 @@ func TestGuardDoesNotExecuteAfterPolicyCancelsExecution(t *testing.T) {
 	defer cancel()
 	executable := &countingTool{name: "search"}
 	guard, err := tool.NewGuard(tool.GuardConfig{
-		Tool: executable,
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 			cancel()
 			return true, nil
@@ -79,7 +77,7 @@ func TestGuardDoesNotExecuteAfterPolicyCancelsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(executable, guard.Call)
 	if err != nil {
 		t.Fatal(err)
 	}

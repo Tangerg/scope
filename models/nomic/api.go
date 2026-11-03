@@ -40,7 +40,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.
@@ -101,7 +101,7 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		return nil, fmt.Errorf("nomic: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("nomic: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("nomic: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }

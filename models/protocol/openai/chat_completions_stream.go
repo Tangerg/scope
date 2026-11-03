@@ -38,7 +38,7 @@ type openAIStreamState struct {
 	hasText    bool
 }
 
-func newOpenAIStreamState(dialect Dialect) *openAIStreamState {
+func newOpenAIStreamState(dialect chatDialect) *openAIStreamState {
 	var response responseDialect
 	if dialect.response != nil {
 		response = dialect.response()

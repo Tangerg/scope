@@ -174,7 +174,7 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 		return nil, fmt.Errorf("deepgram: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("deepgram: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("deepgram: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("deepgram: preserve transcription response: %w", err)
@@ -279,26 +279,13 @@ func (a *api) speakStream(ctx context.Context, text string, params *speakParams)
 		return nil, nil, fmt.Errorf("deepgram: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		defer resp.RawBody().Close()
-		body, readErr := readBounded(resp.RawBody(), maximumErrorResponseBytes)
-		if readErr != nil {
-			return nil, nil, fmt.Errorf("deepgram: http %d; read error response: %w", resp.StatusCode(), readErr)
+		if body := resp.RawBody(); body != nil {
+			_ = body.Close()
 		}
-		return nil, nil, fmt.Errorf("deepgram: http %d: %s", resp.StatusCode(), string(body))
+		return nil, nil, fmt.Errorf("deepgram: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if resp.RawBody() == nil {
 		return nil, nil, errors.New("deepgram: speech response has no body")
 	}
 	return resp.RawBody(), resp.Header(), nil
-}
-
-func readBounded(reader io.Reader, maxBytes int64) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, maxBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > maxBytes {
-		return nil, fmt.Errorf("response exceeds %d-byte limit", maxBytes)
-	}
-	return data, nil
 }

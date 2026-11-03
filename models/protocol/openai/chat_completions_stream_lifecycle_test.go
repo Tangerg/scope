@@ -101,7 +101,7 @@ func newLifecycleStreamModel(t *testing.T, choices []string) *scopeopenai.ChatCo
 	t.Cleanup(server.Close)
 	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "model"},
-	}, newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Provider: "test", Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}))
+	}, newTextReasoningDialect(t, scopeopenai.TextReasoningConfig{Fields: []scopeopenai.TextReasoningField{scopeopenai.TextReasoningContent}, Replay: scopeopenai.TextReasoningReplayNever}))
 	if err != nil {
 		t.Fatal(err)
 	}

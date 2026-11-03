@@ -108,36 +108,24 @@ func readerRejectsInvalidConversation(reader history.Reader, ctx context.Context
 
 func runWriterTests(t *testing.T, writer history.Writer, ctx, canceledCtx context.Context) {
 	t.Helper()
-	runCheck(t, "WriteRejectsCanceledContextBeforeIO", writerRejectsCanceled(writer, canceledCtx))
-	runCheck(t, "WriteRejectsInvalidConversationBeforeIO", writerRejectsInvalidConversation(writer, ctx))
-	runCheck(t, "WriteRejectsInvalidMessageBeforeIO", writerRejectsInvalidMessage(writer, ctx))
-	runCheck(t, "WriteTreatsEmptyMessagesAsNoop", writerTreatsEmptyMessagesAsNoop(writer, ctx))
+	runCheck(t, "AppendRejectsCanceledContextBeforeIO", writerRejectsCanceled(writer, canceledCtx))
+	runCheck(t, "AppendRejectsInvalidBatchBeforeIO", writerRejectsInvalidBatch(writer, ctx))
 }
 
 func writerRejectsCanceled(writer history.Writer, canceledCtx context.Context) string {
-	if outcome, err := writer.Write(canceledCtx, "conversation"); !errors.Is(err, context.Canceled) || outcome != (history.WriteOutcome{}) {
-		return fmt.Sprintf("Write(canceled context) outcome = %v, error = %v, want %v", outcome, err, context.Canceled)
+	batch, err := history.NewBatch("conformance", "canceled", chat.NewUserMessage(chat.NewTextPart("message")))
+	if err != nil {
+		return err.Error()
+	}
+	if receipt, err := writer.Append(canceledCtx, batch); !errors.Is(err, context.Canceled) || receipt != (history.Receipt{}) {
+		return fmt.Sprintf("Append(canceled context) receipt = %v, error = %v, want %v", receipt, err, context.Canceled)
 	}
 	return ""
 }
 
-func writerRejectsInvalidConversation(writer history.Writer, ctx context.Context) string {
-	if outcome, err := writer.Write(ctx, ""); !errors.Is(err, history.ErrInvalidConversationID) || outcome != (history.WriteOutcome{}) {
-		return fmt.Sprintf("Write(empty conversation) outcome = %v, error = %v, want %v", outcome, err, history.ErrInvalidConversationID)
-	}
-	return ""
-}
-
-func writerRejectsInvalidMessage(writer history.Writer, ctx context.Context) string {
-	if outcome, err := writer.Write(ctx, "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) || outcome != (history.WriteOutcome{}) {
-		return fmt.Sprintf("Write(invalid message) outcome = %v, error = %v, want %v", outcome, err, chat.ErrInvalidMessage)
-	}
-	return ""
-}
-
-func writerTreatsEmptyMessagesAsNoop(writer history.Writer, ctx context.Context) string {
-	if outcome, err := writer.Write(ctx, "conversation"); err != nil || outcome != (history.WriteOutcome{}) {
-		return fmt.Sprintf("Write(empty messages) outcome = %v, error = %v, want a zero no-op", outcome, err)
+func writerRejectsInvalidBatch(writer history.Writer, ctx context.Context) string {
+	if receipt, err := writer.Append(ctx, history.Batch{}); !errors.Is(err, history.ErrInvalidBatch) || receipt != (history.Receipt{}) {
+		return fmt.Sprintf("Append(invalid batch) receipt = %v, error = %v, want %v", receipt, err, history.ErrInvalidBatch)
 	}
 	return ""
 }

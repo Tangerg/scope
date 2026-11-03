@@ -32,8 +32,8 @@ func TestNewStoreRequiresDriver(t *testing.T) {
 
 func TestNewStoreRejectsBadLabel(t *testing.T) {
 	_, err := neo4jstore.NewStore(t.Context(), neo4jstore.StoreConfig{
-		Driver: stubDriver(),
-		Label:  "Bad-Label",
+		Driver:      stubDriver(),
+		AppendLabel: "Bad-Label",
 	})
 	if err == nil {
 		t.Fatal("expected error on label with hyphen")
@@ -41,7 +41,7 @@ func TestNewStoreRejectsBadLabel(t *testing.T) {
 }
 
 func TestNewStoreAcceptsDefaults(t *testing.T) {
-	_, err := neo4jstore.NewStore(t.Context(), neo4jstore.StoreConfig{Driver: stubDriver()})
+	err := (neo4jstore.StoreConfig{Driver: stubDriver()}).Validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

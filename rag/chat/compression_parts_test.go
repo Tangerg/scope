@@ -21,7 +21,7 @@ func TestCompressionPreservesPublicHistoryAndOmitsReasoning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := mustQuery(t, "follow up").WithValue(ragchat.HistoryValueKey(), []chat.Message{
+	query, err := ragchat.NewConversationQuery(mustQuery(t, "follow up"), []chat.Message{
 		chat.NewUserMessage(chat.NewTextPart("inspect"), chat.NewMediaPart(image)),
 		chat.NewAssistantMessage(chat.NewReasoningPart("private reasoning", nil), chat.NewRefusalPart("declined")),
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "read", Name: "lookup", Arguments: `{}`})),

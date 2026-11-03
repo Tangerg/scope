@@ -56,14 +56,14 @@ func TestPlanningConfirmsEffectsThroughSensor(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
 			done, goal, action := domain()
 			world := &observedWorld{}
-			binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action}))
-			config := baseConfig(goal, world, binding)
-			config.ActionExecutors = map[string]planning.ActionExecutor{action.Name(): planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+			binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 				if observed {
 					world.apply(done)
 				}
 				return planning.ActionSucceeded(), nil
-			})}
+			})}))
+			config := baseConfig(goal, world, binding)
+
 			program := require(planning.Compile[string](runtime.Compiler(), config))
 			output := require(runtime.Run(t.Context(), program, "work"))
 			expectedOutcome, expectedAttempt := planning.OutcomeStuck, planning.AttemptUnconfirmed
@@ -86,12 +86,12 @@ func TestPlanningAlreadySatisfiedAndBoundedAttempts(t *testing.T) {
 			if already {
 				world.apply(done)
 			}
-			binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action}))
+			binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+				return require(planning.ActionFailed("definite refusal")), nil
+			})}))
 			config := baseConfig(goal, world, binding)
 			config.MaxActionAttempts = run.NewQuota(1)
-			config.ActionExecutors = map[string]planning.ActionExecutor{action.Name(): planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
-				return require(planning.ActionFailed("definite refusal")), nil
-			})}
+
 			program := require(planning.Compile[string](runtime.Compiler(), config))
 			output := require(runtime.Run(t.Context(), program, "work"))
 			if already {
@@ -111,13 +111,13 @@ func TestPlanningActionUncertaintyIsNotReexecuted(t *testing.T) {
 	done, goal, action := domain()
 	world := &observedWorld{}
 	var calls atomic.Int32
-	binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action}))
-	config := baseConfig(goal, world, binding)
-	config.ActionExecutors = map[string]planning.ActionExecutor{action.Name(): planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+	binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 		calls.Add(1)
 		world.apply(done)
 		return planning.ActionResult{}, errors.New("acknowledgment lost")
-	})}
+	})}))
+	config := baseConfig(goal, world, binding)
+
 	program := require(planning.Compile[string](runtime.Compiler(), config))
 	handle := require(runtime.Start(t.Context(), program, run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: "work"}))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -162,7 +162,7 @@ func TestPlanningChildActionUsesExplicitExitAndReobserves(t *testing.T) {
 	world := &observedWorld{}
 	childStage := require(workflow.Transform("finish", func(_ context.Context, value string) (string, error) { return value, nil }))
 	child := require(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.child", Description: "Perform the child action.", Revision: "identity", Stages: []workflow.Stage{childStage}}))
-	binding := require(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Program: child.Erase()}))
+	binding := require(planning.NewChildBinding(planning.ChildBindingConfig{Action: action, Child: run.ChildBinding{Program: child.Erase()}}))
 	sensor := planning.SensorFunc(func(ctx context.Context, request planning.SenseRequest) (planning.WorldState, error) {
 		world.mu.Lock()
 		if world.observations > 0 {
@@ -196,16 +196,74 @@ func TestPlanningChildActionUsesExplicitExitAndReobserves(t *testing.T) {
 func TestPlanningRejectsIncompleteExecutorBindingsAndOpaqueIdentity(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	_, goal, action := domain()
-	binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action}))
-	config := baseConfig(goal, &observedWorld{}, binding)
-	if _, err := planning.Compile[string](runtime.Compiler(), config); !errors.Is(err, planning.ErrInvalidDispatcherConfig) {
+	if _, err := planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action}); !errors.Is(err, planning.ErrInvalidAction) {
 		t.Fatalf("missing executor accepted: %v", err)
 	}
-	config.ActionExecutors = map[string]planning.ActionExecutor{action.Name(): planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+	binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
 		return planning.ActionSucceeded(), nil
-	})}
+	})}))
+	config := baseConfig(goal, &observedWorld{}, binding)
 	config.Revision = ""
 	if _, err := planning.Compile[string](runtime.Compiler(), config); !errors.Is(err, run.ErrInvalidProgram) {
 		t.Fatalf("opaque configuration without revision: %v", err)
+	}
+}
+
+func TestPlanningActionReplayRetainsItsDeclaredIdentityAcrossRecovery(t *testing.T) {
+	store := run.NewMemoryStore()
+	runtime := conformancetest.Runtime(t, run.Config{Store: store})
+	done, goal, action := domain()
+	world := &observedWorld{}
+	requests := make(chan run.EffectID, 2)
+	var calls atomic.Int32
+	binding := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{
+		Action: action, Replay: run.ReplayPolicySameIdentity,
+		Executor: planning.ActionExecutorFunc(func(_ context.Context, request planning.ActionRequest) (planning.ActionResult, error) {
+			requests <- request.EffectID
+			if calls.Add(1) == 1 {
+				world.apply(done)
+				return planning.ActionResult{}, errors.New("acknowledgment lost")
+			}
+			return planning.ActionSucceeded(), nil
+		}),
+	}))
+	config := baseConfig(goal, world, binding)
+	program := require(planning.Compile[string](runtime.Compiler(), config))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	handle := require(runtime.Start(ctx, program, run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: "work"}))
+	var unknown run.EffectID
+	for entry, err := range handle.Observe(ctx, 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settled, ok := entry.Record.(run.EffectSettled); ok && settled.Outcome.Status() == run.SettlementStatusUnknown {
+			unknown = settled.ID
+			break
+		}
+	}
+	if !unknown.Valid() {
+		t.Fatal("action did not retain its uncertain attempt")
+	}
+	if err := runtime.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	replacement := conformancetest.Runtime(t, run.Config{Store: store})
+	recoveredProgram := require(planning.Compile[string](replacement.Compiler(), config))
+	recovered := require(replacement.Recover(ctx, recoveredProgram, handle.ID()))
+	if err := recovered.ReplayUnknownEffect(ctx, unknown); err != nil {
+		t.Fatal(err)
+	}
+	result := require(recovered.Await(ctx))
+	output := require(result.Output())
+	if output.Outcome != planning.OutcomeAchieved || calls.Load() != 2 || <-requests != unknown || <-requests != unknown {
+		t.Fatalf("same-identity recovery changed the attempt: output=%+v calls=%d", output, calls.Load())
+	}
+	never := require(planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(func(context.Context, planning.ActionRequest) (planning.ActionResult, error) {
+		return planning.ActionSucceeded(), nil
+	})}))
+	config.Actions = []planning.ActionBinding{never}
+	if changed := require(planning.Compile[string](replacement.Compiler(), config)); changed.ProgramRef() == program.ProgramRef() {
+		t.Fatal("replay authority was omitted from the program identity")
 	}
 }

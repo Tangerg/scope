@@ -22,6 +22,8 @@ github.com/Tangerg/scope/models/blackforestlabs v0.59.0 h1:kPSkUceSgezms3tw0w4Vt
 github.com/Tangerg/scope/models/blackforestlabs v0.59.0/go.mod h1:a8VsF+A106WJAeSTUkTxKdzd1+/kt6GfPE+FEq3h4K0=
 github.com/Tangerg/scope/models/cohere v0.59.0 h1:bN8OG058V39ZuloQf+y98fZLyFqsejzlrRSHGXqL04M=
 github.com/Tangerg/scope/models/cohere v0.59.0/go.mod h1:h7idDGzbwdbpq4d6JIMilYGtOByYei5sttgG+cKm3OQ=
+github.com/Tangerg/scope/models/deepgram v0.59.0 h1:dsMjrJr7dx85GmoF0x16MiBaWgXkMcW/pedxkd0AUt0=
+github.com/Tangerg/scope/models/deepgram v0.59.0/go.mod h1:Keii3oWTihYauQ+rpaKLv2i6CAkzAU6CPv9q8DU81Zc=
 github.com/Tangerg/scope/models/elevenlabs v0.59.0 h1:k+XsqQMpHmQDqV1aScfyd12riKOnoZ4mvY7KJd+Qg7k=
 github.com/Tangerg/scope/models/elevenlabs v0.59.0/go.mod h1:0VyEVkWXSaJOUbMSQN7XHCZyyYLkBWbDOtyp0ToyYmc=
 github.com/Tangerg/scope/models/gladia v0.59.0 h1:JX3x3CPhQzogGO1Y6QfuO/zx/zdEG9YlzUcbJjBK95U=
@@ -44,6 +46,8 @@ github.com/Tangerg/scope/models/openai v0.59.0 h1:nsgnkcEiY8DdLUyhp6xtIt3QRGiqO5
 github.com/Tangerg/scope/models/openai v0.59.0/go.mod h1:fMUDSm3kLMvXfrgifb8koQvDmApCE0yiuwd1wBOu9Xc=
 github.com/Tangerg/scope/models/openrouter v0.59.0 h1:1Qt6ev7tm7C2syzNrV241x/zhBoHyxjU32yUa4MbnCU=
 github.com/Tangerg/scope/models/openrouter v0.59.0/go.mod h1:E03jGXFTxhGjJxW6pDLJUIshtAo79m4RoehRYLyQZPc=
+github.com/Tangerg/scope/models/prodia v0.59.0 h1:d49jHTq+Y1GCqUWQLr7U3Lh8LO3Ld/k5bb6iTSEnyeA=
+github.com/Tangerg/scope/models/prodia v0.59.0/go.mod h1:6iaDQQburPQwYf0/onXeaUj2jzQ7L1HgO5/HsycHSWU=
 github.com/Tangerg/scope/models/protocol/anthropic v0.59.0 h1:KP4Bw8Xy40vsGVeIXF0n15RISrSsvNwXMK8riH+x6UE=
 github.com/Tangerg/scope/models/protocol/anthropic v0.59.0/go.mod h1:SffvpcKod4zAoVbXD+0ZRLUZVr8q18+kogvU6NpthAo=
 github.com/Tangerg/scope/models/protocol/openai v0.59.0 h1:iWtxLyYf3RHq/M53Q8+CtON+phhAY/875JVWpkhbs7I=
@@ -52,6 +56,8 @@ github.com/Tangerg/scope/models/replicate v0.59.0 h1:o1SsdShHOpOpgpe/JaNggQ/SvEG
 github.com/Tangerg/scope/models/replicate v0.59.0/go.mod h1:D3KCGo3+qI3QjXbTDyQpLKexoMJGN0mFSz9kdVBfZOE=
 github.com/Tangerg/scope/models/revai v0.59.0 h1:FzHgomCYipTnIeHbfUxrg8L8TQG5VqHcKGvzxFKNNG0=
 github.com/Tangerg/scope/models/revai v0.59.0/go.mod h1:8rfJfF9vjtOZrbxrnqSoSIkjNNnE4f/Quyw9nWHjtxY=
+github.com/Tangerg/scope/models/stability v0.59.0 h1:GRXpo7aeKLk2yefa+HOc/kTSCBfzwdI+DFWrW7eAW2A=
+github.com/Tangerg/scope/models/stability v0.59.0/go.mod h1:gfzulV5gkdrPZpbzcglPxRQjPfdWYNSNO8N/HVKeXHI=
 github.com/Tangerg/scope/models/voyage v0.59.0 h1:yRxidsCH1sitiz+AGEHi79ICyyaQY0l93C2tc///j6k=
 github.com/Tangerg/scope/models/voyage v0.59.0/go.mod h1:ixcGQp3MJVM8Q+LrKn5DqQZlPUjjktcAQAuEFSsq1JY=
 github.com/Tangerg/scope/models/xiaomi v0.59.0 h1:XPVK7HHpDoDTXHHgKMKoJ48lEAbJRr3/usJQkWawgKc=

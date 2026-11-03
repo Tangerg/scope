@@ -23,7 +23,7 @@ type ToolSource struct {
 // beyond RPC sessions. It must be deterministic, side-effect-free, safe for
 // concurrent use, and free of Tool, session, or execution-backend captures.
 // Annotations are isolated and the invocation is schema-validated. Results follow
-// [github.com/Tangerg/scope/agent.ConcurrentTool]; direct
+// [github.com/Tangerg/scope/agent/interaction.ConcurrentTool]; direct
 // Tool.Call invocations remain the host's responsibility.
 type ToolConcurrencyPolicy func(
 	sourceName, remoteName string,
@@ -34,7 +34,13 @@ type ToolConcurrencyPolicy func(
 // The Host owns collision resolution across independent server catalogs.
 type PublicToolNameFunc func(sourceName, remoteName string) string
 
+// ToolEffectPolicy establishes a host-trusted replay contract. MCP annotations
+// alone are untrusted hints; IdempotentHint is not durable key deduplication.
+// This callback runs once during discovery and must not depend on mutable state.
+type ToolEffectPolicy func(sourceName, remoteName string, annotations sdkmcp.ToolAnnotations) toolcontract.Effect
+
 type ToolDiscoveryConfig struct {
+	EffectPolicy ToolEffectPolicy
 	// Each source and remote name is a separate escaped path segment. An
 	// explicit override must remain unique; model aliasing belongs to the
 	// binding that exposes this tool to a particular model.
@@ -77,6 +83,12 @@ func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscove
 			snapshot, err := newDescriptorSnapshot(*descriptor, name)
 			if err != nil {
 				return nil, fmt.Errorf("mcp: snapshot tool from source %q: %w", source.Name, err)
+			}
+			if config.EffectPolicy != nil {
+				snapshot.definition.Effect = config.EffectPolicy(source.Name, snapshot.remoteName, cloneToolAnnotations(snapshot.toolAnnotations))
+				if !snapshot.definition.Effect.Valid() {
+					return nil, fmt.Errorf("mcp: invalid effect declaration for %q", name)
+				}
 			}
 			if _, exists := seen[name]; exists {
 				return nil, fmt.Errorf("mcp: duplicate tool name %q after public naming", name)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
@@ -67,14 +68,14 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	body, err := s.binding.buildAPIRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	if body.InstantMode != nil {
-		return nil, errors.New("hume: speech: instant_mode is only supported by streaming endpoints")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("hume: speech: instant_mode is only supported by streaming endpoints")}
 	}
 	apiResp, err := s.binding.api.tts(ctx, body)
 	if err != nil {

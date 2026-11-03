@@ -27,9 +27,6 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, errors.New("google: nil StreamingSpeechModel"))
 		}
 	}
-	if err := req.Validate(); err != nil {
-		return func(yield func(*speech.Response, error) bool) { yield(nil, err) }
-	}
 	return s.protocol.Stream(ctx, req)
 }
 

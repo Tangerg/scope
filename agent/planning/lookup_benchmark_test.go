@@ -32,7 +32,7 @@ func BenchmarkActionHistory(b *testing.B) {
 				if actionErr != nil {
 					b.Fatal(actionErr)
 				}
-				bindings[index], err = NewDispatcherBinding(DispatcherBindingConfig{Action: action})
+				bindings[index], err = NewDispatcherBinding(DispatcherBindingConfig{Action: action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) { return ActionSucceeded(), nil })})
 				if err != nil {
 					b.Fatal(err)
 				}

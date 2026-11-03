@@ -10,6 +10,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/moderation"
 )
 
@@ -146,12 +147,12 @@ func (m *ModerationModel) buildModerationResponse(resp *openai.ModerationNewResp
 
 func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*moderation.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiReq, err := m.buildAPIModerationRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	apiResp, err := m.api.moderation(ctx, apiReq)

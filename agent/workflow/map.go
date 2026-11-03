@@ -21,12 +21,7 @@ type MapConfig[I, O any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	Program run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent for each started item.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	Child run.ChildBinding
 
 	// WindowSize is the positive number of items started and settled as one
 	// execution window before the next window begins. Only that window is
@@ -38,7 +33,7 @@ type MapConfig[I, O any] struct {
 }
 
 type mapSource struct {
-	binding    childBinding
+	binding    run.ChildBinding
 	codec      mapValueCodec
 	decodeItem func(jsontext.Value) (run.Payload, error)
 }
@@ -74,17 +69,17 @@ func (m mapSource) member(index uint32) (fanoutMember, bool) {
 	return fanoutMember{id: strconv.FormatUint(uint64(index), 10), binding: m.binding}, true
 }
 
-func (m mapSource) bindings() []childBinding { return []childBinding{m.binding} }
+func (m mapSource) bindings() []run.ChildBinding { return []run.ChildBinding{m.binding} }
 
 func (m mapSource) topology(_ jsonschema.Schema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32) {
-	return []BindingTopology{m.binding.topology(BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
+	return []BindingTopology{bindingTopology(m.binding, BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
 }
 
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
 // and produces a non-nil empty []O without creating child Processes.
 func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
-	binding, valid := newChildBinding(config.Program, config.Budget, config.Capabilities)
-	if !run.ValidQualifiedName(config.ID) || !valid ||
+	binding := config.Child
+	if !run.ValidQualifiedName(config.ID) || !binding.Valid() ||
 		config.WindowSize == 0 || config.MaxItems == 0 || config.WindowSize > config.MaxItems {
 		return Stage{}, ErrInvalidStage
 	}
@@ -92,7 +87,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 	if err != nil {
 		return Stage{}, err
 	}
-	descriptor := config.Program.Descriptor()
+	descriptor := binding.Program.Descriptor()
 	if !schemas.itemInput.Equal(descriptor.InputSchema()) ||
 		!schemas.itemOutput.Equal(descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)

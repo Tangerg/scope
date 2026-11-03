@@ -18,6 +18,8 @@ import (
 
 const maximumDownloadRedirects = 10
 
+const defaultMaxOutputBytes = 32 << 20
+
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
@@ -60,7 +62,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient())
+	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient()).SetResponseBodyLimit(defaultMaxOutputBytes)
 	return adapter, nil
 }
 
@@ -72,6 +74,7 @@ func (a *api) credentialedClient(ctx context.Context, endpoint string) (*resty.C
 		return nil, err
 	}
 	return resty.NewWithClient(client).
+		SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).
 		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
 		SetBaseURL(endpoint).
@@ -195,7 +198,7 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 		return nil, fmt.Errorf("blackforestlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("blackforestlabs: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }
@@ -217,7 +220,7 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 		return nil, fmt.Errorf("blackforestlabs: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("blackforestlabs: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }
@@ -234,7 +237,7 @@ func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, str
 		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", err)
 	}
 	if !response.IsSuccess() {
-		return nil, "", fmt.Errorf("blackforestlabs: download output: http %d: %s", response.StatusCode(), response.String())
+		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", httpclient.NewResponseError(response.StatusCode(), ""))
 	}
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("blackforestlabs: download output returned an empty body")

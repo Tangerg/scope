@@ -14,7 +14,7 @@ import (
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
 // A reached deadline settles Succeeded with an empty object. Malformed timer
-// payloads and cancellation settle Failed with a JSON diagnostic string, so
+// payloads and cancellation settle Failed with a typed diagnostic, so
 // cancellation never leaves an unknown external outcome.
 type deadlineDispatcher struct{}
 
@@ -94,10 +94,12 @@ func waitUntil(ctx context.Context, deadline time.Time) bool {
 	}
 }
 
+const failureCodeDeadlineInterrupted = "coordination.deadline.interrupted"
+
 func timerFailureSettlement(cause error) (run.Settlement, error) {
-	payload, err := jsonv2.Marshal(run.NormalizeDiagnostic(cause.Error()))
+	failure, err := run.NewFailure(run.FailureKindExternal, failureCodeDeadlineInterrupted, run.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusFailed, payload)
+	return run.NewFailedSettlement(failure, run.Payload{})
 }

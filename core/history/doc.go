@@ -1,46 +1,32 @@
-// Package history defines provider-neutral conversation history contracts
-// and model middleware.
+// Package history defines provider-neutral conversation history contracts and
+// model middleware. Persistent backends live in independent historystores
+// modules; the reference implementation lives in core/history/inmemory.
 //
-// Reader, Writer, Clearer, and Store use core/chat protocol values directly.
-// WindowStore is an explicit read-side retention decorator. It merges system
-// messages and retains only complete user-led turns, so assistant Tool calls,
-// Tool results, reasoning, and final text cannot be split at the read boundary.
-// Optional cross-conversation and replacement capabilities remain separate
-// interfaces.
-// The reference implementation lives in core/history/inmemory.
+// Each Batch owns an immutable append identity and canonical message snapshot.
+// Writer atomically accepts the complete batch, including its deduplication
+// evidence, and returns a Receipt. A retry submits the same Batch: identical
+// content returns the same receipt, while different content conflicts. Missing
+// acknowledgment never authorizes a new append identity. Message retention in
+// an open conversation must not discard receipt evidence. Clear permanently
+// closes a ConversationID, so
+// delayed appends cannot resurrect deleted history. A new conversation needs a
+// new identity.
 //
-// MiddlewareConfig freezes one validated ConversationID at construction. The
-// Host selects the partition by assembling the appropriate model binding. The
-// Store supplies completed turns. Each request supplies its current system
-// prefix and one open turn beginning with a user message. On a tool follow-up,
-// resubmit that turn's user message, assistant tool calls and tool results.
-// A successfully completed invocation writes its final assistant and the open
-// turn in one batch. The next user turn can have identical content.
-// Callers supplying their own complete transcript use the undecorated model.
-// Invalid turns fail with [github.com/Tangerg/scope/core/chat.ErrInvalidRequest]
-// before store or provider I/O.
+// Middleware binds one ConversationID to explicit Reader and Writer
+// capabilities. Requests supply a current system prefix and one user-led open
+// turn. Tool follow-ups resubmit that turn's user message, assistant tool calls,
+// and tool results. The stored history supplies prior completed turns; a
+// completed invocation appends its final assistant and open turn in one Batch.
+// Callers supplying a complete transcript use the undecorated model.
 //
-// Writes preserve message order within one call. Conversation listing is an
-// optional capability and returns unique IDs in lexical order. Concurrent
-// writes and writes through distinct Store instances have no common ordering
-// guarantee unless a backend documents one. Writer returns WriteOutcome even
-// on failure; errors never silently mean that no messages were stored. A
-// CommitError identifies history failure after model completion and preserves
-// the attempted messages and write outcome.
+// CommitError preserves the Batch and any confirmed Receipt after generation
+// succeeds but persistence fails. A host can retry that Batch without repeating
+// model generation. The completed response and usage remain available to the
+// caller. Invalid input fails before store or provider I/O.
 //
-// The Host owns conversation turn ordering. Concurrent-safe store methods do
-// not isolate the whole Read/model/Write sequence; multi-instance hosts must
-// coordinate that sequence across instances if they require serial turns.
-//
-// Persistent backends live in independent leaf modules so database drivers do
-// not enter Core:
-//
-//	historystores/postgres/  — PostgreSQL (pgx + binary Core wire)
-//	historystores/redis/     — Redis (RPUSH / LRANGE lists)
-//	historystores/mongodb/   — MongoDB (document per message)
-//	historystores/cassandra/ — Cassandra (TIMEUUID clustering key)
-//	historystores/neo4j/     — Neo4j (node per message)
-//	historystores/cosmosdb/  — Azure Cosmos DB (NoSQL API)
-//
-// Every backend reads and writes only the current core/chat tagged JSON wire.
+// WindowReader is a read projection that retains complete user-led turns,
+// including their tool exchanges. Compose it with an explicit Writer; a read
+// projection does not acquire write authority. The host owns conversation turn
+// ordering: concurrent-safe store methods do not isolate the entire
+// Read/model/Append sequence across calls or host instances.
 package history

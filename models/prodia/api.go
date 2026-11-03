@@ -14,6 +14,8 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
+const defaultMaxOutputBytes = 32 << 20
+
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
@@ -40,7 +42,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("prodia: HTTP client: %w", err)
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(defaultMaxOutputBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -97,7 +99,7 @@ func (a *api) job(ctx context.Context, req *jobRequest, accept string) ([]byte, 
 		return nil, nil, fmt.Errorf("prodia: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, nil, fmt.Errorf("prodia: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, nil, fmt.Errorf("prodia: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return resp.Body(), resp.Header(), nil
 }

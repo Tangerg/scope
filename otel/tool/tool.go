@@ -70,44 +70,32 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}, nil
 }
 
-// Wrap freezes the Tool definition used for both execution identity and model
-// exposure. Optional capabilities remain discoverable through Tool.Unwrap.
-func (m Middleware) Wrap(next coretool.Tool) (coretool.Tool, error) {
-	if lo.IsNil(m.tracer) || lo.IsNil(m.duration) {
-		return nil, fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
-	}
-	if lo.IsNil(next) {
-		return nil, fmt.Errorf("%w: value must not be nil", ErrInvalidTool)
-	}
-	definition := next.Definition().Clone()
-	if err := definition.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
-	}
-	return &instrumentedTool{middleware: m, next: next, definition: definition}, nil
+func (m Middleware) Call(next coretool.Caller) coretool.Caller {
+	return &instrumentedCaller{middleware: m, next: next}
 }
 
-type instrumentedTool struct {
+type instrumentedCaller struct {
 	middleware Middleware
-	next       coretool.Tool
-	definition coretool.Definition
+	next       coretool.Caller
 }
 
-func (i *instrumentedTool) Definition() coretool.Definition {
-	return i.definition.Clone()
-}
-
-func (i *instrumentedTool) Unwrap() coretool.Tool { return i.next }
-
-func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocation) (result coretool.Result, err error) {
+func (i *instrumentedCaller) Call(ctx context.Context, invocation coretool.Invocation) (result coretool.Result, err error) {
+	if lo.IsNil(i.middleware.tracer) || lo.IsNil(i.middleware.duration) {
+		return coretool.Result{}, ErrInvalidConfig
+	}
+	if lo.IsNil(i.next) {
+		return coretool.Result{}, ErrInvalidTool
+	}
+	name := invocation.Definition().Name
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameExecuteTool,
-		semconv.GenAIToolName(i.definition.Name),
+		semconv.GenAIToolName(name),
 		semconv.GenAIToolType(toolTypeFunction),
 	}
 	startedAt := time.Now()
 	ctx, span := i.middleware.tracer.Start(
 		ctx,
-		strings.Join([]string{operationName, i.definition.Name}, " "),
+		strings.Join([]string{operationName, name}, " "),
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),
@@ -129,4 +117,4 @@ func (i *instrumentedTool) Call(ctx context.Context, invocation coretool.Invocat
 	return i.next.Call(ctx, invocation)
 }
 
-var _ coretool.WrappingTool = (*instrumentedTool)(nil)
+var _ coretool.Caller = (*instrumentedCaller)(nil)

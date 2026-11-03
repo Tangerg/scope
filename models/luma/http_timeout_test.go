@@ -53,7 +53,7 @@ func TestDefaultClientBoundsResponseHeadersWithoutTimingOutBody(t *testing.T) {
 				defer transport.CloseIdleConnections()
 
 				model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{
-					APIKey: "test", BaseURL: "http://api.example/v1",
+					APIKey: "test", BaseURL: "http://api.example/v1", OutputOrigins: []string{"https://asset.example"},
 					DefaultOptions: image.Options{Model: luma.ModelUni1},
 				})
 				if err != nil {

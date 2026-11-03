@@ -99,7 +99,7 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	var children []run.Program[run.Payload, run.Payload]
 	for _, binding := range d.bindings {
 		if binding.delegatesToChild() {
-			children = append(children, binding.childProgram)
+			children = append(children, binding.child.Program)
 		}
 	}
 	return children

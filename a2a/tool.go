@@ -56,6 +56,7 @@ type remoteToolConfig struct {
 	card              *sdka2a.AgentCard
 	name              string
 	concurrencyPolicy ToolConcurrencyPolicy
+	effect            toolcontract.Effect
 }
 
 func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
@@ -73,6 +74,7 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 		Name:        config.name,
 		Description: describeAgent(config.card),
 		InputSchema: inputSchema.JSON(),
+		Effect:      config.effect,
 	}
 	if err := definition.Validate(); err != nil {
 		return remoteTool{}, fmt.Errorf("a2a: build tool for agent %q: %w", config.card.Name, err)
@@ -111,8 +113,8 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 	projection := textProjection{}
 	req := &sdka2a.SendMessageRequest{Message: projection.userMessage(input.Message)}
 	if key := invocation.IdempotencyKey(); key != "" {
-		// Servers deduplicate on messageId, so a replayed call must resend the
-		// identity of its first attempt rather than start a second task.
+		// A trusted server can reconcile the original identity. The host's Effect
+		// declaration, not this transport identity, establishes safe replay.
 		req.Message.ID = string(key)
 	}
 	if c, ok := invocation.Continuation(); ok {

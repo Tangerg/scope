@@ -81,7 +81,7 @@ func program(compiler *run.Compiler, starts *atomic.Int64) run.Program[request, 
 	answer := must(jsonschema.Parse([]byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}`)))
 	d := definition{descriptor: must(run.NewDescriptor(run.DescriptorConfig{Name: "test.form", Description: "Select a city.", InputSchema: input, OutputSchema: must(jsonschema.For[decision]())})), wait: run.Wait{Key: must(run.ParseWaitKey("city")), Question: must(run.EncodePayload("Which city?")), AnswerSchema: answer}, starts: starts}
 	child := must(run.Bind[request, decision](compiler, run.BindingConfig{Definition: d, Revision: "city"}))
-	stage := must(workflow.Call(workflow.CallConfig{ID: "ask", Program: child.Erase()}))
+	stage := must(workflow.Call(workflow.CallConfig{ID: "ask", Child: run.ChildBinding{Program: child.Erase()}}))
 	return must(workflow.Compile[request, decision](compiler, workflow.Config{Name: "test.booking", Description: "Confirm a booking.", Stages: []workflow.Stage{stage}}))
 }
 

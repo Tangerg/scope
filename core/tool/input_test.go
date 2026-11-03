@@ -1,6 +1,7 @@
 package tool_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -83,4 +84,13 @@ func TestInputValidationPanicPreservesDiagnosticCause(t *testing.T) {
 			t.Fatalf("lost validator panic: %v", err)
 		}
 	}
+}
+
+type markedTool struct{}
+
+func (markedTool) Definition() tool.Definition {
+	return tool.Definition{Name: "marked", InputSchema: []byte(`{"type":"object"}`)}
+}
+func (markedTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
+	return tool.Result{}, nil
 }

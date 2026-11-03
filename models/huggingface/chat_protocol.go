@@ -13,9 +13,11 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
+const providerID = "huggingface"
+
 const (
-	OpenAIRequestExtensionKey     = "huggingface/openai_request"
-	OpenAIStreamChunkExtensionKey = "huggingface/openai_stream_chunk"
+	OpenAIRequestExtensionKey     = providerID + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -39,7 +41,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, DefaultBaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "huggingface", TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, DefaultBaseURL), HTTPClient: config.HTTPClient}, openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("huggingface: construct OpenAI-compatible chat: %w", err)
 	}

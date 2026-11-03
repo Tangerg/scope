@@ -33,7 +33,7 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 		},
 
 		"compatible NewMessages": func(endpoint string, client *http.Client) (bool, error) {
-			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, anthropic.Dialect{Provider: "compatible"})
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", BaseURL: endpoint, HTTPClient: client}, anthropic.Dialect{Provider: "compatible", Revision: anthropic.MessagesRevision20261021, APIKeyScheme: anthropic.APIKeySchemeBearer})
 			return model == nil, err
 		},
 	}

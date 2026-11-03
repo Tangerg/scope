@@ -19,8 +19,6 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-const maximumErrorResponseBytes = int64(64 * 1024)
-
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
@@ -47,7 +45,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -222,12 +220,10 @@ func (a *api) ttsStream(ctx context.Context, req *ttsRequest) (io.ReadCloser, er
 		return nil, fmt.Errorf("hume: stream request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		defer resp.RawBody().Close()
-		body, readErr := io.ReadAll(io.LimitReader(resp.RawBody(), maximumErrorResponseBytes))
-		if readErr != nil {
-			return nil, fmt.Errorf("hume: stream http %d; read error response: %w", resp.StatusCode(), readErr)
+		if body := resp.RawBody(); body != nil {
+			_ = body.Close()
 		}
-		return nil, fmt.Errorf("hume: stream http %d: %s", resp.StatusCode(), string(body))
+		return nil, fmt.Errorf("hume: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if resp.RawBody() == nil {
 		return nil, errors.New("hume: stream response has no body")
@@ -245,7 +241,7 @@ func (a *api) tts(ctx context.Context, req *ttsRequest) (*ttsResponse, error) {
 		return nil, fmt.Errorf("hume: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("hume: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("hume: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }

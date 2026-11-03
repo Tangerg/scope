@@ -15,7 +15,10 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/invocation"
 )
+
+const defaultMaxOutputBytes = 32 << 20
 
 type apiConfig struct {
 	APIKey     string
@@ -62,7 +65,11 @@ func (p predictionRunner) run(ctx context.Context, model string, request *predic
 	if submitted.ID == "" {
 		return nil, fmt.Errorf("%w: replicate: submitted prediction requires id", p.invalidResponse)
 	}
-	return p.poll(ctx, submitted.ID)
+	response, err := p.poll(ctx, submitted.ID)
+	if err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	return response, nil
 }
 
 func (p predictionRunner) poll(ctx context.Context, id string) (*predictionResponse, error) {
@@ -120,7 +127,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("replicate: parse BaseURL: %w", err)
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -131,7 +138,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		return nil, fmt.Errorf("replicate: output origin: %w", err)
 	}
 	adapter := &api{http: client, policy: outputPolicy{apiOrigin: origin}, apiKey: config.APIKey}
-	adapter.download = resty.NewWithClient(adapter.policy.client(config.HTTPClient))
+	adapter.download = resty.NewWithClient(adapter.policy.client(config.HTTPClient)).SetResponseBodyLimit(defaultMaxOutputBytes)
 	return adapter, nil
 }
 
@@ -305,7 +312,7 @@ func (a *api) createPrediction(ctx context.Context, modelID string, req *predict
 		return nil, fmt.Errorf("replicate: submit failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("replicate: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }
@@ -328,7 +335,7 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 		return nil, "", fmt.Errorf("replicate: download output: %w", err)
 	}
 	if !response.IsSuccess() {
-		return nil, "", fmt.Errorf("replicate: download output http %d: %s", response.StatusCode(), response.String())
+		return nil, "", fmt.Errorf("replicate: download output %w", httpclient.NewResponseError(response.StatusCode(), ""))
 	}
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("replicate: downloaded output is empty")
@@ -347,7 +354,7 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, fmt.Errorf("replicate: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("replicate: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return &out, nil
 }

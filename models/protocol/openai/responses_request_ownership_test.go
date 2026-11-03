@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -40,7 +41,7 @@ func TestResponsesInstructionsBelongToCoreMessages(t *testing.T) {
 				response, callErr := model.Call(t.Context(), request)
 				_, countErr := model.CountInputTokens(t.Context(), request)
 				server.Close()
-				if response != nil || chat.ClassifyFailure(callErr) != chat.CallFailureNotExecuted || countErr == nil || calls != 0 {
+				if response != nil || invocation.ClassifyFailure(callErr) != invocation.FailureNotExecuted || countErr == nil || calls != 0 {
 					t.Fatalf("native=%v system=%v dialect=%v: response=%v Call=%v CountInputTokens=%v calls=%d", native, system, dialect, response, callErr, countErr, calls)
 				}
 			}

@@ -23,7 +23,13 @@ func TestCommittedEvidenceRejectsContradictoryOpaqueOutcomes(t *testing.T) {
 		{name: "tool cannot decode model evidence", wire: `{"model":{"diagnostic":"lost"}}`, status: run.SettlementStatusUnknown},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			outcome := mustValue(run.NewSettlement(row.status, []byte(row.wire)))
+			var outcome run.Settlement
+			if row.status == run.SettlementStatusFailed {
+				failure := mustValue(run.NewFailure(run.FailureKindContract, failureCodeDispatchRejected, "rejected"))
+				outcome = mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(row.wire)))))
+			} else {
+				outcome = mustValue(run.NewSettlement(row.status, []byte(row.wire)))
+			}
 			var err error
 			if row.model {
 				_, err = ModelSettlementFromOutcome(outcome)

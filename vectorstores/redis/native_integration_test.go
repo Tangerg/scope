@@ -48,7 +48,9 @@ func liveStore(t *testing.T, metric string) (*Store, *goredis.Client, string) {
 			t.Errorf("cleanup index: %v", err)
 		}
 	})
-	store, err := NewStore(t.Context(), StoreConfig{Client: client, IndexName: name, Space: fixtureSpace})
+	store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+		return visit(ctx, client)
+	}, IndexName: name, Space: fixtureSpace})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +202,9 @@ func TestLiveRESP2RejectedBeforeUse(t *testing.T) {
 	options.Protocol = 2
 	resp2 := goredis.NewClient(&options)
 	t.Cleanup(func() { _ = resp2.Close() })
-	other, err := NewStore(t.Context(), StoreConfig{Client: resp2, IndexName: store.indexName, Space: fixtureSpace})
+	other, err := NewStore(t.Context(), StoreConfig{Client: resp2, ScanNodes: func(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
+		return visit(ctx, resp2)
+	}, IndexName: store.indexName, Space: fixtureSpace})
 	if other != nil || !errors.Is(err, ErrIncompatibleIndex) {
 		t.Fatalf("RESP2 was accepted without a warning channel: %#v, %v", other, err)
 	}

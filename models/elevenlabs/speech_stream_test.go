@@ -6,13 +6,13 @@ import (
 	"io"
 	"net/http"
 	"slices"
-	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/speech"
 )
 
-func TestSpeechStreamPreservesErrorResponseReadFailure(t *testing.T) {
+func TestSpeechStreamClosesErrorResponseWithoutReadingBody(t *testing.T) {
 	body := &speechStreamBody{readErr: context.Canceled}
 	model, err := NewSpeechModel(t.Context(), SpeechModelConfig{
 		APIKey: "test-key", DefaultOptions: speech.Options{Model: "test-model", Voice: "test-voice"},
@@ -28,12 +28,13 @@ func TestSpeechStreamPreservesErrorResponseReadFailure(t *testing.T) {
 	count := 0
 	for response, streamErr := range model.Stream(t.Context(), request) {
 		count++
-		if response != nil || !errors.Is(streamErr, context.Canceled) || !strings.Contains(streamErr.Error(), "503") {
+		responseErr, ok := errors.AsType[*httpclient.ResponseError](streamErr)
+		if response != nil || !ok || responseErr.HTTPStatus() != http.StatusServiceUnavailable {
 			t.Fatalf("response = %v, error = %v", response, streamErr)
 		}
 	}
-	if count != 1 || !body.closed {
-		t.Fatalf("events = %d, closed = %t", count, body.closed)
+	if count != 1 || body.reads != 0 || !body.closed {
+		t.Fatalf("events = %d, reads = %d, closed = %t", count, body.reads, body.closed)
 	}
 }
 

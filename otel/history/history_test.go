@@ -21,6 +21,8 @@ import (
 
 type historyRecorder struct {
 	messages []chat.Message
+	batch    history.Batch
+	receipt  history.Receipt
 	err      error
 }
 
@@ -28,9 +30,10 @@ func (h *historyRecorder) Read(context.Context, history.ConversationID) ([]chat.
 	return h.messages, h.err
 }
 
-func (h *historyRecorder) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
-	h.messages = messages
-	return history.WriteOutcome{Accepted: len(messages)}, h.err
+func (h *historyRecorder) Append(_ context.Context, batch history.Batch) (history.Receipt, error) {
+	h.batch = batch
+	h.messages = batch.Messages()
+	return h.receipt, h.err
 }
 
 func (h *historyRecorder) Clear(context.Context, history.ConversationID) error {
@@ -94,8 +97,15 @@ func TestStorePreservesResultsAndRecordsOperations(t *testing.T) {
 	wrapped := middleware.Store(store)
 	message := chat.NewUserMessage(chat.NewTextPart("hello"))
 
-	if outcome, err := wrapped.Write(t.Context(), "conversation", message); !errors.Is(err, wantErr) || outcome != (history.WriteOutcome{Accepted: 1}) {
-		t.Fatalf("Write() error = %v", err)
+	batch, err := history.NewBatch("conversation", "append-one", message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt, err := wrapped.Append(t.Context(), batch); !errors.Is(err, wantErr) || receipt != (history.Receipt{}) {
+		t.Fatalf("Append() receipt/error = %v/%v", receipt, err)
+	}
+	if store.batch.ID() != batch.ID() || store.batch.Digest() != batch.Digest() {
+		t.Fatal("telemetry replaced the append identity or content")
 	}
 	if _, err := wrapped.Read(t.Context(), "conversation"); !errors.Is(err, wantErr) {
 		t.Fatalf("Read() error = %v", err)
@@ -108,7 +118,7 @@ func TestStorePreservesResultsAndRecordsOperations(t *testing.T) {
 	if len(ended) != 3 {
 		t.Fatalf("ended spans = %d, want 3", len(ended))
 	}
-	for index, operation := range []string{"write", "read", "clear"} {
+	for index, operation := range []string{"append", "read", "clear"} {
 		span := ended[index]
 		if span.Name() != "history."+operation || span.SpanKind() != trace.SpanKindClient || span.Status().Code != codes.Error {
 			t.Fatalf("span %d name/kind/status = %q/%v/%v", index, span.Name(), span.SpanKind(), span.Status())
@@ -119,7 +129,7 @@ func TestStorePreservesResultsAndRecordsOperations(t *testing.T) {
 		assertStringAttr(t, attrs, "gen_ai.conversation.id", "conversation")
 	}
 	metrics := collectMetrics(t, rig.reader)
-	assertMetricAttribute(t, metrics, "chat_history.operation.duration", "chat_history.operation.name", "write")
+	assertMetricAttribute(t, metrics, "chat_history.operation.duration", "chat_history.operation.name", "append")
 	assertMetricAttribute(t, metrics, "chat_history.operation.duration", "error.type", "*errors.errorString")
 	assertMetricLacksAttribute(t, metrics, "chat_history.operation.duration", "gen_ai.conversation.id")
 }
@@ -137,6 +147,20 @@ func TestListerRecordsResultCount(t *testing.T) {
 	attrs := spanAttributes(t, rig.spans.Ended()[0])
 	if count := attrs["chat_history.conversation.count"].AsInt64(); count != 2 {
 		t.Fatalf("conversation count = %d, want 2", count)
+	}
+}
+
+func TestAppendPreservesTheBackendReceipt(t *testing.T) {
+	batch, err := history.NewBatch("conversation", "stable-append", chat.NewUserMessage(chat.NewTextPart("hello")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}
+	backend := &historyRecorder{receipt: want}
+	middleware, _ := newHistoryMiddleware(t)
+	got, err := middleware.Store(backend).Append(t.Context(), batch)
+	if err != nil || got != want || backend.batch.ID() != want.ID || backend.batch.Digest() != want.Digest {
+		t.Fatalf("append identity or acknowledgment changed: %v, %v", got, err)
 	}
 }
 

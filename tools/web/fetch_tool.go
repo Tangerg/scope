@@ -8,6 +8,7 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 var _ toolcontract.Tool = (*FetchTool)(nil)
@@ -23,7 +24,7 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 	}
 	f := &FetchTool{fetcher: fetcher}
 	inner, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Name: "web_fetch", Description: webFetchDescription},
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: "web_fetch", Description: webFetchDescription},
 		f.fetch,
 	)
 	if err != nil {
@@ -44,7 +45,7 @@ func (f *FetchTool) fetch(ctx context.Context, _ toolcontract.IdempotencyKey, re
 		if errors.Is(err, ErrUnsupportedFormat) {
 			return nil, inputFailure(err)
 		}
-		return nil, fmt.Errorf("web: execute fetch: %w", err)
+		return nil, toolresult.ReadFailure("web.fetch", err)
 	}
 	if validationErr := response.ValidateFor(prepared); validationErr != nil {
 		return nil, fmt.Errorf("web: validate fetch response: %w", validationErr)

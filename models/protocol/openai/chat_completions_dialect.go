@@ -11,6 +11,11 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
+const (
+	CompatibleRequestExtensionSuffix = "/openai_request"
+	CompatibleStreamExtensionSuffix  = "/openai_stream_chunk"
+)
+
 type requestDialect interface {
 	PrepareRequest(source *corechat.Request, target *openaisdk.ChatCompletionNewParams) error
 }
@@ -68,11 +73,11 @@ func (c *CompatibleRequest) SetExtraField(name string, value any) error {
 	return nil
 }
 
-// Dialect groups the independently typed request and response protocol facets
+// DialectConfig groups the independently typed request and response protocol facets
 // selected by a provider adapter. One Chat Completions adapter has exactly one
 // dialect. Construction snapshots its mutable policy values; callback captures
 // remain owned by the caller.
-type Dialect struct {
+type DialectConfig struct {
 	// Provider scopes provider-owned response and replay state.
 	Provider        string
 	PrepareRequest  func(source *corechat.Request, target *CompatibleRequest) error
@@ -100,26 +105,68 @@ type Dialect struct {
 	// error further from the caller. Nil accepts whatever Core accepts.
 	MaxTemperature *float64
 
-	request  requestDialect
-	response func() responseDialect
+	TextReasoning    *TextReasoningConfig
+	ReasoningDetails *ReasoningDetailsConfig
 }
 
-func (d Dialect) Validate() error {
+func (d DialectConfig) Validate() error {
 	if err := validateProvider(d.Provider); err != nil {
 		return fmt.Errorf("provider: %w", err)
 	}
 	if !d.TokenLimitField.Valid() {
 		return fmt.Errorf("token limit field %q is invalid", d.TokenLimitField)
 	}
+	if d.TextReasoning != nil && d.ReasoningDetails != nil {
+		return errors.New("reasoning wire representation must have exactly one owner")
+	}
+	if d.TextReasoning != nil {
+		return d.TextReasoning.Validate()
+	}
+	if d.ReasoningDetails != nil {
+		if len(d.Provider) > int(^uint16(0)) {
+			return errors.New("reasoning provider exceeds framing limit")
+		}
+		return d.ReasoningDetails.Validate()
+	}
 	return nil
 }
 
-func (d Dialect) clone() Dialect {
+func (d DialectConfig) bind() (chatDialect, error) {
+	if err := d.Validate(); err != nil {
+		return chatDialect{}, err
+	}
 	d.IgnoredOptions = slices.Clone(d.IgnoredOptions)
 	if d.MaxTemperature != nil {
 		d.MaxTemperature = new(*d.MaxTemperature)
 	}
-	return d
+	bound := chatDialect{DialectConfig: d}
+	if d.TextReasoning != nil {
+		config := *d.TextReasoning
+		config.Fields = slices.Clone(config.Fields)
+		bound.TextReasoning = &config
+		bound.request = textReasoningCodec{provider: d.Provider, config: config}
+		bound.response = func() responseDialect { return &textReasoningStream{provider: d.Provider, config: config} }
+	}
+	if d.ReasoningDetails != nil {
+		config := *d.ReasoningDetails
+		bound.ReasoningDetails = &config
+		codec := reasoningDetailsCodec{provider: d.Provider, config: config}
+		bound.request = codec
+		bound.response = func() responseDialect { return codec }
+	}
+	return bound, nil
+}
+
+// Only construction can bind the namespace. Codec issuer and extension keys
+// are immutable projections of this binding, never independently editable facts.
+type chatDialect struct {
+	DialectConfig
+	request  requestDialect
+	response func() responseDialect
+}
+
+func (c chatDialect) ignores(option ChatOption) bool {
+	return slices.Contains(c.IgnoredOptions, option)
 }
 
 // ChatOption names one Core chat option by the OpenAI request field it travels
@@ -133,10 +180,6 @@ const (
 	ChatOptionTemperature      ChatOption = "temperature"
 	ChatOptionTopP             ChatOption = "top_p"
 )
-
-func (d Dialect) ignores(option ChatOption) bool {
-	return slices.Contains(d.IgnoredOptions, option)
-}
 
 // TokenLimitField identifies the provider's wire field for Core's neutral
 // Options.MaxOutputTokens value. OpenAI-compatible APIs are not uniform here:
@@ -158,10 +201,10 @@ func (t TokenLimitField) Valid() bool {
 func (t TokenLimitField) String() string { return string(t) }
 
 func protocolRequestExtensionKey(provider string) string {
-	if provider == protocolProvider {
+	if provider == ProviderID {
 		return RequestExtensionKey
 	}
-	return provider + "/openai_request"
+	return provider + CompatibleRequestExtensionSuffix
 }
 
 func validateProvider(provider string) error {
@@ -176,10 +219,10 @@ func protocolModalityRequestExtensionKey(provider, modality string) string {
 }
 
 func protocolStreamChunkExtensionKey(provider string) string {
-	if provider == protocolProvider {
+	if provider == ProviderID {
 		return StreamChunkExtensionKey
 	}
-	return provider + "/openai_stream_chunk"
+	return provider + CompatibleStreamExtensionSuffix
 }
 
 func wireMessageCount(message corechat.Message) int {

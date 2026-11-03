@@ -163,7 +163,11 @@ func rewriteSettlement(probe *storeProbe, store run.Store) {
 		}
 		for index, record := range changed.Records {
 			if settled, ok := record.(run.EffectSettled); ok && settled.Outcome.Status() == run.SettlementStatusSucceeded {
-				outcome, err := run.NewSettlement(run.SettlementStatusFailed, settled.Outcome.Payload().JSON())
+				failure, err := run.NewFailure(run.FailureKindExternal, "test.outcome.changed", "injected failure")
+				if err != nil {
+					return err
+				}
+				outcome, err := run.NewFailedSettlement(failure, settled.Outcome.Payload())
 				if err != nil {
 					return err
 				}

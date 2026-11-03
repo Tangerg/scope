@@ -16,26 +16,25 @@ import (
 )
 
 const (
-	DefaultSchemaName      = "public"
-	DefaultTableName       = "chat_history"
-	DefaultIndexNameSuffix = "_conversation_idx"
+	DefaultSchemaName       = "public"
+	DefaultTableName        = "chat_history"
+	DefaultIndexNameSuffix  = "_conversation_idx"
+	conversationTableSuffix = "_conversations"
 )
 
 type StoreConfig struct {
-	Pool *pgxpool.Pool
-
-	SchemaName string
-
-	TableName string
-
-	IndexName string
-
-	InitializeSchema bool
+	Pool                  *pgxpool.Pool
+	SchemaName            string
+	TableName             string
+	ConversationTableName string
+	IndexName             string
+	InitializeSchema      bool
 }
 
 func (s StoreConfig) resolved() StoreConfig {
 	s.SchemaName = cmp.Or(s.SchemaName, DefaultSchemaName)
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
+	s.ConversationTableName = cmp.Or(s.ConversationTableName, s.TableName+conversationTableSuffix)
 	if s.InitializeSchema {
 		s.IndexName = cmp.Or(s.IndexName, s.TableName+DefaultIndexNameSuffix)
 	}
@@ -47,17 +46,18 @@ func (s StoreConfig) Validate() error {
 	if effective.Pool == nil {
 		return errors.New("postgres: pool is required")
 	}
-	for _, identifier := range [...]struct {
-		name  string
-		value string
-	}{
-		{name: "schema name", value: effective.SchemaName},
-		{name: "table name", value: effective.TableName},
-		{name: "index name", value: effective.IndexName},
+	for _, identifier := range [...]struct{ name, value string }{
+		{"schema name", effective.SchemaName},
+		{"table name", effective.TableName},
+		{"conversation table name", effective.ConversationTableName},
+		{"index name", effective.IndexName},
 	} {
 		if identifier.value != "" && !validIdentifier(identifier.value) {
 			return fmt.Errorf("postgres: %s %q must be a valid unquoted identifier of at most %d bytes", identifier.name, identifier.value, maxIdentifierBytes)
 		}
+	}
+	if effective.TableName == effective.ConversationTableName {
+		return errors.New("postgres: append and conversation tables must be distinct")
 	}
 	return nil
 }
@@ -67,200 +67,162 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
-// Store persists canonical chat messages through a caller-owned pgx pool. It
-// never closes the pool; schema initialization is optional and idempotent.
-//
-// Schema (created when [StoreConfig.InitializeSchema] is true):
-//
-//	CREATE TABLE <schema>.<table> (
-//	    seq             BIGSERIAL    PRIMARY KEY,
-//	    conversation_id TEXT         NOT NULL,
-//	    message         BYTEA        NOT NULL,
-//	    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
-//	);
-//	CREATE INDEX <index>
-//	    ON <schema>.<table> (conversation_id, seq);
-//
-// `seq` is global (BIGSERIAL) so concurrent writers in different
-// conversations don't contend on a per-conversation counter; ordering
-// inside a single conversation is recovered by ORDER BY seq.
+// The conversation row serializes append and closure across every Store using
+// this schema. Receipts survive payload removal, so an acknowledgment loss can
+// never turn a retry into a second append.
 type Store struct {
-	pool *pgxpool.Pool
-
-	// Pre-formatted SQL — interpolated identifiers are validated at
-	// construction time so the hot path is plain parameter binding.
-	readSQL   string
-	writeSQL  string
-	clearSQL  string
-	listSQL   string
-	schemaSQL string
-	createSQL []string
+	pool                  *pgxpool.Pool
+	readSQL               string
+	appendSQL             string
+	ensureConversationSQL string
+	lockConversationSQL   string
+	receiptSQL            string
+	closeSQL              string
+	discardMessagesSQL    string
+	listSQL               string
+	schemaSQL             string
+	createSQL             []string
 }
 
-// NewStore verifies the binary message column even when the Host provisions
-// the schema. JSONB cannot preserve the full Core wire vocabulary.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	config = config.resolved()
-
 	qualified := pgx.Identifier{config.SchemaName, config.TableName}.Sanitize()
+	conversations := pgx.Identifier{config.SchemaName, config.ConversationTableName}.Sanitize()
 	s := &Store{
-		pool: config.Pool,
-		readSQL: fmt.Sprintf(
-			"SELECT message FROM %s WHERE conversation_id = $1 ORDER BY seq",
-			qualified,
-		),
-		writeSQL: fmt.Sprintf(
-			"INSERT INTO %s (conversation_id, message) VALUES ($1, $2::bytea)",
-			qualified,
-		),
-		clearSQL: fmt.Sprintf(
-			"DELETE FROM %s WHERE conversation_id = $1",
-			qualified,
-		),
-		listSQL: fmt.Sprintf(
-			"SELECT DISTINCT conversation_id FROM %s",
-			qualified,
-		),
-		schemaSQL: "SELECT message FROM " + qualified + " LIMIT 0",
+		pool:                  config.Pool,
+		readSQL:               fmt.Sprintf("SELECT a.messages FROM %s AS a JOIN %s AS c USING (conversation_id) WHERE a.conversation_id = $1 AND NOT c.closed ORDER BY a.seq", qualified, conversations),
+		appendSQL:             fmt.Sprintf("INSERT INTO %s (conversation_id, append_id, digest, messages) VALUES ($1, $2, $3, $4::bytea)", qualified),
+		ensureConversationSQL: fmt.Sprintf("INSERT INTO %s (conversation_id, closed) VALUES ($1, false) ON CONFLICT (conversation_id) DO NOTHING", conversations),
+		lockConversationSQL:   fmt.Sprintf("SELECT closed FROM %s WHERE conversation_id = $1 FOR UPDATE", conversations),
+		receiptSQL:            fmt.Sprintf("SELECT digest FROM %s WHERE conversation_id = $1 AND append_id = $2", qualified),
+		closeSQL:              fmt.Sprintf("UPDATE %s SET closed = true WHERE conversation_id = $1", conversations),
+		discardMessagesSQL:    fmt.Sprintf("UPDATE %s SET messages = NULL WHERE conversation_id = $1", qualified),
+		listSQL:               fmt.Sprintf("SELECT conversation_id FROM %s WHERE NOT closed", conversations),
+		schemaSQL:             fmt.Sprintf("SELECT a.messages FROM %s AS a JOIN %s AS c USING (conversation_id) WHERE a.append_id IS NOT NULL AND a.digest IS NOT NULL AND NOT c.closed LIMIT 0", qualified, conversations),
 		createSQL: []string{
-			fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, pgx.Identifier{config.SchemaName}.Sanitize()),
-			fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-				seq             BIGSERIAL    PRIMARY KEY,
-				conversation_id TEXT         NOT NULL,
-				message         BYTEA        NOT NULL,
-				created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
-			)`, qualified),
-			fmt.Sprintf(
-				`CREATE INDEX IF NOT EXISTS %s ON %s (conversation_id, seq)`,
-				pgx.Identifier{config.IndexName}.Sanitize(), qualified,
-			),
+			fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pgx.Identifier{config.SchemaName}.Sanitize()),
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (conversation_id TEXT PRIMARY KEY, closed BOOLEAN NOT NULL)", conversations),
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (seq BIGSERIAL PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES %s (conversation_id), append_id TEXT NOT NULL, digest TEXT NOT NULL, messages BYTEA, UNIQUE (conversation_id, append_id))", qualified, conversations),
+			fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s ON %s (conversation_id, seq)", pgx.Identifier{config.IndexName}.Sanitize(), qualified),
 		},
 	}
-
 	if config.InitializeSchema {
-		if err := s.initSchema(ctx); err != nil {
-			return nil, fmt.Errorf("postgres: initialize schema: %w", err)
+		for _, statement := range s.createSQL {
+			if _, err := s.pool.Exec(ctx, statement); err != nil {
+				return nil, fmt.Errorf("postgres: initialize schema: %w", err)
+			}
 		}
 	}
 	rows, err := s.pool.Query(ctx, s.schemaSQL)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: verify message column: %w", err)
+		return nil, fmt.Errorf("postgres: verify append schema: %w", err)
 	}
 	defer rows.Close()
-	if err := s.validateMessageColumn(rows); err != nil {
+	if err := s.validateMessagesColumn(rows); err != nil {
 		return nil, err
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("postgres: verify message column: %w", err)
+		return nil, fmt.Errorf("postgres: verify append schema: %w", err)
 	}
-
 	return s, nil
 }
 
-func (s *Store) validateMessageColumn(rows pgx.Rows) error {
+func (s *Store) validateMessagesColumn(rows pgx.Rows) error {
 	fields := rows.FieldDescriptions()
 	if len(fields) != 1 || fields[0].DataTypeOID != pgtype.ByteaOID {
-		return errors.New("postgres: message column must be bytea containing canonical Core wire bytes")
+		return errors.New("postgres: messages column must be bytea containing canonical Core wire bytes")
 	}
 	return nil
 }
 
-func (s *Store) initSchema(ctx context.Context) error {
-	for _, statement := range s.createSQL {
-		if _, err := s.pool.Exec(ctx, statement); err != nil {
-			return err
-		}
+func (s *Store) lockConversation(ctx context.Context, transaction pgx.Tx, id history.ConversationID) (bool, error) {
+	if _, err := transaction.Exec(ctx, s.ensureConversationSQL, id.String()); err != nil {
+		return false, err
 	}
-	return nil
+	var closed bool
+	if err := transaction.QueryRow(ctx, s.lockConversationSQL, id.String()).Scan(&closed); err != nil {
+		return false, err
+	}
+	return closed, nil
 }
 
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
+func (s *Store) Append(ctx context.Context, batch history.Batch) (receipt history.Receipt, err error) {
 	if err = ctx.Err(); err != nil {
-		return outcome, err
+		return receipt, err
 	}
-	if err = conversationID.Validate(); err != nil {
-		return outcome, err
+	if err = batch.Validate(); err != nil {
+		return receipt, err
 	}
-	if len(messages) == 0 {
-		return history.WriteOutcome{Accepted: len(messages)}, nil
-	}
-
-	encoded, err := encodeMessages(messages)
-	if err != nil {
-		return outcome, fmt.Errorf("postgres: write: encode messages: %w", err)
-	}
-	batch := &pgx.Batch{}
-	for _, raw := range encoded {
-		batch.Queue(s.writeSQL, conversationID.String(), raw)
-	}
-
 	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return outcome, fmt.Errorf("postgres: write: begin transaction: %w", err)
+		return receipt, fmt.Errorf("postgres: append: begin transaction: %w", err)
 	}
 	defer func() {
 		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, fmt.Errorf("postgres: write: rollback: %w", rollbackErr))
+			err = errors.Join(err, fmt.Errorf("postgres: append: rollback: %w", rollbackErr))
 		}
 	}()
-	results := transaction.SendBatch(ctx, batch)
-	for index := range encoded {
-		tag, execErr := results.Exec()
-		if execErr != nil {
-			err = execErr
-			break
-		}
-		if tag.RowsAffected() != 1 {
-			err = fmt.Errorf("message %d: expected one inserted row, got %d", index, tag.RowsAffected())
-			break
-		}
-	}
-	err = errors.Join(err, results.Close())
+	closed, err := s.lockConversation(ctx, transaction, batch.ConversationID())
 	if err != nil {
-		return outcome, fmt.Errorf("postgres: write: execute batch: %w", err)
+		return receipt, fmt.Errorf("postgres: append: lock conversation: %w", err)
 	}
-	outcome.Uncertain = true
-	if err = transaction.Commit(ctx); err != nil {
-		if errors.Is(err, pgx.ErrTxCommitRollback) {
-			outcome = history.WriteOutcome{}
+	if closed {
+		return receipt, history.ErrConversationClosed
+	}
+	var digest string
+	err = transaction.QueryRow(ctx, s.receiptSQL, batch.ConversationID().String(), batch.ID().String()).Scan(&digest)
+	switch {
+	case err == nil:
+		if digest != batch.Digest() {
+			return receipt, history.ErrAppendConflict
 		}
-		return outcome, fmt.Errorf("postgres: write: commit: %w", err)
+		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: digest}, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return receipt, fmt.Errorf("postgres: append: read receipt: %w", err)
 	}
-	return history.WriteOutcome{Accepted: len(messages)}, nil
+	tag, err := transaction.Exec(ctx, s.appendSQL, batch.ConversationID().String(), batch.ID().String(), batch.Digest(), []byte(batch.EncodedMessages()))
+	if err != nil {
+		return receipt, fmt.Errorf("postgres: append: insert batch: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return receipt, fmt.Errorf("postgres: append: expected one inserted batch, got %d", tag.RowsAffected())
+	}
+	if err = transaction.Commit(ctx); err != nil {
+		return receipt, fmt.Errorf("postgres: append: commit: %w", err)
+	}
+	return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
 }
 
-func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = conversationID.Validate(); err != nil {
+	if err := conversationID.Validate(); err != nil {
 		return nil, err
 	}
-
 	rows, err := s.pool.Query(ctx, s.readSQL, conversationID.String())
 	if err != nil {
 		return nil, fmt.Errorf("postgres: read: query: %w", err)
 	}
 	defer rows.Close()
-	if err := s.validateMessageColumn(rows); err != nil {
+	if err := s.validateMessagesColumn(rows); err != nil {
 		return nil, err
 	}
-
-	storedMessages = []chat.Message{}
+	storedMessages := []chat.Message{}
 	for rows.Next() {
 		var raw []byte
 		if err := rows.Scan(&raw); err != nil {
-			return nil, fmt.Errorf("postgres: read: scan message: %w", err)
+			return nil, fmt.Errorf("postgres: read: scan batch: %w", err)
 		}
-		message, err := decodeMessage(raw)
+		messages, err := decodeMessages(raw)
 		if err != nil {
-			return nil, fmt.Errorf("postgres: read: decode message: %w", err)
+			return nil, fmt.Errorf("postgres: read: decode batch: %w", err)
 		}
-		storedMessages = append(storedMessages, message)
+		storedMessages = append(storedMessages, messages...)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("postgres: read: iterate rows: %w", err)
@@ -275,25 +237,44 @@ func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID
 	if err = conversationID.Validate(); err != nil {
 		return err
 	}
-
-	if _, err = s.pool.Exec(ctx, s.clearSQL, conversationID.String()); err != nil {
-		return fmt.Errorf("postgres: clear: delete messages: %w", err)
+	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("postgres: clear: begin transaction: %w", err)
+	}
+	defer func() {
+		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			err = errors.Join(err, fmt.Errorf("postgres: clear: rollback: %w", rollbackErr))
+		}
+	}()
+	if _, lockErr := s.lockConversation(ctx, transaction, conversationID); lockErr != nil {
+		return fmt.Errorf("postgres: clear: lock conversation: %w", lockErr)
+	}
+	tag, err := transaction.Exec(ctx, s.closeSQL, conversationID.String())
+	if err != nil {
+		return fmt.Errorf("postgres: clear: close conversation: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("postgres: clear: expected one closed conversation, got %d", tag.RowsAffected())
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("postgres: clear: commit: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, s.discardMessagesSQL, conversationID.String()); err != nil {
+		return fmt.Errorf("postgres: clear closed messages: %w", err)
 	}
 	return nil
 }
 
-func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
 	rows, err := s.pool.Query(ctx, s.listSQL)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list conversations: query: %w", err)
 	}
 	defer rows.Close()
-
-	ids = []history.ConversationID{}
+	ids := []history.ConversationID{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {

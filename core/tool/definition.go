@@ -15,17 +15,23 @@ var ErrInvalidDefinition = errors.New("tool: invalid definition")
 
 // Definition describes a tool independently of any model naming or transport convention.
 type Definition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	OutputSchema json.RawMessage `json:"output_schema,omitzero"`
+	Effect       Effect          `json:"effect,omitzero"`
 }
 
 func (d Definition) Clone() Definition {
 	d.InputSchema = bytes.Clone(d.InputSchema)
+	d.OutputSchema = bytes.Clone(d.OutputSchema)
 	return d
 }
 
 func (d Definition) Validate() error {
+	if !d.Effect.Valid() {
+		return fmt.Errorf("%w: unknown effect %q", ErrInvalidDefinition, d.Effect)
+	}
 	if d.Name == "" || !utf8.ValidString(d.Name) || strings.ContainsFunc(d.Name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
 		return fmt.Errorf("%w: tool name must be non-empty UTF-8 without whitespace or control characters", ErrInvalidDefinition)
 	}

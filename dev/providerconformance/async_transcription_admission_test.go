@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/assemblyai"
@@ -60,7 +62,7 @@ func TestAsyncTranscriptionRejectsUnmappedOptionsBeforeIO(t *testing.T) {
 					t.Fatal(setErr)
 				}
 				response, err := model.Call(t.Context(), request)
-				if err == nil || response != nil || calls.Load() != 0 {
+				if invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || response != nil || calls.Load() != 0 {
 					t.Fatalf("invalid extension: response=%v error=%v provider_calls=%d", response, err, calls.Load())
 				}
 			})

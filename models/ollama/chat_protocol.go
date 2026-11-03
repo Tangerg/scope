@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 type ChatConfig struct {
@@ -33,11 +34,11 @@ type Chat struct {
 	defaults corechat.Options
 }
 
-func NewChat(_ context.Context, config ChatConfig) (*Chat, error) {
+func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(apiConfig{BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, apiConfig{BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		apiReq, err := c.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 

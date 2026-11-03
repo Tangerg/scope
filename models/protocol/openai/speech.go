@@ -12,6 +12,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -145,12 +146,12 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
 	return func(yield func(*speech.Response, error) bool) {
 		if err := req.Validate(); err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		apiReq, err := s.buildAPITTSRequest(req)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 

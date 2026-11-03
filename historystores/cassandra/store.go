@@ -1,11 +1,13 @@
 package cassandra
 
 import (
+	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
-	"time"
 
 	gocql "github.com/apache/cassandra-gocql-driver/v2"
 	"github.com/samber/lo"
@@ -15,13 +17,16 @@ import (
 )
 
 const (
-	DefaultKeyspace  = "scope"
-	DefaultTableName = "chat_history"
+	DefaultKeyspace           = "scope"
+	DefaultTableName          = "chat_history"
+	recordConversation   int8 = 0
+	recordAppend         int8 = 1
+	conversationRecordID      = ""
+	permanentTTLSeconds       = 0
 )
 
-// Session supplies the query and batch operations used by Store. The caller
-// owns the session. Batch copies its immutable default consistency without I/O;
-// Store never changes that default or closes the session.
+// Session remains caller-owned. Store sets SERIAL and QUORUM on its own
+// operations because append identity must not depend on mutable client defaults.
 type Session interface {
 	Query(string, ...any) *gocql.Query
 	Batch(gocql.BatchType) *gocql.Batch
@@ -29,14 +34,9 @@ type Session interface {
 
 type StoreConfig struct {
 	Session Session
-
-	// Keyspace must already exist: Cassandra keyspace creation needs
-	// replication-strategy choices the store cannot make for the caller.
-	Keyspace string
-
-	TableName string
-
-	// InitializeSchema creates the table only; the keyspace is never created.
+	// Replication policy belongs to the host; this keyspace must already exist.
+	Keyspace         string
+	TableName        string
 	InitializeSchema bool
 }
 
@@ -53,54 +53,33 @@ func (s StoreConfig) Validate() error {
 	return nil
 }
 
+// Gate and append rows share one table and partition: Cassandra conditional
+// batches require both, and the gate serializes appends with permanent closure.
+type Store struct {
+	session       Session
+	createCQL     string
+	initializeCQL string
+	gateCQL       string
+	receiptCQL    string
+	advanceCQL    string
+	appendCQL     string
+	readCQL       string
+	closeCQL      string
+	clearCQL      string
+	listCQL       string
+}
+
 var (
 	_ Session        = (*gocql.Session)(nil)
 	_ history.Store  = (*Store)(nil)
 	_ history.Lister = (*Store)(nil)
 )
 
-// Store persists each conversation in one Cassandra partition through a
-// caller-owned session. It never closes that session. A Write preserves its
-// argument order with a locally monotonic TIMEUUID range; relative ordering
-// across concurrent calls or separate Store values remains unspecified.
-type Store struct {
-	session  Session
-	sequence *history.Sequence
-
-	writeCQL  string
-	readCQL   string
-	clearCQL  string
-	listCQL   string
-	createCQL string
-}
-
-// ErrUnacknowledgedWrites reports a session whose consistency level lets
-// Cassandra accept a write without any replica holding it.
-var ErrUnacknowledgedWrites = errors.New("cassandra: session consistency does not acknowledge a durable write")
-
-// requireDurableConsistency refuses a session configured at ANY.
-//
-// At every other level a successful write reached at least one replica. At ANY,
-// Cassandra documents that "a single replica may respond, or the coordinator
-// may store a hint. If a hint is stored, the coordinator will later attempt to
-// replay the hint and deliver the mutation to the replicas" — so the call
-// returns nil for a message no replica holds, which no read can see and which
-// is gone if the hint expires before delivery. That is a stored conversation
-// reported to a caller who has not got one.
-//
-// Admission reads the default through the same batch constructor Write uses.
-func requireDurableConsistency(session Session) error {
-	if consistency := session.Batch(gocql.UnloggedBatch).GetConsistency(); consistency == gocql.Any {
-		return fmt.Errorf("%w: consistency is %s", ErrUnacknowledgedWrites, consistency)
-	}
-	return nil
-}
-
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
-	if err := config.Validate(); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := requireDurableConsistency(config.Session); err != nil {
+	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	if config.Keyspace == "" {
@@ -110,135 +89,244 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		config.TableName = DefaultTableName
 	}
 	qualified := config.Keyspace + "." + config.TableName
-	sequence, err := history.NewSequence(timeUUIDTick)
-	if err != nil {
-		return nil, err
-	}
-	s := &Store{
-		session:  config.Session,
-		sequence: sequence,
-		writeCQL: fmt.Sprintf(
-			"INSERT INTO %s (conversation_id, seq, message) VALUES (?, ?, ?)",
-			qualified,
-		),
-		readCQL: fmt.Sprintf(
-			"SELECT message FROM %s WHERE conversation_id = ? ORDER BY seq ASC",
-			qualified,
-		),
-		clearCQL: fmt.Sprintf("DELETE FROM %s WHERE conversation_id = ?", qualified),
-		listCQL:  fmt.Sprintf("SELECT DISTINCT conversation_id FROM %s", qualified),
+	// Every write overrides table TTL so host defaults cannot expire append
+	// identity or reopen a permanently closed conversation.
+	store := &Store{
+		session: config.Session,
 		createCQL: fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-			conversation_id TEXT,
-			seq             TIMEUUID,
-			message         TEXT,
-			PRIMARY KEY ((conversation_id), seq)
-		) WITH CLUSTERING ORDER BY (seq ASC)`, qualified),
+            conversation_id TEXT,
+            record_kind TINYINT,
+            record_id TEXT,
+            sequence BIGINT,
+            closed BOOLEAN,
+            digest TEXT,
+            messages TEXT,
+            PRIMARY KEY ((conversation_id), record_kind, record_id)
+        )`, qualified),
+		initializeCQL: fmt.Sprintf("INSERT INTO %s (conversation_id, record_kind, record_id, sequence, closed) VALUES (?, ?, ?, ?, ?) IF NOT EXISTS USING TTL %d", qualified, permanentTTLSeconds),
+		gateCQL:       fmt.Sprintf("SELECT closed, sequence, WRITETIME(closed) FROM %s WHERE conversation_id = ? AND record_kind = ? AND record_id = ?", qualified),
+		receiptCQL:    fmt.Sprintf("SELECT digest FROM %s WHERE conversation_id = ? AND record_kind = ? AND record_id = ?", qualified),
+		advanceCQL:    fmt.Sprintf("UPDATE %s USING TTL %d SET sequence = ? WHERE conversation_id = ? AND record_kind = ? AND record_id = ? IF closed = false AND sequence = ?", qualified, permanentTTLSeconds),
+		appendCQL:     fmt.Sprintf("INSERT INTO %s (conversation_id, record_kind, record_id, sequence, digest, messages) VALUES (?, ?, ?, ?, ?, ?) IF NOT EXISTS USING TTL %d", qualified, permanentTTLSeconds),
+		readCQL:       fmt.Sprintf("SELECT sequence, messages FROM %s WHERE conversation_id = ? AND record_kind = ?", qualified),
+		closeCQL:      fmt.Sprintf("UPDATE %s USING TTL %d SET closed = true WHERE conversation_id = ? AND record_kind = ? AND record_id = ? IF closed = false", qualified, permanentTTLSeconds),
+		clearCQL:      fmt.Sprintf("DELETE FROM %s USING TIMESTAMP ? WHERE conversation_id = ? AND record_kind = ?", qualified),
+		listCQL:       fmt.Sprintf("SELECT DISTINCT conversation_id FROM %s", qualified),
 	}
-
 	if config.InitializeSchema {
-		if err := s.session.Query(s.createCQL).ExecContext(ctx); err != nil {
-			return nil, fmt.Errorf("cassandra: create table: %w", err)
+		if err := store.session.Query(store.createCQL).Consistency(gocql.Quorum).ExecContext(ctx); err != nil {
+			return nil, fmt.Errorf("cassandra: initialize schema: %w", err)
 		}
 	}
-
-	return s, nil
+	return store, nil
 }
 
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
-	if err = ctx.Err(); err != nil {
-		return outcome, err
-	}
-	if err = conversationID.Validate(); err != nil {
-		return outcome, err
-	}
-	if len(messages) == 0 {
-		return history.WriteOutcome{Accepted: len(messages)}, nil
-	}
+func (s *Store) initialize(ctx context.Context, id history.ConversationID, closed bool) error {
+	_, err := s.session.Query(s.initializeCQL, id.String(), recordConversation, conversationRecordID, int64(0), closed).
+		Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(ctx, make(map[string]any))
+	return err
+}
 
-	encoded, err := encodeMessages(messages)
+func (s *Store) gate(ctx context.Context, id history.ConversationID) (conversationGate, error) {
+	var gate conversationGate
+	err := s.session.Query(s.gateCQL, id.String(), recordConversation, conversationRecordID).
+		Consistency(gocql.Serial).ScanContext(ctx, &gate.closed, &gate.sequence, &gate.closedWriteTimestamp)
+	if err == nil && gate.sequence < 0 {
+		return conversationGate{}, errors.New("cassandra: invalid stored conversation sequence")
+	}
+	return gate, err
+}
+
+func (s *Store) conditionalAppend(batch history.Batch, sequence int64) *gocql.Batch {
+	transaction := s.session.Batch(gocql.LoggedBatch).Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false)
+	transaction.Query(s.advanceCQL, sequence+1, batch.ConversationID().String(), recordConversation, conversationRecordID, sequence)
+	transaction.Query(s.appendCQL, batch.ConversationID().String(), recordAppend, batch.ID().String(), sequence+1, batch.Digest(), string(batch.EncodedMessages()))
+	return transaction
+}
+
+func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return history.Receipt{}, err
+	}
+	if err := batch.Validate(); err != nil {
+		return history.Receipt{}, err
+	}
+	if err := s.initialize(ctx, batch.ConversationID(), false); err != nil {
+		return history.Receipt{}, fmt.Errorf("cassandra: append gate: %w", err)
+	}
+	receipt := history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}
+	for {
+		if err := ctx.Err(); err != nil {
+			return history.Receipt{}, err
+		}
+		gate, err := s.gate(ctx, batch.ConversationID())
+		if err != nil {
+			return history.Receipt{}, fmt.Errorf("cassandra: append gate: %w", err)
+		}
+		if gate.closed {
+			return history.Receipt{}, history.ErrConversationClosed
+		}
+		var digest string
+		err = s.session.Query(s.receiptCQL, batch.ConversationID().String(), recordAppend, batch.ID().String()).Consistency(gocql.Serial).ScanContext(ctx, &digest)
+		if err == nil {
+			if digest != batch.Digest() {
+				return history.Receipt{}, history.ErrAppendConflict
+			}
+			return receipt, nil
+		}
+		if !errors.Is(err, gocql.ErrNotFound) {
+			return history.Receipt{}, fmt.Errorf("cassandra: append receipt: %w", err)
+		}
+		if gate.sequence == math.MaxInt64 {
+			return history.Receipt{}, errors.New("cassandra: conversation sequence exhausted")
+		}
+		applied, iterator, err := s.conditionalAppend(batch, gate.sequence).MapExecCASContext(ctx, make(map[string]any))
+		if iterator != nil {
+			err = errors.Join(err, iterator.Close())
+		}
+		if applied {
+			return receipt, err
+		}
+		if err != nil {
+			return history.Receipt{}, fmt.Errorf("cassandra: append transaction: %w", err)
+		}
+	}
+}
+
+func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Message, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
+	before, err := s.gate(ctx, id)
+	if errors.Is(err, gocql.ErrNotFound) || err == nil && before.closed {
+		return []chat.Message{}, nil
+	}
 	if err != nil {
-		return outcome, fmt.Errorf("cassandra: write: encode messages: %w", err)
+		return nil, fmt.Errorf("cassandra: read gate: %w", err)
 	}
-	batch := s.session.Batch(gocql.UnloggedBatch)
-	sequenceBase := s.sequence.Reserve(len(encoded))
-	for index, raw := range encoded {
-		messageSequence := sequenceUUID(sequenceBase, index)
-		batch.Query(s.writeCQL, conversationID.String(), messageSequence, string(raw))
+	iterator := s.session.Query(s.readCQL, id.String(), recordAppend).Consistency(gocql.Serial).IterContext(ctx)
+	var records []appendRecord
+	var record appendRecord
+	for iterator.Scan(&record.sequence, &record.messages) {
+		records = append(records, record)
 	}
-	outcome.Uncertain = true
-	if err = batch.ExecContext(ctx); err != nil {
-		return outcome, fmt.Errorf("cassandra: write: execute batch: %w", err)
+	if closeErr := iterator.Close(); closeErr != nil {
+		return nil, fmt.Errorf("cassandra: read appends: %w", closeErr)
 	}
-	return history.WriteOutcome{Accepted: len(messages)}, nil
+	after, err := s.gate(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("cassandra: read gate: %w", err)
+	}
+	if after.closed {
+		return []chat.Message{}, nil
+	}
+	// A sequence bound excludes later appends across paged reads; the final gate
+	// check prevents a concurrent cleanup from exposing a partial old history.
+	return decodeRecords(records, before.sequence)
 }
 
-func sequenceUUID(base int64, index int) gocql.UUID {
-	return gocql.UUIDFromTime(time.Unix(0, base+int64(index)*int64(timeUUIDTick)))
-}
-
-func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
-	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err = conversationID.Validate(); err != nil {
-		return nil, err
-	}
-
-	iterator := s.session.Query(s.readCQL, conversationID.String()).IterContext(ctx)
-	defer closeIterator(iterator, "read", &err)
-
-	storedMessages = []chat.Message{}
-	var encodedMessage string
-	for iterator.Scan(&encodedMessage) {
-		message, decodeErr := decodeMessage([]byte(encodedMessage))
-		if decodeErr != nil {
-			err = fmt.Errorf("cassandra: read: decode message %d: %w", len(storedMessages), decodeErr)
-			return nil, err
-		}
-		storedMessages = append(storedMessages, message)
-	}
-	return storedMessages, nil
-}
-
-func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Clear(ctx context.Context, id history.ConversationID) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err = conversationID.Validate(); err != nil {
+	if err := id.Validate(); err != nil {
 		return err
 	}
-
-	if err = s.session.Query(s.clearCQL, conversationID.String()).ExecContext(ctx); err != nil {
-		return fmt.Errorf("cassandra: clear: delete partition: %w", err)
+	if err := s.initialize(ctx, id, true); err != nil {
+		return fmt.Errorf("cassandra: close gate: %w", err)
+	}
+	if _, err := s.session.Query(s.closeCQL, id.String(), recordConversation, conversationRecordID).
+		Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(ctx, make(map[string]any)); err != nil {
+		return fmt.Errorf("cassandra: close conversation: %w", err)
+	}
+	gate, err := s.gate(ctx, id)
+	if err != nil {
+		return fmt.Errorf("cassandra: read closed gate: %w", err)
+	}
+	query, err := s.cleanupQuery(id, gate)
+	if err != nil {
+		return err
+	}
+	if err = query.ExecContext(ctx); err != nil {
+		return fmt.Errorf("cassandra: clear closed conversation: %w", err)
 	}
 	return nil
 }
 
-// SELECT DISTINCT on the partition key reads only partition metadata,
-// so no ALLOW FILTERING is needed.
-func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
-	if err = ctx.Err(); err != nil {
-		return nil, err
+func (s *Store) cleanupQuery(id history.ConversationID, gate conversationGate) (*gocql.Query, error) {
+	if !gate.closed || gate.closedWriteTimestamp <= 0 {
+		return nil, errors.New("cassandra: cleanup requires a committed closure timestamp")
 	}
-
-	iterator := s.session.Query(s.listCQL).IterContext(ctx)
-	defer closeIterator(iterator, "list conversations", &err)
-
-	ids = []history.ConversationID{}
-	var id string
-	for iterator.Scan(&id) {
-		conversationID := history.ConversationID(id)
-		if err := conversationID.Validate(); err != nil {
-			return nil, fmt.Errorf("cassandra: list conversations: invalid stored ID %q: %w", id, err)
-		}
-		ids = append(ids, conversationID)
-	}
-	slices.Sort(ids)
-	return ids, nil
+	// Paxos timestamps follow ballot order within this partition. Reusing the
+	// closure timestamp deletes every earlier append even when client or
+	// coordinator clocks lag; the permanent gate itself is outside this range.
+	return s.session.Query(s.clearCQL, gate.closedWriteTimestamp, id.String(), recordAppend).Consistency(gocql.Quorum).DefaultTimestamp(false), nil
 }
 
-func closeIterator(iterator *gocql.Iter, operation string, operationErr *error) {
-	if err := iterator.Close(); err != nil {
-		*operationErr = errors.Join(*operationErr, fmt.Errorf("cassandra: %s: close iterator: %w", operation, err))
+func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
+	iterator := s.session.Query(s.listCQL).Consistency(gocql.Quorum).IterContext(ctx)
+	ids := []history.ConversationID{}
+	var raw string
+	for iterator.Scan(&raw) {
+		ids = append(ids, history.ConversationID(raw))
+	}
+	if err := iterator.Close(); err != nil {
+		return nil, fmt.Errorf("cassandra: list partitions: %w", err)
+	}
+	visible := make([]history.ConversationID, 0, len(ids))
+	for _, id := range ids {
+		if err := id.Validate(); err != nil {
+			return nil, err
+		}
+		gate, err := s.gate(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("cassandra: list gate: %w", err)
+		}
+		if !gate.closed && gate.sequence > 0 {
+			visible = append(visible, id)
+		}
+	}
+	slices.Sort(visible)
+	return visible, nil
+}
+
+type conversationGate struct {
+	closed               bool
+	sequence             int64
+	closedWriteTimestamp int64
+}
+
+type appendRecord struct {
+	sequence int64
+	messages string
+}
+
+func decodeRecords(records []appendRecord, through int64) ([]chat.Message, error) {
+	slices.SortFunc(records, func(left, right appendRecord) int { return cmp.Compare(left.sequence, right.sequence) })
+	messages := []chat.Message{}
+	previous := int64(0)
+	for _, record := range records {
+		if record.sequence <= previous {
+			return nil, errors.New("cassandra: invalid stored append sequence")
+		}
+		previous = record.sequence
+		if record.sequence > through {
+			break
+		}
+		var batch []chat.Message
+		if err := jsonv2.Unmarshal([]byte(record.messages), &batch); err != nil {
+			return nil, fmt.Errorf("cassandra: decode append: %w", err)
+		}
+		if len(batch) == 0 {
+			return nil, errors.New("cassandra: stored append is empty")
+		}
+		messages = append(messages, batch...)
+	}
+	return messages, nil
 }

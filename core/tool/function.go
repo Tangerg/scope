@@ -1,95 +1,46 @@
 package tool
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
-	"reflect"
-
-	corejsonschema "github.com/Tangerg/scope/core/jsonschema"
 )
 
-// Func adapts a typed Go function to [Tool]. It is immutable and as safe for
-// concurrent calls as the wrapped function. The function receives the call's
-// IdempotencyKey beside its input so a function with external effects can let
-// its backend deduplicate replays; a pure function ignores it.
-//
-// A Func validates arguments by strictly decoding them into In, not against a
-// retained compiled schema, so it owns only the canonical input-schema JSON it
-// projects into its Definition. [Bind] compiles that JSON when it needs
-// schema-level admission for the Tool contract.
+// Func composes a Signature with typed execution. The opaque key is immutable
+// invocation evidence; its backend, not this adapter, owns deduplication.
 type Func[In, Out any] struct {
-	config      FuncConfig
-	inputSchema json.RawMessage
-	function    func(context.Context, IdempotencyKey, In) (Out, error)
+	config    FuncConfig
+	signature Signature[In, Out]
+	function  func(context.Context, IdempotencyKey, In) (Out, error)
 }
 
 type FuncConfig struct {
 	Name        string
 	Description string
+	Effect      Effect
 }
 
-// NewFunc derives the model-visible JSON Schema from the Go input type. Its
-// independent input validator uses the same strict decoder as Call, so Bind
-// admits arguments before any function executes, even when JSON Schema cannot
-// express all decoder constraints. Custom JSON and text decoders in In must be
-// deterministic, bounded, side-effect-free, and safe for concurrent use.
 func NewFunc[In, Out any](config FuncConfig, function func(context.Context, IdempotencyKey, In) (Out, error)) (Func[In, Out], error) {
-	var zero Func[In, Out]
 	if function == nil {
-		return zero, fmt.Errorf("%w: function is nil", ErrInvalidTool)
+		return Func[In, Out]{}, fmt.Errorf("%w: function is nil", ErrInvalidTool)
 	}
-	inputType := reflect.TypeFor[In]()
-	if err := validateFuncInputType(inputType); err != nil {
-		return zero, fmt.Errorf("%w: %w", ErrInvalidTool, err)
-	}
-	input, err := corejsonschema.For[In]()
+	signature, err := NewSignature[In, Out]()
 	if err != nil {
-		return zero, fmt.Errorf("%w: %w", ErrInvalidTool, err)
+		return Func[In, Out]{}, fmt.Errorf("%w: signature: %w", ErrInvalidTool, err)
 	}
-	schema := input.JSON()
-	definition := Definition{
-		Name:        config.Name,
-		Description: config.Description,
-		InputSchema: schema,
+	functionTool := Func[In, Out]{config: config, signature: signature, function: function}
+	if err := functionTool.Definition().Validate(); err != nil {
+		return Func[In, Out]{}, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
 	}
-	if err := definition.Validate(); err != nil {
-		return zero, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
-	}
-	return Func[In, Out]{
-		config:      config,
-		inputSchema: schema,
-		function:    function,
-	}, nil
-}
-
-func validateFuncInputType(input reflect.Type) error {
-	if input.Kind() == reflect.Pointer {
-		input = input.Elem()
-	}
-	if input.Kind() != reflect.Struct {
-		return fmt.Errorf("function input type %s must be a struct or pointer to struct", input)
-	}
-	return nil
+	return functionTool, nil
 }
 
 func (f Func[In, Out]) Definition() Definition {
 	if f.function == nil {
 		return Definition{}
 	}
-	return Definition{
-		Name:        f.config.Name,
-		Description: f.config.Description,
-		InputSchema: bytes.Clone(f.inputSchema),
-	}
+	return Definition{Name: f.config.Name, Description: f.config.Description, InputSchema: f.signature.InputSchema(), OutputSchema: f.signature.OutputSchema(), Effect: f.config.Effect}
 }
 
-// Call checks cancellation before entering the application function. Once
-// dispatched, that function owns the outcome, including acknowledged effects;
-// cancellation never replaces its completed result. Successful output must
-// satisfy the canonical ToolOutput contract.
 func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result, error) {
 	if f.function == nil {
 		return Result{}, fmt.Errorf("%w: function tool is nil", ErrInvalidTool)
@@ -97,7 +48,7 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result,
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return Result{}, ctxErr
 	}
-	input, err := decodeFuncInput[In](invocation.Arguments())
+	input, err := f.signature.Decode(invocation)
 	if err != nil {
 		return Result{}, fmt.Errorf("tool: decode function arguments: %w", err)
 	}
@@ -108,42 +59,11 @@ func (f Func[In, Out]) Call(ctx context.Context, invocation Invocation) (Result,
 	if err != nil {
 		return Result{}, err
 	}
-	result, err := f.encodeResult(output)
+	result, err := f.signature.Encode(output)
 	if err != nil {
 		return Result{}, fmt.Errorf("tool: encode function result: %w", err)
 	}
 	return Result{Output: result}, nil
 }
 
-// InputValidator retains only the input type's decoding behavior. It captures
-// neither this Func nor its application function.
-func (Func[In, Out]) InputValidator() func([]byte) error {
-	return func(arguments []byte) error {
-		_, err := decodeFuncInput[In](arguments)
-		return err
-	}
-}
-
-func decodeFuncInput[In any](arguments []byte) (In, error) {
-	var input In
-	if err := jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return input, err
-	}
-	return input, nil
-}
-
-func (Func[In, Out]) encodeResult(output Out) (Output, error) {
-	value := reflect.ValueOf(output)
-	if value.IsValid() && value.Kind() == reflect.String {
-		result := NewTextOutput(value.String())
-		if err := result.Validate(); err != nil {
-			return Output{}, err
-		}
-		return result, nil
-	}
-	encoded, err := jsonv2.Marshal(output)
-	if err != nil {
-		return Output{}, err
-	}
-	return NewJSONOutput(encoded)
-}
+func (f Func[In, Out]) InputValidator() func([]byte) error { return f.signature.InputValidator() }

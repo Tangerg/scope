@@ -12,15 +12,16 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 const (
 	// RequestExtensionKey identifies provider-owned Chat Completions fields
 	// encoded as [RequestFields].
-	RequestExtensionKey = "openai/request"
+	RequestExtensionKey = ProviderID + "/request"
 	// StreamChunkExtensionKey preserves each complete official Chat
 	// Completions stream chunk.
-	StreamChunkExtensionKey = "openai/stream_chunk"
+	StreamChunkExtensionKey = ProviderID + "/stream_chunk"
 )
 
 // DefaultOptions are copied during construction; callers may select the model
@@ -53,7 +54,7 @@ var (
 type ChatCompletions struct {
 	api      *api
 	defaults corechat.Options
-	dialect  Dialect
+	dialect  chatDialect
 }
 
 func RequestStreamUsage(_ *corechat.Request, target *CompatibleRequest) error {
@@ -78,14 +79,15 @@ func RequestStreamUsage(_ *corechat.Request, target *CompatibleRequest) error {
 	return target.SetExtraField("stream_options", options)
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect Dialect) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect DialectConfig) (*ChatCompletions, error) {
 	if err := requireBindingEndpoint(dialect.Provider, config.BaseURL); err != nil {
 		return nil, err
 	}
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	if err := dialect.Validate(); err != nil {
+	boundDialect, err := dialect.bind()
+	if err != nil {
 		return nil, fmt.Errorf("openai: dialect: %w", err)
 	}
 	api, err := newAPI(ctx, apiConfig{
@@ -100,7 +102,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, diale
 	return &ChatCompletions{
 		api:      api,
 		defaults: config.DefaultOptions.Clone(),
-		dialect:  dialect.clone(),
+		dialect:  boundDialect,
 	}, nil
 }
 
@@ -126,7 +128,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := c.buildRequest(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 
@@ -205,7 +207,7 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 	if err != nil {
 		return nil, err
 	}
-	if formatErr := applyChatOutputFormat(options.OutputFormat, &params, c.dialect); formatErr != nil {
+	if formatErr := applyChatOutputFormat(options.OutputFormat, &params, c.dialect.DialectConfig); formatErr != nil {
 		return nil, formatErr
 	}
 	if prepareErr := c.prepareRequest(req, &params); prepareErr != nil {

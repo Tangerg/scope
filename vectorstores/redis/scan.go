@@ -146,11 +146,7 @@ func (s *scanGrant) selectRecords(ctx context.Context, store *Store, p filter.Pr
 			cursor = next
 		}
 	}
-	if cluster, ok := store.client.(*goredis.ClusterClient); ok {
-		if err := cluster.ForEachMaster(ctx, func(ctx context.Context, c *goredis.Client) error { return scan(ctx, c) }); err != nil {
-			return nil, err
-		}
-	} else if err := scan(ctx, store.client); err != nil {
+	if err := store.scanNodes(ctx, func(ctx context.Context, client *goredis.Client) error { return scan(ctx, client) }); err != nil {
 		return nil, err
 	}
 	return selected, nil

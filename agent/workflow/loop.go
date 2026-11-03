@@ -29,13 +29,7 @@ type LoopConfig[T any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
 	ID string
 
-	// Body is the exact T-to-T child Program used for every iteration.
-	Body run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent for each iteration.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	Body run.ChildBinding
 
 	// MaxIterations bounds body child Processes. Its zero value is unlimited;
 	// a finite zero is rejected because a Loop runs its body at least once.
@@ -45,7 +39,7 @@ type LoopConfig[T any] struct {
 }
 
 type loopStage struct {
-	binding       childBinding
+	binding       run.ChildBinding
 	maxIterations run.Quota
 	predicate     func(context.Context, json.RawMessage) (bool, error)
 	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
@@ -54,8 +48,8 @@ type loopStage struct {
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
 // and produce exactly T; the Stage itself produces LoopResult[T].
 func Loop[T any](config LoopConfig[T]) (Stage, error) {
-	binding, valid := newChildBinding(config.Body, config.Budget, config.Capabilities)
-	if !run.ValidQualifiedName(config.ID) || !valid || !config.MaxIterations.Allows(1) || config.Predicate == nil {
+	binding := config.Body
+	if !run.ValidQualifiedName(config.ID) || !binding.Valid() || !config.MaxIterations.Allows(1) || config.Predicate == nil {
 		return Stage{}, ErrInvalidStage
 	}
 	valueSchema, err := jsonschema.For[T]()
@@ -66,7 +60,7 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: Loop %q result schema: %w", ErrInvalidStage, config.ID, err)
 	}
-	descriptor := config.Body.Descriptor()
+	descriptor := binding.Program.Descriptor()
 	if !valueSchema.Equal(descriptor.InputSchema()) ||
 		!valueSchema.Equal(descriptor.OutputSchema()) {
 		return Stage{}, fmt.Errorf("%w: Loop %q body must have an exact T-to-T contract", ErrInvalidStage, config.ID)

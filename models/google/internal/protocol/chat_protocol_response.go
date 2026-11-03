@@ -15,15 +15,13 @@ import (
 const (
 	// ResponseExtensionKey preserves the complete official GenerateContent
 	// response (or the current official stream chunk).
-	ResponseExtensionKey = "google/response"
+	ResponseExtensionKey = GoogleProviderID + "/response"
 )
 
 type protocolResponseMapper struct {
 	partOffset   int
 	provider     string
-	responseID   string
-	modelVersion string
-	stopReason   genai.FinishReason
+	generation   generationStream
 	hasToolCalls bool
 }
 
@@ -32,35 +30,20 @@ func newProtocolResponseMapper(provider string) *protocolResponseMapper {
 }
 
 func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseDelta, error) {
-	if response == nil {
-		return nil, errors.New("google: nil stream response")
+	next, err := p.generation.advance(response)
+	if err != nil {
+		if refusal, ok := errors.AsType[*promptBlockError](err); ok {
+			return nil, refusal
+		}
+		return nil, fmt.Errorf("google: stream: %w: %w", corechat.ErrInvalidResponse, err)
 	}
-	if err := protocolPromptBlockError(response); err != nil {
-		return nil, err
-	}
-	if len(response.Candidates) > 1 {
-		return nil, fmt.Errorf("google: stream response has %d candidates; Core supports one output", len(response.Candidates))
-	}
-	metadata, err := p.mapMetadata(requestModel, response)
+	metadata, err := p.mapMetadata(requestModel, response, next)
 	if err != nil {
 		return nil, err
 	}
 	mapped := &corechat.ResponseDelta{Metadata: metadata}
-	var stopReason genai.FinishReason
 	if len(response.Candidates) == 1 {
-		candidate, err := p.candidate(response.Candidates[0])
-		if err != nil {
-			return nil, err
-		}
-		if p.finished() && candidate.Content != nil && len(candidate.Content.Parts) > 0 {
-			return nil, fmt.Errorf("google: stream: %w: content after finish reason", corechat.ErrInvalidResponse)
-		}
-		if isProtocolStopReason(candidate.FinishReason) {
-			if p.finished() {
-				return nil, fmt.Errorf("google: stream: %w: more than one finish reason", corechat.ErrInvalidResponse)
-			}
-			stopReason = candidate.FinishReason
-		}
+		candidate := response.Candidates[0]
 		if err := p.mapCandidateDelta(candidate, mapped); err != nil {
 			return nil, fmt.Errorf("google: stream output: %w", err)
 		}
@@ -68,67 +51,31 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.G
 	if err := mapped.Validate(); err != nil {
 		return nil, fmt.Errorf("google: mapped response delta: %w", err)
 	}
-	if stopReason != "" {
-		p.stopReason = stopReason
-	}
+	p.generation = next
 	return mapped, nil
 }
 
 func (p *protocolResponseMapper) finished() bool {
-	return p.stopReason != ""
+	return p.generation.finished()
 }
 
 func (p *protocolResponseMapper) complete(delta *corechat.ResponseDelta) (*corechat.ResponseDelta, error) {
 	if delta == nil || !p.finished() {
 		return nil, fmt.Errorf("google: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
-	delta.FinishReason = normalizeProtocolFinishReason(p.stopReason, p.hasToolCalls)
+	delta.FinishReason = normalizeProtocolFinishReason(p.generation.finishReason, p.hasToolCalls)
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("google: terminal stream response: %w", err)
 	}
 	return delta, nil
 }
 
-// protocolPromptBlockError reports a prompt Gemini refused to answer.
-//
-// Gemini returns no candidates at all only when something was wrong with the
-// prompt, and it explains that case in promptFeedback.blockReason rather than
-// in the candidate list. Checking the count first would turn a documented
-// refusal into a complaint about response shape and drop the reason the
-// provider supplied, so both mapping paths ask this question before they
-// count candidates.
-func protocolPromptBlockError(response *genai.GenerateContentResponse) error {
-	feedback := response.PromptFeedback
-	if feedback == nil || feedback.BlockReason == "" ||
-		feedback.BlockReason == genai.BlockedReasonUnspecified {
-		return nil
-	}
-	if feedback.BlockReasonMessage != "" {
-		return fmt.Errorf("google: prompt blocked (%s): %s",
-			feedback.BlockReason, feedback.BlockReasonMessage)
-	}
-	return fmt.Errorf("google: prompt blocked (%s)", feedback.BlockReason)
-}
-
-func (p *protocolResponseMapper) candidate(candidate *genai.Candidate) (*genai.Candidate, error) {
-	if candidate == nil {
-		return nil, errors.New("google: nil candidate")
-	}
-	if candidate.Index != 0 {
-		return nil, fmt.Errorf("google: candidate index is %d, want 0", candidate.Index)
-	}
-	return candidate, nil
-}
-
-func (p *protocolResponseMapper) mapMetadata(requestModel string, response *genai.GenerateContentResponse) (*corechat.ResponseMetadata, error) {
-	if err := p.bindIdentity(response); err != nil {
-		return nil, err
-	}
-	modelName := p.modelVersion
+func (p *protocolResponseMapper) mapMetadata(requestModel string, response *genai.GenerateContentResponse, generation generationStream) (*corechat.ResponseMetadata, error) {
+	modelName := generation.modelVersion
 	if modelName == "" {
 		modelName = requestModel
 	}
-	metadata := &corechat.ResponseMetadata{ID: p.responseID, Model: modelName}
+	metadata := &corechat.ResponseMetadata{ID: generation.responseID, Model: modelName}
 	if err := metadata.Extra.Set(protocolKey(p.provider, "response"), response); err != nil {
 		return nil, fmt.Errorf("google: preserve native response: %w", err)
 	}
@@ -154,22 +101,6 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 		}
 	}
 	return metadata, nil
-}
-
-func (p *protocolResponseMapper) bindIdentity(response *genai.GenerateContentResponse) error {
-	if response.ResponseID != "" && p.responseID != "" && response.ResponseID != p.responseID {
-		return fmt.Errorf("google: stream: %w: response id changed from %q to %q", corechat.ErrInvalidResponse, p.responseID, response.ResponseID)
-	}
-	if response.ModelVersion != "" && p.modelVersion != "" && response.ModelVersion != p.modelVersion {
-		return fmt.Errorf("google: stream: %w: model version changed from %q to %q", corechat.ErrInvalidResponse, p.modelVersion, response.ModelVersion)
-	}
-	if response.ResponseID != "" {
-		p.responseID = response.ResponseID
-	}
-	if response.ModelVersion != "" {
-		p.modelVersion = response.ModelVersion
-	}
-	return nil
 }
 
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
@@ -315,7 +246,7 @@ func normalizeProtocolFinishReason(reason genai.FinishReason, hasToolCalls bool)
 			return corechat.FinishReasonToolCalls
 		}
 		return corechat.FinishReasonStop
-	case genai.FinishReasonMaxTokens:
+	case genai.FinishReasonMaxTokens, genai.FinishReasonContinuation:
 		return corechat.FinishReasonLength
 	// Every reason where Gemini policy withheld the content belongs together,
 	// recitation included: it stops generation for using an unauthorized

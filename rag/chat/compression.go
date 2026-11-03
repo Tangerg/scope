@@ -30,7 +30,7 @@ type CompressionTransformerConfig struct {
 	PromptTemplate *chatclient.Template
 }
 
-var _ rag.Transformer = (*CompressionTransformer)(nil)
+var _ ConversationTransformer = (*CompressionTransformer)(nil)
 
 type CompressionTransformer struct {
 	prompt modelPrompt[string]
@@ -57,12 +57,13 @@ func NewCompressionTransformer(config CompressionTransformerConfig) (*Compressio
 	return &CompressionTransformer{prompt: prompt}, nil
 }
 
-func (c *CompressionTransformer) Transform(ctx context.Context, query rag.Query) (rag.Query, error) {
-	if err := query.Validate(); err != nil {
+func (c *CompressionTransformer) Transform(ctx context.Context, input ConversationQuery) (rag.Query, error) {
+	if err := input.Validate(); err != nil {
 		return rag.Query{}, err
 	}
 
-	history, err := c.extractHistory(ctx, query)
+	query := input.Query()
+	history, err := c.formatHistory(ctx, input.history)
 	if err != nil {
 		return rag.Query{}, err
 	}
@@ -76,17 +77,6 @@ func (c *CompressionTransformer) Transform(ctx context.Context, query rag.Query)
 	}
 
 	return queryFromModel(query, compressed)
-}
-
-func (c *CompressionTransformer) extractHistory(ctx context.Context, query rag.Query) (string, error) {
-	messages, exists, err := query.Value(historyValueKey)
-	if err != nil {
-		return "", fmt.Errorf("rag: read chat history: %w", err)
-	}
-	if !exists {
-		return "", nil
-	}
-	return c.formatHistory(ctx, messages)
 }
 
 func (c *CompressionTransformer) formatHistory(ctx context.Context, messages []corechat.Message) (string, error) {

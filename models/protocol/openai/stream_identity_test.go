@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -60,7 +61,7 @@ func TestDeprecatedFunctionCallCannotEscapeTypedToolAdmission(t *testing.T) {
 		if err = req.Options.Extensions.Set(openai.RequestExtensionKey, map[string]any{name: "auto"}); err != nil {
 			t.Fatal(err)
 		}
-		if res, callErr := model.Call(t.Context(), req); res != nil || callErr == nil || transport.calls != 0 || chat.ClassifyFailure(callErr) != chat.CallFailureNotExecuted {
+		if res, callErr := model.Call(t.Context(), req); res != nil || callErr == nil || transport.calls != 0 || invocation.ClassifyFailure(callErr) != invocation.FailureNotExecuted {
 			t.Fatalf("%s: %v, %v, %d attempts", name, res, callErr, transport.calls)
 		}
 	}

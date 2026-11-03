@@ -38,7 +38,7 @@ func TestModelCallKeepsCredentialsAndBodyAtAPIOrigin(t *testing.T) {
 	const baseURL = "https://api.example/v1"
 	transport := new(redirectTransport)
 	host := &http.Client{Transport: transport}
-	model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "provider-secret", BaseURL: baseURL, HTTPClient: host, DefaultOptions: image.Options{Model: luma.ModelUni1}})
+	model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "provider-secret", BaseURL: baseURL, OutputOrigins: []string{"https://asset.example"}, HTTPClient: host, DefaultOptions: image.Options{Model: luma.ModelUni1}})
 	if err != nil {
 		t.Fatal(err)
 	}

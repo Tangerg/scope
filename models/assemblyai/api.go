@@ -43,7 +43,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: HTTP client: %w", err)
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -162,7 +162,7 @@ func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error)
 		return nil, fmt.Errorf("assemblyai: upload failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: upload http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("assemblyai: upload %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.UploadURL == "" {
 		return nil, errors.New("assemblyai: upload response omitted upload_url")
@@ -186,7 +186,7 @@ func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*tr
 		return nil, fmt.Errorf("assemblyai: create transcript failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.ID == "" {
 		return nil, fmt.Errorf("%w: assemblyai: created transcript requires id", transcription.ErrInvalidResponse)
@@ -210,7 +210,7 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 		return nil, fmt.Errorf("assemblyai: get transcript failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if out.ID != id {
 		return nil, fmt.Errorf("%w: assemblyai: polled transcript id %q differs from submitted id %q", transcription.ErrInvalidResponse, out.ID, id)

@@ -61,7 +61,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("revai: HTTP client: %w", err)
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -142,7 +142,7 @@ func (a *api) submitURL(ctx context.Context, opts jobOptions) (*job, error) {
 		return nil, fmt.Errorf("revai: submit failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("revai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if err := out.validateIdentity(""); err != nil {
 		return nil, err
@@ -170,7 +170,7 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string, opts jo
 		return nil, fmt.Errorf("revai: upload failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("revai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if err := out.validateIdentity(""); err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (a *api) getJob(ctx context.Context, id string) (*job, error) {
 		return nil, fmt.Errorf("revai: get job failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("revai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	if err := out.validateIdentity(id); err != nil {
 		return nil, err
@@ -203,7 +203,7 @@ func (a *api) getTranscriptText(ctx context.Context, id string) (string, error) 
 		return "", fmt.Errorf("revai: transcript fetch failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return "", fmt.Errorf("revai: http %d: %s", resp.StatusCode(), resp.String())
+		return "", fmt.Errorf("revai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return resp.String(), nil
 }

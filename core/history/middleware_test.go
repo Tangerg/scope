@@ -11,17 +11,23 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/core/history/inmemory"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-func TestNewRejectsNilStore(t *testing.T) {
-	if _, err := history.NewMiddleware(history.MiddlewareConfig{}); !errors.Is(err, history.ErrNilStore) {
+func TestNewRejectsNilHistoryCapabilities(t *testing.T) {
+	if _, err := history.NewMiddleware(history.MiddlewareConfig{}); !errors.Is(err, history.ErrNilReader) {
 		t.Fatalf("New(nil) error = %v", err)
 	}
 	var typedNil *recordingStore
-	if _, err := history.NewMiddleware(history.MiddlewareConfig{Store: typedNil, ConversationID: "conversation-1"}); !errors.Is(err, history.ErrNilStore) {
+	for _, writer := range []history.Writer{nil, typedNil} {
+		if _, err := history.NewMiddleware(history.MiddlewareConfig{Reader: new(inmemory.Store), Writer: writer, ConversationID: "conversation-1"}); !errors.Is(err, history.ErrNilWriter) {
+			t.Fatalf("nil writer error = %v", err)
+		}
+	}
+	if _, err := history.NewMiddleware(history.MiddlewareConfig{Reader: typedNil, Writer: typedNil, ConversationID: "conversation-1"}); !errors.Is(err, history.ErrNilReader) {
 		t.Fatalf("New(typed nil) error = %v", err)
 	}
 }
@@ -411,15 +417,15 @@ func (r *recordingStore) Read(context.Context, history.ConversationID) ([]chat.M
 	return cloneMessages(r.read), nil
 }
 
-func (r *recordingStore) Write(_ context.Context, _ history.ConversationID, messages ...chat.Message) (history.WriteOutcome, error) {
+func (r *recordingStore) Append(_ context.Context, batch history.Batch) (history.Receipt, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.writeCalls++
 	if r.writeErr != nil {
-		return history.WriteOutcome{}, r.writeErr
+		return history.Receipt{}, r.writeErr
 	}
-	r.writes = append(r.writes, cloneMessages(messages))
-	return history.WriteOutcome{Accepted: len(messages)}, nil
+	r.writes = append(r.writes, batch.Messages())
+	return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
 }
 
 func (r *recordingStore) counts() (int, int) {
@@ -465,7 +471,7 @@ func assertMessages(t *testing.T, messages []chat.Message, want ...messageKey) {
 
 func mustMiddleware(t *testing.T, store history.ReadWriter) history.Middleware {
 	t.Helper()
-	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: "conversation-1"})
+	middleware, err := history.NewMiddleware(history.MiddlewareConfig{Reader: store, Writer: store, ConversationID: "conversation-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,11 +502,11 @@ func chunk(text string, finish chat.FinishReason) *chat.ResponseDelta {
 func TestMiddlewareBindsOneValidatedPartition(t *testing.T) {
 	store := new(inmemory.Store)
 	for _, id := range []history.ConversationID{"", " padded"} {
-		if _, err := history.NewMiddleware(history.MiddlewareConfig{Store: store, ConversationID: id}); !errors.Is(err, history.ErrInvalidConversationID) {
+		if _, err := history.NewMiddleware(history.MiddlewareConfig{Reader: store, Writer: store, ConversationID: id}); !errors.Is(err, history.ErrInvalidConversationID) {
 			t.Fatalf("invalid partition %q: %v", id, err)
 		}
 	}
-	config := history.MiddlewareConfig{Store: store, ConversationID: "first"}
+	config := history.MiddlewareConfig{Reader: store, Writer: store, ConversationID: "first"}
 	first, err := history.NewMiddleware(config)
 	if err != nil {
 		t.Fatal(err)
@@ -553,7 +559,7 @@ func TestMiddlewareRejectsCompletedOrMultipleTurnsBeforeIO(t *testing.T) {
 			t.Fatal("model called with an invalid turn")
 			return nil, nil
 		}))
-		if got, err := call.Call(t.Context(), request); got != nil || !errors.Is(err, chat.ErrInvalidRequest) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted {
+		if got, err := call.Call(t.Context(), request); got != nil || !errors.Is(err, chat.ErrInvalidRequest) || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 			t.Fatalf("invalid turn: response=%v error=%v", got, err)
 		}
 		stream := middleware.Stream(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
@@ -563,7 +569,7 @@ func TestMiddlewareRejectsCompletedOrMultipleTurnsBeforeIO(t *testing.T) {
 		failures := 0
 		for delta, err := range stream.Stream(t.Context(), request) {
 			failures++
-			if delta != nil || !errors.Is(err, chat.ErrInvalidRequest) || chat.ClassifyFailure(err) != chat.CallFailureNotExecuted {
+			if delta != nil || !errors.Is(err, chat.ErrInvalidRequest) || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 				t.Fatalf("invalid streaming turn: delta=%v error=%v", delta, err)
 			}
 		}

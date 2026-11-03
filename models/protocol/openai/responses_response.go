@@ -8,6 +8,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 func responsesTerminalDelta(response *responses.Response, extensionKey string, identity streamIdentity) (*corechat.ResponseDelta, error) {
@@ -36,9 +37,9 @@ func responsesTerminalDelta(response *responses.Response, extensionKey string, i
 func responsesFinishReason(response *responses.Response) (corechat.FinishReason, error) {
 	switch response.Status {
 	case responses.ResponseStatusFailed:
-		return "", &corechat.CallFailure{Kind: corechat.CallFailureFailed, Cause: fmt.Errorf("openai responses: failed: %s: %s", response.Error.Code, response.Error.Message)}
+		return "", &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("openai responses: failed: %s: %s", response.Error.Code, response.Error.Message)}
 	case responses.ResponseStatusCancelled:
-		return "", &corechat.CallFailure{Kind: corechat.CallFailureFailed, Cause: errors.New("openai responses: response was canceled")}
+		return "", &invocation.Failure{Kind: invocation.FailureFailed, Cause: errors.New("openai responses: response was canceled")}
 	case responses.ResponseStatusIncomplete:
 		switch response.IncompleteDetails.Reason {
 		case responsesIncompleteMaxTokens:

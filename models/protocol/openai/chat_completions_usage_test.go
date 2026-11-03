@@ -69,7 +69,7 @@ func TestChatUsageRequestPolicy(t *testing.T) {
 			var err error
 			if test.compatible {
 				key = "custom/openai_request"
-				model, err = scopeopenai.NewChatCompletions(t.Context(), config, scopeopenai.Dialect{Provider: "custom", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
+				model, err = scopeopenai.NewChatCompletions(t.Context(), config, scopeopenai.DialectConfig{Provider: "custom", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 			} else {
 				model, err = scopeopenai.NewChatCompletions(t.Context(), config, testChatDialect())
 			}

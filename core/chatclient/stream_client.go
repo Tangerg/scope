@@ -8,6 +8,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 var ErrNilStreamer = errors.New("chatclient: nil streamer")
@@ -42,11 +43,11 @@ func NewStreamClient(streamer chat.Streamer, config StreamConfig) (StreamClient,
 // iteration; stopping iteration synchronously releases the provider resources.
 func (s StreamClient) Stream(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 	if lo.IsNil(s.streamer) {
-		return errorSequence(ErrNilStreamer)
+		return errorSequence(&invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrNilStreamer})
 	}
 	prepared, err := prepareRequest(request, nil)
 	if err != nil {
-		return errorSequence(err)
+		return errorSequence(&invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 	}
 	return func(yield func(*chat.ResponseDelta, error) bool) {
 		sequence := s.streamer.Stream(ctx, prepared)

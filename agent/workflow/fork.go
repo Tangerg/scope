@@ -17,15 +17,8 @@ import (
 type ForkReducer[I, B, O any] func(ctx context.Context, input I, branchOutputs []B) (O, error)
 
 type ForkBranch struct {
-	// ID is unique within this Fork Stage and stable across restoration.
-	ID string
-
-	Program run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent when the branch starts.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	ID    string
+	Child run.ChildBinding
 }
 
 type ForkConfig[I, B, O any] struct {
@@ -49,14 +42,14 @@ func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, 
 	branches := make([]fanoutMember, 0, len(declared))
 	seen := make(map[string]struct{}, len(declared))
 	for index, branch := range declared {
-		binding, valid := newChildBinding(branch.Program, branch.Budget, branch.Capabilities)
-		if !run.ValidQualifiedName(branch.ID) || !valid {
+		binding := branch.Child
+		if !run.ValidQualifiedName(branch.ID) || !binding.Valid() {
 			return forkSource{}, fmt.Errorf("%w: Fork %q Branches[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[branch.ID]; duplicate {
 			return forkSource{}, fmt.Errorf("%w: Fork %q has duplicate branch %q", ErrInvalidStage, stageID, branch.ID)
 		}
-		descriptor := branch.Program.Descriptor()
+		descriptor := binding.Program.Descriptor()
 		if !inputSchema.Equal(descriptor.InputSchema()) ||
 			!branchSchema.Equal(descriptor.OutputSchema()) {
 			return forkSource{}, fmt.Errorf("%w: Fork %q branch %q schema mismatch", ErrInvalidStage, stageID, branch.ID)
@@ -103,8 +96,8 @@ func (f forkSource) member(index uint32) (fanoutMember, bool) {
 	return f.branches[index], true
 }
 
-func (f forkSource) bindings() []childBinding {
-	bindings := make([]childBinding, len(f.branches))
+func (f forkSource) bindings() []run.ChildBinding {
+	bindings := make([]run.ChildBinding, len(f.branches))
 	for index, branch := range f.branches {
 		bindings[index] = branch.binding
 	}
@@ -114,7 +107,7 @@ func (f forkSource) bindings() []childBinding {
 func (f forkSource) topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32) {
 	bindings := make([]BindingTopology, len(f.branches))
 	for index, branch := range f.branches {
-		bindings[index] = branch.binding.topology(BindingRoleBranch, branch.id, inputSchema, outputSchema)
+		bindings[index] = bindingTopology(branch.binding, BindingRoleBranch, branch.id, inputSchema, outputSchema)
 	}
 	return bindings, 0
 }

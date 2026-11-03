@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,19 +11,18 @@ import (
 // Authorization carries only the frozen model-visible contract and validated
 // arguments, so policy code cannot bypass Contract validation or execute the invocation.
 type Authorization struct {
-	definition Definition
-	arguments  []byte
+	invocation Invocation
 }
 
 // Definition is detached because policy implementations may retain or annotate
 // what they inspect without changing the executable contract.
 func (a Authorization) Definition() Definition {
-	return a.definition.Clone()
+	return a.invocation.Definition()
 }
 
 // Arguments is detached for the same reason as Definition.
 func (a Authorization) Arguments() []byte {
-	return bytes.Clone(a.arguments)
+	return a.invocation.Arguments()
 }
 
 // Authorizer is deliberately smaller than an application permission system:
@@ -45,7 +43,6 @@ func (a AuthorizerFunc) Authorize(ctx context.Context, authorization Authorizati
 }
 
 type GuardConfig struct {
-	Tool       Tool
 	Authorizer Authorizer
 }
 
@@ -53,63 +50,38 @@ type GuardConfig struct {
 // the same policy work for direct calls, registries, and managed runtimes.
 // Refusal produces a generic FailureKindRejected result. A Tool that owns more
 // specific public feedback uses NewFailure at its own invocation boundary.
-type Guard struct {
-	tool       Tool
-	definition Definition
-	authorizer Authorizer
-}
+type Guard struct{ authorizer Authorizer }
 
-// NewGuard snapshots the tool definition so later changes cannot widen an approved
-// contract. It validates the protocol shape; Bind compiles the schema and
-// Contract.Prepare validates invocations.
 func NewGuard(config GuardConfig) (Guard, error) {
 	if lo.IsNil(config.Authorizer) {
 		return Guard{}, fmt.Errorf("%w: authorizer is nil", ErrInvalidTool)
 	}
-	if lo.IsNil(config.Tool) {
-		return Guard{}, fmt.Errorf("%w: authorization guard tool is nil", ErrInvalidTool)
-	}
-	definition := config.Tool.Definition()
-	if err := definition.Validate(); err != nil {
-		return Guard{}, fmt.Errorf("%w: authorization guard definition: %w", ErrInvalidTool, err)
-	}
-	return Guard{
-		tool: config.Tool, definition: definition.Clone(), authorizer: config.Authorizer,
-	}, nil
+	return Guard{authorizer: config.Authorizer}, nil
 }
 
-func (g Guard) Definition() Definition {
-	return g.definition.Clone()
-}
-
-func (g Guard) Call(ctx context.Context, invocation Invocation) (Result, error) {
-	if lo.IsNil(g.tool) || lo.IsNil(g.authorizer) {
-		return Result{}, fmt.Errorf("%w: authorization guard is zero", ErrInvalidTool)
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
-	allowed, err := g.authorizer.Authorize(ctx, Authorization{definition: g.definition, arguments: invocation.arguments})
-	if err != nil {
-		return Result{}, errors.Join(ctx.Err(), &AuthorizationError{name: g.definition.Name, cause: err})
-	}
-	if err := ctx.Err(); err != nil {
-		return Result{}, err
-	}
-	if !allowed {
-		failure, err := NewFailure(FailureConfig{
-			Kind:   FailureKindRejected,
-			Output: NewTextOutput(fmt.Sprintf("error: tool %q is not authorized", g.definition.Name)),
-		})
-		if err != nil {
+func (g Guard) Call(next Caller) Caller {
+	return CallerFunc(func(ctx context.Context, invocation Invocation) (Result, error) {
+		if lo.IsNil(g.authorizer) || lo.IsNil(next) {
+			return Result{}, fmt.Errorf("%w: authorization middleware is unconfigured", ErrInvalidTool)
+		}
+		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
-		return Result{}, failure
-	}
-	return g.tool.Call(ctx, invocation)
+		name := invocation.Definition().Name
+		allowed, err := g.authorizer.Authorize(ctx, Authorization{invocation: invocation})
+		if err != nil {
+			return Result{}, errors.Join(ctx.Err(), &AuthorizationError{name: name, cause: err})
+		}
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
+		if !allowed {
+			failure, err := NewFailure(FailureConfig{Kind: FailureKindRejected, Output: NewTextOutput(fmt.Sprintf("error: tool %q is not authorized", name))})
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{}, failure
+		}
+		return next.Call(ctx, invocation)
+	})
 }
-
-func (g Guard) Unwrap() Tool { return g.tool }
-
-var _ Tool = Guard{}
-var _ WrappingTool = Guard{}

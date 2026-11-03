@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/google"
@@ -117,7 +118,7 @@ func TestNativeChatCandidateCount(t *testing.T) {
 					if err != nil || calls.Load() != 1 {
 						t.Fatalf("single candidate: error=%v provider calls=%d", err, calls.Load())
 					}
-				} else if chat.ClassifyFailure(err) != chat.CallFailureNotExecuted || calls.Load() != 0 {
+				} else if invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
 					t.Fatalf("preflight rejection: error=%v provider calls=%d", err, calls.Load())
 				}
 			})

@@ -41,40 +41,81 @@ func (s SettlementStatus) String() string {
 // Settlement is the immutable final fact for one Effect. The Effect it answers
 // owns the EffectID, so a Settlement is addressed by where it is returned or
 // recorded rather than by a copy of that identity. Status owns whether the
-// Effect definitely succeeded, definitely failed, or remains unknown; a
-// Dispatcher payload carries only the result or diagnostic, never a second
-// success flag. The Runtime delivers a definite Dispatcher settlement to the
-// next Step as a Completion message.
+// Effect definitely succeeded, definitely failed, or remains unknown.
+// Failure owns the diagnostic of a definite failure. Payload carries optional
+// domain evidence independently, including work completed before a rejection.
+// The Runtime delivers a definite settlement as a Completion message.
 type Settlement struct {
 	status  SettlementStatus
 	payload Payload
+	failure Failure
 }
 
 func NewSettlement(status SettlementStatus, payload json.RawMessage) (Settlement, error) {
+	if status == SettlementStatusFailed {
+		return Settlement{}, fmt.Errorf("%w: failed settlements require a Failure", ErrInvalidSettlement)
+	}
+	return admitSettlement(status, payload, nil)
+}
+
+func NewFailedSettlement(failure Failure, details Payload) (Settlement, error) {
+	if !failure.Valid() {
+		return Settlement{}, ErrInvalidFailure
+	}
+	return Settlement{status: SettlementStatusFailed, payload: details, failure: failure}, nil
+}
+
+func admitSettlement(status SettlementStatus, payload json.RawMessage, failure *Failure) (Settlement, error) {
 	if !status.Valid() {
 		return Settlement{}, fmt.Errorf("%w: status is required", ErrInvalidSettlement)
 	}
-	value, err := ParsePayload(payload)
-	if err != nil {
-		return Settlement{}, fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
+	var value Payload
+	if status != SettlementStatusFailed || len(payload) != 0 {
+		var err error
+		value, err = ParsePayload(payload)
+		if err != nil {
+			return Settlement{}, fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
+		}
 	}
-	return Settlement{status: status, payload: value}, nil
+	settlement := Settlement{status: status, payload: value}
+	if failure != nil {
+		settlement.failure = *failure
+	}
+	if !settlement.Valid() {
+		return Settlement{}, ErrInvalidSettlement
+	}
+	return settlement, nil
 }
 
 func (s Settlement) Status() SettlementStatus { return s.status }
 
-// Payload is the owner-defined result; its Decode reads the owner's type.
+// Payload is domain evidence. A failed settlement may omit it; its diagnostic
+// remains available through Failure without interpreting the domain's schema.
 func (s Settlement) Payload() Payload { return s.payload }
 
+func (s Settlement) Failure() (Failure, bool) {
+	if s.status != SettlementStatusFailed {
+		return Failure{}, false
+	}
+	return s.failure, s.failure.Valid()
+}
+
 func (s Settlement) Valid() bool {
-	return s.status.Valid() && s.payload.Valid()
+	if s.status == SettlementStatusFailed {
+		return s.failure.Valid()
+	}
+	return s.status.Valid() && s.payload.Valid() && !s.failure.Valid()
 }
 
 func (s Settlement) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSettlement
 	}
-	return jsonv2.Marshal(settlementWire{Status: s.status, Payload: s.payload.JSON()})
+	wire := settlementWire{Status: s.status, Payload: s.payload.JSON()}
+	if s.status == SettlementStatusFailed {
+		wire.Failure = new(s.failure)
+	}
+	return jsonv2.Marshal(wire)
 }
 
 func (s *Settlement) UnmarshalJSON(data []byte) error {
@@ -85,7 +126,7 @@ func (s *Settlement) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidSettlement, err)
 	}
-	value, err := NewSettlement(wire.Status, wire.Payload)
+	value, err := admitSettlement(wire.Status, wire.Payload, wire.Failure)
 	if err != nil {
 		return err
 	}
@@ -97,7 +138,8 @@ func (Settlement) JSONSchemaModel() any { return settlementWire{} }
 
 type settlementWire struct {
 	Status  SettlementStatus `json:"status"`
-	Payload json.RawMessage  `json:"payload"`
+	Payload json.RawMessage  `json:"payload,omitzero"`
+	Failure *Failure         `json:"failure,omitzero"`
 }
 
 // Framework Effects settle with payloads the kernel defines: a Spawn names the
@@ -120,10 +162,6 @@ func appliedSettlement() (Settlement, error) {
 	return frameworkSettlement(SettlementStatusSucceeded, struct{}{})
 }
 
-func rejectedSettlement(failure Failure) (Settlement, error) {
-	return frameworkSettlement(SettlementStatusFailed, failure)
-}
-
 // SpawnResult reads the outcome of a Spawn: the started child, or the Failure
 // that rejected the start. Exactly one of them is valid.
 func (s Settlement) SpawnResult() (ProcessID, Failure, error) {
@@ -135,8 +173,8 @@ func (s Settlement) SpawnResult() (ProcessID, Failure, error) {
 		}
 		return child, Failure{}, nil
 	case SettlementStatusFailed:
-		failure, err := s.payload.Decode[Failure]()
-		if err != nil || !failure.Valid() {
+		failure, valid := s.Failure()
+		if !valid {
 			return ProcessID{}, Failure{}, fmt.Errorf("%w: spawn rejection carries no failure", ErrInvalidSettlement)
 		}
 		return ProcessID{}, failure, nil

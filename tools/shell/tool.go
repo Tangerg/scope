@@ -106,4 +106,4 @@ func (t *Tool) run(ctx context.Context, _ toolcontract.IdempotencyKey, req Reque
 	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
 }
 
-func (t *Tool) Unwrap() toolcontract.Tool { return t.typed }
+func (t *Tool) InputValidator() func([]byte) error { return t.typed.InputValidator() }

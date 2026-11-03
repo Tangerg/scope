@@ -229,15 +229,13 @@ func TestFuncResultEncodingAndErrorIdentity(t *testing.T) {
 		}
 	})
 
-	t.Run("encoding error is wrapped", func(t *testing.T) {
-		function, err := tool.NewFunc(tool.FuncConfig{Name: "channel"}, func(context.Context, tool.IdempotencyKey, struct{}) (chan int, error) {
-			return make(chan int), nil
+	t.Run("unrepresentable output is rejected before execution", func(t *testing.T) {
+		_, err := tool.NewFunc(tool.FuncConfig{Name: "channel"}, func(context.Context, tool.IdempotencyKey, struct{}) (chan int, error) {
+			t.Fatal("unrepresentable output type executed")
+			return nil, nil
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := call(t, t.Context(), function, `{}`); err == nil || !strings.Contains(err.Error(), "encode function result") {
-			t.Fatalf("Call error = %v", err)
+		if !errors.Is(err, tool.ErrInvalidTool) {
+			t.Fatalf("unsupported output admitted: %v", err)
 		}
 	})
 }
@@ -360,14 +358,14 @@ func TestFuncAdmitsCustomDecoderConstraintsBeforeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := tool.NewGuard(tool.GuardConfig{Tool: function, Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
+	guard, err := tool.NewGuard(tool.GuardConfig{Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) {
 		t.Fatal("admission invoked authorization")
 		return true, nil
 	})})
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := tool.Bind(guard)
+	binding, err := tool.Bind(function, guard.Call)
 	if err != nil {
 		t.Fatal(err)
 	}

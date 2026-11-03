@@ -37,7 +37,7 @@
 // Tool recovery accepts the complete tool.Result, including an input request
 // whose external receipt was lost before its question reached the Log.
 // An interrupted call is redispatched only when its Tool declares
-// [IdempotentTool]; every other interrupted call settles Unknown.
+// [tool.Definition.Effect]; every other interrupted call settles Unknown.
 // Runtime failures are recorded separately from opaque dispatcher outcomes.
 //
 // [NewSteerSignal] accepts unaddressed steering at a safe conversation boundary.

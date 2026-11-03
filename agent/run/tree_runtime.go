@@ -54,11 +54,17 @@ func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *tr
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }
 func (t *treeRuntime) failureError() error {
 	t.mu.RLock()
-	defer t.mu.RUnlock()
 	cause := t.failure
+	t.mu.RUnlock()
 	if cause == nil {
 		cause = ErrClosed
 	}
+	return t.interrupted(cause)
+}
+
+func (t *treeRuntime) interrupted(cause error) error {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	var ids []EffectID
 	for _, p := range t.state.processes {
 		for id := range p.pending {
@@ -236,6 +242,10 @@ func (t *treeRuntime) awaitEvent(events *treeEvents) {
 }
 
 func (t *treeRuntime) stopRequestedWork(events *treeEvents) {
+	if events.host != nil && t.host.Err() != nil {
+		events.host = nil
+		t.failOn(t.contextCanceled())
+	}
 	t.stopWork()
 	events.stop = nil
 }
@@ -297,10 +307,10 @@ func (t *treeRuntime) advance(id ProcessID) error {
 	if !p.ready() || t.steps[id] != nil {
 		return nil
 	}
-	if p.step == math.MaxUint64 {
+	if p.usage.CommittedSteps == math.MaxUint64 {
 		return t.reject(p, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeCounterExhausted, ErrCounterExhausted))
 	}
-	turn := Turn{Process: id, Step: p.step + 1, Messages: slices.Clone([]Message(p.inbox))}
+	turn := Turn{Process: id, Step: p.usage.CommittedSteps + 1, Messages: slices.Clone([]Message(p.inbox))}
 	ctx, cancel := context.WithCancel(t.ctx)
 	t.steps[id] = &stepJob{turn: turn, cancel: cancel}
 	execution := p.execution
@@ -436,7 +446,7 @@ func (t *treeRuntime) finish(p *processState) error {
 		if child.exited != nil {
 			records = append(records, Reaped{Process: id})
 		} else if !child.terminal.Valid() {
-			records = append(records, ControlRequested{Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: canonicalTime(time.Now())})
+			records = append(records, ControlRequested{Origin: ControlOriginParent, Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: canonicalTime(time.Now())})
 		}
 	}
 	if len(records) > 0 {
@@ -590,7 +600,7 @@ func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error
 	var outcome Settlement
 	if err != nil {
 		records = nil
-		outcome, err = rejectedSettlement(newRuntimeFailure(failureKindForError(err, FailureKindContract), failureCodeRuntimeChildRequestInvalid, err))
+		outcome, err = NewFailedSettlement(newRuntimeFailure(failureKindForError(err, FailureKindContract), failureCodeRuntimeChildRequestInvalid, err), Payload{})
 	} else {
 		outcome, err = appliedSettlement()
 	}
@@ -620,7 +630,7 @@ func (t *treeRuntime) childControl(parent *processState, effect Effect) ([]Recor
 		if err != nil || child.exited != nil {
 			return nil, err
 		}
-		return []Record{ControlRequested{Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: canonicalTime(time.Now())}}, nil
+		return []Record{ControlRequested{Origin: ControlOriginParent, Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: canonicalTime(time.Now())}}, nil
 	default:
 		return nil, ErrInvalidEffect
 	}
@@ -728,7 +738,7 @@ func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, fail
 		records = append(records, child.started)
 		outcome, err = spawnedSettlement(child.started.Process)
 	} else {
-		outcome, err = rejectedSettlement(failure)
+		outcome, err = NewFailedSettlement(failure, Payload{})
 	}
 	if err != nil {
 		return err
@@ -869,7 +879,7 @@ func (t *treeRuntime) contextCanceled() error {
 	if root := t.state.processes[t.state.root]; root == nil || root.exited != nil {
 		return nil
 	}
-	err := t.append(t.ctx, []Record{ControlRequested{Process: t.state.root, Kind: kind, Reason: reason, At: canonicalTime(time.Now())}})
+	err := t.append(t.ctx, []Record{ControlRequested{Origin: ControlOriginHost, Process: t.state.root, Kind: kind, Reason: reason, At: canonicalTime(time.Now())}})
 	t.cancelJobs(t.state.root)
 	return err
 }

@@ -11,10 +11,11 @@ import (
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 const (
-	protocolProvider         = "anthropic"
+	ProviderID               = "anthropic"
 	protocolDefaultMaxTokens = 4096
 )
 
@@ -53,7 +54,7 @@ type Messages struct {
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*Messages, error) {
-	if dialect.Provider != protocolProvider && config.BaseURL == "" {
+	if dialect.Provider != ProviderID && config.BaseURL == "" {
 		return nil, errors.New("anthropic protocol: a compatible binding requires an explicit endpoint")
 	}
 	if err := config.Validate(); err != nil {
@@ -63,11 +64,12 @@ func NewMessages(ctx context.Context, config MessagesConfig, dialect Dialect) (*
 		return nil, errors.New("anthropic: dialect provider is required, must not contain '/', and must not have surrounding whitespace")
 	}
 	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-		Headers:    config.Headers,
-		Provider:   dialect.Provider,
+		APIKey:       config.APIKey,
+		BaseURL:      config.BaseURL,
+		HTTPClient:   config.HTTPClient,
+		Headers:      config.Headers,
+		Revision:     dialect.Revision,
+		APIKeyScheme: dialect.APIKeyScheme,
 	})
 	if err != nil {
 		return nil, err
@@ -112,7 +114,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
 		params, err := m.buildProtocolRequest(req)
 		if err != nil {
-			yield(nil, &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err})
+			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
 		stream := m.api.chatCompletionStream(ctx, params)
@@ -166,7 +168,7 @@ func (m *Messages) buildProtocolRequest(req *corechat.Request) (*anthropicsdk.Me
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("anthropic: request: %w", err)
 	}
-	params, err := mapProtocolRequest(m.defaults, req, m.dialect, m.api.compatibleRevision)
+	params, err := mapProtocolRequest(m.defaults, req, m.dialect)
 	if err != nil {
 		return nil, err
 	}

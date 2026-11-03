@@ -30,6 +30,7 @@ type ScriptedCall struct {
 	Deltas            []json.RawMessage
 	SettlementStatus  run.SettlementStatus
 	SettlementPayload json.RawMessage
+	Failure           run.Failure
 	// Error makes Dispatch return an indeterminate external error.
 	Error error
 }
@@ -43,8 +44,7 @@ type ScriptedDispatcherConfig struct {
 type frozenCall struct {
 	expectedEffectJSON []byte
 	deltas             []json.RawMessage
-	settlementStatus   run.SettlementStatus
-	settlementPayload  json.RawMessage
+	settlement         run.Settlement
 	err                error
 }
 
@@ -79,7 +79,7 @@ func NewScriptedDispatcher(config ScriptedDispatcherConfig) (*ScriptedDispatcher
 }
 
 func freezeCall(source ScriptedCall) (frozenCall, error) {
-	call := frozenCall{settlementStatus: source.SettlementStatus, err: source.Error}
+	call := frozenCall{err: source.Error}
 	if source.ExpectedEffect != nil {
 		if !source.ExpectedEffect.Valid() {
 			return frozenCall{}, run.ErrInvalidEffect
@@ -98,18 +98,29 @@ func freezeCall(source ScriptedCall) (frozenCall, error) {
 		call.deltas[index] = bytes.Clone(delta)
 	}
 	if source.Error != nil {
-		if source.SettlementStatus != run.SettlementStatusInvalid || len(source.SettlementPayload) != 0 {
+		if source.SettlementStatus != run.SettlementStatusInvalid || len(source.SettlementPayload) != 0 || source.Failure.Valid() {
 			return frozenCall{}, errors.New("error cannot be combined with a settlement")
 		}
 		return call, nil
 	}
-	if !source.SettlementStatus.Valid() {
-		return frozenCall{}, errors.New("settlement status is required")
+	var err error
+	if source.SettlementStatus == run.SettlementStatusFailed {
+		var details run.Payload
+		if len(source.SettlementPayload) != 0 {
+			details, err = run.ParsePayload(source.SettlementPayload)
+			if err != nil {
+				return frozenCall{}, err
+			}
+		}
+		call.settlement, err = run.NewFailedSettlement(source.Failure, details)
+	} else if source.Failure.Valid() {
+		return frozenCall{}, errors.New("only a failed settlement carries a Failure")
+	} else {
+		call.settlement, err = run.NewSettlement(source.SettlementStatus, source.SettlementPayload)
 	}
-	if !jsontext.Value(source.SettlementPayload).IsValid() {
-		return frozenCall{}, errors.New("settlement payload is not valid JSON")
+	if err != nil {
+		return frozenCall{}, err
 	}
-	call.settlementPayload = bytes.Clone(source.SettlementPayload)
 	return call, nil
 }
 
@@ -161,7 +172,7 @@ func (f frozenCall) dispatch(
 	if f.err != nil {
 		return run.Settlement{}, f.err
 	}
-	return run.NewSettlement(f.settlementStatus, f.settlementPayload)
+	return f.settlement, nil
 }
 
 func (f frozenCall) matches(effect run.Effect) (bool, error) {

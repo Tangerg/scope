@@ -19,10 +19,18 @@ import (
 
 	"google.golang.org/genai"
 
-	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
-const maxGenerationEventBytes = 256 << 20
+const (
+	maxGenerationEventBytes  = 256 << 20
+	headerAuthorization      = "Authorization"
+	headerProxyAuthorization = "Proxy-Authorization"
+	headerGoogleAPIKey       = "X-Goog-Api-Key"
+	headerAPIKey             = "Api-Key"
+	headerXAPIKey            = "X-Api-Key"
+	headerCookie             = "Cookie"
+)
 
 // GenerationClient owns GenerateContent's native request and response boundary.
 // The SDK supplies authentication, DTOs, and generation-config projection; its
@@ -117,7 +125,7 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 	dispatched := false
 	defer func() {
 		if err != nil && !dispatched {
-			err = &corechat.CallFailure{Kind: corechat.CallFailureNotExecuted, Cause: err}
+			err = &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 		}
 	}()
 	if config == nil {
@@ -188,18 +196,14 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 		cancel()
 		return nil, nil, err
 	}
-	httpRequest.Header = g.config.HTTPOptions.Headers.Clone()
-	if httpRequest.Header == nil {
-		httpRequest.Header = make(http.Header)
-	}
-	if config.HTTPOptions != nil {
-		for name, values := range config.HTTPOptions.Headers {
-			httpRequest.Header[name] = append([]string(nil), values...)
-		}
+	httpRequest.Header, err = g.requestHeaders(config.HTTPOptions)
+	if err != nil {
+		cancel()
+		return nil, nil, err
 	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 	if g.config.APIKey != "" {
-		httpRequest.Header.Set("x-goog-api-key", g.config.APIKey)
+		httpRequest.Header.Set(headerGoogleAPIKey, g.config.APIKey)
 	}
 	dispatched = true
 	response, err := g.config.HTTPClient.Do(httpRequest)
@@ -219,6 +223,30 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 		return nil, nil, &responseError{status: response.StatusCode, err: envelope.Error}
 	}
 	return response, cancel, nil
+}
+
+func (g *GenerationClient) requestHeaders(options *genai.HTTPOptions) (http.Header, error) {
+	headers := make(http.Header, len(g.config.HTTPOptions.Headers))
+	for name, values := range g.config.HTTPOptions.Headers {
+		headers[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
+	}
+	if options == nil {
+		return headers, nil
+	}
+	seen := make(map[string]struct{}, len(options.Headers))
+	for name, values := range options.Headers {
+		key := http.CanonicalHeaderKey(name)
+		switch key {
+		case headerAuthorization, headerProxyAuthorization, headerGoogleAPIKey, headerAPIKey, headerXAPIKey, headerCookie:
+			return nil, fmt.Errorf("google: header %q is owned by the credential binding", key)
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return nil, fmt.Errorf("google: duplicate request header %q", key)
+		}
+		seen[key] = struct{}{}
+		headers[key] = append([]string(nil), values...)
+	}
+	return headers, nil
 }
 
 func (g *GenerationClient) endpoint(model string, streaming bool) (string, error) {

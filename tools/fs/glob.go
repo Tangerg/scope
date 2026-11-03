@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 // GlobRequest narrows the executor's immutable authority to a relative subtree;
@@ -51,7 +52,7 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 	}
 	t := &GlobTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe,
 			Name: "glob",
 			Description: "List file paths matching a doublestar pattern. Use patterns such as **/*.go or src/**/*.ts. " +
 				"Use grep to search file contents.",
@@ -80,12 +81,12 @@ func (g *GlobTool) Call(ctx context.Context, invocation toolcontract.Invocation)
 func (g *GlobTool) glob(ctx context.Context, _ toolcontract.IdempotencyKey, req GlobRequest) (GlobResponse, error) {
 	res, err := g.executor.Glob(ctx, req)
 	if err != nil {
-		return GlobResponse{}, fmt.Errorf("fs.glob: %w", err)
+		return GlobResponse{}, toolresult.ReadFailure("fs.glob", err)
 	}
 	return res, nil
 }
 
-func (g *GlobTool) Unwrap() toolcontract.Tool { return g.typed }
+func (g *GlobTool) InputValidator() func([]byte) error { return g.typed.InputValidator() }
 
 func (GlobRequest) JSONSchemaConstraints() jsonschema.Constraints {
 	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{

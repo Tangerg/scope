@@ -35,7 +35,7 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*opena
 		return nil, err
 	}
 	return openai.NewEmbeddingModel(ctx, openai.EmbeddingModelConfig{
-		Provider:       "alibaba",
+		Provider:       providerID,
 		APIKey:         config.APIKey,
 		DefaultOptions: config.DefaultOptions,
 		BaseURL:        cmp.Or(config.BaseURL, BaseURLChina),

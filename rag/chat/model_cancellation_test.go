@@ -35,7 +35,15 @@ func TestModelBackedStagesHonorCanceledModelCalls(t *testing.T) {
 				var err error
 				switch name {
 				case "compression":
-					transform, err = ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: model})
+					var compressor *ragchat.CompressionTransformer
+					compressor, err = ragchat.NewCompressionTransformer(ragchat.CompressionTransformerConfig{Model: model})
+					if err == nil {
+						var result rag.Query
+						result, err = compressor.Transform(ctx, mustConversationQuery(t, query, nil))
+						if result.Text() != "" {
+							t.Fatalf("canceled compression returned %q", result.Text())
+						}
+					}
 				case "rewrite":
 					transform, err = ragchat.NewRewriteTransformer(ragchat.RewriteTransformerConfig{Model: model, TargetSearchSystem: "documents"})
 				case "translation":

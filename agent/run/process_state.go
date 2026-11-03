@@ -12,7 +12,6 @@ type processState struct {
 	done     chan struct{}
 	queued   bool
 	started  Started
-	step     uint64
 	inbox    Inbox
 	receipts map[SignalID]SignalReceipt
 	// children keeps every key this process has started, even after reaping, so
@@ -56,9 +55,9 @@ func (p *processState) status() Status {
 func (p *processState) acceptsControl(kind ControlKind) bool {
 	switch kind {
 	case ControlPause:
-		return p.exited == nil && !p.paused
+		return p.exited == nil && !p.terminal.Valid() && !p.paused
 	case ControlResume:
-		return p.exited == nil && p.paused
+		return p.exited == nil && !p.terminal.Valid() && p.paused
 	default:
 		return p.exited == nil && kind.Valid()
 	}
@@ -109,7 +108,7 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 }
 
 func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
-	if stepped.Step != p.step+1 || p.step == math.MaxUint64 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
+	if stepped.Step != p.usage.CommittedSteps+1 || p.usage.CommittedSteps == math.MaxUint64 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
 		return ErrInvalidLog
 	}
 	transition := stepped.Transition
@@ -121,8 +120,7 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	}
 	p.yielded = transition.kind == TransitionKindYield && int(stepped.Delivered) == len(p.inbox)
 	p.inbox = slices.Clone(p.inbox[transition.consumed:])
-	p.step = stepped.Step
-	p.usage.CommittedSteps++
+	p.usage.CommittedSteps = stepped.Step
 	p.waits = make(map[WaitKey]Wait, len(transition.waits))
 	for _, wait := range transition.waits {
 		if !p.answered(wait.Key) {
@@ -132,9 +130,9 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	p.stepEffects = transition.Effects()
 	switch transition.kind {
 	case TransitionKindComplete:
-		p.terminal = Termination{output: transition.output}
+		p.terminate(Termination{output: transition.output})
 	case TransitionKindFail:
-		p.terminal = Termination{failure: transition.failure}
+		p.terminate(Termination{failure: transition.failure})
 	}
 	return nil
 }
@@ -145,13 +143,19 @@ func (p *processState) failExecution(failure Failure) error {
 	if p.exited != nil || p.terminal.Valid() {
 		return ErrInvalidLog
 	}
-	p.terminal = Termination{failure: failure}
+	p.terminate(Termination{failure: failure})
 	p.execution = nil
 	return nil
 }
 
+func (p *processState) terminate(termination Termination) {
+	p.terminal = termination
+	clear(p.waits)
+	p.paused, p.yielded = false, false
+}
+
 func (p *processState) prepare(intent EffectIntent) error {
-	if intent.ID.Step != p.step || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].equal(intent.Effect) {
+	if intent.ID.Step != p.usage.CommittedSteps || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].equal(intent.Effect) {
 		return ErrInvalidLog
 	}
 	if _, ok := p.pending[intent.ID]; ok {
@@ -234,7 +238,7 @@ func (p *processState) checkpoint() (ProcessCheckpoint, error) {
 }
 
 func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
-	value := ProcessCheckpoint{Started: p.started, State: state, Step: p.step, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
+	value := ProcessCheckpoint{Started: p.started, State: state, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
 	if p.terminal.Valid() {
 		terminal := p.terminal
 		value.Terminal = &terminal
@@ -263,7 +267,7 @@ func (p *processState) admitTransition(transition Transition, limits TreeLimits,
 	if !transition.Valid() || transition.consumed > delivered || int(delivered) > len(p.inbox) {
 		return ErrInvalidTransition
 	}
-	if p.step == math.MaxUint64 || !resourceQuantitiesFit(math.MaxUint64, p.usage.PreparedEffects, uint64(len(transition.effects))) {
+	if p.usage.CommittedSteps == math.MaxUint64 || !resourceQuantitiesFit(math.MaxUint64, p.usage.PreparedEffects, uint64(len(transition.effects))) {
 		return ErrCounterExhausted
 	}
 	if !p.started.Budget.Steps.Allows(p.usage.CommittedSteps, p.allocated.Steps, 1) {

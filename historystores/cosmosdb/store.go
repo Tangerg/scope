@@ -3,27 +3,26 @@ package cosmosdb
 import (
 	"cmp"
 	"context"
-	"crypto/rand"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
-	"strconv"
-	"time"
+	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
 )
 
-type StoreConfig struct {
-	// Container must be partitioned on [PartitionKeyPath], which [NewStore]
-	// reads and refuses with [ErrIncompatibleContainer] rather than leaving
-	// as an obligation.
-	Container *azcosmos.ContainerClient
-}
+const PartitionKeyPath = "/conversation_id"
+const requiredConsistency = azcosmos.ConsistencyLevelStrong
+
+var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
+
+type StoreConfig struct{ Container *azcosmos.ContainerClient }
 
 func (s StoreConfig) Validate() error {
 	if s.Container == nil {
@@ -37,52 +36,27 @@ var (
 	_ history.Lister = (*Store)(nil)
 )
 
-// Store persists each conversation in one Cosmos DB partition through a
-// caller-owned container handle. A local monotonic sequence plus the document
-// ID gives deterministic read order without relying on lossy JSON numbers;
-// ordering across separate Store values remains unspecified.
-type Store struct {
-	container *azcosmos.ContainerClient
-	sequence  *history.Sequence
-}
+// The server's gate ETag owns admission. Neither process-local sequence numbers
+// nor a successful transport call can acknowledge a conditional transaction.
+type Store struct{ container *azcosmos.ContainerClient }
 
-// PartitionKeyPath is the partition-key path this store requires. Every
-// document carries its conversation id there, and every read and delete is
-// scoped to one partition by it.
-const PartitionKeyPath = "/conversation_id"
-
-// MaxMessagesPerWrite is Cosmos's documented ceiling on a transactional
-// batch: "There's a current limit of 100 operations per transactional batch."
-// One Write is one batch, so this is also the largest batch [Store.Write]
-// accepts. Splitting a larger one across batches would trade the atomicity
-// that makes the write reportable for a silent partial conversation, so the
-// choice to accept that is left to the caller, who can make it per Write.
-const MaxMessagesPerWrite = 100
-
-var ErrIncompatibleContainer = errors.New("cosmosdb: container is incompatible")
-
-// NewStore confirms the container is partitioned the way this store writes,
-// which is why it takes a context. The requirement used to be an obligation
-// stated in the config and checked nowhere; Cosmos rejects the first write
-// itself, but that is a failure far from the wiring that chose the container.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	sequence, err := history.NewSequence(time.Nanosecond)
-	if err != nil {
-		return nil, err
-	}
-
 	container, err := config.Container.Read(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("cosmosdb: read container %s: %w", config.Container.ID(), err)
+		return nil, fmt.Errorf("cosmosdb: read container: %w", err)
 	}
-	if err = validatePartitionKey(container.ContainerProperties); err != nil {
+	if err := validatePartitionKey(container.ContainerProperties); err != nil {
 		return nil, err
 	}
-
-	return &Store{container: config.Container, sequence: sequence}, nil
+	consistency := requiredConsistency
+	pager := config.Container.NewQueryItemsPager("SELECT VALUE c.id FROM c WHERE false", azcosmos.NewPartitionKey(), &azcosmos.QueryOptions{ConsistencyLevel: &consistency})
+	if _, err := pager.NextPage(ctx); err != nil {
+		return nil, fmt.Errorf("%w: strong consistency is required: %w", ErrIncompatibleContainer, err)
+	}
+	return &Store{container: config.Container}, nil
 }
 
 func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
@@ -93,250 +67,329 @@ func validatePartitionKey(properties *azcosmos.ContainerProperties) error {
 		return fmt.Errorf("%w: partition key kind must be Hash, got %q", ErrIncompatibleContainer, properties.PartitionKeyDefinition.Kind)
 	}
 	if paths := properties.PartitionKeyDefinition.Paths; len(paths) != 1 || paths[0] != PartitionKeyPath {
-		return fmt.Errorf("%w: container %s is partitioned on %v, but every document carries its conversation id at %s",
-			ErrIncompatibleContainer, properties.ID, paths, PartitionKeyPath)
+		return fmt.Errorf("%w: partition key must be %s, got %v", ErrIncompatibleContainer, PartitionKeyPath, paths)
 	}
 	return nil
 }
 
-type document struct {
-	ID             string `json:"id"`
-	ConversationID string `json:"conversation_id"`
-	Sequence       string `json:"seq"`
-	Message        string `json:"message"`
-	CreatedAt      string `json:"created_at"`
+func (s *Store) readConversation(ctx context.Context, id history.ConversationID) (conversationDocument, azcore.ETag, bool, error) {
+	response, err := s.container.ReadItem(ctx, azcosmos.NewPartitionKeyString(id.String()), string(conversationKind), strongItemOptions())
+	if responseStatus(err) == http.StatusNotFound {
+		return newConversationDocument(id), "", false, nil
+	}
+	if err != nil {
+		return conversationDocument{}, "", false, fmt.Errorf("cosmosdb: read conversation: %w", err)
+	}
+	var document conversationDocument
+	if err := jsonv2.Unmarshal(response.Value, &document); err != nil {
+		return document, "", false, fmt.Errorf("cosmosdb: decode conversation: %w", err)
+	}
+	if err := document.validate(id); err != nil {
+		return document, "", false, err
+	}
+	if response.ETag == "" {
+		return document, "", false, errors.New("cosmosdb: conversation has no ETag")
+	}
+	return document, response.ETag, true, nil
 }
 
-// Random document IDs prevent concurrent writers from overwriting each other.
-// Retried calls append fresh documents and are not idempotent. A lost batch
-// acknowledgment returns an uncertain outcome instead of claiming nothing was
-// stored.
-func (s *Store) Write(ctx context.Context, conversationID history.ConversationID, messages ...chat.Message) (outcome history.WriteOutcome, err error) {
-	if err = ctx.Err(); err != nil {
-		return outcome, err
+func (s *Store) readAppend(ctx context.Context, batch history.Batch, id string) (appendDocument, bool, error) {
+	response, err := s.container.ReadItem(ctx, azcosmos.NewPartitionKeyString(batch.ConversationID().String()), id, strongItemOptions())
+	if responseStatus(err) == http.StatusNotFound {
+		return appendDocument{}, false, nil
 	}
-	if err = conversationID.Validate(); err != nil {
-		return outcome, err
-	}
-	if len(messages) == 0 {
-		return history.WriteOutcome{Accepted: len(messages)}, nil
-	}
-
-	if len(messages) > MaxMessagesPerWrite {
-		return outcome, fmt.Errorf("cosmosdb: write: %d messages exceed the %d operations one transactional batch may carry",
-			len(messages), MaxMessagesPerWrite)
-	}
-
-	encoded, err := encodeMessages(messages)
 	if err != nil {
-		return outcome, fmt.Errorf("cosmosdb: write: encode messages: %w", err)
+		return appendDocument{}, false, fmt.Errorf("cosmosdb: read receipt: %w", err)
 	}
-	partitionKey := azcosmos.NewPartitionKeyString(conversationID.String())
-	sequenceBase := s.sequence.Reserve(len(encoded))
-	createdAt := time.Now().UTC().Format(time.RFC3339Nano)
-
-	// Every message in one Write shares the conversation id, which is the
-	// partition key, so the whole batch satisfies Cosmos's rule that "all
-	// operations within a TransactionalBatch must operate on items within the
-	// same partition key" -- and with it the guarantee that "if any operation
-	// fails, the entire transaction is rolled back".
-	batch := s.container.NewTransactionalBatch(partitionKey)
-	for index, raw := range encoded {
-		body, marshalErr := jsonv2.Marshal(document{
-			ID:             rand.Text(),
-			ConversationID: conversationID.String(),
-			Sequence:       formatSequence(sequenceBase + int64(index)),
-			Message:        string(raw),
-			CreatedAt:      createdAt,
-		})
-		if marshalErr != nil {
-			return outcome, fmt.Errorf("cosmosdb: write: marshal message %d: %w", index, marshalErr)
-		}
-		batch.CreateItem(body, nil)
+	var document appendDocument
+	if err := jsonv2.Unmarshal(response.Value, &document); err != nil {
+		return document, false, fmt.Errorf("cosmosdb: decode receipt: %w", err)
 	}
-
-	outcome.Uncertain = true
-	response, err := s.container.ExecuteTransactionalBatch(ctx, batch, nil)
-	if err != nil {
-		return outcome, fmt.Errorf("cosmosdb: write: execute batch: %w", err)
+	if err := document.validate(batch.ConversationID()); err != nil {
+		return document, false, err
 	}
-	if err := writeOutcome(&response, len(encoded)); err != nil {
-		outcome.Uncertain = response.Success
-		return outcome, err
+	if document.AppendID != batch.ID().String() {
+		return document, false, errors.New("cosmosdb: receipt belongs to a different append")
 	}
-	return history.WriteOutcome{Accepted: len(messages)}, nil
+	return document, true, nil
 }
 
-// writeOutcome reads what the batch actually did. Cosmos answers a rolled-back
-// batch over a successful HTTP call, so Success is the only evidence the
-// transaction committed; taking the call as the answer would report a
-// conversation nothing stored.
-func writeOutcome(response *azcosmos.TransactionalBatchResponse, operations int) error {
+func (s *Store) apply(ctx context.Context, batch azcosmos.TransactionalBatch, operations int) (bool, error) {
+	consistency := requiredConsistency
+	response, err := s.container.ExecuteTransactionalBatch(ctx, batch, &azcosmos.TransactionalBatchOptions{ConsistencyLevel: &consistency})
+	if err != nil {
+		return false, fmt.Errorf("cosmosdb: execute transaction: %w", err)
+	}
+	if len(response.OperationResults) != operations {
+		return false, fmt.Errorf("cosmosdb: transaction returned %d results for %d operations", len(response.OperationResults), operations)
+	}
 	if response.Success {
-		if got := len(response.OperationResults); got != operations {
-			return fmt.Errorf("cosmosdb: write: batch reported %d results for %d messages", got, operations)
+		for index, result := range response.OperationResults {
+			if result.StatusCode < http.StatusOK || result.StatusCode >= http.StatusMultipleChoices {
+				return false, fmt.Errorf("cosmosdb: committed transaction has invalid status %d at operation %d", result.StatusCode, index)
+			}
 		}
-		return nil
+		return true, nil
 	}
-	// "The cause of the batch failure is the first operation with status code
-	// different from http.StatusFailedDependency" -- every other operation
-	// carries 424 to say it was rolled back rather than that it failed.
+	failureIndex := -1
 	for index, result := range response.OperationResults {
 		if result.StatusCode == http.StatusFailedDependency {
 			continue
 		}
-		return fmt.Errorf("cosmosdb: write: batch rolled back, message %d returned status %d",
-			index, result.StatusCode)
+		if failureIndex >= 0 {
+			return false, errors.New("cosmosdb: rollback named more than one failed operation")
+		}
+		failureIndex = index
 	}
-	return fmt.Errorf("cosmosdb: write: batch of %d message(s) rolled back without naming a cause", operations)
+	if failureIndex < 0 {
+		return false, errors.New("cosmosdb: transaction rolled back without a cause")
+	}
+	status := response.OperationResults[failureIndex].StatusCode
+	if status == http.StatusConflict || status == http.StatusPreconditionFailed {
+		return false, nil
+	}
+	return false, fmt.Errorf("cosmosdb: transaction rolled back at operation %d with status %d", failureIndex, status)
 }
 
-func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) (storedMessages []chat.Message, err error) {
-	if err = ctx.Err(); err != nil {
-		return nil, err
+func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receipt, error) {
+	if err := ctx.Err(); err != nil {
+		return history.Receipt{}, err
 	}
-	if err = conversationID.Validate(); err != nil {
-		return nil, err
+	if err := batch.Validate(); err != nil {
+		return history.Receipt{}, err
 	}
-
-	partitionKey := azcosmos.NewPartitionKeyString(conversationID.String())
-	query := "SELECT c.id, c.seq, c.message FROM c WHERE c.conversation_id = @cid"
-	queryOptions := &azcosmos.QueryOptions{
-		QueryParameters: []azcosmos.QueryParameter{
-			{Name: "@cid", Value: conversationID.String()},
-		},
+	id, err := appendDocumentID(batch.ID())
+	if err != nil {
+		return history.Receipt{}, err
 	}
-
-	documents := []document{}
-	pager := s.container.NewQueryItemsPager(query, partitionKey, queryOptions)
-	for pager.More() {
-		response, err := pager.NextPage(ctx)
+	payload := appendDocument{ID: id, Kind: appendKind, ConversationID: batch.ConversationID().String(), AppendID: batch.ID().String(), Digest: batch.Digest(), Messages: string(batch.EncodedMessages()), Sequence: formatSequence(0), TTL: permanentTTL}
+	body, err := jsonv2.Marshal(payload)
+	if err != nil {
+		return history.Receipt{}, fmt.Errorf("cosmosdb: encode append: %w", err)
+	}
+	if len(body) > maximumAppendDocumentBytes {
+		return history.Receipt{}, fmt.Errorf("cosmosdb: append document exceeds %d bytes", maximumAppendDocumentBytes)
+	}
+	partition := azcosmos.NewPartitionKeyString(batch.ConversationID().String())
+	for {
+		if err := ctx.Err(); err != nil {
+			return history.Receipt{}, err
+		}
+		conversation, etag, exists, err := s.readConversation(ctx, batch.ConversationID())
 		if err != nil {
-			return nil, fmt.Errorf("cosmosdb: read: query page: %w", err)
+			return history.Receipt{}, err
 		}
-		for _, item := range response.Items {
-			var projected document
-			if err := jsonv2.Unmarshal(item, &projected); err != nil {
-				return nil, fmt.Errorf("cosmosdb: read: decode document: %w", err)
-			}
-			if projected.ID == "" {
-				return nil, errors.New("cosmosdb: read: document is missing ID")
-			}
-			if !validSequence(projected.Sequence) {
-				return nil, fmt.Errorf("cosmosdb: read: document %q has invalid sequence %q", projected.ID, projected.Sequence)
-			}
-			documents = append(documents, projected)
+		if conversation.closed() {
+			return history.Receipt{}, history.ErrConversationClosed
 		}
-	}
-	slices.SortFunc(documents, compareDocuments)
-	storedMessages = make([]chat.Message, 0, len(documents))
-	for index, document := range documents {
-		message, err := decodeMessage([]byte(document.Message))
+		stored, duplicate, err := s.readAppend(ctx, batch, id)
 		if err != nil {
-			return nil, fmt.Errorf("cosmosdb: read: decode message %d: %w", index, err)
+			return history.Receipt{}, err
 		}
-		storedMessages = append(storedMessages, message)
+		if !duplicate {
+			conversation, err = conversation.advance()
+			if err != nil {
+				return history.Receipt{}, err
+			}
+		}
+		gate, err := jsonv2.Marshal(conversation)
+		if err != nil {
+			return history.Receipt{}, fmt.Errorf("cosmosdb: encode conversation: %w", err)
+		}
+		transaction := s.container.NewTransactionalBatch(partition)
+		if exists {
+			transaction.ReplaceItem(conversation.ID, gate, &azcosmos.TransactionalBatchItemOptions{IfMatchETag: &etag})
+		} else {
+			transaction.CreateItem(gate, nil)
+		}
+		operations := 1
+		if !duplicate {
+			payload.Sequence = conversation.LastSequence
+			body, err = jsonv2.Marshal(payload)
+			if err != nil {
+				return history.Receipt{}, fmt.Errorf("cosmosdb: encode append: %w", err)
+			}
+			transaction.CreateItem(body, nil)
+			operations++
+		}
+		applied, err := s.apply(ctx, transaction, operations)
+		if err != nil {
+			return history.Receipt{}, err
+		}
+		if !applied {
+			continue
+		}
+		if duplicate && stored.Digest != batch.Digest() {
+			return history.Receipt{}, history.ErrAppendConflict
+		}
+		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
 	}
-	return storedMessages, nil
 }
 
-func formatSequence(sequence int64) string {
-	return fmt.Sprintf("%019d", sequence)
-}
-
-func validSequence(sequence string) bool {
-	value, err := strconv.ParseInt(sequence, 10, 64)
-	return err == nil && value >= 0 && formatSequence(value) == sequence
-}
-
-func compareDocuments(left, right document) int {
-	if order := cmp.Compare(left.Sequence, right.Sequence); order != 0 {
-		return order
-	}
-	return cmp.Compare(left.ID, right.ID)
-}
-
-func (s *Store) Conversations(ctx context.Context) (ids []history.ConversationID, err error) {
-	if err = ctx.Err(); err != nil {
+func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Message, error) {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-
-	// The Go SDK's gateway supports cross-partition projections, but not
-	// DISTINCT. Uniqueness is established after all pages have been read.
-	query := "SELECT VALUE c.conversation_id FROM c"
-
-	ids = []history.ConversationID{}
-	pager := s.container.NewQueryItemsPager(query, azcosmos.NewPartitionKey(), nil)
+	if err := id.Validate(); err != nil {
+		return nil, err
+	}
+	conversation, _, exists, conversationErr := s.readConversation(ctx, id)
+	if conversationErr != nil {
+		return nil, conversationErr
+	}
+	if !exists || conversation.closed() {
+		return []chat.Message{}, nil
+	}
+	consistency := requiredConsistency
+	options := &azcosmos.QueryOptions{ConsistencyLevel: &consistency, QueryParameters: []azcosmos.QueryParameter{{Name: "@kind", Value: appendKind}, {Name: "@sequence", Value: conversation.LastSequence}}}
+	pager := s.container.NewQueryItemsPager("SELECT * FROM c WHERE c.kind = @kind AND c.seq <= @sequence", azcosmos.NewPartitionKeyString(id.String()), options)
+	documents := []appendDocument{}
 	for pager.More() {
 		response, pageErr := pager.NextPage(ctx)
 		if pageErr != nil {
-			return nil, fmt.Errorf("cosmosdb: list conversations: query page: %w", pageErr)
+			return nil, fmt.Errorf("cosmosdb: read append page: %w", pageErr)
 		}
 		for _, item := range response.Items {
-			var id string
-			if err = jsonv2.Unmarshal(item, &id); err != nil {
-				return nil, fmt.Errorf("cosmosdb: list conversations: decode ID: %w", err)
+			var document appendDocument
+			if err := jsonv2.Unmarshal(item, &document); err != nil {
+				return nil, fmt.Errorf("cosmosdb: decode append: %w", err)
 			}
-			conversationID := history.ConversationID(id)
-			if err = conversationID.Validate(); err != nil {
-				return nil, fmt.Errorf("cosmosdb: list conversations: invalid stored ID %q: %w", id, err)
+			if err := document.validate(id); err != nil {
+				return nil, err
 			}
-			ids = append(ids, conversationID)
+			documents = append(documents, document)
+		}
+	}
+	current, _, exists, closureErr := s.readConversation(ctx, id)
+	if closureErr != nil {
+		return nil, closureErr
+	}
+	if !exists {
+		return nil, errors.New("cosmosdb: conversation gate disappeared")
+	}
+	if current.closed() {
+		return []chat.Message{}, nil
+	}
+	slices.SortFunc(documents, func(left, right appendDocument) int { return cmp.Compare(left.Sequence, right.Sequence) })
+	messages := []chat.Message{}
+	for index, document := range documents {
+		if document.Sequence != formatSequence(int64(index)+1) {
+			return nil, errors.New("cosmosdb: stored append sequence has a gap or duplicate")
+		}
+		decoded, err := decodeMessages([]byte(document.Messages))
+		if err != nil {
+			return nil, fmt.Errorf("cosmosdb: decode messages: %w", err)
+		}
+		messages = append(messages, decoded...)
+	}
+	if formatSequence(int64(len(documents))) != conversation.LastSequence {
+		return nil, errors.New("cosmosdb: stored append snapshot is incomplete")
+	}
+	return messages, nil
+}
+
+func (s *Store) Clear(ctx context.Context, id history.ConversationID) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := id.Validate(); err != nil {
+		return err
+	}
+	partition := azcosmos.NewPartitionKeyString(id.String())
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		conversation, etag, exists, err := s.readConversation(ctx, id)
+		if err != nil {
+			return err
+		}
+		if conversation.closed() {
+			break
+		}
+		body, err := jsonv2.Marshal(conversation.close())
+		if err != nil {
+			return fmt.Errorf("cosmosdb: encode closure: %w", err)
+		}
+		transaction := s.container.NewTransactionalBatch(partition)
+		if exists {
+			transaction.ReplaceItem(conversation.ID, body, &azcosmos.TransactionalBatchItemOptions{IfMatchETag: &etag})
+		} else {
+			transaction.CreateItem(body, nil)
+		}
+		applied, err := s.apply(ctx, transaction, 1)
+		if err != nil {
+			return err
+		}
+		if applied {
+			break
+		}
+	}
+	return s.removeClosedPayloads(ctx, id)
+}
+
+func (s *Store) removeClosedPayloads(ctx context.Context, id history.ConversationID) error {
+	partition := azcosmos.NewPartitionKeyString(id.String())
+	consistency := requiredConsistency
+	options := &azcosmos.QueryOptions{ConsistencyLevel: &consistency, QueryParameters: []azcosmos.QueryParameter{{Name: "@kind", Value: appendKind}}}
+	// Restart after deletion: reusing a continuation over a changing result set
+	// can skip payloads. Empty intermediate pages still require their continuation.
+	for {
+		pager := s.container.NewQueryItemsPager("SELECT VALUE c.id FROM c WHERE c.kind = @kind", partition, options)
+		var items [][]byte
+		for pager.More() {
+			response, err := pager.NextPage(ctx)
+			if err != nil {
+				return fmt.Errorf("cosmosdb: clear closed payloads: %w", err)
+			}
+			items = response.Items
+			if len(items) > 0 {
+				break
+			}
+		}
+		if len(items) == 0 {
+			return nil
+		}
+		for _, item := range items {
+			var itemID string
+			if err := jsonv2.Unmarshal(item, &itemID); err != nil {
+				return fmt.Errorf("cosmosdb: decode closed payload ID: %w", err)
+			}
+			if !strings.HasPrefix(itemID, appendDocumentPrefix) || len(itemID) == len(appendDocumentPrefix) {
+				return errors.New("cosmosdb: invalid closed payload ID")
+			}
+			if _, err := s.container.DeleteItem(ctx, partition, itemID, strongItemOptions()); err != nil && responseStatus(err) != http.StatusNotFound {
+				return fmt.Errorf("cosmosdb: delete closed payload: %w", err)
+			}
+		}
+	}
+}
+
+func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	consistency := requiredConsistency
+	options := &azcosmos.QueryOptions{ConsistencyLevel: &consistency, QueryParameters: []azcosmos.QueryParameter{{Name: "@kind", Value: conversationKind}}}
+	pager := s.container.NewQueryItemsPager("SELECT VALUE c.conversation_id FROM c WHERE c.kind = @kind AND c.closed = false", azcosmos.NewPartitionKey(), options)
+	ids := []history.ConversationID{}
+	for pager.More() {
+		response, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("cosmosdb: list conversations: %w", err)
+		}
+		for _, item := range response.Items {
+			var value string
+			if err := jsonv2.Unmarshal(item, &value); err != nil {
+				return nil, fmt.Errorf("cosmosdb: decode conversation ID: %w", err)
+			}
+			id, err := history.NewConversationID(value)
+			if err != nil {
+				return nil, fmt.Errorf("cosmosdb: invalid stored conversation ID: %w", err)
+			}
+			ids = append(ids, id)
 		}
 	}
 	slices.Sort(ids)
 	return slices.Compact(ids), nil
-}
-
-// Clear deletes every document for conversationID. Cosmos has no
-// bulk-delete for a partition, so each id is enumerated and
-// deleted individually — fine for chat history sizes.
-func (s *Store) Clear(ctx context.Context, conversationID history.ConversationID) (err error) {
-	if err = ctx.Err(); err != nil {
-		return err
-	}
-	if err = conversationID.Validate(); err != nil {
-		return err
-	}
-
-	partitionKey := azcosmos.NewPartitionKeyString(conversationID.String())
-	query := "SELECT c.id FROM c WHERE c.conversation_id = @cid"
-	queryOptions := &azcosmos.QueryOptions{
-		QueryParameters: []azcosmos.QueryParameter{
-			{Name: "@cid", Value: conversationID.String()},
-		},
-	}
-
-	// Deleting while paging the same query can skip items (the
-	// continuation token is computed against the mutating result set),
-	// so each round re-runs the query from scratch and deletes one
-	// non-empty page, until the query is exhausted. Empty pages can
-	// carry continuation tokens and do not establish absence.
-	for {
-		pager := s.container.NewQueryItemsPager(query, partitionKey, queryOptions)
-		var response azcosmos.QueryItemsResponse
-		for pager.More() {
-			response, err = pager.NextPage(ctx)
-			if err != nil {
-				return fmt.Errorf("cosmosdb: clear: query document IDs: %w", err)
-			}
-			if len(response.Items) > 0 {
-				break
-			}
-		}
-		if len(response.Items) == 0 {
-			return nil
-		}
-		for _, item := range response.Items {
-			var projected struct {
-				ID string `json:"id"`
-			}
-			if err := jsonv2.Unmarshal(item, &projected); err != nil {
-				return fmt.Errorf("cosmosdb: clear: decode document ID: %w", err)
-			}
-			if _, err := s.container.DeleteItem(ctx, partitionKey, projected.ID, nil); err != nil {
-				return fmt.Errorf("cosmosdb: clear: delete document %q: %w", projected.ID, err)
-			}
-		}
-	}
 }

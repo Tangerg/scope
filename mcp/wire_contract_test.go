@@ -225,7 +225,7 @@ func TestWireRegistrationPreservesArgumentsSchemaAndResults(t *testing.T) {
 				return tool.Output{Details: json.RawMessage(payload)}, nil
 			}}
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "scope-server", Version: "1"}, nil)
-			if err := scopemcp.Register(server, executable); err != nil {
+			if err := registerTestTools(server, executable); err != nil {
 				t.Fatal(err)
 			}
 			transport := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
@@ -332,7 +332,7 @@ func TestWireNativeMetadataThroughDiscoveryAndRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	proxy := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "proxy"}, nil)
-	if registerErr := scopemcp.Register(proxy, tools...); registerErr != nil {
+	if registerErr := registerTestTools(proxy, tools...); registerErr != nil {
 		t.Fatal(registerErr)
 	}
 	proxySession := connectContentServer(t, proxy)

@@ -20,7 +20,7 @@ func TestStoreOwnsMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := store.Write(t.Context(), "conversation", message); err != nil {
+	if _, err := store.Append(t.Context(), testBatch(t, "conversation", "seed", message)); err != nil {
 		t.Fatal(err)
 	}
 	message.Parts[0].Text = "mutated"
@@ -52,11 +52,8 @@ func TestStoreOwnsMessages(t *testing.T) {
 
 func TestStoreRejectsInvalidInputAndCancellation(t *testing.T) {
 	store := new(inmemory.Store)
-	if _, err := store.Write(t.Context(), "", chat.NewUserMessage(chat.NewTextPart("hello"))); !errors.Is(err, history.ErrInvalidConversationID) {
-		t.Fatalf("invalid conversation error = %v", err)
-	}
-	if _, err := store.Write(t.Context(), "conversation", chat.Message{}); !errors.Is(err, chat.ErrInvalidMessage) {
-		t.Fatalf("invalid message error = %v", err)
+	if _, err := store.Append(t.Context(), history.Batch{}); !errors.Is(err, history.ErrInvalidBatch) {
+		t.Fatalf("invalid batch error = %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -64,11 +61,26 @@ func TestStoreRejectsInvalidInputAndCancellation(t *testing.T) {
 	if _, err := store.Read(ctx, "conversation"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Read cancellation = %v", err)
 	}
-	if _, err := store.Write(ctx, "conversation"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("Write cancellation = %v", err)
+	if _, err := store.Append(ctx, history.Batch{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Append cancellation = %v", err)
 	}
 	if err := store.Clear(ctx, "conversation"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Clear cancellation = %v", err)
+	}
+}
+
+func TestClearClosesAnUnwrittenIdentity(t *testing.T) {
+	var store inmemory.Store
+	if err := store.Clear(t.Context(), "unwritten"); err != nil {
+		t.Fatal(err)
+	}
+	batch := testBatch(t, "unwritten", "delayed", chat.NewUserMessage(chat.NewTextPart("message")))
+	if receipt, err := store.Append(t.Context(), batch); !errors.Is(err, history.ErrConversationClosed) || receipt != (history.Receipt{}) {
+		t.Fatal(receipt, err)
+	}
+	ids, err := store.Conversations(t.Context())
+	if err != nil || ids == nil || len(ids) != 0 {
+		t.Fatal(ids, err)
 	}
 }
 
@@ -84,11 +96,11 @@ func (c cancelAfterCheckContext) Err() error {
 }
 
 func TestStoreCancellationBetweenAdmissionAndAccess(t *testing.T) {
-	for _, operation := range []string{"write", "clear", "read", "list"} {
+	for _, operation := range []string{"append", "clear", "read", "list"} {
 		t.Run(operation, func(t *testing.T) {
 			store := new(inmemory.Store)
 			message := chat.NewUserMessage(chat.NewTextPart("original"))
-			if _, err := store.Write(t.Context(), "conversation", message); err != nil {
+			if _, err := store.Append(t.Context(), testBatch(t, "conversation", "seed", message)); err != nil {
 				t.Fatal(err)
 			}
 			ctx, cancel := context.WithCancel(t.Context())
@@ -96,11 +108,11 @@ func TestStoreCancellationBetweenAdmissionAndAccess(t *testing.T) {
 			checked := cancelAfterCheckContext{Context: ctx, cancel: cancel}
 			var err error
 			switch operation {
-			case "write":
-				var outcome history.WriteOutcome
-				outcome, err = store.Write(checked, "conversation", message)
-				if outcome != (history.WriteOutcome{}) {
-					t.Fatalf("canceled write outcome = %+v", outcome)
+			case "append":
+				var outcome history.Receipt
+				outcome, err = store.Append(checked, testBatch(t, "conversation", "next", message))
+				if outcome != (history.Receipt{}) {
+					t.Fatalf("canceled append receipt = %+v", outcome)
 				}
 			case "clear":
 				err = store.Clear(checked, "conversation")
@@ -118,4 +130,13 @@ func TestStoreCancellationBetweenAdmissionAndAccess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testBatch(t testing.TB, conversation history.ConversationID, id history.AppendID, messages ...chat.Message) history.Batch {
+	t.Helper()
+	batch, err := history.NewBatch(conversation, id, messages...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return batch
 }

@@ -19,7 +19,7 @@ func TestMapUsesManagedChildrenAndPreservesItemOrder(t *testing.T) {
 		}),
 	), "map-child")
 	stage, err := Map(MapConfig[forkInput, numberOutput]{
-		ID: "items", Program: child, Budget: mustBudget(t),
+		ID: "items", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)},
 		WindowSize: 2, MaxItems: 3,
 	})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestMapEmptyInputProducesNonNilEmptyOutput(t *testing.T) {
 		}),
 	), "empty-map-child")
 	stage, err := Map(MapConfig[forkInput, numberOutput]{
-		ID: "items", Program: child, Budget: mustBudget(t),
+		ID: "items", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)},
 		WindowSize: 1, MaxItems: 4,
 	})
 	if err != nil {
@@ -83,7 +83,7 @@ func TestMapRejectsInputAboveMaxItemsBeforeStartingChildren(t *testing.T) {
 		}),
 	), "limited-map-child")
 	stage, err := Map(MapConfig[forkInput, numberOutput]{
-		ID: "items", Program: child, Budget: mustBudget(t),
+		ID: "items", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)},
 		WindowSize: 2, MaxItems: 2,
 	})
 	if err != nil {
@@ -117,16 +117,16 @@ func TestMapRequiresExplicitLimitsAndMatchingChildContract(t *testing.T) {
 		}),
 	), "wrong-map-child")
 	valid := MapConfig[forkInput, numberOutput]{
-		ID: "items", Budget: mustBudget(t),
+		ID: "items", Child: run.ChildBinding{Budget: mustBudget(t)},
 	}
 	for name, config := range map[string]MapConfig[forkInput, numberOutput]{
-		"zero window size": {ID: valid.ID, Program: child, Budget: valid.Budget, MaxItems: 2},
-		"zero max items":   {ID: valid.ID, Program: child, Budget: valid.Budget, WindowSize: 1},
+		"zero window size": {ID: valid.ID, Child: run.ChildBinding{Program: child, Budget: valid.Child.Budget}, MaxItems: 2},
+		"zero max items":   {ID: valid.ID, Child: run.ChildBinding{Program: child, Budget: valid.Child.Budget}, WindowSize: 1},
 		"oversized window": {
-			ID: valid.ID, Program: child, Budget: valid.Budget, WindowSize: 3, MaxItems: 2,
+			ID: valid.ID, Child: run.ChildBinding{Program: child, Budget: valid.Child.Budget}, WindowSize: 3, MaxItems: 2,
 		},
 		"schema mismatch": {
-			ID: valid.ID, Program: wrong, Budget: valid.Budget, WindowSize: 1, MaxItems: 2,
+			ID: valid.ID, Child: run.ChildBinding{Program: wrong, Budget: valid.Child.Budget}, WindowSize: 1, MaxItems: 2,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

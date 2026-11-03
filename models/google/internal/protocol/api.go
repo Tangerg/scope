@@ -16,6 +16,9 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
+// Inline high-resolution images have a larger wire budget than ordinary JSON.
+const maxImageInteractionResponseBytes = 256 << 20
+
 type ClientConfig struct {
 	APIKey string
 
@@ -128,7 +131,7 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	interactionsHTTP := resty.NewWithClient(interactionsClient)
+	interactionsHTTP := resty.NewWithClient(interactionsClient).SetResponseBodyLimit(maxImageInteractionResponseBytes)
 	interactionsHTTP.
 		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
@@ -222,21 +225,16 @@ func (a *api) createImageInteraction(ctx context.Context, req *imageInteractionR
 	}
 
 	var out imageInteractionResponse
-	var apiErr interactionErrorEnvelope
 	resp, err := a.interactionsHTTP.R().
 		SetContext(ctx).
 		SetBody(req).
 		SetResult(&out).
-		SetError(&apiErr).
 		Post("/v1beta/interactions")
 	if err != nil {
 		return nil, fmt.Errorf("google: image: create interaction: %w", err)
 	}
 	if !resp.IsSuccess() {
-		if apiErr.Error.Message != "" {
-			return nil, fmt.Errorf("google: image: http %d (%s): %s", resp.StatusCode(), apiErr.Error.Status, apiErr.Error.Message)
-		}
-		return nil, fmt.Errorf("google: image: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, fmt.Errorf("google: image: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	out.Raw = slices.Clone(resp.Body())
 	return &out, nil

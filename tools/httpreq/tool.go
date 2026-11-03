@@ -16,7 +16,7 @@ const toolName = "http_request"
 // Tool requires a Client so every invocation enforces its frozen network policy.
 type Tool struct {
 	client *Client
-	inner  toolcontract.Tool
+	inner  toolcontract.Func[Request, *Response]
 }
 
 func NewTool(client *Client) (*Tool, error) {
@@ -37,7 +37,7 @@ func NewTool(client *Client) (*Tool, error) {
 
 func (t *Tool) Definition() toolcontract.Definition { return t.inner.Definition() }
 
-func (t *Tool) Unwrap() toolcontract.Tool { return t.inner }
+func (t *Tool) InputValidator() func([]byte) error { return t.inner.InputValidator() }
 
 const description = `Execute a single HTTP request and return the response.
 - The "url" must be a fully-formed absolute http(s) URL.

@@ -55,8 +55,7 @@ func newPlanningDelegateRoot(
 	delegate, err := interaction.NewDelegate(interaction.DelegateConfig{
 		Name:        "review_with_planning",
 		Description: "Use goal-directed planning to complete one review task.",
-		Program:     planningWorker,
-		Budget:      budget,
+		Child:       agentrun.ChildBinding{Program: planningWorker, Budget: budget},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +211,8 @@ func newPlanningWorker(t *testing.T, compiler *agentrun.Compiler) (agentrun.Prog
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action})
+	state := &planningTaskState{incomplete: incomplete, complete: complete, completed: make(map[string]bool)}
+	binding, err := planning.NewDispatcherBinding(planning.DispatcherBindingConfig{Action: action, Executor: planning.ActionExecutorFunc(state.review)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,12 +223,10 @@ func newPlanningWorker(t *testing.T, compiler *agentrun.Compiler) (agentrun.Prog
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := &planningTaskState{incomplete: incomplete, complete: complete, completed: make(map[string]bool)}
 	program, err := planning.Compile[workerTask](compiler, planning.Config{
 		Name: "example.orchestrator_workers.planning_worker", Description: "Use GOAP to complete one model-selected review task.",
 		Revision: "planning-review-v1", Goal: goal, Actions: []planning.ActionBinding{binding}, Planner: goap.New(goap.Config{}),
 		MaxActionAttempts: agentrun.NewQuota(1), Sensor: planning.SensorFunc(state.sense),
-		ActionExecutors: map[string]planning.ActionExecutor{"review": planning.ActionExecutorFunc(state.review)},
 	})
 	if err != nil {
 		t.Fatal(err)

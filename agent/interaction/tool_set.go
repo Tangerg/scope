@@ -14,6 +14,7 @@ import (
 
 type ToolSetConfig struct {
 	Revision      string
+	Middlewares   []tool.CallMiddleware
 	Tools         []tool.Tool
 	DeferredTools []tool.Tool
 }
@@ -38,12 +39,12 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	}
 	dispatcher := newToolDispatcher()
 	for index, executable := range config.Tools {
-		if err := dispatcher.bindTool(executable, false); err != nil {
+		if err := dispatcher.bindTool(executable, false, config.Middlewares); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: Tools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
 	for index, executable := range config.DeferredTools {
-		if err := dispatcher.bindTool(executable, true); err != nil {
+		if err := dispatcher.bindTool(executable, true, config.Middlewares); err != nil {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
@@ -63,7 +64,7 @@ func (t ToolSet) configuration() toolConfiguration {
 	for name, entry := range t.manifest().entries {
 		configuration.Entries = append(configuration.Entries, toolConfigurationEntry{
 			Name: name, Contract: entry.contract.Definition(), Deferred: entry.deferred,
-			Direct: entry.direct, Idempotent: entry.idempotent, Concurrent: entry.concurrent != nil,
+			Direct: entry.direct, Concurrent: entry.concurrent != nil,
 			Advertises: t.dispatcher.advertisers[name] != nil,
 		})
 	}
@@ -79,9 +80,9 @@ type toolConfiguration struct {
 }
 
 type toolConfigurationEntry struct {
-	Name                                                 string
-	Contract                                             tool.Definition
-	Deferred, Direct, Idempotent, Concurrent, Advertises bool
+	Name                                     string
+	Contract                                 tool.Definition
+	Deferred, Direct, Concurrent, Advertises bool
 }
 
 // toolManifest is the scheduling policy an Interaction retains: Tool
@@ -181,12 +182,11 @@ type toolManifestEntry struct {
 	// direct marks a Tool whose successful result completes the Interaction
 	// without another model call.
 	direct     bool
-	idempotent bool
 	concurrent func(tool.Invocation) (string, bool)
 }
 
 func (t toolManifestEntry) replayPolicy() run.ReplayPolicy {
-	if t.idempotent {
+	if t.contract.Effect().Replayable() {
 		return run.ReplayPolicySameIdentity
 	}
 	return run.ReplayPolicyNever

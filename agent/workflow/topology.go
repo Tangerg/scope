@@ -65,3 +65,20 @@ type Topology struct {
 	// Stages are projected in execution order.
 	Stages []StageTopology `json:"stages"`
 }
+
+func bindingTopology(binding run.ChildBinding, role BindingRole, id string, inputSchema, outputSchema jsonschema.Schema) BindingTopology {
+	return BindingTopology{
+		Role: role, ID: id, ProgramRef: binding.Program.ProgramRef(),
+		InputSchema: inputSchema, OutputSchema: outputSchema,
+		Budget: binding.Budget, Capabilities: binding.Capabilities,
+	}
+}
+
+// TopologyOf exposes the workflow structure without exposing its execution owner.
+func TopologyOf[I, O any](program run.Program[I, O]) (Topology, error) {
+	definition, ok := program.Definition().(*definition)
+	if !program.Valid() || !ok {
+		return Topology{}, run.ErrInvalidProgram
+	}
+	return definition.Topology(), nil
+}

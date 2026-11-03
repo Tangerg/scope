@@ -61,4 +61,4 @@ func (w *WriteTool) write(ctx context.Context, _ toolcontract.IdempotencyKey, re
 	return res, nil
 }
 
-func (w *WriteTool) Unwrap() toolcontract.Tool { return w.typed }
+func (w *WriteTool) InputValidator() func([]byte) error { return w.typed.InputValidator() }

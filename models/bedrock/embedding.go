@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 const (
@@ -113,11 +114,11 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 
 func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*embedding.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := e.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effective := *req
 	effective.Options = effectiveOptions
@@ -125,13 +126,13 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	nativeValue, _, err := effectiveOptions.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	native := &nativeValue
 
 	family, err := classifyEmbeddingModel(effectiveOptions.Model)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	var batch *embeddingBatch

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -56,34 +57,34 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := i.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
 	for _, field := range []string{fieldType} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)}
 		}
 	}
 
 	apiReqValue, _, err := effectiveOptions.Extensions.Decode[jobRequest](ImageRequestExtensionKey)
 	apiReq := &apiReqValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	apiReq.Type = effectiveOptions.Model
 	if !strings.Contains(apiReq.Type, textToImageJobSegment) {
-		return nil, errors.New("prodia: image model requires a text-to-image job type containing .txt2img")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("prodia: image model requires a text-to-image job type containing .txt2img")}
 	}
 	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldWidth, fieldHeight, fieldSeed} {
 		if _, exists := apiReq.Config[field]; exists {
-			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("prodia: config field %q is owned by Core", field)}
 		}
 	}
 	var configErr error
@@ -106,14 +107,14 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		setConfig(fieldSeed, *effectiveOptions.Seed)
 	}
 	if configErr != nil {
-		return nil, configErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: configErr}
 	}
 
 	accept := effectiveOptions.OutputFormat
 	switch accept {
 	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
 	default:
-		return nil, errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")}
 	}
 	body, hdr, err := i.api.job(ctx, apiReq, accept)
 	if err != nil {

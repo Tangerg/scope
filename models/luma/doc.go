@@ -2,7 +2,9 @@
 //
 // [NewImageModel] targets the async /v1/generations endpoint for the uni-1
 // family. It submits, polls, and downloads expiring output URLs before
-// returning provider-neutral image bytes.
+// returning provider-neutral image bytes. ImageModelConfig.OutputOrigins must
+// explicitly authorize their destinations; presigned assets receive neither
+// API credentials nor cookies from the borrowed HTTP client.
 //
 // ImageRequestOptions supplies native options under ImageRequestExtensionKey.
 // SDK outbound parameter wrappers are not extension input types. Core owns

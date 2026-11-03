@@ -8,13 +8,13 @@ import (
 	"io"
 	"strings"
 
-	ledongthuc "github.com/ledongthuc/pdf"
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/etl"
 	"github.com/Tangerg/scope/etl/internal/origin"
+	"github.com/Tangerg/scope/etl/pdf/internal/parser"
 )
 
 const (
@@ -29,18 +29,23 @@ var ErrPartialRead = errors.New("pdf reader: one or more pages could not be read
 // ErrPageLimit prevents an untrusted page count from driving allocation or work.
 var ErrPageLimit = errors.New("pdf reader: page limit exceeded")
 
+var ErrInvalidPassword = parser.ErrInvalidPassword
+
 // ReaderConfig controls PDF extraction. PerPage emits one document per readable
-// page. Password is used for encrypted PDFs. Metadata is cloned by NewReader,
+// page. Metadata is cloned by NewReader,
 // and cannot contain the reader's page total key. A zero
 // SourceBudget uses [etl.DefaultMaxSourceBytes]. A zero MaxPages uses
 // [DefaultMaxPages], independently of the encoded source's byte size.
 type ReaderConfig struct {
-	PerPage      bool
-	SourceName   string
-	Password     string
+	PerPage    bool
+	SourceName string
+	// Revisions 2–4 derive keys from bytes. Accepting encoded bytes avoids
+	// guessing the text encoding used by the document's producer.
+	UserPassword []byte
 	Metadata     coremetadata.Map
 	SourceBudget etl.SourceBudget
 	MaxPages     int
+	ParseBudget  ParseBudget
 }
 
 type Reader struct {
@@ -49,9 +54,10 @@ type Reader struct {
 	perPage       bool
 	sourceName    string
 	sourceBudget  etl.SourceBudget
-	password      string
+	userPassword  []byte
 	extraMetadata coremetadata.Map
 	maxPages      int
+	parseLimits   parser.Limits
 }
 
 // NewReader rejects an oversized source here instead of while extracting,
@@ -81,14 +87,19 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 	if maxPages == 0 {
 		maxPages = DefaultMaxPages
 	}
+	limits, err := config.ParseBudget.limits()
+	if err != nil {
+		return nil, err
+	}
 	r := &Reader{
 		source:     source,
 		size:       size,
 		perPage:    config.PerPage,
 		sourceName: config.SourceName, sourceBudget: config.SourceBudget,
-		password:      config.Password,
+		userPassword:  bytes.Clone(config.UserPassword),
 		extraMetadata: config.Metadata.Clone(),
 		maxPages:      maxPages,
+		parseLimits:   limits,
 	}
 	if err := r.extraMetadata.Validate(); err != nil {
 		return nil, fmt.Errorf("pdf reader: invalid metadata: %w", err)
@@ -103,17 +114,21 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 
 // Read skips pages that fail to parse and reports them through
 // [ErrPartialRead] alongside the documents that were decoded. A document-level
-// parse failure returns no documents.
+// parse failure, cancellation or exhausted ParseBudget returns no documents.
 func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error) {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
 	// The parser reports malformed trailers and xref tables by panicking, and
-	// only GetPlainText recovers internally, so a corrupt PDF would otherwise
+	// only PlainText recovers internally, so a corrupt PDF would otherwise
 	// crash the caller.
 	defer func() {
 		if rec := recover(); rec != nil {
-			docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
+			if cause, ok := rec.(error); ok {
+				docs, err = nil, fmt.Errorf("pdf: parse: %w", cause)
+			} else {
+				docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
+			}
 		}
 	}()
 	var p *document.Provenance
@@ -152,35 +167,15 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 	return r.readWhole(ctx, pdfReader, total, p)
 }
 
-func (r *Reader) openReader(ctx context.Context, source io.ReaderAt) (*ledongthuc.Reader, error) {
-	if r.password != "" {
-		// The parser retries until the callback returns "", so offering the
-		// password once ends the loop after a single wrong attempt.
-		password := r.password
-		pdfReader, err := ledongthuc.NewReaderEncrypted(source, r.size, func() string {
-			if ctx.Err() != nil {
-				return ""
-			}
-			attempt := password
-			password = ""
-			return attempt
-		})
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
-		if err != nil {
-			return nil, fmt.Errorf("pdf: open encrypted: %w", err)
-		}
-		return pdfReader, nil
-	}
-	pdfReader, err := ledongthuc.NewReader(source, r.size)
+func (r *Reader) openReader(ctx context.Context, source io.ReaderAt) (*parser.Reader, error) {
+	pdfReader, err := parser.NewReader(ctx, source, r.size, r.parseLimits, r.userPassword)
 	if err != nil {
 		return nil, fmt.Errorf("pdf: open: %w", err)
 	}
 	return pdfReader, nil
 }
 
-func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
+func (r *Reader) readWhole(ctx context.Context, pdfReader *parser.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
 	body, readErr := r.readAllText(ctx, pdfReader, total)
 	body = strings.TrimSpace(body)
 	if body == "" {
@@ -198,7 +193,7 @@ func (r *Reader) readWhole(ctx context.Context, pdfReader *ledongthuc.Reader, to
 	return []*document.Document{doc}, readErr
 }
 
-func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
+func (r *Reader) readPages(ctx context.Context, pdfReader *parser.Reader, total int, p *document.Provenance) ([]*document.Document, error) {
 	docs := make([]*document.Document, 0, total)
 	var failures pageErrors
 	for index := range total {
@@ -211,6 +206,9 @@ func (r *Reader) readPages(ctx context.Context, pdfReader *ledongthuc.Reader, to
 			return nil, ctxErr
 		}
 		if err != nil {
+			if errors.Is(err, ErrParseBudget) {
+				return nil, err
+			}
 			failures = append(failures, err)
 			continue
 		}
@@ -245,9 +243,9 @@ func (r *Reader) baseMetadata(total int) (coremetadata.Map, error) {
 	return md, nil
 }
 
-// The per-page API is used instead of Reader.GetPlainText so one bad page is
+// The per-page API is used instead of Reader.PlainText so one bad page is
 // skipped rather than aborting the whole document.
-func (r *Reader) readAllText(ctx context.Context, pdfReader *ledongthuc.Reader, total int) (string, error) {
+func (r *Reader) readAllText(ctx context.Context, pdfReader *parser.Reader, total int) (string, error) {
 	var b strings.Builder
 	var failures pageErrors
 	for index := range total {
@@ -260,6 +258,9 @@ func (r *Reader) readAllText(ctx context.Context, pdfReader *ledongthuc.Reader, 
 			return "", ctxErr
 		}
 		if err != nil {
+			if errors.Is(err, ErrParseBudget) {
+				return "", err
+			}
 			failures = append(failures, err)
 			continue
 		}
@@ -285,18 +286,22 @@ func (p pageErrors) err() error {
 }
 
 // Page and object resolution panic on malformed content outside
-// GetPlainText's own recovery, so a bad page becomes a skippable error here.
-func (*Reader) pageText(pdfReader *ledongthuc.Reader, pageIndex int) (text string, err error) {
+// PlainText's own recovery, so a bad page becomes a skippable error here.
+func (*Reader) pageText(pdfReader *parser.Reader, pageIndex int) (text string, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
-			text, err = "", fmt.Errorf("page %d: malformed page: %v", pageIndex, rec)
+			if cause, ok := rec.(error); ok {
+				text, err = "", fmt.Errorf("page %d: %w", pageIndex, cause)
+			} else {
+				text, err = "", fmt.Errorf("page %d: malformed page: %v", pageIndex, rec)
+			}
 		}
 	}()
 	page := pdfReader.Page(pageIndex)
 	if page.V.IsNull() {
 		return "", fmt.Errorf("page %d: declared page is missing", pageIndex)
 	}
-	text, err = page.GetPlainText(nil)
+	text, err = page.PlainText()
 	if err != nil {
 		return "", fmt.Errorf("page %d: %w", pageIndex, err)
 	}

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
@@ -33,12 +34,12 @@ func TestChatRejectsNativeBodyOverridesBeforeIO(t *testing.T) {
 				if err := request.Options.Extensions.Set(provider+"/request", json.RawMessage(`{"httpOptions":{"extraBody":`+body+`}}`)); err != nil {
 					t.Fatal(err)
 				}
-				if response, err := model.Call(t.Context(), request); response != nil || corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted {
+				if response, err := model.Call(t.Context(), request); response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 					t.Fatalf("Call: response=%#v error=%v", response, err)
 				}
 				errorsReported := 0
 				for delta, err := range model.Stream(t.Context(), request) {
-					if delta != nil || corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted {
+					if delta != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 						t.Fatalf("Stream: delta=%#v error=%v", delta, err)
 					}
 					errorsReported++

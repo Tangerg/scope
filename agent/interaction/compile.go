@@ -52,7 +52,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	}
 	var delegates []delegateFact
 	for _, d := range definition.delegates {
-		delegates = append(delegates, delegateFact{d.definition, d.program.ProgramRef(), d.budget, d.capabilities})
+		delegates = append(delegates, delegateFact{d.definition, d.child.Program.ProgramRef(), d.child.Budget, d.child.Capabilities})
 	}
 	policy := struct {
 		LocalContext, ExternalContext, ValidateCompletion             bool

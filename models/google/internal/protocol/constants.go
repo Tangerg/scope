@@ -1,19 +1,18 @@
 package protocol
 
-// DefaultBaseURL is the endpoint used when a configuration leaves it empty. It
-// is exported so a deployment can point at a proxy or a regional host by
-// overriding a named value rather than restating the vendor's URL.
+const GoogleProviderID = "google"
+
 const DefaultBaseURL = "https://generativelanguage.googleapis.com"
 
 const (
-	SpeechRequestExtensionKey         = "google/speech_request"
-	SpeechResponseExtensionKey        = "google/speech_response"
-	TranscriptionRequestExtensionKey  = "google/transcription_request"
-	TranscriptionResponseExtensionKey = "google/transcription_response"
-	EmbeddingRequestExtensionKey      = "google/embedding_request"
-	EmbeddingResponseExtensionKey     = "google/embedding_response"
-	ImageRequestExtensionKey          = "google/image_request"
-	ImageResponseExtensionKey         = "google/image_response"
+	SpeechRequestExtensionKey         = GoogleProviderID + "/speech_request"
+	SpeechResponseExtensionKey        = GoogleProviderID + "/speech_response"
+	TranscriptionRequestExtensionKey  = GoogleProviderID + "/transcription_request"
+	TranscriptionResponseExtensionKey = GoogleProviderID + "/transcription_response"
+	EmbeddingRequestExtensionKey      = GoogleProviderID + "/embedding_request"
+	EmbeddingResponseExtensionKey     = GoogleProviderID + "/embedding_response"
+	ImageRequestExtensionKey          = GoogleProviderID + "/image_request"
+	ImageResponseExtensionKey         = GoogleProviderID + "/image_response"
 )
 
 const (

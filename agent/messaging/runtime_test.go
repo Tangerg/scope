@@ -94,13 +94,9 @@ func (s *senderExecution) Step(_ context.Context, turn run.Turn) (run.Transition
 	s.pending = nil
 	s.done = true
 	if completion.Outcome.Status() == run.SettlementStatusFailed {
-		diagnostic, err := payload.Decode[string]()
-		if err != nil {
-			return run.Transition{}, err
-		}
-		failure, err := run.NewFailure(run.FailureKindExternal, "test.delivery.failed", diagnostic)
-		if err != nil {
-			return run.Transition{}, err
+		failure, valid := completion.Outcome.Failure()
+		if !valid {
+			return run.Transition{}, run.ErrInvalidSettlement
 		}
 		return run.Fail(1, failure)
 	}

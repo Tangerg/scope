@@ -42,7 +42,7 @@ func testForkUsesBoundedWindowsAndDeclarationOrder(t *testing.T) {
 	for _, id := range []string{"first", "second", "third"} {
 		program := newManagedBranchProgram(t, id, tracker)
 		branches = append(branches, ForkBranch{
-			ID: id, Program: program, Budget: mustBudget(t),
+			ID: id, Child: run.ChildBinding{Program: program, Budget: mustBudget(t)},
 		})
 	}
 	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
@@ -117,7 +117,7 @@ func TestForkPropagatesLowestFailingBranch(t *testing.T) {
 				return branchOutput{}, fmt.Errorf("%s failed", branchID)
 			}),
 		), "fork-failure-"+id)
-		branches = append(branches, ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
+		branches = append(branches, ForkBranch{ID: id, Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}})
 	}
 	stage, err := Fork(ForkConfig[forkInput, branchOutput, forkOutput]{
 		ID: "workers", Branches: branches, WindowSize: 2,
@@ -160,7 +160,7 @@ func TestForkPreservesFailedAdmissions(t *testing.T) {
 						return numberOutput(input), nil
 					}),
 				), "admission-"+id)
-				branches = append(branches, ForkBranch{ID: id, Program: child, Budget: mustBudget(t)})
+				branches = append(branches, ForkBranch{ID: id, Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}})
 			}
 			stage, err := Fork(ForkConfig[forkInput, numberOutput, numberOutput]{
 				ID: "workers", Branches: branches, WindowSize: 2,
@@ -233,7 +233,7 @@ func TestForkRequiresExplicitValidWindowAndContracts(t *testing.T) {
 			return branchOutput{Branch: "valid", Value: input.Value}, nil
 		}),
 	), "fork-valid")
-	validBranch := ForkBranch{ID: "valid", Program: child, Budget: mustBudget(t)}
+	validBranch := ForkBranch{ID: "valid", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}
 	for name, config := range map[string]ForkConfig[forkInput, branchOutput, forkOutput]{
 		"empty": {ID: "workers", WindowSize: 1, Reduce: func(context.Context, forkInput, []branchOutput) (forkOutput, error) { return forkOutput{}, nil }},
 		"zero window size": {

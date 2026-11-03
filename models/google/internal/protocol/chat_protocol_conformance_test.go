@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -111,7 +112,7 @@ func TestChatRejectsMultipleProviderCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "supports one output") {
+	if _, err := model.Call(t.Context(), request); !errors.Is(err, corechat.ErrInvalidResponse) || !strings.Contains(err.Error(), "2 candidates") {
 		t.Fatalf("Call error = %v; want multiple-candidate rejection", err)
 	}
 }

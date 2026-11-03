@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/minimax"
 )
 
@@ -57,12 +58,12 @@ func TestIgnoredOptionsAreRejectedBeforeProviderIO(t *testing.T) {
 				}
 				request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}, Options: requestOptions}
 				response, err := model.Call(t.Context(), request)
-				if response != nil || corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted {
+				if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 					t.Fatalf("Call response=%v, error=%v", response, err)
 				}
 				streamer := model.(corechat.Streamer)
 				for delta, err := range streamer.Stream(t.Context(), request) {
-					if delta != nil || corechat.ClassifyFailure(err) != corechat.CallFailureNotExecuted {
+					if delta != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
 						t.Fatalf("Stream delta=%v, error=%v", delta, err)
 					}
 				}

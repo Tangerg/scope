@@ -240,8 +240,8 @@ func newCompositionProgram(compiler *agentrun.Compiler, local agentrun.Program[t
 		Messages: agentrun.NewQuota(compositionBranchBudgetMessages),
 	}
 	branches := []workflow.ForkBranch{
-		compositionLocalIndex: {ID: "local", Program: localBranch.Erase(), Budget: branchBudget},
-		compositionModelIndex: {ID: "model", Program: modelBranch.Erase(), Budget: branchBudget},
+		compositionLocalIndex: {ID: "local", Child: agentrun.ChildBinding{Program: localBranch.Erase(), Budget: branchBudget}},
+		compositionModelIndex: {ID: "model", Child: agentrun.ChildBinding{Program: modelBranch.Erase(), Budget: branchBudget}},
 	}
 	fork, err := workflow.Fork(workflow.ForkConfig[compositionInput, string, compositionOutput]{
 		ID: "compose", WindowSize: uint32(len(branches)), Branches: branches,

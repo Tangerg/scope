@@ -209,7 +209,7 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		call, err := workflow.Call(workflow.CallConfig{ID: "leaf", Program: leaf.Erase()})
+		call, err := workflow.Call(workflow.CallConfig{ID: "leaf", Child: run.ChildBinding{Program: leaf.Erase()}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +223,7 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 		if err != nil {
 			t.Fatal(err)
 		}
-		delegate, err := interaction.NewDelegate(interaction.DelegateConfig{Name: "delegate", Description: "Answer through a child", Program: composite.Erase()})
+		delegate, err := interaction.NewDelegate(interaction.DelegateConfig{Name: "delegate", Description: "Answer through a child", Child: run.ChildBinding{Program: composite.Erase()}})
 		if err != nil {
 			t.Fatal(err)
 		}

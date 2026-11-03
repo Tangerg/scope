@@ -26,7 +26,7 @@ import (
 )
 
 func TestCapabilityPanicsEndObservationAndPropagateUnchanged(t *testing.T) {
-	for _, operation := range []string{"tool", "read", "write", "clear", "conversations", "index", "search", "delete_ids", "delete_where"} {
+	for _, operation := range []string{"tool", "read", "append", "clear", "conversations", "index", "search", "delete_ids", "delete_where"} {
 		t.Run(operation, func(t *testing.T) {
 			spans := tracetest.NewSpanRecorder()
 			traces := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()), sdktrace.WithSpanProcessor(spans))
@@ -104,7 +104,7 @@ func (p panickingCapability) Read(context.Context, history.ConversationID) ([]ch
 	panic(p.value)
 }
 
-func (p panickingCapability) Write(context.Context, history.ConversationID, ...chat.Message) (history.WriteOutcome, error) {
+func (p panickingCapability) Append(context.Context, history.Batch) (history.Receipt, error) {
 	panic(p.value)
 }
 
@@ -132,12 +132,9 @@ func (p panickingCapability) invoke(t *testing.T, operation string, traces trace
 		if err != nil {
 			t.Fatal(err)
 		}
-		wrapped, err := middleware.Wrap(p)
-		if err != nil {
-			t.Fatal(err)
-		}
+		wrapped := middleware.Call(p)
 		_, _ = wrapped.Call(t.Context(), tool.Invocation{})
-	case "read", "write", "clear", "conversations":
+	case "read", "append", "clear", "conversations":
 		middleware, err := historyotel.NewMiddleware(historyotel.MiddlewareConfig{System: "memory", TracerProvider: traces, MeterProvider: meters})
 		if err != nil {
 			t.Fatal(err)
@@ -145,8 +142,8 @@ func (p panickingCapability) invoke(t *testing.T, operation string, traces trace
 		switch operation {
 		case "read":
 			_, _ = middleware.Store(p).Read(t.Context(), "conversation")
-		case "write":
-			_, _ = middleware.Store(p).Write(t.Context(), "conversation")
+		case "append":
+			_, _ = middleware.Store(p).Append(t.Context(), history.Batch{})
 		case "clear":
 			_ = middleware.Store(p).Clear(t.Context(), "conversation")
 		case "conversations":

@@ -14,6 +14,8 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
+const defaultMaxOutputBytes = 32 << 20
+
 type apiConfig struct {
 	APIKey     string
 	BaseURL    string
@@ -41,7 +43,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("stability: HTTP client: %w", err)
 	}
-	client := resty.NewWithClient(boundClient)
+	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(defaultMaxOutputBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
@@ -142,7 +144,7 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 		return nil, nil, fmt.Errorf("stability: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, nil, fmt.Errorf("stability: http %d: %s", resp.StatusCode(), resp.String())
+		return nil, nil, fmt.Errorf("stability: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
 	}
 	return resp.Body(), resp.Header(), nil
 }

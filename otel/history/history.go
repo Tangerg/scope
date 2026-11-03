@@ -34,10 +34,10 @@ const (
 type historyOperation string
 
 const (
-	operationRead  historyOperation = "read"
-	operationWrite historyOperation = "write"
-	operationClear historyOperation = "clear"
-	operationList  historyOperation = "list"
+	operationRead   historyOperation = "read"
+	operationAppend historyOperation = "append"
+	operationClear  historyOperation = "clear"
+	operationList   historyOperation = "list"
 )
 
 func (h historyOperation) spanName() string { return "history." + string(h) }
@@ -191,8 +191,8 @@ func (i invalidHistoryStore) Read(context.Context, corehistory.ConversationID) (
 	return nil, i.err
 }
 
-func (i invalidHistoryStore) Write(context.Context, corehistory.ConversationID, ...chat.Message) (corehistory.WriteOutcome, error) {
-	return corehistory.WriteOutcome{}, i.err
+func (i invalidHistoryStore) Append(context.Context, corehistory.Batch) (corehistory.Receipt, error) {
+	return corehistory.Receipt{}, i.err
 }
 
 func (i invalidHistoryStore) Clear(context.Context, corehistory.ConversationID) error {
@@ -207,12 +207,12 @@ func (h historyStore) Read(ctx context.Context, conversationID corehistory.Conve
 	return messages, err
 }
 
-func (h historyStore) Write(ctx context.Context, conversationID corehistory.ConversationID, messages ...chat.Message) (outcome corehistory.WriteOutcome, err error) {
-	ctx, observation := h.middleware.start(ctx, operationWrite, conversationID,
-		attribute.Int(messageCountAttribute, len(messages)),
+func (h historyStore) Append(ctx context.Context, batch corehistory.Batch) (receipt corehistory.Receipt, err error) {
+	ctx, observation := h.middleware.start(ctx, operationAppend, batch.ConversationID(),
+		attribute.Int(messageCountAttribute, batch.Len()),
 	)
 	defer errortelemetry.Finish(&err, observation.finish)
-	return h.next.Write(ctx, conversationID, messages...)
+	return h.next.Append(ctx, batch)
 }
 
 func (h historyStore) Clear(ctx context.Context, conversationID corehistory.ConversationID) (err error) {

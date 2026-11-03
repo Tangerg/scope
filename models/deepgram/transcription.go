@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
@@ -75,41 +76,41 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
 	if decodeErr != nil {
-		return nil, decodeErr
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
 	for _, field := range []string{fieldModel, fieldLanguage} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("deepgram: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)}
 		}
 	}
 
 	paramsValue, _, err := effectiveOptions.Extensions.Decode[listenParams](TranscriptionRequestExtensionKey)
 	params := &paramsValue
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	for _, field := range []string{fieldModel, fieldLanguage, fieldTier, fieldVersion, fieldPunctuate, fieldSmartFormat, fieldDiarize, fieldNumerals, fieldParagraphs, fieldUtterances, fieldTopics, fieldSentiment, fieldIntents, fieldDetectEntities, fieldDetectLanguage, fieldSummarize, fieldRedact, fieldKeyterm} {
 		if _, exists := params.Extra[field]; exists {
-			return nil, fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", TranscriptionRequestExtensionKey, field)
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("deepgram: extension %q extra field %q has a dedicated request field", TranscriptionRequestExtensionKey, field)}
 		}
 	}
 	params.Model = effectiveOptions.Model
 	params.Language = effectiveOptions.Language
 	if params.Summarize == summaryVersion1 {
-		return nil, errors.New("deepgram: summarize=v1 is deprecated; use true or v2")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("deepgram: summarize=v1 is deprecated; use true or v2")}
 	}
 
 	audio, err := req.Audio.Bytes()
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
 	contentType := req.Audio.MIME

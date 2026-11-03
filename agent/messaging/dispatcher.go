@@ -36,8 +36,8 @@ type DispatcherConfig struct {
 
 // Dispatcher delivers each frozen Message under one Effect-derived SignalID.
 // It owns no retry loop, mailbox, routing registry, or background work.
-// For valid Runtime requests, local rejection settles Failed with a JSON
-// diagnostic string. Success carries Receipt; every DeliveryPort error remains
+// For valid Runtime requests, local rejection settles Failed with a typed
+// diagnostic. Success carries Receipt; every DeliveryPort error remains
 // unknown because it cannot disprove an earlier admission.
 type Dispatcher struct {
 	port DeliveryPort
@@ -97,10 +97,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ 
 
 var _ run.Dispatcher = (*Dispatcher)(nil)
 
+const failureCodeDispatcher = "messaging.dispatch.rejected"
+
 func messageFailureSettlement(cause error) (run.Settlement, error) {
-	payload, err := jsonv2.Marshal(run.NormalizeDiagnostic(cause.Error()))
+	failure, err := run.NewFailure(run.FailureKindContract, failureCodeDispatcher, run.NormalizeDiagnostic(cause.Error()))
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusFailed, payload)
+	return run.NewFailedSettlement(failure, run.Payload{})
 }

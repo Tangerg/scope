@@ -1,6 +1,7 @@
 package cassandra_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -65,43 +66,25 @@ func TestNewStoreAcceptsValidIdentifiers(t *testing.T) {
 	}
 }
 
-// Cassandra accepts a write at ANY when "a single replica may respond, or the
-// coordinator may store a hint", and replays the hint later. A hint is not
-// readable and is lost if it expires before delivery, so a store that accepted
-// that level would return nil from Write for a message no replica holds.
-//
-// ANY is also the zero value of gocql.Consistency, so this catches a session
-// whose consistency was never configured at all.
-func TestNewStoreRefusesConsistencyThatMayOnlyStoreAHint(t *testing.T) {
-	for name, session := range map[string]cassandra.Session{
-		"explicit ANY":     &stubSession{Session: new(gocql.Session), consistency: gocql.Any},
-		"never configured": new(gocql.Session),
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := cassandra.NewStore(t.Context(), cassandra.StoreConfig{
-				Session: session, Keyspace: "scope", TableName: "chat_history",
-			})
-			if !errors.Is(err, cassandra.ErrUnacknowledgedWrites) {
-				t.Fatalf("NewStore() = %v, want ErrUnacknowledgedWrites", err)
+func TestNewStoreDoesNotDependOnSessionConsistency(t *testing.T) {
+	for _, consistency := range []gocql.Consistency{gocql.Any, gocql.One, gocql.Quorum, gocql.LocalOne} {
+		t.Run(consistency.String(), func(t *testing.T) {
+			session := &stubSession{Session: new(gocql.Session), consistency: consistency}
+			if _, err := cassandra.NewStore(t.Context(), cassandra.StoreConfig{Session: session}); err != nil {
+				t.Fatal(err)
+			}
+			if session.consistency != consistency {
+				t.Fatal("session defaults changed")
 			}
 		})
 	}
 }
 
-// Every other level means a successful write reached at least one replica, so
-// none of them is refused.
-func TestNewStoreAcceptsEveryDurableConsistency(t *testing.T) {
-	for _, consistency := range []gocql.Consistency{
-		gocql.One, gocql.Two, gocql.Three, gocql.Quorum,
-		gocql.All, gocql.LocalQuorum, gocql.EachQuorum, gocql.LocalOne,
-	} {
-		t.Run(consistency.String(), func(t *testing.T) {
-			session := &stubSession{Session: new(gocql.Session), consistency: consistency}
-			if _, err := cassandra.NewStore(t.Context(), cassandra.StoreConfig{
-				Session: session, Keyspace: "scope", TableName: "chat_history",
-			}); err != nil {
-				t.Fatalf("NewStore() = %v, want nil", err)
-			}
-		})
+func TestNewStoreHonorsCancellationBeforeIO(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	store, err := cassandra.NewStore(ctx, cassandra.StoreConfig{Session: new(gocql.Session), InitializeSchema: true})
+	if store != nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("NewStore = %v, %v", store, err)
 	}
 }

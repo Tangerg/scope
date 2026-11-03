@@ -3,6 +3,8 @@ package interaction
 import (
 	"fmt"
 
+	"github.com/Tangerg/scope/core/invocation"
+
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -74,14 +76,32 @@ func modelFailureSettlement(response *chat.Response, cause error) (run.Settlemen
 	if cause == nil {
 		return run.Settlement{}, ErrInvalidModelSettlement
 	}
-	failure := modelFailure{Diagnostic: run.NormalizeDiagnostic(cause.Error()), Response: response}
-	status := run.SettlementStatusUnknown
-	switch chat.ClassifyFailure(cause) {
-	case chat.CallFailureNotExecuted:
-		failure.NotExecuted = true
-		status = run.SettlementStatusFailed
-	case chat.CallFailureFailed:
-		status = run.SettlementStatusFailed
+	diagnostic := run.NormalizeDiagnostic(cause.Error())
+	kind := invocation.ClassifyFailure(cause)
+	if kind == invocation.FailureUnknown {
+		return (dispatchUncertainty{Model: &modelUncertainty{Diagnostic: diagnostic, Response: response}}).settlement()
 	}
-	return (dispatchFailure{Model: &failure}).settlement(status)
+	code := failureCodeModelFailed
+	var details run.Payload
+	if kind == invocation.FailureNotExecuted {
+		if response != nil {
+			return run.Settlement{}, ErrInvalidModelSettlement
+		}
+		code = failureCodeModelNotExecuted
+	} else if response != nil {
+		value := failedModelDetails{Response: response}
+		if err := value.validate(); err != nil {
+			return run.Settlement{}, err
+		}
+		var err error
+		details, err = run.EncodePayload(value)
+		if err != nil {
+			return run.Settlement{}, err
+		}
+	}
+	failure, err := run.NewFailure(run.FailureKindExternal, code, diagnostic)
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	return run.NewFailedSettlement(failure, details)
 }

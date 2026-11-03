@@ -42,7 +42,6 @@ func (d Document) MarshalJSON() ([]byte, error) {
 	if err := (&d).Validate(); err != nil {
 		return nil, err
 	}
-	type wireDocument Document
 	return jsonv2.Marshal(wireDocument(d))
 }
 
@@ -50,7 +49,6 @@ func (d *Document) UnmarshalJSON(data []byte) error {
 	if d == nil {
 		return fmt.Errorf("%w: nil receiver", ErrInvalidDocument)
 	}
-	type wireDocument Document
 	var decoded wireDocument
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidDocument, err)
@@ -103,3 +101,7 @@ func (d *Document) Validate() error {
 	}
 	return nil
 }
+
+type wireDocument Document
+
+func (Document) JSONSchemaModel() any { return wireDocument{} }

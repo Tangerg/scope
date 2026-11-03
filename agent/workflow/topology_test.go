@@ -63,7 +63,7 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		return numberOutput(input), nil
 	})
 	call, err := Call(CallConfig{
-		ID: "call", Program: numberChild, Budget: budget, Capabilities: capabilities,
+		ID: "call", Child: run.ChildBinding{Program: numberChild, Budget: budget, Capabilities: capabilities},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		ID:     "switch",
 		Select: func(context.Context, numberInput) (string, error) { return "primary", nil },
 		Cases: []SwitchCase{
-			{ID: "primary", Program: numberChild, Budget: budget, Capabilities: capabilities},
-			{ID: "fallback", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "primary", Child: run.ChildBinding{Program: numberChild, Budget: budget, Capabilities: capabilities}},
+			{ID: "fallback", Child: run.ChildBinding{Program: alternateNumberChild, Budget: budget, Capabilities: capabilities}},
 		},
 	})
 	if err != nil {
@@ -82,8 +82,8 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 	fork, err := Fork(ForkConfig[numberInput, numberOutput, numberOutput]{
 		ID: "fork",
 		Branches: []ForkBranch{
-			{ID: "left", Program: numberChild, Budget: budget, Capabilities: capabilities},
-			{ID: "right", Program: alternateNumberChild, Budget: budget, Capabilities: capabilities},
+			{ID: "left", Child: run.ChildBinding{Program: numberChild, Budget: budget, Capabilities: capabilities}},
+			{ID: "right", Child: run.ChildBinding{Program: alternateNumberChild, Budget: budget, Capabilities: capabilities}},
 		},
 		WindowSize: 1,
 		Reduce: func(_ context.Context, _ numberInput, outputs []numberOutput) (numberOutput, error) {
@@ -94,14 +94,14 @@ func TestDefinitionTopologyProjectsEverySealedStageKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	mapper, err := Map[numberInput, numberOutput](MapConfig[numberInput, numberOutput]{
-		ID: "map", Program: numberChild, Budget: budget, Capabilities: capabilities,
+		ID: "map", Child: run.ChildBinding{Program: numberChild, Budget: budget, Capabilities: capabilities},
 		WindowSize: 2, MaxItems: 4,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	loop, err := Loop(LoopConfig[numberInput]{
-		ID: "loop", Body: identityChild, Budget: budget, Capabilities: capabilities, MaxIterations: run.NewQuota(3),
+		ID: "loop", Body: run.ChildBinding{Program: identityChild, Budget: budget, Capabilities: capabilities}, MaxIterations: run.NewQuota(3),
 		Predicate: func(context.Context, numberInput) (bool, error) { return true, nil },
 	})
 	if err != nil {
@@ -213,8 +213,8 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 		ID:     "route",
 		Select: func(context.Context, numberInput) (string, error) { return "first", nil },
 		Cases: []SwitchCase{
-			{ID: "first", Program: child, Budget: mustBudget(t)},
-			{ID: "second", Program: child, Budget: mustBudget(t)},
+			{ID: "first", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}},
+			{ID: "second", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}},
 		},
 	})
 	if err != nil {

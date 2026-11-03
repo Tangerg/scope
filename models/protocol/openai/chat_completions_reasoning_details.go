@@ -25,22 +25,15 @@ const (
 var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
 
 // ReasoningDetailsConfig describes the structured reasoning_details dialect
-// shared by several OpenAI-compatible providers. Provider scopes opaque replay
-// state so one provider's signed details are never sent to another provider.
+// shared by several OpenAI-compatible providers. The final binding supplies
+// the issuer, so this wire configuration cannot select another replay owner.
 type ReasoningDetailsConfig struct {
-	Provider        string
 	TextField       string
 	DetailsField    string
 	ReplayPlainText bool
 }
 
 func (r ReasoningDetailsConfig) Validate() error {
-	if err := validateProvider(r.Provider); err != nil {
-		return fmt.Errorf("openai: reasoning details provider: %w", err)
-	}
-	if len(r.Provider) > int(^uint16(0)) {
-		return errors.New("openai: reasoning details provider exceeds framing limit")
-	}
 	if r.TextField != reasoningField && r.TextField != reasoningContentField {
 		return fmt.Errorf("openai: unsupported reasoning text field %q", r.TextField)
 	}
@@ -57,7 +50,7 @@ func (r ReasoningDetailsConfig) Validate() error {
 	return nil
 }
 
-// ReasoningDetailsDialect keeps visible text in Part.Text and native replay
+// The codec keeps visible text in Part.Text and native replay
 // fields in ReasoningState. Detail identities keep separate blocks from merging
 // during accumulation. Replay uses the current text and preserves native fields;
 // callers remain responsible for preserving content covered by provider signatures.
@@ -65,19 +58,9 @@ func (r ReasoningDetailsConfig) Validate() error {
 // missing or null detail fields do not create replay state. Each frame contains
 // an array with zero or one native detail without Core-owned text; other shapes
 // are rejected.
-func ReasoningDetailsDialect(config ReasoningDetailsConfig) (Dialect, error) {
-	if err := config.Validate(); err != nil {
-		return Dialect{}, err
-	}
-	codec := reasoningDetailsCodec{config: config}
-	return Dialect{
-		Provider: config.Provider, TokenLimitField: TokenLimitMaxTokens,
-		request: codec, response: func() responseDialect { return codec },
-	}, nil
-}
-
 type reasoningDetailsCodec struct {
-	config ReasoningDetailsConfig
+	provider string
+	config   ReasoningDetailsConfig
 }
 
 func (r reasoningDetailsCodec) PrepareRequest(source *corechat.Request, target *openaisdk.ChatCompletionNewParams) error {
@@ -133,13 +116,13 @@ func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field
 		target.Parts = append(parts, target.Parts...)
 		return nil
 	}
-	return prependTextReasoning(fields, r.config.Provider, r.config.TextField, target)
+	return prependTextReasoning(fields, r.provider, r.config.TextField, target)
 }
 
 func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]corechat.Part, error) {
 	var details []json.RawMessage
 	if err := jsonv2.Unmarshal(raw, &details); err != nil {
-		return nil, fmt.Errorf("%s: decode %s: %w", r.config.Provider, r.config.DetailsField, err)
+		return nil, fmt.Errorf("%s: decode %s: %w", r.provider, r.config.DetailsField, err)
 	}
 	if len(details) == 0 {
 		state, err := r.encodeFrame(json.RawMessage("[]"))
@@ -152,7 +135,7 @@ func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]cor
 	for index := range details {
 		part, err := r.decodeDetail(details[index], index, sequence)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %s[%d]: %w", r.config.Provider, r.config.DetailsField, index, err)
+			return nil, fmt.Errorf("%s: %s[%d]: %w", r.provider, r.config.DetailsField, index, err)
 		}
 		parts = append(parts, part)
 	}
@@ -192,7 +175,7 @@ func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequ
 		Format   json.RawMessage `json:"format,omitzero"`
 		Index    json.RawMessage `json:"index,omitzero"`
 		Chunk    uint64          `json:"chunk,omitzero"`
-	}{Provider: r.config.Provider, Type: fields["type"], ID: fields["id"], Format: fields["format"], Index: fields["index"]}
+	}{Provider: r.provider, Type: fields["type"], ID: fields["id"], Format: fields["format"], Index: fields["index"]}
 	if !hasReasoningDetailIdentity(fields) {
 		// Anonymous blocks have no cross-chunk identity to justify merging them.
 		identity.Chunk = sequence
@@ -211,12 +194,12 @@ func (r reasoningDetailsCodec) encodeFrame(raw json.RawMessage) ([]byte, error) 
 	if uint64(len(raw)) > uint64(^uint32(0)) {
 		return nil, errors.New("reasoning detail exceeds framing limit")
 	}
-	providerLength := len(r.config.Provider)
+	providerLength := len(r.provider)
 	frame := make([]byte, reasoningDetailFrameHeaderSize+providerLength+len(raw))
 	copy(frame, reasoningDetailFrameMagic[:])
 	binary.BigEndian.PutUint16(frame[4:6], uint16(providerLength))
 	binary.BigEndian.PutUint32(frame[6:reasoningDetailFrameHeaderSize], uint32(len(raw)))
-	copy(frame[reasoningDetailFrameHeaderSize:], r.config.Provider)
+	copy(frame[reasoningDetailFrameHeaderSize:], r.provider)
 	copy(frame[reasoningDetailFrameHeaderSize+providerLength:], raw)
 	return frame, nil
 }
@@ -331,7 +314,7 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 				return nil, true, false, errors.New("reasoning state must not contain Core-owned text")
 			}
 		}
-		if provider != r.config.Provider {
+		if provider != r.provider {
 			ownProvider = false
 		} else {
 			frames = append(frames, details...)

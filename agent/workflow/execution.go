@@ -86,7 +86,7 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 	}
 }
 
-func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, binding childBinding) (run.Transition, error) {
+func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, binding run.ChildBinding) (run.Transition, error) {
 	input, err := run.ParsePayload(e.state.CurrentValue)
 	if err != nil {
 		return run.Transition{}, err
@@ -95,10 +95,11 @@ func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, bin
 	if err != nil {
 		return run.Transition{}, err
 	}
-	invocation, effect, err := child.Start(turn, 0, run.ChildSpec{
-		Key: key, ProgramRef: binding.programRef(), Input: input,
-		Budget: binding.budget, Capabilities: binding.capabilities,
-	})
+	spec, err := binding.Spec(key, input)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	invocation, effect, err := child.Start(turn, 0, spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -237,10 +238,11 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 		if err != nil {
 			return run.Transition{}, err
 		}
-		invocation, effect, err := child.Start(turn, uint32(len(effects)), run.ChildSpec{
-			Key: key, ProgramRef: member.binding.programRef(), Input: input,
-			Budget: member.binding.budget, Capabilities: member.binding.capabilities,
-		})
+		spec, err := member.binding.Spec(key, input)
+		if err != nil {
+			return run.Transition{}, err
+		}
+		invocation, effect, err := child.Start(turn, uint32(len(effects)), spec)
 		if err != nil {
 			return run.Transition{}, err
 		}

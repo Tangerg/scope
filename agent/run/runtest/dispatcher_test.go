@@ -32,7 +32,15 @@ func TestScriptedDispatcherPreservesSettlementDeltaAndRequestOwnership(t *testin
 			payload := json.RawMessage(`"result"`)
 			delta := json.RawMessage(`"first"`)
 			effect := request.Effect()
-			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: status, SettlementPayload: payload, Deltas: []json.RawMessage{delta}}}})
+			var failure run.Failure
+			if status == run.SettlementStatusFailed {
+				var err error
+				failure, err = run.NewFailure(run.FailureKindExternal, "test.dispatch.failed", "dispatch failed")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: status, SettlementPayload: payload, Failure: failure, Deltas: []json.RawMessage{delta}}}})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -78,20 +79,20 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 
 func (e *EmbeddingModel) Call(ctx context.Context, request *embedding.Request) (*embedding.Response, error) {
 	if e == nil || e.api == nil {
-		return nil, errors.New("mistral: nil EmbeddingModel")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("mistral: nil EmbeddingModel")}
 	}
 	if err := request.Validate(); err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effective := *request
 	options, err := e.defaults.Resolve(request.Options)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	effective.Options = options
 	native, _, err := options.Extensions.Decode[EmbeddingRequestOptions](EmbeddingRequestExtensionKey)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	response, err := e.api.embedding(ctx, &embeddingRequest{
 		Model: options.Model, Input: request.Texts, OutputDimension: options.Dimensions,

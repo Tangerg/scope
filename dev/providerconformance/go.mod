@@ -9,6 +9,7 @@ require (
 	github.com/Tangerg/scope/models/bedrock v0.59.0
 	github.com/Tangerg/scope/models/blackforestlabs v0.59.0
 	github.com/Tangerg/scope/models/cohere v0.59.0
+	github.com/Tangerg/scope/models/deepgram v0.59.0
 	github.com/Tangerg/scope/models/elevenlabs v0.59.0
 	github.com/Tangerg/scope/models/gladia v0.59.0
 	github.com/Tangerg/scope/models/google v0.59.0
@@ -20,8 +21,10 @@ require (
 	github.com/Tangerg/scope/models/ollama v0.59.0
 	github.com/Tangerg/scope/models/openai v0.59.0
 	github.com/Tangerg/scope/models/openrouter v0.59.0
+	github.com/Tangerg/scope/models/prodia v0.59.0
 	github.com/Tangerg/scope/models/replicate v0.59.0
 	github.com/Tangerg/scope/models/revai v0.59.0
+	github.com/Tangerg/scope/models/stability v0.59.0
 	github.com/Tangerg/scope/models/voyage v0.59.0
 	github.com/Tangerg/scope/models/xiaomi v0.59.0
 	github.com/Tangerg/scope/tools v0.59.0

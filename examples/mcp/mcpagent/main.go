@@ -149,10 +149,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	}
 	var selected []tool.Tool
 	for _, candidate := range available {
-		identity, found, identityErr := tool.Capability[remoteToolIdentity](candidate)
-		if identityErr != nil {
-			return agentrun.Program[interaction.Input, interaction.Output]{}, identityErr
-		}
+		identity, found := candidate.(remoteToolIdentity)
 		if !found {
 			return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("MCP tool has no remote identity")
 		}
@@ -165,7 +162,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 		return agentrun.Program[interaction.Input, interaction.Output]{}, errors.New("briefing requires the selected search tool, expert identity, and an explicit query")
 	}
 	permit := config.AllowSearch
-	guard, err := tool.NewGuard(tool.GuardConfig{Tool: selected[0],
+	guard, err := tool.NewGuard(tool.GuardConfig{
 		Authorizer: tool.AuthorizerFunc(func(context.Context, tool.Authorization) (bool, error) { return permit, nil }),
 	})
 	if err != nil {
@@ -181,7 +178,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: string(toolRevision), Tools: []tool.Tool{guard}})
+	toolSet, err := interaction.NewToolSet(interaction.ToolSetConfig{Revision: string(toolRevision), Tools: selected, Middlewares: []tool.CallMiddleware{guard.Call}})
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("create MCP tool set: %w", err)
 	}

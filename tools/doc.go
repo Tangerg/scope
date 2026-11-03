@@ -41,7 +41,7 @@
 // # Concurrency and limits
 //
 // Concurrency declarations follow
-// [github.com/Tangerg/scope/agent.ConcurrentTool].
+// [github.com/Tangerg/scope/agent/interaction.ConcurrentTool].
 // Filesystem read, glob, and grep tools declare no conflict. Filesystem mutation
 // tools do not declare safe overlap. Backends still own synchronization for
 // direct calls and calls from different Processes.

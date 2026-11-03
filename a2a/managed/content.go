@@ -155,15 +155,18 @@ func exactData(value any) bool {
 	}
 }
 
-func jsonPart(raw json.RawMessage) *sdk.Part {
+func (c contentPolicy) part(raw json.RawMessage) *sdk.Part {
 	var text string
-	if string(raw) != "null" && jsonv2.Unmarshal(raw, &text) == nil {
+	if slices.Contains(c.outputs, mediaTypePlainText) && string(raw) != "null" && jsonv2.Unmarshal(raw, &text) == nil {
 		part := sdk.NewTextPart(text)
 		part.MediaType = mediaTypePlainText
 		return part
 	}
 	part := sdk.NewTextPart(string(raw))
-	part.MediaType = mediaTypeJSON
+	part.MediaType = mediaTypePlainText
+	if slices.Contains(c.outputs, mediaTypeJSON) {
+		part.MediaType = mediaTypeJSON
+	}
 	return part
 }
 

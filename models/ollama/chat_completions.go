@@ -13,9 +13,11 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
+const providerID = "ollama"
+
 const (
-	OpenAIRequestExtensionKey     = "ollama/openai_request"
-	OpenAIStreamChunkExtensionKey = "ollama/openai_stream_chunk"
+	OpenAIRequestExtensionKey     = providerID + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -40,7 +42,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if apiKey == "" {
 		apiKey = "ollama"
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: apiKey, DefaultOptions: config.DefaultOptions, BaseURL: resolveOpenAIBaseURL(config.BaseURL), HTTPClient: config.HTTPClient}, openai.Dialect{Provider: "ollama", TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: apiKey, DefaultOptions: config.DefaultOptions, BaseURL: resolveOpenAIBaseURL(config.BaseURL), HTTPClient: config.HTTPClient}, openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("ollama: construct OpenAI-compatible chat: %w", err)
 	}

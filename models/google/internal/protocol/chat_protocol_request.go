@@ -22,7 +22,7 @@ const (
 	// RequestExtensionKey stores provider-specific [genai.GenerateContentConfig]
 	// fields using the SDK's JSON names. Fields owned by Core are rejected, as is
 	// codeExecution because its output and replay cannot be represented losslessly.
-	RequestExtensionKey = "google/request"
+	RequestExtensionKey = GoogleProviderID + "/request"
 )
 
 func mapProtocolRequest(provider string, defaults corechat.Options, req *corechat.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {

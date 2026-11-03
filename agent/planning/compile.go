@@ -11,13 +11,12 @@ import (
 // Revision identifies their opaque settings, including cost functions
 // and child input conversion. The compiler hashes the declared planning domain.
 type Config struct {
-	Name            string
-	Description     string
-	Goal            Goal
-	Actions         []ActionBinding
-	Planner         Planner
-	Sensor          Sensor
-	ActionExecutors map[string]ActionExecutor
+	Name        string
+	Description string
+	Goal        Goal
+	Actions     []ActionBinding
+	Planner     Planner
+	Sensor      Sensor
 	// MaxActionAttempts is unlimited by default; a finite zero cannot admit an action.
 	MaxActionAttempts run.Quota
 	Revision          string
@@ -37,14 +36,14 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 	if err != nil {
 		return zero, err
 	}
-	dispatch, err := newDispatcher(def, dispatcherConfig{Sensor: cfg.Sensor, ActionExecutors: cfg.ActionExecutors})
+	dispatch, err := newDispatcher(def, cfg.Sensor)
 	if err != nil {
 		return zero, err
 	}
 	type actionFact struct {
 		Name, Description      string
 		Preconditions, Effects []Condition
-		Required               run.CapabilitySet
+		Policy                 run.EffectPolicy
 		Child                  *run.ProgramRef `json:"child,omitzero"`
 		Budget                 run.Budget
 		Capabilities           run.CapabilitySet
@@ -53,10 +52,10 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 	for _, b := range def.bindings {
 		var child *run.ProgramRef
 		if b.delegatesToChild() {
-			child = new(b.childProgram.ProgramRef())
+			child = new(b.child.Program.ProgramRef())
 		}
 		a := b.action
-		actions = append(actions, actionFact{a.Name(), a.Description(), a.Preconditions(), a.Effects(), b.required, child, b.childBudget, b.childCapabilities})
+		actions = append(actions, actionFact{a.Name(), a.Description(), a.Preconditions(), a.Effects(), b.policy, child, b.child.Budget, b.child.Capabilities})
 	}
 	configuration := struct {
 		Goal, Description string

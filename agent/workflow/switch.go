@@ -15,15 +15,8 @@ import (
 type SwitchSelector[I any] func(ctx context.Context, input I) (caseID string, err error)
 
 type SwitchCase struct {
-	// ID is unique within this Switch Stage and stable across restoration.
-	ID string
-
-	Program run.Program[run.Payload, run.Payload]
-
-	// Budget is permanently allocated from the parent when selected.
-	Budget run.Budget
-
-	Capabilities run.CapabilitySet
+	ID    string
+	Child run.ChildBinding
 }
 
 type SwitchConfig[I any] struct {
@@ -38,7 +31,7 @@ type SwitchConfig[I any] struct {
 
 type switchCase struct {
 	id      string
-	binding childBinding
+	binding run.ChildBinding
 }
 
 type switchStage struct {
@@ -88,15 +81,15 @@ func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []Sw
 	seen := make(map[string]struct{}, len(declared))
 	var outputSchema jsonschema.Schema
 	for index, candidate := range declared {
-		binding, valid := newChildBinding(candidate.Program, candidate.Budget, candidate.Capabilities)
-		if !run.ValidQualifiedName(candidate.ID) || !valid {
+		binding := candidate.Child
+		if !run.ValidQualifiedName(candidate.ID) || !binding.Valid() {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q Cases[%d]", ErrInvalidStage, stageID, index)
 		}
 		if _, duplicate := seen[candidate.ID]; duplicate {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q has duplicate case %q", ErrInvalidStage, stageID, candidate.ID)
 		}
 		seen[candidate.ID] = struct{}{}
-		descriptor := candidate.Program.Descriptor()
+		descriptor := binding.Program.Descriptor()
 		if !inputSchema.Equal(descriptor.InputSchema()) {
 			return nil, jsonschema.Schema{}, fmt.Errorf("%w: Switch %q case %q input schema mismatch", ErrInvalidStage, stageID, candidate.ID)
 		}
@@ -110,11 +103,11 @@ func newSwitchCases(stageID string, inputSchema jsonschema.Schema, declared []Sw
 	return cases, outputSchema, nil
 }
 
-func (s switchStage) binding(caseID string) (childBinding, bool) {
+func (s switchStage) binding(caseID string) (run.ChildBinding, bool) {
 	for _, candidate := range s.cases {
 		if candidate.id == caseID {
 			return candidate.binding, true
 		}
 	}
-	return childBinding{}, false
+	return run.ChildBinding{}, false
 }

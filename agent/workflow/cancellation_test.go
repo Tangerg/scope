@@ -28,7 +28,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
 				return Switch(SwitchConfig[numberInput]{
 					ID: "work", Select: canceledWorkflowCallback[numberInput, string](entered),
-					Cases: []SwitchCase{{ID: "child", Program: child, Budget: mustBudget(t)}},
+					Cases: []SwitchCase{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}},
 				})
 			},
 		},
@@ -37,7 +37,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
 				return Fork(ForkConfig[numberInput, numberInput, numberInput]{
 					ID: "work", WindowSize: 1,
-					Branches: []ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}},
+					Branches: []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}},
 					Reduce: func(ctx context.Context, _ numberInput, outputs []numberInput) (numberInput, error) {
 						return canceledWorkflowCallback[[]numberInput, numberInput](entered)(ctx, outputs)
 					},
@@ -48,7 +48,7 @@ func TestWorkflowCallbacksReceiveProcessCancellation(t *testing.T) {
 			name: "loop",
 			stage: func(t *testing.T, child run.Program[run.Payload, run.Payload], entered chan struct{}) (Stage, error) {
 				return Loop(LoopConfig[numberInput]{
-					ID: "work", Body: child, Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+					ID: "work", Body: run.ChildBinding{Program: child, Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
 					Predicate: canceledWorkflowCallback[numberInput, bool](entered),
 				})
 			},

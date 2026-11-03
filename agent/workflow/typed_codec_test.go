@@ -38,7 +38,7 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 	child := mustProgram(t, mustDefinition(t, "codec_child",
 		mustTransform(t, "identity", func(_ context.Context, input int) (int, error) { return input, nil }),
 	), "codec-child")
-	branches := []ForkBranch{{ID: "child", Program: child, Budget: mustBudget(t)}}
+	branches := []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: child, Budget: mustBudget(t)}}}
 	for _, test := range []struct {
 		name       string
 		input      any
@@ -56,7 +56,7 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 		}, "output contract"},
 		{"switch_input", 3, func() (Stage, error) {
 			return Switch(SwitchConfig[refusingDecode]{ID: "work",
-				Cases:  []SwitchCase{{ID: "child", Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t)}},
+				Cases:  []SwitchCase{{ID: "child", Child: run.ChildBinding{Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t)}}},
 				Select: func(context.Context, refusingDecode) (string, error) { return "child", nil },
 			})
 		}, errDecodeValue.Error()},
@@ -81,35 +81,35 @@ func TestTypedCodecFailuresCannotPublishWorkflowOutput(t *testing.T) {
 			})
 		}, "result contract"},
 		{"map_input_decode", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[refusingDecode, int]{ID: "work", Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[refusingDecode, int]{ID: "work", Child: run.ChildBinding{Program: codecProgram[refusingDecode, int](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, errDecodeValue.Error()},
 		{"map_input_encode", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[refusingEncode, int]{ID: "work", Program: codecProgram[refusingEncode, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[refusingEncode, int]{ID: "work", Child: run.ChildBinding{Program: codecProgram[refusingEncode, int](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, errEncodeValue.Error()},
 		{"map_input_schema", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[wrongShape, int]{ID: "work", Program: codecProgram[wrongShape, int](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[wrongShape, int]{ID: "work", Child: run.ChildBinding{Program: codecProgram[wrongShape, int](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, "integer"},
 		{"map_output_decode", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[int, refusingDecode]{ID: "work", Program: codecProgram[int, refusingDecode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[int, refusingDecode]{ID: "work", Child: run.ChildBinding{Program: codecProgram[int, refusingDecode](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, errDecodeValue.Error()},
 		{"map_output_encode", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[int, refusingEncode]{ID: "work", Program: codecProgram[int, refusingEncode](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[int, refusingEncode]{ID: "work", Child: run.ChildBinding{Program: codecProgram[int, refusingEncode](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, errEncodeValue.Error()},
 		{"map_output_schema", []int{3}, func() (Stage, error) {
-			return Map(MapConfig[int, wrongShape]{ID: "work", Program: codecProgram[int, wrongShape](t), Budget: mustBudget(t), WindowSize: 1, MaxItems: 1})
+			return Map(MapConfig[int, wrongShape]{ID: "work", Child: run.ChildBinding{Program: codecProgram[int, wrongShape](t), Budget: mustBudget(t)}, WindowSize: 1, MaxItems: 1})
 		}, "result contract"},
 		{"loop_decode", 3, func() (Stage, error) {
-			return Loop(LoopConfig[refusingDecode]{ID: "work", Body: codecProgram[refusingDecode, refusingDecode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+			return Loop(LoopConfig[refusingDecode]{ID: "work", Body: run.ChildBinding{Program: codecProgram[refusingDecode, refusingDecode](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, refusingDecode) (bool, error) { return true, nil },
 			})
 		}, errDecodeValue.Error()},
 		{"loop_encode", 3, func() (Stage, error) {
-			return Loop(LoopConfig[refusingEncode]{ID: "work", Body: codecProgram[refusingEncode, refusingEncode](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+			return Loop(LoopConfig[refusingEncode]{ID: "work", Body: run.ChildBinding{Program: codecProgram[refusingEncode, refusingEncode](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, refusingEncode) (bool, error) { return true, nil },
 			})
 		}, errEncodeValue.Error()},
 		{"loop_output_schema", 3, func() (Stage, error) {
-			return Loop(LoopConfig[wrongShape]{ID: "work", Body: codecProgram[wrongShape, wrongShape](t), Budget: mustBudget(t), MaxIterations: run.NewQuota(1),
+			return Loop(LoopConfig[wrongShape]{ID: "work", Body: run.ChildBinding{Program: codecProgram[wrongShape, wrongShape](t), Budget: mustBudget(t)}, MaxIterations: run.NewQuota(1),
 				Predicate: func(context.Context, wrongShape) (bool, error) { return true, nil },
 			})
 		}, "integer"},
@@ -177,7 +177,7 @@ func codecProgram[I, O any](t *testing.T) run.Program[run.Payload, run.Payload] 
 }
 func codecBranches[I, O any](t *testing.T) []ForkBranch {
 	t.Helper()
-	return []ForkBranch{{ID: "child", Program: codecProgram[I, O](t), Budget: mustBudget(t)}}
+	return []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: codecProgram[I, O](t), Budget: mustBudget(t)}}}
 }
 
 type codecDefinition struct{ descriptor run.Descriptor }

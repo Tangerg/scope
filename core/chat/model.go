@@ -12,7 +12,7 @@ type Model interface {
 	// transfers ownership of the returned response to the caller. Context
 	// cancellation remains identifiable through errors.Is. A valid response may
 	// accompany a postprocessing error: it retains known generation and usage,
-	// without establishing success of the complete invocation. ClassifyFailure
+	// without establishing success of the complete invocation. invocation.ClassifyFailure
 	// reads failure evidence scoped to this invocation, independently of Cause.
 	Call(ctx context.Context, request *Request) (*Response, error)
 }
@@ -32,7 +32,7 @@ type Streamer interface {
 	// once, preserving context error identity. Stopping iteration releases
 	// provider resources before the iterator returns, without a cancellation
 	// yield or detached goroutine. A terminal generation may precede a failed
-	// middleware operation; its response evidence survives while ClassifyFailure
+	// middleware operation; its response evidence survives while invocation.ClassifyFailure
 	// describes the complete invocation.
 	Stream(ctx context.Context, request *Request) iter.Seq2[*ResponseDelta, error]
 }

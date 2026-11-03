@@ -13,9 +13,11 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
+const providerID = "groq"
+
 const (
-	OpenAIRequestExtensionKey     = "groq/openai_request"
-	OpenAIStreamChunkExtensionKey = "groq/openai_stream_chunk"
+	OpenAIRequestExtensionKey     = providerID + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -46,10 +48,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	// replacement is documented as bounding reasoning tokens together with
 	// visible output, so it is the field that caps what this provider actually
 	// generates.
-	dialect, err := openai.TextReasoningDialect(openai.TextReasoningConfig{Provider: "groq", Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever})
-	if err != nil {
-		return nil, fmt.Errorf("groq: configure reasoning dialect: %w", err)
-	}
+	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever}}
 	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
 	// Groq's json_schema mode does not support streaming. Call aggregates the
 	// same stream, so this adapter cannot promise that native output format.

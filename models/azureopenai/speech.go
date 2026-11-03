@@ -36,7 +36,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*openai.Spee
 		return nil, err
 	}
 	return openai.NewSpeechModel(ctx, openai.SpeechModelConfig{
-		Provider:         protocolProvider,
+		Provider:         providerID,
 		APIKey:           endpoint.apiKey,
 		DefaultOptions:   config.DefaultOptions,
 		BaseURL:          endpoint.baseURL,

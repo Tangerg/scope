@@ -45,7 +45,7 @@ func NewRetrieval(config RetrievalConfig) (Retrieval, error) {
 		return Retrieval{}, rag.ErrNilRetriever
 	}
 	function, err := coretool.NewFunc(
-		coretool.FuncConfig{Name: config.Name, Description: config.Description},
+		coretool.FuncConfig{Name: config.Name, Description: config.Description, Effect: coretool.EffectSafe},
 		func(ctx context.Context, _ coretool.IdempotencyKey, input RetrievalRequest) (RetrievalOutput, error) {
 			query, err := rag.NewQuery(input.Query)
 			if err != nil {
@@ -79,7 +79,7 @@ func (r Retrieval) Call(ctx context.Context, invocation coretool.Invocation) (co
 	return r.function.Call(ctx, invocation)
 }
 
-func (r Retrieval) Unwrap() coretool.Tool { return r.function }
+func (r Retrieval) InputValidator() func([]byte) error { return r.function.InputValidator() }
 
 // inputFailure reports a query rejected before the retriever runs as a definite,
 // model-visible Tool failure rather than an uncertain error.

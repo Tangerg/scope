@@ -176,7 +176,7 @@ func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
 			s.Outcome = controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(log.Root)).JSON()))
 		}},
 		{"failed admission", func(s *EffectSettled) {
-			s.Outcome = controlValue(NewSettlement(SettlementStatusFailed, []byte(`"rejected"`)))
+			s.Outcome = controlValue(NewFailedSettlement(controlValue(NewFailure(FailureKindContract, "test.child.rejected", "rejected")), Payload{}))
 		}},
 		{"unknown admission", func(s *EffectSettled) {
 			s.Outcome = controlValue(NewSettlement(SettlementStatusUnknown, []byte(`"uncertain"`)))
@@ -215,7 +215,7 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 			return SignalAdmitted{Process: process, Signal: signal, At: parent.At}
 		}},
 		{"cancel", func(process ProcessID) Effect { return controlValue(NewChildCancelEffect(process, "stop child")) }, func(process ProcessID) Record {
-			return ControlRequested{Process: process, Kind: ControlCancel, Reason: "stop child", At: parent.At}
+			return ControlRequested{Origin: ControlOriginParent, Process: process, Kind: ControlCancel, Reason: "stop child", At: parent.At}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -300,7 +300,7 @@ func TestTerminalCheckpointHasNoOpaqueExecutionState(t *testing.T) {
 			started := log.Entries[0].Record.(Started)
 			terminal := Termination{output: started.Input}
 			log = integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))})
-			process := ProcessCheckpoint{Started: started, Step: 1, Usage: Usage{CommittedSteps: 1}, Terminal: &terminal}
+			process := ProcessCheckpoint{Started: started, Usage: Usage{CommittedSteps: 1}, Terminal: &terminal}
 			if exited {
 				exit := Exited{Process: log.Root, Termination: terminal, At: started.At}
 				log = integrityAppend(log, exit)

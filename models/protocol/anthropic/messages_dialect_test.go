@@ -28,7 +28,7 @@ func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 		fields["service_tier"] = "auto"
 		return nil
 	}}
-	params, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect, false)
+	params, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,34 +41,50 @@ func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 }
 
 func TestBindingOwnsCredentialAndWireRevision(t *testing.T) {
-	for _, key := range []string{"Authorization", "x-api-key", "api-key", "anThRoPiC-VeRsIoN"} {
-		config := apiConfig{APIKey: "native-key", BaseURL: "https://api.example.test", Headers: http.Header{key: []string{"other"}}}
-		if _, _, err := config.requestOptions(t.Context()); err == nil {
-			t.Fatalf("metadata overrode protected header %s", key)
-		}
+	for _, key := range []string{"Authorization", "x-api-key", "api-key", "anThRoPiC-VeRsIoN", "Cookie", "Proxy-Authorization"} {
+		t.Run("reserved "+key, func(t *testing.T) {
+			for _, values := range [][]string{nil, {"other"}, {"Bearer native-key"}} {
+				config := apiConfig{APIKey: "native-key", BaseURL: "https://api.example.test", Revision: MessagesRevision20261021, APIKeyScheme: APIKeySchemeBearer, Headers: http.Header{key: values}}
+				if _, err := config.requestOptions(t.Context()); err == nil {
+					t.Fatalf("metadata overrode protected header %s", key)
+				}
+			}
+		})
 	}
 	for _, item := range []struct {
-		name   string
-		header http.Header
-		want   map[string]string
+		name       string
+		revision   MessagesRevision
+		scheme     APIKeyScheme
+		wantHeader string
+		wantValue  string
 	}{
-		{"official", nil, map[string]string{"Authorization": "Bearer key", "Anthropic-Version": "2026-10-21"}},
-		{"compatible bearer", http.Header{"Anthropic-Version": []string{"2023-06-01"}, "X-Api-Key": nil, "Authorization": []string{"Bearer key"}}, map[string]string{"Authorization": "Bearer key", "Anthropic-Version": "2023-06-01"}},
-		{"compatible x-api-key", http.Header{"Anthropic-Version": []string{"2023-06-01"}}, map[string]string{"X-Api-Key": "key", "Anthropic-Version": "2023-06-01"}},
-		{"compatible api-key", http.Header{"Anthropic-Version": []string{"2023-06-01"}, "X-Api-Key": nil, "Api-Key": []string{"key"}}, map[string]string{"Api-Key": "key", "Anthropic-Version": "2023-06-01"}},
+		{"official", MessagesRevision20261021, APIKeySchemeBearer, "Authorization", "Bearer key"},
+		{"compatible bearer", MessagesRevision20230601, APIKeySchemeBearer, "Authorization", "Bearer key"},
+		{"compatible x-api-key", MessagesRevision20230601, APIKeySchemeXAPIKey, "X-Api-Key", "key"},
+		{"compatible api-key", MessagesRevision20230601, APIKeySchemeAPIKey, "Api-Key", "key"},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				for _, key := range []string{"Authorization", "Api-Key", "X-Api-Key", "Anthropic-Version"} {
-					if got := r.Header.Values(key); len(got) > 1 || r.Header.Get(key) != item.want[key] {
-						t.Errorf("%s = %v, want %q", key, got, item.want[key])
+				for _, key := range []string{"Authorization", "Api-Key", "X-Api-Key"} {
+					want := ""
+					if key == item.wantHeader {
+						want = item.wantValue
 					}
+					if got := r.Header.Values(key); len(got) > 1 || r.Header.Get(key) != want {
+						t.Errorf("%s = %v, want %q", key, got, want)
+					}
+				}
+				if got := r.Header.Values("Anthropic-Version"); len(got) != 1 || got[0] != string(item.revision) {
+					t.Errorf("version = %v", got)
+				}
+				if got := r.Header.Get("X-Attribution"); got != "application" {
+					t.Errorf("attribution = %q", got)
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"input_tokens":1}`))
 			}))
 			defer server.Close()
-			bound, err := newAPI(t.Context(), apiConfig{APIKey: "key", BaseURL: server.URL, HTTPClient: server.Client(), Headers: item.header})
+			bound, err := newAPI(t.Context(), apiConfig{APIKey: "key", BaseURL: server.URL, HTTPClient: server.Client(), Revision: item.revision, APIKeyScheme: item.scheme, Headers: http.Header{"X-Attribution": {"application"}}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -76,5 +92,18 @@ func TestBindingOwnsCredentialAndWireRevision(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestSamplingCapabilityIsIndependentOfWireRevision(t *testing.T) {
+	for _, revision := range []MessagesRevision{MessagesRevision20230601, MessagesRevision20261021} {
+		for _, supported := range []bool{false, true} {
+			dialect := Dialect{Provider: "compatible", Revision: revision, APIKeyScheme: APIKeySchemeBearer, SupportsSampling: supported}
+			request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}, Options: corechat.Options{Temperature: new(0.5)}}
+			_, err := mapProtocolRequest(corechat.Options{Model: "model"}, request, dialect)
+			if (err == nil) != supported {
+				t.Fatalf("revision=%s sampling=%v error=%v", revision, supported, err)
+			}
+		}
 	}
 }

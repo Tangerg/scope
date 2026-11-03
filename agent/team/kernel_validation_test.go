@@ -21,7 +21,7 @@ func validationPrograms(t *testing.T) (*run.Runtime, Config) {
 	worker := transformed(t, runtime, "test.validation.worker", func(_ context.Context, value string) (string, error) { return value, nil })
 	return runtime, Config{
 		Name: "test.validation.team", Description: "Exercise team ownership and bounds.",
-		Coordinator: WorkerConfig{Program: coordinator}, Workers: []WorkerConfig{{Program: worker}},
+		Coordinator: run.ChildBinding{Program: coordinator}, Workers: []run.ChildBinding{{Program: worker}},
 		MaxTurns: run.NewQuota(2), MaxTasks: run.NewQuota(2), MaxConcurrentTasks: 1, MaxControlsPerTurn: 1,
 	}
 }
@@ -33,10 +33,10 @@ func TestTeamDeclarationRejectsAmbiguousAuthority(t *testing.T) {
 		change func(*Config)
 	}{
 		{"no initial turn", func(c *Config) { c.MaxTurns = run.NewQuota(0) }},
-		{"missing coordinator", func(c *Config) { c.Coordinator = WorkerConfig{} }},
+		{"missing coordinator", func(c *Config) { c.Coordinator = run.ChildBinding{} }},
 		{"coordinator contract", func(c *Config) { c.Coordinator = c.Workers[0] }},
 		{"missing workers", func(c *Config) { c.Workers = nil }},
-		{"invalid worker", func(c *Config) { c.Workers = []WorkerConfig{{}} }},
+		{"invalid worker", func(c *Config) { c.Workers = []run.ChildBinding{{}} }},
 		{"duplicate worker name", func(c *Config) { c.Workers = append(c.Workers, c.Workers[0]) }},
 		{"no concurrent tasks", func(c *Config) { c.MaxConcurrentTasks = 0 }},
 		{"no control bound", func(c *Config) { c.MaxControlsPerTurn = 0 }},
@@ -216,7 +216,7 @@ func TestTeamTaskExitCannotStandInForAnOutstandingControlReceipt(t *testing.T) {
 		t.Fatal("task completion started another coordinator before the control outcome existed")
 	}
 	restored := require(definition.Restore(t.Context(), require(execution.Snapshot())))
-	receipt := run.Completion{Effect: testTurn(2).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusFailed, input("task was already finished").JSON()))}
+	receipt := run.Completion{Effect: testTurn(2).EffectID(0), Outcome: require(run.NewFailedSettlement(require(run.NewFailure(run.FailureKindContract, "test.task.finished", "task was already finished")), run.Payload{}))}
 	next := require(restored.Step(t.Context(), testTurn(4, receipt)))
 	turnSpec := require(run.ParseChildStartEffect(next.Effects()[0]))
 	observed := require(turnSpec.Input.Decode[Turn]())
@@ -288,7 +288,7 @@ func TestTeamCoordinatorFailureRetainsItsClassification(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			execution := require(definition.Start(input("initial")))
 			started := require(execution.Step(t.Context(), testTurn(1)))
-			completion := run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusFailed, input(failure).JSON()))}
+			completion := run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewFailedSettlement(failure, run.Payload{}))}
 			messages := []run.Message{completion}
 			if test.termination != nil {
 				spec := require(run.ParseChildStartEffect(started.Effects()[0]))

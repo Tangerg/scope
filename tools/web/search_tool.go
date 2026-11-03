@@ -8,6 +8,7 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 var _ toolcontract.Tool = (*SearchTool)(nil)
@@ -23,7 +24,7 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 	}
 	s := &SearchTool{searcher: searcher}
 	inner, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Name: "web_search", Description: webSearchDescription},
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: "web_search", Description: webSearchDescription},
 		s.search,
 	)
 	if err != nil {
@@ -44,7 +45,7 @@ func (s *SearchTool) search(ctx context.Context, _ toolcontract.IdempotencyKey, 
 		if errors.Is(err, ErrUnsupportedFilter) {
 			return nil, inputFailure(err)
 		}
-		return nil, fmt.Errorf("web: execute search: %w", err)
+		return nil, toolresult.ReadFailure("web.search", err)
 	}
 	if validationErr := response.ValidateFor(prepared); validationErr != nil {
 		return nil, fmt.Errorf("web: validate search response: %w", validationErr)

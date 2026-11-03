@@ -1,50 +1,17 @@
-// Package cassandra is a history Store backed by Apache Cassandra
-// via gocql.
+// Package cassandra persists history through a caller-owned native gocql
+// session. The host owns keyspace replication and the session lifetime.
 //
-// Schema (created by InitializeSchema=true):
+// Each conversation is one partition. A permanent gate and immutable append
+// rows share the same table, allowing a conditional batch to advance the gate
+// sequence and publish one canonical message batch with its append receipt.
+// SERIAL Paxos reads and QUORUM commits override session defaults; a timed-out
+// call is retried with the same history.Batch, never a newly generated ID.
 //
-//	CREATE TABLE <keyspace>.<table> (
-//	    conversation_id TEXT,
-//	    seq             TIMEUUID,
-//	    message         TEXT,
-//	    PRIMARY KEY ((conversation_id), seq)
-//	) WITH CLUSTERING ORDER BY (seq ASC);
+// Clear closes the gate before removing append rows. The gate remains forever,
+// including when no message was previously written. Cleanup failure leaves the
+// conversation closed and another Clear retries cleanup. Every write explicitly
+// disables TTL so a table default cannot expire append identity or closure.
 //
-// `conversation_id` is the partition key and `seq` is a client-generated
-// TIMEUUID clustering key. Each Write reserves a strictly increasing local
-// sequence range and sends one unlogged batch to that partition. Concurrent
-// calls and writes from distinct Store instances have no defined relative
-// order.
-//
-// Write atomicity. A batch confined to one partition is the strongest thing
-// Cassandra offers here, and it is isolation rather than atomicity: "all
-// updates in a BATCH belonging to a given partition key are performed in
-// isolation", while "if the UNLOGGED option is used, a failed batch might
-// leave the batch only partly applied". Asking for LOGGED would not buy the
-// guarantee, because "a LOGGED batch to a single partition will be converted
-// to an UNLOGGED batch as an optimization". A failed Write can therefore leave
-// part of its batch stored. WriteOutcome marks that remainder uncertain;
-// a successful acknowledgment accepts the complete batch.
-//
-// Write acknowledgment. The session must not use consistency ANY. At every
-// other level a successful write reached at least one replica, but at ANY
-// Cassandra may instead have the coordinator "store a hint" and replay it
-// later — the call returns nil for a message no replica holds, which no read
-// can see and which is gone if the hint expires. [NewStore] refuses that
-// session with [ErrUnacknowledgedWrites]. ANY is also the zero value of
-// gocql.Consistency, so a session whose consistency was never configured is
-// refused for the same reason.
-//
-// Example:
-//
-//	cluster := gocql.NewCluster("127.0.0.1")
-//	cluster.Keyspace = "scope"
-//	sess, _ := cluster.CreateSession()
-//	defer sess.Close()
-//
-//	store, _ := cassandra.NewStore(ctx, cassandra.StoreConfig{
-//	    Session:          sess,
-//	    Keyspace:         "scope",
-//	    InitializeSchema: true,
-//	})
+// InitializeSchema creates the current table in an existing keyspace. This
+// schema replaces the former per-message TIMEUUID layout without dual reads.
 package cassandra

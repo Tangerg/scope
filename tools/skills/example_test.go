@@ -50,7 +50,15 @@ func ExampleNewTools_pagination() {
 	if err != nil {
 		panic(err)
 	}
-	registry, err := tool.NewRegistry(tools...)
+	bindings := make([]tool.Binding, 0, len(tools))
+	for _, executable := range tools {
+		binding, bindErr := tool.Bind(executable)
+		if bindErr != nil {
+			panic(bindErr)
+		}
+		bindings = append(bindings, binding)
+	}
+	registry, err := tool.NewRegistry(bindings...)
 	if err != nil {
 		panic(err)
 	}
