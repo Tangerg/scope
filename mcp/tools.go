@@ -46,8 +46,7 @@ type ToolDiscoveryConfig struct {
 	// binding that exposes this tool to a particular model.
 	PublicName PublicToolNameFunc
 
-	// If nil, no additional request metadata is forwarded to tool calls,
-	// including metadata stored by [WithRequestMeta].
+	// If nil, no additional request metadata is forwarded to tool calls.
 	RequestMeta RequestMetaFunc
 
 	// If nil, tools provide no overlap declaration; this does not serialize calls.

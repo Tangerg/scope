@@ -3,7 +3,6 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"sync"
 	"testing"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/mcp"
 )
 
 type progressTool struct{}
@@ -26,17 +24,15 @@ func (progressTool) Definition() toolcontract.Definition {
 }
 
 func (progressTool) Call(ctx context.Context, _ toolcontract.Invocation) (toolcontract.Result, error) {
-	total := 3.0
 	for i := range 3 {
-		if err := mcp.ReportProgress(ctx, float64(i+1), &total, "step"); err != nil &&
-			!errors.Is(err, mcp.ErrNoProgressReporter) {
+		if err := toolcontract.ReportProgress(ctx, toolcontract.Progress{Completed: float64(i + 1), Total: 3, Message: "step"}); err != nil {
 			return toolcontract.Result{}, err
 		}
 	}
 	return toolcontract.Result{Output: toolcontract.NewTextOutput("ok")}, nil
 }
 
-func TestNotifyHelpers_Progress(t *testing.T) {
+func TestServedToolReportsProgressToTheRequestingClient(t *testing.T) {
 	ctx := t.Context()
 
 	var mu sync.Mutex
@@ -78,10 +74,4 @@ func TestNotifyHelpers_Progress(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	assert.Len(t, progress, 3, "expected 3 progress notifications")
-}
-
-func TestNotifyHelpers_NoSessionReturnsSentinel(t *testing.T) {
-	ctx := t.Context()
-	err := mcp.ReportProgress(ctx, 1, nil, "no session")
-	assert.ErrorIs(t, err, mcp.ErrNoProgressReporter)
 }

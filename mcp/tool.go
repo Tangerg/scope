@@ -65,7 +65,7 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		Arguments: json.RawMessage(invocation.Arguments()),
 	}
 	if r.requestMeta != nil {
-		params.Meta = sdkmcp.Meta(metadata.Map(r.requestMeta(ctx)).Clone())
+		params.Meta = sdkmcp.Meta(metadata.Map(r.requestMeta(ctx, invocation)).Clone())
 	}
 
 	if c, ok := invocation.Continuation(); ok {

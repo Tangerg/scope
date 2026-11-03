@@ -56,7 +56,7 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*s
 		trace.WithAttributes(semconv.GenAIToolName(toolName)),
 	)
 	defer span.End()
-	ctx = withProgressReporter(ctx, req)
+	ctx = toolcontract.WithProgressReporter(ctx, requestProgress(req))
 
 	var rawArgs string
 	if req != nil && req.Params != nil {

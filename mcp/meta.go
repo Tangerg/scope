@@ -5,22 +5,10 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	"github.com/Tangerg/scope/core/metadata"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-type RequestMetaFunc func(ctx context.Context) sdkmcp.Meta
-
-type requestMetaContextKey struct{}
-
-// Callers may reuse metadata buffers while the request is in flight.
-func WithRequestMeta(ctx context.Context, meta sdkmcp.Meta) context.Context {
-	if len(meta) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, requestMetaContextKey{}, sdkmcp.Meta(metadata.Map(meta).Clone()))
-}
-
-func RequestMetaFromContext(ctx context.Context) sdkmcp.Meta {
-	meta, _ := ctx.Value(requestMetaContextKey{}).(sdkmcp.Meta)
-	return sdkmcp.Meta(metadata.Map(meta).Clone())
-}
+// RequestMetaFunc derives the MCP _meta sent with one remote call from that
+// call. Host identity such as a user is bound into the function when the tools
+// are discovered for that user, never read back from the context.
+type RequestMetaFunc func(ctx context.Context, invocation toolcontract.Invocation) sdkmcp.Meta

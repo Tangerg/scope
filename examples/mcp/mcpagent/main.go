@@ -142,7 +142,9 @@ type remoteToolIdentity interface {
 func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config briefingConfig) (agentrun.Program[interaction.Input, interaction.Output], error) {
 	available, err := scopemcp.DiscoverTools(ctx,
 		[]scopemcp.ToolSource{{Name: researchToolSource, Session: config.Session}},
-		scopemcp.ToolDiscoveryConfig{RequestMeta: scopemcp.RequestMetaFromContext},
+		scopemcp.ToolDiscoveryConfig{RequestMeta: func(context.Context, tool.Invocation) sdkmcp.Meta {
+			return sdkmcp.Meta{requestMetaKey: json.RawMessage(`"mcp-agent"`)}
+		}},
 	)
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, fmt.Errorf("discover MCP tools: %w", err)
@@ -210,7 +212,6 @@ func runBriefing(
 	if err != nil {
 		return briefOutput{}, err
 	}
-	ctx = scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{requestMetaKey: json.RawMessage(`"mcp-agent"`)})
 	handle, err := runtime.Start(ctx, program, agentrun.StartRequest[interaction.Input]{ID: agentrun.StartID{Scope: "mcp", Key: rand.Text()}, Input: input})
 	if err != nil {
 		return briefOutput{}, err

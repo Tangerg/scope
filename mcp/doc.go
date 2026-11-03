@@ -23,8 +23,9 @@
 // A native MCP handler that needs user input returns SDK InputRequests and
 // resumes from InputResponses under the multi-round-trip protocol; it must
 // protect any RequestState it sends through the client. No context helper
-// grants elicitation or a server session. ReportProgress carries only the
-// request's progress observer, never business input or execution authority.
+// grants elicitation or a server session. A served call that the client asked
+// to observe carries a progress reporter, so a Tool reports with
+// tool.ReportProgress under any driver.
 //
 // Tool results and prompts share one content codec. [ContentMetadataKey]
 // carries MCP annotations, resource provenance, and presentation metadata

@@ -150,15 +150,16 @@ func TestWireStructuredContentAndFailureAreLossless(t *testing.T) {
 					}
 					return result + `}`
 				}})
-				tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Name: "wire", Session: session}}, scopemcp.ToolDiscoveryConfig{RequestMeta: scopemcp.RequestMetaFromContext})
+				tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Name: "wire", Session: session}}, scopemcp.ToolDiscoveryConfig{RequestMeta: func(context.Context, tool.Invocation) sdkmcp.Meta {
+					return sdkmcp.Meta{"n": json.RawMessage(`9007199254740993`)}
+				}})
 				if err != nil {
 					t.Fatal(err)
 				}
 				if len(tools) != 1 {
 					t.Fatalf("tools = %d", len(tools))
 				}
-				ctx := scopemcp.WithRequestMeta(t.Context(), sdkmcp.Meta{"n": json.RawMessage(`9007199254740993`)})
-				output, callErr := invokeTestTool(ctx, tools[0], `{"n":9007199254740993}`)
+				output, callErr := invokeTestTool(t.Context(), tools[0], `{"n":9007199254740993}`)
 				if failed {
 					failure, ok := errors.AsType[*tool.Failure](callErr)
 					if !ok || failure.Kind() != tool.FailureKindFailed {
@@ -322,7 +323,9 @@ func TestWireNativeMetadataThroughDiscoveryAndRegistration(t *testing.T) {
 		}
 		return `{"content":` + contents + `}`
 	}})
-	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{RequestMeta: func(context.Context) sdkmcp.Meta { return sdkmcp.Meta{"native": json.RawMessage(exact)} }})
+	tools, err := scopemcp.DiscoverTools(t.Context(), []scopemcp.ToolSource{{Session: session}}, scopemcp.ToolDiscoveryConfig{RequestMeta: func(context.Context, tool.Invocation) sdkmcp.Meta {
+		return sdkmcp.Meta{"native": json.RawMessage(exact)}
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,17 +118,19 @@ func TestTool_MetaForwardedToServer(t *testing.T) {
 	require.NoError(t, err)
 	defer cs.Close()
 
+	userID := json.RawMessage(`"u-42"`)
 	tools, err := scopemcp.DiscoverTools(ctx, []scopemcp.ToolSource{{Name: "src", Session: cs}}, scopemcp.ToolDiscoveryConfig{
-		RequestMeta: scopemcp.RequestMetaFromContext,
+		RequestMeta: func(_ context.Context, invocation tool.Invocation) sdkmcp.Meta {
+			return sdkmcp.Meta{"userId": userID, "tool": json.RawMessage(strconv.Quote(invocation.Definition().Name))}
+		},
 	})
 	require.NoError(t, err)
 
-	callCtx := scopemcp.WithRequestMeta(ctx, sdkmcp.Meta{"userId": json.RawMessage(`"u-42"`), "trace": json.RawMessage(`"tx-99"`)})
-	out, err := invokeTestTool(callCtx, tools[0], "{}")
+	out, err := invokeTestTool(ctx, tools[0], "{}")
 	require.NoError(t, err)
 	assert.Equal(t, "ok", testOutputText(out))
 
 	got := <-receivedMeta
 	assert.JSONEq(t, `"u-42"`, string(got["userId"]))
-	assert.JSONEq(t, `"tx-99"`, string(got["trace"]))
+	assert.JSONEq(t, `"src/snitch"`, string(got["tool"]))
 }

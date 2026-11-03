@@ -1,6 +1,7 @@
 // Command mcpagent obtains its system prompt and search tool from an MCP server.
 // The stub model derives its brief from actual tool output and reports refusal
-// explicitly. Request metadata travels through mcp.WithRequestMeta.
+// explicitly. Request metadata is bound when the remote tools are discovered,
+// because a durable call runs long after the caller's context is gone.
 //
 // Run from the repository root:
 //
