@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -78,9 +79,9 @@ func (r ReadInput) validate() error {
 
 func (r ReadInput) resolvedLimits() readLimits {
 	return readLimits{
-		inputBytes:  positiveOr(r.MaxInputBytes, defaultReadInputBytes),
-		lineBytes:   positiveOr(r.MaxLineBytes, defaultReadLineBytes),
-		outputBytes: positiveOr(r.MaxOutputBytes, defaultReadOutputBytes),
+		inputBytes:  cmp.Or(r.MaxInputBytes, defaultReadInputBytes),
+		lineBytes:   cmp.Or(r.MaxLineBytes, defaultReadLineBytes),
+		outputBytes: cmp.Or(r.MaxOutputBytes, defaultReadOutputBytes),
 	}
 }
 

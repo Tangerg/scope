@@ -39,13 +39,6 @@ func (r readLimits) scanError(path string, err error) error {
 	}
 }
 
-func positiveOr[T ~int | ~int64](value, fallback T) T {
-	if value > 0 {
-		return value
-	}
-	return fallback
-}
-
 func readBoundedRootFile(ctx context.Context, root *os.Root, path string, maxBytes int64) (_ []byte, err error) {
 	if cause := context.Cause(ctx); cause != nil {
 		return nil, cause

@@ -88,10 +88,7 @@ func (m Metric) Direction() Direction     { return m.direction }
 func (m Metric) Parameters() metadata.Map { return m.parameters.Clone() }
 
 func (m Metric) String() string {
-	if m.namespace == "" {
-		return string(m.name)
-	}
-	return m.namespace + "/" + string(m.name)
+	return qualifiedName(m.namespace, string(m.name))
 }
 
 func (m Metric) Validate() error {
@@ -150,6 +147,17 @@ func (m *Metric) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// identitySeparator joins a namespace to a name. Metric and Policy identities
+// share this grammar, so neither part may contain it.
+const identitySeparator = "/"
+
+func qualifiedName(namespace, name string) string {
+	if namespace == "" {
+		return name
+	}
+	return namespace + identitySeparator + name
+}
+
 func validateMetricPart(label, value string, optional bool) error {
 	if !utf8.ValidString(value) {
 		return fmt.Errorf("%w: %s must be valid UTF-8", ErrInvalidMetric, label)
@@ -157,7 +165,7 @@ func validateMetricPart(label, value string, optional bool) error {
 	if value == "" && optional {
 		return nil
 	}
-	if value == "" || value != strings.TrimSpace(value) || strings.Contains(value, "/") {
+	if value == "" || value != strings.TrimSpace(value) || strings.Contains(value, identitySeparator) {
 		return fmt.Errorf("%w: %s must be non-empty without surrounding whitespace or slashes", ErrInvalidMetric, label)
 	}
 	return nil

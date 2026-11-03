@@ -15,10 +15,7 @@ type Policy struct {
 }
 
 func (p Policy) String() string {
-	if p.Namespace == "" {
-		return p.Name
-	}
-	return p.Namespace + "/" + p.Name
+	return qualifiedName(p.Namespace, p.Name)
 }
 
 func (p Policy) Validate() error {
