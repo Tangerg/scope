@@ -40,7 +40,7 @@ func TestMiddlewareObservesOutcomeWithoutSubject(t *testing.T) {
 		Namespace: "text", Name: "correctness",
 	})
 	score, _ := coreeval.NewScore(0.9)
-	want := coreeval.Report{Metric: metric, Decision: &coreeval.Decision{Policy: "correctness", Verdict: coreeval.VerdictPass}, Score: &score}
+	want := coreeval.Report{Metric: metric, Decision: &coreeval.Decision{Policy: eval.Policy{Name: "correctness"}, Verdict: coreeval.VerdictPass}, Score: &score}
 	assessment, err := middleware.Wrap(lo.Must(coreeval.NewAssessment(coreeval.AssessmentConfig[string]{
 		ID: "correctness",
 		Evaluator: coreeval.EvaluatorFunc[string](func(context.Context, string) (coreeval.Report, error) {
@@ -110,7 +110,7 @@ func TestAssessmentIdentityPrecedesEveryOutcome(t *testing.T) {
 			if parameterErr := parameters.Set("reference", secret); parameterErr != nil {
 				t.Fatal(parameterErr)
 			}
-			decision := coreeval.Decision{Policy: "quality.match", Verdict: coreeval.VerdictPass, Parameters: parameters}
+			decision := coreeval.Decision{Policy: eval.Policy{Namespace: "quality", Name: "match"}, Verdict: coreeval.VerdictPass, Parameters: parameters}
 			if outcome == "fail" {
 				decision.Verdict = coreeval.VerdictFail
 			}

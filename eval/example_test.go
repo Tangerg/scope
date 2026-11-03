@@ -22,7 +22,7 @@ func ExampleExperiment_Run() {
 		if subject != "" {
 			verdict = eval.VerdictPass
 		}
-		return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "non_empty", Verdict: verdict}}, nil
+		return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Name: "non_empty"}, Verdict: verdict}}, nil
 	})
 	suite, err := eval.NewSuite(eval.SuiteConfig[string]{Assessments: []eval.Assessment[string]{lo.Must(eval.NewAssessment(eval.AssessmentConfig[string]{ID: "non_empty", Evaluator: evaluator}))}})
 	if err != nil {
@@ -84,7 +84,7 @@ func ExampleSuite_Run() {
 		return eval.Report{Metric: qualityMetric, Score: &score}, scoreErr
 	})
 	safety := eval.EvaluatorFunc[string](func(context.Context, string) (eval.Report, error) {
-		return eval.Report{Metric: safetyMetric, Decision: &eval.Decision{Policy: "safety", Verdict: eval.VerdictFail}, Feedback: "Answer requires review."}, nil
+		return eval.Report{Metric: safetyMetric, Decision: &eval.Decision{Policy: eval.Policy{Name: "safety"}, Verdict: eval.VerdictFail}, Feedback: "Answer requires review."}, nil
 	})
 	scored, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
 		Components: []eval.Component[string]{{Evaluator: quality}},

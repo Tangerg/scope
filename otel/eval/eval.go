@@ -127,7 +127,7 @@ func reportAttributes(report coreeval.Report) []attribute.KeyValue {
 	if report.Decision != nil {
 		attributes = append(attributes,
 			attribute.String(verdictAttribute, string(report.Decision.Verdict)),
-			attribute.String(decisionPolicyAttribute, report.Decision.Policy),
+			attribute.String(decisionPolicyAttribute, report.Decision.Policy.String()),
 		)
 	}
 	if report.Score != nil {

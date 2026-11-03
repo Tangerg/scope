@@ -12,6 +12,13 @@ import (
 // Status separates an official quality outcome from absent predictions and
 // harness failures. Infrastructure advice never changes a resolved denominator
 // or turns an official unresolved result into an absent grade.
+const (
+	metricNamespace          = "swebench"
+	resolvedName             = "resolved"
+	harnessRevisionParameter = "harness_revision"
+	gradeEvidenceKey         = "grade"
+)
+
 type Status string
 
 const (
@@ -183,10 +190,10 @@ func (c CaseResult) Report() (eval.Report, error) {
 		return eval.Report{}, fmt.Errorf("%w: %q has status %q", ErrNoGrade, c.task.InstanceID, c.Status())
 	}
 	parameters := metadata.Map{}
-	if err := parameters.Set("harness_revision", HarnessRevision); err != nil {
+	if err := parameters.Set(harnessRevisionParameter, HarnessRevision); err != nil {
 		return eval.Report{}, err
 	}
-	metric, err := eval.NewMetric(eval.MetricConfig{Namespace: "swebench", Name: "resolved", Parameters: parameters})
+	metric, err := eval.NewMetric(eval.MetricConfig{Namespace: metricNamespace, Name: resolvedName, Parameters: parameters})
 	if err != nil {
 		return eval.Report{}, err
 	}
@@ -197,7 +204,7 @@ func (c CaseResult) Report() (eval.Report, error) {
 		score = eval.Score(1)
 	}
 	evidence := metadata.Map{}
-	if err := evidence.Set("grade", struct {
+	if err := evidence.Set(gradeEvidenceKey, struct {
 		ID              string  `json:"id"`
 		RunID           string  `json:"run_id"`
 		SelectionDigest string  `json:"selection_digest"`
@@ -210,7 +217,7 @@ func (c CaseResult) Report() (eval.Report, error) {
 	}
 	report := eval.Report{
 		Metric: metric, Score: &score, Metadata: evidence,
-		Decision: &eval.Decision{Policy: "swebench/resolved", Parameters: parameters, Verdict: verdict},
+		Decision: &eval.Decision{Policy: eval.Policy{Namespace: metricNamespace, Name: resolvedName}, Verdict: verdict},
 	}
 	if err := report.Validate(); err != nil {
 		return eval.Report{}, err

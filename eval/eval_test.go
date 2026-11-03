@@ -28,7 +28,7 @@ func testMetric(name string) eval.Metric {
 func scoredReport(name string, verdict eval.Verdict, score eval.Score) eval.Report {
 	var decision *eval.Decision
 	if verdict.Decided() {
-		decision = &eval.Decision{Policy: "test", Verdict: verdict}
+		decision = &eval.Decision{Policy: eval.Policy{Name: "test"}, Verdict: verdict}
 	}
 	return eval.Report{Metric: testMetric(name), Decision: decision, Score: &score}
 }
@@ -69,7 +69,7 @@ func TestReportBoundsRecursiveDetails(t *testing.T) {
 }
 
 func nestedReport(depth int) eval.Report {
-	report := eval.Report{Metric: testMetric("nested"), Decision: &eval.Decision{Policy: "test", Verdict: eval.VerdictPass}}
+	report := eval.Report{Metric: testMetric("nested"), Decision: &eval.Decision{Policy: eval.Policy{Name: "test"}, Verdict: eval.VerdictPass}}
 	for range depth - 1 {
 		report = eval.Report{Metric: testMetric("nested"), Details: []eval.Report{report}}
 	}
@@ -472,7 +472,7 @@ func TestScoreMetricAndReportValidation(t *testing.T) {
 	if err := (eval.Report{Metric: testMetric("latency"), Measurement: &measurement}).Validate(); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("invalid measurement error = %v", err)
 	}
-	if err := (eval.Report{Metric: testMetric("quality"), Decision: &eval.Decision{Policy: "test", Verdict: "maybe"}}).Validate(); !errors.Is(err, eval.ErrInvalidReport) {
+	if err := (eval.Report{Metric: testMetric("quality"), Decision: &eval.Decision{Policy: eval.Policy{Name: "test"}, Verdict: "maybe"}}).Validate(); !errors.Is(err, eval.ErrInvalidReport) {
 		t.Fatalf("invalid verdict error = %v", err)
 	}
 	metadataOnly := metadata.Map{}

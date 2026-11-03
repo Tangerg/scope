@@ -70,7 +70,7 @@ func (r Report) cloneValid() Report {
 // rule two owners that a stored Report could make disagree.
 type decisionRule struct {
 	Metric     *Metric        `json:"metric,omitzero"`
-	Policy     string         `json:"policy,omitempty"`
+	Policy     *Policy        `json:"policy,omitzero"`
 	Parameters metadata.Map   `json:"parameters,omitzero"`
 	Details    []decisionRule `json:"details,omitempty"`
 }
@@ -78,7 +78,7 @@ type decisionRule struct {
 func (r Report) decisionRule() decisionRule {
 	var rule decisionRule
 	if r.Decision != nil {
-		rule.Policy, rule.Parameters = r.Decision.Policy, r.Decision.Parameters
+		rule.Policy, rule.Parameters = &r.Decision.Policy, r.Decision.Parameters
 	}
 	for _, detail := range r.Details {
 		child := detail.decisionRule()

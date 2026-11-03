@@ -14,15 +14,15 @@ import (
 
 func TestDecisionValidatesAndOwnsItsWireIdentity(t *testing.T) {
 	decision, err := eval.Score(0.8).Decide(0.8)
-	if err != nil || decision.Policy != "threshold" || decision.Verdict != eval.VerdictPass || string(decision.Parameters["threshold"]) != "0.8" {
+	if err != nil || decision.Policy.String() != "threshold" || decision.Verdict != eval.VerdictPass || string(decision.Parameters["threshold"]) != "0.8" {
 		t.Fatalf("threshold decision = %#v, %v", decision, err)
 	}
 	for _, candidate := range []eval.Decision{
 		{Verdict: eval.VerdictPass},
-		{Policy: " invalid", Verdict: eval.VerdictPass},
-		{Policy: "test"},
-		{Policy: "test", Verdict: "maybe"},
-		{Policy: "test", Verdict: eval.VerdictPass, Parameters: metadata.Map{"broken": json.RawMessage(`{`)}},
+		{Policy: eval.Policy{Name: " invalid"}, Verdict: eval.VerdictPass},
+		{Policy: eval.Policy{Name: "test"}},
+		{Policy: eval.Policy{Name: "test"}, Verdict: "maybe"},
+		{Policy: eval.Policy{Name: "test"}, Verdict: eval.VerdictPass, Parameters: metadata.Map{"broken": json.RawMessage(`{`)}},
 	} {
 		if validationErr := candidate.Validate(); !errors.Is(validationErr, eval.ErrInvalidReport) {
 			t.Fatalf("invalid decision = %#v, %v", candidate, validationErr)

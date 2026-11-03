@@ -3,27 +3,46 @@ package eval
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/metadata"
 )
+
+// Policy names the rule behind a Decision. It shares Metric's namespace/name
+// grammar, so every evaluation identity reads and renders one way.
+type Policy struct {
+	Namespace string `json:"namespace,omitzero"`
+	Name      string `json:"name"`
+}
+
+func (p Policy) String() string {
+	if p.Namespace == "" {
+		return p.Name
+	}
+	return p.Namespace + "/" + p.Name
+}
+
+func (p Policy) Validate() error {
+	if err := validateMetricPart("policy namespace", p.Namespace, true); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidReport, err)
+	}
+	if err := validateMetricPart("policy name", p.Name, false); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidReport, err)
+	}
+	return nil
+}
 
 // Decision records a categorical result and the policy that produced it.
 // Policy and Parameters identify the rule independently of its observed Verdict.
 // A Report without a categorical judgment has no Decision.
 type Decision struct {
-	Policy     string       `json:"policy"`
+	Policy     Policy       `json:"policy"`
 	Parameters metadata.Map `json:"parameters,omitzero"`
 	Verdict    Verdict      `json:"verdict"`
 }
 
 func (d Decision) Validate() error {
-	if !utf8.ValidString(d.Policy) {
-		return fmt.Errorf("%w: decision policy must be valid UTF-8", ErrInvalidReport)
-	}
-	if d.Policy == "" || strings.TrimSpace(d.Policy) != d.Policy {
-		return fmt.Errorf("%w: decision policy must be non-empty without surrounding whitespace", ErrInvalidReport)
+	if err := d.Policy.Validate(); err != nil {
+		return err
 	}
 	if !d.Verdict.Decided() {
 		return fmt.Errorf("%w: decision verdict must be pass or fail", ErrInvalidReport)

@@ -13,10 +13,10 @@ import (
 type Score float64
 
 const (
-	minimumScore       = 0
-	maximumScore       = 1
-	thresholdPolicy    = "threshold"
-	thresholdParameter = "threshold"
+	minimumScore        = 0
+	maximumScore        = 1
+	thresholdParameter  = "threshold"
+	thresholdPolicyName = "threshold"
 )
 
 func NewScore(value float64) (Score, error) {
@@ -50,7 +50,7 @@ func (s Score) Decide(threshold Score) (Decision, error) {
 	if err := parameters.Set(thresholdParameter, threshold); err != nil {
 		return Decision{}, fmt.Errorf("eval: threshold identity: %w", err)
 	}
-	decision := Decision{Policy: thresholdPolicy, Parameters: parameters, Verdict: VerdictFail}
+	decision := Decision{Policy: Policy{Name: thresholdPolicyName}, Parameters: parameters, Verdict: VerdictFail}
 	if s >= threshold {
 		decision.Verdict = VerdictPass
 	}

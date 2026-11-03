@@ -363,7 +363,7 @@ func TestExportCollectImportPreservesOfficialOutcomes(t *testing.T) {
 		if result.Status() == swebench.StatusResolved {
 			wantScore, wantVerdict = 1, eval.VerdictPass
 		}
-		if err != nil || report.Score == nil || *report.Score != wantScore || report.Verdict() != wantVerdict || report.Decision.Policy != "swebench/resolved" {
+		if err != nil || report.Score == nil || *report.Score != wantScore || report.Verdict() != wantVerdict || report.Decision.Policy.String() != "swebench/resolved" {
 			t.Fatalf("%s projection = %#v, %v", result.Task().InstanceID, report, err)
 		}
 		if report.Metric.String() != "swebench/resolved" || result.GradeID() == "" || result.CandidateDigest() == "" || result.ReportDigest() == "" {

@@ -22,7 +22,7 @@ const (
 	PassAtLeast PassPolicy = "at_least"
 )
 
-const compositePolicy = "composite"
+const compositePolicyName = "composite"
 
 func (p PassPolicy) normalize() (PassPolicy, error) {
 	switch p {
@@ -246,5 +246,5 @@ func (c *CompositeEvaluator[T]) decisionFor(verdict Verdict) (Decision, error) {
 	}{Components: rules, PassPolicy: c.passPolicy, MinimumPassed: c.minimumPassed}); err != nil {
 		return Decision{}, fmt.Errorf("eval: composite decision identity: %w", err)
 	}
-	return Decision{Policy: compositePolicy, Parameters: parameters, Verdict: verdict}, nil
+	return Decision{Policy: Policy{Name: compositePolicyName}, Parameters: parameters, Verdict: verdict}, nil
 }

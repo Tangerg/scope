@@ -36,7 +36,7 @@ func TestEvaluationRejectsUnencodableOwnedText(t *testing.T) {
 	}{
 		{"feedback", eval.Report{Metric: metric, Feedback: "\xff"}.Validate, eval.ErrInvalidReport},
 		{"detail feedback", eval.Report{Metric: metric, Details: []eval.Report{{Metric: metric, Feedback: "\xff"}}}.Validate, eval.ErrInvalidReport},
-		{"policy", eval.Decision{Policy: "\xff", Verdict: eval.VerdictPass}.Validate, eval.ErrInvalidReport},
+		{"policy", eval.Decision{Policy: eval.Policy{Name: "\xff"}, Verdict: eval.VerdictPass}.Validate, eval.ErrInvalidReport},
 		{"reason", eval.Execution[int]{Status: eval.ExecutionFailed, Reason: "\xff"}.Validate, eval.ErrInvalidExecution},
 		{"case identity", eval.CaseID("\xff").Validate, eval.ErrInvalidCase},
 		{"assessment identity", eval.AssessmentID("\xff").Validate, eval.ErrInvalidAssessment},
@@ -78,7 +78,7 @@ func TestEvaluationPreservesValidUnicodeAndNUL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report := eval.Report{Metric: metric, Feedback: text, Decision: &eval.Decision{Policy: text, Verdict: eval.VerdictPass}}
+	report := eval.Report{Metric: metric, Feedback: text, Decision: &eval.Decision{Policy: eval.Policy{Namespace: text, Name: text}, Verdict: eval.VerdictPass}}
 	encoded, err := jsonv2.Marshal(report)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestEvaluationPreservesValidUnicodeAndNUL(t *testing.T) {
 	if decodeErr := jsonv2.Unmarshal(encoded, &decoded); decodeErr != nil {
 		t.Fatal(decodeErr)
 	}
-	if decoded.Feedback != text || decoded.Decision.Policy != text || decoded.Metric.Unit() != text || decoded.Metric.Name() != eval.MetricName(text) || decoded.Metric.Namespace() != text {
+	if decoded.Feedback != text || decoded.Decision.Policy != (eval.Policy{Namespace: text, Name: text}) || decoded.Metric.Unit() != text || decoded.Metric.Name() != eval.MetricName(text) || decoded.Metric.Namespace() != text {
 		t.Fatal("evaluation text changed during round trip")
 	}
 	execution := eval.Execution[int]{Status: eval.ExecutionFailed, Reason: text}

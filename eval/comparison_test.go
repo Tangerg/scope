@@ -30,7 +30,7 @@ func comparisonReport(t *testing.T, parameters string, fail bool) eval.Experimen
 				return eval.Report{}, errors.New("evaluation failed")
 			}
 			score := eval.Score(1)
-			return eval.Report{Metric: metric, Score: &score, Decision: &eval.Decision{Policy: "test", Verdict: eval.VerdictPass}}, nil
+			return eval.Report{Metric: metric, Score: &score, Decision: &eval.Decision{Policy: eval.Policy{Name: "test"}, Verdict: eval.VerdictPass}}, nil
 		})),
 	})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestComparisonRequiresTheSameFixture(t *testing.T) {
 			t.Fatal(datasetErr)
 		}
 		experiment, experimentErr := eval.NewExperiment(eval.ExperimentConfig[int]{Dataset: dataset, Suite: testSuite(t, eval.EvaluatorFunc[int](func(context.Context, int) (eval.Report, error) {
-			return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "test", Verdict: eval.VerdictPass}}, nil
+			return eval.Report{Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Name: "test"}, Verdict: eval.VerdictPass}}, nil
 		}))})
 		if experimentErr != nil {
 			t.Fatal(experimentErr)
@@ -352,7 +352,7 @@ func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		return eval.Report{Metric: metric, Decision: &eval.Decision{
-			Policy: "maximum", Parameters: metadata.Map{"maximum": json.RawMessage(strconv.Itoa(limit))}, Verdict: verdict,
+			Policy: eval.Policy{Name: "maximum"}, Parameters: metadata.Map{"maximum": json.RawMessage(strconv.Itoa(limit))}, Verdict: verdict,
 		}}
 	}
 	summary := func(detail eval.Report) eval.ExperimentReport {
@@ -362,7 +362,7 @@ func TestDecisionIdentityIncludesDetailRules(t *testing.T) {
 			t.Fatal(err)
 		}
 		return reportExperiment(t, eval.Report{
-			Metric: metric, Decision: &eval.Decision{Policy: "all", Verdict: detail.Verdict()}, Details: []eval.Report{detail},
+			Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Name: "all"}, Verdict: detail.Verdict()}, Details: []eval.Report{detail},
 		})
 	}
 	baseline := summary(maximum("steps", 0, eval.VerdictFail))

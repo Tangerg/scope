@@ -8,7 +8,7 @@ import (
 func TestEvaluateAllNormalizesNonPositiveConcurrency(t *testing.T) {
 	evaluator := EvaluatorFunc[string](func(context.Context, string) (Report, error) {
 		metric, _ := NewMetric(MetricConfig{Name: "quality"})
-		return Report{Metric: metric, Decision: &Decision{Policy: "test", Verdict: VerdictPass}}, nil
+		return Report{Metric: metric, Decision: &Decision{Policy: Policy{Name: "test"}, Verdict: VerdictPass}}, nil
 	})
 	reports, err := evaluateAll(t.Context(), []Evaluator[string]{evaluator}, 0, "subject")
 	if err != nil {

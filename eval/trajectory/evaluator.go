@@ -13,6 +13,9 @@ import (
 
 const (
 	metricNamespace                        = "agent"
+	policyNamespace                        = "trajectory"
+	policyAllExpectations                  = "all_expectations"
+	policyMaximum                          = "maximum"
 	metricMaximumKey                       = "maximum"
 	metricUnitCount                        = "count"
 	metricUnitToken                        = "token"
@@ -61,7 +64,7 @@ func allExpectationsReport(details []eval.Report) (eval.Report, error) {
 	}
 	// Each expectation's rule belongs to its Detail, which eval includes in the
 	// Decision identity.
-	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.all_expectations", Verdict: verdict}, Details: details}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Namespace: policyNamespace, Name: policyAllExpectations}, Verdict: verdict}, Details: details}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}
@@ -79,7 +82,7 @@ func binaryReport(name eval.MetricName, passed bool, feedback string, parameters
 		score = 1
 		verdict = eval.VerdictPass
 	}
-	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory." + string(name), Parameters: parameters, Verdict: verdict}, Score: &score, Feedback: feedback}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Namespace: policyNamespace, Name: string(name)}, Parameters: parameters, Verdict: verdict}, Score: &score, Feedback: feedback}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}
@@ -108,7 +111,7 @@ func measurementReport[Maximum uint64 | int64 | float64](
 	if passed {
 		verdict = eval.VerdictPass
 	}
-	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: "trajectory.maximum", Parameters: parameters, Verdict: verdict}, Measurement: &measurement}
+	report := eval.Report{Metric: metric, Decision: &eval.Decision{Policy: eval.Policy{Namespace: policyNamespace, Name: policyMaximum}, Parameters: parameters, Verdict: verdict}, Measurement: &measurement}
 	if checkErr := report.Validate(); checkErr != nil {
 		return eval.Report{}, checkErr
 	}
