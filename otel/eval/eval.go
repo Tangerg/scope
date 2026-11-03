@@ -7,13 +7,13 @@ import (
 	"time"
 
 	"github.com/samber/lo"
-	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	coreeval "github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/otel/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
@@ -53,14 +53,8 @@ type Middleware[T any] struct {
 
 // NewMiddleware resolves nil OTel providers to the official process globals.
 func NewMiddleware[T any](config MiddlewareConfig) (Middleware[T], error) {
-	tracerProvider := config.TracerProvider
-	if lo.IsNil(tracerProvider) {
-		tracerProvider = apiotel.GetTracerProvider()
-	}
-	meterProvider := config.MeterProvider
-	if lo.IsNil(meterProvider) {
-		meterProvider = apiotel.GetMeterProvider()
-	}
+	tracerProvider := instrument.TracerProvider(config.TracerProvider)
+	meterProvider := instrument.MeterProvider(config.MeterProvider)
 	duration, err := meterProvider.Meter(instrumentationName).Float64Histogram(
 		operationDurationMetric,
 		metric.WithDescription(operationDurationDescription),

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/samber/lo"
-	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -18,6 +17,7 @@ import (
 	coretool "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
@@ -48,14 +48,8 @@ type Middleware struct {
 }
 
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
-	tracerProvider := config.TracerProvider
-	if lo.IsNil(tracerProvider) {
-		tracerProvider = apiotel.GetTracerProvider()
-	}
-	meterProvider := config.MeterProvider
-	if lo.IsNil(meterProvider) {
-		meterProvider = apiotel.GetMeterProvider()
-	}
+	tracerProvider := instrument.TracerProvider(config.TracerProvider)
+	meterProvider := instrument.MeterProvider(config.MeterProvider)
 	duration, err := meterProvider.Meter(instrumentationName).Float64Histogram(
 		durationMetricName,
 		metric.WithDescription("GenAI tool execution duration."),

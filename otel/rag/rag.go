@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -14,6 +13,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/otel/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 	corerag "github.com/Tangerg/scope/rag"
 )
 
@@ -47,14 +47,8 @@ type Middleware struct {
 }
 
 func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
-	tracerProvider := config.TracerProvider
-	if lo.IsNil(tracerProvider) {
-		tracerProvider = apiotel.GetTracerProvider()
-	}
-	meterProvider := config.MeterProvider
-	if lo.IsNil(meterProvider) {
-		meterProvider = apiotel.GetMeterProvider()
-	}
+	tracerProvider := instrument.TracerProvider(config.TracerProvider)
+	meterProvider := instrument.MeterProvider(config.MeterProvider)
 	duration, err := meterProvider.Meter(instrumentationName).Float64Histogram(
 		operationDurationName,
 		metric.WithDescription(operationDurationDescription),

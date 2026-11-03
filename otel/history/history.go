@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -19,6 +18,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	corehistory "github.com/Tangerg/scope/core/history"
 	"github.com/Tangerg/scope/otel/errortelemetry"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
@@ -71,15 +71,9 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	system := strings.ToLower(strings.TrimSpace(config.System))
-	tracerProvider := config.TracerProvider
-	if lo.IsNil(tracerProvider) {
-		tracerProvider = apiotel.GetTracerProvider()
-	}
-	meterProvider := config.MeterProvider
-	if lo.IsNil(meterProvider) {
-		meterProvider = apiotel.GetMeterProvider()
-	}
+	system := instrument.Dimension(config.System)
+	tracerProvider := instrument.TracerProvider(config.TracerProvider)
+	meterProvider := instrument.MeterProvider(config.MeterProvider)
 	duration, err := meterProvider.Meter(instrumentationName).Float64Histogram(
 		operationDurationMetric,
 		metric.WithDescription(operationDurationDescription),

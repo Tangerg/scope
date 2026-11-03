@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	"github.com/samber/lo"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
@@ -36,6 +36,7 @@ var (
 	ErrObservationSequence   = errors.New("agent otel: noncontiguous log observation")
 )
 
+// Nil providers use the corresponding OpenTelemetry globals.
 type ObserverConfig struct {
 	TracerProvider trace.TracerProvider
 	MeterProvider  metric.MeterProvider
@@ -57,22 +58,11 @@ type Observer struct {
 }
 
 func NewObserver(config ObserverConfig) (*Observer, error) {
-	if config.TracerProvider != nil && lo.IsNil(config.TracerProvider) || config.MeterProvider != nil && lo.IsNil(config.MeterProvider) {
-		return nil, fmt.Errorf("%w: provider is typed nil", ErrInvalidObserverConfig)
-	}
-	tracer := config.TracerProvider
-	if tracer == nil {
-		tracer = otel.GetTracerProvider()
-	}
-	meter := config.MeterProvider
-	if meter == nil {
-		meter = otel.GetMeterProvider()
-	}
-	instruments, err := newObserverInstruments(meter.Meter(instrumentationName))
+	instruments, err := newObserverInstruments(instrument.MeterProvider(config.MeterProvider).Meter(instrumentationName))
 	if err != nil {
 		return nil, err
 	}
-	return &Observer{tracer: tracer.Tracer(instrumentationName), instruments: instruments, readers: make(map[*logProjection]context.CancelFunc)}, nil
+	return &Observer{tracer: instrument.TracerProvider(config.TracerProvider).Tracer(instrumentationName), instruments: instruments, readers: make(map[*logProjection]context.CancelFunc)}, nil
 }
 
 // Consume returns the last fully projected LSN, including on cancellation.

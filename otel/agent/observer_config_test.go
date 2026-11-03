@@ -30,10 +30,10 @@ func TestObserverPreservesInstrumentConstructionFailures(t *testing.T) {
 	}
 }
 
-func TestObserverRejectsTypedNilMeterProvider(t *testing.T) {
+func TestObserverTreatsTypedNilProvidersAsAbsent(t *testing.T) {
 	var provider *sdkmetric.MeterProvider
 	observer, err := NewObserver(ObserverConfig{MeterProvider: provider})
-	if observer != nil || !errors.Is(err, ErrInvalidObserverConfig) {
+	if observer == nil || err != nil {
 		t.Fatalf("observer=%v error=%v", observer, err)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/samber/lo"
-	apiotel "go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/metric"
@@ -20,6 +19,7 @@ import (
 	corererank "github.com/Tangerg/scope/core/rerank"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
+	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
 const (
@@ -63,18 +63,9 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	tracerProvider := config.TracerProvider
-	if lo.IsNil(tracerProvider) {
-		tracerProvider = apiotel.GetTracerProvider()
-	}
-	loggerProvider := config.LoggerProvider
-	if lo.IsNil(loggerProvider) {
-		loggerProvider = apiotel.GetLoggerProvider()
-	}
-	meterProvider := config.MeterProvider
-	if lo.IsNil(meterProvider) {
-		meterProvider = apiotel.GetMeterProvider()
-	}
+	tracerProvider := instrument.TracerProvider(config.TracerProvider)
+	loggerProvider := instrument.LoggerProvider(config.LoggerProvider)
+	meterProvider := instrument.MeterProvider(config.MeterProvider)
 	meter := meterProvider.Meter(instrumentationName)
 	duration, err := genaiconv.NewClientOperationDuration(meter, genaimetric.DurationBuckets())
 	if err != nil {
@@ -86,7 +77,7 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	}
 	return Middleware{
 		logger:   loggerProvider.Logger(instrumentationName),
-		provider: strings.ToLower(strings.TrimSpace(config.Provider)),
+		provider: instrument.Dimension(config.Provider),
 		tracer:   tracerProvider.Tracer(instrumentationName),
 		duration: duration,
 		tokens:   tokens,
