@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/chatclient/safeguard"
+	"github.com/Tangerg/scope/core/safeguard"
 )
 
 func BenchmarkInputOnlyStream(b *testing.B) {
@@ -24,9 +24,9 @@ func BenchmarkInputOnlyStream(b *testing.B) {
 				yield(&chat.ResponseDelta{FinishReason: chat.FinishReasonStop}, nil)
 			}
 		})
-		middleware, err := safeguard.NewMiddleware(safeguard.MatcherFunc(func(context.Context, string) (safeguard.Match, error) {
+		middleware, err := safeguard.NewMiddleware(safeguard.MiddlewareConfig{Scope: safeguard.ScopeInput, Matcher: safeguard.MatcherFunc(func(context.Context, string) (safeguard.Match, error) {
 			return safeguard.Match{}, nil
-		}), safeguard.MiddlewareConfig{Scope: safeguard.ScopeInput})
+		})})
 		if err != nil {
 			b.Fatal(err)
 		}

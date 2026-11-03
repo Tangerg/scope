@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/chatclient/safeguard"
+	"github.com/Tangerg/scope/core/safeguard"
 )
 
 func Example() {
-	matcher, err := safeguard.NewSubstringMatcher([]string{"secret"}, safeguard.SubstringConfig{})
+	matcher, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: []string{"secret"}})
 	if err != nil {
 		panic(err)
 	}

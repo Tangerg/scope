@@ -54,10 +54,10 @@
 // # Direct clients
 //
 // The chatclient and embeddingclient packages add the ordinary-path
-// conveniences — a middleware chain, prompt templates, and structured output —
-// without changing the SPI. Option defaults stay with the provider that owns
-// them. The chatclient/safeguard package screens input and output as
-// fail-closed middleware.
+// conveniences — request admission, prompt templates, and structured output —
+// without changing the SPI; chat.Wrap is the one way to compose middleware.
+// Option defaults stay with the provider that owns them. The safeguard package
+// screens input and output as fail-closed chat middleware.
 // The httpclient package binds a borrowed HTTP client to its configured API
 // origin so credentials cannot cross that boundary through redirects. The Host
 // retains transport, retry, authentication, and resource-lifetime ownership.

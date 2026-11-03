@@ -41,7 +41,7 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 			return candidates.Clone(), nil
 		})
 	}
-	first, buildErr := rag.WithRefiners(source(rag.Candidates{candidate(old, .2), candidate(current, .6), candidate(old, .9), candidate(other, .3), candidate(large, .8), candidate(local, .7)}), rag.Dedup())
+	first, buildErr := rag.Refine(source(rag.Candidates{candidate(old, .2), candidate(current, .6), candidate(old, .9), candidate(other, .3), candidate(large, .8), candidate(local, .7)}), rag.Deduplicator{})
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}
@@ -74,11 +74,11 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 	if rankErr != nil {
 		t.Fatal(rankErr)
 	}
-	ranked, refineErr := rag.WithRefiners(fused, ranker)
+	ranked, refineErr := rag.Refine(fused, ranker)
 	if refineErr != nil {
 		t.Fatal(refineErr)
 	}
-	search, rewriteErr := rag.WithTransformers(ranked, rag.TransformerFunc(func(_ context.Context, q rag.Query) (rag.Query, error) { return rag.NewQuery("index terms") }))
+	search, rewriteErr := rag.Transform(ranked, rag.TransformerFunc(func(_ context.Context, q rag.Query) (rag.Query, error) { return rag.NewQuery("index terms") }))
 	if rewriteErr != nil {
 		t.Fatal(rewriteErr)
 	}

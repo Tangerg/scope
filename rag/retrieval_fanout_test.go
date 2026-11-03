@@ -16,7 +16,7 @@ func TestExpansionFusesIndependentRankings(t *testing.T) {
 	shared := identifiedDocument(t, "shared", "shared evidence")
 	first := identifiedDocument(t, "first", "first-only evidence")
 	second := identifiedDocument(t, "second", "second-only evidence")
-	expanded, err := rag.WithExpander(rag.ExpansionConfig{
+	expanded, err := rag.Expand(rag.ExpansionConfig{
 		Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 			return []rag.Query{mustQuery(t, "first"), mustQuery(t, "second")}, nil
 		}),
@@ -65,7 +65,7 @@ func TestRetrievalFanoutHonorsConfiguredLimit(t *testing.T) {
 					var retriever rag.Retriever
 					var err error
 					if expansion {
-						retriever, err = rag.WithExpander(rag.ExpansionConfig{
+						retriever, err = rag.Expand(rag.ExpansionConfig{
 							Retriever: base, MaxConcurrentRetrievals: config.MaxConcurrentRetrievals,
 							Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 								queries := make([]rag.Query, count)
@@ -132,7 +132,7 @@ func TestRetrievalFanoutCancelsSiblingsAfterFirstFailure(t *testing.T) {
 				var retriever rag.Retriever
 				var err error
 				if expansion {
-					retriever, err = rag.WithExpander(rag.ExpansionConfig{
+					retriever, err = rag.Expand(rag.ExpansionConfig{
 						Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 							return []rag.Query{mustQuery(t, "blocked"), mustQuery(t, "failing")}, nil
 						}),
@@ -170,7 +170,7 @@ func TestRetrievalFanoutRejectsNegativeLimit(t *testing.T) {
 	if _, err := rag.ReciprocalRankFusion(config, base); !errors.Is(err, rag.ErrInvalidRetrievalConcurrency) {
 		t.Fatalf("fusion configuration error = %v", err)
 	}
-	if _, err := rag.WithExpander(rag.ExpansionConfig{
+	if _, err := rag.Expand(rag.ExpansionConfig{
 		Retriever: base, MaxConcurrentRetrievals: config.MaxConcurrentRetrievals,
 		Expander: rag.ExpanderFunc(func(_ context.Context, query rag.Query) ([]rag.Query, error) {
 			return []rag.Query{query}, nil

@@ -130,7 +130,7 @@ package_budget=(
   "core/content 89.2"
   "core/chatclient 88.8"
   "core/chatclient/internal/arch none"
-  "core/chatclient/safeguard 93.1"
+  "core/safeguard 93.1"
   "core/document 91.3"
   "core/embedding 96.8"
   "core/embeddingclient 92.9"

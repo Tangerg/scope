@@ -14,10 +14,10 @@
 //
 // Composition is explicit. Wrap a retriever with the stages you need:
 //
-//	r, err := rag.WithTransformers(base, rewrite, translate)
-//	r, err = rag.WithExpander(rag.ExpansionConfig{Retriever: r, Expander: multiQuery})
+//	r, err := rag.Transform(base, rewrite, translate)
+//	r, err = rag.Expand(rag.ExpansionConfig{Retriever: r, Expander: multiQuery})
 //	top, err := rag.TopK(8)
-//	r, err = rag.WithRefiners(r, top)
+//	r, err = rag.Refine(r, top)
 //	docs, err := r.Retrieve(ctx, q)
 //
 // Function adapters such as [RetrieverFunc] forward calls without adding policy.
@@ -28,11 +28,11 @@
 // # Parallel retriever fan-out
 //
 // [ReciprocalRankFusion] combines independent rankings without comparing their
-// raw scores, and [WithExpander] applies the same fusion to expanded queries:
+// raw scores, and [Expand] applies the same fusion to expanded queries:
 //
 //	combined, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, vectorR1, vectorR2)
 //
-// [TopK] only sorts and caps a comparable result. [Dedup] keeps the best
+// [TopK] only sorts and caps a comparable result. [Deduplicator] keeps the best
 // candidate for each known document identity; apply it before TopK when a
 // single source can return duplicate identities. Fusion already merges them.
 //

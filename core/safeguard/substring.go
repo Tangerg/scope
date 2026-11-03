@@ -8,12 +8,14 @@ import (
 	"golang.org/x/text/cases"
 )
 
-// SubstringConfig controls matching and disclosure. Matching uses Unicode case
+// SubstringMatcherConfig names the terms to block and controls matching and
+// disclosure. Matching uses Unicode case
 // folding by default, including multi-rune expansions such as ß to ss. It does
 // not normalize Unicode or equate visually similar characters. CaseSensitive
 // compares the original bytes. HideMatch prevents a configured term from
 // entering UnsafeError or OnBlock.
-type SubstringConfig struct {
+type SubstringMatcherConfig struct {
+	Terms         []string
 	CaseSensitive bool
 	HideMatch     bool
 }
@@ -22,7 +24,7 @@ type SubstringConfig struct {
 // declaration order for the first match. Disclosure never changes the block decision.
 type SubstringMatcher struct {
 	terms  []substringTerm
-	config SubstringConfig
+	config SubstringMatcherConfig
 }
 
 type substringTerm struct {
@@ -30,10 +32,10 @@ type substringTerm struct {
 	match   string
 }
 
-func NewSubstringMatcher(terms []string, config SubstringConfig) (*SubstringMatcher, error) {
-	cleaned := make([]substringTerm, 0, len(terms))
-	seen := make(map[string]struct{}, len(terms))
-	for _, term := range terms {
+func NewSubstringMatcher(config SubstringMatcherConfig) (*SubstringMatcher, error) {
+	cleaned := make([]substringTerm, 0, len(config.Terms))
+	seen := make(map[string]struct{}, len(config.Terms))
+	for _, term := range config.Terms {
 		display := strings.TrimSpace(term)
 		if display == "" {
 			continue
@@ -51,6 +53,7 @@ func NewSubstringMatcher(terms []string, config SubstringConfig) (*SubstringMatc
 	if len(cleaned) == 0 {
 		return nil, fmt.Errorf("%w: at least one non-empty substring is required", ErrInvalidSubstringConfig)
 	}
+	config.Terms = nil
 	return &SubstringMatcher{terms: cleaned, config: config}, nil
 }
 

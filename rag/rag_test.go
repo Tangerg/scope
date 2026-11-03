@@ -110,7 +110,7 @@ func TestRetrieveTransfersOwnedCandidates(t *testing.T) {
 
 func TestWithRefinersRejectsInvalidRetrieverOutputBeforeRefining(t *testing.T) {
 	refinerCalled := false
-	refined, err := rag.WithRefiners(
+	refined, err := rag.Refine(
 		&fakeRetriever{docs: rag.Candidates{{}}},
 		rag.RefinerFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Candidates, error) {
 			refinerCalled = true
@@ -131,7 +131,7 @@ func TestWithRefinersRejectsInvalidRetrieverOutputBeforeRefining(t *testing.T) {
 
 func TestWithRefinersRejectsInvalidOutputBeforeNextRefiner(t *testing.T) {
 	secondCalled := false
-	refined, err := rag.WithRefiners(
+	refined, err := rag.Refine(
 		&fakeRetriever{},
 		rag.RefinerFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Candidates, error) {
 			return rag.Candidates{{}}, nil
@@ -169,7 +169,7 @@ func TestWithTransformersFeedsTransformedQueryToRetriever(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved-doc", nil)
 	retriever := &fakeRetriever{docs: rag.Candidates{candidate(doc)}}
 
-	r, err := rag.WithTransformers(retriever, &fakeTransformer{suffix: "?"})
+	r, err := rag.Transform(retriever, &fakeTransformer{suffix: "?"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestWithTransformersErrorShortCircuits(t *testing.T) {
 	want := errors.New("boom")
 	retriever := &fakeRetriever{}
 
-	r, err := rag.WithTransformers(retriever, &fakeTransformer{err: want})
+	r, err := rag.Transform(retriever, &fakeTransformer{err: want})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,14 +272,14 @@ func TestFusionOwnsConfiguredRetrievers(t *testing.T) {
 
 func TestCombinatorsRejectNilCapabilitiesAtConstruction(t *testing.T) {
 	var transformer *fakeTransformer
-	if _, err := rag.WithTransformers(&fakeRetriever{}, transformer); !errors.Is(err, rag.ErrNilTransformer) {
-		t.Fatalf("WithTransformers error = %v, want ErrNilTransformer", err)
+	if _, err := rag.Transform(&fakeRetriever{}, transformer); !errors.Is(err, rag.ErrNilTransformer) {
+		t.Fatalf("Transform error = %v, want ErrNilTransformer", err)
 	}
-	if _, err := rag.WithExpander(rag.ExpansionConfig{Retriever: &fakeRetriever{}}); !errors.Is(err, rag.ErrNilExpander) {
-		t.Fatalf("WithExpander error = %v, want ErrNilExpander", err)
+	if _, err := rag.Expand(rag.ExpansionConfig{Retriever: &fakeRetriever{}}); !errors.Is(err, rag.ErrNilExpander) {
+		t.Fatalf("Expand error = %v, want ErrNilExpander", err)
 	}
-	if _, err := rag.WithRefiners(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRefiner) {
-		t.Fatalf("WithRefiners error = %v, want ErrNilRefiner", err)
+	if _, err := rag.Refine(&fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRefiner) {
+		t.Fatalf("Refine error = %v, want ErrNilRefiner", err)
 	}
 	if _, err := rag.ReciprocalRankFusion(rag.FusionRetrieverConfig{}, &fakeRetriever{}, nil); !errors.Is(err, rag.ErrNilRetriever) {
 		t.Fatalf("ReciprocalRankFusion error = %v, want ErrNilRetriever", err)
@@ -287,7 +287,7 @@ func TestCombinatorsRejectNilCapabilitiesAtConstruction(t *testing.T) {
 }
 
 func TestWithExpanderRejectsEmptyExpansion(t *testing.T) {
-	expanded, err := rag.WithExpander(rag.ExpansionConfig{
+	expanded, err := rag.Expand(rag.ExpansionConfig{
 		Retriever: &fakeRetriever{},
 		Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 			return nil, nil
@@ -305,7 +305,7 @@ func TestWithExpanderRejectsEmptyExpansion(t *testing.T) {
 
 func TestWithExpanderValidatesAllQueriesBeforeRetrieval(t *testing.T) {
 	retriever := &fakeRetriever{}
-	expanded, err := rag.WithExpander(rag.ExpansionConfig{
+	expanded, err := rag.Expand(rag.ExpansionConfig{
 		Retriever: retriever,
 		Expander: rag.ExpanderFunc(func(context.Context, rag.Query) ([]rag.Query, error) {
 			return []rag.Query{mustQuery(t, "valid"), {}}, nil

@@ -13,36 +13,33 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// MiddlewareConfig controls one immutable Middleware. A zero Scope defaults
-// to ScopeBoth. OnBlock runs synchronously before a rejection is returned.
+// MiddlewareConfig controls one immutable Middleware. Matcher is required.
+// OnBlock runs synchronously before a rejection is returned.
 type MiddlewareConfig struct {
+	Matcher Matcher
 	Scope   Scope
 	OnBlock func(context.Context, Block)
 }
 
 type Middleware struct {
-	matcher Matcher
-	config  MiddlewareConfig
+	config MiddlewareConfig
 }
 
-func NewMiddleware(matcher Matcher, config MiddlewareConfig) (*Middleware, error) {
-	if lo.IsNil(matcher) {
+func NewMiddleware(config MiddlewareConfig) (*Middleware, error) {
+	if lo.IsNil(config.Matcher) {
 		return nil, fmt.Errorf("%w: matcher is nil", ErrInvalidMiddlewareConfig)
-	}
-	if config.Scope == "" {
-		config.Scope = ScopeBoth
 	}
 	if !config.Scope.Valid() {
 		return nil, fmt.Errorf("%w: unknown scope %q", ErrInvalidMiddlewareConfig, config.Scope)
 	}
-	return &Middleware{matcher: matcher, config: config}, nil
+	return &Middleware{config: config}, nil
 }
 
 func (m *Middleware) screen(ctx context.Context, scope Scope, text string) error {
 	if !m.config.Scope.inspects(scope) || text == "" {
 		return nil
 	}
-	match, err := m.matcher.Match(ctx, text)
+	match, err := m.config.Matcher.Match(ctx, text)
 	if err != nil {
 		return fmt.Errorf("safeguard: match %s content: %w", scope, err)
 	}

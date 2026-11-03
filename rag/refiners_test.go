@@ -9,7 +9,7 @@ import (
 )
 
 func TestDedupKeepsHighestScoreAtFirstIdentityPosition(t *testing.T) {
-	r := rag.Dedup()
+	r := rag.Deduplicator{}
 
 	low, _ := document.NewDocument("low", nil)
 	low.ID = "1"
@@ -43,7 +43,7 @@ func TestDedupEqualScoresKeepFirstCandidate(t *testing.T) {
 	second, _ := document.NewDocument("second", nil)
 	second.ID = "same"
 
-	got, err := rag.Dedup().Refine(t.Context(), mustQuery(t, "query"), []rag.Candidate{
+	got, err := rag.Deduplicator{}.Refine(t.Context(), mustQuery(t, "query"), []rag.Candidate{
 		candidate(first, 0.8),
 		candidate(second, 0.8),
 	})
@@ -59,7 +59,7 @@ func TestDedupKeepsDocumentsWithoutIdentityDistinct(t *testing.T) {
 	first, _ := document.NewDocument("first", nil)
 	second, _ := document.NewDocument("second", nil)
 
-	got, err := rag.Dedup().Refine(t.Context(), mustQuery(t, "query"), []rag.Candidate{
+	got, err := rag.Deduplicator{}.Refine(t.Context(), mustQuery(t, "query"), []rag.Candidate{
 		candidate(first, 0.8),
 		candidate(second, 0.9),
 	})
@@ -73,7 +73,7 @@ func TestDedupKeepsDocumentsWithoutIdentityDistinct(t *testing.T) {
 }
 
 func TestDedupHonorsContextCancel(t *testing.T) {
-	r := rag.Dedup()
+	r := rag.Deduplicator{}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
@@ -157,7 +157,7 @@ func TestDedupBeforeTopKKeepsUniqueResultSlots(t *testing.T) {
 	}
 
 	query := mustQuery(t, "query")
-	deduped, err := rag.Dedup().Refine(t.Context(), query, input)
+	deduped, err := rag.Deduplicator{}.Refine(t.Context(), query, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestDedupBeforeTopKKeepsUniqueResultSlots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	topThenDedup, err := rag.Dedup().Refine(t.Context(), query, topped)
+	topThenDedup, err := rag.Deduplicator{}.Refine(t.Context(), query, topped)
 	if err != nil {
 		t.Fatal(err)
 	}

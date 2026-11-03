@@ -15,7 +15,7 @@ func TestRefinersRejectInvalidQueryCandidatesAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, refiner := range []rag.Refiner{rag.Dedup(), top} {
+	for _, refiner := range []rag.Refiner{rag.Deduplicator{}, top} {
 		if output, err := refiner.Refine(t.Context(), rag.Query{}, nil); output != nil || !errors.Is(err, rag.ErrInvalidQuery) {
 			t.Fatalf("invalid query = %v, %v", output, err)
 		}
@@ -39,7 +39,7 @@ func TestRefinersRejectInvalidQueryCandidatesAndCancellation(t *testing.T) {
 func TestTransformerFailureStopsCompositionBeforeRetrieval(t *testing.T) {
 	cause := errors.New("transform failed")
 	for _, invalid := range []bool{false, true} {
-		composed, err := rag.WithTransformers(
+		composed, err := rag.Transform(
 			rag.RetrieverFunc(func(context.Context, rag.Query) (rag.Candidates, error) {
 				t.Fatal("invalid transformation reached retrieval")
 				return nil, nil

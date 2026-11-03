@@ -66,7 +66,7 @@ func TestDedupAndFusionKeepDifferentLocationsInOneRevision(t *testing.T) {
 	if queryErr != nil {
 		t.Fatal(queryErr)
 	}
-	unique, refineErr := rag.Dedup().Refine(t.Context(), q, rows)
+	unique, refineErr := rag.Deduplicator{}.Refine(t.Context(), q, rows)
 	if refineErr != nil || len(unique) != 2 || unique[0].Score != .8 || unique[1].Document.Provenance.Bytes.Start != 1 {
 		t.Fatalf("dedup=%v err=%v", unique, refineErr)
 	}

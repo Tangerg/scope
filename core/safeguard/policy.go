@@ -13,14 +13,16 @@ var (
 	ErrNilStream               = errors.New("safeguard: nil stream sequence")
 )
 
+// Scope selects which direction a Middleware screens; a Block reports the one
+// direction that was blocked. Both is the zero value, so it has one spelling.
 type Scope string
 
 const (
+	ScopeBoth Scope = ""
 	// ScopeInput screens system and user text before provider I/O.
 	ScopeInput Scope = "input"
 	// ScopeOutput screens assistant text before it reaches the caller.
 	ScopeOutput Scope = "output"
-	ScopeBoth   Scope = "both"
 )
 
 func (s Scope) Valid() bool {

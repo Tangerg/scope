@@ -10,7 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/invocation"
 
 	"github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/chatclient/safeguard"
+	"github.com/Tangerg/scope/core/safeguard"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -31,20 +31,20 @@ func TestScopeContract(t *testing.T) {
 }
 
 func TestNewRejectsInvalidConfiguration(t *testing.T) {
-	if _, err := safeguard.NewMiddleware(nil, safeguard.MiddlewareConfig{}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
+	if _, err := safeguard.NewMiddleware(safeguard.MiddlewareConfig{}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
 		t.Fatalf("nil matcher error = %v", err)
 	}
 	var matcherPointer *typedNilMatcher
-	if _, err := safeguard.NewMiddleware(matcherPointer, safeguard.MiddlewareConfig{}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
+	if _, err := safeguard.NewMiddleware(safeguard.MiddlewareConfig{Matcher: matcherPointer}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
 		t.Fatalf("typed nil matcher error = %v", err)
 	}
 	matcher := safeguard.MatcherFunc(func(context.Context, string) (safeguard.Match, error) {
 		return safeguard.Match{}, nil
 	})
-	if _, err := safeguard.NewMiddleware(matcher, safeguard.MiddlewareConfig{Scope: "unknown"}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
+	if _, err := safeguard.NewMiddleware(safeguard.MiddlewareConfig{Matcher: matcher, Scope: "unknown"}); !errors.Is(err, safeguard.ErrInvalidMiddlewareConfig) {
 		t.Fatalf("invalid scope error = %v", err)
 	}
-	if _, err := safeguard.NewSubstringMatcher([]string{"", "  "}, safeguard.SubstringConfig{}); !errors.Is(err, safeguard.ErrInvalidSubstringConfig) {
+	if _, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: []string{"", "  "}}); !errors.Is(err, safeguard.ErrInvalidSubstringConfig) {
 		t.Fatalf("empty terms error = %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func (*typedNilMatcher) Match(context.Context, string) (safeguard.Match, error) 
 
 func TestSubstringMatcherSnapshotsTermsAndSupportsDisclosurePolicy(t *testing.T) {
 	terms := []string{" SECRET ", "secret", "other"}
-	matcher, err := safeguard.NewSubstringMatcher(terms, safeguard.SubstringConfig{})
+	matcher, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: terms})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestSubstringMatcherSnapshotsTermsAndSupportsDisclosurePolicy(t *testing.T)
 		t.Fatalf("clean match = %#v, %v", match, matchErr)
 	}
 
-	sensitive, err := safeguard.NewSubstringMatcher([]string{"SECRET"}, safeguard.SubstringConfig{CaseSensitive: true})
+	sensitive, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: []string{"SECRET"}, CaseSensitive: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if match, _ := sensitive.Match(t.Context(), "secret"); match.Found {
 		t.Fatal("case-sensitive matcher accepted lowercase text")
 	}
-	hidden, err := safeguard.NewSubstringMatcher([]string{"secret"}, safeguard.SubstringConfig{HideMatch: true})
+	hidden, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: []string{"secret"}, HideMatch: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,10 +118,11 @@ func TestSubstringMatcherUnicodeCaseFolding(t *testing.T) {
 		})
 	}
 
-	for _, config := range []safeguard.SubstringConfig{
+	for _, config := range []safeguard.SubstringMatcherConfig{
 		{}, {CaseSensitive: true}, {HideMatch: true},
 	} {
-		matcher, err := safeguard.NewSubstringMatcher([]string{" Straße ", "STRASSE"}, config)
+		config.Terms = []string{" Straße ", "STRASSE"}
+		matcher, err := safeguard.NewSubstringMatcher(config)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -352,7 +353,7 @@ func TestUnsafeErrorNilReceiver(t *testing.T) {
 
 func mustSubstring(t *testing.T, terms ...string) *safeguard.SubstringMatcher {
 	t.Helper()
-	matcher, err := safeguard.NewSubstringMatcher(terms, safeguard.SubstringConfig{})
+	matcher, err := safeguard.NewSubstringMatcher(safeguard.SubstringMatcherConfig{Terms: terms})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +362,8 @@ func mustSubstring(t *testing.T, terms ...string) *safeguard.SubstringMatcher {
 
 func mustMiddleware(t *testing.T, matcher safeguard.Matcher, config safeguard.MiddlewareConfig) *safeguard.Middleware {
 	t.Helper()
-	middleware, err := safeguard.NewMiddleware(matcher, config)
+	config.Matcher = matcher
+	middleware, err := safeguard.NewMiddleware(config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -35,7 +35,7 @@ func retrieve(ctx context.Context, query Query, call RetrieverFunc) (Candidates,
 // PipelineRetriever owns the public entry boundary. Its pipeline checks each
 // external stage result before passing it onward, so returning that same result
 // does not require another candidate traversal. Construct it with
-// WithTransformers, WithExpander, or WithRefiners; its zero value is invalid.
+// Transform, Expand, or Refine; its zero value is invalid.
 type PipelineRetriever struct {
 	run func(context.Context, Query) (Candidates, error)
 }
@@ -60,16 +60,16 @@ func (p *PipelineRetriever) Retrieve(ctx context.Context, query Query) (Candidat
 	return candidates, nil
 }
 
-// WithTransformers returns a [Retriever] that rewrites the query through
+// Transform returns a [Retriever] that rewrites the query through
 // transformers before calling next.
-func WithTransformers(next Retriever, transformers ...Transformer) (*PipelineRetriever, error) {
+func Transform(next Retriever, transformers ...Transformer) (*PipelineRetriever, error) {
 	if lo.IsNil(next) {
 		return nil, ErrNilRetriever
 	}
 	owned := slices.Clone(transformers)
 	for index, transformer := range owned {
 		if lo.IsNil(transformer) {
-			return nil, fmt.Errorf("rag.WithTransformers: transformer %d: %w", index, ErrNilTransformer)
+			return nil, fmt.Errorf("rag.Transform: transformer %d: %w", index, ErrNilTransformer)
 		}
 	}
 
@@ -95,11 +95,11 @@ type ExpansionConfig struct {
 	MaxConcurrentRetrievals int
 }
 
-// WithExpander returns a [Retriever] that retrieves each expanded query under
+// Expand returns a [Retriever] that retrieves each expanded query under
 // the configured concurrency bound and combines rankings with reciprocal-rank
 // fusion. Every query must succeed; the first failure cancels the remaining
 // retrievals and is returned. Raw scores never cross query boundaries.
-func WithExpander(config ExpansionConfig) (*PipelineRetriever, error) {
+func Expand(config ExpansionConfig) (*PipelineRetriever, error) {
 	if lo.IsNil(config.Retriever) {
 		return nil, ErrNilRetriever
 	}
@@ -121,7 +121,7 @@ func WithExpander(config ExpansionConfig) (*PipelineRetriever, error) {
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
-		rankings, err := parallelResults(ctx, "rag.WithExpander", queries, "query", concurrency,
+		rankings, err := parallelResults(ctx, "rag.Expand", queries, "query", concurrency,
 			func(ctx context.Context, _ int, q Query) (Candidates, error) {
 				return retrieve(ctx, q, config.Retriever.Retrieve)
 			})
@@ -132,16 +132,16 @@ func WithExpander(config ExpansionConfig) (*PipelineRetriever, error) {
 	}}, nil
 }
 
-// WithRefiners returns a [Retriever] that calls next and then applies
+// Refine returns a [Retriever] that calls next and then applies
 // refiners to the returned documents in order.
-func WithRefiners(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
+func Refine(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
 	if lo.IsNil(next) {
 		return nil, ErrNilRetriever
 	}
 	owned := slices.Clone(refiners)
 	for index, refiner := range owned {
 		if lo.IsNil(refiner) {
-			return nil, fmt.Errorf("rag.WithRefiners: refiner %d: %w", index, ErrNilRefiner)
+			return nil, fmt.Errorf("rag.Refine: refiner %d: %w", index, ErrNilRefiner)
 		}
 	}
 
