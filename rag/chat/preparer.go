@@ -123,17 +123,17 @@ func (p PreparedRequest) retrievalQuery() (rag.Query, error) {
 	return query, nil
 }
 
-// Evidence is the retrieval result for one prepared request. It belongs to RAG
+// Retrieval is what one prepared request retrieved and cited. It belongs to RAG
 // and remains available independently of model success or stream consumption.
-type Evidence struct {
+type Retrieval struct {
 	Candidates rag.Candidates
 	Citations  rag.Citations
 }
 
-// Evidence returns an owned candidate snapshot and the immutable prompt citations.
+// Retrieval returns an owned candidate snapshot and the immutable prompt citations.
 // Complete documents are never added to model response metadata implicitly.
-func (p PreparedRequest) Evidence() Evidence {
-	return Evidence{Candidates: p.candidates.Clone(), Citations: p.citations}
+func (p PreparedRequest) Retrieval() Retrieval {
+	return Retrieval{Candidates: p.candidates.Clone(), Citations: p.citations}
 }
 
 func NewPreparer(config PreparerConfig) (*Preparer, error) {
@@ -210,7 +210,7 @@ func (p *Preparer) transformQuery(ctx context.Context, prepared PreparedRequest,
 	return transformed, nil
 }
 
-// Call runs the prepared request through next. Evidence remains on the prepared
+// Call runs the prepared request through next. Retrieval remains on the prepared
 // request; this call never retrieves again, including on a model failure.
 func (p PreparedRequest) Call(ctx context.Context, next corechat.Model) (*corechat.Response, error) {
 	if p.request == nil {

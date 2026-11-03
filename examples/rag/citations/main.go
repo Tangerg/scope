@@ -220,9 +220,9 @@ func run(ctx context.Context) (report, error) {
 		return result, errors.New("answer has no citation")
 	}
 	result.marker = "[" + marker
-	evidence := prepared.Evidence()
-	result.ranked = len(evidence.Candidates)
-	result.citations = evidence.Citations
+	retrieval := prepared.Retrieval()
+	result.ranked = len(retrieval.Candidates)
+	result.citations = retrieval.Citations
 	result.cited, err = result.citations.Resolve(result.marker)
 	if err != nil {
 		return result, err

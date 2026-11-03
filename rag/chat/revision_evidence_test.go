@@ -137,12 +137,12 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 	if retryErr != nil {
 		t.Fatal(retryErr)
 	}
-	evidence := prepared.Evidence()
-	if evidence.Citations.Len() != 4 || len(evidence.Candidates) != 5 || evidence.Candidates[0].Document.Text != large.Text {
-		t.Fatalf("ranked=%d admitted=%d", len(evidence.Candidates), evidence.Citations.Len())
+	retrieval := prepared.Retrieval()
+	if retrieval.Citations.Len() != 4 || len(retrieval.Candidates) != 5 || retrieval.Candidates[0].Document.Text != large.Text {
+		t.Fatalf("ranked=%d admitted=%d", len(retrieval.Candidates), retrieval.Citations.Len())
 	}
 	for i, expected := range []*document.Document{current, other, old} {
-		d, e := evidence.Citations.Resolve(rag.CitationMarker(i))
+		d, e := retrieval.Citations.Resolve(rag.CitationMarker(i))
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -153,20 +153,20 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 		}
 		d.Provenance.Revision = "caller-edited"
 		d.Text = "changed"
-		again, e := evidence.Citations.Resolve(rag.CitationMarker(i))
+		again, e := retrieval.Citations.Resolve(rag.CitationMarker(i))
 		if e != nil || again.Provenance.Revision != expected.Provenance.Revision || again.Text != expected.Text {
 			t.Fatal("caller rewrote a frozen citation", e)
 		}
 	}
-	if d, e := evidence.Citations.Resolve("[4]"); d != nil || !errors.Is(e, document.ErrUnversionedSource) {
+	if d, e := retrieval.Citations.Resolve("[4]"); d != nil || !errors.Is(e, document.ErrUnversionedSource) {
 		t.Fatal("temporary note became a verifiable reference", d, e)
 	}
 	for _, marker := range []string{"[9]", "[05]", "[+1]", " [1]", "[0]", "[9999999999999999999999999]", "[]"} {
-		if got, e := evidence.Citations.Resolve(marker); got != nil || !errors.Is(e, rag.ErrUnknownCitation) {
+		if got, e := retrieval.Citations.Resolve(marker); got != nil || !errors.Is(e, rag.ErrUnknownCitation) {
 			t.Fatalf("invented marker=%q doc=%v err=%v", marker, got, e)
 		}
 	}
-	if evidence.Citations.Len() != 4 || input.Messages[0].Text() != "what changed?" {
+	if retrieval.Citations.Len() != 4 || input.Messages[0].Text() != "what changed?" {
 		t.Fatal("model output changed source selection or input")
 	}
 }

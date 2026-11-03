@@ -119,7 +119,7 @@ func mustPrepare(t *testing.T, preparer *ragchat.Preparer, request *chat.Request
 	return prepared
 }
 
-func TestPreparerAugmentsRequestAndOwnsEvidence(t *testing.T) {
+func TestPreparerAugmentsRequestAndOwnsRetrieval(t *testing.T) {
 	doc, _ := document.NewDocument("retrieved info", nil)
 	retriever := &stubRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
@@ -145,19 +145,19 @@ func TestPreparerAugmentsRequestAndOwnsEvidence(t *testing.T) {
 	if response.Metadata != nil {
 		t.Fatal("retrieval changed model metadata")
 	}
-	evidence := prepared.Evidence()
-	if len(evidence.Candidates) != 1 {
-		t.Fatalf("candidates = %#v", evidence.Candidates)
+	retrieval := prepared.Retrieval()
+	if len(retrieval.Candidates) != 1 {
+		t.Fatalf("candidates = %#v", retrieval.Candidates)
 	}
-	citations := evidence.Citations.Candidates()
+	citations := retrieval.Citations.Candidates()
 	if len(citations) != 1 || citations[0].Document.Text != doc.Text {
 		t.Fatalf("citations = %#v", citations)
 	}
-	evidence.Candidates[0].Document.Text = "changed"
-	evidence.Citations.Candidates()[0].Document.Text = "changed"
-	again := prepared.Evidence()
+	retrieval.Candidates[0].Document.Text = "changed"
+	retrieval.Citations.Candidates()[0].Document.Text = "changed"
+	again := prepared.Retrieval()
 	if again.Candidates[0].Document.Text != doc.Text || again.Citations.Candidates()[0].Document.Text != doc.Text {
-		t.Fatal("evidence snapshot mutated preparation")
+		t.Fatal("retrieval snapshot mutated preparation")
 	}
 }
 
@@ -206,7 +206,7 @@ func TestPreparerPreservesChatExtensionsAndExposesTypedHistory(t *testing.T) {
 	}
 }
 
-func TestPreparerStreamAugmentsOnceAndOwnsEvidence(t *testing.T) {
+func TestPreparerStreamAugmentsOnceAndOwnsRetrieval(t *testing.T) {
 	doc, _ := document.NewDocument("streamed context", nil)
 	retriever := &countingRetriever{docs: rag.Candidates{candidate(doc)}}
 	aug, _ := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{})
@@ -227,8 +227,8 @@ func TestPreparerStreamAugmentsOnceAndOwnsEvidence(t *testing.T) {
 		if response.Metadata != nil {
 			t.Fatal("retrieval changed delta metadata")
 		}
-		if len(prepared.Evidence().Candidates) != 1 {
-			t.Fatal("missing evidence")
+		if len(prepared.Retrieval().Candidates) != 1 {
+			t.Fatal("missing retrieval")
 		}
 	}
 	if chunks != 1 || retriever.hits != 1 {
@@ -302,8 +302,8 @@ func TestPreparerPreservesPartialModelResponse(t *testing.T) {
 	if response != partial || !errors.Is(err, wantErr) {
 		t.Fatalf("response/error = %p/%v, want %p/%v", response, err, partial, wantErr)
 	}
-	if len(prepared.Evidence().Candidates) != 1 {
-		t.Fatal("model failure lost retrieval evidence")
+	if len(prepared.Retrieval().Candidates) != 1 {
+		t.Fatal("model failure lost its retrieval")
 	}
 }
 

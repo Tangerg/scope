@@ -36,7 +36,7 @@ func ExamplePreparer() {
 	if err != nil {
 		panic(err)
 	}
-	candidates := prepared.Evidence().Candidates
+	candidates := prepared.Retrieval().Candidates
 	fmt.Println(response.Text(), len(candidates))
 	// Output: AI infrastructure 1
 }

@@ -78,7 +78,7 @@ func TestPreparerRejectsRetrievalBeforeAugmentation(t *testing.T) {
 	}
 }
 
-func TestPreparerKeepsEvidenceSeparateFromStreamingResponse(t *testing.T) {
+func TestPreparerKeepsRetrievalSeparateFromStreamingResponse(t *testing.T) {
 	doc, err := document.NewDocument("evidence", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -135,8 +135,8 @@ func TestPreparerKeepsEvidenceSeparateFromStreamingResponse(t *testing.T) {
 	if !reflect.DeepEqual(streamed, complete) {
 		t.Fatalf("streamed = %#v, complete = %#v", streamed, complete)
 	}
-	evidence := prepared.Evidence()
-	if len(evidence.Candidates) != 1 || evidence.Citations.Len() != 1 {
-		t.Fatalf("evidence = %#v", evidence)
+	retrieval := prepared.Retrieval()
+	if len(retrieval.Candidates) != 1 || retrieval.Citations.Len() != 1 {
+		t.Fatalf("retrieval = %#v", retrieval)
 	}
 }
