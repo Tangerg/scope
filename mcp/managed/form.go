@@ -8,6 +8,7 @@ import (
 	sdk "github.com/Tangerg/go-sdk/mcp"
 
 	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/mcp/internal/elicitation"
 )
 
 // Project only the flat primitive form vocabulary. Never silently erase a
@@ -92,5 +93,5 @@ func form(q run.Wait) (*sdk.ElicitParams, error) {
 			}
 		}
 	}
-	return &sdk.ElicitParams{Mode: formMode, Message: message, RequestedSchema: q.AnswerSchema.JSON()}, nil
+	return &sdk.ElicitParams{Mode: elicitation.FormMode, Message: message, RequestedSchema: q.AnswerSchema.JSON()}, nil
 }

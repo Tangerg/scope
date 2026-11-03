@@ -14,6 +14,7 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/mcp"
+	"github.com/Tangerg/scope/mcp/internal/elicitation"
 )
 
 // Grant is derived by the Host from authenticated request context on every
@@ -130,7 +131,7 @@ func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (ad
 		return admittedCall[I]{}, errPermission
 	}
 	caps := req.ClientCapabilities()
-	if req.ProtocolVersion() != formProtocolVersion || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
+	if req.ProtocolVersion() != elicitation.ProtocolVersion || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
 		return admittedCall[I]{}, errForm
 	}
 	wire := req.Params.Arguments
@@ -182,7 +183,7 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 	if err != nil {
 		return nil, err
 	}
-	if reply.action != formAccept {
+	if reply.action != elicitation.Accept {
 		return nil, reply.rejection(destination.pendingIn(head))
 	}
 	acknowledged, err := b.cfg.Runtime.Answered(ctx, destination.Owner, destination.Wait, reply.answer)

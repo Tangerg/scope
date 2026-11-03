@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/core/jsonschema"
+	"github.com/Tangerg/scope/mcp/internal/elicitation"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
@@ -68,19 +69,19 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		params.Meta = sdkmcp.Meta(metadata.Map(r.requestMeta(ctx, invocation)).Clone())
 	}
 
-	if c, ok := invocation.Continuation(); ok {
-		if resumeErr := r.resume(params, invocation, c); resumeErr != nil {
+	if continuation, ok := invocation.Continuation(); ok {
+		if resumeErr := r.resume(params, invocation, continuation); resumeErr != nil {
 			return toolcontract.Result{}, resumeErr
 		}
 	}
-	res, err := r.session.CallTool(ctx, params)
+	result, err := r.session.CallTool(ctx, params)
 	if err != nil {
 		return toolcontract.Result{}, fmt.Errorf("mcp: call tool %q: %w", remoteName, err)
 	}
-	if res != nil && res.NeedsInput() {
-		return r.input(invocation, res)
+	if result != nil && result.NeedsInput() {
+		return r.input(invocation, result)
 	}
-	output, err := remoteResult{remoteName: remoteName, value: res}.unwrap()
+	output, err := remoteResult{remoteName: remoteName, value: result}.unwrap()
 	return toolcontract.Result{Output: output}, err
 }
 
@@ -93,13 +94,13 @@ type remoteCheckpoint struct {
 	State     string            `json:"state"`
 }
 
-func (r remoteTool) input(inv toolcontract.Invocation, result *sdkmcp.CallToolResult) (toolcontract.Result, error) {
-	if init := r.session.InitializeResult(); init == nil || init.ProtocolVersion < "2026-07-28" || len(result.InputRequests) != 1 {
+func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.CallToolResult) (toolcontract.Result, error) {
+	if initialized := r.session.InitializeResult(); initialized == nil || initialized.ProtocolVersion < elicitation.ProtocolVersion || len(result.InputRequests) != 1 {
 		return toolcontract.Result{}, ErrIncompleteResult
 	}
 	for id, req := range result.InputRequests {
 		form, ok := req.(*sdkmcp.ElicitParams)
-		if !ok || form == nil || id == "" || form.Message == "" || form.URL != "" || form.ElicitationID != "" || (form.Mode != "" && form.Mode != "form") || form.RequestedSchema == nil {
+		if !ok || form == nil || id == "" || form.Message == "" || form.URL != "" || form.ElicitationID != "" || (form.Mode != "" && form.Mode != elicitation.FormMode) || form.RequestedSchema == nil {
 			return toolcontract.Result{}, ErrIncompleteResult
 		}
 		// Keep decline/cancel distinct from an affirmative answer. The form is
@@ -113,8 +114,8 @@ func (r remoteTool) input(inv toolcontract.Invocation, result *sdkmcp.CallToolRe
 			return toolcontract.Result{}, ErrIncompleteResult
 		}
 		answer := map[string]any{"oneOf": []any{
-			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]string{"const": "accept"}, "content": json.RawMessage(encoded)}, "required": []string{"action", "content"}, "additionalProperties": false},
-			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"enum": []string{"decline", "cancel"}}}, "required": []string{"action"}, "additionalProperties": false},
+			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]string{"const": elicitation.Accept}, "content": json.RawMessage(encoded)}, "required": []string{"action", "content"}, "additionalProperties": false},
+			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"enum": []string{elicitation.Decline, elicitation.Cancel}}}, "required": []string{"action"}, "additionalProperties": false},
 		}}
 		data, err := jsonv2.Marshal(answer)
 		if err != nil {
@@ -124,7 +125,7 @@ func (r remoteTool) input(inv toolcontract.Invocation, result *sdkmcp.CallToolRe
 		if err != nil {
 			return toolcontract.Result{}, err
 		}
-		state, err := jsonv2.Marshal(remoteCheckpoint{Binding: r.binding, Args: sha256.Sum256([]byte(inv.Arguments())), RequestID: id, State: result.RequestState})
+		state, err := jsonv2.Marshal(remoteCheckpoint{Binding: r.binding, Args: sha256.Sum256(invocation.Arguments()), RequestID: id, State: result.RequestState})
 		if err != nil {
 			return toolcontract.Result{}, err
 		}
@@ -163,39 +164,39 @@ func relocatesSchema(value any) bool {
 	return false
 }
 
-func (r remoteTool) resume(params *sdkmcp.CallToolParams, inv toolcontract.Invocation, c toolcontract.Continuation) error {
-	var s remoteCheckpoint
-	if err := jsonv2.Unmarshal(c.State(), &s, jsonv2.RejectUnknownMembers(true)); err != nil {
+func (r remoteTool) resume(params *sdkmcp.CallToolParams, invocation toolcontract.Invocation, continuation toolcontract.Continuation) error {
+	var checkpoint remoteCheckpoint
+	if err := jsonv2.Unmarshal(continuation.State(), &checkpoint, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: malformed remote checkpoint", ErrContinuationBinding)
 	}
-	if s.Binding != r.binding || s.RequestID == "" || s.Args != sha256.Sum256([]byte(inv.Arguments())) {
+	if checkpoint.Binding != r.binding || checkpoint.RequestID == "" || checkpoint.Args != sha256.Sum256(invocation.Arguments()) {
 		return ErrContinuationBinding
 	}
-	var a struct {
+	var answer struct {
 		Action  string                     `json:"action"`
 		Content map[string]json.RawMessage `json:"content"`
 	}
-	if err := jsonv2.Unmarshal(c.Response(), &a, jsonv2.RejectUnknownMembers(true)); err != nil {
+	if err := jsonv2.Unmarshal(continuation.Response(), &answer, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
-	response := &sdkmcp.ElicitResult{Action: a.Action}
-	switch a.Action {
-	case "accept":
-		if a.Content == nil {
+	response := &sdkmcp.ElicitResult{Action: answer.Action}
+	switch answer.Action {
+	case elicitation.Accept:
+		if answer.Content == nil {
 			return ErrContinuationBinding
 		}
-		response.Content = make(map[string]any, len(a.Content))
-		for k, v := range a.Content {
-			response.Content[k] = v
+		response.Content = make(map[string]any, len(answer.Content))
+		for name, value := range answer.Content {
+			response.Content[name] = value
 		}
-	case "decline", "cancel":
-		if a.Content != nil {
+	case elicitation.Decline, elicitation.Cancel:
+		if answer.Content != nil {
 			return ErrContinuationBinding
 		}
 	default:
 		return ErrContinuationBinding
 	}
-	params.InputResponses = sdkmcp.InputResponseMap{s.RequestID: response}
-	params.RequestState = s.State
+	params.InputResponses = sdkmcp.InputResponseMap{checkpoint.RequestID: response}
+	params.RequestState = checkpoint.State
 	return nil
 }

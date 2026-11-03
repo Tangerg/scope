@@ -6,16 +6,10 @@ import (
 	sdk "github.com/Tangerg/go-sdk/mcp"
 
 	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/mcp/internal/elicitation"
 )
 
-const (
-	formProtocolVersion = "2026-07-28"
-	formInputKey        = "answer"
-	formMode            = "form"
-	formAccept          = "accept"
-	formDecline         = "decline"
-	formCancel          = "cancel"
-)
+const formInputKey = "answer"
 
 type formReply struct {
 	action string
@@ -31,12 +25,12 @@ func parseFormReply(responses sdk.InputResponseMap) (formReply, error) {
 		return formReply{}, errArguments
 	}
 	switch reply.Action {
-	case formDecline, formCancel:
+	case elicitation.Decline, elicitation.Cancel:
 		if reply.Content != nil {
 			return formReply{}, errArguments
 		}
 		return formReply{action: reply.Action}, nil
-	case formAccept:
+	case elicitation.Accept:
 		if reply.Content == nil {
 			return formReply{}, errArguments
 		}
@@ -60,7 +54,7 @@ func parseFormReply(responses sdk.InputResponseMap) (formReply, error) {
 	if err != nil {
 		return formReply{}, errArguments
 	}
-	return formReply{action: formAccept, answer: answer}, nil
+	return formReply{action: elicitation.Accept, answer: answer}, nil
 }
 
 func (f formReply) rejection(pending bool) error {
@@ -68,9 +62,9 @@ func (f formReply) rejection(pending bool) error {
 		return errContinuation
 	}
 	switch f.action {
-	case formDecline:
+	case elicitation.Decline:
 		return rpc(CodeDeclined, "form declined; no answer was submitted")
-	case formCancel:
+	case elicitation.Cancel:
 		return rpc(CodeCanceled, "form canceled; no answer was submitted")
 	default:
 		return errArguments
