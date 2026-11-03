@@ -14,7 +14,7 @@ func TestDocumentStagesHonorCancellationWithoutDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: etl.UUIDGenerator{}})
 	if err != nil {
 		t.Fatal(err)

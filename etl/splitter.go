@@ -32,30 +32,21 @@ func (t TextSplitterFunc) SplitText(ctx context.Context, text string) ([]string,
 type SplitterConfig struct {
 	// TextSplitter is required.
 	TextSplitter TextSplitter
-
-	// IDGenerator, when set, assigns an ID to each emitted chunk.
-	IDGenerator IDGenerator
 }
 
 // Splitter applies a TextSplitter to documents, clones source metadata onto
 // every chunk, and records chunk lineage. Documents containing media are
-// rejected because a text policy cannot assign media to chunks.
+// rejected because a text policy cannot assign media to chunks. Chunks have no
+// ID; an IDAssigner identifies them, including before a nested split.
 type Splitter struct {
 	textSplitter TextSplitter
-	idGenerator  IDGenerator
 }
 
 func NewSplitter(config SplitterConfig) (*Splitter, error) {
 	if lo.IsNil(config.TextSplitter) {
 		return nil, errors.New("etl: text splitter is required")
 	}
-	if config.IDGenerator != nil && lo.IsNil(config.IDGenerator) {
-		return nil, errors.New("etl: ID generator must not be a typed nil")
-	}
-	return &Splitter{
-		textSplitter: config.TextSplitter,
-		idGenerator:  config.IDGenerator,
-	}, nil
+	return &Splitter{textSplitter: config.TextSplitter}, nil
 }
 
 func (s *Splitter) splitText(ctx context.Context, text string) ([]string, error) {
@@ -126,7 +117,7 @@ func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([
 	total := len(nonEmpty)
 	out := make([]*document.Document, 0, total)
 	for index, text := range nonEmpty {
-		chunk, err := s.newChunk(ctx, doc, text, index, total)
+		chunk, err := newChunk(doc, text, index, total)
 		if err != nil {
 			return nil, err
 		}
@@ -135,15 +126,12 @@ func (s *Splitter) splitDocument(ctx context.Context, doc *document.Document) ([
 	return out, nil
 }
 
-func (s *Splitter) newChunk(ctx context.Context, source *document.Document, text string, index, total int) (*document.Document, error) {
+func newChunk(source *document.Document, text string, index, total int) (*document.Document, error) {
 	chunk, err := document.NewDocument(text, nil)
 	if err != nil {
 		return nil, err
 	}
 	chunk.Metadata = source.Metadata.Clone()
 	chunk.Provenance = source.Provenance.Split(source.ID, index, total)
-	if err := assignID(ctx, chunk, s.idGenerator); err != nil {
-		return nil, err
-	}
 	return chunk, nil
 }

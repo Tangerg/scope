@@ -51,7 +51,7 @@ func TestTokenSplitterHonorsTokenAndSentenceBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 	doc, _ := document.NewDocument("abcdef.ghijklmnop", nil)
 	chunks, err := splitter.Split(t.Context(), []*document.Document{doc})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestTokenSplitterFailsInsteadOfEmittingOversizedTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 	doc, _ := document.NewDocument("abcdefgh", nil)
 	if _, err := splitter.Split(t.Context(), []*document.Document{doc}); !errors.Is(err, etl.ErrChunkLimitExceeded) {
 		t.Fatalf("Split() error = %v, want ErrChunkLimitExceeded", err)

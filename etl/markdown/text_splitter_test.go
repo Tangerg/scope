@@ -201,7 +201,7 @@ func TestSplitterEnforcesChunkLimit(t *testing.T) {
 	}
 }
 
-func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
+func TestTransformPreservesLineage(t *testing.T) {
 	splitterPolicy, err := markdownsplitter.NewTextSplitter(markdownsplitter.TextSplitterConfig{
 		Tokenizer:         runeTokenizer{},
 		MaxTokensPerChunk: 4,
@@ -209,7 +209,7 @@ func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: splitterPolicy, IDGenerator: etl.NewSHA256IDGenerator(nil)})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: splitterPolicy})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,10 +229,7 @@ func TestTransformPreservesLineageAndAssignsIDs(t *testing.T) {
 	if len(chunks) != 2 {
 		t.Fatalf("chunk count = %d, want 2", len(chunks))
 	}
-	for index, chunk := range chunks {
-		if chunk.ID == "" {
-			t.Fatalf("chunk %d has no generated ID", index)
-		}
+	for _, chunk := range chunks {
 		if chunk.Provenance == nil || len(chunk.Provenance.Chunks) == 0 || chunk.Provenance.Chunks[0].Parent != doc.ID {
 			t.Fatalf("chunk parent: %+v", chunk.Provenance)
 		}

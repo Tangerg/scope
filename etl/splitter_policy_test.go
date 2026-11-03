@@ -54,9 +54,9 @@ func TestSplitterRejectsInvalidPolicyOutputAndInvalidInputs(t *testing.T) {
 	}
 }
 
-func documentSplitter(t testing.TB, policy etl.TextSplitter, generator etl.IDGenerator) *etl.Splitter {
+func documentSplitter(t testing.TB, policy etl.TextSplitter) *etl.Splitter {
 	t.Helper()
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: policy, IDGenerator: generator})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: policy})
 	if err != nil {
 		t.Fatal(err)
 	}

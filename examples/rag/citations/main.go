@@ -94,11 +94,15 @@ func ingest(ctx context.Context, encoder *vector.Encoder, source, raw string) (*
 	if err != nil {
 		return nil, err
 	}
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: passages, IDGenerator: ids})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: passages})
 	if err != nil {
 		return nil, err
 	}
 	chunks, err := splitter.Split(ctx, docs)
+	if err != nil {
+		return nil, err
+	}
+	chunks, err = assign.Assign(ctx, chunks)
 	if err != nil {
 		return nil, err
 	}

@@ -12,9 +12,12 @@ import (
 )
 
 func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
-	gen := etl.NewSHA256IDGenerator(nil)
+	assigner, err := etl.NewIDAssigner(etl.IDAssignerConfig{Generator: etl.NewSHA256IDGenerator(nil)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	split := func(_ context.Context, s string) ([]string, error) { return strings.Split(s, " "), nil }
-	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(split), IDGenerator: gen})
+	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(split)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +35,9 @@ func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
 	docs, err := splitter.Split(t.Context(), []*document.Document{parent})
 	if err != nil || len(docs) != 2 {
 		t.Fatalf("first split: %v %v", docs, err)
+	}
+	if docs, err = assigner.Assign(t.Context(), docs); err != nil {
+		t.Fatal(err)
 	}
 	twice, err := splitter.Split(t.Context(), docs)
 	if err != nil || len(twice) != 2 {

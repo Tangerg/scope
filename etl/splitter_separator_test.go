@@ -15,7 +15,7 @@ func TestSeparatorSplitterDefaultsToNewline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 
 	texts, err := splitterPolicy.SplitText(t.Context(), "a\nb\nc")
 	if err != nil {
@@ -40,7 +40,7 @@ func TestSeparatorSplitterPreservesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 
 	doc, _ := document.NewDocument("a|b", nil)
 	_ = doc.Metadata.Set("src", "manual")
@@ -104,7 +104,7 @@ func TestSplitterRejectsMediaOnlyDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	splitter := documentSplitter(t, splitterPolicy, nil)
+	splitter := documentSplitter(t, splitterPolicy)
 	content, err := media.NewBytes("image/png", []byte("image"))
 	if err != nil {
 		t.Fatal(err)
