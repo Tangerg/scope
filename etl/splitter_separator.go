@@ -25,12 +25,12 @@ func NewSeparatorSplitter(config SeparatorSplitterConfig) (*SeparatorSplitter, e
 	return &SeparatorSplitter{separator: separator}, nil
 }
 
-func (t *SeparatorSplitter) SplitText(ctx context.Context, text string) ([]string, error) {
+func (s *SeparatorSplitter) SplitText(ctx context.Context, text string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := validateTextEncoding(text); err != nil {
 		return nil, err
 	}
-	return strings.Split(text, t.separator), nil
+	return strings.Split(text, s.separator), nil
 }

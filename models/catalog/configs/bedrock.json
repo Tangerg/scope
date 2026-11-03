@@ -1,5 +1,5 @@
 {
-  "provider": "amazonbedrock",
+  "provider": "bedrock",
   "models": [
     {
       "id": "amazon.nova-2-lite-v1:0",

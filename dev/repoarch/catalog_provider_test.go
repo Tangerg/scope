@@ -186,10 +186,13 @@ func collectAdapterPackages(t *testing.T, directory string, into *[]adapterPacka
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
+		if provider, found := importedProviderConstant(t, parsed); found {
+			adapter.provider = provider
+		}
 		for identifier, literal := range stringConstants(t, path, parsed) {
 			switch {
 			case identifier.Name == "Provider":
-				adapter.provider = strings.ToLower(literal)
+				adapter.provider = literal
 			case strings.HasPrefix(identifier.Name, "Model") && identifier.IsExported():
 				adapter.models = append(adapter.models, modelConstant{
 					pkg:  parsed.Name.Name,
@@ -204,6 +207,83 @@ func collectAdapterPackages(t *testing.T, directory string, into *[]adapterPacka
 	if adapter.provider != "" {
 		*into = append(*into, adapter)
 	}
+}
+
+// importedProviderConstant resolves a Provider that re-exports the constant of
+// the protocol package owning that identity, such as
+// anthropicprotocol.ProviderID, by reading the imported package's source.
+func importedProviderConstant(t *testing.T, file *ast.File) (string, bool) {
+	t.Helper()
+	for _, declaration := range file.Decls {
+		generic, ok := declaration.(*ast.GenDecl)
+		if !ok || generic.Tok != token.CONST {
+			continue
+		}
+		for _, specification := range generic.Specs {
+			value := specification.(*ast.ValueSpec)
+			for index, identifier := range value.Names {
+				if identifier.Name != "Provider" || index >= len(value.Values) {
+					continue
+				}
+				selector, ok := value.Values[index].(*ast.SelectorExpr)
+				if !ok {
+					continue
+				}
+				alias, ok := selector.X.(*ast.Ident)
+				if !ok {
+					t.Fatalf("Provider selector %v has no package qualifier", selector)
+				}
+				return packageStringConstant(t, importPath(t, file, alias.Name), selector.Sel.Name), true
+			}
+		}
+	}
+	return "", false
+}
+
+func importPath(t *testing.T, file *ast.File, alias string) string {
+	t.Helper()
+	for _, imported := range file.Imports {
+		path, err := strconv.Unquote(imported.Path.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := filepath.Base(path)
+		if imported.Name != nil {
+			name = imported.Name.Name
+		}
+		if name == alias {
+			return path
+		}
+	}
+	t.Fatalf("no import named %q", alias)
+	return ""
+}
+
+func packageStringConstant(t *testing.T, importPath, name string) string {
+	t.Helper()
+	directory := filepath.Join(repositoryRoot(t), filepath.FromSlash(strings.TrimPrefix(importPath, repositoryModulePrefix+"/")))
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatalf("read %s: %v", directory, err)
+	}
+	fileSet := token.NewFileSet()
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		parsed, err := parser.ParseFile(fileSet, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		for identifier, literal := range stringConstants(t, path, parsed) {
+			if identifier.Name == name {
+				return literal
+			}
+		}
+	}
+	t.Fatalf("%s declares no string constant %s", importPath, name)
+	return ""
 }
 
 func stringConstants(t *testing.T, path string, file *ast.File) func(func(*ast.Ident, string) bool) {

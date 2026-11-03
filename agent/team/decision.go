@@ -6,8 +6,6 @@ import (
 	agentrun "github.com/Tangerg/scope/agent/run"
 )
 
-const invalidEnumName = "invalid"
-
 type Mode string
 
 const (
@@ -21,6 +19,11 @@ const (
 	ModeWait Mode = "wait"
 )
 
+const (
+	invalidEnumName   = "invalid"
+	modeUndecidedName = "undecided"
+)
+
 func (m Mode) Valid() bool {
 	return m == ModeUndecided || m == ModeContinue || m == ModeWait
 }
@@ -30,7 +33,7 @@ func (m Mode) String() string {
 		return invalidEnumName
 	}
 	if m == ModeUndecided {
-		return "undecided"
+		return modeUndecidedName
 	}
 	return string(m)
 }

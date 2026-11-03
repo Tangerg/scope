@@ -64,7 +64,7 @@ type answer struct {
 }
 
 func run(ctx context.Context, output io.Writer, model chat.Model) error {
-	client, err := chatclient.New(model, chatclient.Config{})
+	client, err := chatclient.New(model)
 	if err != nil {
 		return err
 	}

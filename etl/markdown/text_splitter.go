@@ -83,7 +83,7 @@ func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 
 // SplitText splits one Markdown source string. Every returned chunk is
 // non-empty and within MaxTokensPerChunk. The total is bounded by MaxChunks.
-func (s *TextSplitter) SplitText(ctx context.Context, source string) ([]string, error) {
+func (t *TextSplitter) SplitText(ctx context.Context, source string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -94,18 +94,18 @@ func (s *TextSplitter) SplitText(ctx context.Context, source string) ([]string, 
 		return nil, nil
 	}
 
-	sections, err := s.parseSections(ctx, []byte(source))
+	sections, err := t.parseSections(ctx, []byte(source))
 	if err != nil {
 		return nil, err
 	}
-	chunks := make([]string, 0, min(len(sections), s.maxChunks))
+	chunks := make([]string, 0, min(len(sections), t.maxChunks))
 	for _, section := range sections {
-		sectionChunks, err := s.splitSection(ctx, section)
+		sectionChunks, err := t.splitSection(ctx, section)
 		if err != nil {
 			return nil, err
 		}
-		if len(chunks)+len(sectionChunks) > s.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		if len(chunks)+len(sectionChunks) > t.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
 		chunks = append(chunks, sectionChunks...)
 	}
@@ -176,8 +176,8 @@ func (s *sectionBuilder) finish() []markdownSection {
 	return s.sections
 }
 
-func (s *TextSplitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
-	source, root, err := resolveReferences(ctx, s.parser, source)
+func (t *TextSplitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
+	source, root, err := resolveReferences(ctx, t.parser, source)
 	if err != nil {
 		return nil, err
 	}
@@ -262,10 +262,10 @@ func childSources(source []byte, parent ast.Node, parentEnd int) []string {
 	return parts
 }
 
-func (s *TextSplitter) splitSection(ctx context.Context, section markdownSection) ([]string, error) {
+func (t *TextSplitter) splitSection(ctx context.Context, section markdownSection) ([]string, error) {
 	prefix := strings.Join(section.headings, "\n\n")
 	if len(section.blocks) == 0 {
-		if err := s.requireFits(ctx, blockAtomic, prefix); err != nil {
+		if err := t.requireFits(ctx, blockAtomic, prefix); err != nil {
 			return nil, err
 		}
 		return []string{prefix}, nil
@@ -279,8 +279,8 @@ func (s *TextSplitter) splitSection(ctx context.Context, section markdownSection
 		if len(current) == 0 {
 			return nil
 		}
-		if len(chunks) == s.maxChunks {
-			return fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		if len(chunks) == t.maxChunks {
+			return fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
 		chunks = append(chunks, renderChunk(prefix, strings.Join(current, "\n\n")))
 		current = nil
@@ -288,13 +288,13 @@ func (s *TextSplitter) splitSection(ctx context.Context, section markdownSection
 	}
 
 	for _, block := range section.blocks {
-		parts, err := s.splitBlock(ctx, prefix, block)
+		parts, err := t.splitBlock(ctx, prefix, block)
 		if err != nil {
 			return nil, err
 		}
 		for _, part := range parts {
 			candidate := slices.Concat(current, []string{part})
-			fits, err := s.fits(ctx, renderChunk(prefix, strings.Join(candidate, "\n\n")))
+			fits, err := t.fits(ctx, renderChunk(prefix, strings.Join(candidate, "\n\n")))
 			if err != nil {
 				return nil, err
 			}
@@ -314,8 +314,8 @@ func (s *TextSplitter) splitSection(ctx context.Context, section markdownSection
 	return chunks, nil
 }
 
-func (s *TextSplitter) splitBlock(ctx context.Context, prefix string, block markdownBlock) ([]string, error) {
-	fits, err := s.fits(ctx, renderChunk(prefix, block.text))
+func (t *TextSplitter) splitBlock(ctx context.Context, prefix string, block markdownBlock) ([]string, error) {
+	fits, err := t.fits(ctx, renderChunk(prefix, block.text))
 	if err != nil {
 		return nil, err
 	}
@@ -325,28 +325,28 @@ func (s *TextSplitter) splitBlock(ctx context.Context, prefix string, block mark
 
 	switch block.kind {
 	case blockParagraph:
-		return s.splitParagraph(ctx, prefix, block.text)
+		return t.splitParagraph(ctx, prefix, block.text)
 	case blockTable:
-		return s.splitTable(ctx, prefix, block.text)
+		return t.splitTable(ctx, prefix, block.text)
 	case blockList:
-		return s.groupSemanticUnits(ctx, prefix, block.kind, block.parts, func(items []string) string {
+		return t.groupSemanticUnits(ctx, prefix, block.kind, block.parts, func(items []string) string {
 			return strings.Join(items, "\n\n")
 		})
 	case blockFencedCode:
-		return s.splitFencedCode(ctx, prefix, block.text)
+		return t.splitFencedCode(ctx, prefix, block.text)
 	case blockIndentedCode:
 		lines := strings.Split(block.text, "\n")
-		return s.groupSemanticUnits(ctx, prefix, block.kind, lines, func(lines []string) string {
+		return t.groupSemanticUnits(ctx, prefix, block.kind, lines, func(lines []string) string {
 			return strings.Join(lines, "\n")
 		})
 	default:
-		return nil, s.semanticUnitError(ctx, block.kind, renderChunk(prefix, block.text))
+		return nil, t.semanticUnitError(ctx, block.kind, renderChunk(prefix, block.text))
 	}
 }
 
-func (s *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
+func (t *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
 	paragraph = strings.TrimSpace(paragraph)
-	protected := inlineRanges(s.parser, paragraph)
+	protected := inlineRanges(t.parser, paragraph)
 	offset := 0
 	render := func(body string) string {
 		boundary := offset + len(body)
@@ -359,10 +359,10 @@ func (s *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph str
 	}
 	var chunks []string
 	for paragraph != "" {
-		if len(chunks) == s.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		if len(chunks) == t.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
-		decoded, err := tokenwindow.Prefix(ctx, s.tokenizer, paragraph, s.maxTokensPerChunk, s.maxSearchWork, render)
+		decoded, err := tokenwindow.Prefix(ctx, t.tokenizer, paragraph, t.maxTokensPerChunk, t.maxSearchWork, render)
 		if errors.Is(err, tokenwindow.ErrSearchBudgetExceeded) {
 			return nil, etl.ErrSearchBudgetExceeded
 		}
@@ -376,7 +376,7 @@ func (s *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph str
 					size = span.end - offset
 				}
 			}
-			return nil, s.semanticUnitError(ctx, blockParagraph, renderChunk(prefix, paragraph[:size]))
+			return nil, t.semanticUnitError(ctx, blockParagraph, renderChunk(prefix, paragraph[:size]))
 		}
 		rest := paragraph[len(decoded):]
 		paragraph = strings.TrimSpace(rest)
@@ -386,18 +386,18 @@ func (s *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph str
 	return chunks, nil
 }
 
-func (s *TextSplitter) splitTable(ctx context.Context, prefix, table string) ([]string, error) {
+func (t *TextSplitter) splitTable(ctx context.Context, prefix, table string) ([]string, error) {
 	lines := nonEmptyLines(table)
 	if len(lines) < minimumTableLines {
-		return nil, s.semanticUnitError(ctx, blockTable, renderChunk(prefix, table))
+		return nil, t.semanticUnitError(ctx, blockTable, renderChunk(prefix, table))
 	}
 	header := lines[:2]
-	return s.groupSemanticUnits(ctx, prefix, blockTable, lines[2:], func(rows []string) string {
+	return t.groupSemanticUnits(ctx, prefix, blockTable, lines[2:], func(rows []string) string {
 		return strings.Join(slices.Concat(header, rows), "\n")
 	})
 }
 
-func (s *TextSplitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
+func (t *TextSplitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
 	lines := strings.Split(code, "\n")
 	opening := lines[0]
 	closing := closingFence(opening)
@@ -406,12 +406,12 @@ func (s *TextSplitter) splitFencedCode(ctx context.Context, prefix, code string)
 		closing = content[len(content)-1]
 		content = content[:len(content)-1]
 	}
-	return s.groupSemanticUnits(ctx, prefix, blockFencedCode, content, func(lines []string) string {
+	return t.groupSemanticUnits(ctx, prefix, blockFencedCode, content, func(lines []string) string {
 		return opening + "\n" + strings.Join(lines, "\n") + "\n" + closing
 	})
 }
 
-func (s *TextSplitter) groupSemanticUnits(
+func (t *TextSplitter) groupSemanticUnits(
 	ctx context.Context,
 	prefix string,
 	kind blockKind,
@@ -420,15 +420,15 @@ func (s *TextSplitter) groupSemanticUnits(
 ) ([]string, error) {
 	if len(units) == 0 {
 		body := render(nil)
-		return nil, s.semanticUnitError(ctx, kind, renderChunk(prefix, body))
+		return nil, t.semanticUnitError(ctx, kind, renderChunk(prefix, body))
 	}
 
-	groups := make([]string, 0, min(len(units), s.maxChunks))
+	groups := make([]string, 0, min(len(units), t.maxChunks))
 	current := make([]string, 0, len(units))
 	for _, unit := range units {
 		candidate := slices.Concat(current, []string{unit})
 		body := render(candidate)
-		fits, err := s.fits(ctx, renderChunk(prefix, body))
+		fits, err := t.fits(ctx, renderChunk(prefix, body))
 		if err != nil {
 			return nil, err
 		}
@@ -437,44 +437,44 @@ func (s *TextSplitter) groupSemanticUnits(
 			continue
 		}
 		if len(current) == 0 {
-			return nil, s.semanticUnitError(ctx, kind, renderChunk(prefix, body))
+			return nil, t.semanticUnitError(ctx, kind, renderChunk(prefix, body))
 		}
-		if len(groups) == s.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		if len(groups) == t.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
 		groups = append(groups, render(current))
 		current = []string{unit}
 		body = render(current)
-		fits, err = s.fits(ctx, renderChunk(prefix, body))
+		fits, err = t.fits(ctx, renderChunk(prefix, body))
 		if err != nil {
 			return nil, err
 		}
 		if !fits {
-			return nil, s.semanticUnitError(ctx, kind, renderChunk(prefix, body))
+			return nil, t.semanticUnitError(ctx, kind, renderChunk(prefix, body))
 		}
 	}
 	if len(current) > 0 {
-		if len(groups) == s.maxChunks {
-			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, s.maxChunks)
+		if len(groups) == t.maxChunks {
+			return nil, fmt.Errorf("%w: maximum is %d", etl.ErrChunkLimitExceeded, t.maxChunks)
 		}
 		groups = append(groups, render(current))
 	}
 	return groups, nil
 }
 
-func (s *TextSplitter) requireFits(ctx context.Context, kind blockKind, value string) error {
-	fits, err := s.fits(ctx, value)
+func (t *TextSplitter) requireFits(ctx context.Context, kind blockKind, value string) error {
+	fits, err := t.fits(ctx, value)
 	if err != nil {
 		return err
 	}
 	if fits {
 		return nil
 	}
-	return s.semanticUnitError(ctx, kind, value)
+	return t.semanticUnitError(ctx, kind, value)
 }
 
-func (s *TextSplitter) semanticUnitError(ctx context.Context, kind blockKind, value string) error {
-	count, err := s.tokenCount(ctx, value)
+func (t *TextSplitter) semanticUnitError(ctx context.Context, kind blockKind, value string) error {
+	count, err := t.tokenCount(ctx, value)
 	if err != nil {
 		return err
 	}
@@ -483,20 +483,20 @@ func (s *TextSplitter) semanticUnitError(ctx context.Context, kind blockKind, va
 		ErrSemanticUnitTooLarge,
 		kind,
 		count,
-		s.maxTokensPerChunk,
+		t.maxTokensPerChunk,
 	)
 }
 
-func (s *TextSplitter) fits(ctx context.Context, value string) (bool, error) {
-	count, err := s.tokenCount(ctx, value)
+func (t *TextSplitter) fits(ctx context.Context, value string) (bool, error) {
+	count, err := t.tokenCount(ctx, value)
 	if err != nil {
 		return false, err
 	}
-	return count <= s.maxTokensPerChunk, nil
+	return count <= t.maxTokensPerChunk, nil
 }
 
-func (s *TextSplitter) tokenCount(ctx context.Context, value string) (int, error) {
-	tokens, err := s.tokenizer.Encode(ctx, value)
+func (t *TextSplitter) tokenCount(ctx context.Context, value string) (int, error) {
+	tokens, err := t.tokenizer.Encode(ctx, value)
 	if err != nil {
 		return 0, fmt.Errorf("markdown splitter: measure chunk: %w", err)
 	}
