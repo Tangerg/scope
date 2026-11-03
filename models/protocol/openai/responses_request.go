@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
+	corecontent "github.com/Tangerg/scope/core/content"
+
 	openaisdk "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
@@ -260,9 +262,9 @@ func mapResponsesToolOutput(output toolcontract.Output) (responses.ResponseInput
 	for index := range output.Content {
 		part := output.Content[index]
 		switch part.Kind {
-		case corechat.PartText:
+		case corecontent.Text:
 			content = append(content, responses.ResponseFunctionCallOutputItemParamOfInputText(part.Text))
-		case corechat.PartMedia:
+		case corecontent.Media:
 			mapped, err := mapResponsesToolMedia(part.Media)
 			if err != nil {
 				return responses.ResponseInputItemFunctionCallOutputOutputUnionParam{}, fmt.Errorf("content[%d]: %w", index, err)

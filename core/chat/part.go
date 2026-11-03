@@ -14,8 +14,8 @@ import (
 type PartKind string
 
 const (
-	PartText                = corecontent.Text
-	PartMedia               = corecontent.Media
+	PartText       PartKind = PartKind(corecontent.Text)
+	PartMedia      PartKind = PartKind(corecontent.Media)
 	PartReasoning  PartKind = "reasoning"
 	PartToolCall   PartKind = "tool_call"
 	PartToolResult PartKind = "tool_result"
@@ -101,12 +101,26 @@ func NewRefusalPart(text string) Part {
 	return Part{Kind: PartRefusal, Text: text}
 }
 
+// NewContentPart carries a content block, the shared text-or-media value chat
+// parts and tool output both use; it borrows the block's nested values.
+func NewContentPart(block corecontent.Block) Part {
+	return Part{Kind: PartKind(block.Kind), Text: block.Text, Media: block.Media, Citations: block.Citations, Metadata: block.Metadata}
+}
+
+// Content projects a text or media part as the content block that owns its
+// rules; chat control parts are not content.
+func (p Part) Content() (corecontent.Block, bool) {
+	if p.Kind != PartText && p.Kind != PartMedia {
+		return corecontent.Block{}, false
+	}
+	return corecontent.Block{Kind: corecontent.Kind(p.Kind), Text: p.Text, Media: p.Media, Citations: p.Citations, Metadata: p.Metadata}, true
+}
+
 func (p Part) Validate() error {
-	if p.Kind == PartText || p.Kind == PartMedia {
+	if block, isContent := p.Content(); isContent {
 		if len(p.ReasoningState) > 0 || p.ToolCall != nil || p.ToolResult != nil {
 			return fmt.Errorf("%w: content cannot carry chat control payloads", ErrInvalidPart)
 		}
-		block := corecontent.Block{Kind: corecontent.Kind(p.Kind), Text: p.Text, Media: p.Media, Citations: p.Citations, Metadata: p.Metadata}
 		if err := block.Validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidPart, err)
 		}

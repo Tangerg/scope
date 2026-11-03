@@ -6,6 +6,8 @@ import (
 	"math"
 	"slices"
 
+	corecontent "github.com/Tangerg/scope/core/content"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
@@ -218,9 +220,9 @@ func mapToolResultContent(output toolcontract.Output) ([]types.ToolResultContent
 	for index := range output.Content {
 		part := output.Content[index]
 		switch part.Kind {
-		case corechat.PartText:
+		case corecontent.Text:
 			content = append(content, &types.ToolResultContentBlockMemberText{Value: part.Text})
-		case corechat.PartMedia:
+		case corecontent.Media:
 			mapped, err := mediaToBlock(part.Media)
 			if err != nil {
 				return nil, fmt.Errorf("content[%d]: %w", index, err)

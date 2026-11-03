@@ -36,9 +36,7 @@ func PromptMessagesToChat(messages []*sdkmcp.PromptMessage) ([]chat.Message, err
 		if !present {
 			continue
 		}
-		converted.Parts = []chat.Part{{
-			Kind: chat.PartKind(part.Kind), Text: part.Text, Media: part.Media, Citations: part.Citations, Metadata: part.Metadata,
-		}}
+		converted.Parts = []chat.Part{chat.NewContentPart(part)}
 		if err := converted.Validate(); err != nil {
 			return nil, fmt.Errorf("mcp: prompt message %d: %w", index, err)
 		}

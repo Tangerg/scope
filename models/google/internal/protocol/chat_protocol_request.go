@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	corecontent "github.com/Tangerg/scope/core/content"
+
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -336,9 +338,9 @@ func protocolToolResult(output toolcontract.Output, isError bool) (map[string]an
 	for index := range output.Content {
 		part := output.Content[index]
 		switch part.Kind {
-		case corechat.PartText:
+		case corecontent.Text:
 			text.WriteString(part.Text)
-		case corechat.PartMedia:
+		case corecontent.Media:
 			mapped, err := mapProtocolToolMedia(part.Media)
 			if err != nil {
 				return nil, nil, fmt.Errorf("content[%d]: %w", index, err)

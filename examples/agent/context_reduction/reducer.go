@@ -5,6 +5,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
+	corecontent "github.com/Tangerg/scope/core/content"
+
 	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/core/chat"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -55,7 +57,7 @@ func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ interact
 				continue
 			}
 			content := result.Output.Content
-			if len(result.Output.Details) != 0 || len(content) != 1 || content[0].Kind != chat.PartText || len(content[0].Citations) != 0 || len(content[0].Metadata) != 0 || len(content[0].Text) < minimumDuplicateBytes {
+			if len(result.Output.Details) != 0 || len(content) != 1 || content[0].Kind != corecontent.Text || len(content[0].Citations) != 0 || len(content[0].Metadata) != 0 || len(content[0].Text) < minimumDuplicateBytes {
 				continue
 			}
 			key := outputKey{result.Name, content[0].Text}

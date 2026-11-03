@@ -61,7 +61,7 @@ func TestToolOutputPreservesStructuredAndMediaContent(t *testing.T) {
 		t.Fatalf("structured Text = %q, %v", text, ok)
 	}
 
-	mediaOutput := toolcontract.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: mustImage(t)}}}
+	mediaOutput := toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: mustImage(t)}}}
 	if err := mediaOutput.Validate(); err != nil {
 		t.Fatal(err)
 	}

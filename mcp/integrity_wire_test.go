@@ -12,7 +12,6 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	"github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/tool"
@@ -161,7 +160,7 @@ func TestServingEmbeddedResourceCannotReclassifyURI(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			part := tool.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: linked}}}
+			part := tool.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: linked}}}
 			if err := part.Content[0].Metadata.Set(scopemcp.ContentMetadataKey, map[string]any{"type": "resource", "resource": map[string]any{"uri": uri}}); err != nil {
 				t.Fatal(err)
 			}

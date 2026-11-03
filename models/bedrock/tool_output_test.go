@@ -6,7 +6,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -34,7 +33,7 @@ func TestToolResultContentPreservesJSONTextAndMedia(t *testing.T) {
 	}
 	document.Name = "evidence.pdf"
 	content, err := mapToolResultContent(toolcontract.Output{Content: []corecontent.Block{
-		{Kind: corechat.PartText, Text: "summary"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: document},
+		{Kind: corecontent.Text, Text: "summary"}, {Kind: corecontent.Media, Media: image}, {Kind: corecontent.Media, Media: document},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +57,7 @@ func TestToolResultContentRejectsUnsupportedAudio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = mapToolResultContent(toolcontract.Output{Content: []corecontent.Block{{Kind: corechat.PartMedia, Media: audio}}})
+	_, err = mapToolResultContent(toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: audio}}})
 	if err == nil {
 		t.Fatal("mapToolResultContent accepted audio")
 	}

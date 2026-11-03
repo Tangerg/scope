@@ -27,7 +27,7 @@ func TestCompressionPreservesPublicHistoryAndOmitsReasoning(t *testing.T) {
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "read", Name: "lookup", Arguments: `{}`})),
 		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "read", Name: "lookup", Output: toolcontract.NewTextOutput("public result")})}},
 		chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "image", Name: "picture", Arguments: `{}`})),
-		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "image", Name: "picture", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: chat.PartMedia, Media: image}}}})}},
+		{Role: chat.RoleTool, Parts: []chat.Part{chat.NewToolResultPart(chat.ToolResult{ID: "image", Name: "picture", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: image}}}})}},
 	})
 	if err != nil {
 		t.Fatal(err)

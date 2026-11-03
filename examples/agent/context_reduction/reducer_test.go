@@ -81,13 +81,13 @@ func TestDuplicateOutputReductionLeavesProtectedValuesIntact(t *testing.T) {
 		{"different tool", func(r *chat.Request) { r.Messages[5].Parts[0].ToolResult.Name = "another_reader" }},
 		{"error", func(r *chat.Request) { r.Messages[5].Parts[0].ToolResult.IsError = true }},
 		{"media", func(r *chat.Request) {
-			r.Messages[5].Parts[0].ToolResult.Output.Content = []corecontent.Block{{Kind: chat.PartMedia, Media: attachment}}
+			r.Messages[5].Parts[0].ToolResult.Output.Content = []corecontent.Block{{Kind: corecontent.Media, Media: attachment}}
 		}},
 		{"structured output", func(r *chat.Request) {
 			r.Messages[5].Parts[0].ToolResult.Output.Details = json.RawMessage(`{"source":"a"}`)
 		}},
 		{"multipart output", func(r *chat.Request) {
-			r.Messages[5].Parts[0].ToolResult.Output.Content = append(r.Messages[5].Parts[0].ToolResult.Output.Content, corecontent.Block{Kind: chat.PartText, Text: "another part"})
+			r.Messages[5].Parts[0].ToolResult.Output.Content = append(r.Messages[5].Parts[0].ToolResult.Output.Content, corecontent.Block{Kind: corecontent.Text, Text: "another part"})
 		}},
 		{"citation", func(r *chat.Request) {
 			r.Messages[5].Parts[0].ToolResult.Output.Content[0].Citations = []corecontent.Citation{{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: "source:a"}}}

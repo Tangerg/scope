@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/tool"
 	scopemcp "github.com/Tangerg/scope/mcp"
@@ -199,7 +198,7 @@ func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
 
 func TestToolFailureSurvivesProtocolRoundTrip(t *testing.T) {
 	want := tool.Output{
-		Content: []corecontent.Block{{Kind: corechat.PartText, Text: "failed"}, {Kind: corechat.PartText, Text: "one file was committed"}},
+		Content: []corecontent.Block{{Kind: corecontent.Text, Text: "failed"}, {Kind: corecontent.Text, Text: "one file was committed"}},
 		Details: json.RawMessage(`{"files":["one"],"complete":false}`),
 	}
 	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: errors.New("partial execution"), Output: want})

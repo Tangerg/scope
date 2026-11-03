@@ -30,7 +30,7 @@ func TestResponsesToolOutputPreservesStructuredAndMultimodalContent(t *testing.T
 	}
 	file.Name = "evidence.pdf"
 	mapped, err := mapResponsesToolOutput(toolcontract.Output{Content: []corecontent.Block{
-		{Kind: corechat.PartText, Text: "summary"}, {Kind: corechat.PartMedia, Media: image}, {Kind: corechat.PartMedia, Media: file},
+		{Kind: corecontent.Text, Text: "summary"}, {Kind: corecontent.Media, Media: image}, {Kind: corecontent.Media, Media: file},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestOpenAIChatToolOutputRejectsMediaInsteadOfDroppingIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := corechat.NewToolMessage(corechat.ToolResult{
-		ID: "call", Name: "inspect", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corechat.PartMedia, Media: image}}},
+		ID: "call", Name: "inspect", Output: toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: image}}},
 	})
 	if _, err := mapRequestMessage(message); err == nil || !strings.Contains(err.Error(), "does not support media Tool output") {
 		t.Fatalf("mapRequestMessage error = %v", err)

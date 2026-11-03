@@ -10,7 +10,6 @@ import (
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
-	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -20,7 +19,7 @@ const pngMIME = "image/png"
 
 func mediaPart(t *testing.T, part corecontent.Block) *media.Media {
 	t.Helper()
-	if part.Kind != corechat.PartMedia || part.Media == nil {
+	if part.Kind != corecontent.Media || part.Media == nil {
 		t.Fatalf("part = %#v, want media", part)
 	}
 	return part.Media
@@ -36,7 +35,7 @@ func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 			content: &sdkmcp.TextContent{Text: "hello"},
 			include: true,
 			assert: func(t *testing.T, part corecontent.Block) {
-				if part.Kind != corechat.PartText || part.Text != "hello" {
+				if part.Kind != corecontent.Text || part.Text != "hello" {
 					t.Fatalf("part = %#v", part)
 				}
 			},
@@ -116,7 +115,7 @@ func TestMapRemoteContentCoversEveryProtocolShape(t *testing.T) {
 
 func TestMapServerContentRejectsAnInvalidProtocolEnvelope(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"type":"unknown"}`, `{"type":"resource_link"}`, `{"type":"text","resource":{"uri":"file:///source"}}`} {
-		part := corecontent.Block{Kind: corechat.PartText, Text: "body"}
+		part := corecontent.Block{Kind: corecontent.Text, Text: "body"}
 		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(raw)); err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +137,7 @@ func TestMapRemoteContentRejectsUnusableResources(t *testing.T) {
 		}
 	}
 	part, include, err := mapRemoteContent(&sdkmcp.ResourceLink{URI: "https://example.com/a"})
-	if err != nil || !include || part.Kind != corechat.PartMedia || part.Media.MIME != "application/octet-stream" {
+	if err != nil || !include || part.Kind != corecontent.Media || part.Media.MIME != "application/octet-stream" {
 		t.Fatalf("resource without MIME = %#v, %v, %v", part, include, err)
 	}
 }
@@ -164,11 +163,11 @@ func TestMapServerToolOutputCoversEveryPartKind(t *testing.T) {
 
 	output := toolcontract.Output{
 		Content: []corecontent.Block{
-			{Kind: corechat.PartText, Text: "summary"},
-			{Kind: corechat.PartMedia, Media: image},
-			{Kind: corechat.PartMedia, Media: audio},
-			{Kind: corechat.PartMedia, Media: opaque},
-			{Kind: corechat.PartMedia, Media: linked},
+			{Kind: corecontent.Text, Text: "summary"},
+			{Kind: corecontent.Media, Media: image},
+			{Kind: corecontent.Media, Media: audio},
+			{Kind: corecontent.Media, Media: opaque},
+			{Kind: corecontent.Media, Media: linked},
 		},
 		Details: []byte(`{"score":1}`),
 	}
@@ -260,10 +259,10 @@ func TestMapServerToolOutputPreservesStructuredJSON(t *testing.T) {
 }
 
 func TestMapServerContentRejectsAnUnusableMediaSource(t *testing.T) {
-	if _, err := mapServerContent(corecontent.Block{Kind: corechat.PartMedia, Media: &media.Media{MIME: "not a mime"}}); err == nil {
+	if _, err := mapServerContent(corecontent.Block{Kind: corecontent.Media, Media: &media.Media{MIME: "not a mime"}}); err == nil {
 		t.Fatal("an unparsable MIME type was accepted")
 	}
-	if _, err := mapServerContent(corecontent.Block{Kind: corechat.PartMedia, Media: &media.Media{MIME: pngMIME}}); err == nil {
+	if _, err := mapServerContent(corecontent.Block{Kind: corecontent.Media, Media: &media.Media{MIME: pngMIME}}); err == nil {
 		t.Fatal("an unset media source was accepted")
 	}
 }
@@ -273,7 +272,7 @@ func TestMapServerContentRejectsMediaReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if content, err := mapServerContent(corecontent.Block{Kind: corechat.PartMedia, Media: reference}); !errors.Is(err, ErrMediaReference) || content != nil {
+	if content, err := mapServerContent(corecontent.Block{Kind: corecontent.Media, Media: reference}); !errors.Is(err, ErrMediaReference) || content != nil {
 		t.Fatalf("reference media = %#v, %v; want ErrMediaReference", content, err)
 	}
 }
@@ -293,7 +292,7 @@ func TestMapServerContentEscapesInlineResourceNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	opaque.Name = "quarterly report#1?.pdf"
-	content, err := mapServerContent(corecontent.Block{Kind: corechat.PartMedia, Media: opaque})
+	content, err := mapServerContent(corecontent.Block{Kind: corecontent.Media, Media: opaque})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,9 +347,9 @@ func TestMapServerContentRejectsAMisplacedInferredMIME(t *testing.T) {
 		part     corecontent.Block
 		envelope string
 	}{
-		{part: corecontent.Block{Kind: corechat.PartText, Text: "body"}, envelope: `{"type":"text","mimeTypeInferred":true}`},
-		{part: corecontent.Block{Kind: corechat.PartText, Text: "body"}, envelope: `{"type":"resource","resource":{"uri":"file:///a"},"mimeTypeInferred":true}`},
-		{part: corecontent.Block{Kind: corechat.PartMedia, Media: image}, envelope: `{"type":"image","mimeTypeInferred":true}`},
+		{part: corecontent.Block{Kind: corecontent.Text, Text: "body"}, envelope: `{"type":"text","mimeTypeInferred":true}`},
+		{part: corecontent.Block{Kind: corecontent.Text, Text: "body"}, envelope: `{"type":"resource","resource":{"uri":"file:///a"},"mimeTypeInferred":true}`},
+		{part: corecontent.Block{Kind: corecontent.Media, Media: image}, envelope: `{"type":"image","mimeTypeInferred":true}`},
 	} {
 		part := test.part
 		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(test.envelope)); err != nil {
@@ -379,7 +378,7 @@ func TestMapServerContentOmitsAnInferredMIME(t *testing.T) {
 		{media: linked, envelope: `{"type":"resource_link","mimeTypeInferred":true}`, want: `{"type":"resource_link","uri":"https://example.com/a.png"}`},
 		{media: blob, envelope: `{"type":"resource","resource":{"uri":"file:///a.png"},"mimeTypeInferred":true}`, want: `{"type":"resource","resource":{"uri":"file:///a.png","blob":"iVBORw=="}}`},
 	} {
-		part := corecontent.Block{Kind: corechat.PartMedia, Media: test.media}
+		part := corecontent.Block{Kind: corecontent.Media, Media: test.media}
 		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(test.envelope)); err != nil {
 			t.Fatal(err)
 		}

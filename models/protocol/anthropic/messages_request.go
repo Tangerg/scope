@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	corecontent "github.com/Tangerg/scope/core/content"
+
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
 
@@ -313,11 +315,11 @@ func mapProtocolToolResult(result corechat.ToolResult) (anthropicsdk.ContentBloc
 		for index := range result.Output.Content {
 			part := result.Output.Content[index]
 			switch part.Kind {
-			case corechat.PartText:
+			case corecontent.Text:
 				content = append(content, anthropicsdk.ToolResultBlockParamContentUnion{
 					OfText: &anthropicsdk.TextBlockParam{Text: part.Text},
 				})
-			case corechat.PartMedia:
+			case corecontent.Media:
 				mapped, err := mapProtocolMedia(part.Media)
 				if err != nil {
 					return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("tool output content[%d]: %w", index, err)
