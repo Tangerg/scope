@@ -186,7 +186,7 @@ func TestSteeringDuringToolInputWaitSurvivesRecoveryAndRevisesDirectOutput(t *te
 		}
 		return tool.Result{InputRequest: &question}, nil
 	}}
-	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		modelCalls++
 		if modelCalls == 1 {
 			return callResponse(requested("approve", "call")), nil
@@ -196,7 +196,7 @@ func TestSteeringDuringToolInputWaitSurvivesRecoveryAndRevisesDirectOutput(t *te
 			return nil, errors.New("steering lost the completed tool evidence")
 		}
 		return finalResponse("revised after approval"), nil
-	})})
+	}))})
 	handle := startInteraction(t, original, program)
 	var pending PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {

@@ -13,22 +13,10 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-// DefaultMaxStreamDeltaBytes keeps stream admission bounded independently of
-// the final settlement size, including streams that never finish.
-const DefaultMaxStreamDeltaBytes = 64 << 20
-
 type dispatcherConfig struct {
 	Tools                    ToolSet
 	RequiredToolCapabilities run.CapabilitySet
-	// Exactly one of Model and Streamer is required. The selected capability
-	// owns the entire response lifecycle; streaming is accumulated before settlement.
-	Model    chat.Model
-	Streamer chat.Streamer
-
-	// MaxStreamDeltaBytes bounds cumulative Scope-encoded ModelResponseDelta
-	// payloads before accumulation, independently of MaxResponseBytes. Zero uses
-	// DefaultMaxStreamDeltaBytes; a nonzero value requires Streamer.
-	MaxStreamDeltaBytes int
+	Model                    ModelSource
 
 	// ContextProcessor optionally replaces the message context immediately
 	// before each model call. Nil sends WorkingContext unchanged.
@@ -41,9 +29,7 @@ type dispatcherConfig struct {
 type dispatcher struct {
 	tools                    ToolSet
 	requiredToolCapabilities run.CapabilitySet
-	model                    chat.Model
-	streamer                 chat.Streamer
-	maxStreamDeltaBytes      int
+	model                    ModelSource
 	// definition owns the Tool manifest and Delegates the model may call.
 	definition       *definition
 	contextProcessor ContextProcessor
@@ -51,19 +37,12 @@ type dispatcher struct {
 
 func (d dispatcherConfig) validate() error {
 	switch {
-	case (d.Model == nil) == (d.Streamer == nil):
-		return fmt.Errorf("%w: exactly one of Model and Streamer is required", ErrInvalidDispatcherConfig)
-	case lo.IsNil(d.Model) && lo.IsNil(d.Streamer):
-		return fmt.Errorf("%w: model capability is typed nil", ErrInvalidDispatcherConfig)
-	case d.MaxStreamDeltaBytes < 0:
-		return fmt.Errorf("%w: MaxStreamDeltaBytes must not be negative", ErrInvalidDispatcherConfig)
-	case d.Streamer == nil && d.MaxStreamDeltaBytes != 0:
-		return fmt.Errorf("%w: MaxStreamDeltaBytes requires Streamer", ErrInvalidDispatcherConfig)
+	case lo.IsNil(d.Model):
+		return fmt.Errorf("%w: Model is required", ErrInvalidDispatcherConfig)
 	case d.ContextProcessor != nil && lo.IsNil(d.ContextProcessor):
 		return fmt.Errorf("%w: ContextProcessor is typed nil", ErrInvalidDispatcherConfig)
-
 	}
-	return nil
+	return d.Model.validate()
 }
 
 func newDispatcher(definition *definition, config dispatcherConfig) (*dispatcher, error) {
@@ -76,15 +55,9 @@ func newDispatcher(definition *definition, config dispatcherConfig) (*dispatcher
 	if definition.prepareContext != (config.ContextProcessor != nil) {
 		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidDispatcherConfig)
 	}
-	streamLimit := config.MaxStreamDeltaBytes
-	if config.Streamer != nil && streamLimit == 0 {
-		streamLimit = DefaultMaxStreamDeltaBytes
-	}
-
 	dispatcher := &dispatcher{
 		tools: config.Tools, requiredToolCapabilities: config.RequiredToolCapabilities,
-		model: config.Model, streamer: config.Streamer,
-		contextProcessor: config.ContextProcessor, maxStreamDeltaBytes: streamLimit,
+		model: config.Model, contextProcessor: config.ContextProcessor,
 
 		definition: definition,
 	}
@@ -102,7 +75,7 @@ func (d *dispatcher) Dispatch(
 	emit run.DeltaEmitter,
 ) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
-	if d == nil || (lo.IsNil(d.model) && lo.IsNil(d.streamer)) {
+	if d == nil || lo.IsNil(d.model) {
 		return failedSettlement(ErrInvalidDispatcherConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload().JSON())
@@ -211,50 +184,11 @@ func (d *dispatcher) callModel(
 ) (response *chat.Response, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			operation := "chat.Model.Call"
-			if d.streamer != nil {
-				operation = "chat.Streamer.Stream"
-			}
 			response = nil
-			err = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: &run.CallbackPanicError{Operation: operation, Value: recovered}}
+			err = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: &run.CallbackPanicError{Operation: d.model.operation(), Value: recovered}}
 		}
 	}()
-	if d.streamer == nil {
-		return d.model.Call(ctx, request)
-	}
-	sequence := d.streamer.Stream(ctx, request)
-	if sequence == nil {
-		return nil, errors.New("model streamer returned a nil sequence")
-	}
-	remainingDeltaBytes := d.maxStreamDeltaBytes
-	for delta, err := range sequence {
-		if err != nil {
-			return nil, err
-		}
-		if delta == nil {
-			return nil, errors.New("model stream yielded a nil response Delta")
-		}
-		payload, err := encodeModelResponseDelta(delta)
-		if err != nil {
-			return nil, err
-		}
-		if len(payload) > remainingDeltaBytes {
-			return nil, ErrModelStreamTooLarge
-		}
-		remainingDeltaBytes -= len(payload)
-		if err := accumulator.Add(delta); err != nil {
-			return nil, fmt.Errorf("accumulate model stream: %w", err)
-		}
-		if emit != nil {
-			emit(payload)
-		}
-	}
-	// Response rejects a stream that produced no deltas, so no local tally is kept.
-	response, err = accumulator.Response()
-	if err != nil {
-		return nil, fmt.Errorf("complete model stream: %w", err)
-	}
-	return response, nil
+	return d.model.respond(ctx, request, emit, accumulator)
 }
 
 var _ run.Dispatcher = (*dispatcher)(nil)

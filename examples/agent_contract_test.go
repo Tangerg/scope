@@ -41,7 +41,7 @@ func (c *contractResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 	return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("unresolved test program: %v", reference)
 }
 func contractInteraction(compiler *run.Compiler, config interaction.Config, model chat.Model) run.Program[interaction.Input, interaction.Output] {
-	config.Model, config.Revision = model, "contract"
+	config.Model, config.Revision = interaction.CallModel(model), "contract"
 	return contractValue(interaction.Compile(compiler, config))
 }
 func contractText(text string) *chat.Response {

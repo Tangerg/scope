@@ -34,13 +34,13 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 		return CompletionDecision{Accepted: true}, nil
 	}}))
 	models := 0
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(chat.ToolCall{ID: "first", Name: "worker", Arguments: `{"value":1}`}, chat.ToolCall{ID: "second", Name: "worker", Arguments: `{"value":2}`}), nil
 		}
 		return finalResponse("evidence complete"), nil
-	})}))
+	}))}))
 	result := conformancetest.Run(t, run.BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "artifacts"}, run.Config{}, mustValue(run.EncodePayload(testInput())))
 	output := mustValue(result.Output())
 	value := mustValue(output.Decode[Output]())

@@ -195,7 +195,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 		}
 		return finalResponse("done"), nil
 	})
-	program := compileTest(t, runtime, Config{Model: model, Tools: toolSetTest(t, executable)})
+	program := compileTest(t, runtime, Config{Model: CallModel(model), Tools: toolSetTest(t, executable)})
 	handle := startInteraction(t, runtime, program)
 	output := awaitOutput(t, handle)
 	if output.ModelCalls != 2 || len(calls) != 2 {
@@ -263,9 +263,9 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 		request, err := newInputRequest([]byte(`"question"`), []byte(`{"type":"string"}`), []byte{byte('1' + stage)})
 		return tool.Result{InputRequest: &request}, err
 	}}
-	program := compileTest(t, runtime, Config{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("ask", "approval")), nil
-	}), Tools: toolSetTest(t, executable)})
+	})), Tools: toolSetTest(t, executable)})
 	handle := startInteraction(t, runtime, program)
 	var previous run.WaitKey
 	for range 2 {
@@ -324,13 +324,13 @@ func TestUnknownToolEvidenceRequiresExplicitResolution(t *testing.T) {
 		return tool.Result{}, cause
 	}}
 	models := 0
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(requested("write", "operation")), nil
 		}
 		return finalResponse("resolved"), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	var unknown run.EffectSettled
 	log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -386,9 +386,9 @@ func TestConcurrentResultsPreserveProposalOrder(t *testing.T) {
 			}
 		}}
 	}
-	program := compileTest(t, runtime, Config{MaxConcurrentToolCalls: 2, Tools: toolSetTest(t, makeTool("one"), makeTool("two")), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{MaxConcurrentToolCalls: 2, Tools: toolSetTest(t, makeTool("one"), makeTool("two")), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("one", "first"), requested("two", "second")), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
 	defer cancel()
@@ -416,7 +416,7 @@ func TestAdmissionRejectsWholeProposalBeforeAnyToolEffect(t *testing.T) {
 		return tool.Result{}, nil
 	}}
 	models := 0
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(requested("known", "first"), requested("absent", "second")), nil
@@ -427,7 +427,7 @@ func TestAdmissionRejectsWholeProposalBeforeAnyToolEffect(t *testing.T) {
 			}
 		}
 		return finalResponse("corrected"), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	if called.Load() {
@@ -465,13 +465,13 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	models := 0
-	program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(chat.ToolCall{ID: "delegation", Name: "worker", Arguments: `{"value":3}`}), nil
 		}
 		return finalResponse("six"), nil
-	}), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	})), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
 		artifacts := candidate.Artifacts()
 		if len(artifacts) != 1 {
 			return CompletionDecision{}, errors.New("missing delegate artifact")
@@ -511,7 +511,7 @@ func TestDirectEffectRestorationAndExplicitCoordinates(t *testing.T) {
 	executable := scriptTool{name: "echo", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("answer")}, nil
 	}}
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return finalResponse("unused"), nil })})
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return finalResponse("unused"), nil }))})
 	definition := program.Definition()
 	input, err := run.EncodePayload(testInput())
 	if err != nil {
@@ -555,8 +555,8 @@ func TestDirectEffectRestorationAndExplicitCoordinates(t *testing.T) {
 func TestCompileOwnsConfigurationIdentityAndExactModelRequest(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return finalResponse("done"), nil })
-	first := compileTest(t, runtime, Config{Model: model, MaxModelCalls: run.NewQuota(2)})
-	second := compileTest(t, runtime, Config{Model: model, MaxModelCalls: run.NewQuota(3)})
+	first := compileTest(t, runtime, Config{Model: CallModel(model), MaxModelCalls: run.NewQuota(2)})
+	second := compileTest(t, runtime, Config{Model: CallModel(model), MaxModelCalls: run.NewQuota(3)})
 	if first.ProgramRef() == second.ProgramRef() {
 		t.Fatal("compiler omitted model policy")
 	}

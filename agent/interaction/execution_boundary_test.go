@@ -21,7 +21,7 @@ func TestTruncatedProposalIsRejectedAsOneAtomicRound(t *testing.T) {
 	}})
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.truncated", Description: "Reject incomplete proposals atomically.", Tools: tools}))
 	models := 0
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			response := callResponse(requested("write", "first"), requested("write", "second"))
@@ -33,7 +33,7 @@ func TestTruncatedProposalIsRejectedAsOneAtomicRound(t *testing.T) {
 			return nil, errors.New("truncated proposal lost an ordered rejection")
 		}
 		return finalResponse("replanned"), nil
-	})}))
+	}))}))
 	result := conformancetest.Run(t, run.BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "truncated-proposal"}, run.Config{}, mustValue(run.EncodePayload(testInput())))
 	payload := mustValue(result.Output())
 	if output := mustValue(payload.Decode[Output]()); output.ModelResponse.Text() != "replanned" || models != 2 {
@@ -61,7 +61,7 @@ func TestUnfinishedOrAmbiguousModelCallsCannotExecuteTools(t *testing.T) {
 				t.Error("invalid model proposal executed a tool")
 				return tool.Result{}, nil
 			}})
-			program := compileTest(t, runtime, Config{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return row.response, nil })})
+			program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return row.response, nil }))})
 			result, err := startInteraction(t, runtime, program).Await(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -78,10 +78,10 @@ func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
 	for _, kind := range []invocation.FailureKind{invocation.FailureFailed, invocation.FailureNotExecuted} {
 		runtime := conformancetest.Runtime(t, run.Config{})
 		calls := 0
-		program := compileTest(t, runtime, Config{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		program := compileTest(t, runtime, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 			calls++
 			return nil, &invocation.Failure{Kind: kind, Cause: errors.New("definite provider rejection")}
-		})})
+		}))})
 		result, err := startInteraction(t, runtime, program).Await(t.Context())
 		if err != nil {
 			t.Fatal(err)
@@ -103,7 +103,7 @@ func TestUnadmittedToolArgumentsRejectTheWholeModelProposal(t *testing.T) {
 		program := compileTest(t, runtime, Config{Tools: toolSetTest(t, scriptTool{name: "write", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 			t.Error("valid prefix ran before admission of its sibling")
 			return tool.Result{}, nil
-		}}), Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		}}), Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 			models++
 			if models == 1 {
 				return callResponse(requested("write", "prefix"), invalid), nil
@@ -114,7 +114,7 @@ func TestUnadmittedToolArgumentsRejectTheWholeModelProposal(t *testing.T) {
 				}
 			}
 			return finalResponse("rejected"), nil
-		})})
+		}))})
 		if output := awaitOutput(t, startInteraction(t, runtime, program)); output.ModelCalls != 2 || output.ModelResponse.Text() != "rejected" {
 			t.Fatal("invalid arguments did not produce bounded model correction")
 		}

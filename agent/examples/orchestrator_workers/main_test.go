@@ -66,7 +66,7 @@ func newPlanningDelegateRoot(
 	}
 	program, err := interaction.Compile(compiler, interaction.Config{
 		Name: "example.orchestrator_workers.planning_delegate", Description: "Delegate model-selected tasks to exact Planning workers.",
-		Revision: "planning-delegate-v1", Model: client, MaxModelCalls: agentrun.NewQuota(2), Delegates: []interaction.Delegate{delegate}, CompletionValidator: validatePlanningCompletion,
+		Revision: "planning-delegate-v1", Model: interaction.CallModel(client), MaxModelCalls: agentrun.NewQuota(2), Delegates: []interaction.Delegate{delegate}, CompletionValidator: validatePlanningCompletion,
 	})
 	if err != nil {
 		t.Fatal(err)

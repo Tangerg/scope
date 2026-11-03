@@ -228,7 +228,7 @@ func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory 
 func startInteraction(t *testing.T, model chat.Model, tools []tool.Tool, store run.Store) (*run.Handle[interaction.Output], *run.Runtime, run.Program[interaction.Input, interaction.Output]) {
 	t.Helper()
 	runtime := newRuntime(t, store)
-	config := interaction.Config{Name: "test.interaction", Description: "Exercise logged model and tool calls.", Revision: "fixture", Model: model, MaxModelCalls: run.NewQuota(2)}
+	config := interaction.Config{Name: "test.interaction", Description: "Exercise logged model and tool calls.", Revision: "fixture", Model: interaction.CallModel(model), MaxModelCalls: run.NewQuota(2)}
 	if len(tools) > 0 {
 		var err error
 		config.Tools, err = interaction.NewToolSet(interaction.ToolSetConfig{Revision: "fixture-tools", Tools: tools})

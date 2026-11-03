@@ -190,9 +190,9 @@ func TestSparseRoundsRetainProviderOrderAndOnlyCommittedReferences(t *testing.T)
 		}
 		return tool.Result{Output: tool.NewTextOutput("first output")}, nil
 	}}
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("echo", "first"), requested("echo", "uncertain")), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	log := awaitLog(t, store, handle.ID(), func(log run.Log) bool {
 		for _, entry := range log.Entries {
@@ -241,11 +241,11 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return finalResponse("done"), nil })
-	program := compileTest(t, runtime, Config{Model: model})
+	program := compileTest(t, runtime, Config{Model: CallModel(model)})
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
-	different := mustValue(Compile(runtime.Compiler(), Config{Name: program.Descriptor().Name(), Description: program.Descriptor().Description(), Revision: "another-configuration", Model: model}))
+	different := mustValue(Compile(runtime.Compiler(), Config{Name: program.Descriptor().Name(), Description: program.Descriptor().Description(), Revision: "another-configuration", Model: CallModel(model)}))
 	if got := mustValue(SettledResults(different, log)); len(got) != 0 {
 		t.Fatal("program name overrode exact binding identity")
 	}
@@ -307,13 +307,13 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 				return delegateValue{}, errors.New("delegate execution failed")
 			})
 			calls := 0
-			program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{Delegates: []Delegate{delegate}, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls++
 				if calls == 1 {
 					return callResponse(chat.ToolCall{ID: "delegation", Name: "worker", Arguments: `{"value":3}`}), nil
 				}
 				return finalResponse("reported failure"), nil
-			})})
+			}))})
 			handle := startInteraction(t, runtime, program)
 			awaitOutput(t, handle)
 			log := completedLog(t, store, handle.ID())

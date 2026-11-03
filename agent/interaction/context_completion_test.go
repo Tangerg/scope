@@ -69,7 +69,7 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 		}
 		return callResponse(requested("hidden", "use-evidence")), nil
 	})
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{Model: model, Tools: tools, ContextProcessor: processor})
+	dispatcher, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model), Tools: tools, ContextProcessor: processor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +95,10 @@ func TestUnknownContextCanBeResolvedWithoutRepeatingPreparation(t *testing.T) {
 		preparations++
 		return nil, errors.New("retrieval acknowledgement lost")
 	})
-	program := compileTest(t, runtime, Config{ContextProcessor: processor, Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{ContextProcessor: processor, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		return finalResponse(request.Messages[len(request.Messages)-1].Text()), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	var pending run.PendingEffect
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -156,10 +156,10 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
-			program := compileTest(t, runtime, Config{MaxResponseBytes: row.limit, ContextProcessor: row.processor, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{MaxResponseBytes: row.limit, ContextProcessor: row.processor, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				t.Error("invalid prepared context dispatched to model")
 				return finalResponse("unexpected"), nil
-			})})
+			}))})
 			result, err := startInteraction(t, runtime, program).Await(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -200,7 +200,7 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	models := 0
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{Tools: tools, Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	dispatcher, err := newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(requested("direct", "evidence")), nil
@@ -209,7 +209,7 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 			return nil, errors.New("retry feedback absent")
 		}
 		return finalResponse("explained"), nil
-	})})
+	}))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,10 +244,10 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
 			models := 0
-			program := compileTest(t, runtime, Config{CompletionValidator: row.validator, MaxModelCalls: run.NewQuota(1), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{CompletionValidator: row.validator, MaxModelCalls: run.NewQuota(1), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				models++
 				return finalResponse("candidate"), nil
-			})})
+			}))})
 			result, err := startInteraction(t, runtime, program).Await(t.Context())
 			if err != nil {
 				t.Fatal(err)

@@ -16,10 +16,10 @@ import (
 
 func unknownComposition(t *testing.T, runtime *agentrun.Runtime, calls *atomic.Int32) (agentrun.Program[compositionInput, compositionOutput], agentrun.Program[interaction.Input, interaction.Output]) {
 	t.Helper()
-	model := compositionValue(interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.uncertain_model", Description: "Preserve an unacknowledged model result.", Revision: "uncertain-v1", Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	model := compositionValue(interaction.Compile(runtime.Compiler(), interaction.Config{Name: "test.uncertain_model", Description: "Preserve an unacknowledged model result.", Revision: "uncertain-v1", Model: interaction.CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		calls.Add(1)
 		return nil, errors.New("response lost")
-	})}))
+	}))}))
 	local := compositionValue(newUppercaseProgram(runtime.Compiler()))
 	return compositionValue(newCompositionProgram(runtime.Compiler(), local, model)), model
 }

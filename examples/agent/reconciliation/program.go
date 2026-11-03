@@ -29,7 +29,7 @@ func newProgram(compiler *agentrun.Compiler, remote *remoteLedger, model *receip
 	}
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.reconciliation", Description: "Report a reconciled business receipt.",
-		Revision: "receipt-interaction.v1", Model: model,
+		Revision: "receipt-interaction.v1", Model: interaction.CallModel(model),
 		MaxModelCalls: agentrun.NewQuota(receiptModelCallLimit), Tools: tools,
 	})
 }

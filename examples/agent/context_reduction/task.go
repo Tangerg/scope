@@ -174,7 +174,7 @@ func compileContext(compiler *agentrun.Compiler, config contextProgramConfig) (a
 	}
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.context_reduction", Description: "Read reports and preserve every latest fact and constraint.",
-		Model: config.Model, ContextProcessor: policy.Reducer, Revision: task.ID + ":" + policy.ID,
+		Model: interaction.CallModel(config.Model), ContextProcessor: policy.Reducer, Revision: task.ID + ":" + policy.ID,
 		MaxModelCalls: agentrun.NewQuota(uint64(len(task.Documents) + 1)), Tools: tools,
 	})
 }

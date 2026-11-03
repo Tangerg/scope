@@ -21,7 +21,7 @@ func ExampleNewHTTPHandler() {
 	if err != nil {
 		panic(err)
 	}
-	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "public.greeter", Description: "Answer a greeting", Revision: "example-model", Model: model})
+	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{Name: "public.greeter", Description: "Answer a greeting", Revision: "example-model", Model: interaction.CallModel(model)})
 	if err != nil {
 		panic(err)
 	}

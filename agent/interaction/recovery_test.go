@@ -97,10 +97,10 @@ func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T)
 					return tool.Result{Output: tool.NewTextOutput("verified")}, nil
 				}}
 				tools := mustValue(NewToolSet(ToolSetConfig{Revision: "write", Tools: []tool.Tool{executable}}))
-				program := compileTest(t, original, Config{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				program := compileTest(t, original, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 					modelCalls.Add(1)
 					return callResponse(requested("write", "call")), nil
-				})})
+				}))})
 				handle := startInteraction(t, original, program)
 				ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
 				defer cancel()
@@ -174,9 +174,9 @@ func TestToolInputWaitRecoversWithoutRepeatingItsEffect(t *testing.T) {
 		question := mustValue(newInputRequest([]byte(`"approve?"`), []byte(`{"type":"string"}`), []byte(`{}`)))
 		return tool.Result{InputRequest: &question}, nil
 	}}
-	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("approve", "call")), nil
-	})})
+	}))})
 	handle := startInteraction(t, original, program)
 	var wait PendingToolInput
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -237,10 +237,10 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 			return tool.Result{}, errors.New("continuation state changed")
 		}
 	}}
-	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, original, Config{Tools: toolSetTest(t, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		modelCalls.Add(1)
 		return callResponse(requested("approve", "call")), nil
-	})})
+	}))})
 	handle := startInteraction(t, original, program)
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
 	defer cancel()
@@ -341,7 +341,7 @@ func TestSteeringWhileModelIsPendingSurvivesRecovery(t *testing.T) {
 		}
 		return finalResponse("steered"), nil
 	})
-	program := compileTest(t, original, Config{Model: model})
+	program := compileTest(t, original, Config{Model: CallModel(model)})
 	handle := startInteraction(t, original, program)
 	select {
 	case <-dispatched:

@@ -195,7 +195,7 @@ func newBriefingProgram(ctx context.Context, compiler *agentrun.Compiler, config
 	}
 	return interaction.Compile(compiler, interaction.Config{
 		Name: "example.mcp_briefing", Description: "Ask the model for a topic brief using a remote MCP search tool.",
-		Revision: string(modelRevision), Model: chatClient,
+		Revision: string(modelRevision), Model: interaction.CallModel(chatClient),
 		MaxModelCalls: agentrun.NewQuota(briefingModelCallLimit), Tools: toolSet,
 	})
 }

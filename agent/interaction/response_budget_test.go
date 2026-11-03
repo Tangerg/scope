@@ -35,7 +35,7 @@ func TestModelStreamAdmitsScopeEncodedDeltaBytesBeforeAccumulation(t *testing.T)
 			const limit = 512
 			produced, observed := 0, 0
 			closed := false
-			dispatcher := &dispatcher{maxStreamDeltaBytes: limit, streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+			dispatcher := &dispatcher{model: StreamModel(StreamModelConfig{MaxDeltaBytes: limit, Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 				return func(yield func(*chat.ResponseDelta, error) bool) {
 					defer func() { closed = true }()
 					for range 1000 {
@@ -45,7 +45,7 @@ func TestModelStreamAdmitsScopeEncodedDeltaBytesBeforeAccumulation(t *testing.T)
 						}
 					}
 				}
-			})}
+			})})}
 			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, new(chat.ResponseAccumulator))
 			if response != nil || !errors.Is(err, ErrModelStreamTooLarge) || errors.Is(err, ErrModelResponseTooLarge) || !closed {
 				t.Fatalf("response=%+v error=%v producer closed=%v", response, err, closed)
@@ -69,8 +69,8 @@ func TestModelStreamWithinBudgetMatchesAggregateResponse(t *testing.T) {
 		}
 	})
 	for _, dispatcher := range []*dispatcher{
-		{streamer: streamer, maxStreamDeltaBytes: DefaultMaxStreamDeltaBytes},
-		{model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return want.Clone(), nil })},
+		{model: StreamModel(StreamModelConfig{Streamer: streamer})},
+		{model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return want.Clone(), nil }))},
 	} {
 		got, err := dispatcher.callModel(t.Context(), nil, nil, new(chat.ResponseAccumulator))
 		if err != nil || !reflect.DeepEqual(got, want) {

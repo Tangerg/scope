@@ -31,9 +31,9 @@ func TestAdvertisementDefectPreservesCompletedExternalWork(t *testing.T) {
 				calls++
 				return tool.Result{Output: tool.NewTextOutput("committed write")}, nil
 			}})
-			program := compileTest(t, runtime, Config{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				return callResponse(requested("write", "write-once")), nil
-			})})
+			}))})
 			handle := startInteraction(t, runtime, program)
 			result, err := handle.Await(t.Context())
 			if err != nil {

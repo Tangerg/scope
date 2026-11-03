@@ -192,7 +192,7 @@ func newModelProgram(compiler *agentrun.Compiler) (agentrun.Program[interaction.
 	if err != nil {
 		return agentrun.Program[interaction.Input, interaction.Output]{}, err
 	}
-	return interaction.Compile(compiler, interaction.Config{Name: "example.composition_model", Description: "Return one deterministic composition response.", MaxModelCalls: agentrun.NewQuota(compositionMaxModelCalls), Model: client, Revision: "composition-model-v1"})
+	return interaction.Compile(compiler, interaction.Config{Name: "example.composition_model", Description: "Return one deterministic composition response.", MaxModelCalls: agentrun.NewQuota(compositionMaxModelCalls), Model: interaction.CallModel(client), Revision: "composition-model-v1"})
 }
 
 type compositionInput struct {

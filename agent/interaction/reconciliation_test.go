@@ -26,7 +26,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("write", "call")), nil
 	})
-	program := compileTest(t, runtime, Config{Tools: tools, Model: model})
+	program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(model)})
 	handle := startInteraction(t, runtime, program)
 	var request run.EffectRequest
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -63,7 +63,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 			}
 		})
 	}
-	foreign := compileTest(t, runtime, Config{Tools: tools, Model: model, MaxModelCalls: run.NewQuota(1)})
+	foreign := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(model), MaxModelCalls: run.NewQuota(1)})
 	for _, candidate := range []run.Program[Input, Output]{{}, foreign} {
 		if settlement, err := SettleToolResult(candidate, request, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
 			t.Fatal("foreign binding settled the effect", err)
@@ -111,7 +111,7 @@ func TestPortableModelRecoveryRejectsForeignOrUndeliverableEvidence(t *testing.T
 		calls.Add(1)
 		return nil, errors.New("model receipt was lost")
 	})
-	program := compileTest(t, runtime, Config{Model: model, MaxResponseBytes: 512})
+	program := compileTest(t, runtime, Config{Model: CallModel(model), MaxResponseBytes: 512})
 	handle := startInteraction(t, runtime, program)
 	var request run.EffectRequest
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -138,7 +138,7 @@ func TestPortableModelRecoveryRejectsForeignOrUndeliverableEvidence(t *testing.T
 			t.Fatal("invalid or oversized model evidence became deliverable", err)
 		}
 	}
-	foreign := compileTest(t, runtime, Config{Model: model, MaxResponseBytes: 1024})
+	foreign := compileTest(t, runtime, Config{Model: CallModel(model), MaxResponseBytes: 1024})
 	for _, candidate := range []run.Program[Input, Output]{{}, foreign} {
 		if settlement, err := SettleModelResult(candidate, request, finalResponse("done")); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
 			t.Fatal("model recovery did not enforce exact configuration", err)

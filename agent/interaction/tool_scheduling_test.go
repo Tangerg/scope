@@ -79,9 +79,9 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 		}
 		return tool.Result{Output: tool.NewTextOutput(requestedCall(input))}, nil
 	}}
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), MaxConcurrentToolCalls: 2, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), MaxConcurrentToolCalls: 2, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("echo", "first"), requested("echo", "second")), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
 	defer cancel()
@@ -146,9 +146,9 @@ func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
 		t.Fatal("validator defect became a scheduling decision", err)
 	}
 	runtime := conformancetest.Runtime(t, run.Config{})
-	program := compileTest(t, runtime, Config{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("checked", "call")), nil
-	})})
+	}))})
 	result, err := startInteraction(t, runtime, program).Await(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +174,7 @@ func TestToolDefiniteFailuresRemainModelFeedbackAndNeverAdvertise(t *testing.T) 
 			t.Error("unsuccessful tool was given advertisement authority")
 			return nil, nil
 		}})
-		program := compileTest(t, runtime, Config{Tools: tools, Model: chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 			models++
 			if models == 1 {
 				return callResponse(requested("write", "call")), nil
@@ -188,7 +188,7 @@ func TestToolDefiniteFailuresRemainModelFeedbackAndNeverAdvertise(t *testing.T) 
 				return nil, errors.New("diagnostic cause replaced public refusal")
 			}
 			return finalResponse("handled"), nil
-		})})
+		}))})
 		if output := awaitOutput(t, startInteraction(t, runtime, program)); output.ModelResponse.Text() != "handled" || calls != 1 || models != 2 {
 			t.Fatal("definite tool failure changed replay or completion semantics")
 		}
@@ -202,9 +202,9 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, scriptTool{name: "panic", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		calls++
 		panic("write acknowledgement interrupted")
-	}}), Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	}}), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("panic", "call")), nil
-	})})
+	}))})
 	handle := startInteraction(t, runtime, program)
 	var pending run.PendingEffect
 	awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -235,9 +235,9 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return nil, errors.New("must not call the model")
-	})}))
+	}))}))
 	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever} {
 		effect := mustValue(toolEffect(toolDispatchRequest{Invocation: toolCall{Call: requested(name, name)}}))
 		if got := dispatcher.Policy(effect).Replay; got != want {

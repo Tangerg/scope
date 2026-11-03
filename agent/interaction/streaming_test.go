@@ -22,7 +22,7 @@ func TestStreamingFinalOutputDoesNotDependOnDeltaDelivery(t *testing.T) {
 	for _, capacity := range []int{0, 1, 8} {
 		deltas := make(chan run.Delta, capacity)
 		runtime := conformancetest.Runtime(t, run.Config{Deltas: deltas})
-		program := compileTest(t, runtime, Config{Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
+		program := compileTest(t, runtime, Config{Model: StreamModel(StreamModelConfig{Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 			return func(yield func(*chat.ResponseDelta, error) bool) {
 				for _, delta := range []*chat.ResponseDelta{textDelta("hel", ""), textDelta("lo", chat.FinishReasonStop)} {
 					if !yield(delta, nil) {
@@ -30,7 +30,7 @@ func TestStreamingFinalOutputDoesNotDependOnDeltaDelivery(t *testing.T) {
 					}
 				}
 			}
-		})})
+		})})})
 		handle := startInteraction(t, runtime, program)
 		output := awaitOutput(t, handle)
 		if output.ModelCalls != 1 || output.ModelResponse.Text() != "hello" {
@@ -90,7 +90,7 @@ func TestStreamingUnknownOutcomesRetainCompletedGeneration(t *testing.T) {
 			store := run.NewMemoryStore()
 			runtime := conformancetest.Runtime(t, run.Config{Store: store})
 			calls := 0
-			program := compileTest(t, runtime, Config{Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { calls++; return row.stream })})
+			program := compileTest(t, runtime, Config{Model: StreamModel(StreamModelConfig{Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { calls++; return row.stream })})})
 			handle := startInteraction(t, runtime, program)
 			var pending run.PendingEffect
 			awaitLog(t, store, handle.ID(), func(log run.Log) bool {
@@ -129,7 +129,7 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return &chat.Response{}, nil }),
 		chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { panic("model call panicked") }),
 	} {
-		backend := dispatcher{model: model}
+		backend := dispatcher{model: CallModel(model)}
 		response, err := backend.callModelResponse(t.Context(), testInput().request(), nil)
 		if response != nil || err == nil || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
 			t.Fatalf("invalid model generation became definite: %+v %v", response, err)

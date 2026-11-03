@@ -49,7 +49,7 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	defer func() { err = errors.Join(err, runtime.Close(context.WithoutCancel(ctx))) }()
 	program, err := interaction.Compile(runtime.Compiler(), interaction.Config{
 		Name: "example.managed_echo", Description: "Return one deterministic echo.",
-		Model: echoModel{prefix: "managed"}, MaxModelCalls: agentrun.NewQuota(1), Revision: "managed-prefix",
+		Model: interaction.CallModel(echoModel{prefix: "managed"}), MaxModelCalls: agentrun.NewQuota(1), Revision: "managed-prefix",
 	})
 	if err != nil {
 		return err

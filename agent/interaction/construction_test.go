@@ -48,9 +48,8 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		{"invalid name", func(config *Config) { config.Name = "Invalid Name" }},
 		{"empty description", func(config *Config) { config.Description = "" }},
 		{"missing model", func(config *Config) { config.Model = nil }},
-		{"conflicting model capabilities", func(config *Config) { config.Streamer = streamer }},
-		{"typed nil model", func(config *Config) { config.Model = chat.ModelFunc(nil) }},
-		{"typed nil streamer", func(config *Config) { config.Model = nil; config.Streamer = chat.StreamerFunc(nil) }},
+		{"typed nil model", func(config *Config) { config.Model = CallModel(chat.ModelFunc(nil)) }},
+		{"typed nil streamer", func(config *Config) { config.Model = StreamModel(StreamModelConfig{Streamer: chat.StreamerFunc(nil)}) }},
 		{"typed nil processor", func(config *Config) { config.ContextProcessor = contextProcessorFunc(nil) }},
 		{"negative response bound", func(config *Config) { config.MaxResponseBytes = -1 }},
 		{"oversized response bound", func(config *Config) { config.MaxResponseBytes = run.MaxPayloadBytes + 1 }},
@@ -60,8 +59,9 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		{"unbound capability", func(config *Config) {
 			config.RequiredToolCapabilities = mustValue(run.NewCapabilitySet(mustValue(run.ParseCapability("test.write"))))
 		}},
-		{"negative stream bound", func(config *Config) { config.MaxStreamDeltaBytes = -1 }},
-		{"stream policy without stream", func(config *Config) { config.MaxStreamDeltaBytes = 1 }},
+		{"negative stream bound", func(config *Config) {
+			config.Model = StreamModel(StreamModelConfig{Streamer: streamer, MaxDeltaBytes: -1})
+		}},
 		{"invalid delegate", func(config *Config) { config.Delegates = []Delegate{{}} }},
 		{"duplicate delegate", func(config *Config) { config.Delegates = []Delegate{delegate, delegate} }},
 		{"tool and delegate collision", func(config *Config) {
@@ -70,7 +70,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			config := Config{Name: "test.valid", Description: "Validate compilation boundaries.", Revision: "model", Model: model}
+			config := Config{Name: "test.valid", Description: "Validate compilation boundaries.", Revision: "model", Model: CallModel(model)}
 			row.change(&config)
 			program, err := Compile(compiler, config)
 			if err == nil || program.Valid() {
@@ -78,7 +78,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 			}
 		})
 	}
-	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Revision: "model", Model: model}); err == nil || program.Valid() {
+	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Revision: "model", Model: CallModel(model)}); err == nil || program.Valid() {
 		t.Fatal("compilation succeeded without build authority")
 	}
 	for _, definition := range []*definition{nil, {}} {
@@ -91,12 +91,12 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		if _, err := definition.Restore(t.Context(), run.ExecutionState{}); !errors.Is(err, ErrInvalidDefinitionConfig) {
 			t.Fatal(err)
 		}
-		if _, err := newDispatcher(definition, dispatcherConfig{Model: model}); !errors.Is(err, ErrInvalidDispatcherConfig) {
+		if _, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model)}); !errors.Is(err, ErrInvalidDispatcherConfig) {
 			t.Fatal(err)
 		}
 	}
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.context", Description: "Require the declared processor.", PrepareContext: true}))
-	if _, err := newDispatcher(definition, dispatcherConfig{Model: model}); !errors.Is(err, ErrInvalidDispatcherConfig) {
+	if _, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model)}); !errors.Is(err, ErrInvalidDispatcherConfig) {
 		t.Fatal("processor capability did not match compiled execution", err)
 	}
 }
@@ -176,10 +176,10 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 
 func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.rejection", Description: "Reject malformed dispatch requests."}))
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		t.Error("malformed request invoked a model")
 		return nil, errors.New("must not run")
-	})}))
+	}))}))
 	for _, payload := range []string{`{}`, `{"model_call":{}}`, `{"tool_call":{"invocation":{"call":{"id":"call","name":"absent","arguments":"{}"}}}}`, `{"prepare_context":{"model_call_sequence":1,"request":{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}]}]}}}`} {
 		effect := mustValue(run.NewDispatcherEffect([]byte(payload)))
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)

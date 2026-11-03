@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
 
@@ -15,18 +14,14 @@ type Config struct {
 	Name                string
 	Description         string
 	Revision            string
-	Model               chat.Model
-	Streamer            chat.Streamer
+	Model               ModelSource
 	Tools               ToolSet
 	// MaxModelCalls is unlimited by default; a finite zero cannot call a model.
 	MaxModelCalls            run.Quota
 	RequiredToolCapabilities run.CapabilitySet
 	MaxConcurrentToolCalls   int
 	MaxResponseBytes         int
-	// Streaming admission is independent of final settlement size; this uses
-	// the same policy and default as dispatcherConfig.MaxStreamDeltaBytes.
-	MaxStreamDeltaBytes int
-	Delegates           []Delegate
+	Delegates                []Delegate
 }
 
 // Compile freezes the real model loop, binds its child programs and checks its
@@ -40,7 +35,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	if err != nil {
 		return zero, err
 	}
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{Tools: cfg.Tools, RequiredToolCapabilities: cfg.RequiredToolCapabilities, ContextProcessor: cfg.ContextProcessor, Model: cfg.Model, Streamer: cfg.Streamer, MaxStreamDeltaBytes: cfg.MaxStreamDeltaBytes})
+	dispatcher, err := newDispatcher(definition, dispatcherConfig{Tools: cfg.Tools, RequiredToolCapabilities: cfg.RequiredToolCapabilities, ContextProcessor: cfg.ContextProcessor, Model: cfg.Model})
 	if err != nil {
 		return zero, err
 	}
@@ -56,7 +51,6 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	}
 	policy := struct {
 		LocalContext, ExternalContext, ValidateCompletion             bool
-		Streaming                                                     bool
 		MaxModelCalls                                                 run.Quota
 		Tools                                                         toolConfiguration
 		RequiredToolCapabilities                                      run.CapabilitySet
@@ -64,9 +58,9 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		Delegates                                                     []delegateFact
 	}{
 		LocalContext: cfg.ContextPolicy != nil, ExternalContext: cfg.ContextProcessor != nil, ValidateCompletion: cfg.CompletionValidator != nil,
-		Streaming: cfg.Streamer != nil, MaxModelCalls: definition.maxModelCalls,
-		Tools: cfg.Tools.configuration(), RequiredToolCapabilities: dispatcher.requiredToolCapabilities, MaxConcurrentToolCalls: definition.maxConcurrentToolCalls,
-		MaxResponseBytes: definition.maxResponseBytes, MaxStreamDeltaBytes: dispatcher.maxStreamDeltaBytes, Delegates: delegates,
+		MaxModelCalls: definition.maxModelCalls,
+		Tools:         cfg.Tools.configuration(), RequiredToolCapabilities: dispatcher.requiredToolCapabilities, MaxConcurrentToolCalls: definition.maxConcurrentToolCalls,
+		MaxResponseBytes: definition.maxResponseBytes, MaxStreamDeltaBytes: dispatcher.model.streamLimit(), Delegates: delegates,
 	}
 	return run.Bind[Input, Output](compiler, run.BindingConfig{
 		Definition: definition, Dispatcher: dispatcher, Revision: cfg.Revision,
