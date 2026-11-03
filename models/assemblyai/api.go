@@ -162,7 +162,7 @@ func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error)
 		return nil, fmt.Errorf("assemblyai: upload failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: upload %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("assemblyai: upload %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if out.UploadURL == "" {
 		return nil, errors.New("assemblyai: upload response omitted upload_url")
@@ -186,7 +186,7 @@ func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*tr
 		return nil, fmt.Errorf("assemblyai: create transcript failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if out.ID == "" {
 		return nil, fmt.Errorf("%w: assemblyai: created transcript requires id", transcription.ErrInvalidResponse)
@@ -210,7 +210,7 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 		return nil, fmt.Errorf("assemblyai: get transcript failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("assemblyai: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if out.ID != id {
 		return nil, fmt.Errorf("%w: assemblyai: polled transcript id %q differs from submitted id %q", transcription.ErrInvalidResponse, out.ID, id)

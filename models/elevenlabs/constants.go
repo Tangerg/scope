@@ -2,14 +2,14 @@ package elevenlabs
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "ElevenLabs"
+	Provider = "elevenlabs"
 )
 
 const (
-	SpeechRequestExtensionKey         = "elevenlabs/speech_request"
-	SpeechResponseExtensionKey        = "elevenlabs/speech_response"
-	TranscriptionRequestExtensionKey  = "elevenlabs/transcription_request"
-	TranscriptionResponseExtensionKey = "elevenlabs/transcription_response"
+	SpeechRequestExtensionKey         = Provider + "/speech_request"
+	SpeechResponseExtensionKey        = Provider + "/speech_response"
+	TranscriptionRequestExtensionKey  = Provider + "/transcription_request"
+	TranscriptionResponseExtensionKey = Provider + "/transcription_response"
 
 	// DefaultBaseURL is ElevenLabs' production REST endpoint.
 	DefaultBaseURL = "https://api.elevenlabs.io/v1"

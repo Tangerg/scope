@@ -2,11 +2,11 @@ package prodia
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Prodia"
+	Provider = "prodia"
 )
 
 const (
-	ImageRequestExtensionKey = "prodia/image_request"
+	ImageRequestExtensionKey = Provider + "/image_request"
 
 	// DefaultBaseURL is Prodia's v2 inference endpoint.
 	DefaultBaseURL = "https://inference.prodia.com/v2"

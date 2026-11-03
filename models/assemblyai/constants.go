@@ -6,12 +6,12 @@ import (
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "AssemblyAI"
+	Provider = "assemblyai"
 )
 
 const (
-	RequestExtensionKey  = "assemblyai/request"
-	ResponseExtensionKey = "assemblyai/response"
+	RequestExtensionKey  = Provider + "/request"
+	ResponseExtensionKey = Provider + "/response"
 
 	// DefaultBaseURL is AssemblyAI's production REST endpoint.
 	DefaultBaseURL = "https://api.assemblyai.com/v2"

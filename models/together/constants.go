@@ -1,7 +1,7 @@
 package together
 
 const (
-	Provider = "Together"
+	Provider = "together"
 
 	BaseURL = "https://api.together.ai/v1"
 )

@@ -1,18 +1,18 @@
 package vertexai
 
 const (
-	Provider = "VertexAI"
+	Provider = "vertexai"
 
-	RequestExtensionKey               = protocolProvider + "/request"
-	ResponseExtensionKey              = protocolProvider + "/response"
-	SpeechRequestExtensionKey         = protocolProvider + "/speech_request"
-	SpeechResponseExtensionKey        = protocolProvider + "/speech_response"
-	TranscriptionRequestExtensionKey  = protocolProvider + "/transcription_request"
-	TranscriptionResponseExtensionKey = protocolProvider + "/transcription_response"
-	EmbeddingRequestExtensionKey      = protocolProvider + "/embedding_request"
-	EmbeddingResponseExtensionKey     = protocolProvider + "/embedding_response"
-	ImageRequestExtensionKey          = protocolProvider + "/image_request"
-	ImageResponseExtensionKey         = protocolProvider + "/image_response"
+	RequestExtensionKey               = Provider + "/request"
+	ResponseExtensionKey              = Provider + "/response"
+	SpeechRequestExtensionKey         = Provider + "/speech_request"
+	SpeechResponseExtensionKey        = Provider + "/speech_response"
+	TranscriptionRequestExtensionKey  = Provider + "/transcription_request"
+	TranscriptionResponseExtensionKey = Provider + "/transcription_response"
+	EmbeddingRequestExtensionKey      = Provider + "/embedding_request"
+	EmbeddingResponseExtensionKey     = Provider + "/embedding_response"
+	ImageRequestExtensionKey          = Provider + "/image_request"
+	ImageResponseExtensionKey         = Provider + "/image_response"
 
 	ModelGemini25FlashImage = "gemini-2.5-flash-image"
 	ModelGemini3ProImage    = "gemini-3-pro-image"

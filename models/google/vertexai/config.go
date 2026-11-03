@@ -10,8 +10,6 @@ import (
 	"github.com/Tangerg/scope/models/google/internal/protocol"
 )
 
-const protocolProvider = "vertexai"
-
 // HTTPClient remains caller-owned and is never closed by a model; BaseURL is
 // reserved for compatible gateways and test servers.
 type ClientConfig struct {

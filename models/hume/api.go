@@ -223,7 +223,7 @@ func (a *api) ttsStream(ctx context.Context, req *ttsRequest) (io.ReadCloser, er
 		if body := resp.RawBody(); body != nil {
 			_ = body.Close()
 		}
-		return nil, fmt.Errorf("hume: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("hume: stream: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if resp.RawBody() == nil {
 		return nil, errors.New("hume: stream response has no body")
@@ -241,7 +241,7 @@ func (a *api) tts(ctx context.Context, req *ttsRequest) (*ttsResponse, error) {
 		return nil, fmt.Errorf("hume: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("hume: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("hume: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }

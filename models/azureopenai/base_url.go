@@ -8,8 +8,6 @@ import (
 	"strings"
 )
 
-const providerID = "azureopenai"
-
 type Config struct {
 	APIKey     string
 	BaseURL    string

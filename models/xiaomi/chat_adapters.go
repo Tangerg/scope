@@ -14,13 +14,11 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const providerID = "xiaomi"
-
 const (
-	OpenAIRequestExtensionKey        = providerID + openai.CompatibleRequestExtensionSuffix
-	OpenAIStreamChunkExtensionKey    = providerID + openai.CompatibleStreamExtensionSuffix
-	AnthropicRequestExtensionKey     = providerID + anthropic.CompatibleRequestExtensionSuffix
-	AnthropicStreamEventExtensionKey = providerID + anthropic.CompatibleStreamExtensionSuffix
+	OpenAIRequestExtensionKey        = Provider + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey    = Provider + openai.CompatibleStreamExtensionSuffix
+	AnthropicRequestExtensionKey     = Provider + anthropic.CompatibleRequestExtensionSuffix
+	AnthropicStreamEventExtensionKey = Provider + anthropic.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -44,9 +42,12 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayWithToolCalls}}
-	dialect.PrepareRequest = prepareOpenAIRequest
-	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
+	dialect := openai.DialectConfig{
+		Provider:        Provider,
+		PrepareRequest:  prepareOpenAIRequest,
+		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
+		TextReasoning:   &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayWithToolCalls},
+	}
 	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("xiaomi: construct OpenAI-compatible chat: %w", err)
@@ -75,7 +76,7 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamMo
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: providerID, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeAPIKey, SupportsSampling: true, PrepareRequest: prepareAnthropicRequest})
+	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeAPIKey, SupportsSampling: true, PrepareRequest: prepareAnthropicRequest})
 	if err != nil {
 		return nil, fmt.Errorf("xiaomi: construct Anthropic-compatible chat: %w", err)
 	}

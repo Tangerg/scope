@@ -33,7 +33,7 @@ var (
 )
 
 func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, error) {
-	protocol, err := openai.NewResponses(ctx, config.protocol(), openai.ResponsesDialect{Provider: "perplexity", PrepareRequest: prepareRequest, DisableRawRequestExtension: true, PreserveStreamEvents: true})
+	protocol, err := openai.NewResponses(ctx, config.protocol(), openai.ResponsesDialect{Provider: Provider, PrepareRequest: prepareRequest, DisableRawRequestExtension: true, PreserveStreamEvents: true})
 	if err != nil {
 		return nil, err
 	}

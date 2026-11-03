@@ -1,7 +1,7 @@
 package fireworks
 
 const (
-	Provider = "Fireworks"
+	Provider = "fireworks"
 
 	BaseURL = "https://api.fireworks.ai/inference/v1"
 )

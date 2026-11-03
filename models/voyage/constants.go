@@ -2,12 +2,12 @@ package voyage
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Voyage"
+	Provider = "voyage"
 )
 
 const (
-	EmbeddingRequestExtensionKey = "voyage/embedding_request"
-	RerankRequestExtensionKey    = "voyage/rerank_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
+	RerankRequestExtensionKey    = Provider + "/rerank_request"
 
 	// DefaultBaseURL is Voyage AI's production REST endpoint. Override
 	// via [APIConfig.BaseURL] when proxying through an internal gateway.

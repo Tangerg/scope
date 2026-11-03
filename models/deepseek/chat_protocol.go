@@ -13,10 +13,8 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const providerID = "deepseek"
-
 const (
-	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
+	OpenAIStreamChunkExtensionKey = Provider + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -47,12 +45,14 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways}}
-	dialect.NativeOutputFormat = func(formatType corechat.OutputFormatType) bool {
-		return formatType == corechat.OutputFormatText || formatType == corechat.OutputFormatJSON
+	dialect := openai.DialectConfig{
+		Provider:                   Provider,
+		PrepareRequest:             prepareRequest,
+		TokenLimitField:            openai.TokenLimitMaxTokens,
+		NativeOutputFormat:         nativeOutputFormat,
+		DisableRawRequestExtension: true,
+		TextReasoning:              &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
 	}
-	dialect.PrepareRequest = prepareRequest
-	dialect.DisableRawRequestExtension = true
 	protocol, err := openai.NewChatCompletions(ctx,
 		openai.ChatCompletionsConfig{
 			APIKey:         config.APIKey,
@@ -66,4 +66,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		return nil, fmt.Errorf("deepseek: construct OpenAI-compatible chat: %w", err)
 	}
 	return corechat.NewStreamModel(protocol)
+}
+
+func nativeOutputFormat(format corechat.OutputFormatType) bool {
+	return format == corechat.OutputFormatText || format == corechat.OutputFormatJSON
 }

@@ -14,12 +14,10 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const providerID = "moonshot"
-
 const (
-	OpenAIStreamChunkExtensionKey    = providerID + openai.CompatibleStreamExtensionSuffix
-	AnthropicRequestExtensionKey     = providerID + anthropic.CompatibleRequestExtensionSuffix
-	AnthropicStreamEventExtensionKey = providerID + anthropic.CompatibleStreamExtensionSuffix
+	OpenAIStreamChunkExtensionKey    = Provider + openai.CompatibleStreamExtensionSuffix
+	AnthropicRequestExtensionKey     = Provider + anthropic.CompatibleRequestExtensionSuffix
+	AnthropicStreamEventExtensionKey = Provider + anthropic.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -40,22 +38,23 @@ func (c ChatCompletionsConfig) Validate() error {
 }
 
 // maximumTemperature is the top of the range Moonshot documents for its
-// OpenAI-compatible endpoint.
-var maximumTemperature = 1.0
+// OpenAI-compatible endpoint: "Kimi API 的 temperature 参数的取值范围是
+// [0, 1]，而 OpenAI 的 temperature 参数的取值范围是 [0, 2]". Refusing above it
+// beats sending a value the provider documents as out of range.
+const maximumTemperature = 1.0
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways}}
-	dialect.PrepareRequest = prepareOpenAIRequest
-	dialect.DisableRawRequestExtension = true
-	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
-	// Moonshot's migration guide states the narrower range outright: "Kimi API
-	// 的 temperature 参数的取值范围是 [0, 1]，而 OpenAI 的 temperature 参数的
-	// 取值范围是 [0, 2]". Refusing above it beats sending a value the provider
-	// documents as out of range.
-	dialect.MaxTemperature = &maximumTemperature
+	dialect := openai.DialectConfig{
+		Provider:                   Provider,
+		PrepareRequest:             prepareOpenAIRequest,
+		TokenLimitField:            openai.TokenLimitMaxCompletionTokens,
+		DisableRawRequestExtension: true,
+		MaxTemperature:             new(float64(maximumTemperature)),
+		TextReasoning:              &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
+	}
 	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("moonshot: construct OpenAI-compatible chat: %w", err)
@@ -84,7 +83,7 @@ func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamMo
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: providerID, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true})
+	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true})
 	if err != nil {
 		return nil, fmt.Errorf("moonshot: construct Anthropic-compatible chat: %w", err)
 	}

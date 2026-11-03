@@ -2,7 +2,7 @@ package xiaomi
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Xiaomi"
+	Provider = "xiaomi"
 )
 
 // OpenAI-compatible endpoint.

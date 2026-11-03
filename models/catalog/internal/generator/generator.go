@@ -33,7 +33,7 @@ const (
 )
 
 // providerMap maps a models.dev provider id to our config/provider name
-// (the adapter's Provider const, lowercased — Lookup matches case-folded).
+// (the adapter's Provider constant, matched exactly).
 // OpenAI-compat and managed delegators keep their own name: vertexai is
 // sourced from google-vertex, zhipu from zhipuai. Perplexity's models.dev entry
 // describes the retired Sonar API, not the current Agent API; do not import its

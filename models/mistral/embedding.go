@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	EmbeddingRequestExtensionKey = "mistral/embedding_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
 	embeddingResponseIDKey       = "mistral/embedding_id"
 	embeddingFloatEncoding       = "float"
 )

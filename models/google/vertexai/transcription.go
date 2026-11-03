@@ -18,7 +18,7 @@ func (t TranscriptionModelConfig) Validate() error {
 
 func (t TranscriptionModelConfig) protocol() protocol.TranscriptionModelConfig {
 	return protocol.TranscriptionModelConfig{
-		Provider:       protocolProvider,
+		Provider:       Provider,
 		Client:         t.Client.protocol(),
 		DefaultOptions: t.DefaultOptions,
 	}

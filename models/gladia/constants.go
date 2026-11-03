@@ -4,12 +4,12 @@ import "time"
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Gladia"
+	Provider = "gladia"
 )
 
 const (
-	RequestExtensionKey  = "gladia/request"
-	ResponseExtensionKey = "gladia/response"
+	RequestExtensionKey  = Provider + "/request"
+	ResponseExtensionKey = Provider + "/response"
 	DefaultBaseURL       = "https://api.gladia.io/v2"
 	DefaultPollInterval  = 2 * time.Second
 	DefaultPollTimeout   = 30 * time.Minute

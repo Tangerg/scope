@@ -27,7 +27,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*openai.ImageM
 		return nil, err
 	}
 	return openai.NewImageModel(ctx, openai.ImageModelConfig{
-		Provider:       providerID,
+		Provider:       Provider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,
 		BaseURL:        endpoint.baseURL,

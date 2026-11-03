@@ -234,7 +234,7 @@ func (a *api) createImageInteraction(ctx context.Context, req *imageInteractionR
 		return nil, fmt.Errorf("google: image: create interaction: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("google: image: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("google: image: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	out.Raw = slices.Clone(resp.Body())
 	return &out, nil

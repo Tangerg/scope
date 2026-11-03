@@ -27,7 +27,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 		return nil, err
 	}
 	return openai.NewTranscriptionModel(ctx, openai.TranscriptionModelConfig{
-		Provider:       providerID,
+		Provider:       Provider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,
 		BaseURL:        endpoint.baseURL,

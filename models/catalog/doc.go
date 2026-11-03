@@ -6,7 +6,7 @@
 // it accepts, how many tokens it takes — without invoking anything. A caller
 // that needs to call a model uses the matching models/<provider> module.
 //
-//	entry, found := catalog.Default.Lookup("openai", "gpt-4o")
+//	entry, found := catalog.LookupModel("openai", "gpt-4o")
 //	if !found {
 //	    return fmt.Errorf("unknown model")
 //	}
@@ -25,8 +25,8 @@
 //
 // The key rules a row has to satisfy:
 //
-//   - provider equals the adapter's Provider constant, lowercased, and Lookup
-//     matches case-insensitively. An OpenAI-compatible provider delegates to
+//   - provider equals the adapter's Provider constant exactly, the one
+//     identity its extensions and attribution also use. An OpenAI-compatible provider delegates to
 //     openai.NewChatCompletions but keeps its own Provider, so its rows are keyed by its
 //     own name rather than by openai.
 //   - pricing is an ascending array of rate bands in USD per million tokens.

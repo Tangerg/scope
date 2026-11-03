@@ -4,12 +4,12 @@ import "time"
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "RevAI"
+	Provider = "revai"
 )
 
 const (
-	RequestExtensionKey  = "revai/request"
-	ResponseExtensionKey = "revai/response"
+	RequestExtensionKey  = Provider + "/request"
+	ResponseExtensionKey = Provider + "/response"
 	DefaultBaseURL       = "https://api.rev.ai/speechtotext/v1"
 	DefaultPollInterval  = 3 * time.Second
 	DefaultPollTimeout   = 30 * time.Minute

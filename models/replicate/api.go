@@ -312,7 +312,7 @@ func (a *api) createPrediction(ctx context.Context, modelID string, req *predict
 		return nil, fmt.Errorf("replicate: submit failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }
@@ -335,7 +335,7 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 		return nil, "", fmt.Errorf("replicate: download output: %w", err)
 	}
 	if !response.IsSuccess() {
-		return nil, "", fmt.Errorf("replicate: download output %w", httpclient.NewResponseError(response.StatusCode(), ""))
+		return nil, "", fmt.Errorf("replicate: download output %w", httpclient.NewResponseError(response.StatusCode(), response.Header()))
 	}
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("replicate: downloaded output is empty")
@@ -354,7 +354,7 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, fmt.Errorf("replicate: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }

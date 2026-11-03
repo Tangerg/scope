@@ -2,14 +2,14 @@ package deepgram
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Deepgram"
+	Provider = "deepgram"
 )
 
 const (
-	SpeechRequestExtensionKey         = "deepgram/speech_request"
-	SpeechResponseExtensionKey        = "deepgram/speech_response"
-	TranscriptionRequestExtensionKey  = "deepgram/transcription_request"
-	TranscriptionResponseExtensionKey = "deepgram/transcription_response"
+	SpeechRequestExtensionKey         = Provider + "/speech_request"
+	SpeechResponseExtensionKey        = Provider + "/speech_response"
+	TranscriptionRequestExtensionKey  = Provider + "/transcription_request"
+	TranscriptionResponseExtensionKey = Provider + "/transcription_response"
 
 	// DefaultBaseURL is Deepgram's production REST endpoint.
 	DefaultBaseURL = "https://api.deepgram.com/v1"

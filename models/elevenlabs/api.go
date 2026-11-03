@@ -131,7 +131,7 @@ func (a *api) textToSpeechStream(ctx context.Context, voiceID, outputFormat stri
 		if body := resp.RawBody(); body != nil {
 			_ = body.Close()
 		}
-		return nil, nil, fmt.Errorf("elevenlabs: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, nil, fmt.Errorf("elevenlabs: stream: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return resp.RawBody(), resp.Header(), nil
 }
@@ -283,7 +283,7 @@ func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, 
 		return nil, fmt.Errorf("elevenlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("elevenlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("elevenlabs: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("elevenlabs: decode response facts: %w", err)

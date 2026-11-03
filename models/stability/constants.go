@@ -2,12 +2,12 @@ package stability
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "StabilityAI"
+	Provider = "stabilityai"
 )
 
 const (
-	RequestExtensionKey  = "stability/request"
-	ResponseExtensionKey = "stability/response"
+	RequestExtensionKey  = Provider + "/request"
+	ResponseExtensionKey = Provider + "/response"
 
 	// DefaultBaseURL is Stability AI's current Stable Image REST endpoint.
 	DefaultBaseURL = "https://api.stability.ai/v2beta"

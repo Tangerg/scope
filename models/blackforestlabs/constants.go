@@ -2,11 +2,11 @@ package blackforestlabs
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "BlackForestLabs"
+	Provider = "blackforestlabs"
 )
 
 const (
-	ImageRequestExtensionKey = "blackforestlabs/image_request"
+	ImageRequestExtensionKey = Provider + "/image_request"
 
 	// DefaultBaseURL is BFL's production endpoint.
 	DefaultBaseURL = "https://api.bfl.ai/v1"

@@ -127,7 +127,7 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		return nil, fmt.Errorf("voyage: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("voyage: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("voyage: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }
@@ -146,7 +146,7 @@ func (a *api) rerank(ctx context.Context, req *rerankRequest) (*rerankResponse, 
 		return nil, fmt.Errorf("voyage: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("voyage: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("voyage: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }

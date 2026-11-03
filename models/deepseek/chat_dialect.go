@@ -29,7 +29,7 @@ const (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const RequestExtensionKey = "deepseek/request"
+const RequestExtensionKey = Provider + "/request"
 
 var userIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 

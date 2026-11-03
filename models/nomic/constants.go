@@ -1,9 +1,9 @@
 package nomic
 
 const (
-	Provider = "Nomic"
+	Provider = "nomic"
 
-	EmbeddingRequestExtensionKey = "nomic/embedding_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
 
 	DefaultBaseURL = "https://api-atlas.nomic.ai/v1"
 )

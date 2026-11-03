@@ -1,7 +1,7 @@
 package xai
 
 const (
-	Provider = "xAI"
+	Provider = "xai"
 
 	BaseURL = "https://api.x.ai/v1"
 )

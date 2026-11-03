@@ -1,9 +1,9 @@
 package jina
 
 const (
-	Provider = "Jina"
+	Provider = "jina"
 
-	EmbeddingRequestExtensionKey = "jina/embedding_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
 
 	DefaultBaseURL = "https://api.jina.ai/v1"
 )

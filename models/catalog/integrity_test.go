@@ -19,12 +19,12 @@ func TestCatalogIntegrity(t *testing.T) {
 }
 
 func TestLookupReturnsOwnedSlices(t *testing.T) {
-	first, ok := Default.Lookup("anthropic", "claude-opus-5")
+	first, ok := LookupModel("anthropic", "claude-opus-5")
 	if !ok || len(first.Pricing) == 0 {
 		t.Fatal("fixture missing")
 	}
 	first.Pricing[0].InputPer1M = -1
-	second, _ := Default.Lookup("anthropic", "claude-opus-5")
+	second, _ := LookupModel("anthropic", "claude-opus-5")
 	if second.Pricing[0].InputPer1M == -1 {
 		t.Fatal("Lookup returned catalog-owned pricing slice")
 	}

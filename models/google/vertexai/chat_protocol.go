@@ -20,7 +20,7 @@ func (c ChatConfig) Validate() error {
 
 func (c ChatConfig) protocol() protocol.ChatConfig {
 	return protocol.ChatConfig{
-		Provider:       protocolProvider,
+		Provider:       Provider,
 		Client:         c.Client.protocol(),
 		DefaultOptions: c.DefaultOptions,
 	}

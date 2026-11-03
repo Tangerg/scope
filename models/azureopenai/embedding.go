@@ -27,7 +27,7 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*opena
 		return nil, err
 	}
 	return openai.NewEmbeddingModel(ctx, openai.EmbeddingModelConfig{
-		Provider:       providerID,
+		Provider:       Provider,
 		APIKey:         endpoint.apiKey,
 		DefaultOptions: config.DefaultOptions,
 		BaseURL:        endpoint.baseURL,

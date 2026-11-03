@@ -2,13 +2,13 @@ package ollama
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Ollama"
+	Provider = "ollama"
 )
 
 const (
 	// EmbeddingRequestExtensionKey carries provider-only /api/embed fields.
 	// Model, input texts, and dimensions are owned by Core and are rejected here.
-	EmbeddingRequestExtensionKey = "ollama/embedding_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
 
 	// DefaultBaseURL is Ollama's default local listen address.
 	DefaultBaseURL = "http://127.0.0.1:11434"

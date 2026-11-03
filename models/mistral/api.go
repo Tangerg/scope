@@ -14,8 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const headerRequestID = "Request-Id"
-const headerXRequestID = "X-Request-Id"
 
 type apiConfig struct {
 	APIKey     string
@@ -89,7 +87,7 @@ func (a *api) moderation(ctx context.Context, req *moderationRequest) (*moderati
 		return nil, fmt.Errorf("mistral: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("mistral: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("mistral: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }
@@ -120,6 +118,5 @@ func (a *api) chatCompletionStream(ctx context.Context, request *chatCompletionR
 }
 
 func responseError(operation string, response *resty.Response) error {
-	requestID := cmp.Or(response.Header().Get(headerRequestID), response.Header().Get(headerXRequestID))
-	return fmt.Errorf("mistral: %s: %w", operation, httpclient.NewResponseError(response.StatusCode(), requestID))
+	return fmt.Errorf("mistral: %s: %w", operation, httpclient.NewResponseError(response.StatusCode(), response.Header()))
 }

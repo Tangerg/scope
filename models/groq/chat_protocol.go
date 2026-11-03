@@ -13,11 +13,9 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const providerID = "groq"
-
 const (
-	OpenAIRequestExtensionKey     = providerID + openai.CompatibleRequestExtensionSuffix
-	OpenAIStreamChunkExtensionKey = providerID + openai.CompatibleStreamExtensionSuffix
+	OpenAIRequestExtensionKey     = Provider + openai.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = Provider + openai.CompatibleStreamExtensionSuffix
 )
 
 type ChatCompletionsConfig struct {
@@ -48,16 +46,21 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	// replacement is documented as bounding reasoning tokens together with
 	// visible output, so it is the field that caps what this provider actually
 	// generates.
-	dialect := openai.DialectConfig{Provider: providerID, TokenLimitField: openai.TokenLimitMaxTokens, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever}}
-	dialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
-	// Groq's json_schema mode does not support streaming. Call aggregates the
-	// same stream, so this adapter cannot promise that native output format.
-	dialect.NativeOutputFormat = func(format corechat.OutputFormatType) bool {
-		return format != corechat.OutputFormatJSONSchema
+	dialect := openai.DialectConfig{
+		Provider:           Provider,
+		TokenLimitField:    openai.TokenLimitMaxCompletionTokens,
+		TextReasoning:      &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever},
+		NativeOutputFormat: nativeOutputFormat,
 	}
 	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
 	if err != nil {
 		return nil, fmt.Errorf("groq: construct OpenAI-compatible chat: %w", err)
 	}
 	return corechat.NewStreamModel(protocol)
+}
+
+// nativeOutputFormat excludes json_schema, which Groq does not stream; Call
+// aggregates the same stream, so this adapter cannot promise it either way.
+func nativeOutputFormat(format corechat.OutputFormatType) bool {
+	return format != corechat.OutputFormatJSONSchema
 }

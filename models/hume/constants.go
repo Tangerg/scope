@@ -2,11 +2,11 @@ package hume
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Hume"
+	Provider = "hume"
 )
 
 const (
-	SpeechRequestExtensionKey = "hume/speech_request"
+	SpeechRequestExtensionKey = Provider + "/speech_request"
 	DefaultBaseURL            = "https://api.hume.ai/v0"
 )
 

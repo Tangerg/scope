@@ -12,7 +12,7 @@ const (
 	// ResponseExtensionKey preserves the complete official Ollama response (or
 	// the current official stream chunk), including log probabilities and image
 	// output that Core does not normalize.
-	ResponseExtensionKey        = "ollama/response"
+	ResponseExtensionKey        = Provider + "/response"
 	protocolNativeDoneReasonKey = "ollama/native_done_reason"
 	protocolDurationsKey        = "ollama/durations_ns"
 	protocolMetricsKey          = "ollama/metrics"

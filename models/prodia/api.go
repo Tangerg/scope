@@ -99,7 +99,7 @@ func (a *api) job(ctx context.Context, req *jobRequest, accept string) ([]byte, 
 		return nil, nil, fmt.Errorf("prodia: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, nil, fmt.Errorf("prodia: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, nil, fmt.Errorf("prodia: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return resp.Body(), resp.Header(), nil
 }

@@ -2,12 +2,12 @@ package luma
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Luma"
+	Provider = "luma"
 )
 
 const (
-	ImageRequestExtensionKey   = "luma/image_request"
-	ResponseExtensionKey       = "luma/response"
+	ImageRequestExtensionKey   = Provider + "/image_request"
+	ResponseExtensionKey       = Provider + "/response"
 	DefaultBaseURL             = "https://agents.lumalabs.ai/v1"
 	DefaultPollIntervalSeconds = 2
 	DefaultPollTimeoutSeconds  = 300

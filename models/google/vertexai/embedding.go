@@ -18,7 +18,7 @@ func (e EmbeddingModelConfig) Validate() error {
 
 func (e EmbeddingModelConfig) protocol() protocol.EmbeddingModelConfig {
 	return protocol.EmbeddingModelConfig{
-		Provider:       protocolProvider,
+		Provider:       Provider,
 		Client:         e.Client.protocol(),
 		DefaultOptions: e.DefaultOptions,
 	}

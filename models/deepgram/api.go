@@ -174,7 +174,7 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 		return nil, fmt.Errorf("deepgram: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("deepgram: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("deepgram: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if err := jsonv2.Unmarshal(resp.Body(), &out.Raw); err != nil {
 		return nil, fmt.Errorf("deepgram: preserve transcription response: %w", err)
@@ -282,7 +282,7 @@ func (a *api) speakStream(ctx context.Context, text string, params *speakParams)
 		if body := resp.RawBody(); body != nil {
 			_ = body.Close()
 		}
-		return nil, nil, fmt.Errorf("deepgram: stream: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, nil, fmt.Errorf("deepgram: stream: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	if resp.RawBody() == nil {
 		return nil, nil, errors.New("deepgram: speech response has no body")

@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	Provider       = "Google"
+	Provider       = protocol.GoogleProviderID
 	DefaultBaseURL = protocol.DefaultBaseURL
 	BaseURLOpenAI  = "https://generativelanguage.googleapis.com/v1beta/openai"
 
@@ -35,8 +35,8 @@ const (
 	ImageRequestExtensionKey          = protocol.ImageRequestExtensionKey
 	ImageResponseExtensionKey         = protocol.ImageResponseExtensionKey
 
-	OpenAIRequestExtensionKey     = protocolProvider + openaiprotocol.CompatibleRequestExtensionSuffix
-	OpenAIStreamChunkExtensionKey = protocolProvider + openaiprotocol.CompatibleStreamExtensionSuffix
+	OpenAIRequestExtensionKey     = Provider + openaiprotocol.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = Provider + openaiprotocol.CompatibleStreamExtensionSuffix
 
 	ModelGemini36Flash      = protocol.ModelGemini36Flash
 	ModelGemini35Flash      = protocol.ModelGemini35Flash
@@ -55,8 +55,6 @@ const (
 	ModelGeminiEmbedding2 = protocol.ModelGeminiEmbedding2
 )
 
-const protocolProvider = protocol.GoogleProviderID
-
 func protocolClient(apiKey, baseURL string, httpClient *http.Client) protocol.ClientConfig {
 	return protocol.ClientConfig{APIKey: apiKey, BaseURL: baseURL, HTTPClient: httpClient}
 }
@@ -72,7 +70,7 @@ func (c ChatConfig) Validate() error { return c.protocol().Validate() }
 
 func (c ChatConfig) protocol() protocol.ChatConfig {
 	return protocol.ChatConfig{
-		Provider: protocolProvider, Client: protocolClient(c.APIKey, c.BaseURL, c.HTTPClient), DefaultOptions: c.DefaultOptions,
+		Provider: Provider, Client: protocolClient(c.APIKey, c.BaseURL, c.HTTPClient), DefaultOptions: c.DefaultOptions,
 	}
 }
 
@@ -126,7 +124,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	}
 	protocol, err := openaiprotocol.NewChatCompletions(ctx,
 		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
-		openaiprotocol.DialectConfig{Provider: protocolProvider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
+		openaiprotocol.DialectConfig{Provider: Provider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)
 	if err != nil {
 		return nil, err
@@ -145,7 +143,7 @@ func (e EmbeddingModelConfig) Validate() error { return e.protocol().Validate() 
 
 func (e EmbeddingModelConfig) protocol() protocol.EmbeddingModelConfig {
 	return protocol.EmbeddingModelConfig{
-		Provider: protocolProvider, Client: protocolClient(e.APIKey, e.BaseURL, e.HTTPClient), DefaultOptions: e.DefaultOptions,
+		Provider: Provider, Client: protocolClient(e.APIKey, e.BaseURL, e.HTTPClient), DefaultOptions: e.DefaultOptions,
 	}
 }
 
@@ -182,7 +180,7 @@ func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
 
 func (s SpeechModelConfig) protocol() protocol.SpeechModelConfig {
 	return protocol.SpeechModelConfig{
-		Provider: protocolProvider, Client: protocolClient(s.APIKey, s.BaseURL, s.HTTPClient), DefaultOptions: s.DefaultOptions,
+		Provider: Provider, Client: protocolClient(s.APIKey, s.BaseURL, s.HTTPClient), DefaultOptions: s.DefaultOptions,
 	}
 }
 
@@ -217,7 +215,7 @@ func (t TranscriptionModelConfig) Validate() error { return t.protocol().Validat
 
 func (t TranscriptionModelConfig) protocol() protocol.TranscriptionModelConfig {
 	return protocol.TranscriptionModelConfig{
-		Provider: protocolProvider, Client: protocolClient(t.APIKey, t.BaseURL, t.HTTPClient), DefaultOptions: t.DefaultOptions,
+		Provider: Provider, Client: protocolClient(t.APIKey, t.BaseURL, t.HTTPClient), DefaultOptions: t.DefaultOptions,
 	}
 }
 

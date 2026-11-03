@@ -198,7 +198,7 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 		return nil, fmt.Errorf("blackforestlabs: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }
@@ -220,7 +220,7 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 		return nil, fmt.Errorf("blackforestlabs: poll failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("blackforestlabs: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }
@@ -237,7 +237,7 @@ func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, str
 		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", err)
 	}
 	if !response.IsSuccess() {
-		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", httpclient.NewResponseError(response.StatusCode(), ""))
+		return nil, "", fmt.Errorf("blackforestlabs: download output: %w", httpclient.NewResponseError(response.StatusCode(), response.Header()))
 	}
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("blackforestlabs: download output returned an empty body")

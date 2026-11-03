@@ -7,48 +7,47 @@ import (
 )
 
 func TestModels(t *testing.T) {
-	models := catalog.Default.Models("anthropic")
+	models := catalog.Models("anthropic")
 	if len(models) == 0 {
 		t.Fatal("anthropic should have cataloged models")
 	}
-	// Case-insensitive on the provider name (adapter consts are capitalized).
-	if len(catalog.Default.Models("Anthropic")) != len(models) {
-		t.Fatal("provider name must match case-insensitively")
+	if catalog.Models("Anthropic") != nil {
+		t.Fatal("provider identity matched another spelling")
 	}
-	if catalog.Default.Models("does-not-exist") != nil {
+	if catalog.Models("does-not-exist") != nil {
 		t.Fatal("unknown provider must return nil")
 	}
 }
 
 func TestLookup(t *testing.T) {
-	info, ok := catalog.Default.Lookup("anthropic", "claude-opus-5")
+	info, ok := catalog.LookupModel("anthropic", "claude-opus-5")
 	if !ok {
 		t.Fatal("known model must be found")
 	}
 	if len(info.Pricing) == 0 {
 		t.Fatal("model info must carry pricing")
 	}
-	if _, ok := catalog.Default.Lookup("anthropic", "no-such-model"); ok {
+	if _, ok := catalog.LookupModel("anthropic", "no-such-model"); ok {
 		t.Fatal("unknown model must report ok=false")
 	}
-	if _, ok := catalog.Default.Lookup("does-not-exist", "claude-opus-5"); ok {
+	if _, ok := catalog.LookupModel("does-not-exist", "claude-opus-5"); ok {
 		t.Fatal("unknown provider must report ok=false")
 	}
 }
 
 func TestProvider(t *testing.T) {
-	p, ok := catalog.Default.Provider("anthropic")
+	p, ok := catalog.LookupProvider("anthropic")
 	if !ok || p.ID != "anthropic" || len(p.Models) == 0 || p.Models[0].ID == "" {
 		t.Fatalf("Provider(anthropic) = %+v, %v", p, ok)
 	}
-	if _, ok := catalog.Default.Provider("does-not-exist"); ok {
+	if _, ok := catalog.LookupProvider("does-not-exist"); ok {
 		t.Fatal("Provider of unknown provider must report ok=false")
 	}
 }
 
 func TestCatalogDoesNotAdvertiseRetiredPerplexitySonar(t *testing.T) {
 	for _, id := range []string{"sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research"} {
-		if _, found := catalog.Default.Lookup("perplexity", id); found {
+		if _, found := catalog.LookupModel("perplexity", id); found {
 			t.Fatalf("retired Sonar model %q was advertised for the Agent API", id)
 		}
 	}

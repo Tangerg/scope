@@ -101,7 +101,7 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		return nil, fmt.Errorf("nomic: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("nomic: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, fmt.Errorf("nomic: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
 }

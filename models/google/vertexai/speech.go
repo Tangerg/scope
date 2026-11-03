@@ -19,7 +19,7 @@ func (s SpeechModelConfig) Validate() error {
 
 func (s SpeechModelConfig) protocol() protocol.SpeechModelConfig {
 	return protocol.SpeechModelConfig{
-		Provider:       protocolProvider,
+		Provider:       Provider,
 		Client:         s.Client.protocol(),
 		DefaultOptions: s.DefaultOptions,
 	}

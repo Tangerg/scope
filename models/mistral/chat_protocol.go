@@ -23,8 +23,8 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
-	RequestExtensionKey     = "mistral/request"
-	streamChunkExtensionKey = "mistral/chunk"
+	RequestExtensionKey     = Provider + "/request"
+	streamChunkExtensionKey = Provider + "/chunk"
 	nativeFinishReasonKey   = "mistral/native_finish_reason"
 	mistralStreamDone       = "[DONE]"
 	mistralStreamMaxBytes   = 16 << 20

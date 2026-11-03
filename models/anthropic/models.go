@@ -10,14 +10,13 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-const providerID = anthropicprotocol.ProviderID
+const Provider = anthropicprotocol.ProviderID
 
 const (
-	Provider      = "Anthropic"
 	BaseURLOpenAI = "https://api.anthropic.com/v1"
 
-	OpenAIRequestExtensionKey     = providerID + openaiprotocol.CompatibleRequestExtensionSuffix
-	OpenAIStreamChunkExtensionKey = providerID + openaiprotocol.CompatibleStreamExtensionSuffix
+	OpenAIRequestExtensionKey     = Provider + openaiprotocol.CompatibleRequestExtensionSuffix
+	OpenAIStreamChunkExtensionKey = Provider + openaiprotocol.CompatibleStreamExtensionSuffix
 )
 
 type MessagesConfig struct {
@@ -35,7 +34,7 @@ func (m MessagesConfig) protocol() anthropicprotocol.MessagesConfig {
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*anthropicprotocol.Messages, error) {
 	return anthropicprotocol.NewMessages(ctx, config.protocol(), anthropicprotocol.Dialect{
-		Provider:         providerID,
+		Provider:         Provider,
 		Revision:         anthropicprotocol.MessagesRevision20261021,
 		APIKeyScheme:     anthropicprotocol.APIKeySchemeBearer,
 		NativeJSONSchema: true},
@@ -68,7 +67,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	protocol, err := openaiprotocol.NewChatCompletions(ctx,
 		config.protocol(),
 		openaiprotocol.DialectConfig{
-			Provider:        providerID,
+			Provider:        Provider,
 			TokenLimitField: openaiprotocol.TokenLimitMaxTokens,
 			IgnoredOptions: []openaiprotocol.ChatOption{
 				openaiprotocol.ChatOptionFrequencyPenalty,

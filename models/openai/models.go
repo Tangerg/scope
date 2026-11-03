@@ -13,11 +13,7 @@ import (
 	openaiprotocol "github.com/Tangerg/scope/models/protocol/openai"
 )
 
-const providerID = openaiprotocol.ProviderID
-
-const (
-	Provider = "OpenAI"
-)
+const Provider = openaiprotocol.ProviderID
 
 // Construction does no network I/O; per-call overrides remain in chat.Request.
 type ChatCompletionsConfig struct {
@@ -40,7 +36,7 @@ func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
 	return openaiprotocol.NewChatCompletions(ctx, config.protocol(), openaiprotocol.DialectConfig{
-		Provider:        providerID,
+		Provider:        Provider,
 		TokenLimitField: openaiprotocol.TokenLimitMaxCompletionTokens,
 		PrepareRequest:  openaiprotocol.RequestStreamUsage,
 	})
@@ -67,7 +63,7 @@ func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
 }
 
 func NewResponses(ctx context.Context, config ResponsesConfig) (*openaiprotocol.Responses, error) {
-	return openaiprotocol.NewResponses(ctx, config.protocol(), openaiprotocol.ResponsesDialect{Provider: providerID})
+	return openaiprotocol.NewResponses(ctx, config.protocol(), openaiprotocol.ResponsesDialect{Provider: Provider})
 }
 
 type EmbeddingModelConfig struct {
@@ -80,7 +76,7 @@ type EmbeddingModelConfig struct {
 func (e EmbeddingModelConfig) Validate() error { return e.protocol().Validate() }
 
 func (e EmbeddingModelConfig) protocol() openaiprotocol.EmbeddingModelConfig {
-	return openaiprotocol.EmbeddingModelConfig{Provider: providerID, APIKey: e.APIKey, DefaultOptions: e.DefaultOptions, BaseURL: e.BaseURL, HTTPClient: e.HTTPClient}
+	return openaiprotocol.EmbeddingModelConfig{Provider: Provider, APIKey: e.APIKey, DefaultOptions: e.DefaultOptions, BaseURL: e.BaseURL, HTTPClient: e.HTTPClient}
 }
 
 func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*openaiprotocol.EmbeddingModel, error) {
@@ -97,7 +93,7 @@ type TranscriptionModelConfig struct {
 func (t TranscriptionModelConfig) Validate() error { return t.protocol().Validate() }
 
 func (t TranscriptionModelConfig) protocol() openaiprotocol.TranscriptionModelConfig {
-	return openaiprotocol.TranscriptionModelConfig{Provider: providerID, APIKey: t.APIKey, DefaultOptions: t.DefaultOptions, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
+	return openaiprotocol.TranscriptionModelConfig{Provider: Provider, APIKey: t.APIKey, DefaultOptions: t.DefaultOptions, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
 }
 
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*openaiprotocol.TranscriptionModel, error) {
@@ -114,7 +110,7 @@ type AudioTranslationModelConfig struct {
 func (a AudioTranslationModelConfig) Validate() error { return a.protocol().Validate() }
 
 func (a AudioTranslationModelConfig) protocol() openaiprotocol.AudioTranslationModelConfig {
-	return openaiprotocol.AudioTranslationModelConfig{Provider: providerID, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
+	return openaiprotocol.AudioTranslationModelConfig{Provider: Provider, APIKey: a.APIKey, DefaultOptions: a.DefaultOptions, BaseURL: a.BaseURL, HTTPClient: a.HTTPClient}
 }
 
 // NewAudioTranslationModel translates an uploaded audio file synchronously.
@@ -137,7 +133,7 @@ func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
 
 func (s SpeechModelConfig) protocol() openaiprotocol.SpeechModelConfig {
 	return openaiprotocol.SpeechModelConfig{
-		Provider:         providerID,
+		Provider:         Provider,
 		APIKey:           s.APIKey,
 		DefaultOptions:   s.DefaultOptions,
 		BaseURL:          s.BaseURL,
@@ -160,7 +156,7 @@ type ImageModelConfig struct {
 func (i ImageModelConfig) Validate() error { return i.protocol().Validate() }
 
 func (i ImageModelConfig) protocol() openaiprotocol.ImageModelConfig {
-	return openaiprotocol.ImageModelConfig{Provider: providerID, APIKey: i.APIKey, DefaultOptions: i.DefaultOptions, BaseURL: i.BaseURL, HTTPClient: i.HTTPClient}
+	return openaiprotocol.ImageModelConfig{Provider: Provider, APIKey: i.APIKey, DefaultOptions: i.DefaultOptions, BaseURL: i.BaseURL, HTTPClient: i.HTTPClient}
 }
 
 func NewImageModel(ctx context.Context, config ImageModelConfig) (*openaiprotocol.ImageModel, error) {
@@ -177,7 +173,7 @@ type ModerationModelConfig struct {
 func (m ModerationModelConfig) Validate() error { return m.protocol().Validate() }
 
 func (m ModerationModelConfig) protocol() openaiprotocol.ModerationModelConfig {
-	return openaiprotocol.ModerationModelConfig{Provider: providerID, APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
+	return openaiprotocol.ModerationModelConfig{Provider: Provider, APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
 }
 
 func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*openaiprotocol.ModerationModel, error) {

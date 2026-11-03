@@ -144,7 +144,7 @@ func (a *api) generate(ctx context.Context, path string, req *generateRequest) (
 		return nil, nil, fmt.Errorf("stability: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {
-		return nil, nil, fmt.Errorf("stability: %w", httpclient.NewResponseError(resp.StatusCode(), ""))
+		return nil, nil, fmt.Errorf("stability: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return resp.Body(), resp.Header(), nil
 }

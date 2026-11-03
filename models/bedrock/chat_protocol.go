@@ -20,11 +20,11 @@ import (
 
 const (
 	// ChatRequestExtensionKey stores [ChatRequestOptions] in a Core request.
-	ChatRequestExtensionKey = "bedrock/request"
+	ChatRequestExtensionKey = Provider + "/request"
 	// ChatMessageStopExtensionKey preserves the terminal provider outcome and native fields.
-	ChatMessageStopExtensionKey = "bedrock/message_stop"
+	ChatMessageStopExtensionKey = Provider + "/message_stop"
 	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
-	ChatMetadataExtensionKey  = "bedrock/metadata"
+	ChatMetadataExtensionKey  = Provider + "/metadata"
 	chatReasoningKindKey      = "bedrock/reasoning_kind"
 	chatContentBlockIndexKey  = "bedrock/content_block_index"
 	chatReasoningText         = "reasoning_text"

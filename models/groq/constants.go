@@ -1,7 +1,7 @@
 package groq
 
 const (
-	Provider = "Groq"
+	Provider = "groq"
 
 	BaseURL = "https://api.groq.com/openai/v1"
 )

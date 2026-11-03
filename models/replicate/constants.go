@@ -2,14 +2,14 @@ package replicate
 
 // Provider is the stable backend name for host-side attribution.
 const (
-	Provider = "Replicate"
+	Provider = "replicate"
 )
 
 const (
-	ImageRequestExtensionKey   = "replicate/image_request"
-	SpeechRequestExtensionKey  = "replicate/speech_request"
-	ImageResponseExtensionKey  = "replicate/image_response"
-	SpeechResponseExtensionKey = "replicate/speech_response"
+	ImageRequestExtensionKey   = Provider + "/image_request"
+	SpeechRequestExtensionKey  = Provider + "/speech_request"
+	ImageResponseExtensionKey  = Provider + "/image_response"
+	SpeechResponseExtensionKey = Provider + "/speech_response"
 
 	// DefaultBaseURL is Replicate's production API root.
 	DefaultBaseURL = "https://api.replicate.com/v1"

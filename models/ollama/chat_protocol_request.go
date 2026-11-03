@@ -20,7 +20,7 @@ const (
 	// have no provider-neutral Core equivalent. Unknown and Core-owned fields are
 	// rejected; options remains an open native map. Think belongs exclusively here
 	// because it admits both booleans and levels.
-	RequestExtensionKey = "ollama/request"
+	RequestExtensionKey = Provider + "/request"
 
 	protocolGeneratedToolPrefix = "ollama/generated/"
 )

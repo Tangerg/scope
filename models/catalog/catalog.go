@@ -24,13 +24,6 @@ func (p Provider) Clone() Provider {
 	return p
 }
 
-// Catalog owns access to the repository's embedded provider and model data.
-// Its zero value is ready to use and carries no mutable per-caller state.
-type Catalog struct{}
-
-// Default is the repository's embedded model catalog.
-var Default Catalog
-
 type providerConfig struct {
 	Provider string  `json:"provider"`
 	Models   []Model `json:"models"`
@@ -54,6 +47,12 @@ func mustLoad() map[string]catalogEntry {
 	return providers
 }
 
+// validProviderID admits the lowercase spelling adapters use for Provider, so
+// one identity can never be cataloged under two spellings.
+func validProviderID(id string) bool {
+	return id != "" && !strings.ContainsFunc(id, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') })
+}
+
 func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 	files, err := fs.Glob(source, "configs/*.json")
 	if err != nil {
@@ -73,6 +72,9 @@ func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 		if config.Provider != providerID {
 			return nil, fmt.Errorf("catalog: provider %q differs from file identity %q", config.Provider, providerID)
 		}
+		if !validProviderID(config.Provider) {
+			return nil, fmt.Errorf("catalog: provider %q is not a lowercase adapter identity", config.Provider)
+		}
 		models := make(map[string]Model, len(config.Models))
 		for _, model := range config.Models {
 			if err := model.Validate(); err != nil {
@@ -83,11 +85,10 @@ func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 			}
 			models[model.ID] = model
 		}
-		key := strings.ToLower(config.Provider)
-		if _, exists := providers[key]; exists {
+		if _, exists := providers[config.Provider]; exists {
 			return nil, fmt.Errorf("catalog: duplicate provider %q", config.Provider)
 		}
-		providers[key] = catalogEntry{
+		providers[config.Provider] = catalogEntry{
 			provider: Provider{ID: config.Provider, Models: config.Models},
 			models:   models,
 		}
@@ -95,10 +96,10 @@ func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 	return providers, nil
 }
 
-// Lookup returns one model for a provider/model pair. Provider matching is
-// case-insensitive. The returned value owns its slices.
-func (Catalog) Lookup(provider, modelID string) (Model, bool) {
-	entry, ok := entries[strings.ToLower(provider)]
+// LookupModel returns one model for a provider/model pair. Provider is an
+// adapter's Provider constant. The returned value owns its slices.
+func LookupModel(provider, modelID string) (Model, bool) {
+	entry, ok := entries[provider]
 	if !ok {
 		return Model{}, false
 	}
@@ -111,19 +112,17 @@ func (Catalog) Lookup(provider, modelID string) (Model, bool) {
 
 // Models returns every cataloged model for provider, or nil when unknown.
 // Order is unspecified and returned values own their slices.
-func (Catalog) Models(provider string) []Model {
-	entry, ok := entries[strings.ToLower(provider)]
+func Models(provider string) []Model {
+	entry, ok := entries[provider]
 	if !ok {
 		return nil
 	}
 	return entry.provider.Clone().Models
 }
 
-// Provider returns one provider's complete catalog entry. Provider matching is
-// case-insensitive, while the returned ID preserves the catalog's canonical
-// spelling.
-func (Catalog) Provider(provider string) (Provider, bool) {
-	entry, ok := entries[strings.ToLower(provider)]
+// LookupProvider returns one provider's complete catalog entry.
+func LookupProvider(provider string) (Provider, bool) {
+	entry, ok := entries[provider]
 	if !ok {
 		return Provider{}, false
 	}

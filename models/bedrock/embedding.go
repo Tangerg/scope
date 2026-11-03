@@ -22,10 +22,10 @@ import (
 const (
 	// EmbeddingRequestExtensionKey stores [EmbeddingRequestOptions] in Core
 	// embedding options.
-	EmbeddingRequestExtensionKey = "bedrock/embedding_request"
+	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
 	// EmbeddingResponseExtensionKey preserves the provider's JSON response body.
 	// Titan batching stores one body per input; Cohere stores its single batch body.
-	EmbeddingResponseExtensionKey       = "bedrock/embedding_response"
+	EmbeddingResponseExtensionKey       = Provider + "/embedding_response"
 	maximumCohereBatchTexts             = 96
 	embeddingDimension256         int64 = 256
 	embeddingDimension512         int64 = 512

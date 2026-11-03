@@ -56,7 +56,7 @@ func TestCatalogRejectsAmbiguousOrMalformedEmbeddedFacts(t *testing.T) {
 		"configs/A.json": {Data: []byte(`{"provider":"A","models":[{"id":"two"}]}`)},
 	})
 	if err == nil || result != nil {
-		t.Fatalf("case-insensitive provider collision admitted: %v", err)
+		t.Fatalf("non-canonical provider spelling admitted: %v", err)
 	}
 }
 

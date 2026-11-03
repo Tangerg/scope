@@ -1,6 +1,10 @@
 package httpclient
 
-import "fmt"
+import (
+	"cmp"
+	"fmt"
+	"net/http"
+)
 
 const DefaultMaxJSONResponseBytes = 32 << 20
 
@@ -13,7 +17,15 @@ type ResponseError struct {
 	requestID  string
 }
 
-func NewResponseError(statusCode int, requestID string) *ResponseError {
+// Providers name their request identifier differently; these two headers
+// cover the convention, and a value outside the safe grammar is dropped.
+const (
+	headerRequestID  = "Request-Id"
+	headerXRequestID = "X-Request-Id"
+)
+
+func NewResponseError(statusCode int, header http.Header) *ResponseError {
+	requestID := cmp.Or(header.Get(headerRequestID), header.Get(headerXRequestID))
 	if !validRequestID(requestID) {
 		requestID = ""
 	}

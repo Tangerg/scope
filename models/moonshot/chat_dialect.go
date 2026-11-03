@@ -12,7 +12,7 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const RequestExtensionKey = "moonshot/request"
+const RequestExtensionKey = Provider + "/request"
 
 // ThinkingType controls thinking for Kimi K2.x models.
 type ThinkingType string

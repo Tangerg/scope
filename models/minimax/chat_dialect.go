@@ -13,7 +13,7 @@ import (
 const (
 	// RequestExtensionKey stores MiniMax-specific Chat Completions options in a
 	// Core request.
-	RequestExtensionKey = "minimax/request"
+	RequestExtensionKey = Provider + "/request"
 	reasoningSplitField = "reasoning_split"
 )
 
