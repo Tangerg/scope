@@ -205,7 +205,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, err
 	}
 	dimensions := len(query)
-	mode := request.Options.EffectiveMode()
+	mode := request.Options.Mode
 	native, err := s.client.rpc.Search(s.client.callContext(ctx), searchRequest(s.collection, request, query, where, s.hybridAlpha))
 	if err != nil {
 		return nil, err

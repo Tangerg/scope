@@ -293,7 +293,7 @@ func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) e
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return err
 	}
-	if opts.EffectiveMode() == vectorstore.SearchModeHybrid && opts.ResultLimit() > MaxResultsPerPage {
+	if opts.Mode == vectorstore.SearchModeHybrid && opts.ResultLimit() > MaxResultsPerPage {
 		return fmt.Errorf("%w: typesense hybrid TopK must not exceed %d because fusion changes between pages", vectorstore.ErrInvalidOptions, MaxResultsPerPage)
 	}
 	if opts.Filter != nil && !allowFilter {
@@ -372,11 +372,11 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 
 func (s *Store) searchParameters(request *vectorstore.Query, vector []float32) *searchQuery {
 	var alpha *float32
-	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.Mode == vectorstore.SearchModeHybrid {
 		alpha = s.hybridAlpha
 	}
 	params := &searchQuery{MultiSearchCollectionParameters: api.MultiSearchCollectionParameters{Collection: new(s.collectionName), Q: new(wildcardQuery), VectorQuery: new(formatVectorQuery(vector, request.Options.ResultLimit(), alpha)), PerPage: new(min(request.Options.ResultLimit(), MaxResultsPerPage))}}
-	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.Mode == vectorstore.SearchModeHybrid {
 		params.Q = new(request.LexicalText)
 		params.QueryBy = new(fieldContent)
 	}

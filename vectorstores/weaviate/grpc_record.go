@@ -27,7 +27,7 @@ func searchRequest(collection string, request *vectorstore.Query, values []float
 	near := &pb.NearVector{Targets: targets, VectorForTargets: []*pb.VectorForTarget{{Name: vectorName, Vectors: []*pb.Vectors{named}}}}
 	meta := &pb.MetadataRequest{Uuid: true, Vectors: []string{vectorName}}
 	out := &pb.SearchRequest{Collection: collection, Limit: uint32(request.Options.ResultLimit()), Metadata: meta, Properties: &pb.PropertiesRequest{NonRefProperties: []string{fieldContent, fieldMetadata, fieldTerms}}, Filters: where}
-	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.Mode == vectorstore.SearchModeHybrid {
 		meta.Score = true
 		out.HybridSearch = &pb.Hybrid{Query: request.LexicalText, Properties: []string{fieldContent}, FusionType: pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE, AlphaParam: alpha, UseAlphaParam: true, Targets: targets, NearVector: near}
 	} else {

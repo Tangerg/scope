@@ -342,7 +342,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		"count": false, "top": request.Options.ResultLimit(), "select": s.selectedFields(),
 		"vectorQueries": []any{map[string]any{"kind": "vector", "vector": queryVector, "k": request.Options.ResultLimit(), "fields": s.embeddingField}},
 	}
-	if request.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if request.Options.Mode == vectorstore.SearchModeHybrid {
 		body["search"] = request.LexicalText
 		body["searchFields"] = s.contentField
 	}
@@ -368,7 +368,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		if scoreErr != nil || !present || rawScore == nil {
 			return nil, fmt.Errorf("azureaisearch: missing or invalid native score: %w", errors.Join(scoreErr, vectorstore.ErrInvalidResponse))
 		}
-		score, scoreErr := s.metric.score(*rawScore, request.Options.EffectiveMode())
+		score, scoreErr := s.metric.score(*rawScore, request.Options.Mode)
 		if scoreErr != nil {
 			return nil, scoreErr
 		}

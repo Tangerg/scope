@@ -18,26 +18,25 @@ const (
 	MaxRelevanceScore = 1.0
 )
 
+// SearchMode selects how a store ranks a query. Semantic is the zero value,
+// so it has exactly one spelling. Stores must reject an unsupported mode
+// rather than silently substitute another.
 type SearchMode string
 
-// Stores must reject unsupported search modes rather than silently substitute another.
 const (
-	SearchModeSemantic SearchMode = "semantic"
+	SearchModeSemantic SearchMode = ""
 	SearchModeHybrid   SearchMode = "hybrid"
 )
 
+const searchModeSemanticName = "semantic"
+
 func (s SearchMode) Valid() bool {
-	switch s {
-	case "", SearchModeSemantic, SearchModeHybrid:
-		return true
-	default:
-		return false
-	}
+	return s == SearchModeSemantic || s == SearchModeHybrid
 }
 
 func (s SearchMode) String() string {
-	if s == "" {
-		return string(SearchModeSemantic)
+	if s == SearchModeSemantic {
+		return searchModeSemanticName
 	}
 	return string(s)
 }
@@ -76,7 +75,7 @@ func (s SearchOptions) Validate() error {
 	if !s.Mode.Valid() {
 		return fmt.Errorf("%w: unknown search mode %q", ErrInvalidOptions, s.Mode)
 	}
-	if s.EffectiveMode() == SearchModeHybrid && s.MinScore != MinRelevanceScore {
+	if s.Mode == SearchModeHybrid && s.MinScore != MinRelevanceScore {
 		return fmt.Errorf("%w: minimum score is not portable across hybrid fusion algorithms", ErrInvalidOptions)
 	}
 	if s.Filter != nil {
@@ -87,21 +86,16 @@ func (s SearchOptions) Validate() error {
 	return nil
 }
 
-func (s SearchOptions) EffectiveMode() SearchMode {
-	return SearchMode(s.Mode.String())
-}
-
 // RequireMode rejects a valid request mode before provider I/O when the store
 // cannot implement it without changing its semantics.
 func (s SearchOptions) RequireMode(supported ...SearchMode) error {
 	if err := s.Validate(); err != nil {
 		return err
 	}
-	mode := s.EffectiveMode()
-	if slices.Contains(supported, mode) {
+	if slices.Contains(supported, s.Mode) {
 		return nil
 	}
-	return fmt.Errorf("%w: %s", ErrUnsupportedSearchMode, mode)
+	return fmt.Errorf("%w: %s", ErrUnsupportedSearchMode, s.Mode)
 }
 
 func (s SearchOptions) ResultLimit() int {

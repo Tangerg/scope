@@ -140,7 +140,7 @@ func (q *Query) ValidateFor(space SpaceID) error {
 	if err := q.Options.Validate(); err != nil {
 		return err
 	}
-	if !utf8.ValidString(q.LexicalText) || q.Options.EffectiveMode() == SearchModeHybrid && strings.TrimSpace(q.LexicalText) == "" || q.Options.EffectiveMode() != SearchModeHybrid && q.LexicalText != "" {
+	if !utf8.ValidString(q.LexicalText) || q.Options.Mode == SearchModeHybrid && strings.TrimSpace(q.LexicalText) == "" || q.Options.Mode != SearchModeHybrid && q.LexicalText != "" {
 		return fmt.Errorf("%w: lexical text is required only for hybrid search", ErrInvalidRequest)
 	}
 	return nil

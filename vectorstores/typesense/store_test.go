@@ -43,7 +43,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 }
 func fixtureQuery(text string, opts vectorstore.SearchOptions) *vectorstore.Query {
 	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector(text), Options: opts}
-	if opts.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if opts.Mode == vectorstore.SearchModeHybrid {
 		q.LexicalText = text
 	}
 	return q

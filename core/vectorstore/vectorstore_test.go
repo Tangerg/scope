@@ -56,11 +56,11 @@ func TestQueryValidate(t *testing.T) {
 
 func TestSearchModeIsExplicitAndCapabilityChecked(t *testing.T) {
 	var options vectorstore.SearchOptions
-	if got := options.EffectiveMode(); got != vectorstore.SearchModeSemantic {
+	if got := options.Mode; got != vectorstore.SearchModeSemantic {
 		t.Fatalf("zero mode = %q, want semantic", got)
 	}
-	if options.EffectiveMode().String() != "semantic" {
-		t.Fatalf("semantic string = %q", options.EffectiveMode().String())
+	if options.Mode.String() != "semantic" {
+		t.Fatalf("semantic string = %q", options.Mode.String())
 	}
 	options.Mode = vectorstore.SearchModeHybrid
 	if err := options.RequireMode(vectorstore.SearchModeSemantic); !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {

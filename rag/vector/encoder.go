@@ -55,7 +55,7 @@ func (e *Encoder) EncodeQuery(ctx context.Context, text string, options vectorst
 		return nil, err
 	}
 	q := &vectorstore.Query{Space: e.space, Values: values, Options: options}
-	if options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if options.Mode == vectorstore.SearchModeHybrid {
 		q.LexicalText = text
 	}
 	if checkErr := q.ValidateFor(e.space); checkErr != nil {

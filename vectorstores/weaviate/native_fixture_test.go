@@ -308,7 +308,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	return b
 }
 func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
-	if q.Options.EffectiveMode() == vectorstore.SearchModeHybrid {
+	if q.Options.Mode == vectorstore.SearchModeHybrid {
 		q.LexicalText = "native text"
 	}
 	return s.Query(ctx, q)

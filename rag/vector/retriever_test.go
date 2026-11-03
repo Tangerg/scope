@@ -87,8 +87,8 @@ func TestRetrieverForwardsHybridMode(t *testing.T) {
 	if _, err := retriever.Retrieve(t.Context(), query); err != nil {
 		t.Fatal(err)
 	}
-	if store.got.Options.EffectiveMode() != vectorstore.SearchModeHybrid {
-		t.Fatalf("search mode = %q, want hybrid", store.got.Options.EffectiveMode())
+	if store.got.Options.Mode != vectorstore.SearchModeHybrid {
+		t.Fatalf("search mode = %q, want hybrid", store.got.Options.Mode)
 	}
 }
 

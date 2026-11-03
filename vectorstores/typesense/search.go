@@ -101,7 +101,7 @@ func (s *searchSession) admitHit(hit searchHit) error {
 	if membershipErr := s.validateMembership(*record.ID, doc); membershipErr != nil {
 		return membershipErr
 	}
-	score, err := hit.score(s.options.EffectiveMode(), len(s.seen)+1)
+	score, err := hit.score(s.options.Mode, len(s.seen)+1)
 	if err != nil {
 		return err
 	}
