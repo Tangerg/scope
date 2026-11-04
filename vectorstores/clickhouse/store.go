@@ -293,16 +293,16 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) (err err
 	attempted, acknowledged := false, false
 	defer func() {
 		if err != nil {
-			failure := &vectorstore.WriteError{Err: err}
+			var outcome vectorstore.WriteOutcome
 			switch {
 			case acknowledged:
-				failure.Acknowledged = ids
+				outcome.Acknowledged = ids
 			case attempted:
-				failure.Unconfirmed = ids
+				outcome.Unconfirmed = ids
 			default:
-				failure.Unattempted = ids
+				outcome.Unattempted = ids
 			}
-			err = failure
+			err = vectorstore.NewWriteError(err, outcome)
 		}
 	}()
 	ctx = nativeStatementContext(ctx, true)
@@ -444,7 +444,7 @@ func (s *Store) deleteSelected(transaction *nativeTransaction, ids []string) err
 		}
 	}
 	if err := transaction.Commit(); err != nil {
-		return &vectorstore.WriteError{Err: err, Unconfirmed: slices.Clone(ids)}
+		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
 	return nil
 }

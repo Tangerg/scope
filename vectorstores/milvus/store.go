@@ -165,22 +165,22 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	result, err := s.client.Upsert(ctx, milvusclient.NewColumnBasedInsertOption(s.collectionName, cols...))
 	if err != nil {
-		return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
+		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
 	if result.UpsertCount != int64(len(docs)) || result.IDs == nil || result.IDs.Len() != len(docs) {
-		return &vectorstore.WriteError{Unconfirmed: ids, Err: errors.New("milvus: inconsistent upsert acknowledgment")}
+		return vectorstore.NewWriteError(errors.New("milvus: inconsistent upsert acknowledgment"), vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
 	seen := make(map[string]bool, len(ids))
 	for i := range ids {
 		id, err := result.IDs.GetAsString(i)
 		if err != nil {
-			return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 		}
 		seen[id] = true
 	}
 	for _, id := range ids {
 		if !seen[id] {
-			return &vectorstore.WriteError{Unconfirmed: ids, Err: errors.New("milvus: acknowledged IDs differ from submitted records")}
+			return vectorstore.NewWriteError(errors.New("milvus: acknowledged IDs differ from submitted records"), vectorstore.WriteOutcome{Unconfirmed: ids})
 		}
 	}
 	return nil

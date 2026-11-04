@@ -124,7 +124,9 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 // A successful RPC certifies every item except those explicitly rejected by
 // position. A missing or contradictory receipt certifies none.
 func batchOutcome(ids []string, reply *pb.BatchObjectsReply, cause error) error {
-	unknown := func(err error) error { return &vectorstore.WriteError{Unconfirmed: slices.Clone(ids), Err: err} }
+	unknown := func(err error) error {
+		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
+	}
 	if cause != nil {
 		return unknown(cause)
 	}
@@ -143,15 +145,15 @@ func batchOutcome(ids []string, reply *pb.BatchObjectsReply, cause error) error 
 		failed[int(f.Index)] = true
 		reasons = append(reasons, fmt.Errorf("weaviate: rejected item %d: %s", f.Index, f.Error))
 	}
-	w := &vectorstore.WriteError{Err: errors.Join(reasons...)}
+	var outcome vectorstore.WriteOutcome
 	for i, id := range ids {
 		if failed[i] {
-			w.Rejected = append(w.Rejected, id)
+			outcome.Rejected = append(outcome.Rejected, id)
 		} else {
-			w.Acknowledged = append(w.Acknowledged, id)
+			outcome.Acknowledged = append(outcome.Acknowledged, id)
 		}
 	}
-	return w
+	return vectorstore.NewWriteError(errors.Join(reasons...), outcome)
 }
 
 func (s *Store) prepareQuery(ctx context.Context, space vectorstore.SpaceID, o vectorstore.SearchOptions) (*pb.Filters, error) {

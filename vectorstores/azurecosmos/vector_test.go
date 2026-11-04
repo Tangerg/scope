@@ -70,10 +70,10 @@ func TestSequentialWriteEvidence(t *testing.T) {
 		}
 		docs := []*document.Document{{ID: "first", Text: "a"}, {ID: "middle", Text: "b"}, {ID: "last", Text: "c"}}
 		var failure *vectorstore.WriteError
-		if err := s.Upsert(t.Context(), testBatch(docs)); !errors.As(err, &failure) || !slices.Equal(failure.Acknowledged, []string{"first"}) || !slices.Equal(failure.Unattempted, []string{"last"}) {
+		if err := s.Upsert(t.Context(), testBatch(docs)); !errors.As(err, &failure) || !slices.Equal(failure.Outcome().Acknowledged, []string{"first"}) || !slices.Equal(failure.Outcome().Unattempted, []string{"last"}) {
 			t.Fatalf("write evidence: %#v", failure)
 		}
-		if (status == 400 && !slices.Equal(failure.Rejected, []string{"middle"})) || (status == 500 && !slices.Equal(failure.Unconfirmed, []string{"middle"})) {
+		if (status == 400 && !slices.Equal(failure.Outcome().Rejected, []string{"middle"})) || (status == 500 && !slices.Equal(failure.Outcome().Unconfirmed, []string{"middle"})) {
 			t.Fatalf("status %d evidence: %#v", status, failure)
 		}
 	}

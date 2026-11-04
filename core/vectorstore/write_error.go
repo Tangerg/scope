@@ -5,10 +5,10 @@ import (
 	"slices"
 )
 
-// WriteError reports native acknowledgments received before an indexing operation
-// failed. An acknowledgment is not a guarantee of search visibility. Unconfirmed
-// IDs must not be replayed merely because the caller received an error.
-type WriteError struct {
+// WriteOutcome partitions the IDs of one failed indexing operation by what the
+// backend acknowledged. It is plain data an adapter assembles while writing; a
+// WriteError owns its own copy.
+type WriteOutcome struct {
 	// Acknowledged contains IDs for which the backend acknowledged every item
 	// in its write group.
 	Acknowledged []string
@@ -21,12 +21,11 @@ type WriteError struct {
 	AcknowledgedCount *int
 	// Unattempted contains IDs in groups the adapter never submitted.
 	Unattempted []string
-	Err         error
 }
 
-// Clone separates each partition from the adapter's input and from the other
+// Clone separates each partition from the source and from the other
 // partitions, so appending to one outcome cannot rewrite another outcome.
-func (w WriteError) Clone() *WriteError {
+func (w WriteOutcome) Clone() WriteOutcome {
 	w.Acknowledged = slices.Clone(w.Acknowledged)
 	w.Rejected = slices.Clone(w.Rejected)
 	w.Unconfirmed = slices.Clone(w.Unconfirmed)
@@ -34,12 +33,28 @@ func (w WriteError) Clone() *WriteError {
 	if w.AcknowledgedCount != nil {
 		w.AcknowledgedCount = new(*w.AcknowledgedCount)
 	}
-	return &w
+	return w
 }
+
+// WriteError reports native acknowledgments received before an indexing operation
+// failed. An acknowledgment is not a guarantee of search visibility. Unconfirmed
+// IDs must not be replayed merely because the caller received an error. The
+// error owns its outcome: adapter slices and reader copies never alias it.
+type WriteError struct {
+	outcome WriteOutcome
+	err     error
+}
+
+func NewWriteError(cause error, outcome WriteOutcome) *WriteError {
+	return &WriteError{outcome: outcome.Clone(), err: cause}
+}
+
+// Outcome returns a copy the caller owns.
+func (w *WriteError) Outcome() WriteOutcome { return w.outcome.Clone() }
 
 func (w *WriteError) Error() string {
 	return fmt.Sprintf("vectorstore: write: %v (acknowledged=%d, rejected=%d, unconfirmed=%d, unattempted=%d)",
-		w.Err, len(w.Acknowledged), len(w.Rejected), len(w.Unconfirmed), len(w.Unattempted))
+		w.err, len(w.outcome.Acknowledged), len(w.outcome.Rejected), len(w.outcome.Unconfirmed), len(w.outcome.Unattempted))
 }
 
-func (w *WriteError) Unwrap() error { return w.Err }
+func (w *WriteError) Unwrap() error { return w.err }

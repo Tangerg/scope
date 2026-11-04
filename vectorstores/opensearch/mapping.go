@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -254,10 +253,10 @@ func (b bulkResponse) validate(operation bulkOperation, index string, ids []stri
 // Only individually attributable item acknowledgments can advance per-ID
 // knowledge. A contradictory complete summary is not an alternative authority.
 func (b bulkResponse) writeFailure(index string, ids []string, cause error) *vectorstore.WriteError {
-	w := &vectorstore.WriteError{Err: cause}
+	var w vectorstore.WriteOutcome
 	if b.Errors == nil || len(b.Items) > len(ids) {
-		w.Unconfirmed = slices.Clone(ids)
-		return w
+		w.Unconfirmed = ids
+		return vectorstore.NewWriteError(cause, w)
 	}
 	bad := false
 	for i, id := range ids {
@@ -283,9 +282,9 @@ func (b bulkResponse) writeFailure(index string, ids []string, cause error) *vec
 		}
 	}
 	if !*b.Errors && bad || *b.Errors && len(w.Acknowledged) == len(ids) {
-		return &vectorstore.WriteError{Err: cause, Unconfirmed: slices.Clone(ids)}
+		return vectorstore.NewWriteError(cause, vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
-	return w
+	return vectorstore.NewWriteError(cause, w)
 }
 
 type bulkItemResult struct {

@@ -347,10 +347,10 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 	query := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?)", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
 	for i, record := range records {
 		if err := ctx.Err(); err != nil {
-			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
 		if err := s.session.Query(query, record.id, record.content, record.metadata, record.vector).ExecContext(ctx); err != nil {
-			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
 	}
 	return nil

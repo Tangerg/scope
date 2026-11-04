@@ -531,7 +531,7 @@ func TestPipelineEvidenceSeparatesSentAndUnsent(t *testing.T) {
 	b := fixtureBatch([]*document.Document{{ID: "a", Text: "text"}, {ID: "b", Text: "text"}, {ID: "c", Text: "text"}})
 	err := s.Upsert(t.Context(), b)
 	var w *vectorstore.WriteError
-	if !errors.As(err, &w) || !slices.Equal(w.Acknowledged, []string{"a"}) || !slices.Equal(w.Unconfirmed, []string{"b"}) || !slices.Equal(w.Unattempted, []string{"c"}) || f.writes != 2 {
+	if !errors.As(err, &w) || !slices.Equal(w.Outcome().Acknowledged, []string{"a"}) || !slices.Equal(w.Outcome().Unconfirmed, []string{"b"}) || !slices.Equal(w.Outcome().Unattempted, []string{"c"}) || f.writes != 2 {
 		t.Fatalf("evidence=%+v writes=%d", w, f.writes)
 	}
 }

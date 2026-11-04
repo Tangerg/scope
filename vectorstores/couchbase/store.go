@@ -184,14 +184,14 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
-			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
 		result, err := s.collection.Upsert(id, payloads[i], &gocb.UpsertOptions{Context: ctx, Transcoder: gocb.NewRawJSONTranscoder()})
 		if err != nil || result == nil || result.Cas() == 0 {
 			if err == nil {
 				err = errors.New("couchbase: missing mutation acknowledgment")
 			}
-			return (vectorstore.WriteError{Err: errors.Join(err, ctx.Err()), Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
+			return vectorstore.NewWriteError(errors.Join(err, ctx.Err()), vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
 	}
 	return nil

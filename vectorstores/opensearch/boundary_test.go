@@ -310,12 +310,12 @@ func TestWriteFailureRetainsOnlyAttributableItemAcknowledgments(t *testing.T) {
 	}}
 	cause := errors.New("partial bulk response")
 	w := resp.writeFailure("docs", ids, cause)
-	if !errors.Is(w, cause) || !slices.Equal(w.Acknowledged, ids[:1]) || !slices.Equal(w.Rejected, ids[1:2]) || !slices.Equal(w.Unconfirmed, ids[2:]) {
+	if !errors.Is(w, cause) || !slices.Equal(w.Outcome().Acknowledged, ids[:1]) || !slices.Equal(w.Outcome().Rejected, ids[1:2]) || !slices.Equal(w.Outcome().Unconfirmed, ids[2:]) {
 		t.Fatalf("incorrect write evidence: %+v", *w)
 	}
 	resp.Errors = new(false)
 	w = resp.writeFailure("docs", ids, cause)
-	if len(w.Acknowledged) != 0 || len(w.Rejected) != 0 || !slices.Equal(w.Unconfirmed, ids) {
+	if len(w.Outcome().Acknowledged) != 0 || len(w.Outcome().Rejected) != 0 || !slices.Equal(w.Outcome().Unconfirmed, ids) {
 		t.Fatalf("contradictory bulk reply invented success: %+v", *w)
 	}
 }

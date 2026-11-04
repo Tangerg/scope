@@ -134,10 +134,10 @@ func TestByteLimitedUpsertPreservesWriteAcknowledgments(t *testing.T) {
 	}
 	acknowledgedEnd := len(native.upserts[0])
 	unconfirmedEnd := acknowledgedEnd + len(native.upserts[1])
-	if unconfirmedEnd >= len(ids) || !slices.Equal(failure.Acknowledged, ids[:acknowledgedEnd]) ||
-		!slices.Equal(failure.Unconfirmed, ids[acknowledgedEnd:unconfirmedEnd]) ||
-		!slices.Equal(failure.Unattempted, ids[unconfirmedEnd:]) ||
-		failure.AcknowledgedCount == nil || *failure.AcknowledgedCount != 1 {
+	if unconfirmedEnd >= len(ids) || !slices.Equal(failure.Outcome().Acknowledged, ids[:acknowledgedEnd]) ||
+		!slices.Equal(failure.Outcome().Unconfirmed, ids[acknowledgedEnd:unconfirmedEnd]) ||
+		!slices.Equal(failure.Outcome().Unattempted, ids[unconfirmedEnd:]) ||
+		failure.Outcome().AcknowledgedCount == nil || *failure.Outcome().AcknowledgedCount != 1 {
 		t.Fatalf("byte-limited write acknowledgment = %+v", failure)
 	}
 }

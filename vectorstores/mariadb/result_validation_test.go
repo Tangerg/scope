@@ -163,7 +163,7 @@ func TestSingleRecordWritesRetainConfirmedAndUnknownIDs(t *testing.T) {
 	batch := fixtureBatch([]*document.Document{{ID: "one", Text: "one"}, {ID: "two", Text: "two"}, {ID: "three", Text: "three"}})
 	err := s.Upsert(t.Context(), batch)
 	w, ok := errors.AsType[*vectorstore.WriteError](err)
-	if !ok || !errors.Is(err, stmt.fail) || !slices.Equal(stmt.ids, []string{"one", "two"}) || !slices.Equal(w.Acknowledged, []string{"one"}) || !slices.Equal(w.Unconfirmed, []string{"two"}) || !slices.Equal(w.Unattempted, []string{"three"}) {
+	if !ok || !errors.Is(err, stmt.fail) || !slices.Equal(stmt.ids, []string{"one", "two"}) || !slices.Equal(w.Outcome().Acknowledged, []string{"one"}) || !slices.Equal(w.Outcome().Unconfirmed, []string{"two"}) || !slices.Equal(w.Outcome().Unattempted, []string{"three"}) {
 		t.Fatalf("calls=%v evidence=%v err=%v", stmt.ids, w, err)
 	}
 }

@@ -162,9 +162,9 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 			pipe.Eval(ctx, replaceDocumentHash, []string{r.key}, contentField, r.content, embeddingField, r.vector, metadataField, r.metadata, termsField, r.terms)
 		}
 		commands, err := pipe.Exec(ctx)
-		w := &vectorstore.WriteError{Err: err}
+		var w vectorstore.WriteOutcome
 		if len(commands) != len(group) {
-			w.Err = errors.Join(w.Err, errors.New("redis: incomplete pipeline reply"))
+			err = errors.Join(err, errors.New("redis: incomplete pipeline reply"))
 		}
 		for i := range group {
 			var confirmed bool
@@ -173,7 +173,7 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 					n, e := c.Int64()
 					confirmed = e == nil && n == 1
 					if e != nil {
-						w.Err = errors.Join(w.Err, e)
+						err = errors.Join(err, e)
 					}
 				}
 			}
@@ -183,13 +183,13 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 				w.Unconfirmed = append(w.Unconfirmed, ids[offset+i])
 			}
 		}
-		if w.Err != nil || len(w.Unconfirmed) != 0 {
-			if w.Err == nil {
-				w.Err = errors.New("redis: HASH replacement not acknowledged")
+		if err != nil || len(w.Unconfirmed) != 0 {
+			if err == nil {
+				err = errors.New("redis: HASH replacement not acknowledged")
 			}
 			w.Acknowledged = append(slices.Clone(ids[:offset]), w.Acknowledged...)
-			w.Unattempted = slices.Clone(ids[offset+len(group):])
-			return w
+			w.Unattempted = ids[offset+len(group):]
+			return vectorstore.NewWriteError(err, w)
 		}
 		offset += len(group)
 	}

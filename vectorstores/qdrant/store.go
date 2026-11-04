@@ -122,9 +122,9 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 			ids[i] = r.Document.ID
 		}
 		if res.GetStatus() == qdrantclient.UpdateStatus_ClockRejected {
-			return &vectorstore.WriteError{Err: err, Rejected: ids}
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Rejected: ids})
 		}
-		return &vectorstore.WriteError{Err: err, Unconfirmed: ids}
+		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
 	return nil
 }

@@ -150,12 +150,12 @@ func TestIndexReportsGroupAcknowledgmentsWithoutInventingSuccesses(t *testing.T)
 			}
 			err := store.Upsert(t.Context(), fixtureBatch(docs))
 			w, ok := errors.AsType[*vectorstore.WriteError](err)
-			if !ok || calls != 2 || !slices.Equal(w.Acknowledged, ids[:MaxVectorsPerUpsert]) ||
-				!slices.Equal(w.Unconfirmed, ids[MaxVectorsPerUpsert:2*MaxVectorsPerUpsert]) || !slices.Equal(w.Unattempted, ids[2*MaxVectorsPerUpsert:]) {
+			if !ok || calls != 2 || !slices.Equal(w.Outcome().Acknowledged, ids[:MaxVectorsPerUpsert]) ||
+				!slices.Equal(w.Outcome().Unconfirmed, ids[MaxVectorsPerUpsert:2*MaxVectorsPerUpsert]) || !slices.Equal(w.Outcome().Unattempted, ids[2*MaxVectorsPerUpsert:]) {
 				t.Fatalf("calls=%d write evidence=%+v, error=%v", calls, w, err)
 			}
-			if (w.AcknowledgedCount == nil) != (tc.wantCount == nil) || w.AcknowledgedCount != nil && *w.AcknowledgedCount != *tc.wantCount {
-				t.Fatalf("unexpected aggregate acknowledgment: %v", w.AcknowledgedCount)
+			if (w.Outcome().AcknowledgedCount == nil) != (tc.wantCount == nil) || w.Outcome().AcknowledgedCount != nil && *w.Outcome().AcknowledgedCount != *tc.wantCount {
+				t.Fatalf("unexpected aggregate acknowledgment: %v", w.Outcome().AcknowledgedCount)
 			}
 			if tc.err != nil && !errors.Is(err, tc.err) {
 				t.Fatalf("lost native cause: %v", err)

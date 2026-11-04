@@ -138,12 +138,12 @@ func TestOrderedBulkFailurePreservesOnlyProvedIDs(t *testing.T) {
 	failure := mongo.BulkWriteException{WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}}}
 	r := &mongo.BulkWriteResult{UpsertedIDs: map[int64]any{0: "inserted"}, MatchedCount: 2, UpsertedCount: 1}
 	w := writeEvidence(ids, r, failure)
-	if !slices.Equal(w.Acknowledged, ids[:1]) || !slices.Equal(w.Unconfirmed, ids[1:2]) || !slices.Equal(w.Rejected, ids[2:3]) || !slices.Equal(w.Unattempted, ids[3:]) || w.AcknowledgedCount != nil {
+	if !slices.Equal(w.Outcome().Acknowledged, ids[:1]) || !slices.Equal(w.Outcome().Unconfirmed, ids[1:2]) || !slices.Equal(w.Outcome().Rejected, ids[2:3]) || !slices.Equal(w.Outcome().Unattempted, ids[3:]) || w.Outcome().AcknowledgedCount != nil {
 		t.Fatalf("evidence=%+v", w)
 	}
 	r = &mongo.BulkWriteResult{Acknowledged: true, MatchedCount: 1}
 	w = writeEvidence(ids, r, errors.New("short receipt"))
-	if len(w.Acknowledged) != 0 || !slices.Equal(w.Unconfirmed, ids) || w.AcknowledgedCount == nil || *w.AcknowledgedCount != 1 {
+	if len(w.Outcome().Acknowledged) != 0 || !slices.Equal(w.Outcome().Unconfirmed, ids) || w.Outcome().AcknowledgedCount == nil || *w.Outcome().AcknowledgedCount != 1 {
 		t.Fatalf("evidence=%+v", w)
 	}
 }

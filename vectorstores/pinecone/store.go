@@ -140,20 +140,19 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err == nil && uint64(accepted) == uint64(len(points)) {
 			continue
 		}
-		failure := &vectorstore.WriteError{
+		outcome := vectorstore.WriteOutcome{
 			Acknowledged: prepared[:batchIndex].ids(),
 			Unconfirmed:  prepared[batchIndex : batchIndex+1].ids(),
 			Unattempted:  prepared[batchIndex+1:].ids(),
-			Err:          err,
 		}
 		if err == nil {
-			failure.Err = fmt.Errorf("pinecone: native upsert acknowledged %d of %d vectors", accepted, len(points))
+			err = fmt.Errorf("pinecone: native upsert acknowledged %d of %d vectors", accepted, len(points))
 			// A malformed overcount cannot certify even an aggregate acknowledgment.
 			if uint64(accepted) < uint64(len(points)) {
-				failure.AcknowledgedCount = new(int(accepted))
+				outcome.AcknowledgedCount = new(int(accepted))
 			}
 		}
-		return failure
+		return vectorstore.NewWriteError(err, outcome)
 	}
 	return nil
 }

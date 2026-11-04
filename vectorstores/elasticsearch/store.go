@@ -206,17 +206,17 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	for i, g := range groups {
 		if err := s.publish(ctx, g, bulkOperationIndex, false); err != nil {
-			w, ok := errors.AsType[*vectorstore.WriteError](err)
-			if !ok {
-				w = &vectorstore.WriteError{Err: err, Unconfirmed: slices.Clone(g.ids)}
+			outcome, cause := vectorstore.WriteOutcome{Unconfirmed: g.ids}, err
+			if w, ok := errors.AsType[*vectorstore.WriteError](err); ok {
+				outcome, cause = w.Outcome(), w.Unwrap()
 			}
 			for _, prior := range groups[:i] {
-				w.Acknowledged = append(w.Acknowledged, prior.ids...)
+				outcome.Acknowledged = append(outcome.Acknowledged, prior.ids...)
 			}
 			for _, later := range groups[i+1:] {
-				w.Unattempted = append(w.Unattempted, later.ids...)
+				outcome.Unattempted = append(outcome.Unattempted, later.ids...)
 			}
-			return w
+			return vectorstore.NewWriteError(cause, outcome)
 		}
 	}
 	return nil

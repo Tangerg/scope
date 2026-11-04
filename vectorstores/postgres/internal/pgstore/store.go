@@ -104,7 +104,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 				for i, r := range batch.Records {
 					ids[i] = r.Document.ID
 				}
-				err = &vectorstore.WriteError{Unconfirmed: ids, Err: commitErr}
+				err = vectorstore.NewWriteError(commitErr, vectorstore.WriteOutcome{Unconfirmed: ids})
 			}
 		}
 		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {

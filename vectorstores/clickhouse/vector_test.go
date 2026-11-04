@@ -46,7 +46,7 @@ func TestLostInsertReceiptIsUnconfirmed(t *testing.T) {
 	m.ExpectCommit().WillReturnError(lost)
 	var failure *vectorstore.WriteError
 	err := s.Upsert(t.Context(), testBatch([]*document.Document{{ID: "a", Text: "a"}, {ID: "b", Text: "b"}}))
-	if !errors.Is(err, lost) || !errors.As(err, &failure) || !slices.Equal(failure.Unconfirmed, []string{"a", "b"}) || len(failure.Acknowledged) != 0 {
+	if !errors.Is(err, lost) || !errors.As(err, &failure) || !slices.Equal(failure.Outcome().Unconfirmed, []string{"a", "b"}) || len(failure.Outcome().Acknowledged) != 0 {
 		t.Fatalf("evidence=%#v error=%v", failure, err)
 	}
 }

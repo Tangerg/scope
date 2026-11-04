@@ -215,7 +215,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	res, sendErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert), ReturnId: new(true)}, mediaTypeJSONL, &payload)
 	raw, err := s.readResponse(res, sendErr)
 	if err != nil {
-		return &vectorstore.WriteError{Unconfirmed: ids, Err: err}
+		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 	}
 	return validateImport(raw, ids)
 }
@@ -462,7 +462,7 @@ func validateImport(raw []byte, ids []string) error {
 			implicated[id] = 2
 		}
 	}
-	evidence := &vectorstore.WriteError{Err: cause}
+	var evidence vectorstore.WriteOutcome
 	for _, id := range ids {
 		switch implicated[id] {
 		case 1:
@@ -476,10 +476,10 @@ func validateImport(raw []byte, ids []string) error {
 	if len(evidence.Acknowledged) == len(ids) && cause == nil {
 		return nil
 	}
-	if evidence.Err == nil {
-		evidence.Err = errors.New("typesense: import is incomplete or rejected")
+	if cause == nil {
+		cause = errors.New("typesense: import is incomplete or rejected")
 	}
-	return evidence
+	return vectorstore.NewWriteError(cause, evidence)
 }
 
 type searchQuery struct {

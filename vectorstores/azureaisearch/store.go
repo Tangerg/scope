@@ -494,11 +494,11 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 		start := offset * maximumDocumentsPerBatch
 		end := min(start+maximumDocumentsPerBatch, len(actions))
 		if err := ctx.Err(); err != nil {
-			return (vectorstore.WriteError{Acknowledged: ids[:start], Unattempted: ids[start:], Err: err}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:start], Unattempted: ids[start:]})
 		}
 		raw, err := s.sendJSON(ctx, http.MethodPost, path, group)
 		uncertain := func(cause error) error {
-			return (vectorstore.WriteError{Acknowledged: ids[:start], Unconfirmed: ids[start:end], Unattempted: ids[end:], Err: cause}).Clone()
+			return vectorstore.NewWriteError(cause, vectorstore.WriteOutcome{Acknowledged: ids[:start], Unconfirmed: ids[start:end], Unattempted: ids[end:]})
 		}
 		if err != nil {
 			return uncertain(err)
@@ -525,7 +525,8 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 			}
 			keyed[item.Key] = item
 		}
-		failure := &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:start]), Unattempted: slices.Clone(ids[end:])}
+		outcome := vectorstore.WriteOutcome{Acknowledged: ids[:start], Unattempted: ids[end:]}
+		var cause error
 		for i, id := range ids[start:end] {
 			item, ok := keyed[id]
 			if !ok {
@@ -534,17 +535,17 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 			op := actions[start+i]["@search.action"]
 			switch {
 			case item.Status != nil && *item.Status && (item.StatusCode == http.StatusOK || op == "upload" && item.StatusCode == http.StatusCreated):
-				failure.Acknowledged = append(failure.Acknowledged, id)
+				outcome.Acknowledged = append(outcome.Acknowledged, id)
 			case item.Status != nil && !*item.Status && item.StatusCode >= 400 && item.StatusCode < 600:
-				failure.Rejected = append(failure.Rejected, id)
-				failure.Err = errors.Join(failure.Err, fmt.Errorf("azureaisearch: document %q: status=%d: %s", id, item.StatusCode, item.Message))
+				outcome.Rejected = append(outcome.Rejected, id)
+				cause = errors.Join(cause, fmt.Errorf("azureaisearch: document %q: status=%d: %s", id, item.StatusCode, item.Message))
 			default:
-				failure.Unconfirmed = append(failure.Unconfirmed, id)
-				failure.Err = errors.Join(failure.Err, fmt.Errorf("azureaisearch: inconsistent status for %q", id))
+				outcome.Unconfirmed = append(outcome.Unconfirmed, id)
+				cause = errors.Join(cause, fmt.Errorf("azureaisearch: inconsistent status for %q", id))
 			}
 		}
-		if failure.Err != nil {
-			return failure
+		if cause != nil {
+			return vectorstore.NewWriteError(cause, outcome)
 		}
 	}
 	return nil

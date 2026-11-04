@@ -363,7 +363,7 @@ func TestImportRequiresIdentifiedNativeAcknowledgments(t *testing.T) {
 				return
 			}
 			w, ok := errors.AsType[*vectorstore.WriteError](err)
-			if !ok || len(w.Acknowledged) != tc.ack || len(w.Rejected) != tc.rejected || len(w.Unconfirmed) != tc.unknown {
+			if !ok || len(w.Outcome().Acknowledged) != tc.ack || len(w.Outcome().Rejected) != tc.rejected || len(w.Outcome().Unconfirmed) != tc.unknown {
 				t.Fatalf("incorrect evidence: %#v (%v)", w, err)
 			}
 		})

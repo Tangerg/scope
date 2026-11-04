@@ -63,7 +63,7 @@ func TestPerKeyWriteEvidence(t *testing.T) {
 	}
 	docs := []*document.Document{{ID: "ok", Text: "a"}, {ID: "rejected", Text: "b"}, {ID: "unknown", Text: "c"}}
 	var write *vectorstore.WriteError
-	if err := s.Upsert(t.Context(), testBatch(docs)); !errors.As(err, &write) || !slices.Equal(write.Acknowledged, []string{"ok"}) || !slices.Equal(write.Rejected, []string{"rejected"}) || !slices.Equal(write.Unconfirmed, []string{"unknown"}) || len(write.Unattempted) != 0 {
+	if err := s.Upsert(t.Context(), testBatch(docs)); !errors.As(err, &write) || !slices.Equal(write.Outcome().Acknowledged, []string{"ok"}) || !slices.Equal(write.Outcome().Rejected, []string{"rejected"}) || !slices.Equal(write.Outcome().Unconfirmed, []string{"unknown"}) || len(write.Outcome().Unattempted) != 0 {
 		t.Fatalf("write evidence: %#v", write)
 	}
 }

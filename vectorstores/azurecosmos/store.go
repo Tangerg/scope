@@ -142,20 +142,18 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 func (s *Store) writeItems(ctx context.Context, ids []string, write func(int) error) error {
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
-			return (vectorstore.WriteError{Acknowledged: ids[:i], Unattempted: ids[i:], Err: err}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
 		if err := write(i); err != nil {
-			failure := &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:i]), Unattempted: slices.Clone(ids[i+1:]), Err: err}
+			outcome := vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: []string{id}, Unattempted: ids[i+1:]}
 			var response *azcore.ResponseError
 			if errors.As(err, &response) {
 				switch response.StatusCode {
 				case http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusPreconditionFailed, http.StatusRequestEntityTooLarge, http.StatusTooManyRequests:
-					failure.Rejected = []string{id}
-					return failure
+					outcome.Rejected, outcome.Unconfirmed = outcome.Unconfirmed, nil
 				}
 			}
-			failure.Unconfirmed = []string{id}
-			return failure
+			return vectorstore.NewWriteError(err, outcome)
 		}
 	}
 	return nil

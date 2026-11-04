@@ -142,7 +142,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	return writeEvidence(ids, result, err)
 }
 func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) *vectorstore.WriteError {
-	w := &vectorstore.WriteError{Err: cause}
+	var w vectorstore.WriteOutcome
 	// Ordered writes stop at the first write error. A write concern or transport
 	// failure on its own proves neither rejection nor lack of delivery.
 	var failure mongo.BulkWriteException
@@ -152,12 +152,12 @@ func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) *ve
 		if i >= 0 && i < len(ids) {
 			stop = i
 			w.Rejected = []string{ids[i]}
-			w.Unattempted = slices.Clone(ids[i+1:])
+			w.Unattempted = ids[i+1:]
 		}
 	}
 	if result == nil || failure.WriteConcernError != nil || !result.Acknowledged && stop == len(ids) {
-		w.Unconfirmed = slices.Clone(ids[:stop])
-		return w
+		w.Unconfirmed = ids[:stop]
+		return vectorstore.NewWriteError(cause, w)
 	}
 	for i, id := range ids[:stop] {
 		if got, ok := result.UpsertedIDs[int64(i)].(string); ok && got == id {
@@ -174,7 +174,7 @@ func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) *ve
 			w.AcknowledgedCount = new(int(total) - len(w.Acknowledged))
 		}
 	}
-	return w
+	return vectorstore.NewWriteError(cause, w)
 }
 func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 	if result == nil {

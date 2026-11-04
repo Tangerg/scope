@@ -445,5 +445,5 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 }
 
 func incompleteWrite(keys []string, begin, n int, cause error) error {
-	return (vectorstore.WriteError{Err: cause, Acknowledged: keys[:begin], Unconfirmed: keys[begin : begin+n], Unattempted: keys[begin+n:]}).Clone()
+	return vectorstore.NewWriteError(cause, vectorstore.WriteOutcome{Acknowledged: keys[:begin], Unconfirmed: keys[begin : begin+n], Unattempted: keys[begin+n:]})
 }

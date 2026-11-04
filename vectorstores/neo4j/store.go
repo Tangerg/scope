@@ -252,10 +252,10 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 	})
 	if err != nil {
 		if ack == true {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids}
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids})
 		}
 		if submitted {
-			return &vectorstore.WriteError{Err: err, Unconfirmed: ids}
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 		}
 		return err
 	}

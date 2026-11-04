@@ -268,7 +268,7 @@ func TestUpsertPreflightsWholeBatchAndClassifiesUnknownRPC(t *testing.T) {
 	b.upsertErr = errors.New("lost acknowledgment")
 	err = s.Upsert(t.Context(), batch)
 	failure, ok := errors.AsType[*vectorstore.WriteError](err)
-	if !ok || !errors.Is(err, b.upsertErr) || !slices.Equal(failure.Unconfirmed, []string{"original/路径"}) || len(failure.Acknowledged)+len(failure.Rejected)+len(failure.Unattempted) != 0 {
+	if !ok || !errors.Is(err, b.upsertErr) || !slices.Equal(failure.Outcome().Unconfirmed, []string{"original/路径"}) || len(failure.Outcome().Acknowledged)+len(failure.Outcome().Rejected)+len(failure.Outcome().Unattempted) != 0 {
 		t.Fatal(err)
 	}
 	batch.Space = "other"

@@ -380,7 +380,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	defer func() {
 		if closeErr := stmt.Close(); closeErr != nil {
 			if err == nil {
-				err = &vectorstore.WriteError{Err: closeErr, Acknowledged: ids}
+				err = vectorstore.NewWriteError(closeErr, vectorstore.WriteOutcome{Acknowledged: ids})
 			} else {
 				err = errors.Join(err, closeErr)
 			}
@@ -388,7 +388,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	}()
 	for i, row := range args {
 		if err := ctx.Err(); err != nil {
-			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
 		result, execErr := stmt.ExecContext(ctx, row...)
 		if execErr == nil {
@@ -403,7 +403,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			}
 		}
 		if err := execErr; err != nil {
-			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
 	}
 	return nil

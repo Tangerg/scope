@@ -47,10 +47,10 @@ func TestNativeBatchOutcomesUseRPCAndPositionalErrors(t *testing.T) {
 				t.Fatalf("lost typed evidence: %v", err)
 			}
 			if fault == "middle refused" {
-				if !slices.Equal(w.Acknowledged, []string{ids[0], ids[2]}) || !slices.Equal(w.Rejected, ids[1:2]) || len(w.Unconfirmed) != 0 {
+				if !slices.Equal(w.Outcome().Acknowledged, []string{ids[0], ids[2]}) || !slices.Equal(w.Outcome().Rejected, ids[1:2]) || len(w.Outcome().Unconfirmed) != 0 {
 					t.Fatalf("mixed=%#v", w)
 				}
-			} else if !slices.Equal(w.Unconfirmed, ids) || len(w.Acknowledged) != 0 {
+			} else if !slices.Equal(w.Outcome().Unconfirmed, ids) || len(w.Outcome().Acknowledged) != 0 {
 				t.Fatalf("unconfirmed batch=%#v", w)
 			}
 		})

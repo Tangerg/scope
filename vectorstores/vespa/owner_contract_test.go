@@ -344,7 +344,7 @@ func TestUpsertSkipsVisitsAndReportsUnknownNativeWrite(t *testing.T) {
 	docs := []*document.Document{{ID: "ok", Text: "t"}, {ID: "uncertain", Text: "t"}, {ID: "later", Text: "t"}}
 	err := store.Upsert(t.Context(), fixtureBatch(docs))
 	e, ok := errors.AsType[*vectorstore.WriteError](err)
-	if !ok || !slices.Equal(e.Acknowledged, []string{"ok"}) || !slices.Equal(e.Unconfirmed, []string{"uncertain"}) || !slices.Equal(e.Unattempted, []string{"later"}) || fixture.writes != 2 {
+	if !ok || !slices.Equal(e.Outcome().Acknowledged, []string{"ok"}) || !slices.Equal(e.Outcome().Unconfirmed, []string{"uncertain"}) || !slices.Equal(e.Outcome().Unattempted, []string{"later"}) || fixture.writes != 2 {
 		t.Fatalf("write evidence: %+v; writes %d", err, fixture.writes)
 	}
 }

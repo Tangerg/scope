@@ -255,7 +255,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		for i, id := range ids {
 			unknown[i] = string(id)
 		}
-		return &vectorstore.WriteError{Unconfirmed: unknown, Err: nativeFailure(ctx, "upsert records", err)}
+		return vectorstore.NewWriteError(nativeFailure(ctx, "upsert records", err), vectorstore.WriteOutcome{Unconfirmed: unknown})
 	}
 	return nil
 }

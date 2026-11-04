@@ -83,7 +83,7 @@ func TestLostWriteAckKeepsEarlierEvidenceAndStops(t *testing.T) {
 	}
 	err = s.Upsert(t.Context(), fixtureBatch(docs))
 	w, ok := errors.AsType[*vectorstore.WriteError](err)
-	if !ok || len(w.Acknowledged) != 500 || len(w.Unconfirmed) != 500 || len(w.Unattempted) != 1 || w.Acknowledged[499] != "499" || w.Unconfirmed[0] != "500" || w.Unattempted[0] != "1000" || client.calls != 2 {
+	if !ok || len(w.Outcome().Acknowledged) != 500 || len(w.Outcome().Unconfirmed) != 500 || len(w.Outcome().Unattempted) != 1 || w.Outcome().Acknowledged[499] != "499" || w.Outcome().Unconfirmed[0] != "500" || w.Outcome().Unattempted[0] != "1000" || client.calls != 2 {
 		t.Fatalf("evidence %v, calls=%d", err, client.calls)
 	}
 }
