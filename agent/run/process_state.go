@@ -97,9 +97,6 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 		}
 		delete(p.waits, signal.Wait)
 	}
-	if p.usage.AcceptedMessages == math.MaxUint64 {
-		return ErrCounterExhausted
-	}
 	p.receipts[signal.ID] = SignalReceipt{ID: signal.ID, Wait: signal.Wait, Digest: digest}
 	p.inbox = append(p.inbox, signal)
 	p.yielded = false
@@ -107,7 +104,7 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 }
 
 func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
-	if stepped.Step != p.usage.CommittedSteps+1 || p.usage.CommittedSteps == math.MaxUint64 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
+	if stepped.Step != p.usage.CommittedSteps+1 || int(stepped.Delivered) > len(p.inbox) || stepped.Transition.Consumed() > stepped.Delivered || p.exited != nil || p.terminal.Valid() {
 		return ErrInvalidLog
 	}
 	transition := stepped.Transition
@@ -159,7 +156,7 @@ func (p *processState) prepare(intent EffectIntent) error {
 	if _, ok := p.pending[intent.ID]; ok {
 		return ErrInvalidLog
 	}
-	if !p.started.Capabilities.Allows(intent.Policy.RequiredCapabilities) || p.usage.PreparedEffects == math.MaxUint64 {
+	if !p.started.Capabilities.Allows(intent.Policy.RequiredCapabilities) {
 		return ErrInvalidEffect
 	}
 	p.stepEffects[intent.ID.Index] = Effect{}
@@ -177,9 +174,6 @@ func (p *processState) settle(settled EffectSettled) error {
 		pending.Failure = settled.Failure
 		p.pending[settled.ID] = pending
 		return nil
-	}
-	if p.usage.AcceptedMessages == math.MaxUint64 {
-		return ErrCounterExhausted
 	}
 	delete(p.pending, settled.ID)
 	p.inbox = append(p.inbox, Completion{Effect: settled.ID, Outcome: settled.Outcome})

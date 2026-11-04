@@ -27,22 +27,41 @@ func (t *treeState) apply(entry Entry) error {
 	if entry.LSN != t.head+1 {
 		return ErrInvalidLog
 	}
+	// Usage is the one counting rule: a record whose contribution would exhaust
+	// its owner's counter is rejected before any of its transition applies.
+	counted, usage, err := t.countUsage(entry.Record)
+	if err != nil {
+		return fmt.Errorf("%w: record %d: %w", ErrInvalidLog, entry.LSN, err)
+	}
 	if err := t.applyRecord(entry); err != nil {
 		return fmt.Errorf("%w: record %d: %w", ErrInvalidLog, entry.LSN, err)
 	}
 	if t.epoch != entry.Epoch {
 		return ErrInvalidLog
 	}
-	if owner, increment := recordUsage(entry.Record); owner.Valid() {
-		process := t.processes[owner]
-		usage, err := process.usage.add(increment)
-		if err != nil {
-			return fmt.Errorf("%w: record %d: %w", ErrInvalidLog, entry.LSN, err)
-		}
-		process.usage = usage
+	if counted != nil {
+		counted.usage = usage
 	}
 	t.head = entry.LSN
 	return nil
+}
+
+// countUsage returns the owner a record charges and its usage after the charge.
+// Transitions read the usage before the record, so the charge lands after them.
+func (t *treeState) countUsage(record Record) (*processState, Usage, error) {
+	owner, increment := recordUsage(record)
+	if !owner.Valid() {
+		return nil, Usage{}, nil
+	}
+	process, err := t.process(owner)
+	if err != nil {
+		return nil, Usage{}, err
+	}
+	usage, err := process.usage.add(increment)
+	if err != nil {
+		return nil, Usage{}, err
+	}
+	return process, usage, nil
 }
 
 func (t *treeState) applyRecord(entry Entry) error {
@@ -274,9 +293,6 @@ func (t *treeState) exit(exited Exited) error {
 		parent, err := t.process(parentID)
 		if err != nil || parent.activeChildren == 0 {
 			return ErrInvalidLog
-		}
-		if parent.usage.AcceptedMessages == math.MaxUint64 {
-			return ErrCounterExhausted
 		}
 		parent.activeChildren--
 		parent.inbox = append(parent.inbox, Exit{Child: exited.Process, Termination: exited.Termination})

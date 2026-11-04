@@ -167,11 +167,7 @@ func (t *treeRuntime) next() (ProcessID, bool) {
 			index++
 			continue
 		}
-		if index == 0 {
-			t.queue = t.queue[1:]
-		} else {
-			t.queue = slices.Delete(t.queue, index, index+1)
-		}
+		t.queue = slices.Delete(t.queue, index, index+1)
 		if p != nil {
 			p.queued = false
 			return id, true
