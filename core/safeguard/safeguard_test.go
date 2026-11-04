@@ -167,10 +167,10 @@ func TestCallBlocksInputBeforeModelAndReportsBlock(t *testing.T) {
 		t.Fatalf("Call result = %#v, %v", got, err)
 	}
 	var unsafe *safeguard.UnsafeError
-	if !errors.As(err, &unsafe) || unsafe.Block.Scope != safeguard.ScopeInput || unsafe.Block.Term != "secret" {
+	if !errors.As(err, &unsafe) || unsafe.Block.Direction != safeguard.DirectionInput || unsafe.Block.Term != "secret" {
 		t.Fatalf("unsafe error = %#v", unsafe)
 	}
-	if called || !reflect.DeepEqual(blocks, []safeguard.Block{{Scope: safeguard.ScopeInput, Term: "secret"}}) {
+	if called || !reflect.DeepEqual(blocks, []safeguard.Block{{Direction: safeguard.DirectionInput, Term: "secret"}}) {
 		t.Fatalf("called=%v blocks=%#v", called, blocks)
 	}
 }
@@ -318,7 +318,7 @@ func TestStreamReportsNilSequenceAndMalformedChunk(t *testing.T) {
 	for _, err := range middleware.Stream(nilStreamer).Stream(t.Context(), request) {
 		gotErr = err
 	}
-	if !errors.Is(gotErr, safeguard.ErrNilStream) {
+	if !errors.Is(gotErr, chat.ErrNilStream) {
 		t.Fatalf("nil stream error = %v", gotErr)
 	}
 
@@ -341,11 +341,11 @@ func TestUnsafeErrorNilReceiver(t *testing.T) {
 	if unsafe.Error() != safeguard.ErrUnsafeContent.Error() || !errors.Is(unsafe, safeguard.ErrUnsafeContent) {
 		t.Fatalf("nil unsafe error = %q", unsafe.Error())
 	}
-	hidden := &safeguard.UnsafeError{Block: safeguard.Block{Scope: safeguard.ScopeOutput}}
+	hidden := &safeguard.UnsafeError{Block: safeguard.Block{Direction: safeguard.DirectionOutput}}
 	if got := hidden.Error(); got != "safeguard: unsafe content: output blocked" {
 		t.Fatalf("hidden unsafe error = %q", got)
 	}
-	disclosed := &safeguard.UnsafeError{Block: safeguard.Block{Scope: safeguard.ScopeInput, Term: "secret"}}
+	disclosed := &safeguard.UnsafeError{Block: safeguard.Block{Direction: safeguard.DirectionInput, Term: "secret"}}
 	if got := disclosed.Error(); got != `safeguard: unsafe content: input matched "secret"` {
 		t.Fatalf("disclosed unsafe error = %q", got)
 	}
@@ -412,5 +412,21 @@ func TestStreamDropsUnscreenedChunkPairedWithProviderError(t *testing.T) {
 	}
 	if !reflect.DeepEqual(yielded, []*chat.ResponseDelta{nil}) || !errors.Is(gotErr, providerErr) {
 		t.Fatalf("yielded = %#v, error = %v; want one nil delta with the provider error", yielded, gotErr)
+	}
+}
+
+func TestBlockedDirectionCannotSelectBothFlows(t *testing.T) {
+	for _, direction := range []safeguard.Direction{safeguard.DirectionInput, safeguard.DirectionOutput} {
+		if !direction.Valid() {
+			t.Fatalf("direction %q is invalid", direction)
+		}
+	}
+	for _, direction := range []safeguard.Direction{"", "both", "unknown"} {
+		if direction.Valid() {
+			t.Fatalf("direction %q cannot identify one blocked flow", direction)
+		}
+	}
+	if !safeguard.ScopeBoth.Valid() {
+		t.Fatal("default config must still screen both directions")
 	}
 }

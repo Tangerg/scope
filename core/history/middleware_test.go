@@ -378,7 +378,7 @@ func TestStreamReportsWriteFailureAndNilSequence(t *testing.T) {
 	for _, err := range middleware.Stream(nilStreamer).Stream(t.Context(), mustRequest(t, chat.NewUserMessage(chat.NewTextPart("hello")))) {
 		gotErr = err
 	}
-	if !errors.Is(gotErr, history.ErrNilStream) {
+	if !errors.Is(gotErr, chat.ErrNilStream) {
 		t.Fatalf("nil sequence error = %v", gotErr)
 	}
 }

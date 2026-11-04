@@ -236,6 +236,15 @@ type chatToolCall struct {
 	Index    int              `json:"index,omitzero"`
 }
 
+func (c chatToolCall) validate() error {
+	// Omission carries Mistral's function default; an unknown kind cannot be
+	// promoted into an executable Core tool call merely because it has a name.
+	if c.Type != "" && c.Type != toolTypeFunction {
+		return fmt.Errorf("%w: tool call %d has unsupported type %q", corechat.ErrInvalidResponse, c.Index, c.Type)
+	}
+	return nil
+}
+
 type chatFunctionCall struct {
 	Name      string          `json:"name,omitempty"`
 	Arguments json.RawMessage `json:"arguments,omitzero"`

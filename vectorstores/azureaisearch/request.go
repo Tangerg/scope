@@ -3,8 +3,6 @@ package azureaisearch
 const (
 	searchActionField = "@search.action"
 	searchScoreField  = "@search.score"
-	actionUpload      = "upload"
-	actionDelete      = "delete"
 	queryKindVector   = "vector"
 )
 

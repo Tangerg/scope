@@ -22,6 +22,8 @@ type nativeFixture struct {
 	metric              pineconesdk.IndexMetric
 	upserts, deletes    [][]string
 	queries             []*pineconesdk.QueryByVectorValuesRequest
+	describes           int
+	describe            func() (*pineconesdk.Index, error)
 	beforeDelete        func()
 	list                func(*pineconesdk.ListVectorsRequest) (*pineconesdk.ListVectorsResponse, error)
 	fetch               func([]string) (*pineconesdk.FetchVectorsResponse, error)
@@ -187,6 +189,10 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	return b
 }
 func (n *nativeFixture) DescribeIndex(context.Context, string) (*pineconesdk.Index, error) {
+	n.describes++
+	if n.describe != nil {
+		return n.describe()
+	}
 	idx := declaredIndex()
 	idx.Schema.Fields[vectorField].DenseVector.Metric = n.metric
 	return idx, nil
@@ -194,7 +200,7 @@ func (n *nativeFixture) DescribeIndex(context.Context, string) (*pineconesdk.Ind
 func fixtureStore(t *testing.T) (*Store, *nativeFixture) {
 	t.Helper()
 	native := &nativeFixture{points: make(map[string]*pineconesdk.Vector), scores: make(map[string]float32), metric: pineconesdk.IndexMetricCosine}
-	return &Store{index: native, schema: nativeSchema{dimensions: 2, metric: native.metric}, space: fixtureSpace, control: native, name: "documents", host: declaredIndex().Host}, native
+	return &Store{index: native, binding: indexBinding{schema: nativeSchema{dimensions: 2, metric: native.metric}, space: fixtureSpace, control: native, name: "documents", host: declaredIndex().Host}}, native
 }
 
 func installDocuments(t *testing.T, store *Store, docs ...*document.Document) {

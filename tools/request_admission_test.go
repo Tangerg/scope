@@ -37,6 +37,8 @@ func TestRequestAdmissionRejectsInvalidInput(t *testing.T) {
 			for _, invalid := range []string{"null", "true", "{", `{"unknown":true}`, test.invalid} {
 				if err := test.validate([]byte(invalid)); err == nil {
 					t.Fatalf("accepted %s", invalid)
+				} else if rejection, public := tool.ClassifyInputRejection(err); !public || rejection.Message() == "" {
+					t.Fatalf("correctable input %s lost public feedback: %v", invalid, err)
 				}
 			}
 		})

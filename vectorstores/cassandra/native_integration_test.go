@@ -30,6 +30,7 @@ type nativeFixture struct {
 	keyspace string
 
 	beforeQuery func(string, []any)
+	timestamp   int64
 }
 
 func newNativeFixture(t *testing.T) *nativeFixture {
@@ -90,7 +91,11 @@ func (n *nativeFixture) Query(statement string, values ...any) *gocql.Query {
 	if n.beforeQuery != nil {
 		n.beforeQuery(statement, values)
 	}
-	return n.session.Query(statement, values...)
+	query := n.session.Query(statement, values...)
+	if n.timestamp != 0 && (strings.HasPrefix(statement, "INSERT INTO ") || strings.HasPrefix(statement, "UPDATE ") || strings.HasPrefix(statement, "DELETE FROM ")) {
+		query.WithTimestamp(n.timestamp)
+	}
+	return query
 }
 func (n *nativeFixture) config(metric SimilarityFunction, create bool) StoreConfig {
 	dimensions := 0
@@ -262,7 +267,7 @@ func TestNativeCASPreservesConcurrentReplacement(t *testing.T) {
 		if strings.HasPrefix(statement, "DELETE FROM ") && strings.Contains(statement, " IF ") {
 			changed = true
 			f.beforeQuery = nil
-			if err := f.session.Query("UPDATE "+f.table()+" SET content=?,metadata=?,embedding=? WHERE id=?", "replacement", `{"value":"after"}`, []float32{0, 1}, "same").ExecContext(t.Context()); err != nil {
+			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "same", Text: "replacement", Metadata: metadata.Map{"value": json.RawMessage(`"after"`)}}})); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -290,7 +295,7 @@ func TestNativeSearchUsesCapturedVectorsAndMetadata(t *testing.T) {
 			scoreCalls++
 			if scoreCalls == 3 {
 				f.beforeQuery = nil
-				if err := f.session.Query("UPDATE "+f.table()+" SET content=?,metadata=?,embedding=? WHERE id=?", "far", `{"value":"after"}`, []float32{0, 1}, "same").ExecContext(t.Context()); err != nil {
+				if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "same", Text: "far", Metadata: metadata.Map{"value": json.RawMessage(`"after"`)}}})); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -325,8 +330,8 @@ func TestNativeStrictMetadataAndVectorPreflight(t *testing.T) {
 	for _, raw := range []string{"", `[]`, `{"a":1,"a":2}`} {
 		f.clear(t)
 		nativeIndex(t, store, &document.Document{ID: "bad", Text: "query"})
-		if err := f.session.Query("UPDATE "+f.table()+" SET metadata=? WHERE id=?", raw, "bad").ExecContext(t.Context()); err != nil {
-			t.Fatal(err)
+		if applied, err := f.session.Query("UPDATE "+f.table()+" SET metadata=? WHERE id=? IF EXISTS", raw, "bad").Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(t.Context(), map[string]any{}); err != nil || !applied {
+			t.Fatalf("native corruption injection: applied=%t, %v", applied, err)
 		}
 		response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, "a == 'hidden'"), MinScore: 1}}, fixtureBudget)
 		if response != nil || err == nil {
@@ -438,8 +443,8 @@ func TestNativeDeletionRetainsExactCASToken(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityCosine)
 	nativeIndex(t, store, &document.Document{ID: "same", Text: "query"})
-	if err := f.session.Query("UPDATE "+f.table()+" SET metadata=? WHERE id=?", ` { "value" : "\u0061" } `, "same").ExecContext(t.Context()); err != nil {
-		t.Fatal(err)
+	if applied, err := f.session.Query("UPDATE "+f.table()+" SET metadata=? WHERE id=? IF EXISTS", ` { "value" : "\u0061" } `, "same").Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(t.Context(), map[string]any{}); err != nil || !applied {
+		t.Fatalf("native metadata injection: applied=%t, %v", applied, err)
 	}
 	if err := store.DeleteMatching(t.Context(), nativePredicate(t, "value == 'a'"), fixtureBudget); err != nil {
 		t.Fatal(err)
@@ -482,4 +487,113 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 		b.Records = append(b.Records, vectorstore.Record{Document: d, Values: fixtureVector(d.Text)})
 	}
 	return b
+}
+
+func TestNativeMutationProtocolIgnoresClientClockSkew(t *testing.T) {
+	f := newNativeFixture(t)
+	store := f.store(t, SimilarityCosine)
+	f.timestamp = time.Now().Add(5 * time.Minute).UnixMicro()
+	nativeIndex(t, store, &document.Document{ID: "one", Text: "query", Metadata: metadata.Map{"tenant": json.RawMessage(`"a"`)}})
+	var writeTime int64
+	if err := f.session.Query("SELECT writetime(content) FROM "+f.table()+" WHERE id=?", "one").ScanContext(t.Context(), &writeTime); err != nil {
+		t.Fatal(err)
+	}
+	if writeTime >= f.timestamp {
+		t.Fatalf("row mutation inherited the caller's future timestamp: %d >= %d", writeTime, f.timestamp)
+	}
+	nativeIndex(t, store, &document.Document{ID: "one", Text: "far", Metadata: metadata.Map{"tenant": json.RawMessage(`"a"`)}})
+	if err := store.DeleteMatching(t.Context(), filter.EQ("tenant", "a"), fixtureBudget); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.ids(t); len(got) != 0 {
+		t.Fatalf("acknowledged conditional deletion retained rows: %v", got)
+	}
+	nativeIndex(t, store, &document.Document{ID: "one", Text: "query"})
+	if err := store.DeleteIDs(t.Context(), []string{"one", "one", "missing"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.ids(t); len(got) != 0 {
+		t.Fatalf("acknowledged ID deletion retained rows: %v", got)
+	}
+	nativeIndex(t, store, &document.Document{ID: "one", Text: "far"})
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
+	if err != nil || response.First() == nil || response.First().Document.Text != "far" {
+		t.Fatalf("deleted identity could not be inserted again: %v, %v", response, err)
+	}
+}
+
+func TestNativeUpsertReportsDeletionBetweenConditionalWrites(t *testing.T) {
+	f := newNativeFixture(t)
+	store := f.store(t, SimilarityCosine)
+	nativeIndex(t, store, &document.Document{ID: "raced", Text: "query"})
+	deleted := false
+	f.beforeQuery = func(statement string, values []any) {
+		if strings.HasPrefix(statement, "UPDATE ") && values[len(values)-1] == "raced" {
+			f.beforeQuery = nil
+			if err := store.DeleteIDs(t.Context(), []string{"raced"}); err != nil {
+				t.Fatal(err)
+			}
+			deleted = true
+		}
+	}
+	err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "prefix", Text: "query"}, {ID: "raced", Text: "far"}, {ID: "suffix", Text: "query"}}))
+	var writeErr *vectorstore.WriteError
+	if !errors.As(err, &writeErr) || !deleted {
+		t.Fatalf("concurrent deletion had no explicit failed write: %v, deleted=%t", err, deleted)
+	}
+	outcome := writeErr.Outcome()
+	if !slices.Equal(outcome.Acknowledged, []string{"prefix"}) || !slices.Equal(outcome.Rejected, []string{"raced"}) || !slices.Equal(outcome.Unattempted, []string{"suffix"}) || len(outcome.Unconfirmed) != 0 {
+		t.Fatalf("conditional evidence was lost: %+v", outcome)
+	}
+	if got := f.ids(t); !slices.Equal(got, []string{"prefix"}) {
+		t.Fatalf("conditional rejection resurrected or attempted a document: %v", got)
+	}
+}
+
+func TestNativeLegacyMixedWritesCanAcknowledgeAnIneffectiveDelete(t *testing.T) {
+	f := newNativeFixture(t)
+	f.store(t, SimilarityCosine)
+	future := time.Now().Add(5 * time.Minute).UnixMicro()
+	// A legacy ordinary write can outrank the timestamp chosen by Paxos even
+	// when its conditional delete reports applied. Fresh tables avoid this history.
+	if err := f.session.Query("INSERT INTO "+f.table()+" (id,content,metadata,embedding) VALUES (?,?,?,?)", "legacy", "query", `{}`, []float32{1, 0}).WithTimestamp(future).ExecContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := f.session.Query("DELETE FROM "+f.table()+" WHERE id=? IF content=? AND metadata=? AND embedding=?", "legacy", "query", `{}`, []float32{1, 0}).Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(t.Context(), map[string]any{})
+	if err != nil || !applied {
+		t.Fatalf("legacy native CAS response: applied=%t, %v", applied, err)
+	}
+	var content string
+	if err := f.session.Query("SELECT content FROM "+f.table()+" WHERE id=?", "legacy").Consistency(gocql.Quorum).ScanContext(t.Context(), &content); err != nil || content != "query" {
+		t.Fatalf("legacy counterexample changed: content=%q, %v", content, err)
+	}
+}
+
+func TestNativeTableBindingRejectsTheFormerMutationProtocol(t *testing.T) {
+	f := newNativeFixture(t)
+	store := f.store(t, SimilarityCosine)
+	nativeIndex(t, store, &document.Document{ID: "current", Text: "query"})
+	reopened, err := NewStore(t.Context(), f.config(SimilarityCosine, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reopened.DeleteIDs(t.Context(), []string{"current"}); err != nil {
+		t.Fatal(err)
+	}
+	legacyBinding := fixtureSpace.StorageKey()
+	if err := f.session.Query("ALTER TABLE " + f.table() + " WITH comment = '" + legacyBinding + "'").ExecContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, initialize := range []bool{false, true} {
+		if opened, err := NewStore(t.Context(), f.config(SimilarityCosine, initialize)); opened != nil || !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+			t.Fatalf("former ordinary-write binding admitted: InitializeSchema=%t, store=%v, error=%v", initialize, opened, err)
+		}
+	}
+	var binding string
+	if err := f.session.Query("SELECT comment FROM system_schema.tables WHERE keyspace_name=? AND table_name=?", f.keyspace, "docs").ScanContext(t.Context(), &binding); err != nil {
+		t.Fatal(err)
+	}
+	if binding != legacyBinding {
+		t.Fatal("opening silently upgraded a former mutation protocol")
+	}
 }

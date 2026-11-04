@@ -13,8 +13,6 @@ import (
 
 var ErrNilStreamer = errors.New("chatclient: nil streamer")
 
-var errNilStreamSequence = errors.New("chatclient: streamer returned a nil sequence")
-
 // StreamClient owns a required streaming capability; compose middleware with
 // chat.WrapStream before NewStreamClient.
 // It is immutable; concurrent use requires a concurrency-safe Streamer. It does
@@ -43,7 +41,7 @@ func (s StreamClient) Stream(ctx context.Context, request *chat.Request) iter.Se
 	return func(yield func(*chat.ResponseDelta, error) bool) {
 		sequence := s.streamer.Stream(ctx, prepared)
 		if sequence == nil {
-			yield(nil, errNilStreamSequence)
+			yield(nil, chat.ErrNilStream)
 			return
 		}
 		sequence(yield)

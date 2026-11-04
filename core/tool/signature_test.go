@@ -147,7 +147,7 @@ func TestSignatureAdmitsTypedInputThroughItsValidate(t *testing.T) {
 			}
 		})
 	}
-	if err := mustSignature[*valueValidatedInput](t).InputValidator()([]byte(`null`)); !errors.Is(err, tool.ErrInvalidRequest) {
+	if err := mustSignature[*valueValidatedInput](t).InputValidator()([]byte(`null`)); !errors.Is(err, tool.ErrInvalidInvocation) {
 		t.Fatalf("null pointer input admitted: %v", err)
 	}
 }

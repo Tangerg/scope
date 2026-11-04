@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/openai/openai-go/v3/shared/constant"
+
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
@@ -40,7 +42,7 @@ func (c CompatibleResponsesRequest) Validate() error {
 		if err := jsonv2.Unmarshal(raw, &tool); err != nil {
 			return fmt.Errorf("openai responses: built-in tools[%d]: %w", index, err)
 		}
-		if tool.Type == "" || tool.Type == "function" {
+		if tool.Type == "" || tool.Type == string(constant.ValueOf[constant.Function]()) {
 			return fmt.Errorf("openai responses: built-in tools[%d] must name a native tool; function tools belong to request.Tools", index)
 		}
 	}

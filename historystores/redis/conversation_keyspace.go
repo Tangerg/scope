@@ -2,6 +2,7 @@ package redis
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +15,13 @@ const (
 )
 
 type conversationKeyspace struct{ prefix string }
+
+func (c conversationKeyspace) validate() error {
+	if strings.ContainsAny(c.prefix, "{}") {
+		return errors.New("redis: KeyPrefix must not contain conversation hash-tag delimiters")
+	}
+	return nil
+}
 
 func (c conversationKeyspace) tagged(id history.ConversationID) string {
 	return c.prefix + "{" + base64.RawURLEncoding.EncodeToString([]byte(id)) + "}"

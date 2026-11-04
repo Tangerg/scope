@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 // A Core tool-call delta cannot carry arguments without an id and a name, so
@@ -136,6 +137,44 @@ func TestStreamAcceptsRepeatedToolIdentity(t *testing.T) {
 	parts := response.Output.Message.Parts
 	if len(parts) != 1 || parts[0].ToolCall.Arguments != `{"q":"scope"}` {
 		t.Fatalf("tool fragments = %#v", parts)
+	}
+}
+
+func TestStreamAdmitsOnlyFunctionToolCalls(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		calls []string
+		valid bool
+	}{
+		{name: "explicit function", calls: []string{`{"id":"call-1","type":"function","function":{"name":"search","arguments":"{}"}}`}, valid: true},
+		{name: "documented default", calls: []string{`{"id":"call-1","function":{"name":"search","arguments":"{}"}}`}, valid: true},
+		{name: "unknown kind", calls: []string{`{"id":"call-1","type":"future_nonfunction","function":{"name":"search","arguments":"{}"}}`}},
+		{name: "changed kind", calls: []string{
+			`{"id":"call-1","type":"function","function":{"name":"search","arguments":"{"}}`,
+			`{"type":"future_nonfunction","function":{"arguments":"}"}}`,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := newToolStreamModel(t, test.calls)
+			response, err := corechat.Collect(model.Stream(t.Context(), newToolStreamRequest()))
+			if test.valid {
+				if err != nil || response == nil || response.Output.FinishReason != corechat.FinishReasonToolCalls {
+					t.Fatalf("tool call = %+v, %v", response, err)
+				}
+				return
+			}
+			if response != nil || !errors.Is(err, corechat.ErrInvalidResponse) || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
+				t.Fatalf("unsupported tool type = %+v, %v", response, err)
+			}
+			for delta, err := range model.Stream(t.Context(), newToolStreamRequest()) {
+				if err != nil {
+					break
+				}
+				if delta.FinishReason != "" {
+					t.Fatal("unsupported tool type published successful completion")
+				}
+			}
+		})
 	}
 }
 

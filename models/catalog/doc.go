@@ -1,6 +1,6 @@
 // Package catalog exposes the embedded model catalog: model identity, pricing,
-// capabilities, modalities, and token limits. It is provider reference data,
-// independent from the Core model invocation protocols.
+// capabilities, modalities, and token limits. Core chat.Usage owns token counts;
+// the catalog applies provider reference rates without invoking a model.
 //
 // The catalog answers questions about a model — what it costs, which modalities
 // it accepts, how many tokens it takes — without invoking anything. A caller

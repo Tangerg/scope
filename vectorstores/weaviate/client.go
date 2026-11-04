@@ -45,7 +45,8 @@ type ClientConfig struct {
 
 func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 	u, err := url.Parse(c.Endpoint)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.EscapedPath() != "" && u.EscapedPath() != "/" || u.Scheme != "http" && u.Scheme != "https" {
+	_, originErr := httpclient.NewOrigin(ctx, u)
+	if err != nil || originErr != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.EscapedPath() != "" && u.EscapedPath() != "/" {
 		return nil, errors.New("weaviate: endpoint must be an HTTP(S) origin")
 	}
 	grpcHost, grpcPort, err := net.SplitHostPort(c.GRPCAddress)

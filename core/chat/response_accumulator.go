@@ -60,7 +60,7 @@ func (r *ResponseAccumulator) Add(delta *ResponseDelta) error {
 // completion retains that generation and its usage without reporting success.
 func Collect(sequence iter.Seq2[*ResponseDelta, error]) (*Response, error) {
 	if sequence == nil {
-		return nil, fmt.Errorf("%w: nil stream", ErrInvalidResponse)
+		return nil, ErrNilStream
 	}
 	var accumulator ResponseAccumulator
 	for delta, err := range sequence {

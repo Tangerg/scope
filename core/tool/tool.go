@@ -184,16 +184,16 @@ func (c Contract) Prepare(call Request, admission Admission) (Invocation, error)
 		return Invocation{}, fmt.Errorf("%w: contract is zero", ErrInvalidInvocation)
 	}
 	if err := call.Validate(); err != nil {
-		return Invocation{}, fmt.Errorf("%w: %w", ErrInvalidInvocation, err)
+		return Invocation{}, rejectInput(err.Error(), err)
 	}
 	if call.Name != c.state.name {
-		return Invocation{}, fmt.Errorf(
-			"%w: call name %q does not match bound tool %q",
-			ErrInvalidInvocation, call.Name, c.state.name,
-		)
+		return Invocation{}, rejectInput(fmt.Sprintf("call name %q does not match bound tool %q", call.Name, c.state.name), nil)
 	}
 	arguments := call.Input()
 	if err := c.validateInput(arguments); err != nil {
+		if rejection, public := ClassifyInputRejection(err); public {
+			return Invocation{}, rejection
+		}
 		return Invocation{}, fmt.Errorf("%w: arguments: %w", ErrInvalidInvocation, err)
 	}
 	if err := admission.validate(); err != nil {
@@ -208,17 +208,24 @@ func (c Contract) Prepare(call Request, admission Admission) (Invocation, error)
 
 func (c Contract) validateInput(arguments []byte) (err error) {
 	if schemaErr := c.state.input.Validate(arguments); schemaErr != nil {
-		return schemaErr
+		return rejectInput(schemaErr.Error(), schemaErr)
 	}
 	if c.state.validate == nil {
 		return nil
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &InputValidationPanicError{Value: recovered}
+			err = &InputValidationError{cause: &InputValidationPanicError{Value: recovered}}
 		}
 	}()
-	return c.state.validate(arguments)
+	err = c.state.validate(arguments)
+	if err == nil {
+		return nil
+	}
+	if rejection, public := ClassifyInputRejection(err); public {
+		return rejection
+	}
+	return &InputValidationError{cause: err}
 }
 
 // Call executes an Invocation prepared by this Binding's exact Contract. It
@@ -228,11 +235,11 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
 	result, err := b.call(ctx, invocation, 0)
+	if err == nil {
+		err = b.contract.ValidateResult(result)
+	}
 	if err != nil {
 		return Result{}, b.contract.state.settle(ctx, err)
-	}
-	if err := b.contract.ValidateResult(result); err != nil {
-		return Result{}, err
 	}
 	return result, nil
 }

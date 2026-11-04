@@ -37,13 +37,12 @@ const (
 	errorTypeInvalidOutputFormat   = "chat.invalid_output_format"
 	errorTypeInvalidOptions        = "chat.invalid_options"
 	errorTypeInvalidUsage          = "chat.invalid_usage"
-	errorTypeNilStream             = "otel.chat.nil_stream"
+	errorTypeNilStream             = "chat.nil_stream"
 	cacheWriteInputTokensKey       = attribute.Key("gen_ai.usage.cache_write.input_tokens")
 )
 
 var (
 	ErrInvalidConfig = errors.New("otel/chat: invalid config")
-	ErrNilStream     = errors.New("otel/chat: nil stream sequence")
 )
 
 // Provider is normalized to lowercase for stable telemetry dimensions. Nil
@@ -172,7 +171,7 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 
 			sequence := next.Stream(spanCtx, request)
 			if sequence == nil {
-				streamErr = ErrNilStream
+				streamErr = corechat.ErrNilStream
 				yield(nil, streamErr)
 				return
 			}
@@ -410,7 +409,7 @@ func errorTypeAttribute(err error) attribute.KeyValue {
 		errortelemetry.Class{Err: corechat.ErrInvalidOutputFormat, Type: errorTypeInvalidOutputFormat},
 		errortelemetry.Class{Err: corechat.ErrInvalidOptions, Type: errorTypeInvalidOptions},
 		errortelemetry.Class{Err: corechat.ErrInvalidUsage, Type: errorTypeInvalidUsage},
-		errortelemetry.Class{Err: ErrNilStream, Type: errorTypeNilStream},
+		errortelemetry.Class{Err: corechat.ErrNilStream, Type: errorTypeNilStream},
 	)
 }
 

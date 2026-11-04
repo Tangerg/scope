@@ -79,7 +79,7 @@ func (t *treeRuntime) append(ctx context.Context, records []Record) error {
 		return nil
 	}
 	batch := Batch{Root: t.state.root, Epoch: t.state.epoch, After: t.state.head, Records: records}
-	if err := batch.admit(t.state.limits); err != nil {
+	if err := batch.validateLimits(t.state.limits); err != nil {
 		return err
 	}
 	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), t.runtime.storeTimeout)

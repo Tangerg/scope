@@ -43,7 +43,7 @@ func TestTranscriptionReportsProviderFailureCode(t *testing.T) {
 			}
 			response, err := model.Call(t.Context(), &transcription.Request{Audio: audio})
 			failure, ok := errors.AsType[*invocation.Failure](err)
-			if response != nil || !ok || failure.Kind != invocation.FailureUnknown || failure.Cause.Error() != test.want {
+			if response != nil || !ok || failure.Kind != invocation.FailureFailed || failure.Cause.Error() != test.want {
 				t.Fatalf("Call = %#v, %v; want %q", response, err, test.want)
 			}
 			if calls != 2 {

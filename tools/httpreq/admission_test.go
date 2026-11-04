@@ -71,7 +71,8 @@ func TestToolRejectsInvalidInputsBeforeDispatchAndClassifiesPolicyRefusals(t *te
 			var calls atomic.Int32
 			err := callHTTPTool(t, countingTransport{calls: &calls}, tc.arguments)
 			if tc.kind == tool.FailureKindFailed {
-				if !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, tc.sentinel) || calls.Load() != 0 {
+				rejection, public := tool.ClassifyInputRejection(err)
+				if !public || !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(rejection.Cause(), tc.sentinel) || calls.Load() != 0 {
 					t.Fatalf("invalid input reached dispatch: calls=%d error=%v", calls.Load(), err)
 				}
 				return

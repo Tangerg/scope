@@ -58,3 +58,26 @@ func TestCorpusBindingRejectsSameOriginRedirect(t *testing.T) {
 		t.Fatalf("scope redirect: %v %v", paths, err)
 	}
 }
+
+func TestEndpointRequiresAHostButAllowsTheConfiguredBasePath(t *testing.T) {
+	for _, sample := range []struct {
+		endpoint string
+		valid    bool
+	}{
+		{endpoint: "", valid: true},
+		{endpoint: "http://service.example", valid: true},
+		{endpoint: "https://service.example/base", valid: true},
+		{endpoint: "http://:80"},
+		{endpoint: "http://[]:80"},
+		{endpoint: "https://service.example/base?scope=a"},
+		{endpoint: "https://service.example/base#fragment"},
+		{endpoint: "https://user@service.example/base"},
+	} {
+		t.Run(sample.endpoint, func(t *testing.T) {
+			config := Config{Endpoint: sample.endpoint, APIKey: "credential", CorpusKey: "corpus"}
+			if err := config.Validate(); (err == nil) != sample.valid {
+				t.Fatalf("endpoint %q: valid=%t, error=%v", sample.endpoint, sample.valid, err)
+			}
+		})
+	}
+}

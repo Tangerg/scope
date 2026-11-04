@@ -74,3 +74,70 @@ func TestBindingSettlesSafeErrorsAsDefiniteFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestBindingSettlesInvalidResultsAtTheSameExecutionBoundary(t *testing.T) {
+	type response struct {
+		Count int `json:"count"`
+	}
+	for _, test := range []struct {
+		name     string
+		effect   tool.Effect
+		details  string
+		cancel   bool
+		definite bool
+		want     error
+	}{
+		{name: "safe schema mismatch", effect: tool.EffectSafe, details: `{"count":"wrong"}`, definite: true, want: tool.ErrInvalidResult},
+		{name: "safe invalid result", effect: tool.EffectSafe, details: `{`, definite: true, want: tool.ErrInvalidOutput},
+		{name: "safe canceled execution", effect: tool.EffectSafe, details: `{"count":"wrong"}`, cancel: true, want: tool.ErrInvalidResult},
+		{name: "idempotent schema mismatch", effect: tool.EffectIdempotent, details: `{"count":"wrong"}`, want: tool.ErrInvalidResult},
+		{name: "unsafe schema mismatch", effect: tool.EffectUnsafe, details: `{"count":"wrong"}`, want: tool.ErrInvalidResult},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			executable, err := tool.NewFunc(tool.FuncConfig{Name: "count", Effect: test.effect}, func(context.Context, struct{}) (response, error) {
+				return response{Count: 2}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			binding, err := tool.Bind(executable, func(next tool.Caller) tool.Caller {
+				return tool.CallerFunc(func(ctx context.Context, invocation tool.Invocation) (tool.Result, error) {
+					result, callErr := next.Call(ctx, invocation)
+					result.Output.Details = []byte(test.details)
+					if test.cancel {
+						cancel()
+					}
+					return result, callErr
+				})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation, err := binding.Contract().Prepare(tool.Request{Name: "count"}, tool.Admission{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, callErr := binding.Call(ctx, invocation)
+			if result.InputRequest != nil || len(result.Output.Content) != 0 || len(result.Output.Details) != 0 {
+				t.Fatalf("invalid result escaped: %+v", result)
+			}
+			failure, definite := tool.ClassifyFailure(callErr)
+			if definite != test.definite {
+				t.Fatalf("definite=%t, error=%v", definite, callErr)
+			}
+			cause := callErr
+			if definite {
+				text, _ := failure.Output().Text()
+				if failure.Kind() != tool.FailureKindFailed || text != `tool "count" failed` {
+					t.Fatalf("failure=%s output=%q", failure.Kind(), text)
+				}
+				cause = failure.Cause()
+			}
+			if !errors.Is(cause, test.want) {
+				t.Fatalf("lost result validation diagnostic: %v", cause)
+			}
+		})
+	}
+}

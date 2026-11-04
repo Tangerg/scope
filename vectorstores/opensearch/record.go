@@ -23,12 +23,20 @@ const (
 	simLinf         nativeSimilarity = "linf"
 )
 
+type knnEngine string
+
+const (
+	engineLucene knnEngine = "lucene"
+	engineFaiss  knnEngine = "faiss"
+	engineNMSLIB knnEngine = "nmslib"
+)
+
 const nativeMaximumFP16Magnitude float32 = 65504
 
 type nativeSchema struct {
 	dimensions       int
 	similarity       nativeSimilarity
-	engine           string
+	engine           knnEngine
 	requireFP16Range bool
 	resultWindow     int
 }

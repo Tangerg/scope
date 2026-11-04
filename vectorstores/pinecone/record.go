@@ -1,6 +1,7 @@
 package pinecone
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
@@ -35,7 +37,8 @@ func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
 		host = "https://" + host
 	}
 	parsed, err := url.Parse(host)
-	if err != nil || parsed.Hostname() == "" || strings.TrimSpace(host) != host || parsed.User != nil || strings.ContainsAny(host, "?#") || parsed.Path != "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
+	_, originErr := httpclient.NewOrigin(context.Background(), parsed)
+	if err != nil || originErr != nil || strings.TrimSpace(host) != host || strings.ContainsAny(host, "?#") || parsed.Path != "" {
 		return fmt.Errorf("%w: native index has an invalid host", ErrIncompatibleIndex)
 	}
 	switch vector.Metric {

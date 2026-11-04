@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"golang.org/x/net/idna"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -90,6 +92,10 @@ func (s *SearchRequest) Prepare() (*SearchRequest, error) {
 }
 
 func (s *SearchRequest) Validate() error {
+	return toolinput.Rejection(s.validate())
+}
+
+func (s *SearchRequest) validate() error {
 	if s == nil {
 		return ErrMissingSearchRequest
 	}

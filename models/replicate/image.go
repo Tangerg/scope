@@ -241,7 +241,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 		return nil, err
 	}
 	return &ImageModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultPollTimeoutSeconds)*time.Second, image.ErrInvalidResponse),
+		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, DefaultImagePollTimeout, image.ErrInvalidResponse),
 		inputSchema:    config.InputSchema.Clone(),
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil

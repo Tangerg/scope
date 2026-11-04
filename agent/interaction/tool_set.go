@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -215,7 +214,7 @@ func (t toolManifestEntry) plan(call chat.ToolCall) (plan toolConcurrencyPlan, e
 	}
 	invocation, err := t.prepare(call, tool.Admission{})
 	if err != nil {
-		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
+		if _, public := tool.ClassifyInputRejection(err); !public {
 			// A validator defect is an internal fault, not a bad argument; fail the
 			// Step rather than scheduling a call that cannot be validated.
 			return toolConcurrencyPlan{}, errToolInputValidatorDefect

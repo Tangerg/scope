@@ -95,14 +95,14 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (ou
 	return result, nil
 }
 
-// Validator panics are host defects, even when they wrap a tool Failure.
 func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
 	errortelemetry.Record(span, errortelemetry.Classify(err))
-	if _, defect := errors.AsType[*toolcontract.InputValidationPanicError](err); defect {
+	rejection, public := toolcontract.ClassifyInputRejection(err)
+	if !public {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "tool input validation failed"}
 	}
 	return &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: err.Error()}},
+		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: rejection.Message()}},
 		IsError: true,
 	}, nil
 }

@@ -12,6 +12,8 @@ type InputValidatingTool interface {
 	// returned function nor anything it captures may retain an executable Tool
 	// or execution backend. It must be deterministic, bounded, side-effect-free,
 	// safe for concurrent use, and must not mutate or retain its argument.
+	// Return an InputRejection only for model-correctable input. Its Message is
+	// public; ordinary errors and panics are internal validator defects.
 	// Nil means the schema is the complete input admission contract.
 	InputValidator() func([]byte) error
 }
@@ -20,7 +22,7 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			validator = nil
-			err = fmt.Errorf("input validation declaration: %w", &InputValidationPanicError{Value: recovered})
+			err = &InputValidationError{cause: &InputValidationPanicError{Value: recovered}}
 		}
 	}()
 	capability, found := executable.(InputValidatingTool)
@@ -31,8 +33,8 @@ func inputValidator(executable Tool) (validator func([]byte) error, err error) {
 }
 
 // InputValidationPanicError identifies a contained panic while declaring or running
-// input validation. Prepare still rejects the invocation with ErrInvalidInvocation;
-// this diagnostic distinguishes a validator defect from invalid caller input.
+// input validation. It is retained only behind InputValidationError.Cause;
+// this diagnostic cannot turn a panic into public input rejection or execution evidence.
 // Value retains the recovered value; an error value remains available through Unwrap.
 type InputValidationPanicError struct{ Value any }
 

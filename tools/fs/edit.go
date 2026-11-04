@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -21,6 +23,10 @@ type EditRequest struct {
 }
 
 func (e EditRequest) Validate() error {
+	return toolinput.Rejection(e.validate())
+}
+
+func (e EditRequest) validate() error {
 	if e.Path == "" {
 		return ErrEmptyPath
 	}

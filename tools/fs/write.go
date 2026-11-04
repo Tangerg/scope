@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -18,6 +20,10 @@ type WriteRequest struct {
 }
 
 func (w WriteRequest) Validate() error {
+	return toolinput.Rejection(w.validate())
+}
+
+func (w WriteRequest) validate() error {
 	if w.Path == "" {
 		return ErrEmptyPath
 	}

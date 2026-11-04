@@ -56,9 +56,11 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 				}
 				diagnostic := err
 				if viaTool && test.admission {
-					if !errors.Is(err, toolcontract.ErrInvalidInvocation) {
+					rejection, public := toolcontract.ClassifyInputRejection(err)
+					if !public || !errors.Is(err, toolcontract.ErrInvalidInvocation) {
 						t.Fatalf("pure input error passed admission: %v", err)
 					}
+					diagnostic = rejection.Cause()
 				} else if viaTool {
 					failure, ok := toolcontract.ClassifyFailure(err)
 					if !ok {

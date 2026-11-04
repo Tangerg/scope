@@ -86,7 +86,8 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	set := &toolSet{source: source, maxOutputBytes: maxOutputBytes, maxResourceBytes: maxResourceBytes}
 	list, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name: "list_skills",
+			Name:   "list_skills",
+			Effect: toolcontract.EffectSafe,
 			Description: "List a page of visible skill names and descriptions. Echo next_cursor until absent to finish discovery. " +
 				"Use this when a relevant skill may exist but its exact name is unknown. Load a matching skill with load_skill before following it.",
 		},
@@ -97,7 +98,8 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	}
 	load, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name: "load_skill",
+			Name:   "load_skill",
+			Effect: toolcontract.EffectSafe,
 			Description: "Read instructions for one exact skill name. Echo next_cursor until absent and concatenate content before following the instructions. Call this when the task matches that skill's description, " +
 				"then follow the returned instructions. Use read_skill_resource only for a bundled file referenced by those instructions.",
 		},
@@ -108,7 +110,8 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	}
 	readResource, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name: "read_skill_resource",
+			Name:   "read_skill_resource",
+			Effect: toolcontract.EffectSafe,
 			Description: "Read a page of one bundled resource referenced by a loaded skill. Echo next_cursor until absent and concatenate content to read the complete file. The path is relative to that skill's directory. " +
 				"This returns the resource as UTF-8 text only and never executes scripts; a resource that is not valid UTF-8 is rejected rather than returned as binary.",
 		},

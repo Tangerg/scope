@@ -288,7 +288,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, err
 	}
-	if request.Options.Filter != nil && s.schema.engine == "nmslib" {
+	if request.Options.Filter != nil && s.schema.engine == engineNMSLIB {
 		return nil, fmt.Errorf("%w: opensearch: filtered KNN requires Lucene or Faiss", errors.ErrUnsupported)
 	}
 	if request.Options.ResultLimit() > s.schema.resultWindow {

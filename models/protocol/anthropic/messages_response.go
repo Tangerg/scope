@@ -18,10 +18,8 @@ const (
 	// StreamEventExtensionKey preserves each official Anthropic stream event.
 	StreamEventExtensionKey = ProviderID + "/stream_event"
 
-	protocolBlockText             = "text"
-	protocolBlockThinking         = "thinking"
-	protocolBlockRedactedThinking = "redacted_thinking"
-	protocolBlockToolUse          = "tool_use"
+	protocolBlockText    = "text"
+	protocolBlockToolUse = "tool_use"
 )
 
 func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string, documents protocolDocumentSources) ([]corechat.Part, error) {
@@ -46,7 +44,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 				}
 				parts = append(parts, part)
 			}
-		case protocolBlockThinking:
+		case string(ReasoningBlockThinking):
 			if block.Thinking == "" && block.Signature == "" {
 				return nil, fmt.Errorf("anthropic: content[%d]: empty thinking block", i)
 			}
@@ -58,7 +56,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 				return nil, err
 			}
 			parts = append(parts, part)
-		case protocolBlockRedactedThinking:
+		case string(ReasoningBlockRedacted):
 			if block.Data == "" {
 				return nil, fmt.Errorf("anthropic: content[%d]: empty redacted thinking block", i)
 			}
@@ -444,7 +442,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return nil, err
 		}
 		return protocolPartsAsDeltas(parts)
-	case protocolBlockThinking:
+	case string(ReasoningBlockThinking):
 		if block.Thinking == "" && block.Signature == "" {
 			return nil, nil
 		}
@@ -453,7 +451,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return nil, err
 		}
 		return []corechat.PartDelta{part}, nil
-	case protocolBlockRedactedThinking:
+	case string(ReasoningBlockRedacted):
 		if block.Data == "" {
 			return nil, errors.New("anthropic: empty redacted thinking block")
 		}
@@ -488,7 +486,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 		}
 		return corechat.NewTextDelta(delta.Text), true, nil
 	case anthropicsdk.ThinkingDelta:
-		if err := block.requireKind(protocolBlockThinking); err != nil {
+		if err := block.requireKind(string(ReasoningBlockThinking)); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		if delta.Thinking == "" {
@@ -500,7 +498,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 		}
 		return part, true, nil
 	case anthropicsdk.SignatureDelta:
-		if err := block.requireKind(protocolBlockThinking); err != nil {
+		if err := block.requireKind(string(ReasoningBlockThinking)); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		if delta.Signature == "" {

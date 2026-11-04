@@ -16,7 +16,9 @@ import (
 // decoders must be deterministic, bounded and free of external effects because
 // admission uses the same decoder before execution. Admission of a typed input
 // is that strict decode followed by the input's own Validate method when it
-// declares one, so a request type states its domain rules once. Output bypasses the JSON
+// declares one, so a request type states its domain rules once. Validate must
+// explicitly return an InputRejection for model-correctable input; other errors
+// are internal defects. Output bypasses the JSON
 // codec to preserve media. Strings are text-only outputs and declare no Details
 // schema; other values encode into Details under the reflected output schema.
 // The declared output type selects the codec once, so interface values cannot
@@ -88,7 +90,8 @@ type validatingInput interface{ Validate() error }
 func admitInput[In any](arguments []byte) (In, error) {
 	var input In
 	if err := jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return input, err
+		// Custom decoders may include private diagnostics in their error text.
+		return input, rejectInput("arguments cannot be decoded into the tool's input type", err)
 	}
 	validator, declared := any(&input).(validatingInput)
 	if !declared {
@@ -98,7 +101,7 @@ func admitInput[In any](arguments []byte) (In, error) {
 		return input, nil
 	}
 	if lo.IsNil(validator) {
-		return input, fmt.Errorf("%w: input is null", ErrInvalidRequest)
+		return input, rejectInput("input must not be null", ErrInvalidRequest)
 	}
 	if err := validator.Validate(); err != nil {
 		return input, err

@@ -350,6 +350,8 @@ func TestImportRequiresIdentifiedNativeAcknowledgments(t *testing.T) {
 		{"{\"success\":true}\n{}", 0, 0, 2},
 		{"{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"b25l\",\"success\":false}", 0, 0, 2},
 		{"{\"id\":\"b25l\",\"success\":true}\ntruncated", 1, 0, 1},
+		{"{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"b25l\",\"success\":false}\n{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"dHdv\",\"success\":true}", 1, 0, 1},
+		{"{\"id\":\"b25l\"}\n{\"id\":\"b25l\",\"success\":true}\n{\"id\":\"dHdv\",\"success\":false}", 0, 1, 1},
 	} {
 		t.Run(tc.body, func(t *testing.T) {
 			f := newProtocolFixture(t)

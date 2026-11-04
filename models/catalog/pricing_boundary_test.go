@@ -3,6 +3,8 @@ package catalog_test
 import (
 	"testing"
 
+	"github.com/Tangerg/scope/core/chat"
+
 	"github.com/Tangerg/scope/models/catalog"
 )
 
@@ -17,7 +19,7 @@ func TestPricingThresholdIsExclusive(t *testing.T) {
 	}{
 		{199999, 0.401499}, {200000, 0.4015}, {200001, 1.004253},
 	} {
-		usage := catalog.Usage{InputTokens: test.tokens, OutputTokens: 100000, CacheReadInputTokens: 1000, CacheWriteInputTokens: 9000}
+		usage := chat.Usage{InputTokens: test.tokens, OutputTokens: 100000, CacheReadInputTokens: new(int64(1000)), CacheWriteInputTokens: new(int64(9000))}
 		if got, err := schedule.Cost(usage); err != nil || !approximately(got, test.want) {
 			t.Errorf("tokens=%d cost=%g want=%g", test.tokens, got, test.want)
 		}
@@ -32,7 +34,7 @@ func TestGeminiPricingBoundary(t *testing.T) {
 		tokens int64
 		want   float64
 	}{{199999, 0.24999875}, {200000, 0.25}, {200001, 0.5000025}} {
-		if got, err := model.Pricing.Cost(catalog.Usage{InputTokens: test.tokens}); err != nil || !approximately(got, test.want) {
+		if got, err := model.Pricing.Cost(chat.Usage{InputTokens: test.tokens}); err != nil || !approximately(got, test.want) {
 			t.Errorf("tokens=%d cost=%g want=%g", test.tokens, got, test.want)
 		}
 	}

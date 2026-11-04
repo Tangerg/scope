@@ -38,15 +38,14 @@ func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pinecone
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := client.DescribeIndex(t.Context(), name)
+	binding, err := readIndexBinding(t.Context(), client, name, fixtureSpace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var schema nativeSchema
-	if err := schema.read(index, name); err != nil || schema.metric != metric || schema.dimensions != 2 {
-		t.Fatalf("local fixture policy differs: %v, %v", index, err)
+	if binding.schema.metric != metric || binding.schema.dimensions != 2 {
+		t.Fatalf("local fixture policy differs: %+v", binding.schema)
 	}
-	connection, err := client.Index(pineconesdk.NewIndexConnParams{Host: "http://" + index.Host, Namespace: "scope-test-" + rand.Text()})
+	connection, err := client.Index(pineconesdk.NewIndexConnParams{Host: "http://" + binding.host, Namespace: "scope-test-" + rand.Text()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,10 +59,7 @@ func localStore(t *testing.T, metric pineconesdk.IndexMetric) (*Store, *pinecone
 			t.Error(closeErr)
 		}
 	})
-	if index.Tags == nil || (*index.Tags)[SpaceTag] != string(fixtureSpace) {
-		t.Fatalf("provision the local test index with %s=%s", SpaceTag, fixtureSpace)
-	}
-	return &Store{index: connection, schema: schema, space: fixtureSpace, control: client, name: name, host: index.Host}, connection
+	return &Store{index: connection, binding: binding}, connection
 }
 
 func TestLocalNativeCoreFilterConformance(t *testing.T) {
@@ -110,7 +106,7 @@ func TestLocalNativeExactMetadataAndScores(t *testing.T) {
 				t.Fatalf("raw query=%v error=%v", page, err)
 			}
 			for _, hit := range page.Matches {
-				score, scoreErr := store.schema.score(float64(hit.Score))
+				score, scoreErr := store.binding.schema.score(float64(hit.Score))
 				if scoreErr != nil {
 					t.Fatal(scoreErr)
 				}

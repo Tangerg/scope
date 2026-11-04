@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/shared/constant"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
@@ -91,7 +92,7 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 	if delta == nil || o.stopReason == "" {
 		return nil, fmt.Errorf("openai: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
-	if o.stopReason == "tool_calls" && len(o.tools) == 0 {
+	if o.stopReason == string(constant.ValueOf[constant.ToolCalls]()) && len(o.tools) == 0 {
 		return nil, fmt.Errorf("%w: openai: tool_calls finish reason without a tool call", corechat.ErrInvalidResponse)
 	}
 	// A Core tool-call delta cannot carry arguments without an id and a name,
@@ -142,7 +143,7 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 }
 
 func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkChoice) ([]corechat.PartDelta, error) {
-	if field := choice.Delta.JSON.FunctionCall.Raw(); (field != "" && field != "null") || choice.FinishReason == "function_call" {
+	if field := choice.Delta.JSON.FunctionCall.Raw(); (field != "" && field != "null") || choice.FinishReason == string(constant.ValueOf[constant.FunctionCall]()) {
 		return nil, fmt.Errorf("%w: openai: deprecated function_call cannot identify a Core tool proposal", errors.ErrUnsupported)
 	}
 	if choice.Index != 0 {
@@ -264,7 +265,7 @@ func (o *openAIStreamState) mapChunkTool(delta openaisdk.ChatCompletionChunkChoi
 	if !indexed {
 		return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool fragment requires a nonnegative index", corechat.ErrInvalidResponse)
 	}
-	if delta.Type != "" && delta.Type != "function" {
+	if delta.Type != "" && delta.Type != string(constant.ValueOf[constant.Function]()) {
 		return corechat.ToolCallDelta{}, false, fmt.Errorf("unsupported type %q", delta.Type)
 	}
 	state := o.tools[index]

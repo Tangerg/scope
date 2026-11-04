@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/stability"
 )
@@ -87,6 +88,14 @@ func TestImageRequiresNativeVerdictAndProjectsOfficialRequestID(t *testing.T) {
 				}
 			} else if err == nil || response != nil {
 				t.Fatalf("invalid verdict=%v, %v", response, err)
+			} else {
+				want := invocation.FailureUnknown
+				if finish == `,"finish_reason":"CONTENT_FILTERED"` {
+					want = invocation.FailureFailed
+				}
+				if invocation.ClassifyFailure(err) != want {
+					t.Fatalf("verdict error = %v; want %s", err, want)
+				}
 			}
 		})
 	}

@@ -82,3 +82,26 @@ func TestGRPCAuthorityDoesNotInheritOutgoingCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestClientRejectsInvalidOriginAndResourceQualifiersBeforeIO(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+	for _, endpoint := range []string{
+		"http://:80", "http://[]:80", "file:///tmp/local", "https://user@service.example",
+		server.URL + "/base", server.URL + "?scope=a", server.URL + "?", server.URL + "#fragment",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			client, err := NewClient(t.Context(), ClientConfig{Endpoint: endpoint, GRPCAddress: "127.0.0.1:1"})
+			if client != nil {
+				_ = client.Close()
+			}
+			if client != nil || err == nil || requests.Load() != 0 {
+				t.Fatalf("invalid endpoint reached an open client or I/O: %v, %v, requests=%d", client, err, requests.Load())
+			}
+		})
+	}
+}

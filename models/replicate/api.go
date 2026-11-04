@@ -48,7 +48,7 @@ type predictionRunner struct {
 
 func newPredictionRunner(api *api, pollInterval, pollTimeout, defaultTimeout time.Duration, invalidResponse error) predictionRunner {
 	if pollInterval == 0 {
-		pollInterval = time.Duration(DefaultPollIntervalSeconds) * time.Second
+		pollInterval = DefaultPollInterval
 	}
 	if pollTimeout == 0 {
 		pollTimeout = defaultTimeout

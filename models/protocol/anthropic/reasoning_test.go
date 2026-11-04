@@ -11,8 +11,8 @@ import (
 func TestReasoningClassificationAndReplayShareIssuerAdmission(t *testing.T) {
 	for _, provider := range []string{ProviderID, "minimax"} {
 		for _, block := range []anthropicsdk.ContentBlockUnion{
-			{Type: protocolBlockThinking, Thinking: "private thought", Signature: "signature"},
-			{Type: protocolBlockRedactedThinking, Data: "redacted"},
+			{Type: string(ReasoningBlockThinking), Thinking: "private thought", Signature: "signature"},
+			{Type: string(ReasoningBlockRedacted), Data: "redacted"},
 		} {
 			parts, err := mapProtocolContent([]anthropicsdk.ContentBlockUnion{block}, provider, nil)
 			if err != nil {

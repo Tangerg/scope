@@ -35,18 +35,18 @@ func NewMiddleware(config MiddlewareConfig) (*Middleware, error) {
 	return &Middleware{config: config}, nil
 }
 
-func (m *Middleware) screen(ctx context.Context, scope Scope, text string) error {
-	if !m.config.Scope.inspects(scope) || text == "" {
+func (m *Middleware) screen(ctx context.Context, direction Direction, text string) error {
+	if !m.config.Scope.inspects(direction) || text == "" {
 		return nil
 	}
 	match, err := m.config.Matcher.Match(ctx, text)
 	if err != nil {
-		return fmt.Errorf("safeguard: match %s content: %w", scope, err)
+		return fmt.Errorf("safeguard: match %s content: %w", direction, err)
 	}
 	if !match.Found {
 		return nil
 	}
-	block := Block{Scope: scope, Term: match.Term}
+	block := Block{Direction: direction, Term: match.Term}
 	if m.config.OnBlock != nil {
 		m.config.OnBlock(ctx, block)
 	}
@@ -54,7 +54,7 @@ func (m *Middleware) screen(ctx context.Context, scope Scope, text string) error
 }
 
 func (m *Middleware) screenInput(ctx context.Context, request *chat.Request) error {
-	if request == nil || !m.config.Scope.inspects(ScopeInput) {
+	if request == nil || !m.config.Scope.inspects(DirectionInput) {
 		return nil
 	}
 	for index := range request.Messages {
@@ -62,7 +62,7 @@ func (m *Middleware) screenInput(ctx context.Context, request *chat.Request) err
 		if message.Role != chat.RoleSystem && message.Role != chat.RoleUser {
 			continue
 		}
-		if err := m.screen(ctx, ScopeInput, message.Text()); err != nil {
+		if err := m.screen(ctx, DirectionInput, message.Text()); err != nil {
 			return err
 		}
 	}
@@ -70,10 +70,10 @@ func (m *Middleware) screenInput(ctx context.Context, request *chat.Request) err
 }
 
 func (m *Middleware) screenOutput(ctx context.Context, response *chat.Response) error {
-	if response == nil || !m.config.Scope.inspects(ScopeOutput) {
+	if response == nil || !m.config.Scope.inspects(DirectionOutput) {
 		return nil
 	}
-	return m.screen(ctx, ScopeOutput, response.Output.Text())
+	return m.screen(ctx, DirectionOutput, response.Output.Text())
 }
 
 // Call is a [chat.CallMiddleware]. Input is screened before the model runs;
@@ -110,10 +110,10 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 
 			sequence := next.Stream(ctx, request)
 			if sequence == nil {
-				yield(nil, ErrNilStream)
+				yield(nil, chat.ErrNilStream)
 				return
 			}
-			if !m.config.Scope.inspects(ScopeOutput) {
+			if !m.config.Scope.inspects(DirectionOutput) {
 				sequence(yield)
 				return
 			}
@@ -141,7 +141,7 @@ func (s *safeguardStream) consume(chunk *chat.ResponseDelta, streamErr error) bo
 	if err := s.accumulator.Add(chunk); err != nil {
 		return s.stop(fmt.Errorf("safeguard: accumulate stream: %w", err))
 	}
-	if err := s.middleware.screen(s.ctx, ScopeOutput, s.accumulator.Text()); err != nil {
+	if err := s.middleware.screen(s.ctx, DirectionOutput, s.accumulator.Text()); err != nil {
 		return s.stop(&invocation.Failure{Kind: invocation.FailureFailed, Cause: err})
 	}
 	if !s.yield(chunk, nil) {

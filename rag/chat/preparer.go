@@ -18,8 +18,7 @@ import (
 )
 
 var (
-	ErrNilResponse       = errors.New("rag: chat model returned a nil response")
-	ErrNilStreamSequence = errors.New("rag: chat streamer returned a nil sequence")
+	ErrNilResponse = errors.New("rag: chat model returned a nil response")
 	// ErrNoFinalUserMessage rejects requests whose active retrieval query is
 	// ambiguous.
 	ErrNoFinalUserMessage = errors.New("rag: chat request must end with a user message")
@@ -242,7 +241,7 @@ func (p PreparedRequest) Stream(ctx context.Context, next corechat.Streamer) ite
 		}
 		sequence := next.Stream(ctx, p.request.Clone())
 		if sequence == nil {
-			yield(nil, ErrNilStreamSequence)
+			yield(nil, corechat.ErrNilStream)
 			return
 		}
 		for delta, streamErr := range sequence {

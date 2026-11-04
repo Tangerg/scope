@@ -67,3 +67,21 @@ func TestPerKeyWriteEvidence(t *testing.T) {
 		t.Fatalf("write evidence: %#v", write)
 	}
 }
+
+func TestMalformedWriteAcknowledgmentRetainsOriginalIdentities(t *testing.T) {
+	f := newProtocolFixture(t)
+	store := f.store()
+	f.write = func(w http.ResponseWriter, _ []metadata.Map) {
+		_, _ = w.Write([]byte(`{"value":[{"key":"one","status":false,"statusCode":400},{"key":"two","status":true,"statusCode":201},{"key":"other","status":true,"statusCode":201}]}`))
+	}
+	docs := []*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "second"}, {ID: "three", Text: "third"}}
+	err := store.Upsert(t.Context(), testBatch(docs))
+	var write *vectorstore.WriteError
+	if !errors.As(err, &write) {
+		t.Fatalf("malformed acknowledgment lost write evidence: %v", err)
+	}
+	outcome := write.Outcome()
+	if !slices.Equal(outcome.Unconfirmed, []string{"one", "two", "three"}) || len(outcome.Acknowledged) != 0 || len(outcome.Rejected) != 0 || len(outcome.Unattempted) != 0 {
+		t.Fatalf("malformed acknowledgment rewrote attempted identities: %+v", outcome)
+	}
+}

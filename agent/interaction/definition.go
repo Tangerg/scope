@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -277,21 +276,26 @@ func (d *definition) admitProposals(ctx context.Context, calls []chat.ToolCall, 
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		var err error
+		var message string
 		if delegate, ok := d.delegate(call.Name); ok {
-			_, err = delegate.prepareInput(call)
+			if _, err := delegate.prepareInput(call); err != nil {
+				message = err.Error()
+			}
 		} else {
 			entry, found := d.tools.entries[call.Name]
 			if !found || (entry.deferred && !slices.Contains(advertised, call.Name)) {
 				return fmt.Sprintf("tool batch was not executed: tool %q is not available", call.Name), nil
 			}
-			_, err = entry.prepare(call, tool.Admission{})
-		}
-		if err != nil {
-			if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
-				return "", errToolInputValidatorDefect
+			if _, err := entry.prepare(call, tool.Admission{}); err != nil {
+				rejection, public := tool.ClassifyInputRejection(err)
+				if !public {
+					return "", errToolInputValidatorDefect
+				}
+				message = rejection.Message()
 			}
-			return fmt.Sprintf("tool batch was not executed: %q has invalid arguments: %s", call.Name, run.NormalizeDiagnostic(err.Error())), nil
+		}
+		if message != "" {
+			return fmt.Sprintf("tool batch was not executed: %q has invalid arguments: %s", call.Name, run.NormalizeDiagnostic(message)), nil
 		}
 	}
 	return "", nil

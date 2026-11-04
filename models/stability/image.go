@@ -130,22 +130,16 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	return endpoint, apiReq, nil
 }
 
-// A filtered generation still answers 200 with base64 bytes, and those bytes
-// are the classifier's stand-in — Stability's own guidance is to treat the
-// generation as failed. This is the reason the adapter forces JSON mode: the
-// finish reason is only echoed back there, so ignoring it would make asking
-// for it pointless and would hand the caller a blank image as a result. An
-// unrecognized reason is refused too, because a value this adapter cannot
-// classify is not evidence of success.
+// Filtered bytes are a stand-in, not evidence of a successful generation.
 func checkFinishReason(reason string) error {
 	switch reason {
 	case finishReasonSuccess:
 		return nil
 	case finishReasonContentFiltered:
-		return fmt.Errorf(
-			"stability: generation filtered by the content moderation system (finish_reason %s)",
-			reason,
-		)
+		return &invocation.Failure{
+			Kind:  invocation.FailureFailed,
+			Cause: fmt.Errorf("stability: generation filtered by the content moderation system (finish_reason %s)", reason),
+		}
 	default:
 		return fmt.Errorf("stability: unrecognized finish_reason %q", reason)
 	}
@@ -217,7 +211,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 
 	body, hdr, err := i.api.generate(ctx, endpoint, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return i.buildResponse(body, hdr, apiReq.OutputFormat)

@@ -139,6 +139,9 @@ func (c *chatStreamState) mapToolDeltas(calls []chatToolCall) ([]corechat.PartDe
 	parts := make([]corechat.PartDelta, 0, len(calls))
 	for position := range calls {
 		call := calls[position]
+		if err := call.validate(); err != nil {
+			return nil, err
+		}
 		index := call.Index
 		tool := c.tools[index]
 		if call.ID != "" {

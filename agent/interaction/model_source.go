@@ -85,7 +85,7 @@ func (s streamModel) streamLimit() int { return s.maxDeltaBytes }
 func (s streamModel) respond(ctx context.Context, request *chat.Request, emit run.DeltaEmitter, accumulator *chat.ResponseAccumulator) (*chat.Response, error) {
 	sequence := s.streamer.Stream(ctx, request)
 	if sequence == nil {
-		return nil, errors.New("model streamer returned a nil sequence")
+		return nil, chat.ErrNilStream
 	}
 	remainingDeltaBytes := s.maxDeltaBytes
 	for delta, err := range sequence {

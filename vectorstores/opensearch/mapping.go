@@ -54,7 +54,7 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 	schema.similarity = cmp.Or(nativeSimilarity(vector.SpaceType), nativeSimilarity(vector.Method.SpaceType), simL2)
 	schema.engine = vector.Method.Engine
 	encoder := vector.Method.Parameters.Encoder
-	schema.requireFP16Range = schema.engine == "faiss" && (vector.CompressionLevel == "2x" || encoder != nil && encoder.Name == "sq" && cmp.Or(encoder.Parameters.Type, "fp16") == "fp16")
+	schema.requireFP16Range = schema.engine == engineFaiss && (vector.CompressionLevel == "2x" || encoder != nil && encoder.Name == "sq" && cmp.Or(encoder.Parameters.Type, "fp16") == "fp16")
 	if schema.requireFP16Range && encoder != nil {
 		schema.requireFP16Range = !encoder.Parameters.Clip
 	}
@@ -64,15 +64,15 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 		return schema, fmt.Errorf("%w: unsupported native space %q", ErrIncompatibleIndex, schema.similarity)
 	}
 	switch schema.engine {
-	case "lucene", "faiss":
+	case engineLucene, engineFaiss:
 		if schema.similarity == simL1 || schema.similarity == simLinf {
 			return schema, fmt.Errorf("%w: native engine does not support space %q", ErrIncompatibleIndex, schema.similarity)
 		}
-	case "nmslib":
+	case engineNMSLIB:
 	default:
 		return schema, fmt.Errorf("%w: unsupported native engine %q", ErrIncompatibleIndex, schema.engine)
 	}
-	if vector.Method.Name != "hnsw" && (vector.Method.Name != "ivf" || schema.engine != "faiss") {
+	if vector.Method.Name != "hnsw" && (vector.Method.Name != "ivf" || schema.engine != engineFaiss) {
 		return schema, fmt.Errorf("%w: unsupported native ANN method", ErrIncompatibleIndex)
 	}
 	if settings.value("index.knn") != "true" {
@@ -109,9 +109,9 @@ type mappedField struct {
 }
 
 type nativeMethod struct {
-	Name       string `json:"name"`
-	Engine     string `json:"engine"`
-	SpaceType  string `json:"space_type"`
+	Name       string    `json:"name"`
+	Engine     knnEngine `json:"engine"`
+	SpaceType  string    `json:"space_type"`
 	Parameters struct {
 		Encoder *nativeEncoder `json:"encoder,omitzero"`
 	} `json:"parameters"`

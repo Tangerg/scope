@@ -32,6 +32,13 @@ type EmbeddingRequestOptions struct {
 	Priority       *int     `json:"priority,omitzero"`
 }
 
+func (e EmbeddingRequestOptions) Validate() error {
+	if e.Priority != nil {
+		return requestPriority(*e.Priority).validate()
+	}
+	return nil
+}
+
 func (e *EmbeddingRequestOptions) UnmarshalJSON(data []byte) error {
 	type wireOptions EmbeddingRequestOptions
 	var decoded *wireOptions
@@ -41,7 +48,11 @@ func (e *EmbeddingRequestOptions) UnmarshalJSON(data []byte) error {
 	if decoded == nil {
 		return errors.New("cohere: embedding options must be an object")
 	}
-	*e = EmbeddingRequestOptions(*decoded)
+	value := EmbeddingRequestOptions(*decoded)
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	*e = value
 	return nil
 }
 

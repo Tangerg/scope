@@ -98,13 +98,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	}, nil
 }
 
-func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (_ *transcription.Response, invocationErr error) {
-	performedWork := false
-	defer func() {
-		if invocationErr != nil && performedWork {
-			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
-		}
-	}()
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
@@ -144,21 +138,22 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		var uploaded *uploadResponse
 		uploaded, err = t.api.upload(ctx, audio)
 		if err != nil {
-			return nil, err
+			return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 		}
-		performedWork = true
 		apiReq.AudioURL = uploaded.UploadURL
 	}
 
 	job, err := t.api.createTranscript(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
-	performedWork = true
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	if final.Status == statusErrored {
+		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("assemblyai: transcription failed: %s", final.Error)}
 	}
 
 	return t.buildResponse(final)
@@ -179,16 +174,10 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*tra
 			return nil, err
 		}
 		switch resp.Status {
-		case statusCompleted:
+		case statusCompleted, statusErrored:
 			return resp, nil
 		case statusQueued, statusProcessing:
-		case statusErrored:
-			return nil, fmt.Errorf("assemblyai: transcription failed: %s", resp.Error)
 		default:
-			// Continuing to poll is only safe for a state known to advance, so
-			// an unrecognized one is reported rather than absorbed: an added
-			// end state would otherwise arrive as this call's own timeout,
-			// whose obvious remedies are both wrong.
 			return nil, fmt.Errorf("assemblyai: transcript %s reports unrecognized status %q", id, resp.Status)
 		}
 

@@ -20,13 +20,14 @@ import (
 
 const Provider = "Cassandra"
 const (
-	DefaultKeyspaceName    = "scope"
-	DefaultTableName       = "vector_store"
-	DefaultIDColumn        = "id"
-	DefaultContentColumn   = "content"
-	DefaultMetadataColumn  = "metadata"
-	DefaultEmbeddingColumn = "embedding"
-	DefaultSimilarity      = SimilarityCosine
+	DefaultKeyspaceName     = "scope"
+	DefaultTableName        = "vector_store"
+	DefaultIDColumn         = "id"
+	DefaultContentColumn    = "content"
+	DefaultMetadataColumn   = "metadata"
+	DefaultEmbeddingColumn  = "embedding"
+	DefaultSimilarity       = SimilarityCosine
+	paxosTableBindingPrefix = "scope_cassandra_paxos:"
 )
 
 // Session supplies native queries. The host owns the Apache driver's session.
@@ -62,8 +63,11 @@ func (s SimilarityFunction) score(raw float64) (vectorstore.Score, error) {
 	return score, nil
 }
 
-// StoreConfig selects an exclusively owned table. Empty names use exported
-// defaults. Session and Space are required.
+// StoreConfig selects an exclusively owned table whose document mutations all
+// use this adapter's Paxos protocol. Its native binding rejects the former
+// ordinary-write protocol; those tables must be recreated, because their
+// timestamps can override conditional mutations.
+// Empty names use exported defaults. Session and Space are required.
 type StoreConfig struct {
 	Session         Session
 	KeyspaceName    string
@@ -141,7 +145,8 @@ var (
 )
 
 // Store uses Core JSON and filter semantics, native vector codecs and scalar
-// similarities, and Cassandra's conditional deletion to protect observed rows.
+// similarities, and one Paxos protocol for every document mutation. Conditional
+// deletion protects the exact rows observed by a scan.
 type Store struct {
 	session         Session
 	fullTable       string
@@ -163,7 +168,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if config.InitializeSchema {
 		statements := []string{
 			fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s", quoteIdentifier(config.KeyspaceName), config.KeyspaceReplication),
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>) WITH comment = '%s'", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions, config.Space.StorageKey()),
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>) WITH comment = '%s'", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions, store.tableBinding()),
 		}
 		for _, statement := range statements {
 			if err := store.session.Query(statement).ExecContext(ctx); err != nil {
@@ -176,13 +181,16 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	return store, nil
 }
+func (s *Store) tableBinding() string {
+	return paxosTableBindingPrefix + s.space.StorageKey()
+}
 func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 	var binding string
 	if err := s.session.Query("SELECT comment FROM system_schema.tables WHERE keyspace_name=? AND table_name=?", keyspace, table).ScanContext(ctx, &binding); err != nil {
 		return err
 	}
-	if binding != s.space.StorageKey() {
-		return vectorstore.ErrIncompatibleSpace
+	if binding != s.tableBinding() {
+		return fmt.Errorf("cassandra: table must declare the current Paxos-only space binding: %w", vectorstore.ErrIncompatibleSpace)
 	}
 	iter := s.session.Query("SELECT * FROM " + s.fullTable + " LIMIT 1").IterContext(ctx)
 	columns := iter.Columns()
@@ -344,21 +352,41 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 			return err
 		}
 	}
-	query := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?)", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
 	for i, record := range records {
 		if err := ctx.Err(); err != nil {
 			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
-		if err := s.session.Query(query, record.id, record.content, record.metadata, record.vector).ExecContext(ctx); err != nil {
+		applied, err := s.upsertRecord(ctx, record)
+		if err != nil {
 			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
+		}
+		if !applied {
+			err := fmt.Errorf("cassandra: document %q was deleted during upsert", record.id)
+			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Rejected: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
 	}
 	return nil
 }
+func (s *Store) upsertRecord(ctx context.Context, record storedRecord) (bool, error) {
+	insert := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?) IF NOT EXISTS", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
+	applied, err := s.applyConditional(ctx, insert, record.id, record.content, record.metadata, record.vector)
+	if err != nil || applied {
+		return applied, err
+	}
+	// A concurrent deletion between these two proposals is a known rejection,
+	// not permission to retry and recreate a row the caller did not observe.
+	update := fmt.Sprintf("UPDATE %s SET %s=?,%s=?,%s=? WHERE %s=? IF EXISTS", s.fullTable, quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), quoteIdentifier(s.idColumn))
+	return s.applyConditional(ctx, update, record.content, record.metadata, record.vector, record.id)
+}
+func (s *Store) applyConditional(ctx context.Context, statement string, values ...any) (bool, error) {
+	// Mixing ordinary timestamps with Paxos can acknowledge a deletion that
+	// loses to an older write. All row mutations use the same quorum and clock.
+	return s.session.Query(statement, values...).Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(ctx, map[string]any{})
+}
 func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.Predicate) (selected []storedCandidate, err error) {
 	ctx := meter.Context()
 	query := fmt.Sprintf("SELECT %s,%s,%s,%s FROM %s", quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), s.fullTable)
-	iter := s.session.Query(query).PageSize(1).IterContext(ctx)
+	iter := s.session.Query(query).Consistency(gocql.Quorum).PageSize(1).IterContext(ctx)
 	defer func() {
 		err = errors.Join(err, iter.Close())
 		if err != nil {
@@ -483,7 +511,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 	query := fmt.Sprintf("DELETE FROM %s WHERE %s=? IF %s=? AND %s=? AND %s=?", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
 	for _, candidate := range candidates {
 		record := candidate.record
-		applied, casErr := s.session.Query(query, record.id, record.content, record.metadata, record.vector).MapScanCASContext(ctx, map[string]any{})
+		applied, casErr := s.applyConditional(ctx, query, record.id, record.content, record.metadata, record.vector)
 		if casErr != nil {
 			return fmt.Errorf("cassandra: delete %q: %w", record.id, casErr)
 		}
@@ -497,9 +525,11 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s IN ?", s.fullTable, quoteIdentifier(s.idColumn))
-	if err := s.session.Query(query, ids).ExecContext(ctx); err != nil {
-		return fmt.Errorf("cassandra: delete IDs: %w", err)
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s=? IF EXISTS", s.fullTable, quoteIdentifier(s.idColumn))
+	for _, id := range ids {
+		if _, err := s.applyConditional(ctx, query, id); err != nil {
+			return fmt.Errorf("cassandra: delete %q: %w", id, err)
+		}
 	}
 	return nil
 }

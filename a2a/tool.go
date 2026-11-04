@@ -99,7 +99,17 @@ func (r remoteTool) Definition() toolcontract.Definition { return r.definition.C
 func (remoteTool) InputValidator() func([]byte) error {
 	return func(arguments []byte) error {
 		_, err := parseCallArguments(arguments)
-		return err
+		if err == nil {
+			return nil
+		}
+		rejection, buildErr := toolcontract.NewInputRejection(toolcontract.InputRejectionConfig{
+			Message: "Provide a JSON object with a non-empty message string and no other fields.",
+			Cause:   err,
+		})
+		if buildErr != nil {
+			return buildErr
+		}
+		return rejection
 	}
 }
 

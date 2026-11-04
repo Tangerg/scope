@@ -40,3 +40,20 @@ func TestStreamingModelPreservesKnownGenerationOnLateFailure(t *testing.T) {
 		t.Fatal("wire compatibility advertised input token counting")
 	}
 }
+
+func TestNilStreamHasOneContractError(t *testing.T) {
+	if response, err := chat.Collect(nil); response != nil || !errors.Is(err, chat.ErrNilStream) {
+		t.Fatalf("Collect(nil) = %v, %v", response, err)
+	}
+	model, err := chat.NewStreamModel(chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("input")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response, err := model.Call(t.Context(), request); response != nil || !errors.Is(err, chat.ErrNilStream) {
+		t.Fatalf("nil stream model = %v, %v", response, err)
+	}
+}

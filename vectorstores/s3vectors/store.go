@@ -3,8 +3,6 @@ package s3vectors
 import (
 	"cmp"
 	"context"
-	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -146,7 +144,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		}
 		records[i] = types.PutInputVector{Key: aws.String(r.Document.ID), Data: &types.VectorDataMemberFloat32{Value: data}, Metadata: md}
 	}
-	requests, err := s.putRequests(records)
+	requests, err := newPutBatchPlan(ctx, s.vectorBucketName, s.indexName, records)
 	if err != nil {
 		return err
 	}
@@ -170,41 +168,6 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 
 	return nil
-}
-
-func (s *Store) putRequests(records []types.PutInputVector) ([]*awss3.PutVectorsInput, error) {
-	base, err := jsonv2.Marshal(map[string]any{"vectorBucketName": s.vectorBucketName, "indexName": s.indexName, "vectors": []any{}})
-	if err != nil {
-		return nil, err
-	}
-	var requests []*awss3.PutVectorsInput
-	var chunk []types.PutInputVector
-	size := len(base)
-	for _, record := range records {
-		metadata, err := record.Metadata.MarshalSmithyDocument()
-		if err != nil {
-			return nil, err
-		}
-		vector := record.Data.(*types.VectorDataMemberFloat32)
-		encoded, err := jsonv2.Marshal(map[string]any{"key": *record.Key, "data": map[string]any{"float32": vector.Value}, "metadata": json.RawMessage(metadata)})
-		if err != nil {
-			return nil, err
-		}
-		if len(base)+len(encoded) > maxRequestBytes {
-			return nil, errors.New("s3vectors: one native vector exceeds the request budget")
-		}
-		if len(chunk) == MaxVectorsPerWrite || size+len(encoded)+1 > maxRequestBytes {
-			requests = append(requests, &awss3.PutVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), Vectors: chunk})
-			chunk = nil
-			size = len(base)
-		}
-		chunk = append(chunk, record)
-		size += len(encoded) + 1
-	}
-	if len(chunk) != 0 {
-		requests = append(requests, &awss3.PutVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), Vectors: chunk})
-	}
-	return requests, nil
 }
 
 // Scan evaluates predicate over pages the caller is authorized to enumerate.

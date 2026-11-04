@@ -48,6 +48,7 @@ Scope is reusable Go infrastructure for models, agents, retrieval-augmented gene
 | Repository root | A Go workspace and release coordination point; never a root Go module or public facade |
 | `core` | Provider-neutral protocols, minimal service provider interfaces, direct clients, shared values, and reference implementations |
 | `agent`, `rag`, `etl`, `eval`, `tools`, `skills` | Reusable capability modules built on lower contracts |
+| `models/catalog` | Reference model metadata and pricing over Core usage facts; no provider clients |
 | `a2a`, `mcp`, `otel` | Protocol and observability integrations that adapt contracts from the outside |
 | Provider modules | Independently versioned leaf adapters with provider-specific dependencies and release cadence |
 | Flame | Product sessions, desktop workflows, deployment catalogs, dashboards, billing, marketplaces, and other application concerns |

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/chat"
+
 	"github.com/Tangerg/scope/models/catalog"
 )
 
@@ -17,11 +19,11 @@ func TestPricingPreservesExplicitFreeCacheRates(t *testing.T) {
 			if err := jsonv2.Unmarshal([]byte(`{"input_per_1m":2,"output_per_1m":8,"`+field+`":0}`), &pricing); err != nil {
 				t.Fatal(err)
 			}
-			usage := catalog.Usage{InputTokens: 100}
+			usage := chat.Usage{InputTokens: 100}
 			if field == "cache_read_per_1m" {
-				usage.CacheReadInputTokens = usage.InputTokens
+				usage.CacheReadInputTokens = new(usage.InputTokens)
 			} else {
-				usage.CacheWriteInputTokens = usage.InputTokens
+				usage.CacheWriteInputTokens = new(usage.InputTokens)
 			}
 			if cost, err := pricing.Cost(usage); err != nil || cost != 0 {
 				t.Fatalf("explicitly free cache cost = %g", cost)
@@ -31,20 +33,20 @@ func TestPricingPreservesExplicitFreeCacheRates(t *testing.T) {
 }
 
 func TestPricingRejectsNegativeOutputAndOverflow(t *testing.T) {
-	if cost, err := (catalog.Pricing{OutputPer1M: 1}).Cost(catalog.Usage{OutputTokens: -1}); err == nil || cost != 0 {
+	if cost, err := (catalog.Pricing{OutputPer1M: 1}).Cost(chat.Usage{OutputTokens: -1}); err == nil || cost != 0 {
 		t.Errorf("negative tokens became a negative bill: %g", cost)
 	}
-	if cost, err := (catalog.Pricing{OutputPer1M: math.MaxFloat64}).Cost(catalog.Usage{OutputTokens: math.MaxInt64}); err == nil || cost != 0 {
+	if cost, err := (catalog.Pricing{OutputPer1M: math.MaxFloat64}).Cost(chat.Usage{OutputTokens: math.MaxInt64}); err == nil || cost != 0 {
 		t.Errorf("finite rate and count overflowed to a non-finite bill: %g", cost)
 	}
 }
 
 func TestPricingRejectsInvalidUsageWithoutInventingACost(t *testing.T) {
-	for _, usage := range []catalog.Usage{
-		{InputTokens: -1}, {OutputTokens: -1}, {CacheReadInputTokens: -1}, {CacheWriteInputTokens: -1},
-		{InputTokens: 1, CacheReadInputTokens: 2}, {InputTokens: 1, CacheWriteInputTokens: 2},
-		{InputTokens: 2, CacheReadInputTokens: 2, CacheWriteInputTokens: 1},
-		{InputTokens: math.MaxInt64, CacheReadInputTokens: math.MaxInt64, CacheWriteInputTokens: math.MaxInt64},
+	for _, usage := range []chat.Usage{
+		{InputTokens: -1}, {OutputTokens: -1}, {CacheReadInputTokens: new(int64(-1))}, {CacheWriteInputTokens: new(int64(-1))},
+		{InputTokens: 1, CacheReadInputTokens: new(int64(2))}, {InputTokens: 1, CacheWriteInputTokens: new(int64(2))},
+		{InputTokens: 2, CacheReadInputTokens: new(int64(2)), CacheWriteInputTokens: new(int64(1))},
+		{InputTokens: math.MaxInt64, CacheReadInputTokens: new(int64(math.MaxInt64)), CacheWriteInputTokens: new(int64(math.MaxInt64))},
 	} {
 		if usage.Validate() == nil {
 			t.Errorf("invalid usage admitted: %+v", usage)
@@ -67,10 +69,10 @@ func TestPricingRejectsInvalidRatesAndSchedules(t *testing.T) {
 		if pricing.Validate() == nil {
 			t.Errorf("invalid rates admitted: %+v", pricing)
 		}
-		if cost, err := pricing.Cost(catalog.Usage{}); err == nil || cost != 0 {
+		if cost, err := pricing.Cost(chat.Usage{}); err == nil || cost != 0 {
 			t.Errorf("pricing cost=%g error=%v for %+v", cost, err, pricing)
 		}
-		if cost, err := (catalog.PricingSchedule{pricing}).Cost(catalog.Usage{}); err == nil || cost != 0 {
+		if cost, err := (catalog.PricingSchedule{pricing}).Cost(chat.Usage{}); err == nil || cost != 0 {
 			t.Errorf("schedule cost=%g error=%v for %+v", cost, err, pricing)
 		}
 	}
@@ -82,10 +84,10 @@ func TestPricingRejectsInvalidRatesAndSchedules(t *testing.T) {
 		}
 	}
 	pricing := catalog.Pricing{InputPer1M: math.MaxFloat64, OutputPer1M: math.MaxFloat64}
-	if cost, err := pricing.Cost(catalog.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000}); err == nil || cost != 0 {
+	if cost, err := pricing.Cost(chat.Usage{InputTokens: 1_000_000, OutputTokens: 1_000_000}); err == nil || cost != 0 {
 		t.Fatalf("sum of finite component costs overflowed: cost=%g error=%v", cost, err)
 	}
-	if cost, err := pricing.Cost(catalog.Usage{InputTokens: 1_000_000}); err != nil || cost != math.MaxFloat64 {
+	if cost, err := pricing.Cost(chat.Usage{InputTokens: 1_000_000}); err != nil || cost != math.MaxFloat64 {
 		t.Fatalf("representable cost rejected because of intermediate multiplication: cost=%g error=%v", cost, err)
 	}
 }
@@ -119,7 +121,7 @@ func TestPricingPresenceSurvivesSerializationAndClone(t *testing.T) {
 			}
 		}
 	}
-	usage := catalog.Usage{InputTokens: 100, OutputTokens: 100}
+	usage := chat.Usage{InputTokens: 100, OutputTokens: 100}
 	if cost, err := (catalog.PricingSchedule{{}}).Cost(usage); err != nil || cost != 0 {
 		t.Fatalf("known free schedule: cost=%g error=%v", cost, err)
 	}

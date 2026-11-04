@@ -88,7 +88,8 @@ func TestFetchTool_Call_EmptyURL(t *testing.T) {
 		t.Fatal("Call empty url: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"url":"   "}`)
-	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrEmptyURL) {
+	rejection, public := toolcontract.ClassifyInputRejection(err)
+	if !public || !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(rejection.Cause(), ErrEmptyURL) {
 		t.Fatalf("Call blank url: err = %v, want admission rejection wrapping ErrEmptyURL", err)
 	}
 	if fetcher.last != nil {

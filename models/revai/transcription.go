@@ -81,13 +81,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
 }
 
-func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (_ *transcription.Response, invocationErr error) {
-	performedWork := false
-	defer func() {
-		if invocationErr != nil && performedWork {
-			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
-		}
-	}()
+func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
@@ -145,18 +139,20 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		job, err = t.api.upload(ctx, audio, req.Audio.MIME, *jobOpts)
 	}
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
-	performedWork = true
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	if final.Status == jobStatusFailed {
+		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("revai: transcription failed: %s", final.FailureReason)}
 	}
 
 	text, err := t.api.getTranscriptText(ctx, final.ID)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	var outputMetadata metadata.Map
@@ -197,17 +193,10 @@ func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*job
 			return nil, err
 		}
 		switch resp.Status {
-		case jobStatusTranscribed:
+		case jobStatusTranscribed, jobStatusFailed:
 			return resp, nil
 		case jobStatusInProgress:
-			// The only state Rev.ai documents as still moving.
-		case jobStatusFailed:
-			return nil, fmt.Errorf("revai: transcription failed: %s", resp.FailureReason)
 		default:
-			// Continuing to poll is only safe for a state known to advance, so
-			// an unrecognized one is reported rather than absorbed: an added
-			// end state would otherwise arrive as this call's own timeout,
-			// whose obvious remedies are both wrong.
 			return nil, fmt.Errorf("revai: job %s reports unrecognized status %q", id, resp.Status)
 		}
 		select {

@@ -87,13 +87,7 @@ func (m Middleware) Call(next coreimage.Model) coreimage.Model {
 		return coreimage.ModelFunc(func(context.Context, *coreimage.Request) (*coreimage.Response, error) { return nil, err })
 	}
 	return coreimage.ModelFunc(func(ctx context.Context, request *coreimage.Request) (response *coreimage.Response, err error) {
-		startedAt := time.Now()
-		attributes := m.requestAttributes(request)
-		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
-			trace.WithSpanKind(trace.SpanKindClient),
-			trace.WithTimestamp(startedAt),
-			trace.WithAttributes(attributes...),
-		)
+		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.tracer, m.spanName(request), m.requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
 			finishedAt := time.Now()
 			defer span.End(trace.WithTimestamp(finishedAt))

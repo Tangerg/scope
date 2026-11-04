@@ -15,7 +15,7 @@ var ErrInvalidUsage = errors.New("chat: invalid usage")
 // an explicitly reported zero from an unsupported dimension.
 type Usage struct {
 	// InputTokens is the total processed input count. Provider cache-read and
-	// cache-write counts, when reported, are breakdowns included in this total.
+	// cache-write counts, when reported, are disjoint partitions within this total.
 	InputTokens           int64  `json:"input_tokens,omitzero"`
 	OutputTokens          int64  `json:"output_tokens,omitzero"`
 	ReasoningTokens       *int64 `json:"reasoning_tokens,omitzero"`
@@ -47,6 +47,9 @@ func (u Usage) Validate() error {
 	}
 	if err := validateTokenSubset("cache_write_input_tokens", u.CacheWriteInputTokens, u.InputTokens); err != nil {
 		return err
+	}
+	if u.CacheReadInputTokens != nil && u.CacheWriteInputTokens != nil && *u.CacheWriteInputTokens > u.InputTokens-*u.CacheReadInputTokens {
+		return fmt.Errorf("%w: cache read and write partitions must not exceed input_tokens", ErrInvalidUsage)
 	}
 	return nil
 }

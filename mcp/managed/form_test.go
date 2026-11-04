@@ -1,6 +1,7 @@
 package managed
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -9,6 +10,52 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
+
+func TestFormPreservesAdmittedSchemaWithoutDiscardingConstraints(t *testing.T) {
+	for _, raw := range []string{
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","title":"Decision","description":"Choose a destination","properties":{"city":{"type":"string","title":"City","description":"Destination","enum":["Paris","Berlin"],"default":"Paris","minLength":1.0,"maxLength":1e2},"confirmed":{"type":"boolean","default":false}},"required":["city"],"additionalProperties":false}`,
+		`{"type":"object","properties":{"value":{"type":"string","default":"","minLength":0}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","default":true}},"required":[]}`,
+		`{"type":"object","properties":{"value":{"type":"string","format":"date"}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","format":"date-time"}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","format":"email"}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","format":"uri"}}}`,
+	} {
+		wait := testFormWait(t, raw)
+		projected, err := form(wait)
+		if err != nil {
+			t.Fatalf("supported form was narrowed: %s: %v", raw, err)
+		}
+		preserved, ok := projected.RequestedSchema.(json.RawMessage)
+		if !ok || !bytes.Equal(preserved, wait.AnswerSchema.JSON()) {
+			t.Fatalf("form projection changed the admitted schema: %s", raw)
+		}
+	}
+}
+
+func TestFormRejectsUnrepresentableConstraintsAtTheirOwner(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":true}`,
+		`{"type":"object","properties":{"value":{"type":"string"}},"additionalProperties":{}}`,
+		`{"type":"object","properties":{"value":{"type":"string"}},"x-domain-rule":"opaque"}`,
+		`{"type":"object","properties":{"value":{"type":"string","x-domain-rule":"opaque"}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","contentEncoding":"base64"}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","minimum":0}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","format":""}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","default":null}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","default":[]}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","default":null}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","minLength":0}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","maxLength":10}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","enum":["yes"]}}}`,
+		`{"type":"object","properties":{"value":{"type":"boolean","format":"email"}}}`,
+		`{"type":"object","properties":{}}`,
+	} {
+		if projected, err := form(testFormWait(t, raw)); projected != nil || !errors.Is(err, errForm) {
+			t.Fatalf("unrepresentable constraint was discarded: %s: %v, %v", raw, projected, err)
+		}
+	}
+}
 
 func TestFormDoesNotReinterpretUnsupportedQuestions(t *testing.T) {
 	for _, raw := range []string{`{"type":"object","properties":{"n":{"type":"integer"}}}`, `{"type":"object","properties":{"n":{"type":"number"}}}`, `{"type":"array"}`, `{"type":"object","properties":{"a":{"type":"object"}}}`, `{"type":"object","properties":{"a":{"type":"string","pattern":"secret"}}}`, `{"type":"object","$defs":{"X":{"type":"string"}},"properties":{"a":{"$ref":"#/$defs/X"}}}`, `{"type":"object","anyOf":[{}],"properties":{"a":{"type":"string"}}}`} {

@@ -92,11 +92,11 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	}
 	pollInterval := config.PollInterval
 	if pollInterval == 0 {
-		pollInterval = time.Duration(DefaultPollIntervalSeconds) * time.Second
+		pollInterval = DefaultPollInterval
 	}
 	pollTimeout := config.PollTimeout
 	if pollTimeout == 0 {
-		pollTimeout = time.Duration(DefaultPollTimeoutSeconds) * time.Second
+		pollTimeout = DefaultPollTimeout
 	}
 	return &ImageModel{
 		api:            api,
@@ -108,7 +108,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	}, nil
 }
 
-func (i *ImageModel) Call(ctx context.Context, request *image.Request) (_ *image.Response, invocationErr error) {
+func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.Response, error) {
 	if i == nil || i.api == nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("luma: nil ImageModel")}
 	}
@@ -174,18 +174,20 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (_ *image
 
 	submitted, err := i.api.createGeneration(ctx, params)
 	if err != nil {
-		return nil, fmt.Errorf("luma: create generation: %w", err)
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("luma: create generation: %w", err)}
 	}
-	defer func() {
-		if invocationErr != nil {
-			invocationErr = &invocation.Failure{Kind: invocation.FailureUnknown, Cause: invocationErr}
-		}
-	}()
 	completed, err := i.pollUntilDone(ctx, submitted.ID)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
-	return i.mapResponse(ctx, completed)
+	if completed.State == lumaagents.GenerationStateFailed {
+		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("luma: generation %q failed (%s): %s", completed.ID, completed.FailureCode, completed.FailureReason)}
+	}
+	response, err := i.mapResponse(ctx, completed)
+	if err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	return response, nil
 }
 
 func rejectUnsupportedOptions(options image.Options) error {
@@ -220,16 +222,10 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, generationID string) (*l
 			return nil, fmt.Errorf("luma: get generation %q: %w", generationID, err)
 		}
 		switch generation.State {
-		case lumaagents.GenerationStateCompleted:
+		case lumaagents.GenerationStateCompleted, lumaagents.GenerationStateFailed:
 			return generation, nil
 		case lumaagents.GenerationStateQueued, lumaagents.GenerationStateProcessing:
-		case lumaagents.GenerationStateFailed:
-			return nil, fmt.Errorf("luma: generation %q failed (%s): %s", generationID, generation.FailureCode, generation.FailureReason)
 		default:
-			// Continuing to poll is only safe for a state known to advance, so
-			// an unrecognized one is reported rather than absorbed: an added
-			// end state would otherwise arrive as this call's own timeout,
-			// whose obvious remedies are both wrong.
 			return nil, fmt.Errorf("luma: generation %q reports unrecognized state %q", generationID, generation.State)
 		}
 		select {

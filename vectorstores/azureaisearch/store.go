@@ -64,7 +64,8 @@ func (s *StoreConfig) applyDefaults() {
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	endpoint, err := url.Parse(s.Endpoint)
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || strings.ContainsAny(s.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
+	_, originErr := httpclient.NewOrigin(context.Background(), endpoint)
+	if err != nil || originErr != nil || strings.ContainsAny(s.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
 		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
 	}
 	if s.IndexName == "" {
@@ -267,7 +268,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err
 	}
-	actions := make([]map[string]any, 0, len(batch.Records))
+	actions := make([]indexingAction, 0, len(batch.Records))
 	for _, record := range batch.Records {
 		doc := record.Document
 		if doc.Media != nil {
@@ -284,7 +285,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		actions = append(actions, map[string]any{searchActionField: actionUpload, s.idField: doc.ID, s.contentField: doc.Text, s.embeddingField: coords, s.metadataField: string(raw)})
+		actions = append(actions, indexingAction{operation: actionUpload, id: doc.ID, fields: map[string]any{s.contentField: doc.Text, s.embeddingField: coords, s.metadataField: string(raw)}})
 	}
 	return s.writeActions(ctx, actions)
 }
@@ -395,7 +396,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	seen := make(map[string]struct{}, len(ids))
-	var actions []map[string]any
+	var actions []indexingAction
 	for _, id := range ids {
 		if err := validateID(id); err != nil {
 			return err
@@ -404,7 +405,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			continue
 		}
 		seen[id] = struct{}{}
-		actions = append(actions, map[string]any{searchActionField: actionDelete, s.idField: id})
+		actions = append(actions, indexingAction{operation: actionDelete, id: id})
 	}
 	return s.writeActions(ctx, actions)
 }
@@ -464,7 +465,7 @@ func (s *Store) searchDocuments(ctx context.Context, body any, limit int) ([]met
 	}
 }
 
-func (s *Store) writeActions(ctx context.Context, actions []map[string]any) error {
+func (s *Store) writeActions(ctx context.Context, actions []indexingAction) error {
 	if len(actions) == 0 {
 		return nil
 	}
@@ -473,7 +474,11 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 	}
 	prepared := make([]json.RawMessage, 0)
 	for batch := range slices.Chunk(actions, maximumDocumentsPerBatch) {
-		raw, err := jsonv2.Marshal(indexingRequest{Value: batch})
+		wire := make([]map[string]any, len(batch))
+		for i, action := range batch {
+			wire[i] = action.wire(s.idField)
+		}
+		raw, err := jsonv2.Marshal(indexingRequest{Value: wire})
 		if err != nil {
 			return err
 		}
@@ -486,10 +491,7 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 		return err
 	}
 	path := "/indexes/" + url.PathEscape(s.indexName) + "/docs/index"
-	ids := make([]string, len(actions))
-	for i, a := range actions {
-		ids[i] = a[s.idField].(string)
-	}
+	ids := actionIDs(actions)
 	for offset, group := range prepared {
 		start := offset * maximumDocumentsPerBatch
 		end := min(start+maximumDocumentsPerBatch, len(actions))
@@ -503,49 +505,11 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 		if err != nil {
 			return uncertain(err)
 		}
-		type result struct {
-			Key        string `json:"key"`
-			Status     *bool  `json:"status"`
-			StatusCode int    `json:"statusCode"`
-			Message    string `json:"errorMessage"`
-		}
-		var response struct {
-			Value []result `json:"value"`
-		}
-		if err = jsonv2.Unmarshal(raw, &response); err != nil {
-			return uncertain(err)
-		}
-		if len(response.Value) != end-start {
-			return uncertain(errors.New("azureaisearch: incomplete write acknowledgment"))
-		}
-		keyed := make(map[string]result, len(response.Value))
-		for _, item := range response.Value {
-			if _, twice := keyed[item.Key]; twice {
-				return uncertain(fmt.Errorf("azureaisearch: duplicate acknowledgment %q", item.Key))
-			}
-			keyed[item.Key] = item
-		}
-		outcome := vectorstore.WriteOutcome{Acknowledged: ids[:start], Unattempted: ids[end:]}
-		var cause error
-		for i, id := range ids[start:end] {
-			item, ok := keyed[id]
-			if !ok {
-				return uncertain(fmt.Errorf("azureaisearch: missing acknowledgment %q", id))
-			}
-			op := actions[start+i]["@search.action"]
-			switch {
-			case item.Status != nil && *item.Status && (item.StatusCode == http.StatusOK || op == "upload" && item.StatusCode == http.StatusCreated):
-				outcome.Acknowledged = append(outcome.Acknowledged, id)
-			case item.Status != nil && !*item.Status && item.StatusCode >= 400 && item.StatusCode < 600:
-				outcome.Rejected = append(outcome.Rejected, id)
-				cause = errors.Join(cause, fmt.Errorf("azureaisearch: document %q: status=%d: %s", id, item.StatusCode, item.Message))
-			default:
-				outcome.Unconfirmed = append(outcome.Unconfirmed, id)
-				cause = errors.Join(cause, fmt.Errorf("azureaisearch: inconsistent status for %q", id))
-			}
-		}
-		if cause != nil {
-			return vectorstore.NewWriteError(cause, outcome)
+		outcome, err := readIndexingEvidence(raw, actions[start:end])
+		if err != nil {
+			outcome.Acknowledged = slices.Concat(ids[:start], outcome.Acknowledged)
+			outcome.Unattempted = ids[end:]
+			return vectorstore.NewWriteError(err, outcome)
 		}
 	}
 	return nil

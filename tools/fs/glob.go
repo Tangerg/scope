@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -22,6 +24,10 @@ type GlobRequest struct {
 }
 
 func (g GlobRequest) Validate() error {
+	return toolinput.Rejection(g.validate())
+}
+
+func (g GlobRequest) validate() error {
 	_, err := g.resultLimit()
 	return err
 }

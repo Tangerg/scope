@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
@@ -19,6 +21,10 @@ type ApplyPatchRequest struct {
 }
 
 func (a ApplyPatchRequest) Validate() error {
+	return toolinput.Rejection(a.validate())
+}
+
+func (a ApplyPatchRequest) validate() error {
 	_, err := parseUnifiedPatch(a.Patch)
 	return err
 }

@@ -3,6 +3,7 @@ package chat_test
 import (
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 
@@ -38,6 +39,45 @@ func TestUsageZeroAndRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, usage) {
 		t.Fatalf("round trip = %#v, want %#v", got, usage)
+	}
+}
+
+func TestUsageCacheCountsPartitionInputWithoutOverflow(t *testing.T) {
+	for _, usage := range []chat.Usage{
+		{InputTokens: 10, CacheReadInputTokens: new(int64(8)), CacheWriteInputTokens: new(int64(8))},
+		{InputTokens: math.MaxInt64, CacheReadInputTokens: new(int64(math.MaxInt64)), CacheWriteInputTokens: new(int64(math.MaxInt64))},
+	} {
+		if err := usage.Validate(); !errors.Is(err, chat.ErrInvalidUsage) {
+			t.Errorf("overlapping cache partitions admitted: %+v, %v", usage, err)
+		}
+		if _, err := jsonv2.Marshal(usage); !errors.Is(err, chat.ErrInvalidUsage) {
+			t.Errorf("invalid partition serialized: %v", err)
+		}
+	}
+	for _, raw := range []string{
+		`{"input_tokens":10,"cache_read_input_tokens":8,"cache_write_input_tokens":8}`,
+		`{"input_tokens":9223372036854775807,"cache_read_input_tokens":9223372036854775807,"cache_write_input_tokens":9223372036854775807}`,
+	} {
+		original := chat.Usage{InputTokens: 3}
+		if err := jsonv2.Unmarshal([]byte(raw), &original); !errors.Is(err, chat.ErrInvalidUsage) || original.InputTokens != 3 {
+			t.Errorf("decode lost atomic admission: usage=%+v error=%v", original, err)
+		}
+	}
+	for _, usage := range []chat.Usage{
+		{},
+		{CacheReadInputTokens: new(int64(0)), CacheWriteInputTokens: new(int64(0))},
+		{InputTokens: 10, CacheReadInputTokens: new(int64(10))},
+		{InputTokens: 10, CacheWriteInputTokens: new(int64(10))},
+		{InputTokens: math.MaxInt64, CacheReadInputTokens: new(int64(math.MaxInt64 - 1)), CacheWriteInputTokens: new(int64(1))},
+	} {
+		encoded, err := jsonv2.Marshal(usage)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored chat.Usage
+		if err := jsonv2.Unmarshal(encoded, &restored); err != nil || !reflect.DeepEqual(restored, usage) {
+			t.Fatalf("cache presence or boundary lost: want=%+v got=%+v error=%v", usage, restored, err)
+		}
 	}
 }
 

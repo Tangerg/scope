@@ -1,12 +1,14 @@
 package protocol
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 // Gemini returns no candidates only when the prompt itself was refused, and it
@@ -40,7 +42,8 @@ func TestMapResponseReportsBlockedPrompt(t *testing.T) {
 			response := &genai.GenerateContentResponse{PromptFeedback: sample.feedback}
 
 			_, err := newProtocolResponseMapper("google").mapDelta("model", response)
-			if err == nil || err.Error() != sample.want {
+			failure, ok := errors.AsType[*invocation.Failure](err)
+			if !ok || failure.Kind != invocation.FailureFailed || failure.Cause.Error() != sample.want {
 				t.Fatalf("mapDelta() = %v, want %q", err, sample.want)
 			}
 		})

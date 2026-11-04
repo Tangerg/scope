@@ -248,7 +248,8 @@ func TestLoadSkillRejectsInvalidSourceResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tools := toolsForSource(t, returnedSkillSource{Source: newToolFS(), skill: tc.skill}, Config{})
 			out, err := invokeTestTool(t.Context(), tools["load_skill"], `{"name":"guide"}`)
-			if !errors.Is(err, tc.want) || testOutputText(out) != "" {
+			failure, definite := toolcontract.ClassifyFailure(err)
+			if !definite || !errors.Is(failure.Cause(), tc.want) || testOutputText(out) != "" {
 				t.Fatalf("output=%q error=%v, want no instructions and %v", testOutputText(out), err, tc.want)
 			}
 		})
@@ -264,7 +265,8 @@ func (i invalidListing) List(context.Context) ([]skillsrc.Summary, error) {
 func TestListSkillsRejectsInvalidSourceBeforePagination(t *testing.T) {
 	tools := toolsForSource(t, invalidListing{newToolFS()}, Config{})
 	out, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
-	if !errors.Is(err, skillsrc.ErrNameInvalid) || testOutputText(out) != "" {
+	failure, definite := toolcontract.ClassifyFailure(err)
+	if !definite || !errors.Is(failure.Cause(), skillsrc.ErrNameInvalid) || testOutputText(out) != "" {
 		t.Fatalf("output=%q error=%v", testOutputText(out), err)
 	}
 }

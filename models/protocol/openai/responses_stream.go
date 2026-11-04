@@ -62,11 +62,14 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			return nil, citationErr
 		}
 		if !typed.JSON.OutputIndex.Valid() || !typed.JSON.ContentIndex.Valid() || !typed.JSON.AnnotationIndex.Valid() ||
-			typed.ItemID == "" || r.content.messages[typed.OutputIndex].ItemID != typed.ItemID {
+			typed.ItemID == "" || r.content.messages[typed.OutputIndex].identity.ItemID != typed.ItemID {
 			return nil, fmt.Errorf("%w: openai responses: annotation is not bound to a reported message", corechat.ErrInvalidResponse)
 		}
+		if stateErr := r.content.messages[typed.OutputIndex].requireOpen(); stateErr != nil {
+			return nil, stateErr
+		}
 		position := responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
-		if evidence, known := r.content.segments[position]; !known || evidence.kind != responsesContentTypeText {
+		if evidence, known := r.content.messages[typed.OutputIndex].segments[typed.ContentIndex]; !known || evidence.kind != responsesContentTypeText {
 			return nil, fmt.Errorf("%w: openai responses: annotation references unknown text", corechat.ErrInvalidResponse)
 		}
 		if r.lastText == nil || *r.lastText != position {
@@ -92,12 +95,17 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseContentPartAddedEvent:
+		if stateErr := r.content.messages[typed.OutputIndex].requireOpen(); stateErr != nil {
+			return nil, stateErr
+		}
 		if typed.Part.Type != responsesReasoningContentText {
 			return nil, nil
 		}
 		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
+	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
+		return nil, r.content.messages[event.OutputIndex].requireOpen()
 	case responses.ResponseOutputItemDoneEvent:
 		return r.finishItem(typed)
 	case responses.ResponseCompletedEvent:

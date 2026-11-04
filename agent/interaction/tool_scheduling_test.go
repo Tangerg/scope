@@ -121,7 +121,8 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 }
 
 type inputValidatorTool struct {
-	called *atomic.Bool
+	called   *atomic.Bool
+	validate func([]byte) error
 }
 
 func (i inputValidatorTool) Definition() tool.Definition {
@@ -132,6 +133,9 @@ func (i inputValidatorTool) Call(context.Context, tool.Invocation) (tool.Result,
 	return tool.Result{Output: tool.NewTextOutput("must not execute")}, nil
 }
 func (i inputValidatorTool) InputValidator() func([]byte) error {
+	if i.validate != nil {
+		return i.validate
+	}
 	return func([]byte) error { panic("private-validator-detail") }
 }
 func (i inputValidatorTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
@@ -141,7 +145,13 @@ func (i inputValidatorTool) ConcurrencyPolicy() func(tool.Invocation) (string, b
 type rejectingAdmissionTool struct{ scriptTool }
 
 func (rejectingAdmissionTool) InputValidator() func([]byte) error {
-	return func([]byte) error { return errors.New("input is outside the tool's domain") }
+	return func([]byte) error {
+		rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "input is outside the tool's domain", Cause: errors.New("private admission detail")})
+		if err != nil {
+			return err
+		}
+		return rejection
+	}
 }
 
 func TestInputValidatorRejectsTheWholeBatchBeforeAnyWrite(t *testing.T) {
@@ -183,28 +193,51 @@ func TestInputValidatorRejectsTheWholeBatchBeforeAnyWrite(t *testing.T) {
 }
 
 func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
-	var called atomic.Bool
-	tools := toolSetTest(t, inputValidatorTool{called: &called})
-	manifest := tools.manifest()
-	if _, err := manifest.concurrentBatchEnd(t.Context(), []chat.ToolCall{requested("checked", "call")}); !errors.Is(err, errToolInputValidatorDefect) {
-		t.Fatal("validator defect became a scheduling decision", err)
-	}
-	runtime := conformancetest.Runtime(t, run.Config{})
-	program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-		return callResponse(requested("checked", "call")), nil
-	}))})
-	result, err := startInteraction(t, runtime, program).Await(t.Context())
+	rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "correct the input", Cause: errors.New("private-validator-detail")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	failure, ok := result.Termination().Failure()
-	if !ok || called.Load() || strings.Contains(failure.Message(), "private-validator-detail") {
-		t.Fatalf("validator defect lost its boundary: %+v called=%v", failure, called.Load())
+	foreign, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: rejection, Output: tool.NewTextOutput("another invocation")})
+	if err != nil {
+		t.Fatal(err)
 	}
-	prepared := tools.dispatcher.prepareToolCall(requested("checked", "call"), tool.Admission{})
-	if prepared.defect == nil || prepared.rejection != nil {
-		t.Fatal("dispatch validator defect became model-correctable feedback")
+	for _, row := range []struct {
+		name     string
+		validate func([]byte) error
+	}{
+		{"panic", nil},
+		{"ordinary diagnostic", func([]byte) error { return errors.New("private-validator-detail") }},
+		{"independent join", func([]byte) error { return errors.Join(rejection, errors.New("private-validator-detail")) }},
+		{"foreign outcome", func([]byte) error { return foreign }},
+		{"panic public rejection", func([]byte) error { panic(rejection) }},
+		{"cancellation diagnostic", func([]byte) error { return context.Canceled }},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			var called atomic.Bool
+			tools := toolSetTest(t, inputValidatorTool{called: &called, validate: row.validate})
+			manifest := tools.manifest()
+			if _, err := manifest.concurrentBatchEnd(t.Context(), []chat.ToolCall{requested("checked", "call")}); !errors.Is(err, errToolInputValidatorDefect) {
+				t.Fatal("validator defect became a scheduling decision", err)
+			}
+			runtime := conformancetest.Runtime(t, run.Config{})
+			program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+				return callResponse(requested("checked", "call")), nil
+			}))})
+			result, err := startInteraction(t, runtime, program).Await(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			failure, ok := result.Termination().Failure()
+			if !ok || called.Load() || strings.Contains(failure.Message(), "private-validator-detail") {
+				t.Fatalf("validator defect lost its boundary: %+v called=%v", failure, called.Load())
+			}
+			prepared := tools.dispatcher.prepareToolCall(requested("checked", "call"), tool.Admission{})
+			if prepared.defect == nil || prepared.rejection != nil {
+				t.Fatal("dispatch validator defect became model-correctable feedback")
+			}
+		})
 	}
+
 }
 
 func TestToolDefiniteFailuresRemainModelFeedbackAndNeverAdvertise(t *testing.T) {

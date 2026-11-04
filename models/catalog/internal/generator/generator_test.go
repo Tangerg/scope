@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/core/chat"
+
 	modelcatalog "github.com/Tangerg/scope/models/catalog"
 )
 
@@ -115,10 +117,10 @@ func TestGenerateOwnsEachProvidersFactsAndPreservesPricingPresence(t *testing.T)
 		t.Fatalf("filtered and ordered models: %+v", openai.Models)
 	}
 	free := openai.Models[0]
-	if cost, err := free.Pricing.Cost(modelcatalog.Usage{InputTokens: 10}); err != nil || cost != 0 || free.Pricing[0].CacheReadPer1M == nil || *free.Pricing[0].CacheReadPer1M != 0 || free.Pricing[0].CacheWritePer1M != nil {
+	if cost, err := free.Pricing.Cost(chat.Usage{InputTokens: 10}); err != nil || cost != 0 || free.Pricing[0].CacheReadPer1M == nil || *free.Pricing[0].CacheReadPer1M != 0 || free.Pricing[0].CacheWritePer1M != nil {
 		t.Fatalf("free pricing presence changed: %+v, cost=%g error=%v", free.Pricing, cost, err)
 	}
-	if _, err := openai.Models[2].Pricing.Cost(modelcatalog.Usage{}); !errors.Is(err, modelcatalog.ErrUnknownPricing) {
+	if _, err := openai.Models[2].Pricing.Cost(chat.Usage{}); !errors.Is(err, modelcatalog.ErrUnknownPricing) {
 		t.Fatalf("unknown pricing fabricated: %v", err)
 	}
 	if openai.Models[1].Reasoning.DefaultLevel != "low" {

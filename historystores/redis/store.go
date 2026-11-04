@@ -57,6 +57,8 @@ type StoreConfig struct {
 	// The host must bind Client and ScanNodes to the same logical Redis store.
 	ScanNodes func(context.Context, func(context.Context, *goredis.Client) error) error
 
+	// Braces are reserved for the conversation hash tag that keeps script keys
+	// in one Redis Cluster slot.
 	KeyPrefix string
 
 	TTL time.Duration
@@ -72,7 +74,7 @@ func (s StoreConfig) Validate() error {
 	if s.TTL < 0 {
 		return errors.New("redis: TTL must not be negative")
 	}
-	return nil
+	return (conversationKeyspace{prefix: s.KeyPrefix}).validate()
 }
 
 var (

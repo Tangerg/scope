@@ -94,13 +94,7 @@ func (m Middleware) Call(next coreembedding.Model) coreembedding.Model {
 		return coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) { return nil, err })
 	}
 	return coreembedding.ModelFunc(func(ctx context.Context, request *coreembedding.Request) (response *coreembedding.Response, err error) {
-		startedAt := time.Now()
-		attributes := m.requestAttributes(request)
-		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
-			trace.WithSpanKind(trace.SpanKindClient),
-			trace.WithTimestamp(startedAt),
-			trace.WithAttributes(attributes...),
-		)
+		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.tracer, m.spanName(request), m.requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
 			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
 		})

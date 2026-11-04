@@ -53,7 +53,7 @@ func TestSendMessageEnforcesPublishedInputModes(t *testing.T) {
 			for _, tc := range []struct {
 				mode    string
 				allowed bool
-			}{{"text/plain", true}, {"text/markdown", false}, {"application/xml", false}} {
+			}{{"text/plain", true}, {"TEXT/PLAIN", true}, {"text/plain; charset=utf-8", true}, {"text/markdown", false}, {"application/xml", false}} {
 				body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"input","role":"ROLE_USER","parts":[{"text":"hello","mediaType":%q}]}}}`, tc.mode)
 				rpc, reqErr := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/rpc", bytes.NewBufferString(body))
 				if reqErr != nil {
@@ -96,6 +96,22 @@ func TestInvalidDeclaredInputModeRefusesConstruction(t *testing.T) {
 	handler, err := a2a.NewHTTPHandler(a2a.ServerConfig{Card: card, Agent: echoAgent{}, TaskStore: testTaskStore(t)})
 	if handler != nil || !errors.Is(err, a2a.ErrInvalidCard) || !errors.Is(err, sdk.ErrInvalidParams) {
 		t.Fatalf("invalid published MIME: %v %v", handler, err)
+	}
+}
+
+func TestTextHandlerAcceptsEquivalentMIMETypes(t *testing.T) {
+	for _, mode := range []string{"TEXT/PLAIN", "text/plain; charset=utf-8"} {
+		t.Run(mode, func(t *testing.T) {
+			card := &sdk.AgentCard{
+				Name:                "echo",
+				SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("https://agent.example/rpc", sdk.TransportProtocolJSONRPC)},
+				DefaultInputModes:   []string{mode}, DefaultOutputModes: []string{mode},
+				Skills: []sdk.AgentSkill{{ID: "echo", InputModes: []string{mode}, OutputModes: []string{mode}}},
+			}
+			if _, err := a2a.NewHTTPHandler(a2a.ServerConfig{Agent: echoAgent{}, TaskStore: testTaskStore(t), Card: card}); err != nil {
+				t.Fatalf("plain-text card was rejected: %v", err)
+			}
+		})
 	}
 }
 

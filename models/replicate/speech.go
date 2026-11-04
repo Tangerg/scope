@@ -139,7 +139,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		return nil, err
 	}
 	return &SpeechModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, time.Duration(DefaultTTSPollTimeoutSeconds)*time.Second, speech.ErrInvalidResponse),
+		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, DefaultSpeechPollTimeout, speech.ErrInvalidResponse),
 		inputSchema:    config.InputSchema,
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil

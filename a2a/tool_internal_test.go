@@ -45,6 +45,9 @@ func TestRemoteToolRejectsBlankMessageDuringAdmission(t *testing.T) {
 		if !errors.Is(err, toolcontract.ErrInvalidInvocation) {
 			t.Fatalf("Prepare(%s) = %v, want ErrInvalidInvocation", arguments, err)
 		}
+		if rejection, public := toolcontract.ClassifyInputRejection(err); !public || rejection.Message() == "" || rejection.Cause() == nil {
+			t.Fatalf("Prepare(%s) did not expose a correctable input rejection: %v", arguments, err)
+		}
 	}
 }
 

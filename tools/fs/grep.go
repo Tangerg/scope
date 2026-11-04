@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -33,6 +35,10 @@ type GrepRequest struct {
 }
 
 func (g GrepRequest) Validate() error {
+	return toolinput.Rejection(g.validate())
+}
+
+func (g GrepRequest) validate() error {
 	if _, err := g.resultLimit(); err != nil {
 		return err
 	}

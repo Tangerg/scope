@@ -19,10 +19,18 @@ type Entry struct {
 }
 
 type Case struct {
-	Test      string `json:"test"`
-	Semantics string `json:"semantics"`
-	Support   string `json:"support"`
+	Test      string  `json:"test"`
+	Semantics string  `json:"semantics"`
+	Support   Support `json:"support"`
 }
+
+type Support string
+
+const (
+	SupportUnknown     Support = "unknown"
+	SupportSupported   Support = "supported"
+	SupportUnsupported Support = "unsupported"
+)
 
 func Plan() []Entry {
 	return []Entry{
@@ -30,36 +38,36 @@ func Plan() []Entry {
 			ID: "openai-chat", KeyEnv: "SCOPE_TEST_OPENAI_KEY", ModelEnv: "SCOPE_TEST_OPENAI_CHAT_MODEL",
 			BaseURL: "https://api.openai.com/v1", Directory: "models/protocol/openai",
 			Tests: []Case{
-				{Test: "TestCompatibleChat_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: "supported"},
-				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: "supported"},
+				{Test: "TestCompatibleChat_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: SupportSupported},
+				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: SupportSupported},
 			},
 		},
 		{
 			ID: "openai-responses", KeyEnv: "SCOPE_TEST_OPENAI_KEY", ModelEnv: "SCOPE_TEST_OPENAI_RESPONSES_MODEL",
 			BaseURL: "https://api.openai.com/v1", Directory: "models/protocol/openai",
 			Tests: []Case{
-				{Test: "TestResponses_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: "supported"},
-				{Test: "TestResponses_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: "supported"},
-				{Test: "TestResponsesTerminalStatesMatchAcrossCallAndStream", Semantics: "terminal_states", Support: "supported"},
-				{Test: "TestResponsesChatRejectsUnsupportedOptions", Semantics: "top_k", Support: "unsupported"},
+				{Test: "TestResponses_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: SupportSupported},
+				{Test: "TestResponses_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: SupportSupported},
+				{Test: "TestResponsesTerminalStatesMatchAcrossCallAndStream", Semantics: "terminal_states", Support: SupportSupported},
+				{Test: "TestResponsesChatRejectsUnsupportedOptions", Semantics: "top_k", Support: SupportUnsupported},
 			},
 		},
 		{
 			ID: "anthropic-messages", KeyEnv: "SCOPE_TEST_ANTHROPIC_KEY", ModelEnv: "SCOPE_TEST_ANTHROPIC_MESSAGES_MODEL",
 			BaseURL: "https://api.anthropic.com", Directory: "models/protocol/anthropic",
 			Tests: []Case{
-				{Test: "TestChat_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: "supported"},
-				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: "supported"},
-				{Test: "TestMessagesRequireCompleteTerminalSequence", Semantics: "terminal_states", Support: "supported"},
+				{Test: "TestChat_CoreConformance", Semantics: "ordered_parts_tools_citations_usage", Support: SupportSupported},
+				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: SupportSupported},
+				{Test: "TestMessagesRequireCompleteTerminalSequence", Semantics: "terminal_states", Support: SupportSupported},
 			},
 		},
 		{
 			ID: "google-generate-content", KeyEnv: "SCOPE_TEST_GOOGLE_KEY", ModelEnv: "SCOPE_TEST_GOOGLE_CHAT_MODEL",
 			BaseURL: "https://generativelanguage.googleapis.com", Directory: "models/google/internal/protocol",
 			Tests: []Case{
-				{Test: "TestChat_CoreConformance", Semantics: "ordered_parts_tools_reasoning_usage", Support: "supported"},
-				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: "supported"},
-				{Test: "TestProtocolToolChoiceUsesOneCoreSurface", Semantics: "single_tool_parallelism", Support: "unsupported"},
+				{Test: "TestChat_CoreConformance", Semantics: "ordered_parts_tools_reasoning_usage", Support: SupportSupported},
+				{Test: "TestChat_BehaviorConformance", Semantics: "cancellation_early_stop_first_error", Support: SupportSupported},
+				{Test: "TestProtocolToolChoiceUsesOneCoreSurface", Semantics: "single_tool_parallelism", Support: SupportUnsupported},
 			},
 		},
 	}
@@ -68,7 +76,7 @@ func Plan() []Entry {
 func LiveCases(entry string) []Case {
 	var cases []Case
 	for _, scenario := range []string{"text", "tool_round_trip", "json_schema"} {
-		cases = append(cases, Case{Test: "TestChatLive/" + entry + "/" + scenario, Semantics: scenario, Support: "supported"})
+		cases = append(cases, Case{Test: "TestChatLive/" + entry + "/" + scenario, Semantics: scenario, Support: SupportSupported})
 	}
 	return cases
 }

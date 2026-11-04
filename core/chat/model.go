@@ -2,8 +2,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"iter"
 )
+
+var ErrNilStream = errors.New("chat: streamer returned a nil sequence")
 
 // Model performs a complete provider-neutral exchange; streaming is a separate capability.
 type Model interface {
@@ -26,7 +29,7 @@ func (m ModelFunc) Call(ctx context.Context, request *Request) (*Response, error
 // Streamer is the optional streaming capability; [ResponseAccumulator] owns
 // aggregation of its deltas.
 type Streamer interface {
-	// Stream starts provider work lazily when the sequence is iterated. Each
+	// Stream returns a non-nil sequence and starts provider work lazily when it is iterated. Each
 	// yielded delta is independently owned, carries a cumulative usage snapshot,
 	// and is accepted by ResponseAccumulator. A failure yields (nil, err) at most
 	// once, preserving context error identity. Stopping iteration releases

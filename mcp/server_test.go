@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
@@ -184,7 +185,13 @@ func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
 				return tool.NewTextOutput("unreachable"), nil
 			},
 		},
-		validator: func([]byte) error { return errors.New("argument is out of range") },
+		validator: func([]byte) error {
+			rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "argument is out of range", Cause: errors.New("private rule detail")})
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("private wrapper: %w", rejection)
+		},
 	}
 	cs, cleanup := connectPair(t, ctx, picky)
 	defer cleanup()
@@ -193,6 +200,8 @@ func TestRegisterInvalidArgumentsStayModelVisible(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, res)
 	assert.True(t, res.IsError, "model-correctable argument errors stay visible")
+	require.Len(t, res.Content, 1)
+	require.Equal(t, "argument is out of range", res.Content[0].(*sdkmcp.TextContent).Text)
 	assert.EqualValues(t, 0, calls.Load())
 }
 
@@ -377,4 +386,116 @@ func registerTestTools(server *sdkmcp.Server, executables ...tool.Tool) error {
 		bindings = append(bindings, binding)
 	}
 	return scopemcp.Register(server, bindings...)
+}
+
+func TestRegisterValidatorDiagnosticsNeverBecomeModelFeedback(t *testing.T) {
+	secret := errors.New("credential and internal host secret")
+	rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "use an even count", Cause: secret})
+	require.NoError(t, err)
+	failure, err := tool.NewFailure(tool.FailureConfig{Kind: tool.FailureKindFailed, Cause: secret, Output: tool.NewTextOutput("another invocation's output")})
+	require.NoError(t, err)
+	for _, row := range []struct {
+		name      string
+		validator func([]byte) error
+	}{
+		{"plain diagnostic", func([]byte) error { return secret }},
+		{"execution outcome", func([]byte) error { return fmt.Errorf("validator: %w", failure) }},
+		{"ambiguous rejection", func([]byte) error { return errors.Join(rejection, secret) }},
+		{"panic rejection", func([]byte) error { panic(rejection) }},
+		{"panic execution outcome", func([]byte) error { panic(failure) }},
+		{"invalid rejection", func([]byte) error { return new(tool.InputRejection) }},
+		{"cancellation diagnostic", func([]byte) error { return context.Canceled }},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			var calls atomic.Int32
+			executable := validatingTool{testTool: testTool{definition: tool.Definition{Name: "checked", InputSchema: json.RawMessage(`{"type":"object"}`)}, call: func(context.Context, tool.Invocation) (tool.Output, error) {
+				calls.Add(1)
+				return tool.NewTextOutput("unexpected"), nil
+			}}, validator: row.validator}
+			session, cleanup := connectPair(t, t.Context(), executable)
+			defer cleanup()
+			result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: "checked", Arguments: map[string]any{}})
+			require.Nil(t, result)
+			protocolError, found := errors.AsType[*jsonrpc.Error](err)
+			require.True(t, found, "call error = %v", err)
+			require.Equal(t, jsonrpc.CodeInternalError, int(protocolError.Code))
+			require.Equal(t, "tool input validation failed", protocolError.Message)
+			require.Empty(t, protocolError.Data)
+			require.Zero(t, calls.Load())
+		})
+	}
+}
+
+type privateValidatorInput struct {
+	Value string `json:"value"`
+}
+
+func (privateValidatorInput) Validate() error {
+	return errors.New("private validator credential")
+}
+
+type privateDecoderInput struct {
+	Value string `json:"value"`
+}
+
+func (*privateDecoderInput) UnmarshalJSON([]byte) error {
+	return errors.New("private decoder credential")
+}
+
+type publicValidatorInput struct {
+	Value string `json:"value"`
+}
+
+func (publicValidatorInput) Validate() error {
+	rejection, err := tool.NewInputRejection(tool.InputRejectionConfig{Message: "value must select an available option", Cause: errors.New("private validation detail")})
+	if err != nil {
+		return err
+	}
+	return rejection
+}
+
+func TestRegisterTypedAdmissionPublishesOnlyExplicitCorrections(t *testing.T) {
+	var calls atomic.Int32
+	validator, err := tool.NewFunc(tool.FuncConfig{Name: "validator"}, func(context.Context, privateValidatorInput) (string, error) {
+		calls.Add(1)
+		return "unexpected", nil
+	})
+	require.NoError(t, err)
+	decoder, err := tool.NewFunc(tool.FuncConfig{Name: "decoder"}, func(context.Context, privateDecoderInput) (string, error) {
+		calls.Add(1)
+		return "unexpected", nil
+	})
+	require.NoError(t, err)
+	correctable, err := tool.NewFunc(tool.FuncConfig{Name: "correctable"}, func(context.Context, publicValidatorInput) (string, error) {
+		calls.Add(1)
+		return "unexpected", nil
+	})
+	require.NoError(t, err)
+	for _, row := range []struct {
+		executable tool.Tool
+		message    string
+	}{
+		{executable: validator},
+		{executable: decoder, message: "arguments cannot be decoded into the tool's input type"},
+		{executable: correctable, message: "value must select an available option"},
+	} {
+		t.Run(row.executable.Definition().Name, func(t *testing.T) {
+			session, cleanup := connectPair(t, t.Context(), row.executable)
+			defer cleanup()
+			result, err := session.CallTool(t.Context(), &sdkmcp.CallToolParams{Name: row.executable.Definition().Name, Arguments: map[string]any{"value": "bad"}})
+			if row.message == "" {
+				require.Nil(t, result)
+				protocolError, found := errors.AsType[*jsonrpc.Error](err)
+				require.True(t, found, "error = %v", err)
+				require.Equal(t, "tool input validation failed", protocolError.Message)
+				require.Empty(t, protocolError.Data)
+			} else {
+				require.NoError(t, err)
+				require.True(t, result.IsError)
+				require.Len(t, result.Content, 1)
+				require.Equal(t, row.message, result.Content[0].(*sdkmcp.TextContent).Text)
+			}
+			require.Zero(t, calls.Load())
+		})
+	}
 }

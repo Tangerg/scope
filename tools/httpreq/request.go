@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"golang.org/x/net/http/httpguts"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -35,7 +37,7 @@ func (r *Request) prepare() (*Request, error) {
 	prepared.Method = method
 	prepared.Headers = maps.Clone(r.Headers)
 	prepared.Query = maps.Clone(r.Query)
-	if err := prepared.Validate(); err != nil {
+	if err := prepared.validate(); err != nil {
 		return nil, err
 	}
 	return &prepared, nil
@@ -49,6 +51,10 @@ func (r *Request) timeout(fallback time.Duration) time.Duration {
 }
 
 func (r *Request) Validate() error {
+	return toolinput.Rejection(r.validate())
+}
+
+func (r *Request) validate() error {
 	if r == nil {
 		return ErrNilRequest
 	}

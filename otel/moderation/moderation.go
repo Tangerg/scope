@@ -88,13 +88,7 @@ func (m Middleware) Call(next coremoderation.Model) coremoderation.Model {
 		return coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) { return nil, err })
 	}
 	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (response *coremoderation.Response, err error) {
-		startedAt := time.Now()
-		attributes := m.requestAttributes(request)
-		spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
-			trace.WithSpanKind(trace.SpanKindClient),
-			trace.WithTimestamp(startedAt),
-			trace.WithAttributes(attributes...),
-		)
+		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.tracer, m.spanName(request), m.requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
 			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
 		})

@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	// RequestExtensionKey stores MiniMax-specific Chat Completions options in a
-	// Core request.
 	RequestExtensionKey = Provider + "/request"
 	reasoningSplitField = "reasoning_split"
+	thinkingField       = "thinking"
+	serviceTierField    = "service_tier"
 )
 
 // ThinkingType controls MiniMax-M3 thinking. M2.x models ignore disabled and
@@ -26,6 +26,10 @@ const (
 	ThinkingAdaptive ThinkingType = "adaptive"
 	ThinkingDisabled ThinkingType = "disabled"
 )
+
+type thinkingConfig struct {
+	Type ThinkingType `json:"type"`
+}
 
 type ServiceTier string
 
@@ -57,8 +61,7 @@ func (c ChatRequestOptions) Validate() error {
 	return nil
 }
 
-// reasoningSplitDialect keeps MiniMax thinking separate from answer content.
-// The official API otherwise embeds thinking in content inside <think> tags.
+// MiniMax otherwise embeds thinking in answer content inside <think> tags.
 func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
 	extension, found, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
@@ -77,12 +80,12 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 		return err
 	}
 	if found && extension.Thinking != "" {
-		if err := target.SetExtraField("thinking", map[string]any{"type": extension.Thinking}); err != nil {
+		if err := target.SetExtraField(thinkingField, thinkingConfig{Type: extension.Thinking}); err != nil {
 			return err
 		}
 	}
 	if found && extension.ServiceTier != "" {
-		if err := target.SetExtraField("service_tier", extension.ServiceTier); err != nil {
+		if err := target.SetExtraField(serviceTierField, extension.ServiceTier); err != nil {
 			return err
 		}
 	}

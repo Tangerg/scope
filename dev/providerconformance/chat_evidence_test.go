@@ -59,10 +59,10 @@ func runChatEvidence(parent context.Context, root, output, live string) error {
 			failures = append(failures, fmt.Errorf("%s offline: %w", entry.ID, testErr))
 		}
 		for _, scenario := range entry.Tests {
-			row := results.Evidence(entry.ID, "offline_protocol", "", scenario)
+			row := results.Evidence(entry.ID, chatcheck.LevelOfflineProtocol, "", scenario)
 			row.Directory = entry.Directory
 			evidence = append(evidence, row)
-			if row.Status != "verified" {
+			if row.Status != chatcheck.StatusVerified {
 				failures = append(failures, fmt.Errorf("%s: %s is %s", entry.ID, scenario.Test, row.Status))
 			}
 		}
@@ -72,10 +72,10 @@ func runChatEvidence(parent context.Context, root, output, live string) error {
 		failures = append(failures, fmt.Errorf("public bindings: %w", bindingsErr))
 	}
 	for _, entry := range chatcheck.Plan() {
-		row := bindings.Evidence(entry.ID, "offline_binding", "", chatcheck.Case{Test: "TestChatBindings/" + entry.ID, Semantics: "text_tool_round_trip_json_schema", Support: "supported"})
+		row := bindings.Evidence(entry.ID, chatcheck.LevelOfflineBinding, "", chatcheck.Case{Test: "TestChatBindings/" + entry.ID, Semantics: "text_tool_round_trip_json_schema", Support: chatcheck.SupportSupported})
 		row.Directory = "dev/providerconformance"
 		evidence = append(evidence, row)
-		if row.Status != "verified" {
+		if row.Status != chatcheck.StatusVerified {
 			failures = append(failures, fmt.Errorf("%s public binding is %s", entry.ID, row.Status))
 		}
 	}
@@ -85,10 +85,10 @@ func runChatEvidence(parent context.Context, root, output, live string) error {
 	}
 	for _, entry := range chatcheck.Plan() {
 		for _, scenario := range chatcheck.LiveCases(entry.ID) {
-			row := results.Evidence(entry.ID, "live_model", os.Getenv(entry.ModelEnv), scenario)
+			row := results.Evidence(entry.ID, chatcheck.LevelLiveModel, os.Getenv(entry.ModelEnv), scenario)
 			row.Directory = "dev/providerconformance"
 			evidence = append(evidence, row)
-			if row.Outcome == "not_run" || (selected[entry.ID] && row.Status != "verified") {
+			if row.Outcome == chatcheck.ActionNotRun || (selected[entry.ID] && row.Status != chatcheck.StatusVerified) {
 				failures = append(failures, fmt.Errorf("%s: %s is %s", entry.ID, scenario.Test, row.Status))
 			}
 		}
@@ -144,8 +144,8 @@ func TestChatEvidenceRespectsCanceledContext(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v; want context cancellation", err)
 	}
-	row := results.Evidence("binding", "live_model", "test-model", chatcheck.Case{Test: "TestChatBindings", Support: "supported"})
-	if row.Status != "unverified" || row.Outcome != "not_run" || row.Support != "unknown" {
+	row := results.Evidence("binding", chatcheck.LevelLiveModel, "test-model", chatcheck.Case{Test: "TestChatBindings", Support: chatcheck.SupportSupported})
+	if row.Status != chatcheck.StatusUnverified || row.Outcome != chatcheck.ActionNotRun || row.Support != chatcheck.SupportUnknown {
 		t.Fatalf("canceled evidence = %+v", row)
 	}
 }

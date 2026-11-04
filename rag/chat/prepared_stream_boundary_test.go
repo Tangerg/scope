@@ -51,7 +51,7 @@ func TestPreparedStreamPreservesFailureEvidenceAndStopsAtItsBoundary(t *testing.
 		})
 	}
 	for delta, err := range prepared.Stream(t.Context(), chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil })) {
-		if delta != nil || !errors.Is(err, ragchat.ErrNilStreamSequence) {
+		if delta != nil || !errors.Is(err, chat.ErrNilStream) {
 			t.Fatalf("nil sequence = %v, %v", delta, err)
 		}
 	}

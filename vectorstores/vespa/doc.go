@@ -63,7 +63,7 @@
 // protection, not a revision CAS for text or vector-only changes. Native failures
 // can leave an earlier deletion prefix applied.
 //
-// Index validates IDs, text, batching, complete Core metadata, and all float32
+// Upsert validates IDs, text, batching, complete Core metadata, and all float32
 // vectors before its first document put. Existing IDs are replaced by native put
 // semantics. Each response must acknowledge the requested native ID. A later
 // transport or native failure can leave an earlier put prefix applied. HTTP

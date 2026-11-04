@@ -2,6 +2,7 @@ package bedrockkb
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockagentruntime/types"
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -51,7 +53,8 @@ type Config struct {
 
 func (c Config) Validate() error {
 	endpoint, err := url.Parse(c.Endpoint)
-	if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil || strings.ContainsAny(c.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
+	_, originErr := httpclient.NewOrigin(context.Background(), endpoint)
+	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
 		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
 	}
 	if c.HTTPClient == nil {

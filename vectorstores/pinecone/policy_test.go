@@ -45,6 +45,8 @@ func TestNativePolicyHasNoConfiguredCompetitorOrDefault(t *testing.T) {
 		"empty fragment":      func(index *pineconesdk.Index) { index.Host = "https://native.fixture#" },
 		"credentials":         func(index *pineconesdk.Index) { index.Host = "https://user@native.fixture" },
 		"host path":           func(index *pineconesdk.Index) { index.Host = "native.fixture/path" },
+		"host query":          func(index *pineconesdk.Index) { index.Host = "https://native.fixture?scope=a" },
+		"non-HTTP host":       func(index *pineconesdk.Index) { index.Host = "ftp://native.fixture" },
 		"missing schema":      func(index *pineconesdk.Index) { index.Schema = nil },
 		"zero dimension":      func(index *pineconesdk.Index) { index.Schema.Fields[vectorField].DenseVector.Dimension = 0 },
 		"too many dimensions": func(index *pineconesdk.Index) { index.Schema.Fields[vectorField].DenseVector.Dimension = 20001 },

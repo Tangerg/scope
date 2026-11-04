@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/tools/internal/toolinput"
 )
 
 type ContentFormat string
@@ -63,13 +65,17 @@ func (f *FetchRequest) Prepare() (*FetchRequest, error) {
 		return nil, err
 	}
 	prepared.Format = format
-	if err := prepared.Validate(); err != nil {
+	if err := prepared.validate(); err != nil {
 		return nil, err
 	}
 	return &prepared, nil
 }
 
 func (f *FetchRequest) Validate() error {
+	return toolinput.Rejection(f.validate())
+}
+
+func (f *FetchRequest) validate() error {
 	if f == nil {
 		return ErrMissingFetchRequest
 	}

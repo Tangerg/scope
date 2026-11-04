@@ -21,6 +21,13 @@ type RerankRequestOptions struct {
 	Priority        *int `json:"priority,omitzero"`
 }
 
+func (r RerankRequestOptions) Validate() error {
+	if r.Priority != nil {
+		return requestPriority(*r.Priority).validate()
+	}
+	return nil
+}
+
 func (r *RerankRequestOptions) UnmarshalJSON(data []byte) error {
 	type wireOptions RerankRequestOptions
 	var decoded *wireOptions
@@ -30,7 +37,11 @@ func (r *RerankRequestOptions) UnmarshalJSON(data []byte) error {
 	if decoded == nil {
 		return errors.New("cohere: rerank options must be an object")
 	}
-	*r = RerankRequestOptions(*decoded)
+	value := RerankRequestOptions(*decoded)
+	if err := value.Validate(); err != nil {
+		return err
+	}
+	*r = value
 	return nil
 }
 

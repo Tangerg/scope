@@ -332,7 +332,7 @@ func (s *Store) runStatement(ctx context.Context, stmt string, params map[string
 	return ctx.Err()
 }
 
-// DeleteWhere preflights the entire collection before the first mutation. CAS
+// DeleteMatching preflights the entire collection before the first mutation. CAS
 // prevents deletion of a replacement that was never evaluated by Core.
 func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {

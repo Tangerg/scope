@@ -9,8 +9,8 @@ func TestEvidenceNeverPromotesMissingSkippedOrFailedTests(t *testing.T) {
 	for _, test := range []struct {
 		name    string
 		events  string
-		status  string
-		support string
+		status  EvidenceStatus
+		support Support
 	}{
 		{"passed", `{"Action":"run","Test":"TestProof"}
 {"Action":"pass","Test":"TestProof/child"}

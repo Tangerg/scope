@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 )
 
@@ -40,11 +41,38 @@ type Reader struct {
 	useAES     bool
 }
 
+type xrefKind uint8
+
+const (
+	xrefAbsent xrefKind = iota
+	xrefNull
+	xrefUncompressed
+	xrefCompressed
+)
+
+const (
+	xrefStreamFree         = 0
+	xrefStreamUncompressed = 1
+	xrefStreamCompressed   = 2
+)
+
 type xref struct {
-	ptr      objptr
-	inStream bool
-	stream   objptr
-	offset   int64
+	kind   xrefKind
+	ptr    objptr
+	stream objptr
+	offset int64
+}
+
+// Revisions are read newest first. A null entry must retain ownership so an
+// older definition cannot resurrect a deleted or unknown object.
+func (x *xref) admit(entry xref) {
+	if x.kind == xrefAbsent {
+		*x = entry
+	}
+}
+
+func (x xref) resolves(ptr objptr) bool {
+	return (x.kind == xrefUncompressed || x.kind == xrefCompressed) && x.ptr == ptr
 }
 
 func NewReader(ctx context.Context, f io.ReaderAt, size int64, limits Limits, userPassword []byte) (r *Reader, err error) {
@@ -265,36 +293,39 @@ func readXrefStreamData(r *Reader, strm stream, table []xref, size int64) ([]xre
 			if err != nil {
 				return nil, fmt.Errorf("error reading xref stream: %w", err)
 			}
-			v1 := decodeInt(buf[0:w[0]])
+			v1 := decodeUint(buf[0:w[0]])
 			if w[0] == 0 {
-				v1 = 1
+				v1 = xrefStreamUncompressed
 			}
-			v2 := decodeInt(buf[w[0] : w[0]+w[1]])
-			v3 := decodeInt(buf[w[0]+w[1] : w[0]+w[1]+w[2]])
+			v2 := decodeUint(buf[w[0] : w[0]+w[1]])
+			v3 := decodeUint(buf[w[0]+w[1] : w[0]+w[1]+w[2]])
 			x := int(start) + i
 			table = ensureXrefLen(r.budget, table, x)
-			if table[x].ptr != (objptr{}) {
-				continue
-			}
 			switch v1 {
-			case 0:
-				table[x] = xref{ptr: objptr{0, 65535}}
-			case 1:
-				table[x] = xref{ptr: objptr{uint32(x), uint16(v3)}, offset: int64(v2)}
-			case 2:
-				table[x] = xref{ptr: objptr{uint32(x), 0}, inStream: true, stream: objptr{uint32(v2), 0}, offset: int64(v3)}
+			case xrefStreamUncompressed:
+				if v2 > math.MaxInt64 || v3 > math.MaxUint16 {
+					return nil, errors.New("malformed PDF: invalid uncompressed xref entry")
+				}
+				table[x].admit(xref{kind: xrefUncompressed, ptr: objptr{uint32(x), uint16(v3)}, offset: int64(v2)})
+			case xrefStreamCompressed:
+				if v2 > math.MaxUint32 || v3 > math.MaxInt64 {
+					return nil, errors.New("malformed PDF: invalid compressed xref entry")
+				}
+				table[x].admit(xref{kind: xrefCompressed, ptr: objptr{uint32(x), 0}, stream: objptr{uint32(v2), 0}, offset: int64(v3)})
+			case xrefStreamFree:
+				table[x].admit(xref{kind: xrefNull})
 			default:
-
+				table[x].admit(xref{kind: xrefNull})
 			}
 		}
 	}
 	return table, nil
 }
 
-func decodeInt(b []byte) int {
-	x := 0
+func decodeUint(b []byte) uint64 {
+	var x uint64
 	for _, c := range b {
-		x = x<<8 | int(c)
+		x = x<<8 | uint64(c)
 	}
 	return x
 }
@@ -375,13 +406,15 @@ func readXrefTableData(b *buffer, table []xref) ([]xref, error) {
 			off, ok1 := b.readToken().(int64)
 			gen, ok2 := b.readToken().(int64)
 			alloc, ok3 := b.readToken().(keyword)
-			if !ok1 || !ok2 || !ok3 || alloc != keyword("f") && alloc != keyword("n") {
+			if !ok1 || !ok2 || !ok3 || off < 0 || gen < 0 || gen > math.MaxUint16 || alloc != keyword("f") && alloc != keyword("n") {
 				return nil, fmt.Errorf("malformed xref table")
 			}
 			x := int(start) + i
 			table = ensureXrefLen(b.budget, table, x)
-			if alloc == "n" && table[x].offset == 0 {
-				table[x] = xref{ptr: objptr{uint32(x), uint16(gen)}, offset: int64(off)}
+			if alloc == "n" {
+				table[x].admit(xref{kind: xrefUncompressed, ptr: objptr{uint32(x), uint16(gen)}, offset: off})
+			} else {
+				table[x].admit(xref{kind: xrefNull})
 			}
 		}
 	}
@@ -537,11 +570,11 @@ func (r *Reader) resolve(parent objptr, x interface{}) Value {
 			return Value{}
 		}
 		entry := r.xref[ptr.id]
-		if entry.ptr != ptr || !entry.inStream && entry.offset == 0 {
+		if !entry.resolves(ptr) {
 			return Value{}
 		}
 		var obj object
-		if entry.inStream {
+		if entry.kind == xrefCompressed {
 			strm := r.resolve(parent, entry.stream)
 		Search:
 			for {
@@ -600,12 +633,15 @@ func (r *Reader) streamObject(strm Value, ptr objptr) (object, bool) {
 	b := newBuffer(data, 0, r.budget)
 	b.allowEOF = true
 	for range n {
-		id, _ := b.readToken().(int64)
-		offset, _ := b.readToken().(int64)
+		id, validID := b.readToken().(int64)
+		offset, validOffset := b.readToken().(int64)
+		if !validID || id <= 0 || id > math.MaxUint32 {
+			panic("invalid object stream identity")
+		}
+		if !validOffset || offset < 0 || offset > math.MaxInt64-first {
+			panic("invalid object stream offset")
+		}
 		if uint32(id) == ptr.id {
-			if offset < 0 || first+offset < first {
-				panic("invalid object stream offset")
-			}
 			b.seekForward(first + offset)
 			return b.readObject(), true
 		}

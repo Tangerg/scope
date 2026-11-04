@@ -4,7 +4,15 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 
+	"github.com/openai/openai-go/v3/shared/constant"
+
 	corechat "github.com/Tangerg/scope/core/chat"
+)
+
+const (
+	finishReasonStop          = "stop"
+	finishReasonLength        = "length"
+	finishReasonContentFilter = "content_filter"
 )
 
 func audioMIME(format string) string {
@@ -30,13 +38,13 @@ func normalizeFinishReason(reason string) corechat.FinishReason {
 	switch reason {
 	case "":
 		return ""
-	case "stop":
+	case finishReasonStop:
 		return corechat.FinishReasonStop
-	case "length":
+	case finishReasonLength:
 		return corechat.FinishReasonLength
-	case "tool_calls":
+	case string(constant.ValueOf[constant.ToolCalls]()):
 		return corechat.FinishReasonToolCalls
-	case "content_filter":
+	case finishReasonContentFilter:
 		return corechat.FinishReasonContentFilter
 	default:
 		return corechat.FinishReasonOther

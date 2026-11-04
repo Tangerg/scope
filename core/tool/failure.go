@@ -116,31 +116,14 @@ func (f *Failure) Output() Output {
 //
 //nolint:errorlint // errors.As would cross independent invocation boundaries.
 func ClassifyFailure(err error) (*Failure, bool) {
-	if lo.IsNil(err) {
-		return nil, false
-	}
-	if failure, ok := err.(*Failure); ok {
-		if failure.Validate() != nil {
-			return nil, false
-		}
-		return failure, true
-	}
-	switch wrapped := err.(type) {
-	case interface{ Unwrap() error }:
-		return ClassifyFailure(wrapped.Unwrap())
-	case interface{ Unwrap() []error }:
-		var cause error
-		for _, candidate := range wrapped.Unwrap() {
-			if candidate == nil {
-				continue
-			}
-			if cause != nil {
+	for !lo.IsNil(err) {
+		if failure, ok := err.(*Failure); ok {
+			if failure.Validate() != nil {
 				return nil, false
 			}
-			cause = candidate
+			return failure, true
 		}
-		return ClassifyFailure(cause)
-	default:
-		return nil, false
+		err = transparentCause(err)
 	}
+	return nil, false
 }

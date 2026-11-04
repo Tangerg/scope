@@ -10,9 +10,8 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-// errToolInputValidatorDefect is the fixed, model-safe diagnostic for a tool
-// whose input validator panicked. The recovered value is an internal fault, so
-// its classification replaces it and it never reaches the model.
+// Validator diagnostics may contain private details, so only a fixed defect
+// category crosses into the run's failure.
 var errToolInputValidatorDefect = errors.New("interaction: tool input validation failed")
 
 type preparedToolCall struct {
@@ -20,10 +19,7 @@ type preparedToolCall struct {
 	binding    tool.Binding
 	invocation tool.Invocation
 	rejection  *toolCallResult
-	// defect holds an input-validator panic, kept separate from rejection: it is
-	// an internal fault that settles the dispatch as a definite failure rather
-	// than a model-correctable argument error.
-	defect error
+	defect     error
 }
 
 // toolDispatcher executes bound Tools. Its manifest is the one index of each
@@ -185,11 +181,12 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 	prepared.binding = binding
 	invocation, err := t.manifest.entries[call.Name].prepare(call, admission)
 	if err != nil {
-		if _, defect := errors.AsType[*tool.InputValidationPanicError](err); defect {
+		rejection, public := tool.ClassifyInputRejection(err)
+		if !public {
 			prepared.defect = err
 			return prepared
 		}
-		prepared.rejection = new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(err.Error())))
+		prepared.rejection = new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(rejection.Message())))
 		return prepared
 	}
 	prepared.invocation = invocation

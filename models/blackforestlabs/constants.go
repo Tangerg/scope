@@ -1,5 +1,7 @@
 package blackforestlabs
 
+import "time"
+
 // Provider is the stable backend name for host-side attribution.
 const (
 	Provider = "blackforestlabs"
@@ -8,17 +10,11 @@ const (
 const (
 	ImageRequestExtensionKey = Provider + "/image_request"
 
-	// DefaultBaseURL is BFL's production endpoint.
-	DefaultBaseURL = "https://api.bfl.ai/v1"
-
-	// DefaultPollInterval / DefaultPollTimeout configure how Call waits
-	// for an async generation to complete. BFL's typical render time
-	// is 3–15s for flux-dev / flux-pro / flux-schnell.
-	DefaultPollIntervalSeconds = 1
-	DefaultPollTimeoutSeconds  = 120
+	DefaultBaseURL      = "https://api.bfl.ai/v1"
+	DefaultPollInterval = time.Second
+	DefaultPollTimeout  = 2 * time.Minute
 )
 
-// Current official image-generation endpoint identifiers.
 const (
 	ModelFlux2Max            = "flux-2-max"
 	ModelFlux2ProPreview     = "flux-2-pro-preview"

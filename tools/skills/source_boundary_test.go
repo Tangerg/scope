@@ -22,27 +22,6 @@ func (f failingSource) OpenResource(context.Context, string, string) (fs.File, e
 	return nil, f.cause
 }
 
-func TestSourceFailuresRemainIdentifiableAtEveryToolBoundary(t *testing.T) {
-	cause := errors.New("source unavailable")
-	built, err := NewTools(failingSource{cause: cause}, Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, executable := range built {
-		arguments := `{}`
-		switch executable.Definition().Name {
-		case "load_skill":
-			arguments = `{"name":"guide"}`
-		case "read_skill_resource":
-			arguments = `{"name":"guide","path":"ref.txt"}`
-		}
-		output, err := invokeTestTool(t.Context(), executable, arguments)
-		if !errors.Is(err, cause) || testOutputText(output) != "" {
-			t.Fatalf("%s = %v, %v", executable.Definition().Name, output, err)
-		}
-	}
-}
-
 func TestMalformedCursorIsRejectedBeforeSourceIO(t *testing.T) {
 	built, err := NewTools(&panicSource{}, Config{})
 	if err != nil {

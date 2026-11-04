@@ -71,8 +71,100 @@ func (r *responsesMessageIdentity) UnmarshalJSON(data []byte) error {
 }
 
 type responsesStreamContent struct {
-	segments map[responsesContentPosition]responsesContentEvidence
-	messages map[int64]responsesMessageIdentity
+	messages map[int64]responsesMessageState
+}
+
+type responsesMessageCompletion struct {
+	contentCount int
+	status       *responses.ResponseOutputMessageStatus
+}
+
+type responsesMessageState struct {
+	identity   responsesMessageIdentity
+	completion *responsesMessageCompletion
+	segments   map[int64]responsesContentEvidence
+}
+
+func (r responsesMessageState) requireOpen() error {
+	if r.completion != nil {
+		return fmt.Errorf("%w: openai responses: message %q is already complete", corechat.ErrInvalidResponse, r.identity.ItemID)
+	}
+	return nil
+}
+
+func (r responsesMessageState) validateTerminal(message responses.ResponseOutputMessage) error {
+	if r.identity != (responsesMessageIdentity{ItemID: message.ID, Phase: message.Phase}) {
+		return fmt.Errorf("%w: openai responses: terminal response changed message identity or phase", corechat.ErrInvalidResponse)
+	}
+	if r.completion != nil && (r.completion.contentCount != len(message.Content) || r.completion.status != nil && *r.completion.status != message.Status) {
+		return fmt.Errorf("%w: openai responses: terminal response changed completed message %q", corechat.ErrInvalidResponse, r.identity.ItemID)
+	}
+	for index, evidence := range r.segments {
+		if index >= int64(len(message.Content)) || !evidence.matches(message.Content[index]) {
+			return fmt.Errorf("%w: openai responses: message %q omitted or changed content at index %d", corechat.ErrInvalidResponse, r.identity.ItemID, index)
+		}
+	}
+	return nil
+}
+
+func (r responsesMessageState) validateCompletedContent(message responses.ResponseOutputMessage) error {
+	for index, content := range message.Content {
+		if content.Type != responsesContentTypeText && content.Type != responsesContentTypeRefusal {
+			continue
+		}
+		evidence, exists := r.segments[int64(index)]
+		if !exists {
+			evidence = responsesContentEvidence{kind: content.Type}
+		}
+		if !evidence.matches(content) {
+			return fmt.Errorf("%w: openai responses: completed message %q introduced content at index %d", corechat.ErrInvalidResponse, message.ID, index)
+		}
+	}
+	return nil
+}
+
+func (r *responsesMessageState) append(index int64, kind, text string) error {
+	if err := r.requireOpen(); err != nil {
+		return err
+	}
+	evidence, exists := r.segments[index]
+	if exists && evidence.kind != kind {
+		return fmt.Errorf("%w: openai responses: message %q changed content kind at index %d", corechat.ErrInvalidResponse, r.identity.ItemID, index)
+	}
+	evidence.kind = kind
+	evidence.text = append(evidence.text, text...)
+	if r.segments == nil {
+		r.segments = make(map[int64]responsesContentEvidence)
+	}
+	r.segments[index] = evidence
+	return nil
+}
+
+func (r *responsesMessageState) finish(message responses.ResponseOutputMessage) error {
+	if err := r.requireOpen(); err != nil {
+		return err
+	}
+	if message.JSON.Status.Valid() && message.Status != responses.ResponseOutputMessageStatusCompleted && message.Status != responses.ResponseOutputMessageStatusIncomplete {
+		return fmt.Errorf("%w: openai responses: completed message %q has nonterminal or unknown status %q", corechat.ErrInvalidResponse, message.ID, message.Status)
+	}
+	if err := r.validateTerminal(message); err != nil {
+		return err
+	}
+	if err := r.validateCompletedContent(message); err != nil {
+		return err
+	}
+	for index, content := range message.Content {
+		if _, exists := r.segments[int64(index)]; !exists && (content.Type == responsesContentTypeText || content.Type == responsesContentTypeRefusal) {
+			if err := r.append(int64(index), content.Type, ""); err != nil {
+				return err
+			}
+		}
+	}
+	r.completion = &responsesMessageCompletion{contentCount: len(message.Content)}
+	if message.JSON.Status.Valid() {
+		r.completion.status = new(message.Status)
+	}
+	return nil
 }
 
 func (r *responsesStreamContent) bindMessage(index int64, message responses.ResponseOutputMessage) error {
@@ -83,18 +175,21 @@ func (r *responsesStreamContent) bindMessage(index int64, message responses.Resp
 	if index < 0 {
 		return fmt.Errorf("%w: openai responses: message output index is negative", corechat.ErrInvalidResponse)
 	}
-	if previous, exists := r.messages[index]; exists && previous != identity {
-		return fmt.Errorf("%w: openai responses: message identity or phase changed at output %d", corechat.ErrInvalidResponse, index)
+	if previous, exists := r.messages[index]; exists {
+		if previous.identity != identity {
+			return fmt.Errorf("%w: openai responses: message identity or phase changed at output %d", corechat.ErrInvalidResponse, index)
+		}
+		return previous.requireOpen()
 	}
 	for otherIndex, other := range r.messages {
-		if otherIndex != index && other.ItemID == identity.ItemID {
+		if otherIndex != index && other.identity.ItemID == identity.ItemID {
 			return fmt.Errorf("%w: openai responses: message identity reused", corechat.ErrInvalidResponse)
 		}
 	}
 	if r.messages == nil {
-		r.messages = make(map[int64]responsesMessageIdentity)
+		r.messages = make(map[int64]responsesMessageState)
 	}
-	r.messages[index] = identity
+	r.messages[index] = responsesMessageState{identity: identity}
 	return nil
 }
 
@@ -113,7 +208,12 @@ func (r *responsesStreamContent) finishMessage(event responses.ResponseOutputIte
 	if err := r.bindMessage(event.OutputIndex, message); err != nil {
 		return err
 	}
-	return r.validateCompletedMessage(event.OutputIndex, message)
+	state := r.messages[event.OutputIndex]
+	if err := state.finish(message); err != nil {
+		return err
+	}
+	r.messages[event.OutputIndex] = state
+	return nil
 }
 
 func (r *responsesStreamContent) addText(event responses.ResponseTextDeltaEvent) (*corechat.PartDelta, error) {
@@ -128,7 +228,7 @@ func (r *responsesStreamContent) addText(event responses.ResponseTextDeltaEvent)
 		return nil, nil
 	}
 	part := corechat.NewTextDelta(event.Delta)
-	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex]); err != nil {
+	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex].identity); err != nil {
 		return nil, err
 	}
 	return &part, nil
@@ -146,7 +246,7 @@ func (r *responsesStreamContent) addRefusal(event responses.ResponseRefusalDelta
 		return nil, nil
 	}
 	part := corechat.NewRefusalDelta(event.Delta)
-	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex]); err != nil {
+	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex].identity); err != nil {
 		return nil, err
 	}
 	return &part, nil
@@ -156,43 +256,29 @@ func (r *responsesStreamContent) append(position responsesContentPosition, itemI
 	if position.output < 0 || position.content < 0 || itemID == "" {
 		return fmt.Errorf("%w: openai responses: content delta requires nonnegative indices and an item ID", corechat.ErrInvalidResponse)
 	}
-	if identity, exists := r.messages[position.output]; exists {
-		if identity.ItemID != itemID {
+	if message, exists := r.messages[position.output]; exists {
+		if message.identity.ItemID != itemID {
 			return fmt.Errorf("%w: openai responses: message identity changed", corechat.ErrInvalidResponse)
 		}
 	} else if err := r.bindMessage(position.output, responses.ResponseOutputMessage{ID: itemID}); err != nil {
 		return err
 	}
-	if r.segments == nil {
-		r.segments = make(map[responsesContentPosition]responsesContentEvidence)
+	message := r.messages[position.output]
+	if err := message.append(position.content, kind, text); err != nil {
+		return err
 	}
-	evidence, exists := r.segments[position]
-	if exists && evidence.kind != kind {
-		return fmt.Errorf("%w: openai responses: content delta changed kind at output %d content %d", corechat.ErrInvalidResponse, position.output, position.content)
-	}
-	evidence.kind = kind
-	evidence.text = append(evidence.text, text...)
-	r.segments[position] = evidence
+	r.messages[position.output] = message
 	return nil
 }
 
 func (r *responsesStreamContent) validateTerminal(response responses.Response) error {
-	for index, identity := range r.messages {
+	for index, state := range r.messages {
 		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeMessage {
 			return fmt.Errorf("%w: openai responses: terminal response omitted message at index %d", corechat.ErrInvalidResponse, index)
 		}
 		message := response.Output[index].AsMessage()
-		if identity != (responsesMessageIdentity{ItemID: message.ID, Phase: message.Phase}) {
-			return fmt.Errorf("%w: openai responses: terminal response changed message identity or phase", corechat.ErrInvalidResponse)
-		}
-	}
-	for position, evidence := range r.segments {
-		if position.output >= int64(len(response.Output)) || response.Output[position.output].Type != responsesItemTypeMessage {
-			return fmt.Errorf("%w: openai responses: terminal response omitted message at index %d", corechat.ErrInvalidResponse, position.output)
-		}
-		message := response.Output[position.output].AsMessage()
-		if position.content >= int64(len(message.Content)) || !evidence.matches(message.Content[position.content]) {
-			return fmt.Errorf("%w: openai responses: terminal response changed content at output %d content %d", corechat.ErrInvalidResponse, position.output, position.content)
+		if err := state.validateTerminal(message); err != nil {
+			return err
 		}
 	}
 	if response.Status != responses.ResponseStatusCompleted {
@@ -202,25 +288,8 @@ func (r *responsesStreamContent) validateTerminal(response responses.Response) e
 		if item.Type != responsesItemTypeMessage {
 			continue
 		}
-		if err := r.validateCompletedMessage(int64(index), item.AsMessage()); err != nil {
+		if err := r.messages[int64(index)].validateCompletedContent(item.AsMessage()); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func (r *responsesStreamContent) validateCompletedMessage(index int64, message responses.ResponseOutputMessage) error {
-	for contentIndex, content := range message.Content {
-		if content.Type != responsesContentTypeText && content.Type != responsesContentTypeRefusal {
-			continue
-		}
-		position := responsesContentPosition{output: index, content: int64(contentIndex)}
-		evidence, exists := r.segments[position]
-		if !exists {
-			evidence = responsesContentEvidence{kind: content.Type}
-		}
-		if !evidence.matches(content) {
-			return fmt.Errorf("%w: openai responses: completed response introduced content at output %d content %d", corechat.ErrInvalidResponse, index, contentIndex)
 		}
 	}
 	return nil

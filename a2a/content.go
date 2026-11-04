@@ -3,6 +3,7 @@ package a2a
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"slices"
 	"strings"
 
@@ -38,9 +39,9 @@ func (t textProjection) requireTextExchange(card *sdka2a.AgentCard) error {
 	return nil
 }
 
-func (textProjection) requireTextMode(groups ...[]string) error {
+func (t textProjection) requireTextMode(groups ...[]string) error {
 	for _, modes := range groups {
-		if len(modes) != 0 && !slices.Contains(modes, plainTextMediaType) {
+		if len(modes) != 0 && !slices.ContainsFunc(modes, t.supportsMediaType) {
 			return fmt.Errorf("%w: declared modes %q exclude plain text", ErrUnsupportedContent, modes)
 		}
 	}
@@ -59,15 +60,20 @@ func (t textProjection) validateCard(card *sdka2a.AgentCard) error {
 	return nil
 }
 
-func (textProjection) validateModes(groups ...[]string) error {
+func (t textProjection) validateModes(groups ...[]string) error {
 	for _, modes := range groups {
 		for _, mode := range modes {
-			if mode != plainTextMediaType {
+			if !t.supportsMediaType(mode) {
 				return fmt.Errorf("%w: mode %q cannot be projected as plain text", ErrUnsupportedContent, mode)
 			}
 		}
 	}
 	return nil
+}
+
+func (textProjection) supportsMediaType(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	return err == nil && mediaType == plainTextMediaType
 }
 
 func (textProjection) userMessage(text string) *sdka2a.Message {
@@ -76,14 +82,14 @@ func (textProjection) userMessage(text string) *sdka2a.Message {
 
 // The text adapter accepts only plain text. A URL is not the referenced file,
 // and a display marker cannot stand in for a binary artifact.
-func (textProjection) parts(parts sdka2a.ContentParts) (string, error) {
+func (t textProjection) parts(parts sdka2a.ContentParts) (string, error) {
 	var out strings.Builder
 	for index, part := range parts {
 		if part == nil {
 			return "", fmt.Errorf("%w: nil part %d", ErrInvalidResult, index)
 		}
 		text, ok := part.Content.(sdka2a.Text)
-		if !ok || part.Filename != "" || len(part.Metadata) > 0 || (part.MediaType != "" && part.MediaType != plainTextMediaType) {
+		if !ok || part.Filename != "" || len(part.Metadata) > 0 || (part.MediaType != "" && !t.supportsMediaType(part.MediaType)) {
 			return "", fmt.Errorf("%w at part %d (%T)", ErrUnsupportedContent, index, part.Content)
 		}
 		out.WriteString(string(text))

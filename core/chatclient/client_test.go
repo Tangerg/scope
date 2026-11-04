@@ -407,7 +407,7 @@ func TestNilStreamSequenceBecomesTerminalError(t *testing.T) {
 	count := 0
 	for response, streamErr := range client.Stream(context.Background(), textRequest("hello")) {
 		count++
-		if response != nil || !errors.Is(streamErr, errNilStreamSequence) {
+		if response != nil || !errors.Is(streamErr, chat.ErrNilStream) {
 			t.Fatalf("yield = (%v, %v)", response, streamErr)
 		}
 	}

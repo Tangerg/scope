@@ -91,11 +91,11 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	}
 	pi := config.PollInterval
 	if pi == 0 {
-		pi = time.Duration(DefaultPollIntervalSeconds) * time.Second
+		pi = DefaultPollInterval
 	}
 	pt := config.PollTimeout
 	if pt == 0 {
-		pt = time.Duration(DefaultPollTimeoutSeconds) * time.Second
+		pt = DefaultPollTimeout
 	}
 	return &ImageModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
 }
@@ -178,7 +178,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 func (i *ImageModel) runGeneration(ctx context.Context, model string, request *generateRequest) (*asyncResponse, *pollResult, error) {
 	async, err := i.api.generate(ctx, model, request)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	if async.ID == "" {
 		return nil, nil, fmt.Errorf("%w: blackforestlabs: generation response has no task id", image.ErrInvalidResponse)
@@ -189,6 +189,9 @@ func (i *ImageModel) runGeneration(ctx context.Context, model string, request *g
 	final, err := i.pollUntilDone(ctx, async)
 	if err != nil {
 		return nil, nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	if final.Status != pollStatusReady {
+		return nil, nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("blackforestlabs: generation failed: %s", final.Status)}
 	}
 	if final.Result.Sample == "" {
 		return nil, nil, errors.New("blackforestlabs: ready output has no sample URL")
@@ -260,16 +263,12 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, submitted *asyncResponse
 			return nil, fmt.Errorf("%w: blackforestlabs: polled task id %q differs from submitted id %q", image.ErrInvalidResponse, resp.ID, submitted.ID)
 		}
 		switch resp.Status {
-		case pollStatusReady:
+		case pollStatusReady, pollStatusError, pollStatusFailed, pollStatusContentModerated, pollStatusRequestModerated:
 			return resp, nil
 		case pollStatusPending, pollStatusReasoning, pollStatusGenerating:
-		case pollStatusError, pollStatusFailed, pollStatusContentModerated, pollStatusRequestModerated, pollStatusTaskNotFound:
-			return nil, fmt.Errorf("blackforestlabs: generation failed: %s", resp.Status)
+		case pollStatusTaskNotFound:
+			return nil, fmt.Errorf("blackforestlabs: submitted task %q was not found", submitted.ID)
 		default:
-			// Continuing to poll is only safe for a state known to advance, so
-			// an unrecognized one is reported rather than absorbed: an added
-			// end state would otherwise arrive as this call's own timeout,
-			// whose obvious remedies are both wrong.
 			return nil, fmt.Errorf("blackforestlabs: generation reports unrecognized status %q", resp.Status)
 		}
 		select {

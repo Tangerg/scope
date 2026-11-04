@@ -9,6 +9,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 )
 
@@ -35,7 +36,7 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response *genai.G
 	next, err := p.generation.advance(response)
 	if err != nil {
 		if refusal, ok := errors.AsType[*promptBlockError](err); ok {
-			return nil, refusal
+			return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: refusal}
 		}
 		return nil, fmt.Errorf("google: stream: %w: %w", corechat.ErrInvalidResponse, err)
 	}
@@ -82,7 +83,11 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 		return nil, fmt.Errorf("google: preserve native response: %w", err)
 	}
 	if response.UsageMetadata != nil {
-		metadata.Usage = mapProtocolUsage(response.UsageMetadata)
+		usage, err := mapProtocolUsage(response)
+		if err != nil {
+			return nil, err
+		}
+		metadata.Usage = usage
 		if err := metadata.Extra.Set(protocolKey(p.provider, usageMetadataSuffix), protocolUsageExtensionFrom(response.UsageMetadata)); err != nil {
 			return nil, err
 		}
@@ -281,26 +286,35 @@ func isProtocolStopReason(reason genai.FinishReason) bool {
 	return reason != "" && reason != genai.FinishReasonUnspecified
 }
 
-func mapProtocolUsage(usage *genai.GenerateContentResponseUsageMetadata) *corechat.Usage {
+func mapProtocolUsage(response *genai.GenerateContentResponse) (*corechat.Usage, error) {
+	usage := response.UsageMetadata
 	if usage == nil {
-		return nil
+		return nil, nil
+	}
+	if response.SDKHTTPResponse == nil {
+		return nil, fmt.Errorf("%w: google: usage has no native response", corechat.ErrInvalidResponse)
+	}
+	// The SDK's scalar counters erase absence. Presence comes from the same
+	// native envelope, so a reported zero remains distinct from an unknown count.
+	var native struct {
+		UsageMetadata struct {
+			ThoughtsTokenCount      *int64 `json:"thoughtsTokenCount"`
+			CachedContentTokenCount *int64 `json:"cachedContentTokenCount"`
+		} `json:"usageMetadata"`
+	}
+	if err := jsonv2.Unmarshal([]byte(response.SDKHTTPResponse.Body), &native); err != nil {
+		return nil, fmt.Errorf("%w: google: native usage: %w", corechat.ErrInvalidResponse, err)
 	}
 	// Gemini reports tool-output prompt tokens and thought tokens outside the
 	// similarly named prompt/candidate counters. Core totals include both, while
 	// cache and reasoning remain optional breakdowns.
 	mapped := corechat.Usage{
-		InputTokens:  int64(usage.PromptTokenCount) + int64(usage.ToolUsePromptTokenCount),
-		OutputTokens: int64(usage.CandidatesTokenCount) + int64(usage.ThoughtsTokenCount),
+		InputTokens:          int64(usage.PromptTokenCount) + int64(usage.ToolUsePromptTokenCount),
+		OutputTokens:         int64(usage.CandidatesTokenCount) + int64(usage.ThoughtsTokenCount),
+		ReasoningTokens:      native.UsageMetadata.ThoughtsTokenCount,
+		CacheReadInputTokens: native.UsageMetadata.CachedContentTokenCount,
 	}
-	if usage.ThoughtsTokenCount != 0 {
-		value := int64(usage.ThoughtsTokenCount)
-		mapped.ReasoningTokens = &value
-	}
-	if usage.CachedContentTokenCount != 0 {
-		value := int64(usage.CachedContentTokenCount)
-		mapped.CacheReadInputTokens = &value
-	}
-	return &mapped
+	return &mapped, nil
 }
 
 type protocolUsageExtension struct {

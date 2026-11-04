@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+
+	"github.com/Tangerg/scope/core/chat"
 )
 
 const tokensPerMillion = 1_000_000
@@ -79,7 +81,9 @@ func (p Pricing) Validate() error {
 	return nil
 }
 
-func (p Pricing) Cost(usage Usage) (float64, error) {
+// Cost applies cache rates only to reported cache counts. Unreported portions
+// use the input rate without changing the Usage's unknown-versus-zero facts.
+func (p Pricing) Cost(usage chat.Usage) (float64, error) {
 	if err := p.Validate(); err != nil {
 		return 0, err
 	}
@@ -89,8 +93,15 @@ func (p Pricing) Cost(usage Usage) (float64, error) {
 	return p.calculate(usage)
 }
 
-func (p Pricing) calculate(usage Usage) (float64, error) {
-	uncachedInput := usage.InputTokens - usage.CacheReadInputTokens - usage.CacheWriteInputTokens
+func (p Pricing) calculate(usage chat.Usage) (float64, error) {
+	var cacheRead, cacheWrite int64
+	if usage.CacheReadInputTokens != nil {
+		cacheRead = *usage.CacheReadInputTokens
+	}
+	if usage.CacheWriteInputTokens != nil {
+		cacheWrite = *usage.CacheWriteInputTokens
+	}
+	uncachedInput := usage.InputTokens - cacheRead - cacheWrite
 	readRate, writeRate := p.InputPer1M, p.InputPer1M
 	if p.CacheReadPer1M != nil {
 		readRate = *p.CacheReadPer1M
@@ -100,8 +111,8 @@ func (p Pricing) calculate(usage Usage) (float64, error) {
 	}
 	total := float64(uncachedInput)/tokensPerMillion*p.InputPer1M +
 		float64(usage.OutputTokens)/tokensPerMillion*p.OutputPer1M +
-		float64(usage.CacheReadInputTokens)/tokensPerMillion*readRate +
-		float64(usage.CacheWriteInputTokens)/tokensPerMillion*writeRate
+		float64(cacheRead)/tokensPerMillion*readRate +
+		float64(cacheWrite)/tokensPerMillion*writeRate
 	if math.IsInf(total, 0) {
 		return 0, errors.New("catalog: token cost exceeds float64 range")
 	}
@@ -135,27 +146,9 @@ func (p PricingSchedule) Validate() error {
 	return nil
 }
 
-// Cache counts partition InputTokens, including cache writes whose provider
-// response may originally report them outside its uncached input count.
-type Usage struct {
-	InputTokens           int64
-	OutputTokens          int64
-	CacheReadInputTokens  int64
-	CacheWriteInputTokens int64
-}
-
-func (u Usage) Validate() error {
-	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheReadInputTokens < 0 || u.CacheWriteInputTokens < 0 {
-		return errors.New("catalog: token counts must not be negative")
-	}
-	if u.CacheReadInputTokens > u.InputTokens || u.CacheWriteInputTokens > u.InputTokens-u.CacheReadInputTokens {
-		return errors.New("catalog: cache token counts must not exceed total input tokens")
-	}
-	return nil
-}
-
 // An empty schedule means unknown pricing; one zero-rate band means free.
-func (p PricingSchedule) Cost(usage Usage) (float64, error) {
+// Usage admission and unreported cache counts follow Pricing.Cost.
+func (p PricingSchedule) Cost(usage chat.Usage) (float64, error) {
 	if err := p.Validate(); err != nil {
 		return 0, err
 	}

@@ -13,20 +13,9 @@ const (
 	RequestExtensionKey  = Provider + "/request"
 	ResponseExtensionKey = Provider + "/response"
 
-	// DefaultBaseURL is AssemblyAI's production REST endpoint.
-	DefaultBaseURL = "https://api.assemblyai.com/v2"
-
-	// DefaultPollInterval is how often [TranscriptionModel.Call]
-	// re-checks a queued job. AssemblyAI's typical real-time-factor is
-	// 0.1–0.3x audio length so 2s strikes a balance between latency and
-	// API call volume.
+	DefaultBaseURL      = "https://api.assemblyai.com/v2"
 	DefaultPollInterval = 2 * time.Second
-
-	// DefaultPollTimeout caps polling after submission. Long audio
-	// (hour-scale lectures, podcasts) plus model warm-up can take a
-	// while, so the ceiling is set generously; callers wanting a
-	// tighter SLA should pass a ctx with their own deadline.
-	DefaultPollTimeout = 30 * time.Minute
+	DefaultPollTimeout  = 30 * time.Minute
 )
 
 // These are the provider values this adapter recognizes.

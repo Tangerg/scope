@@ -179,32 +179,36 @@ func TestNativeResultCountAndKeyGroups(t *testing.T) {
 }
 
 func TestNativeWriteCountAndByteBudgets(t *testing.T) {
-	for _, large := range []bool{false, true} {
-		t.Run(strconv.FormatBool(large), func(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		count      int
+		text       string
+		dimensions int
+		coordinate float64
+	}{
+		{name: "record count", count: 501, text: "text", dimensions: 2, coordinate: 1},
+		{name: "wide vectors", count: 300, text: strings.Repeat("x", 35_000), dimensions: 4096, coordinate: math.MaxFloat32},
+		{name: "SDK string escaping", count: 500, text: strings.Repeat("\u2028", 6000), dimensions: 4096, coordinate: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			config := fixture.config()
-			count, text := 501, "text"
-			if large {
-				count, text = 300, strings.Repeat("x", 35_000)
-				fixture.index["dimension"] = 4096
-			}
+			fixture.index["dimension"] = test.dimensions
 			store, err := NewStore(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)
 			}
-			docs := make([]*document.Document, count)
+			docs := make([]*document.Document, test.count)
 			for i := range docs {
-				docs[i] = &document.Document{ID: strconv.Itoa(i), Text: text}
+				docs[i] = &document.Document{ID: strconv.Itoa(i), Text: test.text}
 			}
 			batch := fixtureBatch(docs)
-			if large {
-				for i := range batch.Records {
-					coords := make([]float64, 4096)
-					for j := range coords {
-						coords[j] = math.MaxFloat32
-					}
-					batch.Records[i].Values = coords
+			for i := range batch.Records {
+				coords := make([]float64, test.dimensions)
+				for j := range coords {
+					coords[j] = test.coordinate
 				}
+				batch.Records[i].Values = coords
 			}
 			if err = store.Upsert(t.Context(), batch); err != nil {
 				t.Fatal(err)

@@ -383,8 +383,26 @@ func TestFormAnswerResumesOnlyOriginalBinding(t *testing.T) {
 	pending, err := b.Call(t.Context(), inv)
 	require.NoError(t, err)
 	require.NotNil(t, pending.InputRequest)
-	_, err = pending.InputRequest.Continuation(json.RawMessage(`{"action":"accept","content":{}}`))
-	require.Error(t, err)
+	for _, answer := range []string{
+		`{"action":"decline"}`,
+		`{"action":"cancel"}`,
+		`{"action":"accept","content":{"name":"Paris"}}`,
+	} {
+		_, answerErr := pending.InputRequest.Continuation(json.RawMessage(answer))
+		require.NoError(t, answerErr, answer)
+	}
+	for _, answer := range []string{
+		`{"action":"accept","content":{}}`,
+		`{"action":"accept"}`,
+		`{"action":"accept","content":{"name":false}}`,
+		`{"action":"decline","content":{}}`,
+		`{"action":"cancel","content":{}}`,
+		`{"action":"other"}`,
+		`{"action":"accept","content":{"name":"Paris"},"extra":true}`,
+	} {
+		_, answerErr := pending.InputRequest.Continuation(json.RawMessage(answer))
+		require.Error(t, answerErr, answer)
+	}
 	c, err := pending.InputRequest.Continuation(json.RawMessage(`{"action":"accept","content":{"name":"Paris"}}`))
 	require.NoError(t, err)
 	call := toolcontract.Request{Name: "book", Arguments: "{}"}

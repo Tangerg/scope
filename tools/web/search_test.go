@@ -129,7 +129,8 @@ func TestSearchTool_Call_EmptyQuery(t *testing.T) {
 		t.Fatal("Call empty query: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"query":"   "}`)
-	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrEmptyQuery) {
+	rejection, public := toolcontract.ClassifyInputRejection(err)
+	if !public || !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(rejection.Cause(), ErrEmptyQuery) {
 		t.Fatalf("Call blank query: err = %v, want admission rejection wrapping ErrEmptyQuery", err)
 	}
 	if searcher.last != nil {
@@ -167,7 +168,8 @@ func TestSearchTool_Call_DomainsMutuallyExclusive(t *testing.T) {
 	tool, _ := NewSearchTool(searcher)
 	_, err := invokeTestTool(t.Context(), tool,
 		`{"query":"x","allowed_domains":["a.com"],"blocked_domains":["b.com"]}`)
-	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrDomainsBothSides) {
+	rejection, public := toolcontract.ClassifyInputRejection(err)
+	if !public || !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(rejection.Cause(), ErrDomainsBothSides) {
 		t.Fatalf("err = %v, want admission rejection wrapping ErrDomainsBothSides", err)
 	}
 	if searcher.last != nil {
@@ -279,7 +281,9 @@ func TestSearchRequestPrepareNormalizesDomains(t *testing.T) {
 		t.Fatalf("allowed domains = %v", prepared.AllowedDomains)
 	}
 	for _, domain := range []string{"", "https://example.com", "example.com:443", "*.example.com", "bad..example"} {
-		if err := (&SearchRequest{Query: "scope", AllowedDomains: []string{domain}}).Validate(); !errors.Is(err, ErrInvalidDomain) {
+		err := (&SearchRequest{Query: "scope", AllowedDomains: []string{domain}}).Validate()
+		rejection, public := toolcontract.ClassifyInputRejection(err)
+		if !public || !errors.Is(rejection.Cause(), ErrInvalidDomain) {
 			t.Fatalf("domain %q error = %v, want ErrInvalidDomain", domain, err)
 		}
 	}

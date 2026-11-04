@@ -8,31 +8,62 @@ import (
 	"strings"
 )
 
+type TestAction string
+
+const (
+	ActionRun    TestAction = "run"
+	ActionPass   TestAction = "pass"
+	ActionFail   TestAction = "fail"
+	ActionSkip   TestAction = "skip"
+	ActionNotRun TestAction = "not_run"
+)
+
+type EvidenceLevel string
+
+const (
+	LevelOfflineProtocol EvidenceLevel = "offline_protocol"
+	LevelOfflineBinding  EvidenceLevel = "offline_binding"
+	LevelLiveModel       EvidenceLevel = "live_model"
+)
+
+type EvidenceStatus string
+
+const (
+	StatusUnverified EvidenceStatus = "unverified"
+	StatusVerified   EvidenceStatus = "verified"
+	StatusFailed     EvidenceStatus = "failed"
+)
+
+const (
+	initialEventBuffer = 4 << 10
+	maxEventBytes      = 4 << 20
+)
+
 type Event struct {
-	Action string
+	Action TestAction
 	Test   string
 }
 
 type Evidence struct {
-	Entry string `json:"entry"`
-	Level string `json:"level"`
-	Model string `json:"model,omitempty"`
+	Entry string        `json:"entry"`
+	Level EvidenceLevel `json:"level"`
+	Model string        `json:"model,omitempty"`
 	Case
-	Status    string `json:"status"`
-	Outcome   string `json:"outcome"`
-	Directory string `json:"directory"`
+	Status    EvidenceStatus `json:"status"`
+	Outcome   TestAction     `json:"outcome"`
+	Directory string         `json:"directory"`
 }
 
 // Results retains test outcomes only. Provider output can contain credentials
 // or prompts and must not enter the evidence artifact.
 type Results struct {
-	actions map[string]string
+	actions map[string]TestAction
 }
 
 func Read(reader io.Reader) (Results, error) {
-	results := Results{actions: make(map[string]string)}
+	results := Results{actions: make(map[string]TestAction)}
 	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 4096), 4<<20)
+	scanner.Buffer(make([]byte, initialEventBuffer), maxEventBytes)
 	for scanner.Scan() {
 		var event Event
 		if err := jsonv2.Unmarshal(scanner.Bytes(), &event); err != nil {
@@ -42,35 +73,35 @@ func Read(reader io.Reader) (Results, error) {
 			continue
 		}
 		switch event.Action {
-		case "run", "pass", "fail", "skip":
+		case ActionRun, ActionPass, ActionFail, ActionSkip:
 			results.actions[event.Test] = event.Action
 		}
 	}
 	return results, scanner.Err()
 }
 
-func (r Results) Evidence(entry, level, model string, scenario Case) Evidence {
-	evidence := Evidence{Entry: entry, Level: level, Model: model, Case: scenario, Status: "unverified", Outcome: r.actions[scenario.Test]}
+func (r Results) Evidence(entry string, level EvidenceLevel, model string, scenario Case) Evidence {
+	evidence := Evidence{Entry: entry, Level: level, Model: model, Case: scenario, Status: StatusUnverified, Outcome: r.actions[scenario.Test]}
 	if evidence.Outcome == "" {
-		evidence.Outcome = "not_run"
+		evidence.Outcome = ActionNotRun
 	}
-	if r.actions[scenario.Test] == "pass" {
-		evidence.Status = "verified"
+	if r.actions[scenario.Test] == ActionPass {
+		evidence.Status = StatusVerified
 	}
 	for name, action := range r.actions {
 		if name != scenario.Test && !strings.HasPrefix(name, scenario.Test+"/") {
 			continue
 		}
-		if action == "fail" {
-			evidence.Status = "failed"
+		if action == ActionFail {
+			evidence.Status = StatusFailed
 			break
 		}
-		if action != "pass" {
-			evidence.Status = "unverified"
+		if action != ActionPass {
+			evidence.Status = StatusUnverified
 		}
 	}
-	if evidence.Status != "verified" {
-		evidence.Support = "unknown"
+	if evidence.Status != StatusVerified {
+		evidence.Support = SupportUnknown
 	}
 	return evidence
 }

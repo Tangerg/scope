@@ -23,10 +23,6 @@ var (
 	_ vectorstore.Closer        = (*Store)(nil)
 )
 
-type indexPolicy interface {
-	DescribeIndex(context.Context, string) (*pineconesdk.Index, error)
-}
-
 type indexConnection interface {
 	UpsertVectors(context.Context, []*pineconesdk.Vector) (uint32, error)
 	QueryByVectorValues(context.Context, *pineconesdk.QueryByVectorValuesRequest) (*pineconesdk.QueryVectorsResponse, error)
@@ -38,29 +34,18 @@ type indexConnection interface {
 
 type Store struct {
 	index   indexConnection
-	schema  nativeSchema
-	space   vectorstore.SpaceID
-	control indexPolicy
-	name    string
-	host    string
+	binding indexBinding
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	native, err := config.Client.DescribeIndex(ctx, config.IndexName)
+	binding, err := readIndexBinding(ctx, config.Client, config.IndexName, config.Space)
 	if err != nil {
-		return nil, fmt.Errorf("pinecone: describe native index: %w", err)
-	}
-	if native == nil || native.Tags == nil || (*native.Tags)[SpaceTag] != string(config.Space) {
-		return nil, vectorstore.ErrIncompatibleSpace
-	}
-	var schema nativeSchema
-	if err = schema.read(native, config.IndexName); err != nil {
 		return nil, err
 	}
-	index, err := config.Client.Index(pineconesdk.NewIndexConnParams{Host: native.Host, Namespace: config.Namespace})
+	index, err := config.Client.Index(pineconesdk.NewIndexConnParams{Host: binding.host, Namespace: config.Namespace})
 	if err != nil {
 		return nil, err
 	}
@@ -70,32 +55,15 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	// Construction verifies connectivity and schema compatibility; it does not
 	// audit every record. Full-source integrity is an explicit maintenance concern,
 	// not an implicit cost of opening the store.
-	store := &Store{index: index, schema: schema, space: config.Space, control: config.Client, name: config.IndexName, host: native.Host}
+	store := &Store{index: index, binding: binding}
 	return store, nil
 }
 
-func (s *Store) verifyIndex(ctx context.Context) error {
-	native, err := s.control.DescribeIndex(ctx, s.name)
-	if err != nil {
-		return err
-	}
-	if native == nil || native.Tags == nil || (*native.Tags)[SpaceTag] != string(s.space) {
-		return vectorstore.ErrIncompatibleSpace
-	}
-	var schema nativeSchema
-	if err := schema.read(native, s.name); err != nil {
-		return err
-	}
-	if native.Host != s.host || schema != s.schema {
-		return ErrIncompatibleIndex
-	}
-	return nil
-}
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := space.Require(s.space); err != nil {
+	if err := space.Require(s.binding.space); err != nil {
 		return err
 	}
 	if err := vectorstore.ValidateDocuments(docs); err != nil {
@@ -106,10 +74,10 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 			return err
 		}
 	}
-	return s.verifyIndex(ctx)
+	return s.binding.verify(ctx)
 }
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
-	if err := batch.ValidateFor(s.space); err != nil {
+	if err := batch.ValidateFor(s.binding.space); err != nil {
 		return err
 	}
 	if err := ctx.Err(); err != nil {
@@ -121,7 +89,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		values, err := s.schema.vector(record.Values)
+		values, err := s.binding.schema.vector(record.Values)
 		if err != nil {
 			return err
 		}
@@ -132,7 +100,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err != nil {
 		return err
 	}
-	if err := s.verifyIndex(ctx); err != nil {
+	if err := s.binding.verify(ctx); err != nil {
 		return err
 	}
 	for batchIndex, points := range prepared {
@@ -161,32 +129,21 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := space.Require(s.space); err != nil {
+	if _, err := s.binding.admitQuery(space, opts); err != nil {
 		return err
 	}
-	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return err
-	}
-	if opts.ResultLimit() > MaxTopK {
-		return fmt.Errorf("%w: TopK exceeds %d", vectorstore.ErrInvalidOptions, MaxTopK)
-	}
-	if _, err := nativeFilter(opts.Filter); err != nil {
-		return err
-	}
-	return s.verifyIndex(ctx)
+	return s.binding.verify(ctx)
 }
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return nil, contextErr
 	}
-	if err = request.ValidateFor(s.space); err != nil {
+	if err = request.ValidateFor(s.binding.space); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	where, err := s.binding.admitQuery(request.Space, request.Options)
+	if err != nil {
 		return nil, err
-	}
-	if request.Options.ResultLimit() > MaxTopK {
-		return nil, fmt.Errorf("%w: TopK exceeds native limit %d", vectorstore.ErrInvalidOptions, MaxTopK)
 	}
 	defer func() {
 		if err == nil {
@@ -196,15 +153,11 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			response = nil
 		}
 	}()
-	where, err := nativeFilter(request.Options.Filter)
+	query, err := s.binding.schema.vector(request.Values)
 	if err != nil {
 		return nil, err
 	}
-	query, err := s.schema.vector(request.Values)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.verifyIndex(ctx); err != nil {
+	if err := s.binding.verify(ctx); err != nil {
 		return nil, err
 	}
 	var ranked []scoredDocument
@@ -223,7 +176,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			if hit == nil {
 				return nil, errors.New("pinecone: native query omitted a scored record")
 			}
-			doc, _, err := s.schema.decode(hit.Vector)
+			doc, _, err := s.binding.schema.decode(hit.Vector)
 			if err != nil {
 				return nil, err
 			}
@@ -233,7 +186,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			seen[doc.ID] = struct{}{}
 
 			raw := float64(hit.Score)
-			score, err := s.schema.score(raw)
+			score, err := s.binding.schema.score(raw)
 			if err != nil {
 				return nil, err
 			}
@@ -242,7 +195,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 				return nil, err
 			}
 			rank := raw
-			if s.schema.metric == pineconesdk.IndexMetricEuclidean {
+			if s.binding.schema.metric == pineconesdk.IndexMetricEuclidean {
 				rank = -raw
 			}
 			ranked = append(ranked, scoredDocument{result: result, rank: rank})
@@ -275,7 +228,7 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	if err != nil {
 		return err
 	}
-	if err := s.verifyIndex(ctx); err != nil {
+	if err := s.binding.verify(ctx); err != nil {
 		return err
 	}
 	return s.index.DeleteVectorsByFilter(ctx, where)
@@ -296,7 +249,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(unique) == 0 {
 		return nil
 	}
-	if err := s.verifyIndex(ctx); err != nil {
+	if err := s.binding.verify(ctx); err != nil {
 		return err
 	}
 	for group := range slices.Chunk(unique, maximumIDsPerDelete) {

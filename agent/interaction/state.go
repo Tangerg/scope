@@ -129,7 +129,7 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if err := e.validateProposal(ctx, definition); err != nil {
 		return err
 	}
-	return e.validateRoundDelegateOutputs(definition)
+	return e.validateRoundDelegateOutputs(ctx, definition)
 }
 
 func (e executionState) validateProposal(ctx context.Context, definition *definition) error {
@@ -159,21 +159,18 @@ func (e executionState) validateProposal(ctx context.Context, definition *defini
 	return nil
 }
 
-// validateRoundDelegateOutputs applies the Delegate OutputSchema admission the
-// generic Tool-result check cannot see to the current round's results. It runs
-// after validatePhaseState has confirmed response and result/call consistency.
-func (e executionState) validateRoundDelegateOutputs(definition *definition) error {
+func (e executionState) validateRoundDelegateOutputs(ctx context.Context, definition *definition) error {
 	if e.ToolRound == nil {
 		return nil
 	}
 	calls, err := validatedToolCalls(e.ToolRound.Response)
 	if err != nil {
-		return nil
+		return fmt.Errorf("%w: model proposal: %w", ErrInvalidExecutionState, err)
+	}
+	if err := e.ToolRound.validateResults(ctx, calls); err != nil {
+		return err
 	}
 	for index, result := range e.ToolRound.Results {
-		if index >= len(calls) {
-			break
-		}
 		delegate, delegated := definition.delegate(calls[index].Name)
 		if !delegated || result.Disposition != ResultSucceeded {
 			continue
@@ -195,9 +192,6 @@ func (e executionState) validateEnvelope() error {
 	}
 	if err := e.WorkingContext.Validate(); err != nil {
 		return fmt.Errorf("%w: WorkingContext: %w", ErrInvalidExecutionState, err)
-	}
-	if err := validateAdvertisedToolNames(e.AdvertisedToolNames); err != nil {
-		return fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
 	}
 	if e.PendingSteer != nil {
 		if err := e.PendingSteer.validate(); err != nil {

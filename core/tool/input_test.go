@@ -28,8 +28,10 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, cause) {
-			t.Fatalf("Prepare did not preserve the admission failure: %v", err)
+		_, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, tool.Admission{})
+		defect, found := errors.AsType[*tool.InputValidationError](err)
+		if !errors.Is(err, tool.ErrInvalidInvocation) || errors.Is(err, cause) || !found || !errors.Is(defect.Cause(), cause) {
+			t.Fatalf("Prepare did not seal the admission diagnostic: %v", err)
 		}
 	}
 	if declarations != 1 {
@@ -46,7 +48,7 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			binding, err := tool.Bind(validatingTool{declare: testCase.declare})
 			if testCase.bindErr {
-				if !errors.Is(err, tool.ErrInvalidTool) || !strings.Contains(err.Error(), "declaration failed") {
+				if !errors.Is(err, tool.ErrInvalidTool) || strings.Contains(err.Error(), "declaration failed") {
 					t.Fatalf("Bind = %v", err)
 				}
 				return
@@ -54,7 +56,7 @@ func TestInputAdmissionFreezesDeclarationAndRejectsPanics(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) || !strings.Contains(err.Error(), "validation failed") {
+			if _, err := binding.Contract().Prepare(tool.Request{Name: "marked", Arguments: `{}`}, tool.Admission{}); !errors.Is(err, tool.ErrInvalidInvocation) || strings.Contains(err.Error(), "panicked") {
 				t.Fatalf("Prepare = %v", err)
 			}
 		})
@@ -79,8 +81,12 @@ func TestInputValidationPanicPreservesDiagnosticCause(t *testing.T) {
 				t.Fatalf("lost rejection: %v", err)
 			}
 		}
-		panicErr, ok := errors.AsType[*tool.InputValidationPanicError](err)
-		if !ok || !errors.Is(panicErr.Unwrap(), cause) || !errors.Is(err, cause) {
+		defect, found := errors.AsType[*tool.InputValidationError](err)
+		if !found {
+			t.Fatalf("validator defect missing: %v", err)
+		}
+		panicErr, ok := errors.AsType[*tool.InputValidationPanicError](defect.Cause())
+		if !ok || !errors.Is(panicErr.Unwrap(), cause) || errors.Is(err, cause) || !strings.Contains(panicErr.Error(), cause.Error()) {
 			t.Fatalf("lost validator panic: %v", err)
 		}
 	}

@@ -11,7 +11,10 @@ import (
 
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
-const RequestExtensionKey = Provider + "/request"
+const (
+	RequestExtensionKey = Provider + "/request"
+	thinkingField       = "thinking"
+)
 
 // ThinkingType controls MiMo deep thinking.
 type ThinkingType string
@@ -21,6 +24,10 @@ const (
 	ThinkingEnabled  ThinkingType = "enabled"
 	ThinkingDisabled ThinkingType = "disabled"
 )
+
+type thinkingConfig struct {
+	Type ThinkingType `json:"type"`
+}
 
 // ChatRequestOptions contains MiMo chat fields shared by its OpenAI and
 // Anthropic endpoints. Store it under RequestExtensionKey for either adapter.
@@ -82,7 +89,7 @@ func decodeRequestOptions(source *corechat.Request, nativeKey string) (ChatReque
 	if err != nil {
 		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q: %w", nativeKey, err)
 	}
-	if _, exists := fields["thinking"]; exists {
+	if _, exists := fields[thinkingField]; exists {
 		return ChatRequestOptions{}, fmt.Errorf("xiaomi: extension %q field thinking is owned by %q", nativeKey, RequestExtensionKey)
 	}
 	options, _, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
@@ -103,7 +110,7 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 	if options.Thinking == "" {
 		return nil
 	}
-	return target.SetExtraField("thinking", map[string]any{"type": options.Thinking})
+	return target.SetExtraField(thinkingField, thinkingConfig{Type: options.Thinking})
 }
 
 func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) error {
@@ -112,7 +119,7 @@ func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) er
 		return err
 	}
 	if options.Thinking != "" {
-		fields["thinking"] = map[string]any{"type": options.Thinking}
+		fields[thinkingField] = thinkingConfig{Type: options.Thinking}
 	}
 	return nil
 }

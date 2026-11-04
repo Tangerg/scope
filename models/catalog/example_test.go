@@ -3,6 +3,8 @@ package catalog_test
 import (
 	"fmt"
 
+	"github.com/Tangerg/scope/core/chat"
+
 	"github.com/Tangerg/scope/models/catalog"
 )
 
@@ -10,8 +12,8 @@ func ExamplePricingSchedule_Cost() {
 	pricing := catalog.PricingSchedule{{
 		InputPer1M: 1, OutputPer1M: 2, CacheReadPer1M: new(0.25),
 	}}
-	cost, err := pricing.Cost(catalog.Usage{
-		InputTokens: 1000, OutputTokens: 100, CacheReadInputTokens: 400,
+	cost, err := pricing.Cost(chat.Usage{
+		InputTokens: 1000, OutputTokens: 100, CacheReadInputTokens: new(int64(400)),
 	})
 	if err != nil {
 		fmt.Println(err)

@@ -6,12 +6,16 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Tangerg/scope/core/tool"
 )
 
 func TestRequestRejectsEmptyHostname(t *testing.T) {
 	for _, address := range []string{"http://:80/page", "https://:443/page"} {
 		request := &Request{URL: address}
-		if err := request.Validate(); !errors.Is(err, ErrInvalidURL) {
+		err := request.Validate()
+		rejection, public := tool.ClassifyInputRejection(err)
+		if !public || !errors.Is(rejection.Cause(), ErrInvalidURL) {
 			t.Errorf("Validate(%q) = %v, want ErrInvalidURL", address, err)
 		}
 	}

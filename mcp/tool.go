@@ -7,7 +7,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/mcp/internal/elicitation"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
@@ -110,18 +109,10 @@ func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.Cal
 			return toolcontract.Result{}, err
 		}
 		var schemaObject map[string]any
-		if err = jsonv2.Unmarshal(encoded, &schemaObject); err != nil || schemaObject["type"] != "object" || relocatesSchema(schemaObject) {
+		if err = jsonv2.Unmarshal(encoded, &schemaObject); err != nil || schemaObject["type"] != elicitation.ObjectSchemaType || relocatesSchema(schemaObject) {
 			return toolcontract.Result{}, ErrIncompleteResult
 		}
-		answer := map[string]any{"oneOf": []any{
-			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]string{"const": elicitation.Accept}, "content": json.RawMessage(encoded)}, "required": []string{"action", "content"}, "additionalProperties": false},
-			map[string]any{"type": "object", "properties": map[string]any{"action": map[string]any{"enum": []string{elicitation.Decline, elicitation.Cancel}}}, "required": []string{"action"}, "additionalProperties": false},
-		}}
-		data, err := jsonv2.Marshal(answer)
-		if err != nil {
-			return toolcontract.Result{}, err
-		}
-		schema, err := jsonschema.Parse(data)
+		schema, err := elicitationResponseSchema(encoded)
 		if err != nil {
 			return toolcontract.Result{}, err
 		}

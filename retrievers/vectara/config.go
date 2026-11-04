@@ -2,11 +2,14 @@ package vectara
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"math"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 const (
@@ -45,7 +48,8 @@ func (c Config) Validate() error {
 }
 func (c Config) validateConnection() error {
 	address, err := url.Parse(cmp.Or(c.Endpoint, DefaultEndpoint))
-	if err != nil || (address.Scheme != "https" && address.Scheme != "http") || address.Host == "" || address.User != nil || strings.ContainsAny(c.Endpoint, "?#") {
+	_, originErr := httpclient.NewOrigin(context.Background(), address)
+	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") {
 		return errors.New("vectara: Endpoint must be an HTTP origin or base path without user info, query or fragment")
 	}
 	if strings.TrimSpace(c.APIKey) == "" {

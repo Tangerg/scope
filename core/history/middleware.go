@@ -14,8 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/invocation"
 )
 
-var ErrNilStream = errors.New("history: middleware: nil stream sequence")
-
 // MiddlewareConfig binds history to one explicit partition. Calls that do not
 // use history should use the undecorated model.
 type MiddlewareConfig struct {
@@ -94,7 +92,7 @@ func (m Middleware) stream(
 	}
 	sequence := next.Stream(ctx, prepared)
 	if sequence == nil {
-		yield(nil, ErrNilStream)
+		yield(nil, chat.ErrNilStream)
 		return
 	}
 

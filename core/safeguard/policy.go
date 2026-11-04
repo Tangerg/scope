@@ -10,19 +10,17 @@ var (
 	ErrUnsafeContent           = errors.New("safeguard: unsafe content")
 	ErrInvalidMiddlewareConfig = errors.New("safeguard: invalid middleware config")
 	ErrInvalidSubstringConfig  = errors.New("safeguard: invalid substring matcher config")
-	ErrNilStream               = errors.New("safeguard: nil stream sequence")
 )
 
-// Scope selects which direction a Middleware screens; a Block reports the one
-// direction that was blocked. Both is the zero value, so it has one spelling.
+// Scope selects which directions a Middleware screens. Both is the zero value.
 type Scope string
 
 const (
 	ScopeBoth Scope = ""
 	// ScopeInput screens system and user text before provider I/O.
-	ScopeInput Scope = "input"
+	ScopeInput Scope = Scope(DirectionInput)
 	// ScopeOutput screens assistant text before it reaches the caller.
-	ScopeOutput Scope = "output"
+	ScopeOutput Scope = Scope(DirectionOutput)
 )
 
 func (s Scope) Valid() bool {
@@ -34,8 +32,20 @@ func (s Scope) Valid() bool {
 	}
 }
 
-func (s Scope) inspects(direction Scope) bool {
-	return s == ScopeBoth || s == direction
+func (s Scope) inspects(direction Direction) bool {
+	return direction.Valid() && (s == ScopeBoth || s == Scope(direction))
+}
+
+// Direction identifies the single content flow rejected by a policy decision.
+type Direction string
+
+const (
+	DirectionInput  Direction = "input"
+	DirectionOutput Direction = "output"
+)
+
+func (d Direction) Valid() bool {
+	return d == DirectionInput || d == DirectionOutput
 }
 
 // Match is a Matcher's decision for one text projection. Term should be empty
@@ -60,8 +70,8 @@ func (m MatcherFunc) Match(ctx context.Context, text string) (Match, error) {
 }
 
 type Block struct {
-	Scope Scope
-	Term  string
+	Direction Direction
+	Term      string
 }
 
 // UnsafeError is a policy rejection. It unwraps to ErrUnsafeContent.
@@ -74,9 +84,9 @@ func (u *UnsafeError) Error() string {
 		return ErrUnsafeContent.Error()
 	}
 	if u.Block.Term == "" {
-		return fmt.Sprintf("%s: %s blocked", ErrUnsafeContent, u.Block.Scope)
+		return fmt.Sprintf("%s: %s blocked", ErrUnsafeContent, u.Block.Direction)
 	}
-	return fmt.Sprintf("%s: %s matched %q", ErrUnsafeContent, u.Block.Scope, u.Block.Term)
+	return fmt.Sprintf("%s: %s matched %q", ErrUnsafeContent, u.Block.Direction, u.Block.Term)
 }
 
 func (u *UnsafeError) Unwrap() error {

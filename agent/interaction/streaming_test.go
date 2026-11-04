@@ -147,3 +147,11 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestNilStreamPreservesCoreContractIdentityAndUnknownOutcome(t *testing.T) {
+	backend := dispatcher{model: StreamModel(StreamModelConfig{Streamer: chat.StreamerFunc(func(context.Context, *chat.Request) iter.Seq2[*chat.ResponseDelta, error] { return nil })})}
+	response, err := backend.callModelResponse(t.Context(), testInput().request(), nil)
+	if response != nil || !errors.Is(err, chat.ErrNilStream) || invocation.ClassifyFailure(err) != invocation.FailureUnknown {
+		t.Fatalf("nil model stream = %v, %v", response, err)
+	}
+}

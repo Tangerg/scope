@@ -7,10 +7,11 @@ package elicitation
 // including input requests carried by a tool result.
 const ProtocolVersion = "2026-07-28"
 
-// FormMode is the elicitation mode that requests structured content.
 const FormMode = "form"
 
-// The actions a client answers an elicitation with. Only Accept carries content.
+const ObjectSchemaType = "object"
+
+// Only Accept carries content.
 const (
 	Accept  = "accept"
 	Decline = "decline"

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Tangerg/scope/tools/internal/toolinput"
+
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -26,6 +28,10 @@ type Request struct {
 }
 
 func (r Request) Validate() error {
+	return toolinput.Rejection(r.validate())
+}
+
+func (r Request) validate() error {
 	if r.TimeoutMS < 0 || int64(r.TimeoutMS) > maximumToolTimeout.Milliseconds() {
 		return fmt.Errorf("%w: timeout must be between zero and %d milliseconds", ErrInvalidInput, maximumToolTimeout.Milliseconds())
 	}

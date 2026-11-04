@@ -555,9 +555,9 @@ func discoverModules(t *testing.T, root string) map[string]repositoryModule {
 
 func moduleLayer(dir string) int {
 	switch dir {
-	case "core", "skills", "models/catalog":
+	case "core", "skills":
 		return 0
-	case "agent", "etl", "eval", "otel", "rag", "tools":
+	case "agent", "etl", "eval", "otel", "rag", "tools", "models/catalog":
 		return 1
 	case "a2a", "mcp", "otel/agent", "agent/run/postgres":
 		return 2
@@ -590,8 +590,10 @@ func moduleLayer(dir string) int {
 
 func allowedRepositoryDependency(source, target repositoryModule) bool {
 	switch source.dir {
-	case "core", "skills", "models/catalog", "dev/repoarch":
+	case "core", "skills", "dev/repoarch":
 		return false
+	case "models/catalog":
+		return target.dir == "core"
 	case "examples":
 		return target.layer < source.layer && !strings.HasPrefix(target.dir, "dev/")
 	case "dev/providerconformance":

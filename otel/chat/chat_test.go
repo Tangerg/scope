@@ -458,7 +458,7 @@ func TestStreamReportsNilAndProviderErrors(t *testing.T) {
 		if len(rig.spans.Ended()) == 0 {
 			t.Fatal("expected a recorded span")
 		}
-		if !errors.Is(got, otelchat.ErrNilStream) || rig.spans.Ended()[0].Status().Code != codes.Error {
+		if !errors.Is(got, chat.ErrNilStream) || rig.spans.Ended()[0].Status().Code != codes.Error {
 			t.Fatalf("error/status = %v/%v", got, rig.spans.Ended()[0].Status())
 		}
 	})

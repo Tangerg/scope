@@ -177,3 +177,65 @@ func TestRemoteTextCallsDeclareAcceptedOutputModes(t *testing.T) {
 		t.Fatalf("negotiated result=%q present=%t calls=%d", text, present, calls)
 	}
 }
+
+func TestRemoteTextMIMETypes(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		cardMode string
+		partMode string
+		valid    bool
+	}{
+		{name: "plain text", cardMode: "text/plain", partMode: "text/plain", valid: true},
+		{name: "card case", cardMode: "TEXT/PLAIN", partMode: "text/plain", valid: true},
+		{name: "card parameters", cardMode: "text/plain; charset=utf-8", partMode: "text/plain", valid: true},
+		{name: "part case", cardMode: "text/plain", partMode: "TEXT/PLAIN", valid: true},
+		{name: "part parameters", cardMode: "text/plain", partMode: "text/plain; charset=utf-8", valid: true},
+		{name: "other subtype", cardMode: "text/plain", partMode: "text/markdown"},
+		{name: "malformed parameters", cardMode: "text/plain", partMode: "text/plain; charset"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var endpoint string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					_, _ = fmt.Fprintf(w, `{"name":"Text Agent","supportedInterfaces":[{"url":%q,"protocolBinding":"JSONRPC","protocolVersion":"1.0"}],"defaultInputModes":[%q],"defaultOutputModes":[%q]}`, endpoint, test.cardMode, test.cardMode)
+					return
+				}
+				var request struct {
+					ID json.RawMessage `json:"id"`
+				}
+				if err := jsonv2.UnmarshalRead(r.Body, &request); err != nil {
+					t.Error(err)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%s,"result":{"task":{"id":"completed-task","contextId":"context","status":{"state":"TASK_STATE_COMPLETED"},"artifacts":[{"artifactId":"result","parts":[{"text":"complete","mediaType":%q}]}]}}}`, request.ID, test.partMode)
+			}))
+			defer server.Close()
+			endpoint = server.URL + "/rpc"
+			set, err := a2a.OpenToolSet(t.Context(), a2a.Endpoint{CardURL: server.URL, HTTPClient: server.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = set.Close() }()
+			binding, err := tool.Bind(set.Tools()[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			invocation, err := binding.Contract().Prepare(tool.Request{Name: binding.Contract().Name(), Arguments: `{"message":"prepare a result"}`}, tool.Admission{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := binding.Call(t.Context(), invocation)
+			if !test.valid {
+				if !errors.Is(err, a2a.ErrUnsupportedContent) {
+					t.Fatalf("Call = %+v, %v; want unsupported content", result, err)
+				}
+				return
+			}
+			text, present := result.Output.Text()
+			if err != nil || !present || text != "complete" {
+				t.Fatalf("Call = %q, %v, %v", text, present, err)
+			}
+		})
+	}
+}

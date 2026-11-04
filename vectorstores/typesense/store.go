@@ -425,63 +425,6 @@ func keyFilter(keys []string) string {
 	return fieldID + keyFilterOperator + strings.Join(keys, ",") + "]"
 }
 
-func validateImport(raw []byte, ids []string) error {
-	implicated := make(map[string]int, len(ids))
-	for _, id := range ids {
-		implicated[id] = 0
-	}
-	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
-	var cause error
-	for {
-		var ack struct {
-			ID      string `json:"id"`
-			Success *bool  `json:"success"`
-		}
-		err := jsonv2.UnmarshalDecode(decoder, &ack)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			cause = err
-			break
-		}
-		id, err := decodeKey(ack.ID)
-		old, ok := implicated[id]
-		if err != nil || !ok {
-			cause = errors.New("typesense: import acknowledgment has unknown identity")
-			continue
-		}
-		if old != 0 || ack.Success == nil {
-			implicated[id] = -1
-			cause = errors.New("typesense: contradictory import acknowledgment")
-			continue
-		}
-		if *ack.Success {
-			implicated[id] = 1
-		} else {
-			implicated[id] = 2
-		}
-	}
-	var evidence vectorstore.WriteOutcome
-	for _, id := range ids {
-		switch implicated[id] {
-		case 1:
-			evidence.Acknowledged = append(evidence.Acknowledged, id)
-		case 2:
-			evidence.Rejected = append(evidence.Rejected, id)
-		default:
-			evidence.Unconfirmed = append(evidence.Unconfirmed, id)
-		}
-	}
-	if len(evidence.Acknowledged) == len(ids) && cause == nil {
-		return nil
-	}
-	if cause == nil {
-		cause = errors.New("typesense: import is incomplete or rejected")
-	}
-	return vectorstore.NewWriteError(cause, evidence)
-}
-
 type searchQuery struct {
 	api.MultiSearchCollectionParameters `json:",inline"`
 	EnableCurations                     bool `json:"enable_curations"`

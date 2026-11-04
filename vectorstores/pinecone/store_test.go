@@ -168,7 +168,7 @@ func TestSearchMergesNativeRankBeforeNormalizedScores(t *testing.T) {
 	for _, metric := range []pineconesdk.IndexMetric{pineconesdk.IndexMetricCosine, pineconesdk.IndexMetricDotproduct, pineconesdk.IndexMetricEuclidean} {
 		t.Run(string(metric), func(t *testing.T) {
 			store, native := fixtureStore(t)
-			store.schema.metric, native.metric = metric, metric
+			store.binding.schema.metric, native.metric = metric, metric
 			var docs []*document.Document
 			for i := range 101 {
 				facts, err := metadata.FromValues(map[string]any{"value": "a", "unique": i})
