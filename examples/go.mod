@@ -4,19 +4,19 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.3
-	github.com/Tangerg/scope/agent v0.59.0
-	github.com/Tangerg/scope/core v0.59.0
-	github.com/Tangerg/scope/etl v0.59.0
-	github.com/Tangerg/scope/eval v0.59.0
-	github.com/Tangerg/scope/eval/trajectory v0.59.0
-	github.com/Tangerg/scope/mcp v0.59.0
-	github.com/Tangerg/scope/rag v0.59.0
-	github.com/Tangerg/scope/tools v0.59.0
+	github.com/Tangerg/scope/agent v0.60.0
+	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/etl v0.60.0
+	github.com/Tangerg/scope/eval v0.60.0
+	github.com/Tangerg/scope/eval/trajectory v0.60.0
+	github.com/Tangerg/scope/mcp v0.60.0
+	github.com/Tangerg/scope/rag v0.60.0
+	github.com/Tangerg/scope/tools v0.60.0
 	github.com/samber/lo v1.53.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.59.0 // indirect
+	github.com/Tangerg/scope/otel v0.60.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/bluekeyes/go-gitdiff v0.9.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.10.4 // indirect
