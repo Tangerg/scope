@@ -108,16 +108,15 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 	if validateCardErr := policy.validateCard(card); validateCardErr != nil {
 		return nil, nil, validateCardErr
 	}
-	outputModes, err := (textProjection{}).negotiate(card)
-	if err != nil {
-		return nil, nil, err
+	if exchangeErr := (textProjection{}).requireTextExchange(card); exchangeErr != nil {
+		return nil, nil, exchangeErr
 	}
 
 	rpcClient := policy.rpcOrigins.restrict(baseClient)
 	client, err := a2aclient.NewFromCard(ctx, card,
 		// The selected AgentInterface owns the remote tenant. A host context's
 		// tenant belongs to another boundary and must not retarget this binding.
-		a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true, AcceptedOutputModes: outputModes}),
+		a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true, AcceptedOutputModes: []string{plainTextMediaType}}),
 		a2aclient.WithJSONRPCTransport(rpcClient),
 		a2aclient.WithRESTTransport(rpcClient),
 	)

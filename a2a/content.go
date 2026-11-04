@@ -15,10 +15,12 @@ const plainTextMediaType = "text/plain"
 
 type textProjection struct{}
 
-func (t textProjection) negotiate(card *sdka2a.AgentCard) ([]string, error) {
+// requireTextExchange admits a remote card whose every skill can exchange plain
+// text, the only mode this projection speaks; its other modes stay unused.
+func (t textProjection) requireTextExchange(card *sdka2a.AgentCard) error {
 	if len(card.Skills) == 0 {
 		if err := t.requireTextMode(card.DefaultInputModes, card.DefaultOutputModes); err != nil {
-			return nil, fmt.Errorf("%w %q: default modes: %w", ErrInvalidCard, card.Name, err)
+			return fmt.Errorf("%w %q: default modes: %w", ErrInvalidCard, card.Name, err)
 		}
 	}
 	for _, skill := range card.Skills {
@@ -30,10 +32,10 @@ func (t textProjection) negotiate(card *sdka2a.AgentCard) ([]string, error) {
 			output = card.DefaultOutputModes
 		}
 		if err := t.requireTextMode(input, output); err != nil {
-			return nil, fmt.Errorf("%w %q: skill %q: %w", ErrInvalidCard, card.Name, skill.ID, err)
+			return fmt.Errorf("%w %q: skill %q: %w", ErrInvalidCard, card.Name, skill.ID, err)
 		}
 	}
-	return []string{plainTextMediaType}, nil
+	return nil
 }
 
 func (textProjection) requireTextMode(groups ...[]string) error {
