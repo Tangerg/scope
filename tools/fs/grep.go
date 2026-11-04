@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strconv"
 
@@ -91,8 +90,12 @@ type GrepResponse struct {
 
 var _ toolcontract.Tool = (*GrepTool)(nil)
 
+// grepFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type grepFunc = toolcontract.Func[GrepRequest, GrepResponse]
+
 type GrepTool struct {
-	function toolcontract.Func[GrepRequest, GrepResponse]
+	grepFunc
 	executor Grepper
 }
 
@@ -114,7 +117,7 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewGrepTool: %w", err)
 	}
-	t.function = typed
+	t.grepFunc = typed
 	return t, nil
 }
 
@@ -137,32 +140,4 @@ func (GrepRequest) JSONSchemaConstraints() jsonschema.Constraints {
 		"after_context_lines":  {Minimum: new(float64(0)), Maximum: new(float64(maximumContextLines))},
 		"max_results":          {Minimum: new(float64(1)), Maximum: new(float64(maximumSearchResults))},
 	}}
-}
-
-func (g *GrepTool) Definition() toolcontract.Definition { return g.function.Definition() }
-
-func (g *GrepTool) InputValidator() func([]byte) error { return g.function.InputValidator() }
-
-func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return g.function.Call(ctx, invocation)
-}
-
-func (g *GrepRequest) UnmarshalJSON(data []byte) error {
-	if g == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest GrepRequest
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := GrepRequest(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*g = candidate
-	return nil
 }

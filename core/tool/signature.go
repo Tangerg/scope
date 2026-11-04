@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Signature owns the typed codec and both of its schema projections. Custom
 // decoders must be deterministic, bounded and free of external effects because
-// admission uses the same decoder before execution. Output bypasses the JSON
+// admission uses the same decoder before execution. Admission of a typed input
+// is that strict decode followed by the input's own Validate method when it
+// declares one, so a request type states its domain rules once. Output bypasses the JSON
 // codec to preserve media. Strings are text-only outputs and declare no Details
 // schema; other values encode into Details under the reflected output schema.
 // The declared output type selects the codec once, so interface values cannot
@@ -63,21 +67,43 @@ func (s Signature[In, Out]) InputSchema() json.RawMessage  { return bytes.Clone(
 func (s Signature[In, Out]) OutputSchema() json.RawMessage { return bytes.Clone(s.output) }
 
 func (s Signature[In, Out]) Decode(invocation Invocation) (In, error) {
-	var input In
 	if len(s.input) == 0 {
-		return input, fmt.Errorf("%w: signature is zero", ErrInvalidTool)
+		var zero In
+		return zero, fmt.Errorf("%w: signature is zero", ErrInvalidTool)
 	}
-	if err := jsonv2.Unmarshal(invocation.arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return input, err
-	}
-	return input, nil
+	return admitInput[In](invocation.arguments)
 }
 
 func (Signature[In, Out]) InputValidator() func([]byte) error {
 	return func(arguments []byte) error {
-		var input In
-		return jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true))
+		_, err := admitInput[In](arguments)
+		return err
 	}
+}
+
+// validatingInput is the domain admission a typed input may declare beyond its
+// schema. Either receiver kind is honored, so a type need not choose one for it.
+type validatingInput interface{ Validate() error }
+
+func admitInput[In any](arguments []byte) (In, error) {
+	var input In
+	if err := jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return input, err
+	}
+	validator, declared := any(&input).(validatingInput)
+	if !declared {
+		validator, declared = any(input).(validatingInput)
+	}
+	if !declared {
+		return input, nil
+	}
+	if lo.IsNil(validator) {
+		return input, fmt.Errorf("%w: input is null", ErrInvalidRequest)
+	}
+	if err := validator.Validate(); err != nil {
+		return input, err
+	}
+	return input, nil
 }
 
 func (s Signature[In, Out]) Encode(output Out) (Output, error) {

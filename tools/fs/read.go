@@ -29,9 +29,13 @@ type ReadResponse struct {
 
 var _ toolcontract.Tool = (*ReadTool)(nil)
 
+// readFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type readFunc = toolcontract.Func[ReadRequest, ReadResponse]
+
 // ReadTool declares parallel calls on the strength of the Reader contract.
 type ReadTool struct {
-	function toolcontract.Func[ReadRequest, ReadResponse]
+	readFunc
 	executor Reader
 }
 
@@ -54,7 +58,7 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewReadTool: %w", err)
 	}
-	t.function = typed
+	t.readFunc = typed
 	return t, nil
 }
 
@@ -78,12 +82,4 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 		TotalLines: res.TotalLines,
 		Truncated:  res.Truncated,
 	}, nil
-}
-
-func (r *ReadTool) Definition() toolcontract.Definition { return r.function.Definition() }
-
-func (r *ReadTool) InputValidator() func([]byte) error { return r.function.InputValidator() }
-
-func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return r.function.Call(ctx, invocation)
 }

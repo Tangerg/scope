@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -38,8 +37,12 @@ type EditResponse struct {
 
 var _ toolcontract.Tool = (*EditTool)(nil)
 
+// editFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type editFunc = toolcontract.Func[EditRequest, EditResponse]
+
 type EditTool struct {
-	function toolcontract.Func[EditRequest, EditResponse]
+	editFunc
 	executor Editor
 }
 
@@ -60,7 +63,7 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewEditTool: %w", err)
 	}
-	t.function = typed
+	t.editFunc = typed
 	return t, nil
 }
 
@@ -70,32 +73,4 @@ func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, err
 		return EditResponse{}, mutationError("fs.edit", res, err)
 	}
 	return res, nil
-}
-
-func (e *EditTool) Definition() toolcontract.Definition { return e.function.Definition() }
-
-func (e *EditTool) InputValidator() func([]byte) error { return e.function.InputValidator() }
-
-func (e *EditTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return e.function.Call(ctx, invocation)
-}
-
-func (e *EditRequest) UnmarshalJSON(data []byte) error {
-	if e == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest EditRequest
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := EditRequest(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*e = candidate
-	return nil
 }

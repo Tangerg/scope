@@ -15,8 +15,12 @@ const webSearchToolName = "web_search"
 
 var _ toolcontract.Tool = (*SearchTool)(nil)
 
+// searchFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type searchFunc = toolcontract.Func[SearchRequest, *SearchResponse]
+
 type SearchTool struct {
-	function toolcontract.Func[SearchRequest, *SearchResponse]
+	searchFunc
 	searcher Searcher
 }
 
@@ -32,7 +36,7 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("web: build search tool: %w", err)
 	}
-	s.function = typed
+	s.searchFunc = typed
 	return s, nil
 }
 
@@ -61,12 +65,4 @@ Use recency for a relative freshness window. Cite the returned source URLs when 
 
 func (*SearchTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
-}
-
-func (s *SearchTool) Definition() toolcontract.Definition { return s.function.Definition() }
-
-func (s *SearchTool) InputValidator() func([]byte) error { return s.function.InputValidator() }
-
-func (s *SearchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return s.function.Call(ctx, invocation)
 }

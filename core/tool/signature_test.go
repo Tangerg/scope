@@ -107,3 +107,56 @@ func TestInterfaceOutputAlwaysUsesItsDeclaredJSONCodec(t *testing.T) {
 		}
 	}
 }
+
+var errBlankQuery = errors.New("query must not be blank")
+
+type valueValidatedInput struct {
+	Query string `json:"query"`
+}
+
+func (v valueValidatedInput) Validate() error {
+	if v.Query == "" {
+		return errBlankQuery
+	}
+	return nil
+}
+
+type pointerValidatedInput struct {
+	Query string `json:"query"`
+}
+
+func (p *pointerValidatedInput) Validate() error {
+	if p.Query == "" {
+		return errBlankQuery
+	}
+	return nil
+}
+
+func TestSignatureAdmitsTypedInputThroughItsValidate(t *testing.T) {
+	for name, validate := range map[string]func([]byte) error{
+		"value receiver":   mustSignature[valueValidatedInput](t).InputValidator(),
+		"pointer receiver": mustSignature[pointerValidatedInput](t).InputValidator(),
+		"pointer input":    mustSignature[*valueValidatedInput](t).InputValidator(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validate([]byte(`{"query":"go"}`)); err != nil {
+				t.Fatalf("valid input rejected: %v", err)
+			}
+			if err := validate([]byte(`{"query":""}`)); !errors.Is(err, errBlankQuery) {
+				t.Fatalf("domain rule bypassed: %v", err)
+			}
+		})
+	}
+	if err := mustSignature[*valueValidatedInput](t).InputValidator()([]byte(`null`)); !errors.Is(err, tool.ErrInvalidRequest) {
+		t.Fatalf("null pointer input admitted: %v", err)
+	}
+}
+
+func mustSignature[In any](t *testing.T) tool.Signature[In, string] {
+	t.Helper()
+	signature, err := tool.NewSignature[In, string]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signature
+}

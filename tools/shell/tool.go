@@ -3,7 +3,6 @@ package shell
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -56,10 +55,14 @@ type Response struct {
 
 var _ toolcontract.Tool = (*Tool)(nil)
 
+// shellFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type shellFunc = toolcontract.Func[Request, Response]
+
 // Tool retains Host-selected execution authority; model arguments cannot
 // change the shell, working directory, or process policy.
 type Tool struct {
-	function toolcontract.Func[Request, Response]
+	shellFunc
 	executor Executor
 }
 
@@ -85,7 +88,7 @@ func NewTool(config Config) (*Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("shell.NewTool: %w", err)
 	}
-	t.function = typed
+	t.shellFunc = typed
 	return t, nil
 }
 
@@ -110,32 +113,4 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		return Response{}, toolresult.Correctable(cause.Error(), cause)
 	}
 	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
-}
-
-func (t *Tool) Definition() toolcontract.Definition { return t.function.Definition() }
-
-func (t *Tool) InputValidator() func([]byte) error { return t.function.InputValidator() }
-
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return t.function.Call(ctx, invocation)
-}
-
-func (r *Request) UnmarshalJSON(data []byte) error {
-	if r == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest Request
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := Request(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*r = candidate
-	return nil
 }

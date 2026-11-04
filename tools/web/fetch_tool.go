@@ -15,9 +15,13 @@ const webFetchToolName = "web_fetch"
 
 var _ toolcontract.Tool = (*FetchTool)(nil)
 
+// fetchFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type fetchFunc = toolcontract.Func[FetchRequest, *FetchResponse]
+
 type FetchTool struct {
-	function toolcontract.Func[FetchRequest, *FetchResponse]
-	fetcher  Fetcher
+	fetchFunc
+	fetcher Fetcher
 }
 
 func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
@@ -32,7 +36,7 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("web: build fetch tool: %w", err)
 	}
-	f.function = typed
+	f.fetchFunc = typed
 	return f, nil
 }
 
@@ -61,12 +65,4 @@ Network access, authentication, redirects, and JavaScript rendering depend on th
 
 func (*FetchTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
-}
-
-func (f *FetchTool) Definition() toolcontract.Definition { return f.function.Definition() }
-
-func (f *FetchTool) InputValidator() func([]byte) error { return f.function.InputValidator() }
-
-func (f *FetchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return f.function.Call(ctx, invocation)
 }

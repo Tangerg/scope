@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -48,8 +47,12 @@ type GlobResponse struct {
 
 var _ toolcontract.Tool = (*GlobTool)(nil)
 
+// globFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type globFunc = toolcontract.Func[GlobRequest, GlobResponse]
+
 type GlobTool struct {
-	function toolcontract.Func[GlobRequest, GlobResponse]
+	globFunc
 	executor Globber
 }
 
@@ -70,7 +73,7 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewGlobTool: %w", err)
 	}
-	t.function = typed
+	t.globFunc = typed
 	return t, nil
 }
 
@@ -91,32 +94,4 @@ func (GlobRequest) JSONSchemaConstraints() jsonschema.Constraints {
 		"pattern":     {MinLength: new(uint64(minimumPatternLength))},
 		"max_results": {Minimum: new(float64(1)), Maximum: new(float64(maximumSearchResults))},
 	}}
-}
-
-func (g *GlobTool) Definition() toolcontract.Definition { return g.function.Definition() }
-
-func (g *GlobTool) InputValidator() func([]byte) error { return g.function.InputValidator() }
-
-func (g *GlobTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return g.function.Call(ctx, invocation)
-}
-
-func (g *GlobRequest) UnmarshalJSON(data []byte) error {
-	if g == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest GlobRequest
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := GlobRequest(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*g = candidate
-	return nil
 }

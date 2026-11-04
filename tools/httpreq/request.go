@@ -1,7 +1,6 @@
 package httpreq
 
 import (
-	jsonv2 "encoding/json/v2"
 	"fmt"
 	"maps"
 	"net/http"
@@ -122,24 +121,4 @@ func (Request) JSONSchemaConstraints() jsonschema.Constraints {
 	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
 		"timeout_ms": {Minimum: new(float64(1)), Maximum: new(float64(MaxRequestTimeout / time.Millisecond))},
 	}}
-}
-
-func (r *Request) UnmarshalJSON(data []byte) error {
-	if r == nil {
-		return ErrNilRequest
-	}
-	type wireRequest Request
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrNilRequest
-	}
-	candidate := Request(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*r = candidate
-	return nil
 }

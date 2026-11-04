@@ -13,10 +13,14 @@ var _ toolcontract.Tool = (*Tool)(nil)
 
 const toolName = "http_request"
 
+// requestFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type requestFunc = toolcontract.Func[Request, *Response]
+
 // Tool requires a Client so every invocation enforces its frozen network policy.
 type Tool struct {
-	function toolcontract.Func[Request, *Response]
-	client   *Client
+	requestFunc
+	client *Client
 }
 
 func NewTool(client *Client) (*Tool, error) {
@@ -31,7 +35,7 @@ func NewTool(client *Client) (*Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("httpreq: build tool: %w", err)
 	}
-	t.function = typed
+	t.requestFunc = typed
 	return t, nil
 }
 
@@ -70,12 +74,4 @@ func admissionFailure(admission *admissionError) error {
 		return errors.Join(cause, err)
 	}
 	return failure
-}
-
-func (t *Tool) Definition() toolcontract.Definition { return t.function.Definition() }
-
-func (t *Tool) InputValidator() func([]byte) error { return t.function.InputValidator() }
-
-func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return t.function.Call(ctx, invocation)
 }

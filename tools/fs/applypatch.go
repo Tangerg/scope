@@ -45,9 +45,13 @@ type PatchFileResponse struct {
 
 var _ toolcontract.Tool = (*ApplyPatchTool)(nil)
 
+// applyPatchFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type applyPatchFunc = toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
+
 // ApplyPatchTool preserves both complete and partial PatchApplier outcomes.
 type ApplyPatchTool struct {
-	function toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
+	applyPatchFunc
 	executor PatchApplier
 }
 
@@ -104,7 +108,7 @@ deleted file mode 100644
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewApplyPatchTool: %w", err)
 	}
-	t.function = typed
+	t.applyPatchFunc = typed
 	return t, nil
 }
 
@@ -141,32 +145,4 @@ func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (Appl
 		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)
 	}
 	return res, nil
-}
-
-func (a *ApplyPatchTool) Definition() toolcontract.Definition { return a.function.Definition() }
-
-func (a *ApplyPatchTool) InputValidator() func([]byte) error { return a.function.InputValidator() }
-
-func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return a.function.Call(ctx, invocation)
-}
-
-func (a *ApplyPatchRequest) UnmarshalJSON(data []byte) error {
-	if a == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest ApplyPatchRequest
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := ApplyPatchRequest(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*a = candidate
-	return nil
 }

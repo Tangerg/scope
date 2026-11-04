@@ -2,7 +2,6 @@ package fs
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -34,8 +33,12 @@ type WriteResponse struct {
 
 var _ toolcontract.Tool = (*WriteTool)(nil)
 
+// writeFunc is embedded under an unexported name so the tool keeps its
+// Func private while promoting the Tool methods.
+type writeFunc = toolcontract.Func[WriteRequest, WriteResponse]
+
 type WriteTool struct {
-	function toolcontract.Func[WriteRequest, WriteResponse]
+	writeFunc
 	executor Writer
 }
 
@@ -55,7 +58,7 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewWriteTool: %w", err)
 	}
-	t.function = typed
+	t.writeFunc = typed
 	return t, nil
 }
 
@@ -65,32 +68,4 @@ func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse,
 		return WriteResponse{}, mutationError("fs.write", res, err)
 	}
 	return res, nil
-}
-
-func (w *WriteTool) Definition() toolcontract.Definition { return w.function.Definition() }
-
-func (w *WriteTool) InputValidator() func([]byte) error { return w.function.InputValidator() }
-
-func (w *WriteTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
-	return w.function.Call(ctx, invocation)
-}
-
-func (w *WriteRequest) UnmarshalJSON(data []byte) error {
-	if w == nil {
-		return ErrInvalidInput
-	}
-	type wireRequest WriteRequest
-	var decoded *wireRequest
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return err
-	}
-	if decoded == nil {
-		return ErrInvalidInput
-	}
-	candidate := WriteRequest(*decoded)
-	if err := candidate.Validate(); err != nil {
-		return err
-	}
-	*w = candidate
-	return nil
 }
