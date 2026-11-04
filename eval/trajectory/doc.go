@@ -5,6 +5,8 @@
 // classifies dispatcher intents with Coverage before model or tool payloads are
 // interpreted; arbitrary dispatcher payloads remain opaque. Token accounting is
 // never inferred from a successful model response without explicit provider usage.
+// New requires history from the tree's Start: recovery checkpoints omit earlier
+// calls and reaped children, so they cannot support trajectory evaluation.
 //
 // Capture reads through the head observed at entry. It is repeatable and can
 // export an unresolved tree; callers Await or Join before Capture when their

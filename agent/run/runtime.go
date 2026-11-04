@@ -14,14 +14,17 @@ const defaultCheckpointInterval uint64 = 1024
 const defaultStoreTimeout = 30 * time.Second
 
 type Config struct {
-	Store              Store
-	Build              string
-	ProgramResolver    ProgramResolver
-	ProcessAdmitter    ProcessAdmitter
-	Deltas             chan<- Delta
-	Budget             Budget
-	TreeLimits         TreeLimits
-	Capabilities       CapabilitySet
+	Store           Store
+	Build           string
+	ProgramResolver ProgramResolver
+	ProcessAdmitter ProcessAdmitter
+	Deltas          chan<- Delta
+	Budget          Budget
+	TreeLimits      TreeLimits
+	Capabilities    CapabilitySet
+	// Tree-wide snapshots cannot read an Execution during its Step. At this
+	// interval, new Steps wait for existing Steps to drain; controls and
+	// settlements stay live.
 	CheckpointInterval uint64
 	StoreTimeout       time.Duration
 }
@@ -587,8 +590,8 @@ func (r *Runtime) resolve(parent Program[Payload, Payload], reference ProgramRef
 }
 
 // restore resumes from the Log's base and re-executes only the Steps after
-// it, so recovery cost is bounded by the checkpoint interval rather than the
-// tree's age. Each replayed Step must reproduce its committed Transition.
+// it, so recovery never pays to replay its covered history. Each replayed Step
+// must reproduce its committed Transition.
 func (r *Runtime) restore(ctx context.Context, program Program[Payload, Payload], log Log) (*treeState, error) {
 	started, err := log.rootStarted()
 	if err != nil {

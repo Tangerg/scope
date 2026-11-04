@@ -67,12 +67,6 @@ func (e EmbeddingModelConfig) Validate() error {
 
 var _ embedding.Model = (*EmbeddingModel)(nil)
 
-// EmbeddingModel wraps Cohere's v2 embed endpoint.
-//
-// Supported models: embed-english-v3.0, embed-multilingual-v3.0,
-// embed-english-light-v3.0, embed-multilingual-light-v3.0, embed-v4.0.
-// v4 is the only family that supports OutputDimension; older v3 models
-// have a fixed 1024-dim output.
 type EmbeddingModel struct {
 	api            *api
 	defaultOptions embedding.Options

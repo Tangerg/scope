@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -34,9 +35,15 @@ const (
 	protocolNativeStopReasonKey  = "anthropic/native_stop_reason"
 	protocolStopSequenceKey      = "anthropic/stop_sequence"
 	protocolUsageKey             = "anthropic/usage"
+	inlineDocumentDigestPrefix   = "urn:sha256:"
 )
 
-func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect) (*anthropicsdk.MessageNewParams, error) {
+type protocolRequest struct {
+	params    *anthropicsdk.MessageNewParams
+	documents protocolDocumentSources
+}
+
+func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialect Dialect) (*protocolRequest, error) {
 	options, err := defaults.Resolve(req.Options)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: options: %w", err)
@@ -144,7 +151,8 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	}
 	params.OutputConfig.Effort = reasoningEffort
 
-	system, messages, err := mapProtocolMessages(req.Messages, dialect.Provider)
+	mapper := protocolMessageMapper{provider: dialect.Provider}
+	system, messages, err := mapper.mapMessages(req.Messages)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +166,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		return nil, err
 	}
 	params.Tools = append(params.Tools, tools...)
-	return &params, nil
+	return &protocolRequest{params: &params, documents: mapper.documents}, nil
 }
 
 func projectMessageInputTokenCount(params *anthropicsdk.MessageNewParams) (*anthropicsdk.MessageCountTokensParams, error) {
@@ -265,7 +273,15 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, dialect Dialect, par
 	return nil
 }
 
-func mapProtocolMessages(messages []corechat.Message, provider string) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam, error) {
+// Document positions belong to the transmitted message sequence, including
+// tool results; recording them during projection prevents a second traversal
+// from assigning citations to different sources.
+type protocolMessageMapper struct {
+	provider  string
+	documents protocolDocumentSources
+}
+
+func (p *protocolMessageMapper) mapMessages(messages []corechat.Message) ([]anthropicsdk.TextBlockParam, []anthropicsdk.MessageParam, error) {
 	var system []anthropicsdk.TextBlockParam
 	conversation := make([]anthropicsdk.MessageParam, 0, len(messages))
 	for i := range messages {
@@ -276,13 +292,13 @@ func mapProtocolMessages(messages []corechat.Message, provider string) ([]anthro
 				system = append(system, anthropicsdk.TextBlockParam{Text: message.Parts[j].Text})
 			}
 		case corechat.RoleUser:
-			blocks, err := mapProtocolUserParts(message.Parts)
+			blocks, err := p.mapUserParts(message.Parts)
 			if err != nil {
 				return nil, nil, fmt.Errorf("anthropic: messages[%d]: %w", i, err)
 			}
 			conversation = append(conversation, anthropicsdk.NewUserMessage(blocks...))
 		case corechat.RoleAssistant:
-			blocks, err := mapProtocolAssistant(message, provider)
+			blocks, err := mapProtocolAssistant(message, p.provider)
 			if err != nil {
 				return nil, nil, fmt.Errorf("anthropic: messages[%d]: %w", i, err)
 			}
@@ -291,7 +307,7 @@ func mapProtocolMessages(messages []corechat.Message, provider string) ([]anthro
 			blocks := make([]anthropicsdk.ContentBlockParamUnion, 0, len(message.Parts))
 			for j := range message.Parts {
 				result := message.Parts[j].ToolResult
-				block, err := mapProtocolToolResult(*result)
+				block, err := p.mapToolResult(*result)
 				if err != nil {
 					return nil, nil, fmt.Errorf("anthropic: messages[%d].parts[%d]: %w", i, j, err)
 				}
@@ -305,7 +321,7 @@ func mapProtocolMessages(messages []corechat.Message, provider string) ([]anthro
 	return system, conversation, nil
 }
 
-func mapProtocolToolResult(result corechat.ToolResult) (anthropicsdk.ContentBlockParamUnion, error) {
+func (p *protocolMessageMapper) mapToolResult(result corechat.ToolResult) (anthropicsdk.ContentBlockParamUnion, error) {
 	content := make([]anthropicsdk.ToolResultBlockParamContentUnion, 0, max(1, len(result.Output.Content)))
 	if len(result.Output.Content) == 0 {
 		content = append(content, anthropicsdk.ToolResultBlockParamContentUnion{
@@ -320,7 +336,7 @@ func mapProtocolToolResult(result corechat.ToolResult) (anthropicsdk.ContentBloc
 					OfText: &anthropicsdk.TextBlockParam{Text: part.Text},
 				})
 			case corecontent.Media:
-				mapped, err := mapProtocolMedia(part.Media)
+				mapped, err := p.mapMedia(part.Media)
 				if err != nil {
 					return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("tool output content[%d]: %w", index, err)
 				}
@@ -344,7 +360,7 @@ func mapProtocolToolResult(result corechat.ToolResult) (anthropicsdk.ContentBloc
 	}}, nil
 }
 
-func mapProtocolUserParts(parts []corechat.Part) ([]anthropicsdk.ContentBlockParamUnion, error) {
+func (p *protocolMessageMapper) mapUserParts(parts []corechat.Part) ([]anthropicsdk.ContentBlockParamUnion, error) {
 	blocks := make([]anthropicsdk.ContentBlockParamUnion, 0, len(parts))
 	for i := range parts {
 		switch parts[i].Kind {
@@ -354,7 +370,7 @@ func mapProtocolUserParts(parts []corechat.Part) ([]anthropicsdk.ContentBlockPar
 			}
 			blocks = append(blocks, anthropicsdk.NewTextBlock(parts[i].Text))
 		case corechat.PartMedia:
-			block, err := mapProtocolMedia(parts[i].Media)
+			block, err := p.mapMedia(parts[i].Media)
 			if err != nil {
 				return nil, fmt.Errorf("parts[%d]: %w", i, err)
 			}
@@ -366,7 +382,7 @@ func mapProtocolUserParts(parts []corechat.Part) ([]anthropicsdk.ContentBlockPar
 	return blocks, nil
 }
 
-func mapProtocolMedia(value *media.Media) (anthropicsdk.ContentBlockParamUnion, error) {
+func (p *protocolMessageMapper) mapMedia(value *media.Media) (anthropicsdk.ContentBlockParamUnion, error) {
 	mediaType, _, err := mime.ParseMediaType(value.MIME)
 	if err != nil {
 		return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("media MIME %q: %w", value.MIME, err)
@@ -413,9 +429,26 @@ func mapProtocolMedia(value *media.Media) (anthropicsdk.ContentBlockParamUnion, 
 		if value.Name != "" {
 			block.OfDocument.Title = param.NewOpt(value.Name)
 		}
+		p.bindDocument(value)
 		return block, nil
 	}
 	return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("media MIME %q is unsupported", mediaType)
+}
+
+func (p *protocolMessageMapper) bindDocument(value *media.Media) {
+	var source corecontent.CitationSource
+	switch {
+	case value.Source.Kind == media.SourceURI:
+		source = corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: value.Source.URI}
+	case value.ID != "":
+		source = corecontent.CitationSource{Kind: corecontent.CitationSourceReference, Value: value.ID}
+	default:
+		// Anonymous inline documents have no external locator. Their bytes, not
+		// a title or response ID, define a stable content-addressed reference.
+		digest := sha256.Sum256(value.Source.Bytes)
+		source = corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: fmt.Sprintf("%s%x", inlineDocumentDigestPrefix, digest)}
+	}
+	p.documents = append(p.documents, source)
 }
 
 func protocolImageMIME(mediaType string) bool {

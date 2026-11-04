@@ -2,8 +2,8 @@ package rag
 
 import "context"
 
-// IdentityAugmenter preserves the query text when retrieval evidence is needed
-// without prompt augmentation.
+// IdentityAugmenter keeps the original generation input rather than replacing
+// it with the query's normalized retrieval text.
 func IdentityAugmenter() AugmenterFunc {
 	return AugmenterFunc(func(ctx context.Context, query Query, candidates Candidates) (Augmentation, error) {
 		if err := ctx.Err(); err != nil {
@@ -15,6 +15,6 @@ func IdentityAugmenter() AugmenterFunc {
 		if err := candidates.Validate(); err != nil {
 			return Augmentation{}, err
 		}
-		return NewAugmentation(query.Text())
+		return Augmentation{}, nil
 	})
 }

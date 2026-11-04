@@ -49,7 +49,7 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 		return "", nil, nil, validateOptionsErr
 	}
 
-	config, fields, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(s.provider, "speech_request"))
+	config, fields, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(s.provider, SpeechRequestExtensionSuffix))
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -129,7 +129,7 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 	}
 
 	var outputMetadata metadata.Map
-	if err := outputMetadata.Set(protocolKey(s.provider, "mime_type"), string(*format)); err != nil {
+	if err := outputMetadata.Set(protocolKey(s.provider, speechMIMETypeMetadataSuffix), string(*format)); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +139,7 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 	}
 
 	meta := &speech.ResponseMetadata{Model: apiResp.ModelVersion}
-	if err := meta.Extra.Set(protocolKey(s.provider, "speech_response"), apiResp); err != nil {
+	if err := meta.Extra.Set(protocolKey(s.provider, SpeechResponseExtensionSuffix), apiResp); err != nil {
 		return nil, err
 	}
 

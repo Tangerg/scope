@@ -100,7 +100,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			// valid audio without introducing empty Core speech responses.
 			if pending != nil {
 				pending.Metadata.Model = generation.modelVersion
-				if err := pending.Metadata.Extra.Set(protocolKey(s.binding.provider, "speech_response"), chunk); err != nil {
+				if err := pending.Metadata.Extra.Set(protocolKey(s.binding.provider, SpeechResponseExtensionSuffix), chunk); err != nil {
 					yield(nil, err)
 					return
 				}

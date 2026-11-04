@@ -128,19 +128,22 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		point.Values = &values
 		points[i] = point
 	}
+	prepared, err := newUpsertBatchPlan(s.index.Namespace(), points)
+	if err != nil {
+		return err
+	}
 	if err := s.verifyIndex(ctx); err != nil {
 		return err
 	}
-	prepared := slices.Collect(slices.Chunk(points, MaxVectorsPerUpsert))
 	for batchIndex, points := range prepared {
 		accepted, err := s.index.UpsertVectors(ctx, points)
 		if err == nil && uint64(accepted) == uint64(len(points)) {
 			continue
 		}
 		failure := &vectorstore.WriteError{
-			Acknowledged: vectorIDs(prepared[:batchIndex]),
-			Unconfirmed:  vectorIDs(prepared[batchIndex : batchIndex+1]),
-			Unattempted:  vectorIDs(prepared[batchIndex+1:]),
+			Acknowledged: prepared[:batchIndex].ids(),
+			Unconfirmed:  prepared[batchIndex : batchIndex+1].ids(),
+			Unattempted:  prepared[batchIndex+1:].ids(),
 			Err:          err,
 		}
 		if err == nil {
@@ -153,16 +156,6 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		return failure
 	}
 	return nil
-}
-
-func vectorIDs(groups [][]*pineconesdk.Vector) []string {
-	var ids []string
-	for _, group := range groups {
-		for _, vector := range group {
-			ids = append(ids, vector.Id)
-		}
-	}
-	return ids
 }
 
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {

@@ -284,7 +284,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		actions = append(actions, map[string]any{"@search.action": "upload", s.idField: doc.ID, s.contentField: doc.Text, s.embeddingField: coords, s.metadataField: string(raw)})
+		actions = append(actions, map[string]any{searchActionField: actionUpload, s.idField: doc.ID, s.contentField: doc.Text, s.embeddingField: coords, s.metadataField: string(raw)})
 	}
 	return s.writeActions(ctx, actions)
 }
@@ -338,13 +338,13 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			response = nil
 		}
 	}()
-	body := map[string]any{
-		"count": false, "top": request.Options.ResultLimit(), "select": s.selectedFields(),
-		"vectorQueries": []any{map[string]any{"kind": "vector", "vector": queryVector, "k": request.Options.ResultLimit(), "fields": s.embeddingField}},
+	body := searchRequest{
+		Count: new(false), Top: request.Options.ResultLimit(), Select: s.selectedFields(),
+		VectorQueries: []vectorQuery{{Kind: queryKindVector, Vector: queryVector, K: request.Options.ResultLimit(), Fields: s.embeddingField}},
 	}
 	if request.Options.Mode == vectorstore.SearchModeHybrid {
-		body["search"] = request.LexicalText
-		body["searchFields"] = s.contentField
+		body.Search = request.LexicalText
+		body.SearchFields = s.contentField
 	}
 	rows, err := s.searchDocuments(ctx, body, request.Options.ResultLimit())
 	if err != nil {
@@ -364,7 +364,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			return nil, fmt.Errorf("azureaisearch: query repeated document %q", doc.ID)
 		}
 		seen[doc.ID] = struct{}{}
-		rawScore, present, scoreErr := row.Decode[*float64]("@search.score")
+		rawScore, present, scoreErr := row.Decode[*float64](searchScoreField)
 		if scoreErr != nil || !present || rawScore == nil {
 			return nil, fmt.Errorf("azureaisearch: missing or invalid native score: %w", errors.Join(scoreErr, vectorstore.ErrInvalidResponse))
 		}
@@ -372,7 +372,11 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		if scoreErr != nil {
 			return nil, scoreErr
 		}
-		ranked = append(ranked, rankedResult{result: &vectorstore.SearchResult{Document: doc, Score: score}, rawScore: *rawScore})
+		result, resultErr := vectorstore.NewSearchResult(doc, score)
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		ranked = append(ranked, rankedResult{result: result, rawScore: *rawScore})
 	}
 	slices.SortFunc(ranked, func(left, right rankedResult) int {
 		if order := cmp.Compare(right.rawScore, left.rawScore); order != 0 {
@@ -400,7 +404,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 			continue
 		}
 		seen[id] = struct{}{}
-		actions = append(actions, map[string]any{"@search.action": "delete", s.idField: id})
+		actions = append(actions, map[string]any{searchActionField: actionDelete, s.idField: id})
 	}
 	return s.writeActions(ctx, actions)
 }
@@ -469,7 +473,7 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 	}
 	prepared := make([]json.RawMessage, 0)
 	for batch := range slices.Chunk(actions, maximumDocumentsPerBatch) {
-		raw, err := jsonv2.Marshal(map[string]any{"value": batch})
+		raw, err := jsonv2.Marshal(indexingRequest{Value: batch})
 		if err != nil {
 			return err
 		}
@@ -605,9 +609,9 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 			return nil, errors.Join(err, context.Cause(ctx))
 		}
 		limit := min(maximumResultsPerPage, cfg.Budget.MaxRecords-count+1)
-		body := map[string]any{"select": s.selectedFields(), "top": limit, "orderby": s.idField + " asc"}
+		body := searchRequest{Select: s.selectedFields(), Top: limit, OrderBy: s.idField + " asc"}
 		if last != "" {
-			body["filter"] = s.idField + " gt '" + last + "'"
+			body.Filter = s.idField + " gt '" + last + "'"
 		}
 		rows, err := s.searchDocuments(ctx, body, limit)
 		if err != nil {

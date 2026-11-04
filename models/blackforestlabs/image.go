@@ -17,6 +17,21 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+const (
+	requestFieldPrompt       = "prompt"
+	requestFieldWidth        = "width"
+	requestFieldHeight       = "height"
+	requestFieldSeed         = "seed"
+	requestFieldOutputFormat = "output_format"
+
+	outputURLMetadataKey      = Provider + "/output_url"
+	seedMetadataKey           = Provider + "/seed"
+	durationMetadataKey       = Provider + "/duration_ms"
+	taskIDMetadataKey         = Provider + "/task_id"
+	submitResponseMetadataKey = Provider + "/submit_response"
+	resultResponseMetadataKey = Provider + "/result_response"
+)
+
 type ImageModelConfig struct {
 	APIKey         string
 	DefaultOptions image.Options
@@ -123,7 +138,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 			return "", nil, err
 		}
 	}
-	for _, field := range []string{"prompt", "width", "height", "seed", "output_format"} {
+	for _, field := range []string{requestFieldPrompt, requestFieldWidth, requestFieldHeight, requestFieldSeed, requestFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
 			return "", nil, fmt.Errorf("blackforestlabs: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
 		}
@@ -197,16 +212,16 @@ func (i *ImageModel) downloadGeneratedImage(ctx context.Context, outputURL, outp
 
 func mapImageResponse(value *media.Media, async *asyncResponse, final *pollResult) (*image.Response, error) {
 	var outputMetadata metadata.Map
-	if setErr := outputMetadata.Set("blackforestlabs/output_url", final.Result.Sample); setErr != nil {
+	if setErr := outputMetadata.Set(outputURLMetadataKey, final.Result.Sample); setErr != nil {
 		return nil, setErr
 	}
 	if final.Result.Seed != nil {
-		if setErr := outputMetadata.Set("blackforestlabs/seed", *final.Result.Seed); setErr != nil {
+		if setErr := outputMetadata.Set(seedMetadataKey, *final.Result.Seed); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if final.Result.Duration != nil {
-		if setErr := outputMetadata.Set("blackforestlabs/duration_ms", *final.Result.Duration); setErr != nil {
+		if setErr := outputMetadata.Set(durationMetadataKey, *final.Result.Duration); setErr != nil {
 			return nil, setErr
 		}
 	}
@@ -217,13 +232,13 @@ func mapImageResponse(value *media.Media, async *asyncResponse, final *pollResul
 	}
 
 	meta := &image.ResponseMetadata{}
-	if err := meta.Extra.Set("blackforestlabs/task_id", async.ID); err != nil {
+	if err := meta.Extra.Set(taskIDMetadataKey, async.ID); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("blackforestlabs/submit_response", async); err != nil {
+	if err := meta.Extra.Set(submitResponseMetadataKey, async); err != nil {
 		return nil, err
 	}
-	if err := meta.Extra.Set("blackforestlabs/result_response", final); err != nil {
+	if err := meta.Extra.Set(resultResponseMetadataKey, final); err != nil {
 		return nil, err
 	}
 	return image.NewResponse([]*image.Output{output}, meta)
@@ -248,7 +263,6 @@ func (i *ImageModel) pollUntilDone(ctx context.Context, submitted *asyncResponse
 		case pollStatusReady:
 			return resp, nil
 		case pollStatusPending, pollStatusReasoning, pollStatusGenerating:
-			// The three states BFL documents as still running.
 		case pollStatusError, pollStatusFailed, pollStatusContentModerated, pollStatusRequestModerated, pollStatusTaskNotFound:
 			return nil, fmt.Errorf("blackforestlabs: generation failed: %s", resp.Status)
 		default:

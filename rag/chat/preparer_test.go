@@ -269,7 +269,7 @@ func TestPreparerRejectsInvalidAugmentation(t *testing.T) {
 	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{
 		Retriever: &stubRetriever{},
 		Augmenter: rag.AugmenterFunc(func(context.Context, rag.Query, rag.Candidates) (rag.Augmentation, error) {
-			return rag.Augmentation{}, nil
+			return rag.NewAugmentation(" \n")
 		}),
 	})
 	if err != nil {

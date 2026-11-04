@@ -15,7 +15,9 @@ import (
 const (
 	// ResponseExtensionKey preserves the complete official GenerateContent
 	// response (or the current official stream chunk).
-	ResponseExtensionKey = GoogleProviderID + "/response"
+	ResponseExtensionKey = GoogleProviderID + ResponseExtensionSuffix
+
+	generatedToolIDNamespaceSuffix = "/generated/"
 )
 
 type protocolResponseMapper struct {
@@ -76,27 +78,27 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 		modelName = requestModel
 	}
 	metadata := &corechat.ResponseMetadata{ID: generation.responseID, Model: modelName}
-	if err := metadata.Extra.Set(protocolKey(p.provider, "response"), response); err != nil {
+	if err := metadata.Extra.Set(protocolKey(p.provider, ResponseExtensionSuffix), response); err != nil {
 		return nil, fmt.Errorf("google: preserve native response: %w", err)
 	}
 	if response.UsageMetadata != nil {
 		metadata.Usage = mapProtocolUsage(response.UsageMetadata)
-		if err := metadata.Extra.Set(protocolKey(p.provider, "usage"), protocolUsageExtensionFrom(response.UsageMetadata)); err != nil {
+		if err := metadata.Extra.Set(protocolKey(p.provider, usageMetadataSuffix), protocolUsageExtensionFrom(response.UsageMetadata)); err != nil {
 			return nil, err
 		}
 		if response.UsageMetadata.ToolUsePromptTokenCount != 0 {
-			if err := metadata.Extra.Set(protocolKey(p.provider, "tool_use_prompt_tokens"), int64(response.UsageMetadata.ToolUsePromptTokenCount)); err != nil {
+			if err := metadata.Extra.Set(protocolKey(p.provider, toolUsePromptTokensMetadataSuffix), int64(response.UsageMetadata.ToolUsePromptTokenCount)); err != nil {
 				return nil, err
 			}
 		}
 	}
 	if response.ModelVersion != "" {
-		if err := metadata.Extra.Set(protocolKey(p.provider, "model_version"), response.ModelVersion); err != nil {
+		if err := metadata.Extra.Set(protocolKey(p.provider, modelVersionMetadataSuffix), response.ModelVersion); err != nil {
 			return nil, err
 		}
 	}
 	if response.PromptFeedback != nil {
-		if err := metadata.Extra.Set(protocolKey(p.provider, "prompt_feedback"), response.PromptFeedback); err != nil {
+		if err := metadata.Extra.Set(protocolKey(p.provider, promptFeedbackMetadataSuffix), response.PromptFeedback); err != nil {
 			return nil, err
 		}
 	}
@@ -106,17 +108,17 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
 	response.OutputMetadata = &corechat.OutputMetadata{}
 	if isProtocolStopReason(candidate.FinishReason) {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, "native_finish_reason"), candidate.FinishReason); err != nil {
+		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, nativeFinishReasonMetadataSuffix), candidate.FinishReason); err != nil {
 			return err
 		}
 	}
 	if len(candidate.SafetyRatings) > 0 {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, "safety_ratings"), candidate.SafetyRatings); err != nil {
+		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, safetyRatingsMetadataSuffix), candidate.SafetyRatings); err != nil {
 			return err
 		}
 	}
 	if candidate.FinishMessage != "" {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, "finish_message"), candidate.FinishMessage); err != nil {
+		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, finishMessageMetadataSuffix), candidate.FinishMessage); err != nil {
 			return err
 		}
 	}
@@ -162,7 +164,7 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		}
 		id := part.FunctionCall.ID
 		if id == "" {
-			id = fmt.Sprintf("%s%d", protocolGeneratedToolPrefixFor(provider), partIndex)
+			id = fmt.Sprintf("%s%s%d", provider, generatedToolIDNamespaceSuffix, partIndex)
 		}
 		mapped = corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: id, Name: part.FunctionCall.Name, Arguments: arguments})
 		kind = corechat.PartToolCall
@@ -196,7 +198,7 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 	}
 	state := newPartReplayState(part, kind, partIndex)
 	if state.hasFields() {
-		if err := mapped.Metadata.Set(protocolKey(provider, "part_state"), state); err != nil {
+		if err := mapped.Metadata.Set(protocolKey(provider, partReplayStateMetadataSuffix), state); err != nil {
 			return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)
 		}
 	}

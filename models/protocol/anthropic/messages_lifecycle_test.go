@@ -116,11 +116,11 @@ func TestMessagesReasoningBlocksRetainIdentityThroughHistory(t *testing.T) {
 			if unmarshalErr := jsonv2.Unmarshal(encoded, &restored); unmarshalErr != nil {
 				t.Fatal(unmarshalErr)
 			}
-			params, err := model.buildProtocolRequest(&corechat.Request{Messages: []corechat.Message{*restored.Output.Message}})
+			projection, err := model.buildProtocolRequest(&corechat.Request{Messages: []corechat.Message{*restored.Output.Message}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			blocks := params.Messages[0].OfAssistant.Content
+			blocks := projection.params.Messages[0].OfAssistant.Content
 			if len(blocks) != 2 {
 				t.Fatalf("replayed %d thinking blocks, want 2: %#v", len(blocks), restored.Output.Message.Parts)
 			}
@@ -175,7 +175,7 @@ func TestMessagesNeverTreatsUnreportedOrCoercedBlockIndexesAsZero(t *testing.T) 
 			`{"type":"content_block_delta",` + index + `"delta":{"type":"input_json_delta","partial_json":"{}"}}`,
 			`{"type":"content_block_stop",` + index + `"irrelevant":0}`,
 		} {
-			state := newProtocolStreamState("anthropic")
+			state := newProtocolStreamState("anthropic", nil)
 			for _, wire := range []string{start, block, event} {
 				var decoded anthropicsdk.MessageStreamEventUnion
 				if err := jsonv2.Unmarshal([]byte(wire), &decoded); err != nil {

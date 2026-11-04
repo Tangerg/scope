@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
@@ -93,6 +95,44 @@ func TestCaptureRejectsNilSourceAndCancellation(t *testing.T) {
 	cancel()
 	if _, err := trajectory.Capture(ctx, capturedSource{head: head, entries: log.Entries}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
+	}
+}
+
+func TestCaptureRetainsTerminalRecoveryActivations(t *testing.T) {
+	store := run.NewMemoryStore()
+	model := &fixtureInteractionClient{usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
+	handle, original, program := startInteraction(t, model, []tool.Tool{fixtureWeatherTool{}}, store)
+	if _, err := handle.Await(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	before := captureInteraction(t, handle)
+	if err := original.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	replacement := newRuntime(t, store)
+	recovered, err := replacement.Recover(t.Context(), program, handle.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := captureInteraction(t, recovered)
+	log, err := after.Log()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := recovered.Inspect(t.Context())
+	if err != nil || log.Head() != head.Head || !after.HistoryComplete() {
+		t.Fatalf("terminal recovery was not fully captured: log=%d head=%d complete=%t error=%v", log.Head(), head.Head, after.HistoryComplete(), err)
+	}
+	beforeDigest, err := before.BehaviorDigest(rawOutputProjection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterDigest, err := after.BehaviorDigest(rawOutputProjection)
+	if err != nil || afterDigest != beforeDigest || after.RootUsage() != before.RootUsage() {
+		t.Fatalf("writer activation changed committed behavior or usage: error=%v", err)
+	}
+	if model.calls.Load() != 2 || len(after.ModelCalls()) != 2 || len(after.ToolCalls()) != 1 {
+		t.Fatal("terminal recovery repeated effects or lost retained calls")
 	}
 }
 

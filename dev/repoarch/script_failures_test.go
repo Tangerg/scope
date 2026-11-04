@@ -13,7 +13,7 @@ func TestAffectedModulesRejectsIncompleteDependencyGraph(t *testing.T) {
 	t.Parallel()
 	fixture := newScriptFailureFixture(t, "affected-modules.sh")
 	fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' core consumer\n")
-	fixture.write(t, "bin/git", "#!/usr/bin/env bash\necho core/source.go\n")
+	fixture.write(t, "bin/git", "#!/usr/bin/env bash\nprintf 'core/source.go\\0'\n")
 	fixture.write(t, "bin/go", `#!/usr/bin/env bash
 printf '{"Require":[{"Path":"github.com/Tangerg/scope/core"}]}\n'
 echo dependency-enumeration-failed >&2
@@ -32,22 +32,44 @@ func TestAffectedModulesSelectsBothSidesOfARename(t *testing.T) {
 	fixture.write(t, "agent/go.mod", "module github.com/Tangerg/scope/agent\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
 	fixture.write(t, "consumer/go.mod", "module github.com/Tangerg/scope/consumer\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
 	fixture.write(t, "core/value/value.go", "package value\n\nconst Answer = 42\n")
-	git := func(args ...string) {
-		t.Helper()
-		command := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
-		command.Dir = fixture.root
-		if output, err := command.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, output)
-		}
-	}
-	git("init", "-q", "-b", "main")
-	git("add", ".")
-	git("commit", "-q", "-m", "base")
-	git("mv", "core/value", "agent/value")
-	git("commit", "-q", "-m", "move")
+	fixture.git(t, "init", "-q", "-b", "main")
+	fixture.git(t, "add", ".")
+	fixture.git(t, "commit", "-q", "-m", "base")
+	fixture.git(t, "mv", "core/value", "agent/value")
+	fixture.git(t, "commit", "-q", "-m", "move")
 	output, err := fixture.run(t, "affected-modules.sh", "HEAD~1", "HEAD")
 	if err != nil || output != "agent\nconsumer\ncore\n" {
 		t.Fatalf("affected modules = %q, %v; want the destination, the source, and the source's consumers", output, err)
+	}
+}
+
+func TestAffectedModulesPreservesChangedPathBytes(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		path string
+	}{
+		{name: "non-ascii", path: "core/résumé.go"},
+		{name: "tab", path: "core/tab\tname.go"},
+		{name: "newline", path: "core/newline\nname.go"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newScriptFailureFixture(t, "affected-modules.sh")
+			fixture.write(t, "scripts/workspace-modules.sh", "#!/usr/bin/env bash\nprintf '%s\\n' consumer core\n")
+			fixture.write(t, "consumer/go.mod", "module github.com/Tangerg/scope/consumer\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
+			fixture.write(t, test.path, "package core\nconst Value = 1\n")
+			fixture.git(t, "init", "-q", "-b", "main")
+			fixture.git(t, "config", "core.quotePath", "true")
+			fixture.git(t, "add", ".")
+			fixture.git(t, "commit", "-q", "-m", "base")
+			fixture.write(t, test.path, "package core\nconst Value = 2\n")
+			fixture.git(t, "add", ".")
+			fixture.git(t, "commit", "-q", "-m", "change source")
+			output, err := fixture.run(t, "affected-modules.sh", "HEAD~1", "HEAD")
+			if err != nil || output != "consumer\ncore\n" {
+				t.Fatalf("changed path %q selected %q, %v; want its owner and consumers", test.path, output, err)
+			}
+		})
 	}
 }
 
@@ -244,6 +266,16 @@ func (s scriptFailureFixture) run(t *testing.T, script string, args ...string) (
 	command.Env = s.env
 	output, err := command.CombinedOutput()
 	return string(output), err
+}
+
+func (s scriptFailureFixture) git(t *testing.T, args ...string) {
+	t.Helper()
+	command := exec.CommandContext(t.Context(), "git", append([]string{"-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false"}, args...)...)
+	command.Dir = s.root
+	command.Env = s.env
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
 }
 
 func (s scriptFailureFixture) calls(t *testing.T) string {

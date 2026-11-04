@@ -8,7 +8,15 @@ import (
 	"fmt"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/jsonschema"
 	skillsrc "github.com/Tangerg/scope/skills"
+)
+
+const (
+	minimumCursorOffset = 1
+	snapshotHexLength   = sha256.Size * 2
+	cursorOffsetField   = "offset"
+	cursorSnapshotField = "snapshot"
 )
 
 var (
@@ -19,15 +27,22 @@ var (
 // Cursor identifies a position in one exact content snapshot. It is data, not
 // authority: every page reopens the same source and checks its current content.
 type Cursor struct {
-	Offset   int    `json:"offset" jsonschema:"minimum=1"`
-	Snapshot string `json:"snapshot" jsonschema:"minLength=64,maxLength=64"`
+	Offset   int    `json:"offset"`
+	Snapshot string `json:"snapshot"`
+}
+
+func (Cursor) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		cursorOffsetField:   {Minimum: new(float64(minimumCursorOffset))},
+		cursorSnapshotField: {MinLength: new(uint64(snapshotHexLength)), MaxLength: new(uint64(snapshotHexLength))},
+	}}
 }
 
 func (c *Cursor) validate() error {
 	if c == nil {
 		return nil
 	}
-	if c.Offset <= 0 || len(c.Snapshot) != sha256.Size*2 {
+	if c.Offset < minimumCursorOffset || len(c.Snapshot) != snapshotHexLength {
 		return ErrInvalidCursor
 	}
 	if _, err := hex.DecodeString(c.Snapshot); err != nil {

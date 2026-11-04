@@ -16,7 +16,6 @@ const (
 	Provider            = "Pinecone"
 	vectorField         = "_values"
 	MaxTopK             = 10000
-	MaxVectorsPerUpsert = 1000
 	contentField        = "content"
 	metadataField       = "metadata_json"
 	maximumIDsPerDelete = 1000

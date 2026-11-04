@@ -10,6 +10,10 @@
 // without it. A stream whose body ends before that chunk fails with
 // [chat.ErrInvalidResponse], because to a delta consumer a truncated body looks
 // exactly like a completed answer.
+// Each stream binds its first nonempty native model; later omissions retain
+// that identity and changes fail with [chat.ErrInvalidResponse]. A request alias
+// need not equal the resolved model name. Non-2xx HTTP responses fail before
+// chat or embedding decoding, and their errors expose HTTPStatus() int.
 // Reasoning. Native chat's think field is configured exclusively through
 // RequestExtensionKey. It accepts booleans and thinking levels (low, medium,
 // high, max). Core ReasoningEffort is rejected by native chat so two request

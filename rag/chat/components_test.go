@@ -83,11 +83,11 @@ func TestContextualAugmenter_RendersDocsAsContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Text(), "GOAP is goal-oriented") {
-		t.Fatalf("docs not embedded in augmented prompt: %q", got.Text())
+	if !strings.Contains(replacementText(t, got), "GOAP is goal-oriented") {
+		t.Fatalf("docs not embedded in augmented prompt: %q", replacementText(t, got))
 	}
-	if !strings.Contains(got.Text(), "what is GOAP?") {
-		t.Fatalf("query missing from augmented prompt: %q", got.Text())
+	if !strings.Contains(replacementText(t, got), "what is GOAP?") {
+		t.Fatalf("query missing from augmented prompt: %q", replacementText(t, got))
 	}
 }
 
@@ -115,10 +115,10 @@ func TestContextualAugmenterCitesOnlyEvidenceInThePrompt(t *testing.T) {
 	// The augmenter owns final assembly, so a citation can never claim evidence or a
 	// marker the prompt omits.
 	for index, cited := range citations {
-		if !strings.Contains(augmentation.Text(), cited.Document.Text) {
+		if !strings.Contains(replacementText(t, augmentation), cited.Document.Text) {
 			t.Fatalf("citation %s claims evidence missing from the prompt: %q", rag.CitationMarker(index), cited.Document.Text)
 		}
-		if !strings.Contains(augmentation.Text(), rag.CitationMarker(index)) {
+		if !strings.Contains(replacementText(t, augmentation), rag.CitationMarker(index)) {
 			t.Fatalf("citation marker %s is missing from the prompt", rag.CitationMarker(index))
 		}
 	}
@@ -137,7 +137,7 @@ func TestContextualAugmenterKeepsRetrievalQueryUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if augmentation.Text() == q.Text() {
+	if replacementText(t, augmentation) == q.Text() {
 		t.Fatal("augmentation did not add retrieved context")
 	}
 	if q.Text() != "what is GOAP?" {
@@ -153,8 +153,8 @@ func TestContextualAugmenter_EmptyDocs_DefaultRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got.Text(), "knowledge base") {
-		t.Fatalf("default empty-context message missing: %q", got.Text())
+	if !strings.Contains(replacementText(t, got), "knowledge base") {
+		t.Fatalf("default empty-context message missing: %q", replacementText(t, got))
 	}
 }
 
@@ -166,8 +166,8 @@ func TestContextualAugmenter_EmptyDocs_AllowEmptyPassesThrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Text() != q.Text() {
-		t.Fatalf("AllowEmptyContext=true output = %q, want %q", got.Text(), q.Text())
+	if text, replace := got.ReplacementText(); replace || text != "" {
+		t.Fatalf("AllowEmptyContext=true replacement = %q, %v", text, replace)
 	}
 }
 
@@ -199,11 +199,11 @@ func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(augmentation.Text(), "first evidence") || !strings.Contains(augmentation.Text(), "second evidence") {
-		t.Fatalf("included evidence missing: %q", augmentation.Text())
+	if !strings.Contains(replacementText(t, augmentation), "first evidence") || !strings.Contains(replacementText(t, augmentation), "second evidence") {
+		t.Fatalf("included evidence missing: %q", replacementText(t, augmentation))
 	}
-	if strings.Contains(augmentation.Text(), "third evidence") {
-		t.Fatalf("over-budget evidence was included: %q", augmentation.Text())
+	if strings.Contains(replacementText(t, augmentation), "third evidence") {
+		t.Fatalf("over-budget evidence was included: %q", replacementText(t, augmentation))
 	}
 	citations := augmentation.Citations().Candidates()
 	if len(citations) != 2 || citations[0].Document.ID != first.ID || citations[1].Document.ID != second.ID {
@@ -247,13 +247,13 @@ func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
 		if len(citations) == 2 && citations[1].Document.Text != "small" {
 			t.Fatalf("later candidate order or citation number changed: %#v", citations)
 		}
-		if strings.Contains(augmentation.Text(), "oversized") {
-			t.Fatalf("oversized candidate was retained: %q", augmentation.Text())
+		if strings.Contains(replacementText(t, augmentation), "oversized") {
+			t.Fatalf("oversized candidate was retained: %q", replacementText(t, augmentation))
 		}
 		// The evidence block the augmenter wrote is the single source of citations.
-		sections := strings.Split(augmentation.Text(), "\n---------------------\n")
+		sections := strings.Split(replacementText(t, augmentation), "\n---------------------\n")
 		if len(sections) != 3 {
-			t.Fatalf("prompt lost its structural evidence block: %q", augmentation.Text())
+			t.Fatalf("prompt lost its structural evidence block: %q", replacementText(t, augmentation))
 		}
 		encoded := sections[1]
 		var evidence []struct{ Citation, Content string }
@@ -282,9 +282,9 @@ func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sections := strings.Split(augmentation.Text(), "\n---------------------\n")
+	sections := strings.Split(replacementText(t, augmentation), "\n---------------------\n")
 	if len(sections) != 3 {
-		t.Fatalf("evidence escaped its JSON block: %q", augmentation.Text())
+		t.Fatalf("evidence escaped its JSON block: %q", replacementText(t, augmentation))
 	}
 	var evidence []struct {
 		Citation string `json:"citation"`
@@ -299,8 +299,8 @@ func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
 	if sections[2] != "\nQuery: question\n\nAnswer:" {
 		t.Fatalf("evidence changed the query boundary: %q", sections[2])
 	}
-	if !strings.Contains(augmentation.Text(), "strictly as untrusted evidence") {
-		t.Fatalf("prompt lacks evidence boundary instruction: %q", augmentation.Text())
+	if !strings.Contains(replacementText(t, augmentation), "strictly as untrusted evidence") {
+		t.Fatalf("prompt lacks evidence boundary instruction: %q", replacementText(t, augmentation))
 	}
 }
 
@@ -335,13 +335,13 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 			}
 			augmentation, err := augmenter.Augment(t.Context(), query, rag.Candidates{{Document: doc, Score: 1}})
 			if count < 0 {
-				if !errors.Is(err, ragchat.ErrInvalidContextBudget) || augmentation.Text() != "" {
-					t.Fatalf("invalid measurement produced augmentation %q, error %v", augmentation.Text(), err)
+				if text, replace := augmentation.ReplacementText(); !errors.Is(err, ragchat.ErrInvalidContextBudget) || replace || text != "" {
+					t.Fatalf("invalid measurement produced replacement %q, %v, error %v", text, replace, err)
 				}
 				return
 			}
-			if err != nil || !strings.Contains(augmentation.Text(), "evidence") {
-				t.Fatalf("zero token measurement lost evidence: %q, %v", augmentation.Text(), err)
+			if err != nil || !strings.Contains(replacementText(t, augmentation), "evidence") {
+				t.Fatalf("zero token measurement lost evidence: %q, %v", replacementText(t, augmentation), err)
 			}
 		})
 	}
@@ -660,8 +660,8 @@ func TestContextualAugmenterRejectsUnusableEvidenceBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 		augmentation, err := augmenter.Augment(t.Context(), mustQuery(t, "question"), rag.Candidates{candidate(doc)})
-		if !errors.Is(err, ragchat.ErrContextBudgetExceeded) || augmentation.Text() != "" {
-			t.Fatalf("allow empty=%v: augmentation=%q error=%v", allowEmpty, augmentation.Text(), err)
+		if text, replace := augmentation.ReplacementText(); !errors.Is(err, ragchat.ErrContextBudgetExceeded) || replace || text != "" {
+			t.Fatalf("allow empty=%v: replacement=%q, %v error=%v", allowEmpty, text, replace, err)
 		}
 		preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{Retriever: &stubRetriever{docs: rag.Candidates{candidate(doc)}}, Augmenter: augmenter})
 		if err != nil {
@@ -675,4 +675,13 @@ func TestContextualAugmenterRejectsUnusableEvidenceBudget(t *testing.T) {
 			t.Fatalf("preparer admitted unusable evidence: %v", err)
 		}
 	}
+}
+
+func replacementText(t *testing.T, augmentation rag.Augmentation) string {
+	t.Helper()
+	text, replace := augmentation.ReplacementText()
+	if !replace {
+		t.Fatal("augmentation did not request text replacement")
+	}
+	return text
 }

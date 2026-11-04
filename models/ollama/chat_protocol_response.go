@@ -19,6 +19,7 @@ const (
 )
 
 type protocolResponseMapper struct {
+	model        string
 	hasToolCalls bool
 	finished     bool
 }
@@ -31,7 +32,17 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 	if p.finished {
 		return nil, fmt.Errorf("ollama: stream: %w: response after done", corechat.ErrInvalidResponse)
 	}
-	metadata, err := response.metadata(requestModel)
+	if response.Model != "" {
+		if p.model != "" && response.Model != p.model {
+			return nil, fmt.Errorf("ollama: stream: %w: model changed from %q to %q", corechat.ErrInvalidResponse, p.model, response.Model)
+		}
+		p.model = response.Model
+	}
+	model := p.model
+	if model == "" {
+		model = requestModel
+	}
+	metadata, err := response.metadata(model)
 	if err != nil {
 		return nil, err
 	}

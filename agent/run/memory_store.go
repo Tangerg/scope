@@ -56,12 +56,17 @@ func (m *MemoryStore) Read(ctx context.Context, root ProcessID, after LSN) iter.
 		if stream == nil {
 			return
 		}
-		entries, err := stream.after(after)
-		if err != nil {
-			yield(Entry{}, err)
-			return
-		}
-		for _, entry := range entries {
+		for _, entry := range stream.after(after) {
+			if err := ctx.Err(); err != nil {
+				yield(Entry{}, err)
+				return
+			}
+			record, err := cloneRecord(entry.Record)
+			if err != nil {
+				yield(Entry{}, err)
+				return
+			}
+			entry.Record = record
 			if !yield(entry, nil) {
 				return
 			}
@@ -145,13 +150,15 @@ func (m *memoryLog) cut() ([]Entry, error) {
 	return cloneEntries(m.entries[m.checkpoint:])
 }
 
-func (m *memoryLog) after(position LSN) ([]Entry, error) {
+func (m *memoryLog) after(position LSN) []Entry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if position >= LSN(len(m.entries)) {
-		return nil, nil
+		return nil
 	}
-	return cloneEntries(m.entries[position:])
+	// Append freezes records and never changes the committed prefix. A fixed
+	// slice keeps one read's head without copying entries it may never consume.
+	return m.entries[position:len(m.entries):len(m.entries)]
 }
 
 func cloneEntries(entries []Entry) ([]Entry, error) {

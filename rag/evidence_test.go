@@ -36,16 +36,19 @@ func TestCitationAdmissionIsIndependentOfVisibleMarkerText(t *testing.T) {
 		t.Fatal("host export lost revision", string(exported), decodeErr)
 	}
 	selected[0].Content = "  "
-	if out, e := selected.Augment("", ""); out.Text() != "" || !errors.Is(e, rag.ErrInvalidAugmentation) {
+	out, e := selected.Augment("", "")
+	if text, replace := out.ReplacementText(); replace || text != "" || !errors.Is(e, rag.ErrInvalidAugmentation) {
 		t.Fatal("blank excerpt admitted", e)
 	}
 	selected[0].Content = "\xff"
-	if out, e := selected.Augment("", ""); out.Text() != "" || !errors.Is(e, rag.ErrInvalidAugmentation) {
+	out, e = selected.Augment("", "")
+	if text, replace := out.ReplacementText(); replace || text != "" || !errors.Is(e, rag.ErrInvalidAugmentation) {
 		t.Fatal("unencodable excerpt admitted", e)
 	}
 	d.Provenance.Revision = ""
 	selected[0].Content = "text"
-	if out, e := selected.Augment("", ""); out.Text() != "" || !errors.Is(e, document.ErrInvalidDocument) {
+	out, e = selected.Augment("", "")
+	if text, replace := out.ReplacementText(); replace || text != "" || !errors.Is(e, document.ErrInvalidDocument) {
 		t.Fatal("invalid source revision admitted", e)
 	}
 }

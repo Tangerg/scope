@@ -25,8 +25,8 @@ var (
 )
 
 // Store owns one append-only log per root tree. Recovery and history are
-// separate reads so that neither pays for the other's range: Load is bounded by
-// the checkpoint interval however old the tree is, and Read is incremental.
+// separate reads so neither pays for the other's range: Load skips the prefix
+// covered by the newest checkpoint, and Read is incremental.
 type Store interface {
 	// Append is the only operation that advances a tree. It must atomically
 	// compare the writer Epoch and the head position before extending the log,
@@ -968,6 +968,27 @@ func (l Log) Inspect() (TreeInspection, error) {
 		return TreeInspection{}, err
 	}
 	return state.inspect(), nil
+}
+
+// Usage requires the complete prefix because checkpoints omit reaped
+// processes. A recovery cut cannot certify the tree's historical total.
+func (l Log) Usage() (Usage, error) {
+	if err := l.Validate(); err != nil {
+		return Usage{}, err
+	}
+	if !l.Complete() {
+		return Usage{}, fmt.Errorf("%w: usage requires history from the tree start", ErrInvalidLog)
+	}
+	var usage Usage
+	for _, entry := range l.Entries {
+		_, increment := recordUsage(entry.Record)
+		var err error
+		usage, err = usage.add(increment)
+		if err != nil {
+			return Usage{}, err
+		}
+	}
+	return usage, nil
 }
 
 func (l Log) Validate() error { _, err := projectLog(l); return err }

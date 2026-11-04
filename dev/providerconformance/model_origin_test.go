@@ -19,6 +19,7 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/anthropic"
 	"github.com/Tangerg/scope/models/assemblyai"
+	"github.com/Tangerg/scope/models/bedrock"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 	"github.com/Tangerg/scope/models/cohere"
 	"github.com/Tangerg/scope/models/deepgram"
@@ -42,15 +43,28 @@ import (
 )
 
 type modelOriginCall struct {
-	name          string
-	header        string // when fixed by this binding rather than its external SDK
-	noAPIKey      bool
-	safeHTTPError bool
-	call          func(context.Context, string, *http.Client) error
+	name            string
+	header          string // when fixed by this binding rather than its external SDK
+	noAPIKey        bool
+	safeHTTPError   bool
+	rejectRedirects bool
+	call            func(context.Context, string, *http.Client) error
 }
 
 func modelOriginCalls() []modelOriginCall {
 	return []modelOriginCall{
+		{name: "bedrock", header: "X-Amz-Security-Token", rejectRedirects: true, call: func(ctx context.Context, endpoint string, client *http.Client) error {
+			model, err := bedrock.NewEmbeddingModel(ctx, bedrock.EmbeddingModelConfig{
+				Region: "us-east-1", BaseURL: endpoint, HTTPClient: client,
+				Credentials:    &bedrock.Credentials{AccessKeyID: "test-key", SecretAccessKey: "test-secret", SessionToken: "sentinel"},
+				DefaultOptions: embedding.Options{Model: "amazon.titan-embed-text-v2:0"},
+			})
+			if err != nil {
+				return err
+			}
+			_, err = model.Call(ctx, &embedding.Request{Texts: []string{"private document"}})
+			return err
+		}},
 		{name: "assemblyai", safeHTTPError: true, header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
 			model, err := assemblyai.NewTranscriptionModel(ctx, assemblyai.TranscriptionModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client, DefaultOptions: transcription.Options{Model: assemblyai.ModelUniversal2}})
 			if err != nil {
@@ -267,6 +281,7 @@ func modelOriginCalls() []modelOriginCall {
 
 type modelOriginTransport struct {
 	location    string
+	status      int
 	initial     int
 	redirected  int
 	first, last []originCredential
@@ -290,6 +305,9 @@ func (m *modelOriginTransport) RoundTrip(request *http.Request) (*http.Response,
 		}
 	}
 	status := http.StatusTemporaryRedirect
+	if m.status != 0 {
+		status = m.status
+	}
 	header := http.Header{"Content-Type": {"application/json"}, "X-Should-Retry": {"false"}}
 	var body io.ReadCloser = http.NoBody
 	if request.URL.Path == "/finish" {
@@ -319,6 +337,9 @@ func TestModelAPIRequestsRemainWithinTheirCredentialOrigin(t *testing.T) {
 		} {
 			t.Run(provider.name+"/"+destination.name, func(t *testing.T) {
 				transport := &modelOriginTransport{location: destination.location}
+				if provider.rejectRedirects {
+					transport.status = http.StatusFound
+				}
 				client := &http.Client{Transport: transport}
 				err := provider.call(t.Context(), endpoint, client)
 				if transport.initial == 0 {
@@ -334,7 +355,11 @@ func TestModelAPIRequestsRemainWithinTheirCredentialOrigin(t *testing.T) {
 				if provider.header != "" && !strings.EqualFold(provider.header, transport.first[0].name) {
 					t.Fatalf("credential header: got %s, want %s", transport.first[0].name, provider.header)
 				}
-				if destination.allowed {
+				if destination.allowed && provider.rejectRedirects {
+					if err == nil || errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected != 0 {
+						t.Fatalf("signed request followed a redirect: redirected=%d error=%v", transport.redirected, err)
+					}
+				} else if destination.allowed {
 					if errors.Is(err, httpclient.ErrOriginNotAllowed) || transport.redirected == 0 || !slices.Equal(transport.first, transport.last) {
 						t.Fatalf("same-origin redirect changed credentials: before=%v after=%v redirected=%d error=%v", transport.first, transport.last, transport.redirected, err)
 					}

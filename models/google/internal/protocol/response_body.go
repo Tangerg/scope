@@ -4,25 +4,35 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 // The SDK converts response JSON through scalar DTOs, losing field presence.
 // Keep its authentication and request projection while validating the native
 // response before that conversion. Read errors occur outside its retry loop.
 type nativeResponseTransport struct {
-	next      http.RoundTripper
-	embedding *nativeEmbeddingResponse
+	next             http.RoundTripper
+	embedding        *nativeEmbeddingResponse
+	embeddingRequest *embeddingRequest
 }
 
 func (n *nativeResponseTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if n.embeddingRequest != nil && n.embeddingRequest.projectionErr != nil {
+		err := n.embeddingRequest.projectionErr
+		if request.Body != nil {
+			err = errors.Join(err, request.Body.Close())
+		}
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	response, err := n.next.RoundTrip(request)
-	if err != nil || response == nil || response.StatusCode < 200 || response.StatusCode >= 300 {
+	if err != nil || response == nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return response, err
 	}
 	path := request.URL.Path

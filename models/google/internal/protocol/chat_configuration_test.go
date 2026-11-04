@@ -28,7 +28,7 @@ func TestProtocolConfigRejectsCoreOwnedFields(t *testing.T) {
 		} {
 			t.Run(provider+"/"+field.name, func(t *testing.T) {
 				request := validReasoningRequest(t, "")
-				if err := request.Options.Extensions.Set(protocolKey(provider, "request"), map[string]any{field.name: nil}); err != nil {
+				if err := request.Options.Extensions.Set(protocolKey(provider, RequestExtensionSuffix), map[string]any{field.name: nil}); err != nil {
 					t.Fatal(err)
 				}
 				_, _, _, err := mapProtocolRequest(provider, chat.Options{Model: "gemini"}, request)
@@ -44,7 +44,7 @@ func TestProtocolConfigRejectsCoreOwnedFields(t *testing.T) {
 		} {
 			t.Run(provider+"/"+extension.name, func(t *testing.T) {
 				request := validReasoningRequest(t, "")
-				if err := request.Options.Extensions.Set(protocolKey(provider, "request"), json.RawMessage(extension.value)); err != nil {
+				if err := request.Options.Extensions.Set(protocolKey(provider, RequestExtensionSuffix), json.RawMessage(extension.value)); err != nil {
 					t.Fatal(err)
 				}
 				_, _, _, err := mapProtocolRequest(provider, chat.Options{Model: "gemini"}, request)
@@ -92,7 +92,7 @@ func TestProtocolConfigPreservesNativeCapabilitiesAlongsideCore(t *testing.T) {
 			request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}
 			request.ToolChoice = &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup"}
 			request.Options = chat.Options{Temperature: new(0.0), MaxOutputTokens: new(int64(64)), ReasoningEffort: "high", Stop: []string{"end"}}
-			if extensionErr := request.Options.Extensions.Set(protocolKey(provider, "request"), json.RawMessage(`{
+			if extensionErr := request.Options.Extensions.Set(protocolKey(provider, RequestExtensionSuffix), json.RawMessage(`{
 				"safetySettings":[{"category":"HARM_CATEGORY_HATE_SPEECH","threshold":"BLOCK_ONLY_HIGH"}],
 				"responseModalities":["TEXT"],"thinkingConfig":{"includeThoughts":true},"tools":[{"googleSearch":{}}]
 			}`)); extensionErr != nil {

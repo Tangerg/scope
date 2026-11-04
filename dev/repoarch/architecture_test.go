@@ -170,6 +170,37 @@ func TestProductModuleGraphFollowsLayeredOwnership(t *testing.T) {
 	assertAcyclic(t, graph, modules)
 }
 
+func TestProductModulesDeclareImportedRepositoryDependencies(t *testing.T) {
+	t.Parallel()
+	modules := discoverModules(t, repositoryRoot(t))
+	forEachGoFile(t, func(path string, _ *token.FileSet, file *ast.File) {
+		source, exists := moduleForDirectory(modules, filepath.ToSlash(filepath.Dir(path)))
+		if !exists {
+			return
+		}
+		for _, imported := range file.Imports {
+			importPath := importPathOf(t, path, imported)
+			if !isRepositoryImport(importPath) {
+				continue
+			}
+			target, exists := moduleForDirectory(modules, strings.TrimPrefix(importPath, repositoryModulePrefix+"/"))
+			if !exists {
+				t.Errorf("%s imports %s without a repository module owner", path, importPath)
+				continue
+			}
+			if target.path == source.path {
+				continue
+			}
+			declared := slices.ContainsFunc(source.file.Require, func(requirement *modfile.Require) bool {
+				return requirement.Mod.Path == target.path
+			})
+			if !declared {
+				t.Errorf("%s imports %s without declaring module %s in %s/go.mod", path, importPath, target.path, source.dir)
+			}
+		}
+	})
+}
+
 func TestCoreModulePreservesDependencyDirection(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
@@ -602,7 +633,7 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	// The otel submodules isolate their target's dependency: each requires only
 	// its decorated capability and, for the shared telemetry helpers, otel itself.
 	if source.dir == "otel/agent" {
-		return target.dir == "agent"
+		return target.dir == "otel" || target.dir == "agent"
 	}
 	if source.dir == "otel/eval" {
 		return target.dir == "otel" || target.dir == "eval"

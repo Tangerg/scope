@@ -74,7 +74,7 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 		return "", nil, nil, validateOptionsErr
 	}
 
-	config, _, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(t.provider, "transcription_request"))
+	config, _, err := decodeSingleCandidateConfig(effectiveOptions.Extensions, protocolKey(t.provider, TranscriptionRequestExtensionSuffix))
 	if err != nil {
 		return "", nil, nil, err
 	}
@@ -159,7 +159,7 @@ func (t *TranscriptionModel) buildTranscriptionResponse(apiResp *genai.GenerateC
 	}
 
 	meta := &transcription.ResponseMetadata{Model: apiResp.ModelVersion}
-	if err := meta.Extra.Set(protocolKey(t.provider, "transcription_response"), apiResp); err != nil {
+	if err := meta.Extra.Set(protocolKey(t.provider, TranscriptionResponseExtensionSuffix), apiResp); err != nil {
 		return nil, err
 	}
 

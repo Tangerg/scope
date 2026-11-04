@@ -32,7 +32,7 @@ func TestMessagesUsageCombinesOnlyReportedCounters(t *testing.T) {
 }
 
 func TestStreamUsageBelongsToItsNativeReportAndEachYieldOwnsItsSnapshot(t *testing.T) {
-	state := newProtocolStreamState("anthropic")
+	state := newProtocolStreamState("anthropic", nil)
 	read := func(raw string) *chat.ResponseDelta {
 		t.Helper()
 		var event anthropicsdk.MessageStreamEventUnion

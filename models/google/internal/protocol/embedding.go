@@ -21,6 +21,17 @@ type EmbeddingModelConfig struct {
 	DefaultOptions embedding.Options
 }
 
+// HTTP envelopes cannot be embedded in model options: SDK ExtraBody merging
+// would let a native extension replace Core's texts, model, and dimensions.
+type embeddingRequestOptions struct {
+	TaskType             string `json:"taskType,omitempty"`
+	Title                string `json:"title,omitempty"`
+	MIMEType             string `json:"mimeType,omitempty"`
+	AutoTruncate         *bool  `json:"autoTruncate,omitzero"`
+	DocumentOCR          *bool  `json:"documentOcr,omitzero"`
+	AudioTrackExtraction *bool  `json:"audioTrackExtraction,omitzero"`
+}
+
 func (e EmbeddingModelConfig) Validate() error {
 	if err := validateProvider(e.Provider); err != nil {
 		return fmt.Errorf("google: Provider: %w", err)
@@ -65,34 +76,34 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 	}, nil
 }
 
-func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*genai.Content, *genai.EmbedContentConfig, error) {
+func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequest, error) {
 	effectiveOptions := req.Options
 
-	extensionKey := protocolKey(e.provider, "embedding_request")
+	extensionKey := protocolKey(e.provider, EmbeddingRequestExtensionSuffix)
 	raw, found, err := effectiveOptions.Extensions.Decode[json.RawMessage](extensionKey)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
+		return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
 	}
-	config := &genai.EmbedContentConfig{}
+	nativeOptions := &embeddingRequestOptions{}
 	if found {
-		var fields map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(raw, &fields); err != nil {
-			return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
+		if err := jsonv2.Unmarshal(raw, &nativeOptions, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
 		}
-		if fields == nil {
-			return "", nil, nil, fmt.Errorf("google: extension %q must be an object", extensionKey)
+		if nativeOptions == nil {
+			return nil, fmt.Errorf("google: extension %q must be an object", extensionKey)
 		}
-		if _, exists := fields["outputDimensionality"]; exists {
-			return "", nil, nil, fmt.Errorf("google: extension %q field outputDimensionality is owned by options.dimensions", extensionKey)
-		}
-		if err := jsonv2.Unmarshal(raw, config, jsonv2.RejectUnknownMembers(true)); err != nil {
-			return "", nil, nil, fmt.Errorf("google: extension %q: %w", extensionKey, err)
-		}
+	}
+	config := &genai.EmbedContentConfig{
+		TaskType:             nativeOptions.TaskType,
+		Title:                nativeOptions.Title,
+		MIMEType:             nativeOptions.MIMEType,
+		DocumentOcr:          nativeOptions.DocumentOCR,
+		AudioTrackExtraction: nativeOptions.AudioTrackExtraction,
 	}
 
 	if effectiveOptions.Dimensions != nil {
 		if *effectiveOptions.Dimensions > math.MaxInt32 {
-			return "", nil, nil, fmt.Errorf("google: embedding: dimensions must fit int32, got %d", *effectiveOptions.Dimensions)
+			return nil, fmt.Errorf("google: embedding: dimensions must fit int32, got %d", *effectiveOptions.Dimensions)
 		}
 		config.OutputDimensionality = new(int32(*effectiveOptions.Dimensions))
 	}
@@ -102,7 +113,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (string, []*gen
 		contents = append(contents, genai.NewContentFromText(text, genai.RoleUser))
 	}
 
-	return effectiveOptions.Model, contents, config, nil
+	return &embeddingRequest{model: effectiveOptions.Model, contents: contents, config: config, autoTruncate: nativeOptions.AutoTruncate}, nil
 }
 
 // buildResponse assembles one output per input text. embed_content answers in
@@ -127,12 +138,12 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 
 		var outputMetadata metadata.Map
 		if len(item.TokenCount) != 0 && string(item.TokenCount) != "null" {
-			if err := outputMetadata.Set(protocolKey(e.provider, "token_count"), item.TokenCount); err != nil {
+			if err := outputMetadata.Set(protocolKey(e.provider, embeddingTokenCountMetadataSuffix), item.TokenCount); err != nil {
 				return nil, err
 			}
 		}
 		if len(item.Truncated) != 0 && string(item.Truncated) != "null" {
-			if err := outputMetadata.Set(protocolKey(e.provider, "truncated"), item.Truncated); err != nil {
+			if err := outputMetadata.Set(protocolKey(e.provider, embeddingTruncatedMetadataSuffix), item.Truncated); err != nil {
 				return nil, err
 			}
 		}
@@ -145,11 +156,11 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 	meta := &embedding.ResponseMetadata{
 		Model: modelName,
 	}
-	if err := meta.Extra.Set(protocolKey(e.provider, "embedding_response"), apiResp.Raw); err != nil {
+	if err := meta.Extra.Set(protocolKey(e.provider, EmbeddingResponseExtensionSuffix), apiResp.Raw); err != nil {
 		return nil, err
 	}
 	if len(apiResp.BillableCharacterCount) != 0 && string(apiResp.BillableCharacterCount) != "null" {
-		if err := meta.Extra.Set(protocolKey(e.provider, "billable_character_count"), apiResp.BillableCharacterCount); err != nil {
+		if err := meta.Extra.Set(protocolKey(e.provider, embeddingBillableCharacterCountMetadataSuffix), apiResp.BillableCharacterCount); err != nil {
 			return nil, err
 		}
 	}
@@ -173,15 +184,15 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	effective.Options = options
 	req = &effective
 
-	modelName, contents, config, err := e.buildAPIRequest(req)
+	apiRequest, err := e.buildAPIRequest(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := e.api.embedding(ctx, modelName, contents, config)
+	apiResp, err := e.api.embedding(ctx, apiRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	return e.buildResponse(modelName, apiResp, req)
+	return e.buildResponse(apiRequest.model, apiResp, req)
 }

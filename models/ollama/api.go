@@ -66,17 +66,6 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 		return err
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusBadRequest {
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, maxNativeErrorBytes+1))
-		if readErr != nil {
-			return readErr
-		}
-		if len(body) > maxNativeErrorBytes {
-			body = body[:maxNativeErrorBytes]
-		}
-		return nativeResponseError(response, body)
-	}
-
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 4096), maxNativeStreamFrameBytes+2)
 	for scanner.Scan() {
@@ -128,9 +117,6 @@ func (a *api) call(ctx context.Context, path string, requestValue, responseValue
 	if len(body) > maxNativeResponseBytes {
 		return fmt.Errorf("ollama: response exceeds %d bytes", maxNativeResponseBytes)
 	}
-	if err := nativeResponseError(response, body); err != nil {
-		return err
-	}
 	if len(body) == 0 || responseValue == nil {
 		return nil
 	}
@@ -155,7 +141,19 @@ func (a *api) request(
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", accept)
 	request.Header.Set("User-Agent", "scope-ollama")
-	return a.httpClient.Do(request)
+	response, err := a.httpClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return response, nil
+	}
+	defer response.Body.Close()
+	errorBody, readErr := io.ReadAll(io.LimitReader(response.Body, maxNativeErrorBytes+1))
+	if len(errorBody) > maxNativeErrorBytes {
+		errorBody = errorBody[:maxNativeErrorBytes]
+	}
+	return nil, errors.Join(newNativeStatusError(response, errorBody), readErr)
 }
 
 type nativeStatusError struct {
@@ -181,10 +179,9 @@ func (n nativeStatusError) Error() string {
 	}
 }
 
-func nativeResponseError(response *http.Response, body []byte) error {
-	if response.StatusCode < http.StatusBadRequest {
-		return nil
-	}
+func (n nativeStatusError) HTTPStatus() int { return n.statusCode }
+
+func newNativeStatusError(response *http.Response, body []byte) nativeStatusError {
 	var providerFailure struct {
 		Error string `json:"error"`
 	}

@@ -14,6 +14,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/invocation"
 )
 
 // Inline high-resolution images have a larger wire budget than ordinary JSON.
@@ -150,14 +151,17 @@ func (a *api) chatCompletionStream(ctx context.Context, modelName string, conten
 	return a.wrapSequence(a.generation.GenerateContentStream(ctx, modelName, contents, config))
 }
 
-func (a *api) embedding(ctx context.Context, modelName string, contents []*genai.Content, config *genai.EmbedContentConfig) (*nativeEmbeddingResponse, error) {
+func (a *api) embedding(ctx context.Context, request *embeddingRequest) (*nativeEmbeddingResponse, error) {
 	// Each call owns its raw response. Clone only SDK wiring; the host's HTTP
 	// policy and already-resolved authentication transport remain borrowed.
 	response := &nativeEmbeddingResponse{}
 	clientConfig := a.client.ClientConfig()
+	if err := request.configure(clientConfig.Backend); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	clientConfig.HTTPOptions.Headers = clientConfig.HTTPOptions.Headers.Clone()
 	httpClient := *clientConfig.HTTPClient
-	httpClient.Transport = &nativeResponseTransport{next: a.transport, embedding: response}
+	httpClient.Transport = &nativeResponseTransport{next: a.transport, embedding: response, embeddingRequest: request}
 	clientConfig.HTTPClient = &httpClient
 	if clientConfig.Backend == genai.BackendGeminiAPI {
 		clientConfig.Project, clientConfig.Location = "", ""
@@ -166,7 +170,7 @@ func (a *api) embedding(ctx context.Context, modelName string, contents []*genai
 	if err != nil {
 		return nil, err
 	}
-	if _, err := client.Models.EmbedContent(ctx, modelName, contents, config); err != nil {
+	if _, err := client.Models.EmbedContent(ctx, request.model, request.contents, request.config); err != nil {
 		return nil, a.wrapError(err)
 	}
 	return response, nil

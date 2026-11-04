@@ -28,8 +28,10 @@
 // Core Part.Kind owns the thought classification of visible text. Native
 // part_state retains the independent flag on signature-only, tool, and media
 // Parts. Stored visible-text state containing a competing thought flag is rejected.
-// Native embedding extensions also use SDK camelCase fields and reject
-// outputDimensionality; embedding.Options.Dimensions owns that value.
+// Embedding extensions admit only taskType, title, mimeType, autoTruncate,
+// documentOcr, and audioTrackExtraction. HTTP envelopes are excluded because
+// SDK extra-body merging could overwrite Core's texts, model, or dimensions.
+// autoTruncate requires Vertex AI; Gemini rejects either explicit boolean value.
 // Positive dimensions must fit the SDK's int32 representation; the service
 // determines the selected model's supported dimensions.
 // Embedding responses retain the exact native JSON. Optional token, truncation,

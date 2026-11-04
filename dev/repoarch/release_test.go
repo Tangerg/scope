@@ -197,6 +197,141 @@ func TestReleaseRequiresFinalDependencyGatesBeforePush(t *testing.T) {
 	}
 }
 
+func TestReleaseRejectsStaleSourceInEveryExistingModuleTag(t *testing.T) {
+	t.Parallel()
+	fixture := newReleaseSourceFixture(t, "consumer")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "consumer/v0.0.2 is immutable but its module source changed") ||
+		strings.Contains(fixture.calls(t), "git push") || strings.Contains(fixture.calls(t), "repository-gates") {
+		t.Fatalf("each existing tag must match the checked module source before publication: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseReusedModuleTagDoesNotOwnPeerSources(t *testing.T) {
+	t.Parallel()
+	fixture := newReleaseSourceFixture(t, "core")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "publication-boundary-reached") ||
+		!strings.Contains(fixture.calls(t), "repository-gates") || strings.Count(fixture.calls(t), "git push") != 1 {
+		t.Fatalf("unchanged module source must remain reusable after peer source changes: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseReusedModuleTagDoesNotOwnNestedSources(t *testing.T) {
+	t.Parallel()
+	fixture := newReleaseSourceFixture(t, "consumer/child")
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "publication-boundary-reached") ||
+		!strings.Contains(fixture.calls(t), "repository-gates") || strings.Count(fixture.calls(t), "git push") != 1 {
+		t.Fatalf("a nested module must own its source independently of its parent's tag: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseReusedModuleTagDoesNotOwnNestedBoundaries(t *testing.T) {
+	t.Parallel()
+	fixture := newReleaseSourceChangeFixture(t, func(t *testing.T, fixture *scriptFailureFixture) {
+		t.Helper()
+		fixture.write(t, "consumer/child/grandchild/go.mod", "module github.com/Tangerg/scope/consumer/child/grandchild\n")
+		fixture.env = append(fixture.env,
+			`SCRIPT_WORKSPACE_JSON={"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"},{"DiskPath":"./consumer/child"},{"DiskPath":"./consumer/child/grandchild"}]}`,
+		)
+	})
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "publication-boundary-reached") ||
+		!strings.Contains(fixture.calls(t), "repository-gates") || strings.Count(fixture.calls(t), "git push") != 1 {
+		t.Fatalf("boundary changes inside a stable child must not invalidate its parent's tag: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseRejectsChangedNestedModuleBoundaries(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		change func(*testing.T, *scriptFailureFixture)
+	}{
+		{
+			name: "added",
+			change: func(t *testing.T, fixture *scriptFailureFixture) {
+				t.Helper()
+				fixture.write(t, "consumer/added/go.mod", "module github.com/Tangerg/scope/consumer/added\n")
+				fixture.env = append(fixture.env,
+					`SCRIPT_WORKSPACE_JSON={"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"},{"DiskPath":"./consumer/child"},{"DiskPath":"./consumer/added"}]}`,
+				)
+			},
+		},
+		{
+			name: "deleted",
+			change: func(t *testing.T, fixture *scriptFailureFixture) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(fixture.root, "consumer", "child", "go.mod")); err != nil {
+					t.Fatal(err)
+				}
+				fixture.env = append(fixture.env,
+					`SCRIPT_WORKSPACE_JSON={"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"}]}`,
+				)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newReleaseSourceChangeFixture(t, test.change)
+			output, err := fixture.run(t, "release.sh", "v0.0.2")
+			if err == nil || !strings.Contains(output, "consumer/v0.0.2 is immutable but its module boundary changed") ||
+				strings.Contains(fixture.calls(t), "git push") || strings.Contains(fixture.calls(t), "repository-gates") {
+				t.Fatalf("changed module boundaries must stop tag reuse before publication: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+			}
+		})
+	}
+}
+
+func newReleaseSourceFixture(t *testing.T, changedModule string) scriptFailureFixture {
+	t.Helper()
+	return newReleaseSourceChangeFixture(t, func(t *testing.T, fixture *scriptFailureFixture) {
+		t.Helper()
+		fixture.write(t, changedModule+"/value.go", "package "+filepath.Base(changedModule)+"\nconst Value = 2\n")
+	})
+}
+
+func newReleaseSourceChangeFixture(t *testing.T, change func(*testing.T, *scriptFailureFixture)) scriptFailureFixture {
+	t.Helper()
+	fixture := newReleasePublicationFixture(t, "new", "")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.env = append(fixture.env,
+		"SCRIPT_REAL_GIT="+realGit,
+		"GIT_COMMITTER_NAME=test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+		`SCRIPT_WORKSPACE_JSON={"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"},{"DiskPath":"./consumer/child"}]}`,
+	)
+	fixture.write(t, ".gitignore", "/calls\n/cache/\n")
+	fixture.write(t, "core/value.go", "package core\nconst Value = 1\n")
+	fixture.write(t, "consumer/value.go", "package consumer\nconst Value = 1\n")
+	fixture.write(t, "consumer/child/go.mod", "module github.com/Tangerg/scope/consumer/child\n")
+	fixture.write(t, "consumer/child/value.go", "package child\nconst Value = 1\n")
+	fixture.write(t, "bin/git", `#!/usr/bin/env bash
+set -euo pipefail
+printf 'git %s\n' "$*" >> "$SCRIPT_CALLS"
+case "$*" in
+  'fetch --prune --tags origin'|'ls-remote --tags origin') exit 0 ;;
+  'push '*) echo publication-boundary-reached >&2; exit 42 ;;
+esac
+exec "$SCRIPT_REAL_GIT" "$@"
+`)
+	fixture.git(t, "init", "-q", "-b", "main")
+	fixture.git(t, "remote", "add", "origin", "https://github.com/fixture/scope.git")
+	fixture.git(t, "add", ".")
+	fixture.git(t, "commit", "-q", "-m", "old consumer source")
+	fixture.git(t, "tag", "-a", "consumer/v0.0.2", "-m", "old consumer source")
+	change(t, &fixture)
+	fixture.git(t, "add", ".")
+	fixture.git(t, "commit", "-q", "-m", "current source")
+	fixture.git(t, "tag", "-a", "core/v0.0.2", "-m", "current core source")
+	fixture.git(t, "tag", "-a", "consumer/child/v0.0.2", "-m", "current child source")
+	fixture.git(t, "update-ref", "refs/remotes/origin/main", "HEAD")
+	return fixture
+}
+
 func TestReleaseClearsDevelopmentGateSelectors(t *testing.T) {
 	t.Parallel()
 	fixture := newReleasePublicationFixture(t, "new", "")
@@ -260,10 +395,13 @@ printf 'go %s\n' "$*" >> "$SCRIPT_CALLS"
 case "$*" in
   'env GOMODCACHE') echo "$SCRIPT_ROOT/cache" ;;
   'env GOPROXY') echo off ;;
-  'work edit -json') echo '{"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"}]}' ;;
-  *'list -m -f {{.Path}}') printf 'github.com/Tangerg/scope/%s\n' "${2##*/}" ;;
+  'work edit -json')
+    if [[ -n "${SCRIPT_WORKSPACE_JSON:-}" ]]; then printf '%s\n' "$SCRIPT_WORKSPACE_JSON"
+    else echo '{"Use":[{"DiskPath":"./core"},{"DiskPath":"./consumer"}]}'; fi
+    ;;
+  *'list -m -f {{.Path}}') printf 'github.com/Tangerg/scope/%s\n' "${2#"$SCRIPT_ROOT"/}" ;;
   *'mod edit -json')
-    if [[ "$2" == */consumer ]]; then echo '{"Require":[{"Path":"github.com/Tangerg/scope/core"}]}'
+    if [[ "$2" != "$SCRIPT_ROOT/core" ]]; then echo '{"Require":[{"Path":"github.com/Tangerg/scope/core"}]}'
     else echo '{"Require":[]}'; fi
     ;;
   *'mod edit -require='*|*'mod tidy'|*'mod tidy -diff'|*'test -run ^$ ./...') ;;

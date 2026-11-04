@@ -1,6 +1,7 @@
 // Package tidb indexes precomputed vectors in a Host-provisioned SQL table.
-// A durable space marker and the native fixed vector dimension are checked before
-// writes and queries. Dimensions in StoreConfig seeds only a newly created column;
+// Upsert and ranked queries recheck the durable space marker and native fixed
+// vector dimension. Deletion uses the table selected by the Host directly.
+// Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
 //
 // Query performs native nearest-neighbor ranking without enumerating metadata.

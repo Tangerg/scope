@@ -69,11 +69,11 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 	request.ToolChoice = &corechat.ToolChoice{
 		Mode: corechat.ToolChoiceNamed, Name: "lookup", Parallelism: corechat.ToolParallelismSingle,
 	}
-	params, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
+	projection, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := jsonv2.Marshal(params)
+	encoded, err := jsonv2.Marshal(projection.params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,46 +93,50 @@ func TestNativeClaudeMapsPortableToolChoice(t *testing.T) {
 }
 
 func TestProtocolCitationProjectionCoversOfficialVariants(t *testing.T) {
+	documents := protocolDocumentSources{
+		{Kind: corecontent.CitationSourceReference, Value: "file-char"},
+		{Kind: corecontent.CitationSourceURI, Value: "https://example.com/page.pdf"},
+		{Kind: corecontent.CitationSourceReference, Value: "file-block"},
+	}
 	tests := []struct {
 		name      string
-		value     any
+		raw       string
 		wantKind  corecontent.CitationSourceKind
 		wantValue string
 	}{
 		{
-			name: "character location", value: anthropicsdk.CitationCharLocation{
-				FileID: "file-char", DocumentTitle: "Character document", CitedText: "character quote",
-			},
+			name:     "character location",
+			raw:      `{"type":"char_location","document_index":0,"document_title":"Character document","file_id":"remote-file","cited_text":"character quote","start_char_index":0,"end_char_index":15}`,
 			wantKind: corecontent.CitationSourceReference, wantValue: "file-char",
 		},
 		{
-			name: "page location title fallback", value: anthropicsdk.CitationPageLocation{
-				DocumentTitle: "Page document", CitedText: "page quote",
-			},
-			wantKind: corecontent.CitationSourceReference, wantValue: "Page document",
+			name:     "page location without title",
+			raw:      `{"type":"page_location","document_index":1,"document_title":null,"file_id":null,"cited_text":"page quote","start_page_number":1,"end_page_number":2}`,
+			wantKind: corecontent.CitationSourceURI, wantValue: "https://example.com/page.pdf",
 		},
 		{
-			name: "content block location", value: anthropicsdk.CitationContentBlockLocation{
-				FileID: "file-block", DocumentTitle: "Block document", CitedText: "block quote",
-			},
+			name:     "content block location",
+			raw:      `{"type":"content_block_location","document_index":2,"document_title":"Block document","file_id":null,"cited_text":"block quote","start_block_index":0,"end_block_index":1}`,
 			wantKind: corecontent.CitationSourceReference, wantValue: "file-block",
 		},
 		{
-			name: "web search", value: anthropicsdk.CitationsWebSearchResultLocation{
-				URL: "https://example.com/source", Title: "Web source", CitedText: "web quote",
-			},
+			name:     "web search",
+			raw:      `{"type":"web_search_result_location","url":"https://example.com/source","title":"Web source","cited_text":"web quote","encrypted_index":"index"}`,
 			wantKind: corecontent.CitationSourceURI, wantValue: "https://example.com/source",
 		},
 		{
-			name: "search result", value: anthropicsdk.CitationsSearchResultLocation{
-				Source: "search-result-1", Title: "Search source", CitedText: "search quote",
-			},
+			name:     "search result",
+			raw:      `{"type":"search_result_location","source":"search-result-1","title":"Search source","cited_text":"search quote","search_result_index":0,"start_block_index":0,"end_block_index":1}`,
 			wantKind: corecontent.CitationSourceReference, wantValue: "search-result-1",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			citation, include, err := mapProtocolCitation(tt.value)
+			var native anthropicsdk.TextCitationUnion
+			if err := jsonv2.Unmarshal([]byte(tt.raw), &native); err != nil {
+				t.Fatal(err)
+			}
+			citation, include, err := mapProtocolTextCitation(native, documents)
 			if err != nil || !include {
 				t.Fatalf("mapProtocolCitation = %#v, %v, %v", citation, include, err)
 			}
@@ -146,17 +150,17 @@ func TestProtocolCitationProjectionCoversOfficialVariants(t *testing.T) {
 	}
 
 	for name, value := range map[string]any{
-		"document without identity": anthropicsdk.CitationCharLocation{},
-		"search without source":     anthropicsdk.CitationsSearchResultLocation{},
-		"unsupported value":         struct{}{},
+		"document without index": anthropicsdk.CitationCharLocation{},
+		"search without source":  anthropicsdk.CitationsSearchResultLocation{},
+		"unsupported value":      struct{}{},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, _, err := mapProtocolCitation(value); err == nil {
+			if _, _, err := mapProtocolCitation(value, documents); err == nil {
 				t.Fatal("mapProtocolCitation accepted invalid citation")
 			}
 		})
 	}
-	if citation, include, err := mapProtocolCitation(nil); err != nil || include || citation != (corecontent.Citation{}) {
+	if citation, include, err := mapProtocolCitation(nil, documents); err != nil || include || citation != (corecontent.Citation{}) {
 		t.Fatalf("nil citation = %#v, %v, %v", citation, include, err)
 	}
 }
@@ -213,7 +217,7 @@ func TestReasoningReplayIsScopedToIssuingProvider(t *testing.T) {
 
 		Content: []anthropicsdk.ContentBlockUnion{{Type: "thinking", Thinking: "private", Signature: "provider-signature"}},
 	}
-	parts, err := mapProtocolContent(message.Content, "minimax")
+	parts, err := mapProtocolContent(message.Content, "minimax", nil)
 	if err != nil {
 		t.Fatalf("mapProtocolMessage: %v", err)
 	}

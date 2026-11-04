@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
-
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
 )
@@ -97,11 +95,11 @@ func (m *Messages) Call(ctx context.Context, req *corechat.Request) (*corechat.R
 // CountInputTokens calls the provider's Messages token-count endpoint with the
 // same provider request projection used by Call.
 func (m *Messages) CountInputTokens(ctx context.Context, req *corechat.Request) (int64, error) {
-	params, err := m.buildProtocolRequest(req)
+	request, err := m.buildProtocolRequest(req)
 	if err != nil {
 		return 0, err
 	}
-	countParams, err := projectMessageInputTokenCount(params)
+	countParams, err := projectMessageInputTokenCount(request.params)
 	if err != nil {
 		return 0, err
 	}
@@ -112,19 +110,19 @@ func (m *Messages) CountInputTokens(ctx context.Context, req *corechat.Request) 
 // deltas without accumulating text or tool arguments across events.
 func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return func(yield func(*corechat.ResponseDelta, error) bool) {
-		params, err := m.buildProtocolRequest(req)
+		request, err := m.buildProtocolRequest(req)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
-		stream := m.api.chatCompletionStream(ctx, params)
+		stream := m.api.chatCompletionStream(ctx, request.params)
 		if stream == nil {
 			yield(nil, errors.New("anthropic: nil stream"))
 			return
 		}
 		defer stream.Close()
 
-		state := newProtocolStreamState(m.dialect.Provider)
+		state := newProtocolStreamState(m.dialect.Provider, request.documents)
 		var terminal *corechat.ResponseDelta
 		for stream.Next() {
 			event := stream.Current()
@@ -161,7 +159,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 	}
 }
 
-func (m *Messages) buildProtocolRequest(req *corechat.Request) (*anthropicsdk.MessageNewParams, error) {
+func (m *Messages) buildProtocolRequest(req *corechat.Request) (*protocolRequest, error) {
 	if m == nil || m.api == nil {
 		return nil, errors.New("anthropic: nil Messages")
 	}

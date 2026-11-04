@@ -24,7 +24,7 @@ const (
 	// RequestExtensionKey stores provider-specific [genai.GenerateContentConfig]
 	// fields using the SDK's JSON names. Fields owned by Core are rejected, as is
 	// codeExecution because its output and replay cannot be represented losslessly.
-	RequestExtensionKey = GoogleProviderID + "/request"
+	RequestExtensionKey = GoogleProviderID + RequestExtensionSuffix
 )
 
 func mapProtocolRequest(provider string, defaults corechat.Options, req *corechat.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
@@ -127,7 +127,7 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, config *genai.Genera
 }
 
 func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.GenerateContentConfig, error) {
-	extensionKey := protocolKey(provider, "request")
+	extensionKey := protocolKey(provider, RequestExtensionSuffix)
 	config, fields, err := decodeSingleCandidateConfig(req.Options.Extensions, extensionKey)
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 	mapped := make([]*genai.Part, 0, len(parts))
 	for i := range parts {
 		part := parts[i]
-		stateKey := protocolKey(provider, "part_state")
+		stateKey := protocolKey(provider, partReplayStateMetadataSuffix)
 		state, found, err := part.Metadata.Decode[partReplayState](stateKey)
 		if err != nil {
 			return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, stateKey, err)

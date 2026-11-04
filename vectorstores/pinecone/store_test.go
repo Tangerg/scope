@@ -64,7 +64,7 @@ func TestNativeFilterConformance(t *testing.T) {
 }
 
 func TestIndexPreparesEveryRecordBeforePublishing(t *testing.T) {
-	for _, failure := range []string{"later dimension", "FLOAT32 overflow", "later ID", "later metadata", "later media"} {
+	for _, failure := range []string{"later dimension", "FLOAT32 overflow", "later ID", "later metadata", "later media", "later request budget"} {
 		t.Run(failure, func(t *testing.T) {
 			store, native := fixtureStore(t)
 			batch := fixtureBatch([]*document.Document{{ID: "one", Text: "first"}, {ID: "two", Text: "last"}})
@@ -78,6 +78,8 @@ func TestIndexPreparesEveryRecordBeforePublishing(t *testing.T) {
 				r.Document.ID = "invalid🙂"
 			case "later metadata":
 				r.Document.Metadata = metadata.Map{"bad": json.RawMessage("invalid")}
+			case "later request budget":
+				r.Document.Text = strings.Repeat("x", 2_000_000)
 			case "later media":
 				var err error
 				r.Document.Media, err = media.NewBytes("image/png", []byte{1})

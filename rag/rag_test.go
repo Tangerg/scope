@@ -324,8 +324,9 @@ func TestWithExpanderValidatesAllQueriesBeforeRetrieval(t *testing.T) {
 
 func TestIdentityDefaults(t *testing.T) {
 	q, _ := rag.NewQuery("hi")
-	if got, _ := rag.IdentityAugmenter().Augment(t.Context(), q, nil); got.Text() != q.Text() {
-		t.Fatal("Augment should preserve query text")
+	got, err := rag.IdentityAugmenter().Augment(t.Context(), q, nil)
+	if text, replace := got.ReplacementText(); err != nil || replace || text != "" {
+		t.Fatalf("identity replacement = %q, %v, %v", text, replace, err)
 	}
 }
 

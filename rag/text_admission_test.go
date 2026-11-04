@@ -13,8 +13,9 @@ func TestRetrievalTextRejectsInvalidUTF8Atomically(t *testing.T) {
 		t.Fatalf("NewQuery() = %q, %v", query.Text(), err)
 	}
 	augmentation, err := rag.NewAugmentation("\xff")
-	if !errors.Is(err, rag.ErrInvalidAugmentation) || augmentation.Text() != "" {
-		t.Fatalf("NewAugmentation() = %q, %v", augmentation.Text(), err)
+	text, replace := augmentation.ReplacementText()
+	if !errors.Is(err, rag.ErrInvalidAugmentation) || replace || text != "" {
+		t.Fatalf("NewAugmentation() = %q, %v, %v", text, replace, err)
 	}
 }
 
@@ -25,7 +26,25 @@ func TestRetrievalTextPreservesValidUnicodeAndNUL(t *testing.T) {
 		t.Fatalf("NewQuery() = %q, %v", query.Text(), err)
 	}
 	augmentation, err := rag.NewAugmentation(value)
-	if err != nil || augmentation.Text() != value {
-		t.Fatalf("NewAugmentation() = %q, %v", augmentation.Text(), err)
+	text, replace := augmentation.ReplacementText()
+	if err != nil || !replace || text != value {
+		t.Fatalf("NewAugmentation() = %q, %v, %v", text, replace, err)
+	}
+}
+
+func TestAugmentationSeparatesPreservationFromReplacement(t *testing.T) {
+	var preserved rag.Augmentation
+	text, replace := preserved.ReplacementText()
+	if err := preserved.Validate(); err != nil || replace || text != "" || preserved.Citations().Len() != 0 {
+		t.Fatalf("zero augmentation = %q, %v, %v", text, replace, err)
+	}
+	const original = "\n  indented question\n"
+	replacement, err := rag.NewAugmentation(original)
+	text, replace = replacement.ReplacementText()
+	if err != nil || !replace || text != original {
+		t.Fatalf("replacement = %q, %v, %v", text, replace, err)
+	}
+	if _, err := rag.NewAugmentation(" \n"); !errors.Is(err, rag.ErrInvalidAugmentation) {
+		t.Fatalf("blank replacement error = %v", err)
 	}
 }

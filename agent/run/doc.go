@@ -41,6 +41,8 @@
 // Observe reads history after an LSN and remains valid across recovery; a tree
 // this Runtime writes wakes its observers on commit. Runtime.History reads the
 // complete log for projections that need facts a Checkpoint no longer carries.
+// Observation of an already exited tree ends at the head confirmed on its first
+// pull, including recovery activations committed after the root's Exit.
 // Hosts own log retention. Config.Deltas is the separate best-effort stream:
 // channel saturation may drop increments but cannot change committed usage or
 // outcomes. Keep the channel open until Close returns.

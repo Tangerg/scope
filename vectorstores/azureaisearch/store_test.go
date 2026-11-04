@@ -370,14 +370,16 @@ func TestNativeScoreValidation(t *testing.T) {
 		metric    nativeMetric
 		raw, want float64
 	}{
-		{metricCosine, 1, 1}, {metricCosine, .5, .5}, {metricCosine, 1.0 / 3, 0}, {metricDot, .5, .5}, {metricEuclidean, .25, .25},
+		{metricCosine, 1, 1}, {metricCosine, .5, .5}, {metricCosine, 1.0 / 3, 0},
+		{metricCosine, float64(math.Nextafter32(1.0/3, 0)), 0},
+		{metricDot, .5, .5}, {metricEuclidean, .25, .25},
 	} {
 		score, err := test.metric.score(test.raw, vectorstore.SearchModeSemantic)
-		if err != nil || math.Abs(score.Float64()-test.want) > 1e-12 {
+		if err != nil || score.Validate() != nil || math.Abs(score.Float64()-test.want) > 1e-12 {
 			t.Fatalf("score = %v, %v", score, err)
 		}
 	}
-	for _, raw := range []float64{-1, math.NaN(), math.Inf(1), 0, .2, 2} {
+	for _, raw := range []float64{-1, math.NaN(), math.Inf(1), 0, .2, 2, math.Nextafter(float64(math.Nextafter32(1.0/3, 0)), 0), math.Nextafter(1, 2)} {
 		if _, err := metricCosine.score(raw, vectorstore.SearchModeSemantic); err == nil {
 			t.Fatalf("invalid cosine score %v accepted", raw)
 		}

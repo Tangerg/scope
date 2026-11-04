@@ -33,6 +33,14 @@ func (t *treeState) apply(entry Entry) error {
 	if t.epoch != entry.Epoch {
 		return ErrInvalidLog
 	}
+	if owner, increment := recordUsage(entry.Record); owner.Valid() {
+		process := t.processes[owner]
+		usage, err := process.usage.add(increment)
+		if err != nil {
+			return fmt.Errorf("%w: record %d: %w", ErrInvalidLog, entry.LSN, err)
+		}
+		process.usage = usage
+	}
 	t.head = entry.LSN
 	return nil
 }
@@ -273,7 +281,6 @@ func (t *treeState) exit(exited Exited) error {
 		parent.activeChildren--
 		parent.inbox = append(parent.inbox, Exit{Child: exited.Process, Termination: exited.Termination})
 		parent.yielded = false
-		parent.usage.AcceptedMessages++
 	}
 	return nil
 }

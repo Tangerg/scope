@@ -33,12 +33,16 @@ type Trajectory struct {
 	coverage   *Coverage
 	inspection run.TreeInspection
 	calls      callProjection
+	treeUsage  run.Usage
 }
 
 func New(config Config) (Trajectory, error) {
 	owned, err := config.Log.Clone()
 	if err != nil {
 		return Trajectory{}, fmt.Errorf("%w: log: %w", ErrInvalidTrajectory, err)
+	}
+	if !owned.Complete() {
+		return Trajectory{}, fmt.Errorf("%w: %w: log does not begin at the tree start", ErrInvalidTrajectory, ErrIncompleteRecording)
 	}
 	inspection, err := owned.Inspect()
 	if err != nil {
@@ -49,7 +53,11 @@ func New(config Config) (Trajectory, error) {
 	if err != nil {
 		return Trajectory{}, err
 	}
-	return Trajectory{log: owned, coverage: coverage, inspection: inspection, calls: calls}, nil
+	usage, err := owned.Usage()
+	if err != nil {
+		return Trajectory{}, fmt.Errorf("%w: usage: %w", ErrInvalidTrajectory, err)
+	}
+	return Trajectory{log: owned, coverage: coverage, inspection: inspection, calls: calls, treeUsage: usage}, nil
 }
 
 func (t Trajectory) Validate() error {
@@ -100,7 +108,10 @@ func (t Trajectory) Elapsed() (time.Duration, bool) {
 	}
 	return root.FinishedAt.Sub(root.StartedAt), true
 }
-func (t Trajectory) RootUsage() run.Usage { return logUsage(t.log, t.log.Root) }
+func (t Trajectory) RootUsage() run.Usage {
+	root, _ := t.inspection.Process(t.log.Root)
+	return root.Usage
+}
 func (t Trajectory) ModelCalls() []ModelCall {
 	calls := make([]ModelCall, 0, len(t.calls.models))
 	for _, call := range t.calls.models {
@@ -120,7 +131,9 @@ func (t Trajectory) ToolCalls() []ToolCall {
 
 // A root exit is published only after its descendants and effects settle.
 // Recovery changes Epoch, never the completeness of retained log history.
-func (t Trajectory) HistoryComplete() bool { return t.Termination().Valid() }
+func (t Trajectory) HistoryComplete() bool {
+	return t.log.Complete() && t.Termination().Valid()
+}
 
 func (t Trajectory) TreeUsage() (run.Usage, error) {
 	if err := t.Validate(); err != nil {
@@ -129,7 +142,7 @@ func (t Trajectory) TreeUsage() (run.Usage, error) {
 	if !t.HistoryComplete() {
 		return run.Usage{}, fmt.Errorf("%w: root is not terminal", ErrIncompleteRecording)
 	}
-	return logUsage(t.log, run.ProcessID{}), nil
+	return t.treeUsage, nil
 }
 
 func (t Trajectory) CheckCoverage() error {
@@ -258,33 +271,4 @@ func compareEffects(left, right run.EffectID) int {
 		return order
 	}
 	return cmp.Compare(left.Index, right.Index)
-}
-
-func logUsage(log run.Log, process run.ProcessID) run.Usage {
-	var usage run.Usage
-	for _, entry := range log.Entries {
-		switch record := entry.Record.(type) {
-		case run.Stepped:
-			if !process.Valid() || record.Process == process {
-				usage.CommittedSteps++
-			}
-		case run.EffectIntent:
-			if !process.Valid() || record.ID.Process == process {
-				usage.PreparedEffects++
-			}
-		case run.SignalAdmitted:
-			if !process.Valid() || record.Process == process {
-				usage.AcceptedMessages++
-			}
-		case run.EffectSettled:
-			if record.Outcome.Status() != run.SettlementStatusUnknown && (!process.Valid() || record.ID.Process == process) {
-				usage.AcceptedMessages++
-			}
-		case run.Exited:
-			if parent, ok := record.Process.Parent(); ok && (!process.Valid() || parent == process) {
-				usage.AcceptedMessages++
-			}
-		}
-	}
-	return usage
 }

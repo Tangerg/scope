@@ -28,12 +28,12 @@ func TestDialectPreparesResolvedRequestWithoutMutatingCaller(t *testing.T) {
 		fields["service_tier"] = "auto"
 		return nil
 	}}
-	params, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect)
+	projection, err := mapProtocolRequest(corechat.Options{Model: "compatible-model", ReasoningEffort: "high"}, request, dialect)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if params.OutputConfig.Effort != "" || params.ToolChoice.OfNone == nil || params.Messages[0].OfUser.Content[0].OfText.Text != "prepared" {
-		t.Fatalf("prepared request = %#v", params)
+	if projection.params.OutputConfig.Effort != "" || projection.params.ToolChoice.OfNone == nil || projection.params.Messages[0].OfUser.Content[0].OfText.Text != "prepared" {
+		t.Fatalf("prepared request = %#v", projection.params)
 	}
 	if request.Options.Model != "" || request.ToolChoice.Mode != corechat.ToolChoiceAuto || request.Messages[0].Parts[0].Text != "hello" {
 		t.Fatalf("policy mutated caller request: %#v", request)

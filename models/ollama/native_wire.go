@@ -179,6 +179,13 @@ type nativeMetrics struct {
 	EvalDuration       int64 `json:"eval_duration,omitzero"`
 }
 
+type protocolDurations struct {
+	Total      int64 `json:"total"`
+	Load       int64 `json:"load"`
+	PromptEval int64 `json:"prompt_eval"`
+	Eval       int64 `json:"eval"`
+}
+
 func (n nativeMetrics) hasDurations() bool {
 	return n.TotalDuration != 0 || n.LoadDuration != 0 ||
 		n.PromptEvalDuration != 0 || n.EvalDuration != 0
@@ -210,13 +217,9 @@ func (n *nativeChatResponse) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMetadata, error) {
-	modelName := n.Model
-	if modelName == "" {
-		modelName = requestModel
-	}
+func (n nativeChatResponse) metadata(resolvedModel string) (*corechat.ResponseMetadata, error) {
 	metadata := &corechat.ResponseMetadata{
-		Model: modelName,
+		Model: resolvedModel,
 	}
 	if n.PromptEvalCount != nil && n.EvalCount != nil {
 		metadata.Usage = &corechat.Usage{InputTokens: int64(*n.PromptEvalCount), OutputTokens: int64(*n.EvalCount)}
@@ -228,11 +231,11 @@ func (n nativeChatResponse) metadata(requestModel string) (*corechat.ResponseMet
 		metadata.CreatedAt = n.CreatedAt.UTC()
 	}
 	if n.hasDurations() {
-		durations := map[string]int64{
-			"total":       n.TotalDuration,
-			"load":        n.LoadDuration,
-			"prompt_eval": n.PromptEvalDuration,
-			"eval":        n.EvalDuration,
+		durations := protocolDurations{
+			Total:      n.TotalDuration,
+			Load:       n.LoadDuration,
+			PromptEval: n.PromptEvalDuration,
+			Eval:       n.EvalDuration,
 		}
 		if err := metadata.Extra.Set(protocolDurationsKey, durations); err != nil {
 			return nil, err

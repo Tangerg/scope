@@ -12,10 +12,6 @@ func validateProvider(provider string) error {
 	return nil
 }
 
-func protocolKey(provider, name string) string {
-	return provider + "/" + name
-}
-
-func protocolGeneratedToolPrefixFor(provider string) string {
-	return protocolKey(provider, "generated/")
+func protocolKey(provider, suffix string) string {
+	return provider + suffix
 }

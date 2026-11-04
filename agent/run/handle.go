@@ -195,28 +195,35 @@ func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
 	return projectResult[O](process.result()), nil
 }
 
-// Observe yields the tree's committed entries after position, ending with the
-// root's exit. A tree this Runtime writes wakes readers on each commit; any
-// other tree is polled, and every poll reads only entries past the cursor.
+// A terminal tree may acquire later writer epochs without another Exit. The
+// first pull fixes its committed head as this observation's endpoint; further
+// recovery cannot extend it. An active observation ends after the snapshot
+// containing the root's exit. Local commits wake readers; other writers are
+// polled, with each read starting after the last delivered position.
 func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
 		ctx = RequireContext(ctx)
 		root := h.id.Root()
+		through, err := h.terminalHead(ctx, after)
+		if err != nil {
+			yield(Entry{}, err)
+			return
+		}
+		if through != 0 && after == through {
+			return
+		}
 		cursor := after
 		for {
 			commit := h.nextCommit()
 			entries, err := h.runtime.read(ctx, root, cursor)
-			if err == nil && len(entries) == 0 && cursor == after {
-				var finished bool
-				if finished, err = h.finishedAt(ctx, cursor); finished {
-					return
-				}
+			if err == nil && through != 0 && (len(entries) == 0 || entries[len(entries)-1].LSN < through) {
+				err = ErrInvalidLog
 			}
 			if err != nil {
 				yield(Entry{}, err)
 				return
 			}
-			next, open := yieldUntilRootExit(root, entries, yield)
+			next, open := yieldObservations(ctx, root, entries, through, yield)
 			if !open {
 				return
 			}
@@ -229,33 +236,40 @@ func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, err
 	}
 }
 
-// yieldUntilRootExit delivers entries in order and reports the last position
-// delivered and whether observation continues past them.
-func yieldUntilRootExit(root ProcessID, entries []Entry, yield func(Entry, error) bool) (LSN, bool) {
+func yieldObservations(ctx context.Context, root ProcessID, entries []Entry, through LSN, yield func(Entry, error) bool) (LSN, bool) {
 	var last LSN
+	exited := false
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			yield(Entry{}, err)
+			return last, false
+		}
 		if !yield(entry, nil) {
 			return last, false
 		}
 		last = entry.LSN
-		if exited, ok := entry.Record.(Exited); ok && exited.Process == root {
+		if last == through {
 			return last, false
 		}
+		if record, ok := entry.Record.(Exited); ok && record.Process == root {
+			exited = true
+		}
 	}
-	return last, true
+	return last, !exited
 }
 
-// finishedAt reports whether position is already the head of a tree whose root
-// exited, so a reader that has seen everything stops instead of polling.
-func (h *Handle[O]) finishedAt(ctx context.Context, position LSN) (bool, error) {
+func (h *Handle[O]) terminalHead(ctx context.Context, position LSN) (LSN, error) {
 	state, err := h.committedState(ctx)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 	if position > state.head {
-		return false, ErrCommitConflict
+		return 0, ErrCommitConflict
 	}
-	return position == state.head && state.processes[state.root].exited != nil, nil
+	if state.processes[state.root].exited != nil {
+		return state.head, nil
+	}
+	return 0, nil
 }
 
 func (h *Handle[O]) committedState(ctx context.Context) (*treeState, error) {

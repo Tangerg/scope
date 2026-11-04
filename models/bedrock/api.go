@@ -8,9 +8,12 @@ import (
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 // Credentials bypasses the ambient AWS credential chain when a caller needs
@@ -68,13 +71,43 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		return nil, fmt.Errorf("bedrock: load AWS config: %w", err)
 	}
 
+	var bindingErr error
 	client := bedrockruntime.NewFromConfig(awsCfg, func(options *bedrockruntime.Options) {
-		options.HTTPClient = requestBodyClient{client: options.HTTPClient}
 		if config.BaseURL != "" {
 			options.BaseEndpoint = aws.String(config.BaseURL)
 		}
+		httpClient, err := newServiceHTTPClient(ctx, options.HTTPClient, options.BaseEndpoint)
+		if err != nil {
+			bindingErr = err
+			return
+		}
+		options.HTTPClient = requestBodyClient{client: httpClient}
 	})
+	if bindingErr != nil {
+		return nil, fmt.Errorf("bedrock: bind HTTP client: %w", bindingErr)
+	}
 	return &api{client: client}, nil
+}
+
+func newServiceHTTPClient(ctx context.Context, nativeClient aws.HTTPClient, endpoint *string) (*http.Client, error) {
+	if buildable, ok := nativeClient.(*awshttp.BuildableClient); ok {
+		// Freeze after SDK initialization retains its resolved transport timeouts.
+		nativeClient = buildable.Freeze()
+	}
+	httpClient, ok := nativeClient.(*http.Client)
+	if !ok {
+		return nil, fmt.Errorf("unsupported resolved HTTP client %T", nativeClient)
+	}
+	if endpoint != nil {
+		return httpclient.New(ctx, httpclient.Config{
+			HTTPClient: httpClient, BaseURL: *endpoint, RejectRedirects: true,
+		})
+	}
+	// The SDK owns regional endpoint resolution, including FIPS aliases.
+	// Redirects cannot replace that destination or change the signed operation.
+	owned := *httpClient
+	owned.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return &owned, nil
 }
 
 type requestBodyClient struct {

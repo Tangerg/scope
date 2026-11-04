@@ -449,7 +449,7 @@ func (i *ImageModel) buildResponse(apiResp *imageInteractionResponse) (*image.Re
 				return nil, fmt.Errorf("google: image: steps[%d].content[%d]: %w", stepIndex, contentIndex, err)
 			}
 			var outputMetadata metadata.Map
-			if setErr := outputMetadata.Set("google/image_content", rawContent); setErr != nil {
+			if setErr := outputMetadata.Set(protocolKey(GoogleProviderID, imageContentMetadataSuffix), rawContent); setErr != nil {
 				return nil, setErr
 			}
 			output, err := image.NewOutput(value, outputMetadata)

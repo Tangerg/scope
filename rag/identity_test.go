@@ -27,8 +27,8 @@ func TestIdentityAugmenterValidatesItsInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if augmentation.Text() != valid.Text() {
-		t.Fatalf("Augment produced %q, want the query text", augmentation.Text())
+	if text, replace := augmentation.ReplacementText(); replace || text != "" {
+		t.Fatalf("identity produced replacement %q, %v", text, replace)
 	}
 }
 

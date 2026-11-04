@@ -187,6 +187,17 @@ tag_for() {
   printf '%s/%s\n' "${module_path#"$release_module_prefix"}" "$release_version"
 }
 
+module_boundary_is_regular() {
+  local reference=$1
+  local directory=$2
+  local regular_file_mode=100644
+  local executable_file_mode=100755
+  local mode
+  mode=$(git ls-tree --format='%(objectmode)' "$reference" -- "$directory/go.mod") ||
+    fail "cannot read module boundary $directory at $reference"
+  [[ "$mode" == "$regular_file_mode" || "$mode" == "$executable_file_mode" ]]
+}
+
 remote_tag_object() {
   local tag=$1
   awk -v reference="refs/tags/$tag" '$2 == reference { print $1; exit }' "$release_remote_tags"
@@ -328,6 +339,34 @@ if [[ -n "$release_first_existing_tag" ]]; then
       *) fail "source changed after $release_first_existing_tag; use a new version" ;;
     esac
   done <<< "$release_changed_paths"
+
+  # Each tag publishes its own archive; the first tag cannot attest to other
+  # tags, and nested modules publish their source in separate archives.
+  while IFS=$'\t' read -r release_layer release_module_path release_module_dir; do
+    release_tag=$(tag_for "$release_module_path")
+    git rev-parse -q --verify "refs/tags/$release_tag" >/dev/null || continue
+    release_relative_module_dir=${release_module_dir#"$release_root"/}
+    if ! module_boundary_is_regular "$release_tag" "$release_relative_module_dir" ||
+      ! module_boundary_is_regular HEAD "$release_relative_module_dir"; then
+      fail "$release_tag is immutable but its module boundary changed"
+    fi
+    release_source_paths=("$release_module_dir" ':(exclude,glob)**/go.mod' ':(exclude,glob)**/go.sum')
+    release_boundary_paths=(":(top,glob)$release_relative_module_dir/**/go.mod")
+    while IFS=$'\t' read -r _ release_nested_module_dir; do
+      [[ "$release_nested_module_dir" == "$release_module_dir"/* ]] || continue
+      release_relative_nested_dir=${release_nested_module_dir#"$release_root"/}
+      if module_boundary_is_regular "$release_tag" "$release_relative_nested_dir" &&
+        module_boundary_is_regular HEAD "$release_relative_nested_dir"; then
+        release_nested_exclusion=":(top,exclude,literal)$release_relative_nested_dir"
+        release_source_paths+=("$release_nested_exclusion")
+        release_boundary_paths+=("$release_nested_exclusion")
+      fi
+    done <"$release_module_table"
+    git diff --quiet --no-renames --diff-filter=ADT "$release_tag" HEAD -- "${release_boundary_paths[@]}" ||
+      fail "$release_tag is immutable but its module boundary changed"
+    git diff --quiet "$release_tag" HEAD -- "${release_source_paths[@]}" ||
+      fail "$release_tag is immutable but its module source changed"
+  done <"$release_plan"
 fi
 
 printf 'release: preparing dependency layers for %s\n' "$release_version"

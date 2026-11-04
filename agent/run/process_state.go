@@ -103,7 +103,6 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 	p.receipts[signal.ID] = SignalReceipt{ID: signal.ID, Wait: signal.Wait, Digest: digest}
 	p.inbox = append(p.inbox, signal)
 	p.yielded = false
-	p.usage.AcceptedMessages++
 	return nil
 }
 
@@ -120,7 +119,6 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	}
 	p.yielded = transition.kind == TransitionKindYield && int(stepped.Delivered) == len(p.inbox)
 	p.inbox = slices.Clone(p.inbox[transition.consumed:])
-	p.usage.CommittedSteps = stepped.Step
 	p.waits = make(map[WaitKey]Wait, len(transition.waits))
 	for _, wait := range transition.waits {
 		if !p.answered(wait.Key) {
@@ -166,7 +164,6 @@ func (p *processState) prepare(intent EffectIntent) error {
 	}
 	p.stepEffects[intent.ID.Index] = Effect{}
 	p.pending[intent.ID] = PendingCheckpoint{Intent: intent}
-	p.usage.PreparedEffects++
 	return nil
 }
 
@@ -187,7 +184,6 @@ func (p *processState) settle(settled EffectSettled) error {
 	delete(p.pending, settled.ID)
 	p.inbox = append(p.inbox, Completion{Effect: settled.ID, Outcome: settled.Outcome})
 	p.yielded = false
-	p.usage.AcceptedMessages++
 	return nil
 }
 

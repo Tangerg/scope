@@ -28,6 +28,12 @@
 // binding cannot replay. Previously emitted deltas remain observable; no local
 // Tool call or successful terminal response is fabricated. Thinking and redacted
 // blocks retain their identities through aggregation and history replay.
+// Document citations resolve document_index against the exact request projection,
+// including documents in tool results. The response title and file_id cannot
+// replace a request source. URL sources retain their URI; inline sources retain
+// Media.ID when supplied, otherwise their byte digest supplies a stable URI.
+// Response IDs are not required to identify those documents. This binding does
+// not expose the per-document citations.enabled request control.
 //
 // Provider packages exposing an Anthropic-compatible endpoint reuse the
 // Messages protocol through [NewMessages] and select one typed

@@ -160,15 +160,26 @@ func (t *treeRuntime) enqueue(id ProcessID) {
 }
 
 func (t *treeRuntime) next() (ProcessID, bool) {
-	for len(t.queue) > 0 {
-		id := t.queue[0]
-		t.queue = t.queue[1:]
-		if p := t.state.processes[id]; p != nil {
+	for index := 0; index < len(t.queue); {
+		id := t.queue[index]
+		p := t.state.processes[id]
+		if p != nil && t.checkpointDue() && !p.terminal.Valid() {
+			index++
+			continue
+		}
+		if index == 0 {
+			t.queue = t.queue[1:]
+		} else {
+			t.queue = slices.Delete(t.queue, index, index+1)
+		}
+		if p != nil {
 			p.queued = false
 			return id, true
 		}
 	}
-	t.queue = nil
+	if len(t.queue) == 0 {
+		t.queue = nil
+	}
 	return ProcessID{}, false
 }
 
@@ -184,7 +195,7 @@ func (t *treeRuntime) run() {
 	}
 	events := treeEvents{host: t.host.Done(), stop: t.stopRequested}
 	for !t.finished() {
-		if t.accepting() && (t.servePending(&events) || t.observeHostCancellation(&events) || t.advanceNext()) {
+		if t.accepting() && (t.servePending(&events) || t.advanceNext()) {
 			continue
 		}
 		t.awaitEvent(&events)
@@ -213,12 +224,24 @@ func (t *treeRuntime) finished() bool {
 
 func (t *treeRuntime) servePending(events *treeEvents) bool {
 	select {
+	case <-events.stop:
+		t.stopRequestedWork(events)
+		return true
+	default:
+	}
+	if t.observeHostCancellation(events) {
+		return true
+	}
+	// An always-busy mailbox must not postpone a quiescent snapshot forever.
+	if t.checkpointDue() && len(t.steps) == 0 {
+		t.failOn(t.checkpoint())
+		return true
+	}
+	select {
 	case command := <-t.commands:
 		t.command(command)
 	case result := <-t.results:
 		t.completed(result)
-	case <-events.stop:
-		t.stopRequestedWork(events)
 	default:
 		return false
 	}
@@ -405,9 +428,8 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 			return err
 		}
 	}
-	t.checkpointAfter++
-	if t.checkpointAfter >= t.runtime.checkpointInterval && len(t.steps) == 0 {
-		return t.checkpoint()
+	if !t.checkpointDue() {
+		t.checkpointAfter++
 	}
 	return nil
 }
@@ -478,6 +500,10 @@ func (t *treeRuntime) cancelJobs(root ProcessID) {
 			job.cancel()
 		}
 	}
+}
+
+func (t *treeRuntime) checkpointDue() bool {
+	return t.checkpointAfter >= t.runtime.checkpointInterval
 }
 
 func (t *treeRuntime) checkpoint() error {

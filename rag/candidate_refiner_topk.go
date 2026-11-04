@@ -13,7 +13,7 @@ type TopKRefiner struct {
 }
 
 // TopK returns a [Refiner] that stably sorts candidates by descending score and
-// returns at most topK candidates. topK must be positive. Use [Dedup] before
+// returns at most topK candidates. topK must be positive. Use [Deduplicator] before
 // TopK when unique document identities are required.
 func TopK(topK int) (*TopKRefiner, error) {
 	if topK < 1 {

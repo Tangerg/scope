@@ -239,7 +239,7 @@ func TestCheckpointUsageOwnsTheNextStepIdentity(t *testing.T) {
 	state := controlValue(checkpoint.tree(log.Root, Entry{LSN: 20, Epoch: 1, Record: checkpoint}))
 	process := state.processes[log.Root]
 	step := Stepped{Process: log.Root, Step: 8, Transition: controlValue(Yield(0, nil, kernelWait()))}
-	if err := process.advance(step, state.limits); err != nil || process.usage.CommittedSteps != 8 {
+	if err := state.apply(Entry{LSN: state.head + 1, Epoch: state.epoch, Record: step}); err != nil || process.usage.CommittedSteps != 8 {
 		t.Fatalf("recovered usage did not own step admission: usage=%+v error=%v", process.usage, err)
 	}
 }

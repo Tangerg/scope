@@ -23,6 +23,24 @@ const (
 	RequestExtensionKey = Provider + "/request"
 
 	protocolGeneratedToolPrefix = "ollama/generated/"
+	maximumTopLogprobs          = 20
+
+	nativeFieldModel             = "model"
+	nativeFieldMessages          = "messages"
+	nativeFieldStream            = "stream"
+	nativeFieldTools             = "tools"
+	nativeFieldFormat            = "format"
+	nativeFieldOptions           = "options"
+	nativeFieldToolChoice        = "tool_choice"
+	nativeFieldParallelToolCalls = "parallel_tool_calls"
+
+	nativeOptionFrequencyPenalty = "frequency_penalty"
+	nativeOptionNumPredict       = "num_predict"
+	nativeOptionPresencePenalty  = "presence_penalty"
+	nativeOptionStop             = "stop"
+	nativeOptionTemperature      = "temperature"
+	nativeOptionTopK             = "top_k"
+	nativeOptionTopP             = "top_p"
 )
 
 func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nativeChatRequest, error) {
@@ -81,39 +99,39 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 		apiReq.Options[key] = encoded
 	}
 	if options.FrequencyPenalty != nil {
-		setOption("frequency_penalty", float32(*options.FrequencyPenalty))
+		setOption(nativeOptionFrequencyPenalty, float32(*options.FrequencyPenalty))
 	}
 	if options.MaxOutputTokens != nil {
-		value, err := protocolInt("max_tokens", *options.MaxOutputTokens)
+		value, err := protocolInt(nativeOptionNumPredict, *options.MaxOutputTokens)
 		if err != nil {
 			return nil, err
 		}
-		setOption("num_predict", value)
+		setOption(nativeOptionNumPredict, value)
 	}
 	if options.PresencePenalty != nil {
-		setOption("presence_penalty", float32(*options.PresencePenalty))
+		setOption(nativeOptionPresencePenalty, float32(*options.PresencePenalty))
 	}
 	if len(options.Stop) > 0 {
-		setOption("stop", slices.Clone(options.Stop))
+		setOption(nativeOptionStop, slices.Clone(options.Stop))
 	}
 	if options.Temperature != nil {
-		setOption("temperature", float32(*options.Temperature))
+		setOption(nativeOptionTemperature, float32(*options.Temperature))
 	}
 	if options.TopK != nil {
-		value, err := protocolInt("top_k", *options.TopK)
+		value, err := protocolInt(nativeOptionTopK, *options.TopK)
 		if err != nil {
 			return nil, err
 		}
-		setOption("top_k", value)
+		setOption(nativeOptionTopK, value)
 	}
 	if options.TopP != nil {
-		setOption("top_p", float32(*options.TopP))
+		setOption(nativeOptionTopP, float32(*options.TopP))
 	}
 	if optionErr != nil {
 		return nil, optionErr
 	}
-	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > 20 {
-		return nil, errors.New("ollama: top_logprobs must be between 0 and 20")
+	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > maximumTopLogprobs {
+		return nil, fmt.Errorf("ollama: top_logprobs must be between 0 and %d", maximumTopLogprobs)
 	}
 	return apiReq, nil
 }
@@ -150,23 +168,23 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 	}
 	for field := range fields {
 		switch field {
-		case "model", "messages", "stream", "tools":
+		case nativeFieldModel, nativeFieldMessages, nativeFieldStream, nativeFieldTools:
 			return nil, fmt.Errorf("ollama: extension %q field %q is owned by the Core request", RequestExtensionKey, field)
-		case "format":
+		case nativeFieldFormat:
 			return nil, fmt.Errorf("ollama: extension %q field %q is owned by options.output_format", RequestExtensionKey, field)
-		case "tool_choice", "parallel_tool_calls":
+		case nativeFieldToolChoice, nativeFieldParallelToolCalls:
 			return nil, fmt.Errorf("ollama: extension %q field %q is owned by options.tool_choice", RequestExtensionKey, field)
 		}
 	}
-	if rawOptions, exists := fields["options"]; exists {
+	if rawOptions, exists := fields[nativeFieldOptions]; exists {
 		var optionFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(rawOptions, &optionFields); err != nil {
-			return nil, fmt.Errorf("ollama: extension %q field %q: %w", RequestExtensionKey, "options", err)
+			return nil, fmt.Errorf("ollama: extension %q field %q: %w", RequestExtensionKey, nativeFieldOptions, err)
 		}
 		for field := range optionFields {
 			switch field {
-			case "frequency_penalty", "num_predict", "presence_penalty", "stop", "temperature", "top_k", "top_p":
-				return nil, fmt.Errorf("ollama: extension %q field %q.%s is owned by Core chat options", RequestExtensionKey, "options", field)
+			case nativeOptionFrequencyPenalty, nativeOptionNumPredict, nativeOptionPresencePenalty, nativeOptionStop, nativeOptionTemperature, nativeOptionTopK, nativeOptionTopP:
+				return nil, fmt.Errorf("ollama: extension %q field %q.%s is owned by Core chat options", RequestExtensionKey, nativeFieldOptions, field)
 			}
 		}
 	}

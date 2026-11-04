@@ -1,7 +1,7 @@
 // Package rag provides small interfaces and combinators for
 // Retrieval-Augmented Generation.
 //
-// The root package owns queries, candidates, citations, generation input,
+// The root package owns queries, candidates, citations, prompt replacement intent,
 // stage contracts ([Transformer], [Expander], [Retriever], [Refiner], and
 // [Augmenter]), and deterministic retrieval composition. It depends on document
 // values rather than model, storage, or tool protocols. Adapters in this module

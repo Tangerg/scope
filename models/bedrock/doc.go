@@ -17,6 +17,10 @@
 //
 // AWS auth is handled by the standard aws-sdk-go-v2 chain (env vars,
 // shared config, IRSA, instance role); no custom APIKey is required.
+// The SDK owns regional endpoint resolution. Explicit endpoints, including
+// AWS environment configuration, also bind the HTTP origin. Redirects are
+// refused because they can change the destination or signed operation; the
+// host's client and its resolved transport timeouts remain unchanged.
 //
 // Call aggregates Stream through Core's ResponseAccumulator; both methods share
 // transport, parsing, cancellation, and terminal errors.

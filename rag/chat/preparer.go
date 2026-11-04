@@ -48,8 +48,8 @@ func (p PreparerConfig) validate() error {
 
 // Preparer owns retrieval and augmentation at the start of a user turn.
 // It is immutable after construction and safe for concurrent use when its
-// Retriever, Augmenter and QueryTransformer are safe for concurrent use. Unchanged augmentation
-// preserves every user Part. Text rewrites require exactly one text Part and
+// Retriever, Augmenter and QueryTransformer are safe for concurrent use.
+// Preservation keeps every user Part. Text replacements require exactly one text Part and
 // preserve all other Parts and their relative positions; ambiguous rewrites
 // fail with [rag.ErrInvalidAugmentation] before calling the model.
 type Preparer struct {
@@ -87,12 +87,8 @@ func (p PreparedRequest) finalUserText() (string, error) {
 }
 
 // A text projection cannot locate replacements across several original Parts.
-// Unchanged text preserves the complete message; a rewrite replaces one Part.
 func (p *PreparedRequest) replaceFinalUserText(text string) error {
 	original := &p.request.Messages[len(p.request.Messages)-1]
-	if text == original.Text() {
-		return nil
-	}
 	textIndex := -1
 	for index, part := range original.Parts {
 		if part.Kind != corechat.PartText {
@@ -183,8 +179,10 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 	}
 	prepared.candidates = candidates
 	prepared.citations = augmentation.Citations()
-	if err := prepared.replaceFinalUserText(augmentation.Text()); err != nil {
-		return PreparedRequest{}, err
+	if text, replace := augmentation.ReplacementText(); replace {
+		if err := prepared.replaceFinalUserText(text); err != nil {
+			return PreparedRequest{}, err
+		}
 	}
 	return prepared, nil
 }

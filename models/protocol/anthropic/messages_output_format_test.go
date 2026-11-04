@@ -97,7 +97,7 @@ func TestOutputConfigExtensionKeepsNonFormatFields(t *testing.T) {
 func TestProtocolRequestMapsCoreReasoningEffort(t *testing.T) {
 	request := validNativeRequest(t)
 	request.Options.ReasoningEffort = "max"
-	params, err := mapProtocolRequest(
+	projection, err := mapProtocolRequest(
 		corechat.Options{Model: "claude-opus-4-6"},
 		request,
 		Dialect{Provider: "anthropic"},
@@ -105,8 +105,8 @@ func TestProtocolRequestMapsCoreReasoningEffort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if params.OutputConfig.Effort != anthropicsdk.OutputConfigEffortMax {
-		t.Fatalf("output_config.effort = %q", params.OutputConfig.Effort)
+	if projection.params.OutputConfig.Effort != anthropicsdk.OutputConfigEffortMax {
+		t.Fatalf("output_config.effort = %q", projection.params.OutputConfig.Effort)
 	}
 
 	request.Options.ReasoningEffort = "turbo"

@@ -45,6 +45,41 @@ func (u *Usage) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (u Usage) add(other Usage) (Usage, error) {
+	if !resourceQuantitiesFit(math.MaxUint64, u.CommittedSteps, other.CommittedSteps) ||
+		!resourceQuantitiesFit(math.MaxUint64, u.PreparedEffects, other.PreparedEffects) ||
+		!resourceQuantitiesFit(math.MaxUint64, u.AcceptedMessages, other.AcceptedMessages) {
+		return Usage{}, ErrCounterExhausted
+	}
+	return Usage{
+		CommittedSteps:   u.CommittedSteps + other.CommittedSteps,
+		PreparedEffects:  u.PreparedEffects + other.PreparedEffects,
+		AcceptedMessages: u.AcceptedMessages + other.AcceptedMessages,
+	}, nil
+}
+
+// Live folding and historical totals share the same contribution rule, even
+// after a process has been reaped from the active tree.
+func recordUsage(record Record) (ProcessID, Usage) {
+	switch value := record.(type) {
+	case Stepped:
+		return value.Process, Usage{CommittedSteps: 1}
+	case EffectIntent:
+		return value.ID.Process, Usage{PreparedEffects: 1}
+	case SignalAdmitted:
+		return value.Process, Usage{AcceptedMessages: 1}
+	case EffectSettled:
+		if value.Outcome.Status() != SettlementStatusUnknown {
+			return value.ID.Process, Usage{AcceptedMessages: 1}
+		}
+	case Exited:
+		if parent, child := value.Process.Parent(); child {
+			return parent, Usage{AcceptedMessages: 1}
+		}
+	}
+	return ProcessID{}, Usage{}
+}
+
 // Budget grants cumulative work authority. Zero quotas are unlimited. A finite
 // parent permanently charges child grants, including unused child work. An
 // unlimited parent grants either kind without a finite debit. Each dimension

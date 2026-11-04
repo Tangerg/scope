@@ -19,12 +19,12 @@ var (
 	ErrNilAugmenter        = errors.New("rag: augmenter must not be nil")
 )
 
-// Augmentation is immutable generation input that can be copied by assignment.
-// It keeps final text and citations separate from [Query]'s retrieval-scoped
-// values.
+// Augmentation owns the decision to preserve or replace generation text.
+// Its zero value preserves the original input, including content omitted by
+// [Query]'s retrieval projection. Values and citations are immutable.
 type Augmentation struct {
-	text      string
-	citations Citations
+	replacementText *string
+	citations       Citations
 }
 
 // Citations is the immutable selection supplied to one prompt. The position
@@ -74,26 +74,36 @@ func (c Citations) MarshalJSON() ([]byte, error) { return jsonv2.Marshal(c.selec
 // CitationMarker is the one-based prompt marker of the citation at index.
 func CitationMarker(index int) string { return fmt.Sprintf("[%d]", index+1) }
 
-// NewAugmentation preserves non-blank UTF-8 generation text exactly.
+// NewAugmentation requires replacement even when text equals the retrieval
+// query. The non-blank UTF-8 text is preserved exactly.
 func NewAugmentation(text string) (Augmentation, error) {
-	augmentation := Augmentation{text: text}
+	augmentation := Augmentation{replacementText: new(text)}
 	if err := augmentation.Validate(); err != nil {
 		return Augmentation{}, err
 	}
 	return augmentation, nil
 }
 
-func (a Augmentation) Text() string { return a.text }
+// ReplacementText separates an explicit rewrite from preserving the original
+// input; consumers must not infer that decision by comparing text.
+func (a Augmentation) ReplacementText() (string, bool) {
+	if a.replacementText == nil {
+		return "", false
+	}
+	return *a.replacementText, true
+}
 
 // Citations returns the immutable selection used for this prompt.
 func (a Augmentation) Citations() Citations { return a.citations }
 
 func (a Augmentation) Validate() error {
-	if !utf8.ValidString(a.text) {
-		return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidAugmentation)
-	}
-	if strings.TrimSpace(a.text) == "" {
-		return fmt.Errorf("%w: text must not be blank", ErrInvalidAugmentation)
+	if a.replacementText != nil {
+		if !utf8.ValidString(*a.replacementText) {
+			return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidAugmentation)
+		}
+		if strings.TrimSpace(*a.replacementText) == "" {
+			return fmt.Errorf("%w: text must not be blank", ErrInvalidAugmentation)
+		}
 	}
 	if err := a.citations.selected.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidAugmentation, err)
@@ -102,8 +112,8 @@ func (a Augmentation) Validate() error {
 }
 
 type Augmenter interface {
-	// Augment creates the complete generation input from one query and its
-	// ordered candidates. It must not mutate either input, must preserve any
+	// Augment decides whether to replace generation text using one query and
+	// its ordered candidates. It must not mutate either input, must preserve any
 	// citation-to-candidate relationship it emits, and must honor ctx.
 	Augment(ctx context.Context, query Query, candidates Candidates) (Augmentation, error)
 }

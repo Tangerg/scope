@@ -12,7 +12,10 @@
 // service limits and errors remain visible.
 //
 // Upsert validates all records before publishing any. Its native groups each
-// contain at most MaxVectorsPerUpsert entries. On failure vectorstore.WriteError
+// contain at most MaxVectorsPerUpsert entries and fit a conservative 2,000,000-byte
+// protobuf request budget, including the namespace and message envelopes.
+// A record that cannot fit alone fails before any group is published.
+// On failure vectorstore.WriteError
 // distinguishes acknowledged IDs, unconfirmed IDs with a possible count-only
 // acknowledgment, and unattempted groups. It never guesses which IDs in a
 // partial acknowledgment succeeded. Native acknowledgments do not imply that

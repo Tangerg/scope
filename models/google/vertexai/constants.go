@@ -1,18 +1,20 @@
 package vertexai
 
+import "github.com/Tangerg/scope/models/google/internal/protocol"
+
 const (
 	Provider = "vertexai"
 
-	RequestExtensionKey               = Provider + "/request"
-	ResponseExtensionKey              = Provider + "/response"
-	SpeechRequestExtensionKey         = Provider + "/speech_request"
-	SpeechResponseExtensionKey        = Provider + "/speech_response"
-	TranscriptionRequestExtensionKey  = Provider + "/transcription_request"
-	TranscriptionResponseExtensionKey = Provider + "/transcription_response"
-	EmbeddingRequestExtensionKey      = Provider + "/embedding_request"
-	EmbeddingResponseExtensionKey     = Provider + "/embedding_response"
-	ImageRequestExtensionKey          = Provider + "/image_request"
-	ImageResponseExtensionKey         = Provider + "/image_response"
+	RequestExtensionKey               = Provider + protocol.RequestExtensionSuffix
+	ResponseExtensionKey              = Provider + protocol.ResponseExtensionSuffix
+	SpeechRequestExtensionKey         = Provider + protocol.SpeechRequestExtensionSuffix
+	SpeechResponseExtensionKey        = Provider + protocol.SpeechResponseExtensionSuffix
+	TranscriptionRequestExtensionKey  = Provider + protocol.TranscriptionRequestExtensionSuffix
+	TranscriptionResponseExtensionKey = Provider + protocol.TranscriptionResponseExtensionSuffix
+	EmbeddingRequestExtensionKey      = Provider + protocol.EmbeddingRequestExtensionSuffix
+	EmbeddingResponseExtensionKey     = Provider + protocol.EmbeddingResponseExtensionSuffix
+	ImageRequestExtensionKey          = Provider + protocol.ImageRequestExtensionSuffix
+	ImageResponseExtensionKey         = Provider + protocol.ImageResponseExtensionSuffix
 
 	ModelGemini25FlashImage = "gemini-2.5-flash-image"
 	ModelGemini3ProImage    = "gemini-3-pro-image"

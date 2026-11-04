@@ -118,15 +118,21 @@ func VisitLines(ctx context.Context, source io.Reader, limits Limits, visit func
 		return ErrInvalidLimits
 	}
 
-	counter := &byteCounter{reader: contextreader.New(ctx, io.LimitReader(source, limits.InputBytes+inputLimitProbeBytes))}
-	reader := bufio.NewReaderSize(counter, scanBufferBytes)
+	input := &scanInput{reader: io.LimitReader(source, limits.InputBytes+inputLimitProbeBytes)}
+	reader := bufio.NewReaderSize(contextreader.New(ctx, input), scanBufferBytes)
 	scanner := lineScanner{limits: limits, visit: visit, line: make([]byte, 0, scanBufferBytes)}
 	for {
+		if err := input.cancellation(ctx); err != nil {
+			return err
+		}
 		fragment, readErr := reader.ReadSlice('\n')
+		if err := input.cancellation(ctx); err != nil {
+			return err
+		}
 		if err := scanner.append(fragment); err != nil {
 			return err
 		}
-		done, err := scanner.accept(ctx, readErr, counter.bytes)
+		done, err := scanner.accept(ctx, readErr, input.bytes)
 		if err != nil || done {
 			return err
 		}
@@ -285,13 +291,24 @@ func validPrefix(line []byte, limit int) int {
 	return prefix
 }
 
-type byteCounter struct {
+// Buffered lines can hide both cancellation and an error already returned by
+// the source. Stopping callbacks must preserve that observed read failure.
+type scanInput struct {
 	reader io.Reader
 	bytes  int64
+	err    error
 }
 
-func (b *byteCounter) Read(buffer []byte) (int, error) {
-	read, err := b.reader.Read(buffer)
-	b.bytes += int64(read)
+func (s *scanInput) Read(buffer []byte) (int, error) {
+	read, err := s.reader.Read(buffer)
+	s.bytes += int64(read)
+	s.err = err
 	return read, err
+}
+
+func (s *scanInput) cancellation(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return errors.Join(cause, s.err)
+	}
+	return nil
 }

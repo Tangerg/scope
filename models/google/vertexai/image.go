@@ -32,7 +32,7 @@ const (
 	imageMediaTypePrefix       = "image/"
 	mediaTypePNG               = "image/png"
 	mediaTypeJPEG              = "image/jpeg"
-	imageNativePartMetadataKey = "vertexai/native_part"
+	imageNativePartMetadataKey = Provider + "/native_part"
 )
 
 // ImageGenerationOptions carries Vertex-specific GenerateContent controls and

@@ -26,12 +26,12 @@ while IFS= read -r module; do
 done < "$work/modules"
 sort -rn "$work/modules-by-depth" -o "$work/modules-by-depth"
 
-# A rename changes both of its paths; --name-only alone would list only the
-# destination and leave the source module and its consumers unchecked.
-git -C "$root" diff --name-only --no-renames --diff-filter=ACDMTUXB "$base...$head" > "$work/changed-files"
+# Both rename paths affect consumers. NUL separators preserve path bytes that
+# Git would otherwise quote, leaving their owning modules unselected.
+git -C "$root" diff --name-only -z --no-renames --diff-filter=ACDMTUXB "$base...$head" > "$work/changed-files"
 
 select_all=0
-while IFS= read -r changed; do
+while IFS= read -r -d '' changed; do
   [[ -z "$changed" ]] && continue
   case "$changed" in
     go.work|go.work.sum|.golangci.yml|.github/*|scripts/*)

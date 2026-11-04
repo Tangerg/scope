@@ -150,16 +150,18 @@ func (c *Corpus) Retrieve(ctx context.Context, q rag.Query) (rag.Candidates, err
 	if err := q.Validate(); err != nil {
 		return nil, err
 	}
-	search := map[string]any{"limit": c.limit, "lexical_interpolation": 0, "reranker": map[string]string{"type": nativeRerankerNone}}
+	search := querySearch{
+		Limit: c.limit, LexicalInterpolation: semanticLexicalInterpolation,
+		Reranker: queryReranker{Type: nativeRerankerNone},
+	}
 	if c.scope != nil {
 		if len(c.scope.ids) == 0 {
 			return rag.Candidates{}, nil
 		}
-		search["metadata_filter"] = c.scope.expression
+		search.MetadataFilter = c.scope.expression
 	}
-	raw, err := c.sendJSON(ctx, http.MethodPost, "/"+apiVersion+"/corpora/"+url.PathEscape(c.corpusKey)+"/query", map[string]any{
-		"query": q.Text(), "search": search, "stream_response": false, "save_history": false, "intelligent_query_rewriting": false,
-	}, http.StatusOK)
+	raw, err := c.sendJSON(ctx, http.MethodPost, "/"+apiVersion+"/corpora/"+url.PathEscape(c.corpusKey)+"/query",
+		queryRequest{Query: q.Text(), Search: search}, http.StatusOK)
 	if err != nil {
 		return nil, err
 	}

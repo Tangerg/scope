@@ -197,9 +197,12 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 		return nil, err
 	}
 	config := r.configuration
-	body := map[string]any{"retrievalQuery": map[string]any{"text": query.Text()}, "retrievalConfiguration": map[string]any{"vectorSearchConfiguration": config}}
+	body := retrievalRequest{
+		RetrievalQuery:         retrievalQuery{Text: query.Text()},
+		RetrievalConfiguration: retrievalConfiguration{VectorSearchConfiguration: config},
+	}
 	if r.userID != "" {
-		body["userContext"] = map[string]string{"userId": r.userID}
+		body.UserContext = &retrievalUserContext{UserID: r.userID}
 	}
 	ranked := make(rag.Candidates, 0, config.Count)
 	remaining := r.maxResponseBytes
@@ -243,12 +246,12 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 			return nil, errors.New("bedrockkb: native continuation token repeated")
 		}
 		seenTokens[*output.NextToken] = struct{}{}
-		body["nextToken"] = *output.NextToken
+		body.NextToken = *output.NextToken
 	}
 	slices.SortStableFunc(ranked, func(a, b rag.Candidate) int { return cmp.Compare(b.Score, a.Score) })
 	return ranked[:min(len(ranked), config.Count)], nil
 }
-func (r *Retriever) retrieve(ctx context.Context, body any, remaining int64) ([]byte, error) {
+func (r *Retriever) retrieve(ctx context.Context, body retrievalRequest, remaining int64) ([]byte, error) {
 	encoded, err := jsonv2.Marshal(body)
 	if err != nil {
 		return nil, err
