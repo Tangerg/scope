@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/mcp"
 	"github.com/Tangerg/scope/mcp/internal/elicitation"
+	"github.com/Tangerg/scope/mcp/internal/registration"
 )
 
 // Grant is derived by the Host from authenticated request context on every
@@ -92,8 +93,10 @@ func Register[I, O any](server *sdk.Server, cfg Config[I, O]) error {
 		return err
 	}
 	b := &binding[I, O]{cfg: cfg, issuer: signer}
-	server.AddTool(&sdk.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema}, b.call)
-	return nil
+	return registration.Register(server, registration.Tool{
+		Descriptor: &sdk.Tool{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema},
+		Handler:    b.call,
+	})
 }
 
 type admittedCall[I any] struct {

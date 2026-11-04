@@ -7,7 +7,6 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 
 	corechat "github.com/Tangerg/scope/core/chat"
-	"github.com/Tangerg/scope/core/metadata"
 )
 
 func applyChatOutputFormat(format *corechat.OutputFormat, target *openaisdk.ChatCompletionNewParams, dialect DialectConfig) error {
@@ -37,11 +36,10 @@ func mapChatOutputFormat(format *corechat.OutputFormat) (openaisdk.ChatCompletio
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}, nil
 	case corechat.OutputFormatJSONSchema:
-		encoded, err := format.SchemaAs[metadata.Map]()
+		schema, err := nativeOutputSchema(format)
 		if err != nil {
 			return openaisdk.ChatCompletionNewParamsResponseFormatUnion{}, err
 		}
-		schema := nativeSchemaFields(encoded)
 		definition := shared.ResponseFormatJSONSchemaJSONSchemaParam{
 			Name:   format.Name,
 			Schema: schema,

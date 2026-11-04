@@ -1,24 +1,16 @@
 package protocol
 
 import (
-	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
-	"fmt"
 	"iter"
 	"net/http"
-	"slices"
 
-	"github.com/go-resty/resty/v2"
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/invocation"
 )
-
-// Inline high-resolution images have a larger wire budget than ordinary JSON.
-const maxImageInteractionResponseBytes = 256 << 20
 
 type ClientConfig struct {
 	APIKey string
@@ -45,8 +37,7 @@ type ClientConfig struct {
 	BaseURL    string
 	APIVersion string
 
-	// HTTPClient is shared by the official Gen AI SDK and the Interactions
-	// transport. Optional.
+	// HTTPClient remains owned by the caller; the SDK borrows a shallow copy.
 	HTTPClient *http.Client
 }
 
@@ -67,10 +58,9 @@ func (c ClientConfig) Validate() error {
 }
 
 type api struct {
-	client           *genai.Client
-	transport        http.RoundTripper
-	generation       *GenerationClient
-	interactionsHTTP *resty.Client
+	client     *genai.Client
+	transport  http.RoundTripper
+	generation *GenerationClient
 }
 
 // newAPI takes a context because construction reaches the network: on the
@@ -127,20 +117,7 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	}
 	sdkClient.Transport = &nativeResponseTransport{next: transport}
 
-	interactionsEndpoint := cmp.Or(config.BaseURL, DefaultBaseURL)
-	interactionsClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: interactionsEndpoint})
-	if err != nil {
-		return nil, err
-	}
-	interactionsHTTP := resty.NewWithClient(interactionsClient).SetResponseBodyLimit(maxImageInteractionResponseBytes)
-	interactionsHTTP.
-		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
-		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
-		SetBaseURL(interactionsEndpoint).
-		SetHeader("x-goog-api-key", config.APIKey).
-		SetHeader("Content-Type", "application/json")
-
-	return &api{client: client, transport: transport, generation: &GenerationClient{config: client.ClientConfig()}, interactionsHTTP: interactionsHTTP}, nil
+	return &api{client: client, transport: transport, generation: &GenerationClient{config: client.ClientConfig()}}, nil
 }
 
 func (a *api) chatCompletion(ctx context.Context, modelName string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
@@ -218,28 +195,4 @@ func (a *api) wrapSequence[T any](sequence iter.Seq2[*T, error]) iter.Seq2[*T, e
 			}
 		}
 	}
-}
-
-func (a *api) createImageInteraction(ctx context.Context, req *imageInteractionRequest) (*imageInteractionResponse, error) {
-	if a == nil || a.interactionsHTTP == nil {
-		return nil, errors.New("google: image: nil API")
-	}
-	if req == nil {
-		return nil, errors.New("google: image: request must not be nil")
-	}
-
-	var out imageInteractionResponse
-	resp, err := a.interactionsHTTP.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&out).
-		Post("/v1beta/interactions")
-	if err != nil {
-		return nil, fmt.Errorf("google: image: create interaction: %w", err)
-	}
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("google: image: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
-	}
-	out.Raw = slices.Clone(resp.Body())
-	return &out, nil
 }

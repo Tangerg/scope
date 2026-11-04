@@ -109,7 +109,7 @@ func TestMalformedOperandsCannotBecomeValidObjects(t *testing.T) {
 			t.Errorf("%q became %#v", source, value)
 		}
 	}
-	_, err := parseOperand(t, strings.Repeat("[", maxObjectDepth+1))
+	_, err := parseOperand(t, strings.Repeat("[", maxNestingDepth+1))
 	if !errors.Is(err, ErrBudget) {
 		t.Fatalf("nesting budget=%v", err)
 	}

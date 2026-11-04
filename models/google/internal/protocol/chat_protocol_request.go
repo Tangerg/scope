@@ -203,7 +203,7 @@ func mapProtocolMessages(provider string, messages []corechat.Message) (*genai.C
 				systemParts = append(systemParts, genai.NewPartFromText(message.Parts[j].Text))
 			}
 		case corechat.RoleUser:
-			parts, err := mapProtocolUserParts(message.Parts)
+			parts, err := mapProtocolUserParts(provider, message.Parts)
 			if err != nil {
 				return nil, nil, fmt.Errorf("google: messages[%d]: %w", i, err)
 			}
@@ -241,14 +241,14 @@ func mapProtocolMessages(provider string, messages []corechat.Message) (*genai.C
 	return system, contents, nil
 }
 
-func mapProtocolUserParts(parts []corechat.Part) ([]*genai.Part, error) {
+func mapProtocolUserParts(provider string, parts []corechat.Part) ([]*genai.Part, error) {
 	mapped := make([]*genai.Part, 0, len(parts))
 	for i := range parts {
 		switch parts[i].Kind {
 		case corechat.PartText:
 			mapped = append(mapped, genai.NewPartFromText(parts[i].Text))
 		case corechat.PartMedia:
-			part, err := mapProtocolMedia(parts[i].Media)
+			part, err := mapProtocolMedia(provider, parts[i].Media)
 			if err != nil {
 				return nil, fmt.Errorf("parts[%d]: %w", i, err)
 			}
@@ -275,7 +275,16 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		case corechat.PartRefusal:
 			mapped = append(mapped, genai.NewPartFromText(part.Text))
 		case corechat.PartReasoning:
-			mapped = append(mapped, &genai.Part{Text: part.Text, Thought: true, ThoughtSignature: slices.Clone(part.ReasoningState)})
+			reasoning := &genai.Part{Text: part.Text, Thought: true}
+			// Opaque signatures are meaningful only to the provider that issued
+			// the native replay state. Visible reasoning text remains portable.
+			if found {
+				reasoning.ThoughtSignature = slices.Clone(part.ReasoningState)
+			}
+			if reasoning.Text == "" && len(reasoning.ThoughtSignature) == 0 {
+				continue
+			}
+			mapped = append(mapped, reasoning)
 		case corechat.PartToolCall:
 			var arguments map[string]json.RawMessage
 			if part.ToolCall.Arguments != "" {
@@ -289,7 +298,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 				Args: protocolJSONFields(arguments),
 			}})
 		case corechat.PartMedia:
-			mediaPart, err := mapProtocolMedia(part.Media)
+			mediaPart, err := mapProtocolMedia(provider, part.Media)
 			if err != nil {
 				return nil, fmt.Errorf("parts[%d]: %w", i, err)
 			}
@@ -306,7 +315,10 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 	return mapped, nil
 }
 
-func mapProtocolMedia(value *media.Media) (*genai.Part, error) {
+func mapProtocolMedia(provider string, value *media.Media) (*genai.Part, error) {
+	if err := validateProtocolMedia(provider, value); err != nil {
+		return nil, err
+	}
 	switch value.Source.Kind {
 	case media.SourceBytes:
 		data, err := value.Bytes()
@@ -354,6 +366,9 @@ func protocolToolResult(output toolcontract.Output, isError bool) (map[string]an
 }
 
 func mapProtocolToolMedia(value *media.Media) (*genai.FunctionResponsePart, error) {
+	if err := value.RequireMIME(); err != nil {
+		return nil, err
+	}
 	switch value.Source.Kind {
 	case media.SourceBytes:
 		data, err := value.Bytes()

@@ -78,11 +78,10 @@ func mapResponsesOutputFormat(format *corechat.OutputFormat) (responses.Response
 			OfJSONObject: &shared.ResponseFormatJSONObjectParam{},
 		}, nil
 	case corechat.OutputFormatJSONSchema:
-		encoded, err := format.SchemaAs[metadata.Map]()
+		schema, err := nativeOutputSchema(format)
 		if err != nil {
 			return responses.ResponseFormatTextConfigUnionParam{}, err
 		}
-		schema := nativeSchemaFields(encoded)
 		definition := responses.ResponseFormatTextJSONSchemaConfigParam{
 			Name:   format.Name,
 			Schema: schema,

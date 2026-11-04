@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
+	"github.com/Tangerg/scope/mcp/internal/registration"
 	"github.com/Tangerg/scope/otel/errortelemetry"
 )
 
@@ -25,6 +26,7 @@ func Register(server *sdkmcp.Server, tools ...toolcontract.Binding) error {
 	if err != nil {
 		return fmt.Errorf("mcp: register tools: %w", err)
 	}
+	var registrations []registration.Tool
 	for _, definition := range registry.Definitions() {
 		executable, _ := registry.Resolve(definition.Name)
 		tool := serverTool{executable: executable}
@@ -39,9 +41,9 @@ func Register(server *sdkmcp.Server, tools ...toolcontract.Binding) error {
 		if definition.Effect == toolcontract.EffectSafe {
 			descriptor.Annotations = &sdkmcp.ToolAnnotations{ReadOnlyHint: true}
 		}
-		server.AddTool(descriptor, tool.handle)
+		registrations = append(registrations, registration.Tool{Descriptor: descriptor, Handler: tool.handle})
 	}
-	return nil
+	return registration.Register(server, registrations...)
 }
 
 type serverTool struct {
@@ -49,13 +51,20 @@ type serverTool struct {
 }
 
 // Ordinary errors cannot prove a tool outcome, and diagnostics must not reach the model.
-func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (out *sdkmcp.CallToolResult, err error) {
 	toolName := s.executable.Contract().Name()
 	ctx, span := mcpTracer.Start(ctx, "mcp.tool.serve "+toolName,
 		trace.WithSpanKind(trace.SpanKindServer),
 		trace.WithAttributes(semconv.GenAIToolName(toolName)),
 	)
-	defer span.End()
+	defer func() {
+		// The SDK invokes this callback on its own goroutine; an HTTP recovery
+		// middleware cannot contain it or prevent private panic values escaping.
+		if recover() != nil {
+			out, err = s.callError(span, errToolCallbackPanic)
+		}
+		span.End()
+	}()
 	ctx = toolcontract.WithProgressReporter(ctx, requestProgress(req))
 
 	var rawArgs string

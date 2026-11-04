@@ -34,7 +34,7 @@ func mustPredicate(t *testing.T, source string) filter.Predicate {
 func TestNativeFilterConformance(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		store, service := indexedStore(t, entity.COSINE, docs, nil)
-		response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
+		response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +154,7 @@ func TestExplicitScanChecksAllRowsWithoutMakingWritesEnumerate(t *testing.T) {
 			case "zero cosine vector":
 				service.records[0].vector = []float32{0, 0}
 			}
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: mustPredicate(t, "x == 'absent'")}}, fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: mustPredicate(t, "x == 'absent'")}}, fixtureBudget())
 			if err == nil || response != nil || service.searches != 0 {
 				t.Fatalf("invalid source hidden: %v %v", response, err)
 			}
@@ -195,7 +195,7 @@ func TestLowScoreDoesNotHideInvalidNativeHits(t *testing.T) {
 					rows.FieldsData = rows.FieldsData[:3]
 				}
 			}
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 0.8, Filter: mustPredicate(t, "x == 1")}}, fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{MinScore: 0.8, Filter: mustPredicate(t, "x == 1")}}, fixtureBudget())
 			if err == nil || response != nil {
 				t.Fatalf("invalid low-score hit hidden: %v %v", response, err)
 			}
@@ -218,7 +218,7 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 		}
 		return []float64{1e10, 0}
 	})
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}, fixtureBudget())
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}, fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != docs[128].ID {
 		t.Fatalf("native rank changed: %v %v", response, err)
 	}
@@ -231,7 +231,7 @@ func TestSourcePaginationAndGroupsPreserveLiteralIdentitiesAndRawRank(t *testing
 	service.queryHook = func(response *milvuspb.QueryResults) {
 		response.FieldsData[0].GetScalars().GetStringData().Data[0] = docs[0].ID
 	}
-	response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}}, fixtureBudget())
+	response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}}, fixtureBudget())
 	if err == nil || response != nil {
 		t.Fatalf("nonadvancing native source accepted: %v %v", response, err)
 	}

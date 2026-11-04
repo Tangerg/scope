@@ -8,7 +8,7 @@
 // one uncertain group; a successful commit followed by session-close failure
 // retains acknowledgments. The host owns the driver and its retry policy.
 //
-// The document schema does not imply a vector index. Scan is the explicit,
+// The document schema does not imply a vector index. QueryByScan is the explicit,
 // bounded exact search operation; it filters before ranking captured vectors
 // with Neo4j's native scalar similarity. Chargeable source bytes are the
 // element ID, property names, text/metadata strings, and float64 coordinates.

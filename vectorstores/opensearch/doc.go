@@ -52,7 +52,7 @@
 // mapping deliberately preserves full metadata as opaque unindexed bytes, so
 // a filtered Query returns vectorstore.ErrUnsupportedFilter before rank I/O.
 // A Host with authority over the entire physical index can explicitly call
-// Scan for interpreted predicates. Scan bounds source records, cumulative
+// QueryByScan for interpreted predicates. QueryByScan bounds source records, cumulative
 // encoded scroll response bytes (excluding ranking and cleanup), and elapsed
 // time. Exceeding a budget returns no partial ranking. The adapter checks the
 // native result window, every returned record and every shard acknowledgment.

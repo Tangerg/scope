@@ -154,6 +154,7 @@ func rpc(t *testing.T, s *httptest.Server, scope, method string, params any) env
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(sdk.SvcParamVersion, string(sdk.Version))
 	req.Header.Set("X-Test-Principal", scope)
 	resp, err := s.Client().Do(req)
 	if err != nil {
@@ -318,6 +319,7 @@ func TestWireStreamingReconnectDoesNotReplayAdmission(t *testing.T) {
 			t.Fatal(e)
 		}
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(sdk.SvcParamVersion, string(sdk.Version))
 		req.Header.Set("Accept", "text/event-stream")
 		req.Header.Set("X-Test-Principal", "alice")
 		res, e := s.Client().Do(req)
@@ -394,7 +396,14 @@ func TestWireStreamingReconnectDoesNotReplayAdmission(t *testing.T) {
 		}
 		break
 	}
-	if len(late.Result) != 0 || !strings.Contains(string(late.Error), sdk.ErrUnsupportedOperation.Error()) {
+	var failure struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err = jsonv2.Unmarshal(late.Error, &failure); err != nil {
+		t.Fatalf("terminal subscription error: %s (%v)", late.Error, err)
+	}
+	if len(late.Result) != 0 || failure.Code != -32004 || failure.Message == "" {
 		t.Fatalf("terminal subscription produced a task or the wrong error: %+v", late)
 	}
 	if got := read(t, s, "GetTask", start.Task.ID); got.Status.State != sdk.TaskStateCompleted {

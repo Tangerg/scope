@@ -32,13 +32,13 @@ func TestSpaceFilterAndScanBudget(t *testing.T) {
 		t.Fatal("a rejected query read data")
 	}
 	for _, records := range []bool{false, true} {
-		cfg := testScan(filter.EQ("missing", 42))
+		request := testScanRequest(filter.EQ("missing", 42))
 		if records {
-			cfg.Budget.MaxRecords = 1
+			request.Budget.MaxRecords = 1
 		} else {
-			cfg.Budget.MaxBytes = 1
+			request.Budget.MaxBytes = 1
 		}
-		if out, err := s.Scan(t.Context(), cfg); out != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+		if out, err := s.Scan(t.Context(), request); out != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatalf("scan=%v, err=%v", out, err)
 		}
 	}

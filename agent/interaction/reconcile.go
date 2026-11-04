@@ -58,9 +58,6 @@ func SettleToolResult(program run.Program[Input, Output], request run.EffectRequ
 	if !disposition.Valid() {
 		return run.Settlement{}, fmt.Errorf("%w: Tool recovery disposition is invalid", ErrInvalidProtocol)
 	}
-	if resultErr := result.Validate(); resultErr != nil {
-		return run.Settlement{}, fmt.Errorf("%w: Tool recovery result: %w", ErrInvalidProtocol, resultErr)
-	}
 	invocation, err := ToolInvocationFromRequest(request)
 	if err != nil {
 		return run.Settlement{}, err
@@ -72,6 +69,14 @@ func SettleToolResult(program run.Program[Input, Output], request run.EffectRequ
 	}
 	if _, prepareErr := entry.prepare(call, tool.Admission{}); prepareErr != nil {
 		return run.Settlement{}, fmt.Errorf("%w: recovery input: %w", ErrInvalidProtocol, prepareErr)
+	}
+	if disposition == ResultSucceeded {
+		err = entry.contract.ValidateResult(result)
+	} else {
+		err = result.Validate()
+	}
+	if err != nil {
+		return run.Settlement{}, fmt.Errorf("%w: Tool recovery result: %w", ErrInvalidProtocol, err)
 	}
 	if result.InputRequest != nil {
 		if disposition != ResultSucceeded || len(advertisedToolNames) != 0 {

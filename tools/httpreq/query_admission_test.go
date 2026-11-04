@@ -18,8 +18,7 @@ func TestMalformedURLQueryCannotBypassParameterOwnership(t *testing.T) {
 		t.Run(arguments, func(t *testing.T) {
 			var calls atomic.Int32
 			err := callHTTPTool(t, countingTransport{calls: &calls}, arguments)
-			failure, definite := tool.ClassifyFailure(err)
-			if !definite || !errors.Is(failure.Cause(), httpreq.ErrInvalidURL) || calls.Load() != 0 {
+			if !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, httpreq.ErrInvalidURL) || calls.Load() != 0 {
 				t.Fatalf("unparseable URL query reached transport: calls=%d error=%v", calls.Load(), err)
 			}
 		})

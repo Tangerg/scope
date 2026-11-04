@@ -69,7 +69,7 @@ func TestConstructorBindsNativeSchemaAndSearchValidatesReturnedRecords(t *testin
 				}
 				options := vectorstore.SearchOptions{}
 				if test == "vector width" {
-					if docs, scanErr := store.Scan(t.Context(), nil, scanBudget()); scanErr == nil || docs != nil {
+					if docs, scanErr := store.Scan(t.Context(), vectorstore.ScanRequest{Filter: nil, Budget: scanBudget()}); scanErr == nil || docs != nil {
 						t.Fatal("invalid vector width accepted")
 					}
 					return
@@ -112,7 +112,7 @@ func TestSearchPreflightRunsBeforeModelAndNativeTopK(t *testing.T) {
 			case "list token loop":
 				fixture.listScript = []string{`{"vectors":[],"nextToken":"one"}`, `{"vectors":[],"nextToken":"two"}`, `{"vectors":[],"nextToken":"one"}`}
 			}
-			response, err := store.Scan(t.Context(), predicate, scanBudget())
+			response, err := store.Scan(t.Context(), vectorstore.ScanRequest{Filter: predicate, Budget: scanBudget()})
 			if err == nil || response != nil || len(fixture.queries) != 0 {
 				t.Fatalf("bad stored facts reached model or ANN: %v, %v", response, err)
 			}
@@ -256,7 +256,7 @@ func TestInvalidOptionsAndNativeFailuresReturnNoResponse(t *testing.T) {
 		fixture.status[path] = 403
 		options := vectorstore.SearchOptions{}
 		if path == "/ListVectors" {
-			if docs, err := store.Scan(t.Context(), nil, scanBudget()); err == nil || docs != nil {
+			if docs, err := store.Scan(t.Context(), vectorstore.ScanRequest{Filter: nil, Budget: scanBudget()}); err == nil || docs != nil {
 				t.Fatal("list failure became success")
 			}
 			delete(fixture.status, path)

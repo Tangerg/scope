@@ -8,7 +8,7 @@
 // Each successful INSERT is acknowledged independently; WriteError distinguishes
 // the acknowledged prefix, uncertain native write and unattempted suffix.
 //
-// This schema has no vector index. Scan and DeleteMatching require an explicit
+// This schema has no vector index. QueryByScan and DeleteMatching require an explicit
 // record, byte and time grant. The scan charges every observed row, including
 // nonmatches, for its ID, content, original metadata JSON and float32 vector.
 // It decodes exact metadata, applies Core filter semantics before scoring and

@@ -10,12 +10,9 @@
 // binding. This prevents a field named "seed", "voice", or "width" on one
 // model from being guessed for an unrelated model.
 //
-// Model identifiers use two official forms:
-//
-//   - owner/name for official models, sent to
-//     /v1/models/{owner}/{name}/predictions;
-//   - owner/name:version for community models, sent to /v1/predictions with
-//     the immutable version in the request body.
+// Model references use owner/name, owner/name:64-character-version, or a bare
+// 64-character version. Every form uses POST /v1/predictions with version in
+// the body, so a model reference cannot change the request URL.
 //
 // Predictions run asynchronously. The high-level adapters submit, poll to a
 // terminal state, validate the configured output schema, and copy ephemeral

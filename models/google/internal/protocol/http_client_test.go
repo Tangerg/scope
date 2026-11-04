@@ -15,7 +15,7 @@ func TestConstructionBorrowsHTTPConfiguration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			return []*http.Client{adapter.interactionsHTTP.GetClient(), adapter.client.ClientConfig().HTTPClient}
+			return []*http.Client{adapter.client.ClientConfig().HTTPClient}
 		},
 	})
 }

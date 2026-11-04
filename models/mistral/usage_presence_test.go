@@ -25,15 +25,19 @@ func TestUsageRequiresBothReportedTotals(t *testing.T) {
 	}
 }
 
-func TestCachedUsagePreservesZero(t *testing.T) {
+func TestCachedUsageUsesOnlyReportedPromptTokenDetails(t *testing.T) {
 	for _, test := range []struct {
 		details string
 		known   bool
 		tokens  int64
 	}{
-		{"", false, 0}, {`,"num_cached_tokens":0`, true, 0}, {`,"prompt_tokens_details":{}`, false, 0},
+		{"", false, 0}, {`,"num_cached_tokens":0`, false, 0}, {`,"num_cached_tokens":3`, false, 0},
+		{`,"prompt_tokens_details":null`, false, 0}, {`,"prompt_tokens_details":{}`, false, 0},
+		{`,"num_cached_tokens":3,"prompt_tokens_details":{"cached_tokens":null}`, false, 0},
 		{`,"prompt_tokens_details":{"cached_tokens":0}`, true, 0},
-		{`,"num_cached_tokens":3`, true, 3}, {`,"prompt_tokens_details":{"cached_tokens":4}`, true, 4},
+		{`,"num_cached_tokens":3,"prompt_tokens_details":{"cached_tokens":0}`, true, 0},
+		{`,"num_cached_tokens":3,"prompt_tokens_details":{"cached_tokens":4}`, true, 4},
+		{`,"prompt_tokens_details":{"cached_tokens":4}`, true, 4},
 	} {
 		var report chatUsage
 		if err := jsonv2.Unmarshal([]byte(`{"prompt_tokens":5,"completion_tokens":1`+test.details+`}`), &report); err != nil {

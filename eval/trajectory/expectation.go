@@ -15,6 +15,12 @@ import (
 	"github.com/Tangerg/scope/eval"
 )
 
+const (
+	expectedToolSequenceParameter = "expected"
+	expectedStatusParameter       = "status"
+	expectedOutputParameter       = "output"
+)
+
 // ToolSequence makes an exact ordered Tool-call assertion explicit. A nil
 // *ToolSequence skips the assertion; a non-nil empty sequence asserts no calls.
 // Order follows structural process paths and EffectID coordinates. Delegate
@@ -41,7 +47,7 @@ func (t ToolSequence) report(actual []ToolCall) (eval.Report, error) {
 		}
 	}
 	parameters := metadata.Map{}
-	if err := parameters.Set("expected", t); err != nil {
+	if err := parameters.Set(expectedToolSequenceParameter, t); err != nil {
 		return eval.Report{}, err
 	}
 	return binaryReport(MetricToolCalls, passed, feedback, parameters)
@@ -342,11 +348,11 @@ func (s Sample) outcomeReport() (eval.Report, error) {
 		}
 	}
 	parameters := metadata.Map{}
-	if err := parameters.Set("status", s.Expected.Status); err != nil {
+	if err := parameters.Set(expectedStatusParameter, s.Expected.Status); err != nil {
 		return eval.Report{}, err
 	}
 	if !s.Expected.Output.IsZero() {
-		if err := parameters.Set("output", s.Expected.Output); err != nil {
+		if err := parameters.Set(expectedOutputParameter, s.Expected.Output); err != nil {
 			return eval.Report{}, err
 		}
 	}

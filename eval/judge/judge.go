@@ -93,7 +93,7 @@ func trimmedIdentity(value string) bool {
 
 type modelReport struct {
 	Score    eval.Score `json:"score"`
-	Feedback string     `json:"feedback,omitzero"`
+	Feedback string     `json:"feedback"`
 }
 
 type metricConfiguration struct {

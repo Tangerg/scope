@@ -39,7 +39,7 @@ func TestFilterConformance(t *testing.T) {
 					}
 					return deleted, nil
 				}
-				response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
+				response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
 				if err != nil {
 					return nil, err
 				}
@@ -65,7 +65,7 @@ func TestCanonicalMetadataAndNativeIdentityRoundTrip(t *testing.T) {
 			t.Fatalf("competing native projections: %v", row)
 		}
 	}
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: 3}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: 3}}, fixtureBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestCurrentSourceValidatedBeforePredicateAndMutation(t *testing.T) {
 				var err error
 				switch operation {
 				case "search":
-					_, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{Filter: predicate}}, fixtureBudget)
+					_, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{Filter: predicate}}, fixtureBudget)
 				case "delete":
 					err = store.DeleteMatching(t.Context(), predicate, fixtureBudget)
 				}
@@ -175,7 +175,7 @@ func TestSearchValidatesEveryHitBeforeMinimumScore(t *testing.T) {
 				change(&hits[0])
 				return map[string]any{"root": map[string]any{"coverage": queryCoverage{Coverage: 100, Full: true}, "children": hits}}
 			}
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{MinScore: 0.5}}, fixtureBudget)
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{MinScore: 0.5}}, fixtureBudget)
 			if err == nil || response != nil {
 				t.Fatalf("low-score corruption hidden: response=%v error=%v", response, err)
 			}
@@ -199,7 +199,7 @@ func TestOpaqueVisitContinuationAndFailures(t *testing.T) {
 				}
 				return visitResponse{DocumentCount: new(0), Documents: []visitDocument{}, Continuation: token}
 			}
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text")}, fixtureBudget)
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text")}, fixtureBudget)
 			if repeated {
 				if err == nil || response != nil {
 					t.Fatal("repeated token accepted")
@@ -222,14 +222,14 @@ func TestNativeQueryCapIsAnErrorWithoutScopeLimitCopy(t *testing.T) {
 	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: 401}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: 401}}, fixtureBudget)
 	if err != nil || len(response.Results) != 401 || fixture.queries != 4 {
 		t.Fatalf("native groups: queries=%d response=%v error=%v", fixture.queries, response, err)
 	}
 	fixture.searchResponse = func(_ []string, hits []queryHit) any {
 		return map[string]any{"root": map[string]any{"coverage": queryCoverage{Coverage: 100, Full: true}, "children": hits[:1]}}
 	}
-	response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text")}, fixtureBudget)
+	response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text")}, fixtureBudget)
 	if err == nil || response != nil {
 		t.Fatalf("native cap concealed: response=%v error=%v", response, err)
 	}
@@ -356,7 +356,7 @@ func TestScanBudgetAppliesEvenToEmptyContinuationPages(t *testing.T) {
 		return visitResponse{DocumentCount: new(0), Documents: []visitDocument{}, Continuation: fmt.Sprint(reads)}
 	}
 	budget := vectorstore.ScanBudget{MaxRecords: 2, MaxBytes: 120, Timeout: time.Second}
-	hits, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}}, budget)
+	hits, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}}, budget)
 	if hits != nil || !errors.Is(err, vectorstore.ErrScanBudget) || reads == 0 || reads > 4 || fixture.queries != 0 {
 		t.Fatalf("hits=%v err=%v pages=%d queries=%d", hits, err, reads, fixture.queries)
 	}
@@ -368,6 +368,6 @@ func TestProvenanceConformance(t *testing.T) {
 		if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{doc})); err != nil {
 			return nil, err
 		}
-		return store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector(doc.Text), Options: vectorstore.SearchOptions{Filter: predicate}}, fixtureBudget)
+		return store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector(doc.Text), Options: vectorstore.SearchOptions{Filter: predicate}}, fixtureBudget)
 	})
 }

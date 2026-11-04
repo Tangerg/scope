@@ -277,7 +277,7 @@ func scanBudget() vectorstore.ScanBudget {
 func TestFilterConformanceAtNativeSDKBoundary(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture := newProtocolFixture(t, docs...)
-		response, err := fixture.store().Scan(ctx, predicate, scanBudget())
+		response, err := fixture.store().Scan(ctx, vectorstore.ScanRequest{Filter: predicate, Budget: scanBudget()})
 		if err != nil {
 			return nil, err
 		}

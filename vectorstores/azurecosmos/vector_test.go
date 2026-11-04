@@ -31,16 +31,16 @@ func TestSpaceRoutesReadsWritesAndDeletes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rows := range []bool{false, true} {
-		cfg := testScan(filter.EQ("never", 23))
+		request := testScanRequest(filter.EQ("never", 23))
 		if rows {
-			cfg.Budget.MaxRecords = 1
+			request.Budget.MaxRecords = 1
 		} else {
-			cfg.Budget.MaxBytes = 1
+			request.Budget.MaxBytes = 1
 		}
-		if got, err := first.Scan(t.Context(), cfg); got != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+		if got, err := first.Scan(t.Context(), request); got != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatalf("scan: %v, %v", got, err)
 		}
-		if err := first.DeleteMatching(t.Context(), cfg); !errors.Is(err, vectorstore.ErrScanBudget) || len(f.deletes) != 0 {
+		if err := first.DeleteMatching(t.Context(), request); !errors.Is(err, vectorstore.ErrScanBudget) || len(f.deletes) != 0 {
 			t.Fatalf("over-budget delete: %v", err)
 		}
 	}

@@ -25,7 +25,11 @@ func TestDefaultFormattersRejectMediaWithoutCallingModels(t *testing.T) {
 		t.Fatal("unsupported media reached chat model")
 		return nil, nil
 	})
-	chatReranker, err := ragchat.NewReranker(ragchat.RerankerConfig{Model: chatModel})
+	chatRankModel, err := ragchat.NewRerankModel(t.Context(), ragchat.RerankModelConfig{Model: chatModel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatReranker, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: chatRankModel})
 	if err != nil {
 		t.Fatal(err)
 	}

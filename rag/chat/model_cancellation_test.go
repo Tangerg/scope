@@ -78,17 +78,15 @@ func TestChatRerankerStopsFormattingAfterCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	formatted, calls := 0, 0
-	reranker, err := ragchat.NewReranker(ragchat.RerankerConfig{
-		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
-			calls++
-			return textResponse(`{"scores":[{"index":0,"score":0.9},{"index":1,"score":0.8}]}`), nil
-		}),
-		Formatter: document.FormatterFunc(func(doc *document.Document) (string, error) {
+	reranker, err := newChatRefiner(t, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		calls++
+		return textResponse(`{"scores":[{"index":0,"score":0.9},{"index":1,"score":0.8}]}`), nil
+	}),
+		document.FormatterFunc(func(doc *document.Document) (string, error) {
 			formatted++
 			cancel()
 			return doc.Text, nil
-		}),
-	})
+		}))
 	if err != nil {
 		t.Fatal(err)
 	}

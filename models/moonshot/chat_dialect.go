@@ -14,6 +14,8 @@ import (
 // shared Core protocol or colliding with another provider.
 const RequestExtensionKey = Provider + "/request"
 
+const partialMessageField = "partial"
+
 // ThinkingType controls thinking for Kimi K2.x models.
 type ThinkingType string
 
@@ -47,6 +49,9 @@ type ChatRequestOptions struct {
 }
 
 func (c ChatRequestOptions) ValidateFor(options corechat.Options) error {
+	if c.Partial != nil && *c.Partial && options.OutputFormat != nil && options.OutputFormat.Type == corechat.OutputFormatJSON {
+		return errors.New("partial cannot be combined with JSON output mode")
+	}
 	model := options.Model
 	if c.Thinking != nil {
 		switch c.Thinking.Type {
@@ -113,7 +118,15 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 		}
 	}
 	if options.Partial != nil {
-		if err := target.SetExtraField("partial", *options.Partial); err != nil {
+		if len(source.Messages) == 0 || source.Messages[len(source.Messages)-1].Role != corechat.RoleAssistant {
+			return errors.New("moonshot: partial requires a final assistant text prefix")
+		}
+		for _, part := range source.Messages[len(source.Messages)-1].Parts {
+			if part.Kind != corechat.PartText {
+				return errors.New("moonshot: partial requires a final assistant text prefix")
+			}
+		}
+		if err := target.SetFinalAssistantExtraField(partialMessageField, *options.Partial); err != nil {
 			return err
 		}
 	}

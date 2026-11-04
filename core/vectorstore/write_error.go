@@ -1,6 +1,9 @@
 package vectorstore
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // WriteError reports native acknowledgments received before an indexing operation
 // failed. An acknowledgment is not a guarantee of search visibility. Unconfirmed
@@ -19,6 +22,19 @@ type WriteError struct {
 	// Unattempted contains IDs in groups the adapter never submitted.
 	Unattempted []string
 	Err         error
+}
+
+// Clone separates each partition from the adapter's input and from the other
+// partitions, so appending to one outcome cannot rewrite another outcome.
+func (w WriteError) Clone() *WriteError {
+	w.Acknowledged = slices.Clone(w.Acknowledged)
+	w.Rejected = slices.Clone(w.Rejected)
+	w.Unconfirmed = slices.Clone(w.Unconfirmed)
+	w.Unattempted = slices.Clone(w.Unattempted)
+	if w.AcknowledgedCount != nil {
+		w.AcknowledgedCount = new(*w.AcknowledgedCount)
+	}
+	return &w
 }
 
 func (w *WriteError) Error() string {

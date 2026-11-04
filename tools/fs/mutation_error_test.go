@@ -50,7 +50,7 @@ func TestMutationErrorsPreserveAcknowledgementsWithoutInventingOutcome(t *testin
 	}{
 		{name: "write", tool: write, arguments: `{"path":"file","content":"hello"}`, evidence: `{"bytes_written":5}`},
 		{name: "edit", tool: edit, arguments: `{"path":"file","old_string":"old","new_string":"new"}`, evidence: `{"replacements":2}`},
-		{name: "patch", tool: patch, arguments: `{"patch":"opaque remote request"}`, evidence: `{"files":[{"path":"first","hunks":1,"created":true}],"hunks":1}`},
+		{name: "patch", tool: patch, arguments: `{"patch":"--- /dev/null\n+++ b/first\n@@ -0,0 +1 @@\n+hello\n"}`, evidence: `{"files":[{"path":"first","hunks":1,"created":true}],"hunks":1}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			output, err := invokeTestTool(t.Context(), test.tool, test.arguments)
@@ -94,7 +94,7 @@ func TestMutationToolsPreserveBackendOutcomeAuthority(t *testing.T) {
 	}{
 		{tool: write, arguments: `{"path":"file","content":"hello"}`},
 		{tool: edit, arguments: `{"path":"file","old_string":"old","new_string":"new"}`},
-		{tool: patch, arguments: `{"patch":"opaque remote request"}`},
+		{tool: patch, arguments: `{"patch":"--- /dev/null\n+++ b/first\n@@ -0,0 +1 @@\n+hello\n"}`},
 	} {
 		_, err := invokeTestTool(t.Context(), test.tool, test.arguments)
 		got, found := tool.ClassifyFailure(err)
@@ -147,21 +147,29 @@ func TestLocalMutationRejectionsRemainDefiniteToolFeedback(t *testing.T) {
 		name      string
 		tool      tool.Tool
 		arguments string
+		admission bool
 	}{
-		{name: "binary write", tool: write, arguments: `{"path":"new/dir/file","content":"bad\u0000content"}`},
+		{name: "binary write", tool: write, arguments: `{"path":"new/dir/file","content":"bad\u0000content"}`, admission: true},
 		{name: "edit mismatch", tool: edit, arguments: `{"path":"existing","old_string":"stale","new_string":"new"}`},
 		{name: "patch mismatch", tool: patch, arguments: `{"patch":"--- existing\n+++ existing\n@@ -1 +1 @@\n-stale\n+new\n"}`},
-		{name: "malformed patch", tool: patch, arguments: `{"patch":"not a diff"}`},
+		{name: "malformed patch", tool: patch, arguments: `{"patch":"not a diff"}`, admission: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := invokeTestTool(t.Context(), test.tool, test.arguments)
-			failure, found := tool.ClassifyFailure(err)
-			if !found || failure.Kind() != tool.FailureKindFailed || !errors.Is(failure.Cause(), ErrMutationRejected) {
-				t.Fatalf("pre-commit rejection = %v", err)
+			if test.admission {
+				if !errors.Is(err, tool.ErrInvalidInvocation) {
+					t.Fatalf("pure input error passed admission: %v", err)
+				}
+			} else {
+				failure, found := tool.ClassifyFailure(err)
+				if !found || failure.Kind() != tool.FailureKindFailed || !errors.Is(failure.Cause(), ErrMutationRejected) {
+					t.Fatalf("pre-commit rejection = %v", err)
+				}
+				if text, _ := failure.Output().Text(); text == "" {
+					t.Fatal("model cannot correct an empty rejection result")
+				}
 			}
-			if text, _ := failure.Output().Text(); text == "" {
-				t.Fatal("model cannot correct an empty rejection result")
-			}
+
 			data, err := os.ReadFile(path)
 			if err != nil || string(data) != "old\n" {
 				t.Fatalf("rejection changed existing file: %q, %v", data, err)

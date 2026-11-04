@@ -335,7 +335,7 @@ func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
 	}
 	primary.Close()
 	// Read every space marker: multiple bindings cannot authorize mixed spaces.
-	binding, err := query.Query(ctx, `SELECT conname FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='c' AND left(conname,3)='sv_'`, s.fullTable)
+	binding, err := query.Query(ctx, `SELECT conname FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='c' AND left(conname,length($2))=$2`, s.fullTable, vectorstore.SpaceStorageKeyPrefix)
 	if err != nil {
 		return 0, err
 	}
@@ -361,11 +361,11 @@ func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
 
 // Scan never returns partial membership. Preflight is performed in the same
 // snapshot as the read, before the client receives any document payload.
-func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) (result []*document.Document, err error) {
-	if err = config.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (result []*document.Document, err error) {
+	if err = request.Validate(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, config.Budget.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, request.Budget.Timeout)
 	defer cancel()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -383,7 +383,7 @@ func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) (result []
 	}
 	var fits bool
 	stmt := fmt.Sprintf("SELECT count(*) <= $2 AND COALESCE(sum(n),0) <= $3 FROM (SELECT octet_length(id)::bigint + octet_length(content) + octet_length(%s) + 4::bigint * $4 AS n FROM %s LIMIT $1) AS bounded", s.metadataColumn, s.fullTable)
-	if err = tx.QueryRow(ctx, stmt, config.Budget.MaxRecords+1, config.Budget.MaxRecords, config.Budget.MaxBytes, width).Scan(&fits); err != nil {
+	if err = tx.QueryRow(ctx, stmt, request.Budget.MaxRecords+1, request.Budget.MaxRecords, request.Budget.MaxBytes, width).Scan(&fits); err != nil {
 		return nil, err
 	}
 	if !fits {
@@ -393,7 +393,7 @@ func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) (result []
 	if err != nil {
 		return nil, err
 	}
-	return selectRecords(ctx, docs, config.Filter)
+	return selectRecords(ctx, docs, request.Filter)
 }
 
 func (s *Store) readSource(ctx context.Context, transaction pgx.Tx, width int) ([]*document.Document, error) {

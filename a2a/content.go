@@ -3,6 +3,7 @@ package a2a
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -13,6 +14,36 @@ import (
 const plainTextMediaType = "text/plain"
 
 type textProjection struct{}
+
+func (t textProjection) negotiate(card *sdka2a.AgentCard) ([]string, error) {
+	if len(card.Skills) == 0 {
+		if err := t.requireTextMode(card.DefaultInputModes, card.DefaultOutputModes); err != nil {
+			return nil, fmt.Errorf("%w %q: default modes: %w", ErrInvalidCard, card.Name, err)
+		}
+	}
+	for _, skill := range card.Skills {
+		input, output := skill.InputModes, skill.OutputModes
+		if len(input) == 0 {
+			input = card.DefaultInputModes
+		}
+		if len(output) == 0 {
+			output = card.DefaultOutputModes
+		}
+		if err := t.requireTextMode(input, output); err != nil {
+			return nil, fmt.Errorf("%w %q: skill %q: %w", ErrInvalidCard, card.Name, skill.ID, err)
+		}
+	}
+	return []string{plainTextMediaType}, nil
+}
+
+func (textProjection) requireTextMode(groups ...[]string) error {
+	for _, modes := range groups {
+		if len(modes) != 0 && !slices.Contains(modes, plainTextMediaType) {
+			return fmt.Errorf("%w: declared modes %q exclude plain text", ErrUnsupportedContent, modes)
+		}
+	}
+	return nil
+}
 
 func (t textProjection) validateCard(card *sdka2a.AgentCard) error {
 	if err := t.validateModes(card.DefaultInputModes, card.DefaultOutputModes); err != nil {

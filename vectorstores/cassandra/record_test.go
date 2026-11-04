@@ -126,10 +126,10 @@ func TestRawStoreRejectsForeignSpaceWithoutOpeningSession(t *testing.T) {
 	if err := store.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	if _, err := store.Scan(t.Context(), &vectorstore.Query{Space: "b", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+	if _, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: "b", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	if _, err := store.Scan(t.Context(), &vectorstore.Query{Space: "a", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
+	if _, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: "a", Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
 		t.Fatal("scan without host budget")
 	}
 	if _, ok := any(store).(vectorstore.Querier); ok {

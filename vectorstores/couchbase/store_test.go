@@ -57,10 +57,10 @@ func TestCollectionIdentityCannotMixSpacesOrWidths(t *testing.T) {
 	if _, ok := any(s).(vectorstore.Querier); ok {
 		t.Fatal("primary index advertised as vector index")
 	}
-	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: b.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+	if _, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: b.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: a.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
+	if _, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: a.Space, Values: []float64{1, 0}}, vectorstore.ScanBudget{}); err == nil {
 		t.Fatal("unbudgeted scan")
 	}
 }

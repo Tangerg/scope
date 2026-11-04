@@ -24,8 +24,6 @@ const (
 	TranscriptionResponseExtensionKey = GoogleProviderID + TranscriptionResponseExtensionSuffix
 	EmbeddingRequestExtensionKey      = GoogleProviderID + EmbeddingRequestExtensionSuffix
 	EmbeddingResponseExtensionKey     = GoogleProviderID + EmbeddingResponseExtensionSuffix
-	ImageRequestExtensionKey          = GoogleProviderID + ImageRequestExtensionSuffix
-	ImageResponseExtensionKey         = GoogleProviderID + ImageResponseExtensionSuffix
 )
 
 const (
@@ -41,7 +39,6 @@ const (
 	embeddingTokenCountMetadataSuffix             = "/token_count"
 	embeddingTruncatedMetadataSuffix              = "/truncated"
 	embeddingBillableCharacterCountMetadataSuffix = "/billable_character_count"
-	imageContentMetadataSuffix                    = "/image_content"
 )
 
 const (

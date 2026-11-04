@@ -38,6 +38,9 @@ func (i ImageModelConfig) Validate() error {
 	if i.DefaultOptions.Model == "" {
 		return errors.New("replicate: DefaultOptions.Model is required")
 	}
+	if err := modelReference(i.DefaultOptions.Model).validate(); err != nil {
+		return err
+	}
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
@@ -252,7 +255,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	final, err := i.predictions.run(ctx, effectiveOptions.Model, apiRequest)
+	final, err := i.predictions.run(ctx, modelReference(effectiveOptions.Model), apiRequest)
 	if err != nil {
 		return nil, err
 	}

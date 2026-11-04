@@ -63,6 +63,16 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	}
 }
 
+func TestRequestRequiresDeclaredMIME(t *testing.T) {
+	audio, err := media.NewURI("", "https://example.com/voice.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transcription.NewRequest(audio); !errors.Is(err, media.ErrInvalidMIME) {
+		t.Fatalf("NewRequest accepted unknown MIME: %v", err)
+	}
+}
+
 func TestResponseValidation(t *testing.T) {
 	output, err := transcription.NewOutput("", nil)
 	if err != nil {

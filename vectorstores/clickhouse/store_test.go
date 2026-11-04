@@ -28,8 +28,8 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
-func testScan(p filter.Predicate) ScanConfig {
-	return ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}}
+func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
+	return vectorstore.ScanRequest{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}}
 }
 func mockStore(t *testing.T) (*Store, sqlmock.Sqlmock) {
 	t.Helper()
@@ -59,7 +59,7 @@ func TestSearchRetainsCoreMetadataAndIgnoresAnUnmatchedNativeRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Scan(t.Context(), testScan(predicate))
+	response, err := store.Scan(t.Context(), testScanRequest(predicate))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestStoredFilterFailuresPrecedeEmbeddingAndReturnNoResponse(t *testing.T) {
 			mock.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
 			mock.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"}).AddRow("a", "text", `{"n":7}`).AddRow("z", "text", raw)).RowsWillBeClosed()
 			mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
-			response, err := store.Scan(t.Context(), testScan(filter.GT("n", 1)))
+			response, err := store.Scan(t.Context(), testScanRequest(filter.GT("n", 1)))
 			if err == nil || response != nil {
 				t.Fatalf("search = %+v, %v", response, err)
 			}

@@ -3,21 +3,44 @@ package shell
 import (
 	"cmp"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/content"
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
+const toolName = "shell"
+
+const maximumToolTimeout = 10 * time.Minute
+
 // Environment, working directory, and streaming remain executor-owned.
 type Request struct {
 	Command   string `json:"command" jsonschema:"minLength=1" jsonschema_description:"Command line interpreted by the host-configured shell executor."`
-	TimeoutMS int    `json:"timeout_ms,omitzero" jsonschema:"minimum=1,maximum=600000" jsonschema_description:"Hard execution timeout in milliseconds, from 1 to 600000. Omit for no timeout."`
+	TimeoutMS int    `json:"timeout_ms,omitzero" jsonschema_description:"Hard execution timeout in milliseconds, within the tool's supported limit. Omit for no timeout."`
+}
+
+func (r Request) Validate() error {
+	if r.TimeoutMS < 0 || int64(r.TimeoutMS) > maximumToolTimeout.Milliseconds() {
+		return fmt.Errorf("%w: timeout must be between zero and %d milliseconds", ErrInvalidInput, maximumToolTimeout.Milliseconds())
+	}
+	return r.input().Validate()
+}
+
+func (r Request) input() Input {
+	return Input{Cmd: r.Command, Timeout: time.Duration(r.TimeoutMS) * time.Millisecond}
+}
+
+func (Request) JSONSchemaConstraints() jsonschema.Constraints {
+	return jsonschema.Constraints{Properties: map[string]jsonschema.Constraints{
+		"timeout_ms": {Minimum: new(float64(1)), Maximum: new(float64(maximumToolTimeout.Milliseconds()))},
+	}}
 }
 
 // Captured bytes remain lossless for binary output and truncated UTF-8 text.
@@ -36,7 +59,7 @@ var _ toolcontract.Tool = (*Tool)(nil)
 // Tool retains Host-selected execution authority; model arguments cannot
 // change the shell, working directory, or process policy.
 type Tool struct {
-	toolcontract.Func[Request, Response]
+	function toolcontract.Func[Request, Response]
 	executor Executor
 }
 
@@ -54,7 +77,7 @@ func NewTool(config Config) (*Tool, error) {
 	t := &Tool{executor: config.Executor}
 	typed, err := toolcontract.NewFunc[Request, Response](
 		toolcontract.FuncConfig{
-			Name:        "shell",
+			Name:        toolName,
 			Description: cmp.Or(config.Description, "Execute a command through the host-configured shell executor. Returns stdout, stderr, exit code, and duration. Each stream contains encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes. Dropped byte counts report omitted bytes; only the raw prefix is available. Use timeout_ms when the command needs a hard deadline."),
 		},
 		t.run,
@@ -62,15 +85,12 @@ func NewTool(config Config) (*Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("shell.NewTool: %w", err)
 	}
-	t.Func = typed
+	t.function = typed
 	return t, nil
 }
 
 func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
-	res, err := t.executor.Run(ctx, Input{
-		Cmd:     req.Command,
-		Timeout: time.Duration(req.TimeoutMS) * time.Millisecond,
-	})
+	res, err := t.executor.Run(ctx, req.input())
 	response := Response{
 		Stdout:               content.New(res.Stdout),
 		Stderr:               content.New(res.Stderr),
@@ -90,4 +110,32 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 		return Response{}, toolresult.Correctable(cause.Error(), cause)
 	}
 	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
+}
+
+func (t *Tool) Definition() toolcontract.Definition { return t.function.Definition() }
+
+func (t *Tool) InputValidator() func([]byte) error { return t.function.InputValidator() }
+
+func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return t.function.Call(ctx, invocation)
+}
+
+func (r *Request) UnmarshalJSON(data []byte) error {
+	if r == nil {
+		return ErrInvalidInput
+	}
+	type wireRequest Request
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return ErrInvalidInput
+	}
+	candidate := Request(*decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*r = candidate
+	return nil
 }

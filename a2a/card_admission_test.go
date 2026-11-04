@@ -128,3 +128,57 @@ func TestTextHandlerRejectsUnrepresentableDeclaredModes(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteTextAdmissionUsesEffectiveSkillModes(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		configure func(*sdk.AgentCard)
+		valid     bool
+	}{
+		{name: "unspecified modes", configure: func(*sdk.AgentCard) {}, valid: true},
+		{name: "multimodal subset", configure: func(card *sdk.AgentCard) {
+			card.DefaultInputModes = []string{"text/plain", "image/png"}
+			card.DefaultOutputModes = []string{"text/plain", "application/json"}
+		}, valid: true},
+		{name: "inherited compatible modes", configure: func(card *sdk.AgentCard) {
+			card.DefaultInputModes, card.DefaultOutputModes = []string{"text/plain"}, []string{"text/plain"}
+			card.Skills = []sdk.AgentSkill{{ID: "read"}}
+		}, valid: true},
+		{name: "inherited incompatible modes", configure: func(card *sdk.AgentCard) {
+			card.DefaultOutputModes = []string{"image/png"}
+			card.Skills = []sdk.AgentSkill{{ID: "render"}}
+		}},
+		{name: "skill overrides unused defaults", configure: func(card *sdk.AgentCard) {
+			card.DefaultInputModes, card.DefaultOutputModes = []string{"application/json"}, []string{"image/png"}
+			card.Skills = []sdk.AgentSkill{{ID: "read", InputModes: []string{"text/plain"}, OutputModes: []string{"text/plain"}}}
+		}, valid: true},
+		{name: "incompatible advertised skill", configure: func(card *sdk.AgentCard) {
+			card.DefaultInputModes, card.DefaultOutputModes = []string{"text/plain"}, []string{"text/plain"}
+			card.Skills = []sdk.AgentSkill{{ID: "read"}, {ID: "render", OutputModes: []string{"image/png"}}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var card sdk.AgentCard
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if err := jsonv2.MarshalWrite(w, &card); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer server.Close()
+			card = sdk.AgentCard{Name: "agent", SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface(server.URL+"/rpc", sdk.TransportProtocolJSONRPC)}}
+			test.configure(&card)
+			set, err := a2a.OpenToolSet(t.Context(), a2a.Endpoint{CardURL: server.URL, HTTPClient: server.Client()})
+			if set != nil {
+				defer func() { _ = set.Close() }()
+			}
+			if test.valid {
+				if err != nil || set == nil {
+					t.Fatalf("usable text capability was rejected: %v", err)
+				}
+			} else if set != nil || !errors.Is(err, a2a.ErrUnsupportedContent) || !errors.Is(err, a2a.ErrInvalidCard) {
+				t.Fatalf("incompatible capability was admitted: %v, %v", set, err)
+			}
+		})
+	}
+}

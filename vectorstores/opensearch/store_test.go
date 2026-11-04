@@ -42,7 +42,7 @@ func fixtureBudget() vectorstore.ScanBudget {
 }
 func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
-		return s.Scan(ctx, q, fixtureBudget())
+		return s.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return s.Query(ctx, q)
 }

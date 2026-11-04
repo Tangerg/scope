@@ -37,11 +37,11 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
-func testScan(p filter.Predicate) ScanConfig {
-	return ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: 5 * time.Second}}
+func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
+	return vectorstore.ScanRequest{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: 5 * time.Second}}
 }
 func scanIDs(ctx context.Context, s *Store, p filter.Predicate) ([]string, error) {
-	docs, err := s.Scan(ctx, testScan(p))
+	docs, err := s.Scan(ctx, testScanRequest(p))
 	if err != nil {
 		return nil, err
 	}

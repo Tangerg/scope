@@ -76,7 +76,9 @@ func (s Source) validateURI() error {
 
 // Inline-byte construction snapshots the caller's buffer.
 type Media struct {
-	MIME     string       `json:"mime"`
+	// Empty means the source did not declare a media type. Adapters that require
+	// one must use RequireMIME instead of inventing a declaration from a filename.
+	MIME     string       `json:"mime,omitzero"`
 	Source   Source       `json:"source"`
 	ID       string       `json:"id,omitempty"`
 	Name     string       `json:"name,omitempty"`
@@ -151,15 +153,27 @@ func (m *Media) Validate() error {
 	if !utf8.ValidString(m.ID) || !utf8.ValidString(m.Name) {
 		return errors.New("media: ID and name must be valid UTF-8")
 	}
-	mediaType, _, err := mime.ParseMediaType(m.MIME)
-	if err != nil || !strings.Contains(mediaType, "/") {
-		return fmt.Errorf("%w: %q", ErrInvalidMIME, m.MIME)
+	if m.MIME != "" {
+		mediaType, _, err := mime.ParseMediaType(m.MIME)
+		if err != nil || !strings.Contains(mediaType, "/") {
+			return fmt.Errorf("%w: %q", ErrInvalidMIME, m.MIME)
+		}
 	}
 	if err := m.Source.Validate(); err != nil {
 		return err
 	}
 	if err := m.Metadata.Validate(); err != nil {
 		return fmt.Errorf("media: metadata: %w", err)
+	}
+	return nil
+}
+
+func (m *Media) RequireMIME() error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	if m.MIME == "" {
+		return fmt.Errorf("%w: a declared MIME type is required", ErrInvalidMIME)
 	}
 	return nil
 }

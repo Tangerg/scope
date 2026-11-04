@@ -30,8 +30,6 @@ const (
 	protocolReasoningKindKey     = "anthropic/reasoning_kind"
 	protocolReasoningProviderKey = "anthropic/reasoning_provider"
 	protocolContentBlockIndexKey = "anthropic/content_block_index"
-	protocolReasoningThinking    = "thinking"
-	protocolReasoningRedacted    = "redacted_thinking"
 	protocolNativeStopReasonKey  = "anthropic/native_stop_reason"
 	protocolStopSequenceKey      = "anthropic/stop_sequence"
 	protocolUsageKey             = "anthropic/usage"
@@ -251,21 +249,7 @@ func mapProtocolOutputFormat(format *corechat.OutputFormat, dialect Dialect, par
 	if !dialect.NativeJSONSchema {
 		return fmt.Errorf("%w: anthropic-compatible endpoint does not support %q", corechat.ErrUnsupportedOutputFormat, format.Type)
 	}
-	var schema map[string]any
-	if format.Type == corechat.OutputFormatJSON {
-		schema = map[string]any{"type": "object"}
-	} else {
-		var err error
-		var encoded metadata.Map
-		encoded, err = format.SchemaAs[metadata.Map]()
-		if err == nil {
-			schema, err = encoded.Values()
-		}
-		if err != nil {
-			return fmt.Errorf("anthropic: output schema: %w", err)
-		}
-	}
-	nativeSchema, err := nativeJSONFields(schema)
+	nativeSchema, err := nativeOutputSchema(format)
 	if err != nil {
 		return err
 	}
@@ -491,30 +475,17 @@ func mapProtocolAssistantPart(index int, part corechat.Part, provider string) (a
 }
 
 func mapProtocolReasoningPart(index int, part corechat.Part, provider string) (anthropicsdk.ContentBlockParamUnion, bool, error) {
-	issuer, found, err := part.Metadata.Decode[string](protocolReasoningProviderKey)
+	kind, found, err := reasoningBlockKindFor(part, provider)
 	if err != nil {
-		return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d].metadata[%q]: %w", index, protocolReasoningProviderKey, err)
-	}
-	if !found || issuer != provider {
-		return anthropicsdk.ContentBlockParamUnion{}, false, nil
-	}
-	kind, found, err := part.Metadata.Decode[string](protocolReasoningKindKey)
-	if err != nil {
-		return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d].metadata[%q]: %w", index, protocolReasoningKindKey, err)
+		return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d]: %w", index, err)
 	}
 	if !found {
 		return anthropicsdk.ContentBlockParamUnion{}, false, nil
 	}
 	switch kind {
-	case protocolReasoningThinking:
-		if len(part.ReasoningState) == 0 {
-			return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d]: Anthropic thinking requires its provider signature", index)
-		}
+	case ReasoningBlockThinking:
 		return anthropicsdk.NewThinkingBlock(string(part.ReasoningState), part.Text), true, nil
-	case protocolReasoningRedacted:
-		if len(part.ReasoningState) == 0 {
-			return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d]: Anthropic redacted thinking requires opaque data", index)
-		}
+	case ReasoningBlockRedacted:
 		return anthropicsdk.NewRedactedThinkingBlock(string(part.ReasoningState)), true, nil
 	default:
 		return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d].metadata[%q]: unknown kind %q", index, protocolReasoningKindKey, kind)

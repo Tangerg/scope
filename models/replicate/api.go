@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -57,54 +56,57 @@ func newPredictionRunner(api *api, pollInterval, pollTimeout, defaultTimeout tim
 	return predictionRunner{api: api, pollInterval: pollInterval, pollTimeout: pollTimeout, invalidResponse: invalidResponse}
 }
 
-func (p predictionRunner) run(ctx context.Context, model string, request *predictionRequest) (*predictionResponse, error) {
+func (p predictionRunner) run(ctx context.Context, model modelReference, request *predictionRequest) (*predictionResponse, error) {
+	if err := request.validate(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	submitted, err := p.api.createPrediction(ctx, model, request)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	if submitted.ID == "" {
-		return nil, fmt.Errorf("%w: replicate: submitted prediction requires id", p.invalidResponse)
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("%w: replicate: submitted prediction requires id", p.invalidResponse)}
 	}
-	response, err := p.poll(ctx, submitted.ID)
+	response, err := p.poll(ctx, submitted)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	if response.Status != predictionStatusSucceeded {
+		message := cmp.Or(response.Error, string(response.Status))
+		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("replicate: generation %s: %s", response.Status, message)}
 	}
 	return response, nil
 }
 
-func (p predictionRunner) poll(ctx context.Context, id string) (*predictionResponse, error) {
+func (p predictionRunner) poll(ctx context.Context, submitted *predictionResponse) (*predictionResponse, error) {
 	deadline, cancel := context.WithTimeout(ctx, p.pollTimeout)
 	defer cancel()
 
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
+	response := submitted
 	for {
-		response, err := p.api.getPrediction(deadline, id)
+		switch response.Status {
+		case predictionStatusSucceeded, predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
+			return response, nil
+		case predictionStatusStarting, predictionStatusProcessing:
+		default:
+			return nil, fmt.Errorf("replicate: prediction %s reports unrecognized status %q", submitted.ID, response.Status)
+		}
+		var err error
+		response, err = p.api.getPrediction(deadline, submitted.ID)
 		if err != nil {
 			return nil, err
 		}
-		if response.ID != id {
-			return nil, fmt.Errorf("%w: replicate: polled prediction id %q differs from submitted id %q", p.invalidResponse, response.ID, id)
+		if response.ID != submitted.ID {
+			return nil, fmt.Errorf("%w: replicate: polled prediction id %q differs from submitted id %q", p.invalidResponse, response.ID, submitted.ID)
 		}
-		switch response.Status {
-		case predictionStatusSucceeded:
-			return response, nil
-		case predictionStatusStarting, predictionStatusProcessing:
-		case predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
-			// Waiting out the poll deadline here would report a permanent
-			// provider verdict as a local timeout, and the caller's natural
-			// remedy — retry, or raise the timeout — would be the wrong one.
-			message := response.Error
-			if message == "" {
-				message = string(response.Status)
-			}
-			return nil, fmt.Errorf("replicate: generation %s: %s", response.Status, message)
-		default:
-			// Continuing to poll is only safe for a state known to advance, so
-			// an unrecognized one is reported rather than absorbed: an added
-			// end state would otherwise be indistinguishable from slowness.
-			return nil, fmt.Errorf("replicate: prediction %s reports unrecognized status %q", id, response.Status)
+		if response.Status != predictionStatusStarting && response.Status != predictionStatusProcessing {
+			continue
 		}
 		select {
 		case <-deadline.Done():
@@ -142,9 +144,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	return adapter, nil
 }
 
-// predictionRequest contains the caller-controlled body fields shared by both
-// prediction endpoints. createPrediction derives version exclusively from the
-// model id so endpoint routing and the immutable version cannot disagree.
+// The binding owns the model reference; extensions cannot select another version.
 type predictionRequest struct {
 	Input               map[string]json.RawMessage `json:"input"`
 	Webhook             string                     `json:"webhook,omitempty"`
@@ -179,8 +179,8 @@ func (p *predictionRequest) setInput(key string, value any) error {
 	return nil
 }
 
-func (p predictionRequest) validate() error {
-	if p.Input == nil {
+func (p *predictionRequest) validate() error {
+	if p == nil || p.Input == nil {
 		return errors.New("replicate: prediction input is required")
 	}
 	if _, err := jsonv2.Marshal(p.Input); err != nil {
@@ -212,7 +212,7 @@ func (p predictionRequest) validate() error {
 
 type predictionRequestBody struct {
 	Input               map[string]json.RawMessage `json:"input"`
-	Version             string                     `json:"version,omitempty"`
+	Version             modelReference             `json:"version"`
 	Webhook             string                     `json:"webhook,omitempty"`
 	WebhookEventsFilter []string                   `json:"webhook_events_filter,omitzero"`
 }
@@ -270,44 +270,16 @@ func (p predictionResponse) predictTimeMilliseconds() (int64, bool) {
 	return int64(p.Metrics.PredictTime * float64(time.Second/time.Millisecond)), true
 }
 
-// createPrediction submits a generation job. model accepts either
-// "owner/name" (official model — routes to /v1/models/.../predictions)
-// or "owner/name:version_hash" (community model — routes to
-// /v1/predictions with version in body). The hash form lets callers
-// pin to a specific community-uploaded snapshot.
-func (a *api) createPrediction(ctx context.Context, modelID string, req *predictionRequest) (*predictionResponse, error) {
-	if req == nil {
-		return nil, errors.New("replicate: request must not be nil")
-	}
-	if err := req.validate(); err != nil {
-		return nil, err
-	}
-	if modelID == "" {
-		return nil, errors.New("replicate: model id must not be empty")
-	}
-
-	owner, name, version := parseModelID(modelID)
-	if owner == "" || name == "" {
-		return nil, fmt.Errorf("replicate: invalid model id %q (want owner/name[:version])", modelID)
-	}
-
-	var (
-		path string
-		body = predictionRequestBody{
-			Input:               req.Input,
-			Webhook:             req.Webhook,
-			WebhookEventsFilter: req.WebhookEventsFilter,
-		}
-	)
-	if version != "" {
-		path = "/predictions"
-		body.Version = modelID
-	} else {
-		path = fmt.Sprintf("/models/%s/%s/predictions", owner, name)
+func (a *api) createPrediction(ctx context.Context, model modelReference, req *predictionRequest) (*predictionResponse, error) {
+	body := predictionRequestBody{
+		Input:               req.Input,
+		Version:             model,
+		Webhook:             req.Webhook,
+		WebhookEventsFilter: req.WebhookEventsFilter,
 	}
 
 	var out predictionResponse
-	resp, err := a.http.R().SetContext(ctx).SetBody(&body).SetResult(&out).Post(path)
+	resp, err := a.http.R().SetContext(ctx).SetBody(&body).SetResult(&out).Post(pathPredictions)
 	if err != nil {
 		return nil, fmt.Errorf("replicate: submit failed: %w", err)
 	}
@@ -357,20 +329,4 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, fmt.Errorf("replicate: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
 	}
 	return &out, nil
-}
-
-// parseModelID splits "owner/name[:version]" into its parts. Empty
-// returns indicate the input wasn't well-formed.
-func parseModelID(id string) (owner, name, version string) {
-	owner, rest, ok := strings.Cut(id, "/")
-	if !ok || owner == "" || rest == "" || strings.Contains(rest, "/") {
-		return "", "", ""
-	}
-	if n, v, hasVersion := strings.Cut(rest, ":"); hasVersion {
-		if n == "" || v == "" || strings.Contains(v, ":") {
-			return "", "", ""
-		}
-		return owner, n, v
-	}
-	return owner, rest, ""
 }

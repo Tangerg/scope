@@ -1,4 +1,4 @@
-package protocol
+package google
 
 import (
 	"encoding/json"
@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+
+	"github.com/Tangerg/scope/core/modeltest"
 )
 
 func TestInteractionsRejectsAmbiguousJSON(t *testing.T) {
@@ -25,7 +27,7 @@ func TestInteractionsRejectsAmbiguousJSON(t *testing.T) {
 				fmt.Fprint(w, `{"id":"interaction","status":"completed"}`)
 			}))
 			defer server.Close()
-			client, err := newAPI(t.Context(), ClientConfig{APIKey: "test", BaseURL: server.URL})
+			client, err := newImageTransport(t.Context(), ImageModelConfig{APIKey: "test", BaseURL: server.URL})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -33,7 +35,7 @@ func TestInteractionsRejectsAmbiguousJSON(t *testing.T) {
 			if direction == "request" {
 				request.Input = json.RawMessage(`{"text":"first","text":"second"}`)
 			}
-			response, err := client.createImageInteraction(t.Context(), request)
+			response, err := client.create(t.Context(), request)
 			if response != nil || !errors.Is(err, jsontext.ErrDuplicateName) {
 				t.Fatalf("ambiguous %s accepted: %#v, %v", direction, response, err)
 			}
@@ -42,4 +44,17 @@ func TestInteractionsRejectsAmbiguousJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestImageConstructionBorrowsHTTPConfiguration(t *testing.T) {
+	modeltest.RunHTTPClientContract(t, modeltest.HTTPClientContract{
+		Build: func(t *testing.T, baseURL string, borrowed *http.Client) []*http.Client {
+			t.Helper()
+			transport, err := newImageTransport(t.Context(), ImageModelConfig{APIKey: "test", BaseURL: baseURL, HTTPClient: borrowed})
+			if err != nil {
+				t.Fatal(err)
+			}
+			return []*http.Client{transport.client.GetClient()}
+		},
+	})
 }

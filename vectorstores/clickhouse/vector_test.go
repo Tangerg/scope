@@ -56,13 +56,13 @@ func TestBudgetStopsAtomicDeleteBeforeMutation(t *testing.T) {
 		m.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
 		m.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"}).AddRow("a", "a", "null").AddRow("b", "b", "null")).RowsWillBeClosed()
 		m.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
-		cfg := testScan(filter.IsNull("absent"))
+		request := testScanRequest(filter.IsNull("absent"))
 		if bytes {
-			cfg.Budget.MaxBytes = 1
+			request.Budget.MaxBytes = 1
 		} else {
-			cfg.Budget.MaxRecords = 1
+			request.Budget.MaxRecords = 1
 		}
-		if err := s.DeleteMatching(t.Context(), cfg); !errors.Is(err, vectorstore.ErrScanBudget) {
+		if err := s.DeleteMatching(t.Context(), request); !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatal(err)
 		}
 	}

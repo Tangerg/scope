@@ -7,9 +7,9 @@
 // values rather than model, storage, or tool protocols. Adapters in this module
 // build on the same contracts:
 //   - [github.com/Tangerg/scope/rag/chat] owns model-backed query transforms,
-//     expansion, reranking, contextual prompts, and chat request preparation.
+//     expansion, chat-backed rerank models, contextual prompts, and chat request preparation.
 //   - [github.com/Tangerg/scope/rag/vector] adapts vector search to retrieval.
-//   - [github.com/Tangerg/scope/rag/rerank] adapts a dedicated rerank model to refinement.
+//   - [github.com/Tangerg/scope/rag/rerank] adapts any rerank model to refinement.
 //   - [github.com/Tangerg/scope/rag/tool] exposes retrieval as a model-visible tool.
 //
 // Composition is explicit. Wrap a retriever with the stages you need:

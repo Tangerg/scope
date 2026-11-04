@@ -25,20 +25,20 @@ const end = "<!-- vectorstore-catalog:end -->"
 const vectorstore = "github.com/Tangerg/scope/core/vectorstore"
 
 type surface struct {
-	owner                        string
-	upsert, query, retrieve      bool
-	scan, deleteMatching, create bool
+	owner                                string
+	upsert, query, queryByScan, retrieve bool
+	scan, deleteMatching, create         bool
 }
 
 func (s surface) active() bool {
-	return s.upsert || s.query || s.retrieve
+	return s.upsert || s.query || s.queryByScan || s.retrieve
 }
 func (s surface) state() string {
 	switch {
 	case s.upsert && s.query:
 		return "Native vectors"
-	case s.upsert && s.scan && !s.query && !s.retrieve:
-		return "Native vectors (explicit scan only)"
+	case s.upsert && s.queryByScan && !s.query && !s.retrieve:
+		return "Native vectors (ranked scan only)"
 	case s.retrieve && !s.upsert && !s.query:
 		return "Managed retrieval"
 	default:
@@ -111,10 +111,12 @@ func inspect(path string, records map[string]*surface) error {
 			s.upsert = hasParameter(fn, imports, "Batch")
 		case "Query":
 			s.query = hasParameter(fn, imports, "Query")
+		case "QueryByScan":
+			s.queryByScan = hasParameter(fn, imports, "Query") && hasParameter(fn, imports, "ScanBudget")
 		case "Retrieve":
 			s.retrieve = true
 		case "Scan":
-			s.scan = true
+			s.scan = hasParameter(fn, imports, "ScanRequest")
 		case "DeleteMatching":
 			s.deleteMatching = true
 		case "CreateDocument":
@@ -158,7 +160,7 @@ func moduleRow(root, dir string) (string, error) {
 		for _, op := range []struct {
 			name    string
 			present bool
-		}{{"Upsert", s.upsert}, {"Query", s.query}, {"Scan", s.scan}, {"DeleteMatching", s.deleteMatching}, {"CreateDocument", s.create}, {"Retrieve", s.retrieve}} {
+		}{{"Upsert", s.upsert}, {"Query", s.query}, {"QueryByScan", s.queryByScan}, {"Scan", s.scan}, {"DeleteMatching", s.deleteMatching}, {"CreateDocument", s.create}, {"Retrieve", s.retrieve}} {
 			if op.present {
 				add(&apis, "`"+op.name+"`")
 			}

@@ -31,6 +31,8 @@ var ErrPageLimit = errors.New("pdf reader: page limit exceeded")
 
 var ErrInvalidPassword = parser.ErrInvalidPassword
 
+var ErrUnsupportedFontEncoding = parser.ErrUnsupportedFontEncoding
+
 // ReaderConfig controls PDF extraction. PerPage emits one document per readable
 // page. Metadata is cloned by NewReader,
 // and cannot contain the reader's page total key. A zero

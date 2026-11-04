@@ -43,13 +43,13 @@ func callHTTPTool(t *testing.T, transport countingTransport, arguments string) e
 	}
 	invocation, err := binding.Contract().Prepare(tool.Request{Name: "http_request", Arguments: arguments}, tool.Admission{})
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
 	_, err = binding.Call(t.Context(), invocation)
 	return err
 }
 
-func TestToolReportsUnsentRequestsAsDefiniteFailures(t *testing.T) {
+func TestToolRejectsInvalidInputsBeforeDispatchAndClassifiesPolicyRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		arguments string
@@ -70,6 +70,12 @@ func TestToolReportsUnsentRequestsAsDefiniteFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
 			err := callHTTPTool(t, countingTransport{calls: &calls}, tc.arguments)
+			if tc.kind == tool.FailureKindFailed {
+				if !errors.Is(err, tool.ErrInvalidInvocation) || !errors.Is(err, tc.sentinel) || calls.Load() != 0 {
+					t.Fatalf("invalid input reached dispatch: calls=%d error=%v", calls.Load(), err)
+				}
+				return
+			}
 			failure, ok := tool.ClassifyFailure(err)
 			if !ok || failure.Kind() != tc.kind || !errors.Is(failure.Cause(), tc.sentinel) {
 				t.Fatalf("unsent request error = %v, want %s failure caused by %v", err, tc.kind, tc.sentinel)

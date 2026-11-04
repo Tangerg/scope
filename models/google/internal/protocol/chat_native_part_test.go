@@ -413,3 +413,50 @@ func aggregateProtocolResponse(t *testing.T, provider string, response *genai.Ge
 	}
 	return accumulator.Response()
 }
+
+func TestReasoningSignaturesRemainWithTheirIssuingProvider(t *testing.T) {
+	for _, source := range []string{"google", "vertexai"} {
+		response, err := aggregateProtocolResponse(t, source, &genai.GenerateContentResponse{Candidates: []*genai.Candidate{{
+			Content:      &genai.Content{Parts: []*genai.Part{{Text: "visible reasoning", Thought: true, ThoughtSignature: []byte("native-signature")}}},
+			FinishReason: genai.FinishReasonStop,
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range []string{"google", "vertexai"} {
+			t.Run(source+"/"+target, func(t *testing.T) {
+				parts, err := mapProtocolAssistantParts(target, response.Output.Message.Parts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(parts) != 1 || parts[0].Text != "visible reasoning" || !parts[0].Thought {
+					t.Fatalf("visible reasoning = %+v", parts)
+				}
+				wantSignature := []byte(nil)
+				if source == target {
+					wantSignature = []byte("native-signature")
+				}
+				if !bytes.Equal(parts[0].ThoughtSignature, wantSignature) {
+					t.Fatalf("signature = %q, want %q", parts[0].ThoughtSignature, wantSignature)
+				}
+			})
+		}
+	}
+	for _, text := range []string{"", "portable thought"} {
+		part := corechat.NewReasoningPart(text, []byte("foreign-state"))
+		if err := part.Metadata.Set("anthropic/reasoning_provider", "anthropic"); err != nil {
+			t.Fatal(err)
+		}
+		parts, err := mapProtocolAssistantParts("google", []corechat.Part{part})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text == "" {
+			if len(parts) != 0 {
+				t.Fatalf("opaque foreign part survived: %+v", parts)
+			}
+		} else if len(parts) != 1 || parts[0].Text != text || len(parts[0].ThoughtSignature) != 0 {
+			t.Fatalf("foreign replay = %+v", parts)
+		}
+	}
+}

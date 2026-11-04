@@ -315,7 +315,7 @@ func fixtureBudget() vectorstore.ScanBudget {
 }
 func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
-		return s.Scan(ctx, q, fixtureBudget())
+		return s.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return s.Query(ctx, q)
 }
@@ -338,7 +338,7 @@ func TestScanRejectsUnpaidNonmatchesBeforePublication(t *testing.T) {
 	s, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})
 	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("k")}}
 	for _, budget := range []vectorstore.ScanBudget{{MaxBytes: 10240, MaxRecords: 1, Timeout: time.Second}, {MaxBytes: 1, MaxRecords: 2, Timeout: time.Second}} {
-		if got, err := s.Scan(t.Context(), q, budget); !errors.Is(err, vectorstore.ErrScanBudget) || got != nil {
+		if got, err := s.QueryByScan(t.Context(), q, budget); !errors.Is(err, vectorstore.ErrScanBudget) || got != nil {
 			t.Fatalf("got=%v err=%v", got, err)
 		}
 		if err := s.DeleteMatching(t.Context(), q.Options.Filter, budget); !errors.Is(err, vectorstore.ErrScanBudget) || len(collection.deleted) != 0 {

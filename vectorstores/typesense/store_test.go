@@ -271,7 +271,7 @@ func TestNativeIDSelectionHasCoreFilterSemantics(t *testing.T) {
 		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Scan(ctx, fixtureQuery("query", vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}), fixtureBudget())
+		response, err := store.QueryByScan(ctx, fixtureQuery("query", vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}), fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +297,7 @@ func TestCoreMetadataAndIdentityRoundtrip(t *testing.T) {
 			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: id, Text: "text", Metadata: facts}})); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
 			if err != nil {
 				t.Fatal(err)
 			}

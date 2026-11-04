@@ -10,8 +10,6 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/embedding"
-	"github.com/Tangerg/scope/core/image"
-	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/google/internal/protocol"
@@ -32,8 +30,6 @@ const (
 	TranscriptionResponseExtensionKey = protocol.TranscriptionResponseExtensionKey
 	EmbeddingRequestExtensionKey      = protocol.EmbeddingRequestExtensionKey
 	EmbeddingResponseExtensionKey     = protocol.EmbeddingResponseExtensionKey
-	ImageRequestExtensionKey          = protocol.ImageRequestExtensionKey
-	ImageResponseExtensionKey         = protocol.ImageResponseExtensionKey
 
 	OpenAIRequestExtensionKey     = Provider + openaiprotocol.CompatibleRequestExtensionSuffix
 	OpenAIStreamChunkExtensionKey = Provider + openaiprotocol.CompatibleStreamExtensionSuffix
@@ -240,66 +236,6 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, errors.New("google: nil TranscriptionModel")
 	}
 	return t.protocol.Call(ctx, req)
-}
-
-type ImageModelConfig struct {
-	APIKey         string
-	DefaultOptions image.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-}
-
-func (i ImageModelConfig) Validate() error { return i.protocol().Validate() }
-
-func (i ImageModelConfig) protocol() protocol.ImageModelConfig {
-	return protocol.ImageModelConfig{Client: protocolClient(i.APIKey, i.BaseURL, i.HTTPClient), DefaultOptions: i.DefaultOptions}
-}
-
-// ImageGenerationOptions carries Gemini Interactions controls that have no
-// provider-neutral image option.
-type ImageGenerationOptions struct {
-	AspectRatio           string                    `json:"aspect_ratio,omitempty"`
-	ImageSize             string                    `json:"image_size,omitempty"`
-	Delivery              string                    `json:"delivery,omitempty"`
-	PreviousInteractionID string                    `json:"previous_interaction_id,omitempty"`
-	Store                 *bool                     `json:"store,omitzero"`
-	ThinkingLevel         string                    `json:"thinking_level,omitempty"`
-	ThinkingSummaries     string                    `json:"thinking_summaries,omitempty"`
-	ServiceTier           string                    `json:"service_tier,omitempty"`
-	Labels                map[string]string         `json:"labels,omitempty"`
-	InputImages           []*media.Media            `json:"input_images,omitempty"`
-	GoogleSearch          *ImageGoogleSearchOptions `json:"google_search,omitzero"`
-	SafetySettings        []ImageSafetySetting      `json:"safety_settings,omitempty"`
-}
-
-type ImageGoogleSearchOptions struct {
-	SearchTypes []string `json:"search_types,omitempty"`
-}
-
-type ImageSafetySetting struct {
-	Type      string `json:"type"`
-	Threshold string `json:"threshold"`
-	Method    string `json:"method,omitempty"`
-}
-
-// ImageModel wraps this provider's protocol implementation so the wire type
-// stays unexported. Callers depend on the Core modality contract, which lets
-// the protocol change without breaking this module's public surface.
-type ImageModel struct{ protocol *protocol.ImageModel }
-
-func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
-	model, err := protocol.NewImageModel(ctx, config.protocol())
-	if err != nil {
-		return nil, err
-	}
-	return &ImageModel{protocol: model}, nil
-}
-
-func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
-	if i == nil || i.protocol == nil {
-		return nil, errors.New("google: nil ImageModel")
-	}
-	return i.protocol.Call(ctx, req)
 }
 
 type TextCounterConfig struct {

@@ -233,7 +233,7 @@ func TestLiveNativeTagFilterAndHardByteGrant(t *testing.T) {
 	if _, leaked := found.Metadata[document.StoredProvenanceKey]; leaked {
 		t.Fatal("a native storage key entered the business metadata projection")
 	}
-	r, err = s.Scan(t.Context(), q, vectorstore.ScanBudget{MaxRecords: 10, MaxBytes: 1, Timeout: time.Second})
+	r, err = s.QueryByScan(t.Context(), q, vectorstore.ScanBudget{MaxRecords: 10, MaxBytes: 1, Timeout: time.Second})
 	if !errors.Is(err, vectorstore.ErrScanBudget) || r != nil {
 		t.Fatalf("exhausted grant=%v %v", r, err)
 	}

@@ -54,7 +54,7 @@ func (t targetedTextTransformer) transform(ctx context.Context, query rag.Query)
 	text, err := t.prompt.call(ctx, targetedPromptVariables{
 		Target: t.target,
 		Query:  query.Text(),
-	})
+	}, corechat.Options{})
 	if err != nil {
 		return rag.Query{}, err
 	}

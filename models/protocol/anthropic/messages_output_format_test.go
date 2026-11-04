@@ -14,7 +14,7 @@ import (
 
 func TestProtocolOutputFormatUsesNativeSchemaOrRejects(t *testing.T) {
 	schema, err := corechat.NewJSONSchemaOutputFormat(corechat.JSONSchemaConfig{
-		Name: "answer", Schema: json.RawMessage(`{"type":"object"}`),
+		Name: "answer", Schema: json.RawMessage(`{"type":"object","additionalProperties":false}`),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -32,23 +32,8 @@ func TestProtocolOutputFormatUsesNativeSchemaOrRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	params = anthropicsdk.MessageNewParams{}
-	if mapErr := mapProtocolOutputFormat(&jsonFormat, Dialect{NativeJSONSchema: true}, &params); mapErr != nil {
-		t.Fatal(mapErr)
-	}
-	encoded, err := jsonv2.Marshal(params.OutputConfig.Format)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var format struct {
-		Schema struct {
-			Type string `json:"type"`
-		} `json:"schema"`
-	}
-	if err := jsonv2.Unmarshal(encoded, &format); err != nil {
-		t.Fatal(err)
-	}
-	if format.Schema.Type != "object" || len(params.System) != 0 {
-		t.Fatalf("native JSON mapping = %#v", params)
+	if err := mapProtocolOutputFormat(&jsonFormat, Dialect{NativeJSONSchema: true}, &params); !errors.Is(err, corechat.ErrUnsupportedOutputFormat) {
+		t.Fatalf("unconstrained JSON error = %v", err)
 	}
 
 	params = anthropicsdk.MessageNewParams{}

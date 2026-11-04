@@ -594,11 +594,11 @@ func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filt
 }
 
 // Scan returns no partial records. Its grant covers a single native snapshot.
-func (s *Store) Scan(ctx context.Context, cfg ScanConfig) (found []*document.Document, err error) {
-	if err = cfg.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (found []*document.Document, err error) {
+	if err = request.Validate(); err != nil {
 		return nil, err
 	}
-	m, err := cfg.Budget.Begin(ctx)
+	m, err := request.Budget.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -613,7 +613,7 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) (found []*document.Doc
 			found = nil
 		}
 	}()
-	found, err = s.scan(tx, m, cfg.Filter)
+	found, err = s.scan(tx, m, request.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -625,14 +625,14 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) (found []*document.Doc
 
 // DeleteMatching proves membership over the complete bounded snapshot before
 // buffering deletes on the same session. Only native COMMIT publishes them.
-func (s *Store) DeleteMatching(ctx context.Context, cfg ScanConfig) (err error) {
-	if cfg.Filter == nil {
+func (s *Store) DeleteMatching(ctx context.Context, request vectorstore.ScanRequest) (err error) {
+	if request.Filter == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	if err = cfg.Validate(); err != nil {
+	if err = request.Validate(); err != nil {
 		return err
 	}
-	m, err := cfg.Budget.Begin(ctx)
+	m, err := request.Budget.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -642,7 +642,7 @@ func (s *Store) DeleteMatching(ctx context.Context, cfg ScanConfig) (err error) 
 		return err
 	}
 	defer func() { err = errors.Join(err, tx.Close()) }()
-	docs, err := s.scan(tx, m, cfg.Filter)
+	docs, err := s.scan(tx, m, request.Filter)
 	if err != nil {
 		return err
 	}

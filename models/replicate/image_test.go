@@ -18,16 +18,19 @@ func TestImageModel_Call_Mock(t *testing.T) {
 
 	var srv *httptest.Server
 	srv = modeltest.MuxServer(
-		// POST /v1/models/<owner>/<name>/predictions OR /v1/predictions
 		modeltest.Route{Method: "POST", Contains: "/predictions", Handle: func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Authorization") != "Bearer test-key" {
 				t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
 			}
 			var body struct {
-				Input map[string]any `json:"input"`
+				Input   map[string]any `json:"input"`
+				Version string         `json:"version"`
 			}
 			if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
 				t.Errorf("decode request: %v", err)
+			}
+			if r.URL.Path != "/predictions" || r.URL.RawQuery != "" || body.Version != replicate.ModelFluxSchnell {
+				t.Errorf("submission = %s version %q", r.URL.String(), body.Version)
 			}
 			if body.Input["prompt"] != "a serene mountain lake" || body.Input["output_format"] != "jpg" {
 				t.Errorf("input = %#v", body.Input)

@@ -121,7 +121,7 @@ func TestSearchValidatesFullPartitionBeforeEmbedding(t *testing.T) {
 			if fault == "token" {
 				fixture.scanScript = []queryPage{{items: []json.RawMessage{}, token: "loop"}, {items: []json.RawMessage{}, token: "loop"}}
 			}
-			response, err := store.Scan(t.Context(), testScan(predicate))
+			response, err := store.Scan(t.Context(), testScanRequest(predicate))
 			if err == nil || response != nil {
 				t.Fatalf("Search = %#v, %v", response, err)
 			}
@@ -207,7 +207,7 @@ func TestDeleteWhereUsesObservedETag(t *testing.T) {
 			if fault == "missing predicate" {
 				predicate = nil
 			}
-			err := store.DeleteMatching(t.Context(), testScan(predicate))
+			err := store.DeleteMatching(t.Context(), testScanRequest(predicate))
 			if fault == "none" {
 				if err != nil || len(fixture.records) != 0 || !slices.Equal(fixture.deletes, []string{"one"}) {
 					t.Fatalf("DeleteWhere = %v, deletes %v", err, fixture.deletes)

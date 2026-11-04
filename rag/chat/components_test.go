@@ -378,7 +378,7 @@ func TestLLMComponentsRejectTemplatesMissingRequiredFields(t *testing.T) {
 			return err
 		},
 		"model reranker": func() error {
-			_, err := ragchat.NewReranker(ragchat.RerankerConfig{
+			_, err := ragchat.NewRerankModel(t.Context(), ragchat.RerankModelConfig{
 				Model:          model,
 				PromptTemplate: prompt,
 			})

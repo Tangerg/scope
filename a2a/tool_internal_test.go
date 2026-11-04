@@ -28,7 +28,7 @@ func TestInvalidEffectIsRejectedBeforeEndpointDiscovery(t *testing.T) {
 	}
 }
 
-func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
+func TestRemoteToolRejectsBlankMessageDuringAdmission(t *testing.T) {
 	remote, err := newRemoteTool(remoteToolConfig{
 		client: new(a2aclient.Client),
 		card:   &sdka2a.AgentCard{Name: "Remote Agent"},
@@ -40,16 +40,11 @@ func TestRemoteToolRejectsBlankMessageAsDefiniteFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A blank message passes schema admission but fails argument parsing before
-	// the remote agent is called; the zero client is never reached.
-	invocation, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Definition().Name, Arguments: `{"message":"   "}`}, toolcontract.Admission{})
-	if err != nil {
-		t.Fatalf("Prepare rejected blank message before Call: %v", err)
-	}
-	_, callErr := binding.Call(t.Context(), invocation)
-	failure, ok := errors.AsType[*toolcontract.Failure](callErr)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed {
-		t.Fatalf("blank message call error = %v, want FailureKindFailed", callErr)
+	for _, arguments := range []string{`{"message":""}`, `{"message":"   "}`, `{"message":"\t\n"}`} {
+		_, err := binding.Contract().Prepare(toolcontract.Request{Name: binding.Contract().Name(), Arguments: arguments}, toolcontract.Admission{})
+		if !errors.Is(err, toolcontract.ErrInvalidInvocation) {
+			t.Fatalf("Prepare(%s) = %v, want ErrInvalidInvocation", arguments, err)
+		}
 	}
 }
 

@@ -41,6 +41,13 @@ type callArguments struct {
 	Message string `json:"message" jsonschema_description:"The natural-language request to send to the remote agent."`
 }
 
+func (c callArguments) validate() error {
+	if strings.TrimSpace(c.Message) == "" {
+		return errors.New("a2a: message must not be empty")
+	}
+	return nil
+}
+
 // remoteTool is immutable after construction and does not own its client.
 type remoteTool struct {
 	binding           string
@@ -88,6 +95,13 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 }
 
 func (r remoteTool) Definition() toolcontract.Definition { return r.definition.Clone() }
+
+func (remoteTool) InputValidator() func([]byte) error {
+	return func(arguments []byte) error {
+		_, err := parseCallArguments(arguments)
+		return err
+	}
+}
 
 func (r remoteTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return r.concurrencyPolicy
@@ -148,8 +162,8 @@ func parseCallArguments(arguments []byte) (callArguments, error) {
 	if err := jsonv2.Unmarshal(arguments, &input, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return callArguments{}, err
 	}
-	if strings.TrimSpace(input.Message) == "" {
-		return callArguments{}, errors.New("message must not be empty")
+	if err := input.validate(); err != nil {
+		return callArguments{}, err
 	}
 	return input, nil
 }

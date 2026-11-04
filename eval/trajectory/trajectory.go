@@ -242,6 +242,8 @@ func (t Trajectory) semanticToolCalls() ([]ToolCall, error) {
 	return calls, nil
 }
 
+const baselineDigestParameter = "baseline_digest"
+
 func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projection[run.Payload, json.RawMessage]) (eval.Report, error) {
 	actualDigest, err := t.BehaviorDigest(project)
 	if err != nil {
@@ -257,7 +259,7 @@ func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projecti
 		feedback = "semantic trajectory differed from the replay baseline"
 	}
 	parameters := metadata.Map{}
-	if err := parameters.Set("baseline_digest", baselineDigest); err != nil {
+	if err := parameters.Set(baselineDigestParameter, baselineDigest); err != nil {
 		return eval.Report{}, err
 	}
 	return binaryReport(MetricConsistency, passed, feedback, parameters)

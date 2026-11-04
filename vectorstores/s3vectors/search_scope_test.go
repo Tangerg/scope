@@ -44,7 +44,7 @@ func TestBindingAndScanBudgetFailWithoutPartialResults(t *testing.T) {
 		t.Fatal(err, f.paths)
 	}
 	for _, budget := range []vectorstore.ScanBudget{{MaxRecords: 1, MaxBytes: 1 << 20, Timeout: time.Second}, {MaxRecords: 2, MaxBytes: 1, Timeout: time.Second}} {
-		if docs, err := s.Scan(t.Context(), nil, budget); docs != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+		if docs, err := s.Scan(t.Context(), vectorstore.ScanRequest{Filter: nil, Budget: budget}); docs != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatalf("partial scan %v, %v", docs, err)
 		}
 	}

@@ -12,7 +12,7 @@ import (
 func TestOutputFormatMapsToChatAndResponsesNativeShapes(t *testing.T) {
 	format, err := corechat.NewJSONSchemaOutputFormat(corechat.JSONSchemaConfig{
 		Name: "answer", Description: "Answer payload",
-		Schema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"integer"}}}`),
+		Schema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"integer"}},"required":["value"],"additionalProperties":false}`),
 	})
 	if err != nil {
 		t.Fatal(err)

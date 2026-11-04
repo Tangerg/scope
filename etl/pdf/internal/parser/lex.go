@@ -29,12 +29,6 @@ type name string
 
 type keyword string
 
-// maxObjectDepth is the maximum nesting depth for PDF objects (dicts, arrays,
-// and indirect object definitions). Malicious files can nest millions of
-// "N N obj" tokens to exhaust the Go call stack; this limit turns that into
-// a recoverable panic instead of a fatal process crash.
-const maxObjectDepth = 1000
-
 type buffer struct {
 	budget      *budget
 	r           io.Reader

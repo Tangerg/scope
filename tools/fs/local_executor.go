@@ -173,6 +173,9 @@ func (l *LocalExecutor) Write(ctx context.Context, in WriteRequest) (_ WriteResp
 			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
 		}
 	}()
+	if validationErr := in.Validate(); validationErr != nil {
+		return WriteResponse{}, validationErr
+	}
 	path, err := l.authorize(in.Path, false)
 	if err != nil {
 		return WriteResponse{}, err
@@ -226,6 +229,9 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 			err = fmt.Errorf("%w: %w", ErrMutationRejected, err)
 		}
 	}()
+	if validationErr := in.Validate(); validationErr != nil {
+		return EditResponse{}, validationErr
+	}
 	path, err := l.authorize(in.Path, false)
 	if err != nil {
 		return EditResponse{}, err
@@ -250,11 +256,7 @@ func (l *LocalExecutor) Edit(ctx context.Context, in EditRequest) (_ EditRespons
 	if err != nil {
 		return EditResponse{}, err
 	}
-	updated, replacements, err := (editOperation{
-		OldString:  in.OldString,
-		NewString:  in.NewString,
-		ReplaceAll: in.ReplaceAll,
-	}).apply(source.text, in.Path)
+	updated, replacements, err := in.operation().apply(source.text, in.Path)
 	if err != nil {
 		return EditResponse{}, err
 	}

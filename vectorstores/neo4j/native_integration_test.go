@@ -166,7 +166,7 @@ func TestNativeFilterConformance(t *testing.T) {
 					return nil, err
 				}
 				if operation == "search" {
-					response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget)
+					response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget)
 					if err != nil {
 						return nil, err
 					}
@@ -203,7 +203,7 @@ func TestNativeCanonicalRecordsAndTopK(t *testing.T) {
 				{ID: "closer", Text: "query", Metadata: metadata.Map{"ok": json.RawMessage(`false`)}},
 			}
 			nativeIndex(t, store, rows...)
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(rows)}}, fixtureBudget)
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(rows)}}, fixtureBudget)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -219,13 +219,13 @@ func TestNativeCanonicalRecordsAndTopK(t *testing.T) {
 			if response.Results[0].Document.ID != "closer" || response.Results[1].Document.ID != "empty" || response.Results[2].Document.ID != "nil" {
 				t.Fatal("equal native scores must use ID order", response)
 			}
-			response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: nativePredicate(t, "ok == true")}}, fixtureBudget)
+			response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: nativePredicate(t, "ok == true")}}, fixtureBudget)
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "raw/路径`" {
 				t.Fatalf("filtered TopK response=%v err=%v", response, err)
 			}
 			score := response.Results[0].Score
 			cutoff := vectorstore.Score(math.Nextafter(float64(score), 1))
-			response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: cutoff, Filter: nativePredicate(t, "ok == true")}}, fixtureBudget)
+			response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: cutoff, Filter: nativePredicate(t, "ok == true")}}, fixtureBudget)
 			if err != nil || len(response.Results) != 0 {
 				t.Fatalf("threshold response=%v err=%v", response, err)
 			}
@@ -254,7 +254,7 @@ func TestNativePreflightFailureHasNoModelOrDeleteEffects(t *testing.T) {
 	docs[len(docs)-1].Metadata["rank"] = json.RawMessage(`"wrong type"`)
 	nativeIndex(t, store, docs...)
 	predicate := nativePredicate(t, "rank < 2")
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: predicate}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: predicate}}, fixtureBudget)
 	if response != nil || err == nil {
 		t.Fatalf("response=%v err=%v", response, err)
 	}
@@ -266,7 +266,7 @@ func TestNativePreflightFailureHasNoModelOrDeleteEffects(t *testing.T) {
 	}
 	// Valid large batches cross both native score and delete chunk boundaries.
 	nativeIndex(t, store, &document.Document{ID: docs[len(docs)-1].ID, Text: "query", Metadata: metadata.Map{"rank": json.RawMessage(`1`)}})
-	response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1030, Filter: predicate}}, fixtureBudget)
+	response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1030, Filter: predicate}}, fixtureBudget)
 	if err != nil || len(response.Results) != 1030 {
 		t.Fatalf("response count=%v err=%v", response, err)
 	}
@@ -295,7 +295,7 @@ func TestNativeStrictStoredSchema(t *testing.T) {
 			if _, err := f.query(t.Context(), "MATCH (n:"+quoteIdentifier(f.label)+") "+mutation, nil); err != nil {
 				t.Fatal(err)
 			}
-			response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, "value == 'hidden'"), TopK: 1, MinScore: 1}}, fixtureBudget)
+			response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, "value == 'hidden'"), TopK: 1, MinScore: 1}}, fixtureBudget)
 			if response != nil || err == nil {
 				t.Fatalf("malformed stored node response=%v err=%v", response, err)
 			}
@@ -362,7 +362,7 @@ func TestNativeSearchUsesCapturedDocumentAndVector(t *testing.T) {
 	if err != nil || scored.([]vectorstore.Score)[0] != 1 || node.document.Text != "query" || string(node.document.Metadata["value"]) != `"before"` {
 		t.Fatal("captured source changed", err)
 	}
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
 	if err != nil || response.First().Score != 0.5 || response.First().Document.Text != "far" {
 		t.Fatalf("current result=%v err=%v", response, err)
 	}
@@ -458,7 +458,7 @@ func TestNativeConstructorAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
+	response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
 	if response != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("response=%v err=%v", response, err)
 	}
@@ -479,11 +479,11 @@ func TestNativeConfiguredPropertiesAndVectorDimensions(t *testing.T) {
 		t.Fatal(err)
 	}
 	nativeIndex(t, store, &document.Document{ID: "original", Text: "query", Metadata: metadata.Map{"value": json.RawMessage(`{"nested":true}`)}})
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, "value['nested'] == true")}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: nativePredicate(t, "value['nested'] == true")}}, fixtureBudget)
 	if err != nil || response.First() == nil || response.First().Document.ID != "original" {
 		t.Fatalf("custom properties response=%v err=%v", response, err)
 	}
-	response, err = store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("different width")}, fixtureBudget)
+	response, err = store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("different width")}, fixtureBudget)
 	if response != nil || err == nil {
 		t.Fatalf("different dimensions response=%v err=%v", response, err)
 	}

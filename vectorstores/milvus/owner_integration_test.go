@@ -97,7 +97,7 @@ func TestLiveFilterConformance(t *testing.T) {
 				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
-				response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
+				response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{Filter: predicate, TopK: len(docs)}}, fixtureBudget())
 				if err != nil {
 					return nil, err
 				}
@@ -199,7 +199,7 @@ func TestLiveGroupsKeepNativeRawRank(t *testing.T) {
 	if err := store.Upsert(t.Context(), fixtureBatchWith(docs, coords)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}}, fixtureBudget())
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}}, fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "id_128" {
 		t.Fatalf("native raw rank changed: %v %v", response, err)
 	}

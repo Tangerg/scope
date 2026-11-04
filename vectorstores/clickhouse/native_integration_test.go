@@ -85,8 +85,8 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
-func testScan(p filter.Predicate) storeclickhouse.ScanConfig {
-	return storeclickhouse.ScanConfig{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}}
+func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
+	return vectorstore.ScanRequest{Filter: p, Budget: vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}}
 }
 func TestNativeStoreSchemaAndDistances(t *testing.T) {
 	for _, metric := range []storeclickhouse.DistanceMetric{storeclickhouse.DistanceCosine, storeclickhouse.DistanceL2} {
@@ -140,7 +140,7 @@ func TestNativeStoreSchemaAndDistances(t *testing.T) {
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "far" {
 				t.Fatalf("native results after ID deletion = %+v, %v", response, err)
 			}
-			if err := store.DeleteMatching(t.Context(), testScan(filter.EQ("name", "far"))); err != nil {
+			if err := store.DeleteMatching(t.Context(), testScanRequest(filter.EQ("name", "far"))); err != nil {
 				t.Fatal(err)
 			}
 			response, err = store.Query(t.Context(), request)
@@ -174,7 +174,7 @@ func TestNativeCoreFilterConformance(t *testing.T) {
 		if err := f.install(ctx, store, docs); err != nil {
 			return nil, err
 		}
-		response, err := store.Scan(ctx, testScan(predicate))
+		response, err := store.Scan(ctx, testScanRequest(predicate))
 		if err != nil {
 			return nil, err
 		}
@@ -193,7 +193,7 @@ func TestNativeCoreDeleteConformance(t *testing.T) {
 		if err := f.install(ctx, store, docs); err != nil {
 			return nil, err
 		}
-		if err := store.DeleteMatching(ctx, testScan(predicate)); err != nil {
+		if err := store.DeleteMatching(ctx, testScanRequest(predicate)); err != nil {
 			return nil, err
 		}
 		response, err := store.Query(ctx, &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})
@@ -269,7 +269,7 @@ func TestNativeEncodedFactsAndExactIdentities(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response, err := store.Scan(t.Context(), testScan(predicate))
+		response, err := store.Scan(t.Context(), testScanRequest(predicate))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -311,11 +311,11 @@ func TestNativeFilterPreflightRejectsLateFailure(t *testing.T) {
 	if err := store.Upsert(t.Context(), testBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Scan(t.Context(), testScan(filter.GT("n", 1)))
+	response, err := store.Scan(t.Context(), testScanRequest(filter.GT("n", 1)))
 	if err == nil || response != nil {
 		t.Fatal("late type mismatch became a successful limited search")
 	}
-	if err := store.DeleteMatching(t.Context(), testScan(filter.GT("n", 1))); err == nil {
+	if err := store.DeleteMatching(t.Context(), testScanRequest(filter.GT("n", 1))); err == nil {
 		t.Fatal("late type mismatch became a successful deletion")
 	}
 	var count uint64
@@ -372,11 +372,11 @@ func TestNativeScanKeepsSnapshotAcrossPages(t *testing.T) {
 		changed = true
 		return store.Upsert(ctx, testBatch([]*document.Document{{ID: docs[512].ID, Text: "new"}}))
 	})
-	snap, err := reader.Scan(t.Context(), testScan(nil))
+	snap, err := reader.Scan(t.Context(), testScanRequest(nil))
 	if err != nil || !changed || len(snap) != 513 || snap[512].Text != "old" {
 		t.Fatalf("snapshot: count=%d changed=%v err=%v", len(snap), changed, err)
 	}
-	now, err := store.Scan(t.Context(), testScan(nil))
+	now, err := store.Scan(t.Context(), testScanRequest(nil))
 	if err != nil || len(now) != 513 || now[512].Text != "new" {
 		t.Fatalf("fresh snapshot: count=%d err=%v", len(now), err)
 	}
@@ -473,7 +473,7 @@ func TestNativeDeleteFailureCannotPublishEarlierPages(t *testing.T) {
 		}
 		return injected
 	})
-	if err := broken.DeleteMatching(t.Context(), testScan(filter.EQ("active", true))); !errors.Is(err, injected) {
+	if err := broken.DeleteMatching(t.Context(), testScanRequest(filter.EQ("active", true))); !errors.Is(err, injected) {
 		t.Fatal(err)
 	}
 	var count uint64
@@ -511,7 +511,7 @@ func TestNativeDeletionPreservesConcurrentReplacement(t *testing.T) {
 		}
 		return store.Upsert(ctx, testBatch([]*document.Document{{ID: docs[0].ID, Text: "after", Metadata: updated}}))
 	})
-	if err := deleter.DeleteMatching(t.Context(), testScan(filter.EQ("active", true))); err != nil {
+	if err := deleter.DeleteMatching(t.Context(), testScanRequest(filter.EQ("active", true))); err != nil {
 		t.Fatal(err)
 	}
 	response, err := store.Query(t.Context(), &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: len(docs)}})

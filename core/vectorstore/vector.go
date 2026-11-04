@@ -19,15 +19,36 @@ import (
 // reveal this identity, and equal dimensions do not establish compatibility.
 type SpaceID string
 
+// SpaceStorageKeyPrefix reserves a namespace so adapters can detect every
+// declared binding, including a second constraint for a conflicting space.
+const SpaceStorageKeyPrefix = "sv_"
+
 var ErrIncompatibleSpace = errors.New("vectorstore: incompatible vector space")
 var ErrUnsupportedFilter = errors.New("vectorstore: metadata predicate cannot be executed natively")
+
+// JSON null must not invent a measured zero coordinate.
+var coordinateJSON = jsonv2.UnmarshalFunc(func(data []byte, target *[]float64) error {
+	var decoded []*float64
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	values := make([]float64, len(decoded))
+	for index, value := range decoded {
+		if value == nil {
+			return fmt.Errorf("%w: coordinate %d must be a number", ErrInvalidRequest, index)
+		}
+		values[index] = *value
+	}
+	*target = values
+	return nil
+})
 
 // StorageKey is a compact SQL-identifier-safe projection for physical schemas
 // with length or character restrictions. Its input is the declared Host binding,
 // not the model name, embedding coordinates, or executable code.
 func (s SpaceID) StorageKey() string {
 	digest := sha256.Sum256([]byte(s))
-	return "sv_" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
+	return SpaceStorageKeyPrefix + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(digest[:]))
 }
 
 func (s SpaceID) Validate() error {
@@ -54,7 +75,6 @@ type Record struct {
 	Values   []float64          `json:"values"`
 }
 
-// Validate checks the stored document and its already-computed coordinates.
 func (r Record) Validate() error {
 	if r.Document == nil {
 		return fmt.Errorf("%w: missing document", ErrInvalidDocument)
@@ -78,7 +98,7 @@ func (r *Record) UnmarshalJSON(data []byte) error {
 	}
 	type wire Record
 	var decoded wire
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), jsonv2.WithUnmarshalers(coordinateJSON)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	candidate := Record(decoded)
@@ -217,7 +237,7 @@ func (q *Query) UnmarshalJSON(data []byte) error {
 	}
 	type wire Query
 	var decoded wire
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), jsonv2.WithUnmarshalers(coordinateJSON)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	candidate := Query(decoded)

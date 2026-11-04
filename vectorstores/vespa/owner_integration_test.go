@@ -143,7 +143,7 @@ func TestLiveFilterConformance(t *testing.T) {
 					}
 					return deleted, nil
 				}
-				response, err := store.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
+				response, err := store.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("filter conformance"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
 				if err != nil {
 					return nil, err
 				}
@@ -167,7 +167,7 @@ func TestLiveExactMetadataAndNamespace(t *testing.T) {
 	liveIndex(t, store, docs)
 	other := liveStore(t)
 	liveIndex(t, other, []*document.Document{{ID: "null", Text: "other"}})
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("text"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
 	if err != nil || len(response.Results) != len(docs) {
 		t.Fatalf("native result count: response=%v error=%v", response, err)
 	}
@@ -239,7 +239,7 @@ func TestLiveRankingAcrossGroups(t *testing.T) {
 	}
 	docs[len(docs)-1].Text = "winner"
 	liveIndex(t, store, docs)
-	response, err := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}}, fixtureBudget)
+	response, err := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}}, fixtureBudget)
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "128" || response.Results[0].Score != 1 {
 		t.Fatalf("native group ranking: response=%v error=%v", response, err)
 	}

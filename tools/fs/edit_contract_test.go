@@ -13,16 +13,16 @@ import (
 func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 	tests := []struct {
 		name, content, old, replacement string
-		binary                          bool
+		binary, admission               bool
 	}{
 		{name: "indentation", content: "func f() {\n\treturn 1\n}\n", old: "    return 1", replacement: "    return 2"},
 		{name: "trailing whitespace", content: "alpha   \nbeta\n", old: "alpha\nbeta", replacement: "x\ny"},
 		{name: "internal whitespace", content: "total = a  +  b\n", old: "total = a + b", replacement: "total = a - b"},
 		{name: "string literal whitespace", content: "value = \"a  b\"\n", old: "value = \"a b\"", replacement: "value = \"changed\""},
-		{name: "empty original", content: "hello", old: "", replacement: "new"},
+		{name: "empty original", content: "hello", old: "", replacement: "new", admission: true},
 		{name: "ambiguous", content: "hello hello", old: "hello", replacement: "new"},
-		{name: "unchanged", content: "hello", old: "hello", replacement: "hello"},
-		{name: "binary replacement", content: "hello", old: "hello", replacement: "a\x00b", binary: true},
+		{name: "unchanged", content: "hello", old: "hello", replacement: "hello", admission: true},
+		{name: "binary replacement", content: "hello", old: "hello", replacement: "a\x00b", binary: true, admission: true},
 	}
 	for _, test := range tests {
 		for _, viaTool := range []bool{false, true} {
@@ -47,15 +47,19 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 						t.Fatal(encodeErr)
 					}
 					invocation, prepareErr := binding.Contract().Prepare(toolcontract.Request{Name: "edit", Arguments: string(arguments)}, toolcontract.Admission{})
-					if prepareErr != nil {
-						t.Fatal(prepareErr)
+					err = prepareErr
+					if err == nil {
+						_, err = binding.Call(context.Background(), invocation)
 					}
-					_, err = binding.Call(context.Background(), invocation)
 				} else {
 					_, err = executor.Edit(t.Context(), request)
 				}
 				diagnostic := err
-				if viaTool {
+				if viaTool && test.admission {
+					if !errors.Is(err, toolcontract.ErrInvalidInvocation) {
+						t.Fatalf("pure input error passed admission: %v", err)
+					}
+				} else if viaTool {
 					failure, ok := toolcontract.ClassifyFailure(err)
 					if !ok {
 						t.Fatalf("tool lost definite rejection: %v", err)
@@ -65,7 +69,7 @@ func TestEditRejectsInvalidReplacementsWithoutChangingFile(t *testing.T) {
 					}
 					diagnostic = failure.Cause()
 				}
-				if !errors.Is(diagnostic, ErrMutationRejected) {
+				if (!viaTool || !test.admission) && !errors.Is(diagnostic, ErrMutationRejected) {
 					t.Fatalf("invalid replacement cause = %v, want ErrMutationRejected", diagnostic)
 				}
 				if test.binary && !errors.Is(diagnostic, ErrBinaryFile) {

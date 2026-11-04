@@ -62,7 +62,7 @@ func TestSearchPreflightsEveryRecordBeforeEmbedding(t *testing.T) {
 	fixture.pageSize = 1
 	store := fixture.store()
 	fixture.put(&document.Document{ID: "a", Text: "good", Metadata: rawMetadata(`{"n":1}`)}, &document.Document{ID: "z", Text: "bad", Metadata: rawMetadata(`{"n":"wrong"}`)})
-	response, err := store.Scan(t.Context(), testScan(filter.LT("n", 2)))
+	response, err := store.Scan(t.Context(), testScanRequest(filter.LT("n", 2)))
 	if err == nil || response != nil {
 		t.Fatalf("bad late record bypassed preflight: %v, %v", response, err)
 	}
@@ -405,7 +405,7 @@ func TestScanRejectsRepeatedKeysAndTransportFailures(t *testing.T) {
 				}
 			}
 			fixture.mu.Unlock()
-			response, err := store.Scan(t.Context(), testScan(filter.IsNull("absent")))
+			response, err := store.Scan(t.Context(), testScanRequest(filter.IsNull("absent")))
 			if err == nil || response != nil {
 				t.Fatalf("invalid scan bypassed boundary = %v, %v", response, err)
 			}
@@ -530,7 +530,7 @@ func TestSearchRejectsBadRecordBeyondNativePageLimit(t *testing.T) {
 	}
 	docs[1000].Metadata = rawMetadata(`{"n":"bad"}`)
 	fixture.put(docs...)
-	response, err := store.Scan(t.Context(), testScan(filter.LT("n", 2)))
+	response, err := store.Scan(t.Context(), testScanRequest(filter.LT("n", 2)))
 	if err == nil || response != nil {
 		t.Fatalf("late bad record hidden: %v, %v", response, err)
 	}

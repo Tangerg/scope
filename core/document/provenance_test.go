@@ -76,3 +76,70 @@ func TestProvenanceRejectsUnprovableCoordinates(t *testing.T) {
 		}
 	}
 }
+
+func TestProvenanceJSONRequiresReportedLocations(t *testing.T) {
+	for _, location := range []string{
+		`{"bytes":{}}`, `{"bytes":{"start":0}}`, `{"bytes":{"end":0}}`,
+		`{"bytes":{"start":null,"end":1}}`, `{"bytes":{"start":0,"end":null}}`,
+		`{"chunks":[{"total":1}]}`, `{"chunks":[{"index":null,"total":1}]}`,
+		`{"chunks":[{"index":0}]}`, `{"chunks":[null]}`,
+	} {
+		t.Run(location, func(t *testing.T) {
+			doc := document.Document{Text: "retained"}
+			err := jsonv2.Unmarshal([]byte(`{"text":"changed","provenance":`+location+`}`), &doc)
+			if !errors.Is(err, document.ErrInvalidDocument) || doc.Text != "retained" || doc.Provenance != nil {
+				t.Fatalf("document=%+v error=%v; absent evidence must not become zero coordinates", doc, err)
+			}
+			stored := `{"` + document.StoredProvenanceKey + `":{"provenance":` + location + `}}`
+			if err := doc.UnmarshalStoredMetadata([]byte(stored)); !errors.Is(err, document.ErrInvalidDocument) || doc.Provenance != nil {
+				t.Fatalf("stored provenance=%+v error=%v", doc.Provenance, err)
+			}
+		})
+	}
+	for _, location := range []string{
+		`{"bytes":{"start":0,"end":0}}`, `{"chunks":[{"index":0,"total":1}]}`,
+	} {
+		var doc document.Document
+		if err := jsonv2.Unmarshal([]byte(`{"text":"text","provenance":`+location+`}`), &doc); err != nil {
+			t.Fatalf("explicit zero location rejected: %s, %v", location, err)
+		}
+	}
+}
+
+func TestLocationCodecsRejectInvalidEvidenceWithoutChangingTheirReceivers(t *testing.T) {
+	for _, raw := range []string{
+		`{"start":0,"end":2,"unknown":1}`, `{"start":"0","end":2}`,
+		`{"start":9223372036854775808,"end":2}`, `{"start":-1,"end":2}`,
+		`{"start":3,"end":2}`, `{"start":0,"end":`,
+	} {
+		original := document.ByteRange{Start: 4, End: 7}
+		decoded := original
+		if err := decoded.UnmarshalJSON([]byte(raw)); !errors.Is(err, document.ErrInvalidDocument) || decoded != original {
+			t.Fatalf("range input=%s value=%+v error=%v", raw, decoded, err)
+		}
+	}
+	for _, raw := range []string{
+		`{"index":0,"total":1,"unknown":1}`, `{"index":0.5,"total":1}`,
+		`{"index":-1,"total":1}`, `{"index":1,"total":1}`,
+		`{"index":0,"total":0}`, `{"index":0,"total":`,
+	} {
+		original := document.Chunk{Parent: "chapter", Index: 2, Total: 4}
+		decoded := original
+		if err := decoded.UnmarshalJSON([]byte(raw)); !errors.Is(err, document.ErrInvalidDocument) || decoded != original {
+			t.Fatalf("chunk input=%s value=%+v error=%v", raw, decoded, err)
+		}
+	}
+	for _, location := range []any{document.ByteRange{Start: -1}, document.Chunk{Index: 1, Total: 1}} {
+		if _, err := jsonv2.Marshal(location); !errors.Is(err, document.ErrInvalidDocument) {
+			t.Fatalf("invalid evidence encoded: %+v, %v", location, err)
+		}
+	}
+	var span *document.ByteRange
+	if err := span.UnmarshalJSON([]byte(`{"start":0,"end":1}`)); !errors.Is(err, document.ErrInvalidDocument) {
+		t.Fatalf("nil byte range receiver: %v", err)
+	}
+	var chunk *document.Chunk
+	if err := chunk.UnmarshalJSON([]byte(`{"index":0,"total":1}`)); !errors.Is(err, document.ErrInvalidDocument) {
+		t.Fatalf("nil chunk receiver: %v", err)
+	}
+}

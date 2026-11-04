@@ -84,15 +84,12 @@ func TestFetchTool_Call_HappyPath(t *testing.T) {
 func TestFetchTool_Call_EmptyURL(t *testing.T) {
 	fetcher := &fakeFetcher{}
 	tool, _ := NewFetchTool(fetcher)
-	// An empty URL fails schema admission before the Call; a blank URL passes
-	// minLength=1 and becomes a definite failure the model can correct.
 	if _, err := invokeTestTool(t.Context(), tool, `{"url":""}`); err == nil {
 		t.Fatal("Call empty url: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"url":"   "}`)
-	failure, ok := toolcontract.ClassifyFailure(err)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyURL) {
-		t.Fatalf("Call blank url: err = %v, want FailureKindFailed wrapping ErrEmptyURL", err)
+	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrEmptyURL) {
+		t.Fatalf("Call blank url: err = %v, want admission rejection wrapping ErrEmptyURL", err)
 	}
 	if fetcher.last != nil {
 		t.Error("blank url reached the fetcher")

@@ -17,7 +17,7 @@ func TestModelEvaluatorConstructionValidatesConfiguration(t *testing.T) {
 	if _, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{}); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
 		t.Fatalf("nil model error = %v", err)
 	}
-	model := &fakeModel{reply: `{"score":0.5}`}
+	model := &fakeModel{reply: `{"score":0.5,"feedback":""}`}
 	negative := eval.Score(-0.1)
 	if _, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{
 		ModelID: "test-model-v1", Model: model, Threshold: &negative,
@@ -117,7 +117,7 @@ func TestAnswerRelevanceSupportsCustomPromptAndThreshold(t *testing.T) {
 }
 
 func TestModelEvaluatorsRejectMissingSemanticInputs(t *testing.T) {
-	model := &fakeModel{reply: `{"score":0.5}`}
+	model := &fakeModel{reply: `{"score":0.5,"feedback":""}`}
 	groundedness, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +210,7 @@ func TestModelEvaluatorRejectsInvalidStructuredResults(t *testing.T) {
 			t.Fatalf("reply %q was accepted", reply)
 		}
 	}
-	model := &fakeModel{reply: `{"score":2}`}
+	model := &fakeModel{reply: `{"score":2,"feedback":""}`}
 	evaluator, err := texteval.NewGroundednessEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: model})
 	if err != nil {
 		t.Fatal(err)

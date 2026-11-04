@@ -7,7 +7,7 @@
 // Query performs native nearest-neighbor ranking without enumerating metadata.
 // The stored metadata representation cannot implement exact Core predicates
 // natively, so a filtered Query fails with vectorstore.ErrUnsupportedFilter.
-// A Host authorized for the whole table can explicitly Scan or DeleteMatching
+// A Host authorized for the whole table can explicitly QueryByScan or DeleteMatching
 // using a finite vectorstore.ScanBudget. In the scan transaction, the adapter
 // bounds source records and the ID/metadata bytes of its two passes before
 // reading their payload; native ranking, protocol overhead and server work are

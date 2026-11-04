@@ -125,15 +125,12 @@ func TestSearchResponseAdmissionOwnsQueryAndResultLimit(t *testing.T) {
 func TestSearchTool_Call_EmptyQuery(t *testing.T) {
 	searcher := &fakeSearcher{}
 	tool, _ := NewSearchTool(searcher)
-	// An empty query fails schema admission before the Call; a blank query passes
-	// minLength=1 and becomes a definite failure the model can correct.
 	if _, err := invokeTestTool(t.Context(), tool, `{"query":""}`); err == nil {
 		t.Fatal("Call empty query: want schema admission error")
 	}
 	_, err := invokeTestTool(t.Context(), tool, `{"query":"   "}`)
-	failure, ok := toolcontract.ClassifyFailure(err)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrEmptyQuery) {
-		t.Fatalf("Call blank query: err = %v, want FailureKindFailed wrapping ErrEmptyQuery", err)
+	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrEmptyQuery) {
+		t.Fatalf("Call blank query: err = %v, want admission rejection wrapping ErrEmptyQuery", err)
 	}
 	if searcher.last != nil {
 		t.Error("blank query reached the searcher")
@@ -170,9 +167,8 @@ func TestSearchTool_Call_DomainsMutuallyExclusive(t *testing.T) {
 	tool, _ := NewSearchTool(searcher)
 	_, err := invokeTestTool(t.Context(), tool,
 		`{"query":"x","allowed_domains":["a.com"],"blocked_domains":["b.com"]}`)
-	failure, ok := toolcontract.ClassifyFailure(err)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrDomainsBothSides) {
-		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrDomainsBothSides", err)
+	if !errors.Is(err, toolcontract.ErrInvalidInvocation) || !errors.Is(err, ErrDomainsBothSides) {
+		t.Fatalf("err = %v, want admission rejection wrapping ErrDomainsBothSides", err)
 	}
 	if searcher.last != nil {
 		t.Error("rejected request reached the searcher")

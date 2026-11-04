@@ -494,11 +494,11 @@ func (s *Store) writeActions(ctx context.Context, actions []map[string]any) erro
 		start := offset * maximumDocumentsPerBatch
 		end := min(start+maximumDocumentsPerBatch, len(actions))
 		if err := ctx.Err(); err != nil {
-			return &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:start]), Unattempted: slices.Clone(ids[start:]), Err: err}
+			return (vectorstore.WriteError{Acknowledged: ids[:start], Unattempted: ids[start:], Err: err}).Clone()
 		}
 		raw, err := s.sendJSON(ctx, http.MethodPost, path, group)
 		uncertain := func(cause error) error {
-			return &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:start]), Unconfirmed: slices.Clone(ids[start:end]), Unattempted: slices.Clone(ids[end:]), Err: cause}
+			return (vectorstore.WriteError{Acknowledged: ids[:start], Unconfirmed: ids[start:end], Unattempted: ids[end:], Err: cause}).Clone()
 		}
 		if err != nil {
 			return uncertain(err)
@@ -591,11 +591,11 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 // Scan reads by increasing native key. MaxBytes counts canonical returned JSON
 // rows, including vectors and metadata, even for rows the predicate rejects.
 // Index changes between requests are visible; this is not a snapshot.
-func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document, error) {
-	if err := cfg.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
+	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeoutCause(ctx, cfg.Budget.Timeout, vectorstore.ErrScanBudget)
+	ctx, cancel := context.WithTimeoutCause(ctx, request.Budget.Timeout, vectorstore.ErrScanBudget)
 	defer cancel()
 	if err := s.verify(ctx); err != nil {
 		return nil, errors.Join(err, context.Cause(ctx))
@@ -608,7 +608,7 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Join(err, context.Cause(ctx))
 		}
-		limit := min(maximumResultsPerPage, cfg.Budget.MaxRecords-count+1)
+		limit := min(maximumResultsPerPage, request.Budget.MaxRecords-count+1)
 		body := searchRequest{Select: s.selectedFields(), Top: limit, OrderBy: s.idField + " asc"}
 		if last != "" {
 			body.Filter = s.idField + " gt '" + last + "'"
@@ -620,7 +620,7 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 		if len(rows) == 0 {
 			break
 		}
-		if len(rows) > cfg.Budget.MaxRecords-count {
+		if len(rows) > request.Budget.MaxRecords-count {
 			return nil, vectorstore.ErrScanBudget
 		}
 		for _, row := range rows {
@@ -632,7 +632,7 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 				return nil, err
 			}
 			n := int64(len(wire))
-			if n > cfg.Budget.MaxBytes-used {
+			if n > request.Budget.MaxBytes-used {
 				return nil, vectorstore.ErrScanBudget
 			}
 			used += n
@@ -645,7 +645,7 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 				return nil, fmt.Errorf("azureaisearch: non-advancing scan key %q", doc.ID)
 			}
 			last = doc.ID
-			ok, err := matches(doc, cfg.Filter)
+			ok, err := matches(doc, request.Filter)
 			if err != nil {
 				return nil, err
 			}

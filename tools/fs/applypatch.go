@@ -11,9 +11,16 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+const applyPatchToolName = "apply_patch"
+
 // ApplyPatchRequest accepts Git-compatible create, modify, delete, and rename patches.
 type ApplyPatchRequest struct {
 	Patch string `json:"patch" jsonschema:"minLength=1" jsonschema_description:"Git-compatible unified diff. Supports create, modify, delete, and rename operations; express moves with Git rename metadata."`
+}
+
+func (a ApplyPatchRequest) Validate() error {
+	_, err := parseUnifiedPatch(a.Patch)
+	return err
 }
 
 // ApplyPatchResponse reports acknowledged file mutations even when ApplyPatch
@@ -40,7 +47,7 @@ var _ toolcontract.Tool = (*ApplyPatchTool)(nil)
 
 // ApplyPatchTool preserves both complete and partial PatchApplier outcomes.
 type ApplyPatchTool struct {
-	toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
+	function toolcontract.Func[ApplyPatchRequest, ApplyPatchResponse]
 	executor PatchApplier
 }
 
@@ -51,7 +58,7 @@ func NewApplyPatchTool(executor PatchApplier) (*ApplyPatchTool, error) {
 	t := &ApplyPatchTool{executor: executor}
 	typed, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name: "apply_patch",
+			Name: applyPatchToolName,
 			Description: "Apply one Git-compatible unified diff across one or more files, including create, modify, delete, and rename operations. " +
 				"Read existing files first so patch hunks reflect their current contents. Group coordinated multi-file changes in one patch. " +
 				"Express moves with Git rename metadata. The patch must match exactly, and an existing rename destination is never overwritten." + `
@@ -97,7 +104,7 @@ deleted file mode 100644
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewApplyPatchTool: %w", err)
 	}
-	t.Func = typed
+	t.function = typed
 	return t, nil
 }
 
@@ -134,4 +141,32 @@ func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (Appl
 		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)
 	}
 	return res, nil
+}
+
+func (a *ApplyPatchTool) Definition() toolcontract.Definition { return a.function.Definition() }
+
+func (a *ApplyPatchTool) InputValidator() func([]byte) error { return a.function.InputValidator() }
+
+func (a *ApplyPatchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return a.function.Call(ctx, invocation)
+}
+
+func (a *ApplyPatchRequest) UnmarshalJSON(data []byte) error {
+	if a == nil {
+		return ErrInvalidInput
+	}
+	type wireRequest ApplyPatchRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return ErrInvalidInput
+	}
+	candidate := ApplyPatchRequest(*decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*a = candidate
+	return nil
 }

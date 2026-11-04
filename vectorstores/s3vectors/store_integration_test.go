@@ -81,7 +81,7 @@ func TestNativeS3Vectors(t *testing.T) {
 				if queryErr = waitForNativeKeys(queryCtx, store, len(keys)); queryErr != nil {
 					return nil, queryErr
 				}
-				response, queryErr := store.Scan(queryCtx, predicate, scanBudget())
+				response, queryErr := store.Scan(queryCtx, vectorstore.ScanRequest{Filter: predicate, Budget: scanBudget()})
 				if queryErr != nil {
 					return nil, queryErr
 				}
@@ -122,7 +122,7 @@ func waitForNativeKeys(ctx context.Context, store *Store, count int) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		keys, err := store.Scan(deadline, nil, scanBudget())
+		keys, err := store.Scan(deadline, vectorstore.ScanRequest{Filter: nil, Budget: scanBudget()})
 		if err != nil {
 			return err
 		}

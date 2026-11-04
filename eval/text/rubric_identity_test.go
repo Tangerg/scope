@@ -19,11 +19,11 @@ func TestComparisonSeparatesDifferentRubrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	left, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: &fakeModel{reply: `{"score":0.2}`}, PromptTemplate: strict})
+	left, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: &fakeModel{reply: `{"score":0.2,"feedback":""}`}, PromptTemplate: strict})
 	if err != nil {
 		t.Fatal(err)
 	}
-	right, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: &fakeModel{reply: `{"score":0.9}`}, PromptTemplate: lenient})
+	right, err := texteval.NewAnswerRelevanceEvaluator(texteval.ModelEvaluatorConfig{ModelID: "test-model-v1", Model: &fakeModel{reply: `{"score":0.9,"feedback":""}`}, PromptTemplate: lenient})
 	if err != nil {
 		t.Fatal(err)
 	}

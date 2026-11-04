@@ -87,7 +87,7 @@ func (n *nativeFixture) batch(docs []*document.Document) *vectorstore.Batch {
 }
 func (n *nativeFixture) read(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
-		return n.store.Scan(ctx, q, fixtureBudget())
+		return n.store.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return n.store.Query(ctx, q)
 }
@@ -615,7 +615,7 @@ func TestLiveSpaceAndSourceBudget(t *testing.T) {
 		} else {
 			budget.MaxBytes = 1
 		}
-		if res, err := f.store.Scan(ctx, q, budget); res != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+		if res, err := f.store.QueryByScan(ctx, q, budget); res != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatalf("partial scan %s: %v, %v", limit, res, err)
 		}
 		if err := f.store.DeleteMatching(ctx, q.Options.Filter, budget); !errors.Is(err, vectorstore.ErrScanBudget) {

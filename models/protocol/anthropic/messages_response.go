@@ -51,7 +51,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 				return nil, fmt.Errorf("anthropic: content[%d]: empty thinking block", i)
 			}
 			part := corechat.NewReasoningPart(block.Thinking, []byte(block.Signature))
-			if err := setProtocolReasoningState(&part, provider, protocolReasoningThinking); err != nil {
+			if err := setProtocolReasoningState(&part, provider, ReasoningBlockThinking); err != nil {
 				return nil, err
 			}
 			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
@@ -63,7 +63,7 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 				return nil, fmt.Errorf("anthropic: content[%d]: empty redacted thinking block", i)
 			}
 			part := corechat.NewReasoningPart("", []byte(block.Data))
-			if err := setProtocolReasoningState(&part, provider, protocolReasoningRedacted); err != nil {
+			if err := setProtocolReasoningState(&part, provider, ReasoningBlockRedacted); err != nil {
 				return nil, err
 			}
 			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
@@ -104,7 +104,7 @@ func normalizeProtocolStopReason(reason anthropicsdk.StopReason) (corechat.Finis
 	}
 }
 
-func setProtocolReasoningState(part *corechat.Part, provider, kind string) error {
+func setProtocolReasoningState(part *corechat.Part, provider string, kind ReasoningBlockKind) error {
 	if err := part.Metadata.Set(protocolReasoningProviderKey, provider); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning provider: %w", err)
 	}
@@ -114,7 +114,7 @@ func setProtocolReasoningState(part *corechat.Part, provider, kind string) error
 	return nil
 }
 
-func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider, kind string, index int64) error {
+func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider string, kind ReasoningBlockKind, index int64) error {
 	if err := part.Metadata.Set(protocolReasoningProviderKey, provider); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning provider: %w", err)
 	}
@@ -449,7 +449,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return nil, nil
 		}
 		part := corechat.NewReasoningDelta(block.Thinking, []byte(block.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
 			return nil, err
 		}
 		return []corechat.PartDelta{part}, nil
@@ -458,7 +458,7 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return nil, errors.New("anthropic: empty redacted thinking block")
 		}
 		part := corechat.NewReasoningDelta("", []byte(block.Data))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningRedacted, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockRedacted, event.Index); err != nil {
 			return nil, err
 		}
 		return []corechat.PartDelta{part}, nil
@@ -495,7 +495,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta(delta.Thinking, nil)
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -507,7 +507,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta("", []byte(delta.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, protocolReasoningThinking, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil

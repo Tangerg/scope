@@ -3,10 +3,11 @@ package fs
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/Tangerg/scope/tools/textread"
 
 	"github.com/Tangerg/scope/tools/content"
 )
@@ -99,12 +100,24 @@ type editOperation struct {
 	ReplaceAll bool
 }
 
-func (e editOperation) apply(text, path string) (string, int, error) {
+func (e editOperation) validate() error {
 	if e.OldString == "" {
-		return "", 0, errors.New("old_string must not be empty")
+		return fmt.Errorf("%w: old_string must not be empty", ErrInvalidInput)
 	}
 	if e.OldString == e.NewString {
-		return "", 0, errors.New("new_string must differ from old_string")
+		return fmt.Errorf("%w: new_string must differ from old_string", ErrInvalidInput)
+	}
+	for _, text := range []string{e.OldString, e.NewString} {
+		if err := textread.Validate([]byte(text)); err != nil {
+			return ErrBinaryFile
+		}
+	}
+	return nil
+}
+
+func (e editOperation) apply(text, path string) (string, int, error) {
+	if err := e.validate(); err != nil {
+		return "", 0, err
 	}
 	occurrences := strings.Count(text, e.OldString)
 	if occurrences == 0 {

@@ -17,7 +17,7 @@
 // tokens. Response warnings, incomplete replies, damaged records and predicates
 // outside the supported subset are errors.
 //
-// Scan and DeleteMatching explicitly accept a time, record and byte grant.
+// QueryByScan and DeleteMatching explicitly accept a time, record and byte grant.
 // SCAN COUNT is only a hint: each master bounds key-page output in Lua. Each
 // distinct key is charged before its HASH payload is fetched; bytes count the
 // key plus the four field names and values, excluding protocol framing. A second

@@ -213,7 +213,7 @@ func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) e
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.rank(ctx, q, nil)
 }
-func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	meter, err := budget.Begin(ctx)
 	if err != nil {
 		return nil, err

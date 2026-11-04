@@ -29,7 +29,7 @@ func TestPromptMessagesToChatPreservesContentKinds(t *testing.T) {
 		t.Fatalf("image part = %#v", image)
 	}
 	link := messages[2].Parts[0]
-	if messages[2].Role != chat.RoleAssistant || link.Kind != chat.PartMedia || link.Media.MIME != "application/pdf" {
+	if messages[2].Role != chat.RoleAssistant || link.Kind != chat.PartMedia || link.Media.MIME != "" {
 		t.Fatalf("resource link = %#v", messages[2])
 	}
 	if link.Media.Name != "report" {

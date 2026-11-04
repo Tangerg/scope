@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/eval"
 	"github.com/Tangerg/scope/eval/judge"
@@ -18,6 +19,43 @@ import (
 type toolDecision struct {
 	Expected string
 	Actual   string
+}
+
+func TestJudgeRequiresExplicitFeedbackButAcceptsAnEmptyExplanation(t *testing.T) {
+	metric, err := eval.NewMetric(eval.MetricConfig{Name: "quality"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		reply string
+		valid bool
+	}{
+		{"empty explanation", `{"score":0.5,"feedback":""}`, true},
+		{"missing explanation", `{"score":0.5}`, false},
+		{"null explanation", `{"score":0.5,"feedback":null}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &fakeModel{replies: []string{test.reply}}
+			evaluator, err := judge.NewEvaluator(judge.Config[string]{
+				Model: model, ModelID: "model-v1", RubricID: "rubric-v1", Metric: metric, Prompt: validPrompt,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := evaluator.Evaluate(t.Context(), "answer")
+			if test.valid {
+				if err != nil || report.Score == nil || *report.Score != 0.5 || report.Feedback != "" {
+					t.Fatalf("Evaluate = (%#v, %v)", report, err)
+				}
+			} else if !errors.Is(err, eval.ErrInvalidReport) || !errors.Is(err, chatclient.ErrInvalidOutput) {
+				t.Fatalf("Evaluate error = %v, want invalid structured report", err)
+			}
+			if model.calls != 1 {
+				t.Fatalf("model calls = %d, want 1", model.calls)
+			}
+		})
+	}
 }
 
 func TestEvaluatorSupportsNonTextSubjectsAndMedianSampling(t *testing.T) {
@@ -67,7 +105,7 @@ func TestEvaluatorSupportsNonTextSubjectsAndMedianSampling(t *testing.T) {
 }
 
 func TestEvaluatorDoesNotInventVerdictWithoutThreshold(t *testing.T) {
-	model := &fakeModel{replies: []string{"{\"score\":0.9}"}}
+	model := &fakeModel{replies: []string{"{\"score\":0.9,\"feedback\":\"\"}"}}
 	metric, err := eval.NewMetric(eval.MetricConfig{Name: "quality"})
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +130,7 @@ func TestEvaluatorValidatesGenericJudgeConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model := &fakeModel{replies: []string{"{\"score\":0.5}"}}
+	model := &fakeModel{replies: []string{"{\"score\":0.5,\"feedback\":\"\"}"}}
 	for _, config := range []judge.Config[string]{
 		{Metric: metric, Prompt: func(string) (chat.Message, error) { return chat.Message{}, nil }},
 		{ModelID: "test-model-v1", RubricID: "test-rubric-v1", Model: model, Metric: metric},
@@ -121,7 +159,7 @@ func TestJudgeMetricIdentityIncludesModelRubricAndGenerationOptions(t *testing.T
 		{ModelID: "model-v1", RubricID: "rubric-v2"},
 		{ModelID: "model-v1", RubricID: "rubric-v1", Options: chat.Options{Temperature: new(0.1)}},
 	} {
-		config.Model = &fakeModel{replies: []string{`{"score":0.5}`}}
+		config.Model = &fakeModel{replies: []string{`{"score":0.5,"feedback":""}`}}
 		config.Metric = metric
 		config.Prompt = validPrompt
 		evaluator, err := judge.NewEvaluator(config)
@@ -183,7 +221,7 @@ func TestJudgeThresholdChangesOnlyDecisionIdentity(t *testing.T) {
 	var reports []eval.Report
 	for _, threshold := range []eval.Score{0.5, 0.8} {
 		evaluator, err := judge.NewEvaluator(judge.Config[string]{
-			Model: &fakeModel{replies: []string{`{"score":0.6}`}}, ModelID: "model-v1", RubricID: "rubric-v1",
+			Model: &fakeModel{replies: []string{`{"score":0.6,"feedback":""}`}}, ModelID: "model-v1", RubricID: "rubric-v1",
 			Metric: metric, Prompt: validPrompt, Threshold: &threshold,
 		})
 		if err != nil {

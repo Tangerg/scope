@@ -63,7 +63,7 @@ func TestPartValidateRejectsInvalidAndAmbiguousValues(t *testing.T) {
 
 func TestPartValidateRecursesIntoMedia(t *testing.T) {
 	part := chat.NewMediaPart(&media.Media{})
-	if err := part.Validate(); !errors.Is(err, media.ErrInvalidMIME) || !errors.Is(err, chat.ErrInvalidPart) {
+	if err := part.Validate(); !errors.Is(err, media.ErrInvalidSource) || !errors.Is(err, chat.ErrInvalidPart) {
 		t.Fatalf("Validate error = %v, want media and part errors", err)
 	}
 }

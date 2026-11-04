@@ -73,7 +73,7 @@ func TestNativeMetricAdmitsWholeBatchAndQueryBeforeIO(t *testing.T) {
 				var response *vectorstore.SearchResponse
 				if scan {
 					request.Options.Filter = filter.IsNull("absent")
-					response, err = store.Scan(t.Context(), request, fixtureBudget())
+					response, err = store.QueryByScan(t.Context(), request, fixtureBudget())
 				} else {
 					response, err = store.Query(t.Context(), request)
 				}
@@ -113,7 +113,7 @@ func TestNativeMetricRejectsStoredVectorsBeforePublicationOrDeletion(t *testing.
 				var response *vectorstore.SearchResponse
 				if scan {
 					request.Options.Filter = filter.IsNull("absent")
-					response, err = store.Scan(t.Context(), request, fixtureBudget())
+					response, err = store.QueryByScan(t.Context(), request, fixtureBudget())
 				} else {
 					response, err = store.Query(t.Context(), request)
 				}

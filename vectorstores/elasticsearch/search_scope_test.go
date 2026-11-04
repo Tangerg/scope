@@ -43,7 +43,7 @@ func TestOrdinaryQueryNeverScansAndExplicitScanRequiresCompleteBudget(t *testing
 		} else {
 			budget.MaxBytes = 1
 		}
-		if response, err := store.Scan(t.Context(), q, budget); !errors.Is(err, vectorstore.ErrScanBudget) || response != nil || len(f.groups) != 0 {
+		if response, err := store.QueryByScan(t.Context(), q, budget); !errors.Is(err, vectorstore.ErrScanBudget) || response != nil || len(f.groups) != 0 {
 			t.Fatalf("partial %s scan: %v %v", limit, response, err)
 		}
 	}

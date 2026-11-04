@@ -45,7 +45,7 @@ func fixtureBudget() vectorstore.ScanBudget {
 }
 func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
-		return store.Scan(ctx, q, fixtureBudget())
+		return store.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return store.Query(ctx, q)
 }
@@ -543,7 +543,7 @@ func TestGrantDebitedBeforeTransferringHashPayload(t *testing.T) {
 	}
 	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("q"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}}
 	b := vectorstore.ScanBudget{MaxRecords: 1, MaxBytes: 256, Timeout: time.Second}
-	if r, err := s.Scan(t.Context(), q, b); !errors.Is(err, vectorstore.ErrScanBudget) || r != nil || f.payloads != 0 {
+	if r, err := s.QueryByScan(t.Context(), q, b); !errors.Is(err, vectorstore.ErrScanBudget) || r != nil || f.payloads != 0 {
 		t.Fatalf("got=%v err=%v transferred=%d", r, err, f.payloads)
 	}
 	if err := s.DeleteMatching(t.Context(), q.Options.Filter, b); !errors.Is(err, vectorstore.ErrScanBudget) || f.deleted != 0 {

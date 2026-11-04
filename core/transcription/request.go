@@ -120,7 +120,7 @@ func (r *Request) Validate() error {
 	if r.Audio == nil {
 		return fmt.Errorf("%w: audio must not be nil", ErrInvalidRequest)
 	}
-	if err := r.Audio.Validate(); err != nil {
+	if err := r.Audio.RequireMIME(); err != nil {
 		return fmt.Errorf("%w: audio: %w", ErrInvalidRequest, err)
 	}
 	if err := r.Options.Validate(); err != nil {

@@ -145,6 +145,24 @@ func (c Contract) Definition() Definition {
 	}
 }
 
+// ValidateResult applies the same frozen output contract during live execution
+// and recovery without retaining an executable Tool. A request for input has no
+// completed output yet; failed-call diagnostics are not successful Results.
+func (c Contract) ValidateResult(result Result) error {
+	if c.state == nil {
+		return fmt.Errorf("%w: contract is zero", ErrInvalidTool)
+	}
+	if err := result.Validate(); err != nil {
+		return fmt.Errorf("tool: result: %w", err)
+	}
+	if result.InputRequest == nil && c.state.output.Valid() {
+		if err := c.state.output.Validate(result.Output.Details); err != nil {
+			return fmt.Errorf("%w: structured output: %w", ErrInvalidResult, err)
+		}
+	}
+	return nil
+}
+
 // Invocation is a complete JSON object admitted by one exact frozen Tool
 // contract. Its fields are intentionally private: only Contract.Prepare can
 // promote an untrusted model proposal into an executable invocation.
@@ -213,13 +231,8 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 	if err != nil {
 		return Result{}, b.contract.state.settle(ctx, err)
 	}
-	if err := result.Validate(); err != nil {
-		return Result{}, fmt.Errorf("tool: result: %w", err)
-	}
-	if result.InputRequest == nil && b.contract.state.output.Valid() {
-		if err := b.contract.state.output.Validate(result.Output.Details); err != nil {
-			return Result{}, fmt.Errorf("%w: structured output: %w", ErrInvalidResult, err)
-		}
+	if err := b.contract.ValidateResult(result); err != nil {
+		return Result{}, err
 	}
 	return result, nil
 }

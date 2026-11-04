@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
-	"path"
 	"slices"
 	"strings"
 
@@ -56,8 +55,6 @@ type contentEnvelope struct {
 	Description string              `json:"description,omitempty"`
 	Size        *int64              `json:"size,omitzero"`
 	Icons       []sdkmcp.Icon       `json:"icons,omitempty"`
-	// A guessed MIME type is not a declaration by the remote server.
-	MIMETypeInferred bool `json:"mimeTypeInferred,omitzero"`
 }
 
 type resourceEnvelope struct {
@@ -67,7 +64,7 @@ type resourceEnvelope struct {
 	Meta     metadata.Map `json:"_meta,omitzero"`
 }
 
-func (r resourceEnvelope) contents(part corecontent.Block, mimeTypeInferred bool) (*sdkmcp.ResourceContents, error) {
+func (r resourceEnvelope) contents(part corecontent.Block) (*sdkmcp.ResourceContents, error) {
 	if r.URI == "" {
 		return nil, errors.New("mcp: embedded resource URI is missing")
 	}
@@ -82,9 +79,7 @@ func (r resourceEnvelope) contents(part corecontent.Block, mimeTypeInferred bool
 	if r.MIMEType != "" {
 		return nil, errors.New("mcp: resource metadata duplicates a Core media field")
 	}
-	if !mimeTypeInferred {
-		resource.MIMEType = part.Media.MIME
-	}
+	resource.MIMEType = part.Media.MIME
 	var err error
 	resource.Blob, err = part.Media.Bytes()
 	if err != nil {
@@ -172,7 +167,7 @@ func splitRemoteContent(content sdkmcp.Content) (corecontent.Block, contentEnvel
 			part.Media.Name = value.Name
 		}
 		envelope := contentEnvelope{Kind: contentLink, Annotations: value.Annotations, Title: value.Title,
-			Description: value.Description, Size: value.Size, Icons: value.Icons, MIMETypeInferred: value.MIMEType == ""}
+			Description: value.Description, Size: value.Size, Icons: value.Icons}
 		return part, envelope, value.Meta, err
 	case *sdkmcp.EmbeddedResource:
 		part, envelope, err := splitRemoteResource(value)
@@ -204,8 +199,9 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (corecontent.Block, con
 		part = corecontent.Block{Kind: corecontent.Text, Text: resource.Text}
 		envelope.Resource.MIMEType = resource.MIMEType
 	case len(resource.Blob) != 0:
-		part, err = remoteBytesMedia(resourceMIME(resource.MIMEType, resource.URI), resource.Blob)
-		envelope.MIMETypeInferred = resource.MIMEType == ""
+		var resourceMedia *media.Media
+		resourceMedia, err = media.NewBytes(resource.MIMEType, resource.Blob)
+		part = corecontent.Block{Kind: corecontent.Media, Media: resourceMedia}
 	default:
 		return corecontent.Block{}, contentEnvelope{}, ErrEmptyEmbeddedResource
 	}
@@ -254,44 +250,14 @@ func remoteBytesMedia(mimeType string, data []byte) (corecontent.Block, error) {
 	if err != nil {
 		return corecontent.Block{}, err
 	}
+	if err := value.RequireMIME(); err != nil {
+		return corecontent.Block{}, err
+	}
 	return corecontent.Block{Kind: corecontent.Media, Media: value}, nil
 }
 
-const defaultResourceMIME = "application/octet-stream"
-
-// Host MIME files vary across machines; the fixed mapping keeps restored content deterministic.
-func resourceMIME(mimeType, uri string) string {
-	if mimeType != "" {
-		return mimeType
-	}
-	parsed, err := url.Parse(uri)
-	if err != nil {
-		return defaultResourceMIME
-	}
-	switch strings.ToLower(path.Ext(parsed.Path)) {
-	case ".png":
-		return "image/png"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".gif":
-		return "image/gif"
-	case ".webp":
-		return "image/webp"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".wav":
-		return "audio/wav"
-	case ".pdf":
-		return "application/pdf"
-	case ".txt":
-		return "text/plain"
-	default:
-		return defaultResourceMIME
-	}
-}
-
 func remoteURIMedia(mimeType, uri string) (corecontent.Block, error) {
-	value, err := media.NewURI(resourceMIME(mimeType, uri), uri)
+	value, err := media.NewURI(mimeType, uri)
 	if err != nil {
 		return corecontent.Block{}, err
 	}
@@ -336,7 +302,7 @@ func mapServerContent(part corecontent.Block) (sdkmcp.Content, error) {
 }
 
 func (c contentEnvelope) content(part corecontent.Block) (sdkmcp.Content, error) {
-	if err := c.validateFields(part.Kind); err != nil {
+	if err := c.validateFields(); err != nil {
 		return nil, err
 	}
 	if !c.Kind.admits(part.Kind) {
@@ -356,12 +322,9 @@ func (c contentEnvelope) content(part corecontent.Block) (sdkmcp.Content, error)
 		}
 		link := &sdkmcp.ResourceLink{URI: uri, Name: part.Media.Name, MIMEType: part.Media.MIME,
 			Title: c.Title, Description: c.Description, Size: c.Size, Icons: c.Icons, Meta: meta, Annotations: c.Annotations}
-		if c.MIMETypeInferred {
-			link.MIMEType = ""
-		}
 		return link, nil
 	default:
-		resource, err := c.Resource.contents(part, c.MIMETypeInferred)
+		resource, err := c.Resource.contents(part)
 		if err != nil {
 			return nil, err
 		}
@@ -369,7 +332,7 @@ func (c contentEnvelope) content(part corecontent.Block) (sdkmcp.Content, error)
 	}
 }
 
-func (c contentEnvelope) validateFields(part corecontent.Kind) error {
+func (c contentEnvelope) validateFields() error {
 	if c.Kind == contentResource && c.Resource == nil {
 		return errors.New("mcp: embedded resource metadata is missing")
 	}
@@ -379,13 +342,13 @@ func (c contentEnvelope) validateFields(part corecontent.Kind) error {
 	if c.Kind != contentLink && (c.Title != "" || c.Description != "" || c.Size != nil || len(c.Icons) != 0) {
 		return errors.New("mcp: content metadata has unexpected resource link fields")
 	}
-	if c.MIMETypeInferred && c.Kind != contentLink && (c.Kind != contentResource || part != corecontent.Media) {
-		return errors.New("mcp: content metadata marks an inferred MIME type on content without media")
-	}
 	return nil
 }
 
 func (c contentEnvelope) bytesContent(value *media.Media, meta sdkmcp.Meta) (sdkmcp.Content, error) {
+	if err := value.RequireMIME(); err != nil {
+		return nil, err
+	}
 	data, err := value.Bytes()
 	if err != nil {
 		return nil, err
@@ -405,9 +368,13 @@ func (c *contentEnvelope) infer(part corecontent.Block) error {
 		return nil
 	}
 	value := part.Media
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return err
+	var mediaType string
+	if value.MIME != "" {
+		var err error
+		mediaType, _, err = mime.ParseMediaType(value.MIME)
+		if err != nil {
+			return err
+		}
 	}
 	switch value.Source.Kind {
 	case media.SourceBytes:

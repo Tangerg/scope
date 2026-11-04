@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"strconv"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
+
+const grepToolName = "grep"
 
 // GrepRequest patterns use ripgrep syntax. Matches stay within a single line
 // unless Multiline is set.
@@ -28,6 +31,14 @@ type GrepRequest struct {
 	OutputMode GrepOutputMode `json:"output_mode,omitempty" jsonschema_description:"Result projection: content (default), files_with_matches, or count."`
 
 	MaxResults int `json:"max_results,omitzero" jsonschema_description:"Maximum result entries. Defaults to 250."`
+}
+
+func (g GrepRequest) Validate() error {
+	if _, err := g.resultLimit(); err != nil {
+		return err
+	}
+	_, err := g.OutputMode.Normalize()
+	return err
 }
 
 func (g GrepRequest) resultLimit() (int, error) {
@@ -81,7 +92,7 @@ type GrepResponse struct {
 var _ toolcontract.Tool = (*GrepTool)(nil)
 
 type GrepTool struct {
-	toolcontract.Func[GrepRequest, GrepResponse]
+	function toolcontract.Func[GrepRequest, GrepResponse]
 	executor Grepper
 }
 
@@ -93,7 +104,7 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	typed, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
 			Effect: toolcontract.EffectSafe,
-			Name:   "grep",
+			Name:   grepToolName,
 			Description: "Search file contents with a ripgrep regular expression. Use this instead of running grep or rg through shell. " +
 				"Set output_mode=files_with_matches when only file paths are needed; use count for per-file match counts. " +
 				"Set multiline=true only for patterns that span line breaks.",
@@ -103,7 +114,7 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewGrepTool: %w", err)
 	}
-	t.Func = typed
+	t.function = typed
 	return t, nil
 }
 
@@ -126,4 +137,32 @@ func (GrepRequest) JSONSchemaConstraints() jsonschema.Constraints {
 		"after_context_lines":  {Minimum: new(float64(0)), Maximum: new(float64(maximumContextLines))},
 		"max_results":          {Minimum: new(float64(1)), Maximum: new(float64(maximumSearchResults))},
 	}}
+}
+
+func (g *GrepTool) Definition() toolcontract.Definition { return g.function.Definition() }
+
+func (g *GrepTool) InputValidator() func([]byte) error { return g.function.InputValidator() }
+
+func (g *GrepTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return g.function.Call(ctx, invocation)
+}
+
+func (g *GrepRequest) UnmarshalJSON(data []byte) error {
+	if g == nil {
+		return ErrInvalidInput
+	}
+	type wireRequest GrepRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return ErrInvalidInput
+	}
+	candidate := GrepRequest(*decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*g = candidate
+	return nil
 }

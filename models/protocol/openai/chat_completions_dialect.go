@@ -3,6 +3,7 @@ package openai
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -16,6 +17,16 @@ const (
 	CompatibleStreamExtensionSuffix  = "/openai_stream_chunk"
 )
 
+const (
+	assistantFieldRole         = "role"
+	assistantFieldContent      = "content"
+	assistantFieldName         = "name"
+	assistantFieldToolCalls    = "tool_calls"
+	assistantFieldFunctionCall = "function_call"
+	assistantFieldRefusal      = "refusal"
+	assistantFieldAudio        = "audio"
+)
+
 type requestDialect interface {
 	PrepareRequest(source *corechat.Request, target *openaisdk.ChatCompletionNewParams) error
 }
@@ -25,14 +36,15 @@ type responseDialect interface {
 }
 
 // CompatibleRequest exposes the stable subset of a compatible request that a
-// provider dialect may inspect. Provider-only top-level JSON fields are added
-// with SetExtraField; OpenAI SDK wire types never cross this boundary.
+// provider dialect may inspect. Core-owned fields cannot be replaced; OpenAI
+// SDK wire types never cross this boundary.
 type CompatibleRequest struct {
-	model       string
-	temperature *float64
-	topP        *float64
-	stream      bool
-	extraFields map[string]any
+	model          string
+	temperature    *float64
+	topP           *float64
+	stream         bool
+	extraFields    map[string]any
+	finalAssistant *openaisdk.ChatCompletionAssistantMessageParam
 }
 
 // Model returns the effective model after Core defaults and request options
@@ -70,6 +82,32 @@ func (c *CompatibleRequest) SetExtraField(name string, value any) error {
 		c.extraFields = make(map[string]any)
 	}
 	c.extraFields[name] = value
+	return nil
+}
+
+// Provider prefix-continuation flags belong to the final assistant message,
+// while its role, content and tool calls remain owned by the Core projection.
+func (c *CompatibleRequest) SetFinalAssistantExtraField(name string, value any) error {
+	if c.finalAssistant == nil {
+		return errors.New("openai: final message must be an assistant message")
+	}
+	if name == "" || strings.TrimSpace(name) != name {
+		return errors.New("openai: assistant extra field name must be nonblank and unpadded")
+	}
+	switch name {
+	case assistantFieldRole, assistantFieldContent, assistantFieldName, assistantFieldToolCalls, assistantFieldFunctionCall, assistantFieldRefusal, assistantFieldAudio:
+		return fmt.Errorf("openai: assistant field %q is owned by Core", name)
+	}
+	fields := c.finalAssistant.ExtraFields()
+	if _, exists := fields[name]; exists {
+		return fmt.Errorf("openai: assistant field %q already has a projection", name)
+	}
+	fields = maps.Clone(fields)
+	if fields == nil {
+		fields = make(map[string]any)
+	}
+	fields[name] = value
+	c.finalAssistant.SetExtraFields(fields)
 	return nil
 }
 

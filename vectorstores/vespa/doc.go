@@ -43,11 +43,11 @@
 // [StoreConfig.RankingProfile] must rank solely by closeness(field, EmbeddingField),
 // with finite relevance in [0,1]. The application package owns the native metric,
 // tensor width, rank profile, and query limits. NewStore performs no I/O because
-// Vespa exposes no standard schema API on this endpoint. Scan verifies every
+// Vespa exposes no standard schema API on this endpoint. QueryByScan verifies every
 // visited native tensor's width. A document endpoint and rank-profile name
 // alone do not prove an ANN index, so this store does not implement Querier.
 //
-// Scan follows every opaque visit continuation and validates the complete
+// QueryByScan follows every opaque visit continuation and validates the complete
 // observed source before applying the predicate. It uses exact nearestNeighbor
 // over groups of at most 128 selected native IDs, requests every selected neighbor, validates every hit before MinScore,
 // and merges native relevance before applying TopK. Full coverage with no

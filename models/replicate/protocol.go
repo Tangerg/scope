@@ -15,7 +15,8 @@ const (
 	outputFormatJPG                 = "jpg"
 	outputFormatPNG                 = "png"
 	outputFormatWebP                = "webp"
-	pathPredictionPrefix            = "/predictions/"
+	pathPredictions                 = "/predictions"
+	pathPredictionPrefix            = pathPredictions + "/"
 	schemeHTTPS                     = "https"
 	deliveryHost                    = "replicate.delivery"
 	deliverySubdomainSuffix         = "." + deliveryHost

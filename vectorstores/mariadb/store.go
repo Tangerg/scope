@@ -388,7 +388,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	}()
 	for i, row := range args {
 		if err := ctx.Err(); err != nil {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i:i], Unattempted: ids[i:]}
+			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
 		}
 		result, execErr := stmt.ExecContext(ctx, row...)
 		if execErr == nil {
@@ -403,7 +403,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			}
 		}
 		if err := execErr; err != nil {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i:i], Unconfirmed: ids[i : i+1 : i+1], Unattempted: ids[i+1:]}
+			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
 		}
 	}
 	return nil
@@ -431,7 +431,7 @@ func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.S
 	}
 	return s.rank(ctx, q, nil)
 }
-func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
 	}

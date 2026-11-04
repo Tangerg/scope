@@ -87,7 +87,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	for i, record := range records {
 		if err := ctx.Err(); err != nil {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}
+			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
 		}
 		fields := map[string]any{s.fields.content: record.document.Text, metadataField: record.metadata, s.fields.embedding: struct {
 			Values []float32 `json:"values"`
@@ -99,14 +99,14 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 			err = s.mutationAcknowledgment(raw, status, record.document.ID)
 		}
 		if err != nil {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}
+			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
 		}
 
 	}
 	return nil
 }
 
-func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}

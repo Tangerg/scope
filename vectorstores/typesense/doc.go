@@ -6,7 +6,7 @@
 // Query uses native semantic ranking or native lexical/vector fusion. Supply
 // lexical text explicitly in hybrid mode. Ordinary queries do not export the
 // collection. Native filters on opaque Core JSON cannot guarantee equivalent
-// results; Query therefore rejects them before model or provider I/O. Scan
+// results; Query therefore rejects them before model or provider I/O. QueryByScan
 // instead requires explicit authority and a record, byte and time budget.
 // The export and ranking calls do not share snapshot isolation.
 //

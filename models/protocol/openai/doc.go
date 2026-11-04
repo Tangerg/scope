@@ -61,6 +61,11 @@
 // media history that its input projection cannot represent. Responses tools
 // use non-strict mode to preserve the caller's optional JSON Schema properties.
 //
+// Strict output schemas keep the caller's accepted values: representable allOf
+// intersections are lowered once for Chat Completions and Responses. Optional
+// properties, open objects, and unsupported constraints fail locally with
+// chat.ErrUnsupportedOutputFormat rather than changing the domain contract.
+//
 // Responses Call and Stream share terminal-state mapping: incomplete generation
 // preserves its stop reason, failed generation returns an error, and a stream
 // ending before a terminal response returns chat.ErrInvalidResponse.

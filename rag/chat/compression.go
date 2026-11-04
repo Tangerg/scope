@@ -71,7 +71,7 @@ func (c *CompressionTransformer) Transform(ctx context.Context, input Conversati
 	compressed, err := c.prompt.call(ctx, compressionPromptVariables{
 		History: history,
 		Query:   query.Text(),
-	})
+	}, corechat.Options{})
 	if err != nil {
 		return rag.Query{}, err
 	}

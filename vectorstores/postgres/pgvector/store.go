@@ -198,6 +198,6 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return s.engine.DeleteIDs(ctx, ids)
 }
 
-func (s *Store) Scan(ctx context.Context, config postgres.ScanConfig) ([]*document.Document, error) {
-	return s.engine.Scan(ctx, config)
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
+	return s.engine.Scan(ctx, request)
 }

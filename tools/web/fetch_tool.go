@@ -11,11 +11,13 @@ import (
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
+const webFetchToolName = "web_fetch"
+
 var _ toolcontract.Tool = (*FetchTool)(nil)
 
 type FetchTool struct {
-	toolcontract.Func[FetchRequest, *FetchResponse]
-	fetcher Fetcher
+	function toolcontract.Func[FetchRequest, *FetchResponse]
+	fetcher  Fetcher
 }
 
 func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
@@ -24,13 +26,13 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 	}
 	f := &FetchTool{fetcher: fetcher}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: "web_fetch", Description: webFetchDescription},
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: webFetchToolName, Description: webFetchDescription},
 		f.fetch,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("web: build fetch tool: %w", err)
 	}
-	f.Func = typed
+	f.function = typed
 	return f, nil
 }
 
@@ -59,4 +61,12 @@ Network access, authentication, redirects, and JavaScript rendering depend on th
 
 func (*FetchTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
+}
+
+func (f *FetchTool) Definition() toolcontract.Definition { return f.function.Definition() }
+
+func (f *FetchTool) InputValidator() func([]byte) error { return f.function.InputValidator() }
+
+func (f *FetchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return f.function.Call(ctx, invocation)
 }

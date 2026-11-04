@@ -143,10 +143,9 @@ func TestMCPContentRoundTripThroughDiscoveryAndRegistration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "source body", output.Content[4].Text)
 	require.Contains(t, string(output.Content[4].Metadata[scopemcp.ContentMetadataKey]), "file:///repo/example.go")
-	require.NotContains(t, string(output.Content[3].Metadata[scopemcp.ContentMetadataKey]), "mimeTypeInferred")
 	for index, want := range []struct{ mime, envelope string }{
-		{mime: "image/jpeg", envelope: `{"type":"resource_link","mimeTypeInferred":true}`},
-		{mime: "audio/wav", envelope: `{"type":"resource","resource":{"uri":"file:///repo/clip.wav"},"mimeTypeInferred":true}`},
+		{envelope: `{"type":"resource_link"}`},
+		{envelope: `{"type":"resource","resource":{"uri":"file:///repo/clip.wav"}}`},
 	} {
 		part := output.Content[6+index]
 		require.Equal(t, want.mime, part.Media.MIME)

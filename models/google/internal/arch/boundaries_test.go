@@ -160,7 +160,7 @@ func privateProtocolImports(file *ast.File) map[string]struct{} {
 	aliases := make(map[string]struct{})
 	for _, imported := range file.Imports {
 		pathValue, err := strconv.Unquote(imported.Path.Value)
-		if err != nil || !strings.Contains(pathValue, "/internal/protocol/") {
+		if err != nil || !strings.Contains(pathValue+"/", "/internal/protocol/") {
 			continue
 		}
 		name := filepath.Base(pathValue)
@@ -170,4 +170,24 @@ func privateProtocolImports(file *ast.File) map[string]struct{} {
 		aliases[name] = struct{}{}
 	}
 	return aliases
+}
+
+func TestPrivateProtocolImportsIncludesTheRootPackage(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "imports.go", `package fixture
+import (
+ protocol "github.com/Tangerg/scope/models/google/internal/protocol"
+ nested "github.com/Tangerg/scope/models/google/internal/protocol/parts"
+ public "github.com/Tangerg/scope/models/protocol/openai"
+)
+`, parser.ImportsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliases := privateProtocolImports(file)
+	if _, present := aliases["protocol"]; !present {
+		t.Fatal("the root protocol package escaped the public API guard")
+	}
+	if _, present := aliases["nested"]; !present || len(aliases) != 2 {
+		t.Fatalf("private protocol import classification = %v", aliases)
+	}
 }

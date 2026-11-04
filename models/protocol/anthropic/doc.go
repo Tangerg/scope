@@ -35,6 +35,12 @@
 // Response IDs are not required to identify those documents. This binding does
 // not expose the per-document citations.enabled request control.
 //
+// Native output schemas must be enforceable without weakening their domain
+// constraints. Unconstrained JSON, open objects, numeric bounds, recursive
+// schemas, and other unsupported native features fail before Call, Stream, or
+// CountInputTokens dispatch with chat.ErrUnsupportedOutputFormat. Descriptions
+// never replace validation constraints; optional properties remain optional.
+//
 // Provider packages exposing an Anthropic-compatible endpoint reuse the
 // Messages protocol through [NewMessages] and select one typed
 // [Dialect]. Application code continues to use the provider's own chat type.

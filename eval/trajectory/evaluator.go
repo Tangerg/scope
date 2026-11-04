@@ -16,7 +16,7 @@ const (
 	policyNamespace                        = "trajectory"
 	policyAllExpectations                  = "all_expectations"
 	policyMaximum                          = "maximum"
-	metricMaximumKey                       = "maximum"
+	maximumParameter                       = "maximum"
 	metricUnitCount                        = "count"
 	metricUnitToken                        = "token"
 	metricUnitSecond                       = "s"
@@ -97,7 +97,7 @@ func measurementReport[Maximum uint64 | int64 | float64](
 	maximum Maximum,
 ) (eval.Report, error) {
 	parameters := metadata.Map{}
-	if checkErr := parameters.Set(metricMaximumKey, maximum); checkErr != nil {
+	if checkErr := parameters.Set(maximumParameter, maximum); checkErr != nil {
 		return eval.Report{}, fmt.Errorf("eval/trajectory: metric maximum: %w", checkErr)
 	}
 	metric, err := eval.NewMetric(eval.MetricConfig{

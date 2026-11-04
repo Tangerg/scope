@@ -12,9 +12,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-// nativeSimilarity is the OpenSearch kNN space type parsed from the index mapping;
-// score and vector validation select behavior from it, so the accepted set and the
-// branches must name the same values.
+// Admission, scoring and vector validation must use the same native space types.
 type nativeSimilarity string
 
 const (
@@ -24,6 +22,8 @@ const (
 	simL1           nativeSimilarity = "l1"
 	simLinf         nativeSimilarity = "linf"
 )
+
+const nativeMaximumFP16Magnitude float32 = 65504
 
 type nativeSchema struct {
 	dimensions       int
@@ -55,8 +55,8 @@ func (n nativeSchema) validateIndexedVector(vector []float32) error {
 	}
 	if n.requireFP16Range {
 		for _, value := range vector {
-			if value < -65504 || value > 65504 {
-				return errors.New("opensearch: native Faiss FP16 encoding requires coordinates in [-65504,65504]")
+			if value < -nativeMaximumFP16Magnitude || value > nativeMaximumFP16Magnitude {
+				return fmt.Errorf("opensearch: native Faiss FP16 encoding requires coordinates in [%g,%g]", -nativeMaximumFP16Magnitude, nativeMaximumFP16Magnitude)
 			}
 		}
 	}

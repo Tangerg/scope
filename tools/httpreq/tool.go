@@ -15,8 +15,8 @@ const toolName = "http_request"
 
 // Tool requires a Client so every invocation enforces its frozen network policy.
 type Tool struct {
-	toolcontract.Func[Request, *Response]
-	client *Client
+	function toolcontract.Func[Request, *Response]
+	client   *Client
 }
 
 func NewTool(client *Client) (*Tool, error) {
@@ -31,7 +31,7 @@ func NewTool(client *Client) (*Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("httpreq: build tool: %w", err)
 	}
-	t.Func = typed
+	t.function = typed
 	return t, nil
 }
 
@@ -70,4 +70,12 @@ func admissionFailure(admission *admissionError) error {
 		return errors.Join(cause, err)
 	}
 	return failure
+}
+
+func (t *Tool) Definition() toolcontract.Definition { return t.function.Definition() }
+
+func (t *Tool) InputValidator() func([]byte) error { return t.function.InputValidator() }
+
+func (t *Tool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return t.function.Call(ctx, invocation)
 }

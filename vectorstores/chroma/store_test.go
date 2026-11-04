@@ -204,7 +204,7 @@ func TestQueryRejectsNonNativePredicateWithoutReadingSource(t *testing.T) {
 		t.Fatal("unsupported filter triggered backend traffic")
 	}
 	b.rows = oneRecord(`{"value":9007199254740993}`)
-	docs, err := s.Scan(t.Context(), ScanConfig{Budget: budget(), Filter: parseBoundaryPredicate(t, "value == 9007199254740993")})
+	docs, err := s.Scan(t.Context(), vectorstore.ScanRequest{Budget: budget(), Filter: parseBoundaryPredicate(t, "value == 9007199254740993")})
 	if err != nil || len(docs) != 1 || docs[0].ID != "id" {
 		t.Fatal(docs, err)
 	}
@@ -284,7 +284,7 @@ func TestBoundedScanRefusesPartialSubset(t *testing.T) {
 	}
 	b.rows = oneRecord(`{"v":1}`)
 	for _, limit := range []vectorstore.ScanBudget{{}, {MaxRecords: 1, MaxBytes: 1, Timeout: time.Second}} {
-		out, e := s.Scan(t.Context(), ScanConfig{Budget: limit})
+		out, e := s.Scan(t.Context(), vectorstore.ScanRequest{Budget: limit})
 		if e == nil || out != nil {
 			t.Fatal("invalid or exhausted budget gave rows")
 		}
@@ -299,22 +299,22 @@ func TestBoundedScanRefusesPartialSubset(t *testing.T) {
 	}
 	limit := budget()
 	limit.MaxRecords = 1
-	out, e := s.Scan(t.Context(), ScanConfig{Budget: limit, Filter: parseBoundaryPredicate(t, "v == 9")})
+	out, e := s.Scan(t.Context(), vectorstore.ScanRequest{Budget: limit, Filter: parseBoundaryPredicate(t, "v == 9")})
 	if !errors.Is(e, vectorstore.ErrScanBudget) || out != nil {
 		t.Fatalf("nonmatching rejected scan: %v %v", out, e)
 	}
 	limit.MaxRecords = 2
-	out, e = s.Scan(t.Context(), ScanConfig{Budget: limit})
+	out, e = s.Scan(t.Context(), vectorstore.ScanRequest{Budget: limit})
 	if e != nil || len(out) != 2 {
 		t.Fatal(out, e)
 	}
 	b.read = func(_ context.Context, offset, _ int) (v2.GetResult, error) { return oneRecord("null"), nil }
-	if out, e = s.Scan(t.Context(), ScanConfig{Budget: budget()}); e == nil || out != nil {
+	if out, e = s.Scan(t.Context(), vectorstore.ScanRequest{Budget: budget()}); e == nil || out != nil {
 		t.Fatal("duplicate across pages accepted")
 	}
 	b.read = func(ctx context.Context, _, _ int) (v2.GetResult, error) { <-ctx.Done(); return nil, ctx.Err() }
 	limit.Timeout = time.Millisecond
-	if out, e = s.Scan(t.Context(), ScanConfig{Budget: limit}); !errors.Is(e, vectorstore.ErrScanBudget) || out != nil {
+	if out, e = s.Scan(t.Context(), vectorstore.ScanRequest{Budget: limit}); !errors.Is(e, vectorstore.ErrScanBudget) || out != nil {
 		t.Fatal(out, e)
 	}
 }
@@ -338,7 +338,7 @@ func TestSpaceAndDimensionGuardEveryDataPath(t *testing.T) {
 	if err = s.CheckDocuments(t.Context(), testSpace, []*document.Document{{ID: "a", Text: "x"}}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	if _, err = s.Scan(t.Context(), ScanConfig{Budget: budget()}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+	if _, err = s.Scan(t.Context(), vectorstore.ScanRequest{Budget: budget()}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
 	if err = s.DeleteIDs(t.Context(), []string{"a"}); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {

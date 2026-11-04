@@ -183,7 +183,7 @@ func TestInvalidRequestsFailBeforeDriver(t *testing.T) {
 	if err := store.Upsert(t.Context(), nil); err == nil {
 		t.Fatal("accepted nil")
 	}
-	response, searchErr := store.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, LexicalText: "q", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, fixtureBudget)
+	response, searchErr := store.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}, LexicalText: "q", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, fixtureBudget)
 	if response != nil || !errors.Is(searchErr, vectorstore.ErrUnsupportedSearchMode) {
 		t.Fatalf("response=%v err=%v", response, searchErr)
 	}
@@ -208,10 +208,10 @@ func TestUnindexedLabelCannotPromiseANativeQuery(t *testing.T) {
 	if _, ok := any(s).(vectorstore.Querier); ok {
 		t.Fatal("unindexed label advertised an index")
 	}
-	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: "foreign", Values: []float64{0, 1}}, fixtureBudget); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+	if _, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: "foreign", Values: []float64{0, 1}}, fixtureBudget); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
-	if _, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{0, 1}}, vectorstore.ScanBudget{}); err == nil {
+	if _, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: []float64{0, 1}}, vectorstore.ScanBudget{}); err == nil {
 		t.Fatal("unbudgeted full label read")
 	}
 	batch := &vectorstore.Batch{Space: fixtureSpace, Records: []vectorstore.Record{{Document: &document.Document{ID: "doc", Text: "x"}, Values: []float64{1}}}}

@@ -260,11 +260,29 @@ type chatCompletionStreamChoice struct {
 	FinishReason finishReason          `json:"finish_reason"`
 }
 
+func (c *chatCompletionStreamChoice) UnmarshalJSON(data []byte) error {
+	if c == nil {
+		return fmt.Errorf("%w: stream choice receiver is nil", corechat.ErrInvalidResponse)
+	}
+	var decoded struct {
+		Index        *int                  `json:"index"`
+		Delta        chatCompletionMessage `json:"delta"`
+		FinishReason finishReason          `json:"finish_reason"`
+	}
+	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
+		return fmt.Errorf("%w: decode stream choice: %w", corechat.ErrInvalidResponse, err)
+	}
+	if decoded.Index == nil {
+		return fmt.Errorf("%w: stream choice requires index", corechat.ErrInvalidResponse)
+	}
+	*c = chatCompletionStreamChoice{Index: *decoded.Index, Delta: decoded.Delta, FinishReason: decoded.FinishReason}
+	return nil
+}
+
 type chatUsage struct {
 	PromptTokens        *int64 `json:"prompt_tokens"`
 	CompletionTokens    *int64 `json:"completion_tokens"`
 	TotalTokens         int64  `json:"total_tokens"`
-	NumCachedTokens     *int64 `json:"num_cached_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens *int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
@@ -275,12 +293,8 @@ func (c *chatUsage) usage() *corechat.Usage {
 		return nil
 	}
 	mapped := corechat.Usage{InputTokens: *c.PromptTokens, OutputTokens: *c.CompletionTokens}
-	cached := c.NumCachedTokens
 	if c.PromptTokensDetails != nil && c.PromptTokensDetails.CachedTokens != nil {
-		cached = c.PromptTokensDetails.CachedTokens
-	}
-	if cached != nil {
-		mapped.CacheReadInputTokens = new(*cached)
+		mapped.CacheReadInputTokens = new(*c.PromptTokensDetails.CachedTokens)
 	}
 	return &mapped
 }

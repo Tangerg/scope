@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -296,4 +297,24 @@ func (SearchRequest) JSONSchemaConstraints() jsonschema.Constraints {
 		"allowed_domains": {MaxItems: new(uint64(maxDomainFilters))},
 		"blocked_domains": {MaxItems: new(uint64(maxDomainFilters))},
 	}}
+}
+
+func (s *SearchRequest) UnmarshalJSON(data []byte) error {
+	if s == nil {
+		return ErrMissingSearchRequest
+	}
+	type wireRequest SearchRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return ErrMissingSearchRequest
+	}
+	candidate := SearchRequest(*decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*s = candidate
+	return nil
 }

@@ -339,6 +339,9 @@ func (c *ChatCompletions) prepareRequest(req *corechat.Request, params *openaisd
 		stream:      true,
 		extraFields: maps.Clone(params.ExtraFields()),
 	}
+	if len(params.Messages) != 0 {
+		compatible.finalAssistant = params.Messages[len(params.Messages)-1].OfAssistant
+	}
 	if params.Temperature.Valid() {
 		compatible.temperature = &params.Temperature.Value
 	}

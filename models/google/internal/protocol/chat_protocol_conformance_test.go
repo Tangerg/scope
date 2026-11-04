@@ -142,6 +142,9 @@ func newProtocolChatRequest(t *testing.T) *corechat.Request {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
+	if err := request.Messages[2].Parts[0].Metadata.Set("google/part_state", json.RawMessage(`{"partIndex":0}`)); err != nil {
+		t.Fatal(err)
+	}
 	maxTokens := int64(768)
 	temperature := 0.4
 	topK := int64(32)

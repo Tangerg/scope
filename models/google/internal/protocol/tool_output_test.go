@@ -27,14 +27,21 @@ func TestProtocolToolResultPreservesStructuredAndMediaContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	linked, err := media.NewURI("image/png", "https://example.com/image.png")
+	if err != nil {
+		t.Fatal(err)
+	}
 	response, parts, err = protocolToolResult(toolcontract.Output{Content: []corecontent.Block{
-		{Kind: corecontent.Text, Text: "caption"}, {Kind: corecontent.Media, Media: image},
+		{Kind: corecontent.Text, Text: "caption"}, {Kind: corecontent.Media, Media: image}, {Kind: corecontent.Media, Media: linked},
 	}}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response["output"] != "caption" || len(parts) != 1 || parts[0].InlineData == nil || parts[0].InlineData.MIMEType != "image/png" {
+	if response["output"] != "caption" || len(parts) != 2 || parts[0].InlineData == nil || parts[0].InlineData.MIMEType != "image/png" {
 		t.Fatalf("multimodal result = %#v, %#v", response, parts)
+	}
+	if parts[1].FileData == nil || parts[1].FileData.MIMEType != "image/png" || parts[1].FileData.FileURI != linked.Source.URI {
+		t.Fatalf("linked media result = %#v", parts[1])
 	}
 }
 

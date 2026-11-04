@@ -86,7 +86,7 @@ func TestNativeFilterConformance(t *testing.T) {
 		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		response, err := store.Scan(ctx, fixtureQuery("filter conformance", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
+		response, err := store.QueryByScan(ctx, fixtureQuery("filter conformance", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
 		if err != nil {
 			return nil, err
 		}
@@ -114,7 +114,7 @@ func TestNativeMetadataIdentityPaginationAndReplacement(t *testing.T) {
 	}
 	for _, mode := range []vectorstore.SearchMode{vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid} {
 		for _, predicate := range []filter.Predicate{nil, filter.IsNull("unused")} {
-			response, err := store.Scan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{TopK: len(docs), Mode: mode, Filter: predicate}), fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{TopK: len(docs), Mode: mode, Filter: predicate}), fixtureBudget())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -141,7 +141,7 @@ func TestNativeMetadataIdentityPaginationAndReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := store.Scan(t.Context(), fixtureQuery("replacement", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
+	response, err := store.QueryByScan(t.Context(), fixtureQuery("replacement", vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}), fixtureBudget())
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != replacement.ID || response.Results[0].Document.Text != replacement.Text {
 		t.Fatalf("native replacement: response=%#v, error=%v", response, err)
 	}
@@ -228,7 +228,7 @@ func TestNativePaginationPreservesRanking(t *testing.T) {
 				}
 				seen[id] = true
 			}
-			response, err := store.Scan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{Mode: mode, TopK: 300, Filter: predicate}), fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), fixtureQuery("searchable", vectorstore.SearchOptions{Mode: mode, TopK: 300, Filter: predicate}), fixtureBudget())
 			if err != nil {
 				t.Fatalf("mode=%s, filtered=%v: %v", mode, filtered, err)
 			}

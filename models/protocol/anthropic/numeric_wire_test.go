@@ -54,7 +54,7 @@ func TestToolSchemaAndRestoredArgumentsKeepExactNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const schema = `{"type":"object","properties":{"id":{"const":9007199254740993}},"required":["id"]}`
+	const schema = `{"type":"object","properties":{"id":{"type":"integer","const":9007199254740993}},"required":["id"],"additionalProperties":false}`
 	request.Tools = []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(schema)}}
 	format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "answer", Schema: json.RawMessage(schema)})
 	if err != nil {

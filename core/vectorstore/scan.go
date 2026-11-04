@@ -6,7 +6,27 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
+
+// ScanRequest grants document enumeration, without a ranking vector or TopK.
+// It never authorizes an implicit fallback from a native query. Backends must
+// return no partial matches when the source exceeds the budget.
+type ScanRequest struct {
+	Budget ScanBudget
+	Filter filter.Predicate
+}
+
+func (s ScanRequest) Validate() error {
+	if err := s.Budget.Validate(); err != nil {
+		return err
+	}
+	if s.Filter != nil {
+		return s.Filter.Validate()
+	}
+	return nil
+}
 
 // ScanBudget is an explicit Host grant for a complete source read. Native query
 // must never infer this grant from a filter. Each adapter documents what it

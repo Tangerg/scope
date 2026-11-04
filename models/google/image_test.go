@@ -1,4 +1,4 @@
-package protocol_test
+package google_test
 
 import (
 	"encoding/base64"
@@ -9,7 +9,7 @@ import (
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/modeltest"
-	"github.com/Tangerg/scope/models/google/internal/protocol"
+	"github.com/Tangerg/scope/models/google"
 )
 
 func TestImageModelCallUsesInteractionsAPI(t *testing.T) {
@@ -33,20 +33,20 @@ func TestImageModelCallUsesInteractionsAPI(t *testing.T) {
 	srv := modeltest.JSONServer(http.StatusOK, body)
 	t.Cleanup(srv.Close)
 
-	opts := image.Options{Model: protocol.ModelGemini31FlashImage}
+	opts := image.Options{Model: google.ModelGemini31FlashImage}
 	err := opts.Validate()
 	if err != nil {
 		t.Fatal(err)
 	}
 	opts.OutputFormat = "image/jpeg"
-	if setExtensionErr := opts.Extensions.Set(protocol.ImageRequestExtensionKey, protocol.ImageGenerationOptions{
-		AspectRatio: "16:9",
-		ImageSize:   "2K",
+	if setExtensionErr := opts.Extensions.Set(google.ImageRequestExtensionKey, google.ImageGenerationOptions{
+		AspectRatio: google.ImageAspectRatio16x9,
+		ImageSize:   google.ImageSize2K,
 	}); setExtensionErr != nil {
 		t.Fatal(setExtensionErr)
 	}
-	model, err := protocol.NewImageModel(t.Context(), protocol.ImageModelConfig{
-		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: srv.URL},
+	model, err := google.NewImageModel(t.Context(), google.ImageModelConfig{
+		APIKey: "test-key", BaseURL: srv.URL,
 		DefaultOptions: opts,
 	})
 	if err != nil {
@@ -67,7 +67,7 @@ func TestImageModelCallUsesInteractionsAPI(t *testing.T) {
 	if got := out.Metadata.CreatedAt; !got.Equal(time.Date(2026, 7, 31, 10, 20, 30, 0, time.UTC)) {
 		t.Fatalf("CreatedAt = %s", got)
 	}
-	if _, ok, err := out.Metadata.Extra.Decode[map[string]any](protocol.ImageResponseExtensionKey); err != nil || !ok {
+	if _, ok, err := out.Metadata.Extra.Decode[map[string]any](google.ImageResponseExtensionKey); err != nil || !ok {
 		t.Fatalf("native response extension: exists=%t err=%v", ok, err)
 	}
 
@@ -79,9 +79,9 @@ func TestImageModelCallUsesInteractionsAPI(t *testing.T) {
 }
 
 func TestImageModelRejectsUnsupportedImagenOnlyOptions(t *testing.T) {
-	opts := image.Options{Model: protocol.ModelGemini31FlashImage}
-	model, err := protocol.NewImageModel(t.Context(), protocol.ImageModelConfig{
-		Client:         protocol.ClientConfig{APIKey: "test-key", BaseURL: "https://example.com"},
+	opts := image.Options{Model: google.ModelGemini31FlashImage}
+	model, err := google.NewImageModel(t.Context(), google.ImageModelConfig{
+		APIKey: "test-key", BaseURL: "https://example.com",
 		DefaultOptions: opts,
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestImageRequiresExplicitCompletedInteraction(t *testing.T) {
 			body := fmt.Sprintf(`{"status":%q,"steps":[{"type":"model_output","content":[{"type":"image","data":"UE5H","mime_type":"image/png"}]}]}`, status)
 			server := modeltest.JSONServer(http.StatusOK, body)
 			defer server.Close()
-			model, err := protocol.NewImageModel(t.Context(), protocol.ImageModelConfig{Client: protocol.ClientConfig{APIKey: "test", BaseURL: server.URL}, DefaultOptions: image.Options{Model: protocol.ModelGemini31FlashImage}})
+			model, err := google.NewImageModel(t.Context(), google.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: google.ModelGemini31FlashImage}})
 			if err != nil {
 				t.Fatal(err)
 			}

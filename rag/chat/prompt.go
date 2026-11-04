@@ -7,15 +7,16 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/rag"
 )
 
 const (
-	promptVariableCandidates = "Candidates"
-	promptVariableHistory    = "History"
-	promptVariableNumber     = "Number"
-	promptVariableQuery      = "Query"
-	promptVariableTarget     = "Target"
+	promptVariableDocuments = "Documents"
+	promptVariableHistory   = "History"
+	promptVariableNumber    = "Number"
+	promptVariableQuery     = "Query"
+	promptVariableTarget    = "Target"
 )
 
 // ErrEmptyModelOutput classifies a model response that [rag.Query] will not
@@ -77,16 +78,16 @@ func resolvePromptTemplate(current *chatclient.Template, fallback string, requir
 	return current, nil
 }
 
-func (m modelPrompt[T]) call(ctx context.Context, data any) (T, error) {
+func (m modelPrompt[T]) call(ctx context.Context, data any, options corechat.Options) (T, error) {
 	var zero T
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		return zero, ctxErr
+		return zero, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ctxErr}
 	}
 	message, err := m.template.UserMessage(data)
 	if err != nil {
-		return zero, err
+		return zero, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	output, err := m.client.Output(ctx, &corechat.Request{Messages: []corechat.Message{message}}, m.format)
+	output, err := m.client.Output(ctx, &corechat.Request{Messages: []corechat.Message{message}, Options: options}, m.format)
 	if err != nil {
 		return zero, err
 	}

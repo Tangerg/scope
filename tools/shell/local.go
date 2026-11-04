@@ -69,11 +69,8 @@ func (l *LocalExecutor) Run(ctx context.Context, in Input) (Output, error) {
 	if l.directory == "" || l.shell == "" || l.maxBytesPerStream <= 0 {
 		return Output{ExitCode: -1}, ErrInvalidConfig
 	}
-	if strings.TrimSpace(in.Cmd) == "" {
-		return Output{ExitCode: -1}, ErrEmptyCommand
-	}
-	if in.Timeout < 0 {
-		return Output{ExitCode: -1}, fmt.Errorf("%w: timeout must not be negative", ErrInvalidInput)
+	if err := in.Validate(); err != nil {
+		return Output{ExitCode: -1}, err
 	}
 
 	runCtx := ctx

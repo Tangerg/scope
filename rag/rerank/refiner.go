@@ -1,4 +1,4 @@
-// Package rerank adapts dedicated rerank models to the rag Refiner contract.
+// Package rerank adapts rerank models to the rag Refiner contract.
 // It validates model indices and resolves them against the original candidate
 // order, preserving document identity and result ownership.
 package rerank
@@ -38,7 +38,7 @@ func (r RefinerConfig) Validate() error {
 	return nil
 }
 
-// Refiner adapts a dedicated reranking model to the Refiner lifecycle. It
+// Refiner adapts a reranking model to the Refiner lifecycle. It
 // formats candidates once and resolves returned indices against the immutable
 // input snapshot.
 type Refiner struct {
@@ -93,6 +93,9 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	}
 	response, callErr := r.model.Call(ctx, request.Clone())
 	if callErr != nil {
+		if errors.Is(callErr, corererank.ErrInvalidResponse) {
+			return nil, fmt.Errorf("%w: model response: %w", rag.ErrInvalidReranking, callErr)
+		}
 		return nil, callErr
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {

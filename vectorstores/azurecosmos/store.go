@@ -142,7 +142,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 func (s *Store) writeItems(ctx context.Context, ids []string, write func(int) error) error {
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
-			return &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:i]), Unattempted: slices.Clone(ids[i:]), Err: err}
+			return (vectorstore.WriteError{Acknowledged: ids[:i], Unattempted: ids[i:], Err: err}).Clone()
 		}
 		if err := write(i); err != nil {
 			failure := &vectorstore.WriteError{Acknowledged: slices.Clone(ids[:i]), Unattempted: slices.Clone(ids[i+1:]), Err: err}
@@ -323,11 +323,11 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-func (s *Store) selectItems(ctx context.Context, cfg ScanConfig) ([]selectedItem, error) {
-	if err := cfg.Validate(); err != nil {
+func (s *Store) selectItems(ctx context.Context, request vectorstore.ScanRequest) ([]selectedItem, error) {
+	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	meter, err := cfg.Budget.Begin(ctx)
+	meter, err := request.Budget.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -350,12 +350,12 @@ func (s *Store) selectItems(ctx context.Context, cfg ScanConfig) ([]selectedItem
 			return errors.New("azurecosmos: partition scan repeated an item ID")
 		}
 		seen[doc.ID] = true
-		if cfg.Filter != nil {
+		if request.Filter != nil {
 			values, valueErr := doc.Metadata.Values()
 			if valueErr != nil {
 				return valueErr
 			}
-			matched, matchErr := filter.Match(cfg.Filter, values)
+			matched, matchErr := filter.Match(request.Filter, values)
 			if matchErr != nil || !matched {
 				return matchErr
 			}
@@ -374,8 +374,8 @@ func (s *Store) selectItems(ctx context.Context, cfg ScanConfig) ([]selectedItem
 
 // Scan evaluates Core metadata predicates after charging every raw Cosmos item.
 // Cosmos continuation pages do not form a multi-page transactional snapshot.
-func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document, error) {
-	selected, err := s.selectItems(ctx, cfg)
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
+	selected, err := s.selectItems(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -389,11 +389,11 @@ func (s *Store) Scan(ctx context.Context, cfg ScanConfig) ([]*document.Document,
 // DeleteMatching verifies the complete authorized scan before the first delete.
 // A replacement is protected by its native ETag. Deletes are individually
 // acknowledged, not atomic across a partition; failures return a WriteError.
-func (s *Store) DeleteMatching(ctx context.Context, cfg ScanConfig) error {
-	if cfg.Filter == nil {
+func (s *Store) DeleteMatching(ctx context.Context, request vectorstore.ScanRequest) error {
+	if request.Filter == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	selected, err := s.selectItems(ctx, cfg)
+	selected, err := s.selectItems(ctx, request)
 	if err != nil {
 		return err
 	}

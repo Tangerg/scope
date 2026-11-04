@@ -215,7 +215,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.rank(ctx, q, nil)
 }
-func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
 	}

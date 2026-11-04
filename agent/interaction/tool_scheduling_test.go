@@ -138,6 +138,50 @@ func (i inputValidatorTool) ConcurrencyPolicy() func(tool.Invocation) (string, b
 	return func(tool.Invocation) (string, bool) { return "", true }
 }
 
+type rejectingAdmissionTool struct{ scriptTool }
+
+func (rejectingAdmissionTool) InputValidator() func([]byte) error {
+	return func([]byte) error { return errors.New("input is outside the tool's domain") }
+}
+
+func TestInputValidatorRejectsTheWholeBatchBeforeAnyWrite(t *testing.T) {
+	store := run.NewMemoryStore()
+	runtime := conformancetest.Runtime(t, run.Config{Store: store})
+	var writes atomic.Int32
+	write := scriptTool{name: "write", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
+		writes.Add(1)
+		return tool.Result{}, nil
+	}}
+	rejected := rejectingAdmissionTool{scriptTool: scriptTool{name: "checked", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
+		t.Error("rejected input reached execution")
+		return tool.Result{}, nil
+	}}}
+	models := 0
+	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, write, rejected), Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+		models++
+		if models == 1 {
+			return callResponse(requested("write", "first"), requested("checked", "second")), nil
+		}
+		for _, part := range request.Messages[len(request.Messages)-1].Parts {
+			if part.ToolResult == nil || !part.ToolResult.IsError {
+				return nil, errors.New("input rejection did not reject the whole proposal")
+			}
+		}
+		return finalResponse("corrected"), nil
+	}))})
+	handle := startInteraction(t, runtime, program)
+	if output := awaitOutput(t, handle); writes.Load() != 0 || models != 2 || output.ModelResponse.Text() != "corrected" {
+		t.Fatalf("batch admission ran a valid prefix: writes=%d models=%d", writes.Load(), models)
+	}
+	for _, entry := range completedLog(t, store, handle.ID()).Entries {
+		if intent, ok := entry.Record.(run.EffectIntent); ok {
+			if _, isTool, err := ToolCallFromEffect(intent.Effect); err != nil || isTool {
+				t.Fatalf("rejected batch committed a tool intent: %v", err)
+			}
+		}
+	}
+}
+
 func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
 	var called atomic.Bool
 	tools := toolSetTest(t, inputValidatorTool{called: &called})

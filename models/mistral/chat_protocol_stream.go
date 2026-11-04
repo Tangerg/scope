@@ -55,7 +55,7 @@ func (c *chatStreamState) mapChunk(chunk chatCompletionChunk) (*corechat.Respons
 	if len(chunk.Choices) == expectedResponseChoices {
 		wireChoice := chunk.Choices[0]
 		if wireChoice.Index != firstChoiceIndex {
-			return nil, fmt.Errorf("mistral: stream choice index is %d, want %d", wireChoice.Index, firstChoiceIndex)
+			return nil, fmt.Errorf("mistral: %w: stream choice index is %d, want %d", corechat.ErrInvalidResponse, wireChoice.Index, firstChoiceIndex)
 		}
 		if c.terminated() && len(wireChoice.Delta.ToolCalls) != 0 {
 			return nil, fmt.Errorf("mistral: stream: %w: tool calls after finish_reason", corechat.ErrInvalidResponse)

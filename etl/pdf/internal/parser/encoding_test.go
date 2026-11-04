@@ -6,6 +6,7 @@ import (
 	"encoding/ascii85"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 )
 
@@ -32,18 +33,15 @@ func TestFontEncodingsRespectTheirDeclaredCharacterMaps(t *testing.T) {
 		{name("WinAnsiEncoding"), "\x80A", "€A"},
 		{name("MacRomanEncoding"), "\x80A", "ÄA"},
 		{name("UniGB-UCS2-H"), "\x00A\x00B", "AB"},
-		{nil, "\x80A", "•A"},
-		{name("Identity-H"), "AB", "AB"},
-		{name("custom"), "AB", "AB"},
-		{int64(5), "AB", "AB"},
-		{dict{"Differences": array{int64(65), name("Euro"), name("UnknownGlyph"), int64(67), name("A")}}, "ABC", "€BA"},
+		{nil, "\x80A", "�A"},
+		{dict{"Differences": array{int64(65), name("Euro"), name("B"), int64(67), name("A")}}, "ABC", "€BA"},
 	} {
-		font := Font{V: literalValue(t, dict{"Encoding": sample.encoding})}
-		encoder := font.Encoder()
-		if got := encoder.Decode(sample.raw); got != sample.want {
+		font := Font{V: literalValue(t, dict{"Subtype": name("Type1"), "BaseFont": name("Helvetica"), "Encoding": sample.encoding})}
+		decoder := font.Decoder()
+		if got := decoder.Decode(sample.raw); got != sample.want {
 			t.Fatalf("encoding=%v result=%q want=%q", sample.encoding, got, sample.want)
 		}
-		if font.Encoder() != encoder {
+		if font.Decoder() != decoder {
 			t.Fatal("font did not reuse its frozen decoder")
 		}
 	}
@@ -62,7 +60,7 @@ func TestUnicodeCMapsSupportScalarAndArrayRangesAcrossByteBoundaries(t *testing.
 		program := "/CIDInit /ProcSet findresource begin 12 dict begin /CMapName /Scope def 1 begincodespacerange <0000> <ffff> endcodespacerange " + sample.mapping + " CMapName currentdict /CMap defineresource pop end end"
 		unicode := testStream(t, []byte(program), nil)
 		font := Font{V: Value{r: unicode.r, data: dict{"Encoding": name("Identity-H"), "ToUnicode": unicode.data}}}
-		if got := font.Encoder().Decode(sample.raw); got != sample.want {
+		if got := font.Decoder().Decode(sample.raw); got != sample.want {
 			t.Fatalf("map=%s result=%q want=%q", sample.mapping, got, sample.want)
 		}
 	}
@@ -141,7 +139,7 @@ func TestPNGUpReconstructsRowsAndRejectsOtherFilters(t *testing.T) {
 
 func TestResourceBudgetIncludesNestedLexingAndObjectResolution(t *testing.T) {
 	grant := parserBudget(t)
-	grant.depth = maxObjectDepth
+	grant.depth = maxNestingDepth
 	var recovered any
 	func() {
 		defer func() { recovered = recover() }()
@@ -150,5 +148,13 @@ func TestResourceBudgetIncludesNestedLexingAndObjectResolution(t *testing.T) {
 	cause, _ := recovered.(error)
 	if !errors.Is(cause, ErrBudget) {
 		t.Fatalf("nested parse escaped its shared depth budget: %v", recovered)
+	}
+}
+
+func TestGraphicsStateNestingUsesTheParseDepthLimit(t *testing.T) {
+	content := testStream(t, []byte(strings.Repeat("q ", maxNestingDepth+1)), nil)
+	page := Page{V: Value{r: content.r, data: dict{"Contents": content.data}}}
+	if text, err := page.PlainText(); text != "" || !errors.Is(err, ErrBudget) {
+		t.Fatalf("unbounded graphics state: text=%q error=%v", text, err)
 	}
 }

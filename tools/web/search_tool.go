@@ -11,10 +11,12 @@ import (
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
+const webSearchToolName = "web_search"
+
 var _ toolcontract.Tool = (*SearchTool)(nil)
 
 type SearchTool struct {
-	toolcontract.Func[SearchRequest, *SearchResponse]
+	function toolcontract.Func[SearchRequest, *SearchResponse]
 	searcher Searcher
 }
 
@@ -24,13 +26,13 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 	}
 	s := &SearchTool{searcher: searcher}
 	typed, err := toolcontract.NewFunc(
-		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: "web_search", Description: webSearchDescription},
+		toolcontract.FuncConfig{Effect: toolcontract.EffectSafe, Name: webSearchToolName, Description: webSearchDescription},
 		s.search,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("web: build search tool: %w", err)
 	}
-	s.Func = typed
+	s.function = typed
 	return s, nil
 }
 
@@ -59,4 +61,12 @@ Use recency for a relative freshness window. Cite the returned source URLs when 
 
 func (*SearchTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bool) {
 	return func(toolcontract.Invocation) (string, bool) { return "", true }
+}
+
+func (s *SearchTool) Definition() toolcontract.Definition { return s.function.Definition() }
+
+func (s *SearchTool) InputValidator() func([]byte) error { return s.function.InputValidator() }
+
+func (s *SearchTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return s.function.Call(ctx, invocation)
 }

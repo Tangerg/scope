@@ -119,6 +119,29 @@ func newService(t *testing.T) *service {
 	return s
 }
 
+func TestRegisterRejectsInvalidSDKAnnotationsBeforePublishing(t *testing.T) {
+	s := newService(t)
+	input := must(jsonschema.Parse([]byte(`{"type":"object","properties":{"order":{"type":"string","x-mcp-header":"bad header"}},"required":["order"]}`)))
+	d := definition{descriptor: must(run.NewDescriptor(run.DescriptorConfig{Name: "test.invalid", Description: "Invalid transport annotation.", InputSchema: input, OutputSchema: must(jsonschema.For[decision]())})), starts: &s.starts}
+	cfg := managed.Config[run.Payload, decision]{
+		Runtime:   s.runtime,
+		Program:   must(run.Bind[run.Payload, decision](s.runtime.Compiler(), run.BindingConfig{Definition: d, Revision: "invalid-header"})),
+		Authorize: s.cfg.Authorize, Project: s.cfg.Project,
+		ResumeKey: s.cfg.ResumeKey, TokenLifetime: s.cfg.TokenLifetime,
+	}
+	if err := managed.Register(s.server, cfg); err == nil {
+		t.Fatal("an invalid SDK descriptor was published")
+	}
+	client := s.connect(t, "session", true)
+	listed, err := client.ListTools(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Tools) != 1 || listed.Tools[0].Name != s.cfg.Program.Descriptor().Name() || s.starts.Load() != 0 {
+		t.Fatalf("rejected admission changed the catalog or started work: %+v", listed.Tools)
+	}
+}
+
 type identifiedTransport struct {
 	sdk.Transport
 	id string

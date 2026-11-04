@@ -275,10 +275,10 @@ func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.S
 	return s.rank(ctx, q, nil)
 }
 
-// Scan explicitly authorizes an export of the entire collection to compute
+// QueryByScan explicitly authorizes an export of the entire collection to compute
 // exact membership. MaxBytes bounds the JSONL source payload, not ANN pages.
 // The collection can change between export and ranking; membership is rechecked.
-func (s *Store) Scan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := budget.Validate(); err != nil {
 		return nil, err
 	}

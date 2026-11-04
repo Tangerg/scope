@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/url"
 	"slices"
@@ -126,4 +127,24 @@ type Fetcher interface {
 	// the caller. Implementations must honor ctx and preserve network error
 	// causes.
 	Fetch(ctx context.Context, request *FetchRequest) (*FetchResponse, error)
+}
+
+func (f *FetchRequest) UnmarshalJSON(data []byte) error {
+	if f == nil {
+		return ErrMissingFetchRequest
+	}
+	type wireRequest FetchRequest
+	var decoded *wireRequest
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if decoded == nil {
+		return ErrMissingFetchRequest
+	}
+	candidate := FetchRequest(*decoded)
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*f = candidate
+	return nil
 }

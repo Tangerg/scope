@@ -184,24 +184,24 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	for i, id := range ids {
 		if err := ctx.Err(); err != nil {
-			return &vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}
+			return (vectorstore.WriteError{Err: err, Acknowledged: ids[:i], Unattempted: ids[i:]}).Clone()
 		}
 		result, err := s.collection.Upsert(id, payloads[i], &gocb.UpsertOptions{Context: ctx, Transcoder: gocb.NewRawJSONTranscoder()})
 		if err != nil || result == nil || result.Cas() == 0 {
 			if err == nil {
 				err = errors.New("couchbase: missing mutation acknowledgment")
 			}
-			return &vectorstore.WriteError{Err: errors.Join(err, ctx.Err()), Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}
+			return (vectorstore.WriteError{Err: errors.Join(err, ctx.Err()), Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]}).Clone()
 		}
 	}
 	return nil
 }
-func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
+func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("couchbase.Store.Scan: %w", err)
+		return nil, fmt.Errorf("couchbase.Store.QueryByScan: %w", err)
 	}
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
-		return nil, fmt.Errorf("couchbase.Store.Scan: %w", err)
+		return nil, fmt.Errorf("couchbase.Store.QueryByScan: %w", err)
 	}
 	if len(request.Values) != s.dimensions {
 		return nil, vectorstore.ErrInvalidRequest

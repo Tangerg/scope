@@ -2,6 +2,8 @@ package mcp
 
 import "errors"
 
+var errToolCallbackPanic = errors.New("mcp: tool callback panicked")
+
 var (
 	ErrContinuationBinding = errors.New("mcp: continuation does not match this admitted remote call")
 	ErrIncompleteResult    = errors.New("mcp: remote tool result requires further input")

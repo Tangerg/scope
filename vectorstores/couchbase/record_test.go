@@ -151,7 +151,7 @@ func TestInvalidStoreCallsDoNotReachDependencies(t *testing.T) {
 	if err := s.DeleteIDs(t.Context(), []string{"valid", strings.Repeat("x", 251)}); err == nil {
 		t.Fatal("invalid key batch mutated")
 	}
-	if response, err := s.Scan(t.Context(), &vectorstore.Query{Space: "s", Values: []float64{1, 0}, LexicalText: "text", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, vectorstore.ScanBudget{}); response != nil || !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
+	if response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: "s", Values: []float64{1, 0}, LexicalText: "text", Options: vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}}, vectorstore.ScanBudget{}); response != nil || !errors.Is(err, vectorstore.ErrUnsupportedSearchMode) {
 		t.Fatalf("hybrid accepted: %v", err)
 	}
 }

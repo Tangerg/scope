@@ -98,7 +98,7 @@ func TestFullExportRejectsCorruptCurrentRecordsBeforeEmbedding(t *testing.T) {
 				raw = string(valid) + "\n" + string(valid) + "\n"
 			}
 			fixture.exportOverride = &raw
-			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{Filter: filter.IsNull("unused")}), fixtureBudget())
 			if response != nil || err == nil || len(fixture.queries) != 0 {
 				t.Fatalf("response=%#v, error=%v, native=%d", response, err, len(fixture.queries))
 			}
@@ -234,7 +234,7 @@ func TestNativeSearchRequiresCompleteAcknowledgmentAndMembership(t *testing.T) {
 				hit["vector_distance"] = 3
 			}
 			fixture.searchScript = []json.RawMessage{mustJSON(t, map[string]any{"results": []any{output}})}
-			response, err := store.Scan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}), fixtureBudget())
+			response, err := store.QueryByScan(t.Context(), fixtureQuery("query", vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}), fixtureBudget())
 			if err == nil || response != nil {
 				t.Fatalf("invalid native search succeeded: %#v, %v", response, err)
 			}

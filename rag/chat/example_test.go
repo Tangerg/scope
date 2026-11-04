@@ -8,7 +8,37 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/rag"
 	ragchat "github.com/Tangerg/scope/rag/chat"
+	ragrerank "github.com/Tangerg/scope/rag/rerank"
 )
+
+func ExampleRerankModel() {
+	ctx := context.Background()
+	model, err := ragchat.NewRerankModel(ctx, ragchat.RerankModelConfig{
+		Model: chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			return textResponse(`{"scores":[{"index":0,"score":0.2},{"index":1,"score":0.9}]}`), nil
+		}),
+	})
+	if err != nil {
+		panic(err)
+	}
+	refiner, err := ragrerank.NewRefiner(ragrerank.RefinerConfig{Model: model, TopK: 1})
+	if err != nil {
+		panic(err)
+	}
+	query, err := rag.NewQuery("What is Scope?")
+	if err != nil {
+		panic(err)
+	}
+	ranked, err := refiner.Refine(ctx, query, rag.Candidates{
+		{Document: &document.Document{ID: "unrelated", Text: "A different topic."}},
+		{Document: &document.Document{ID: "scope", Text: "Scope provides AI infrastructure."}},
+	})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(ranked[0].Document.ID, ranked[0].Score)
+	// Output: scope 0.9
+}
 
 func ExamplePreparer() {
 	preparer, err := ragchat.NewPreparer(ragchat.PreparerConfig{

@@ -173,6 +173,9 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		if err != nil {
 			return corechat.PartDelta{}, "", false, err
 		}
+		if err := validateProtocolMedia(provider, value); err != nil {
+			return corechat.PartDelta{}, "", false, fmt.Errorf("%w: %w", corechat.ErrInvalidResponse, err)
+		}
 		value.Name = part.InlineData.DisplayName
 		mapped = corechat.NewMediaDelta(value)
 		kind = corechat.PartMedia
@@ -180,6 +183,9 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 		value, err := media.NewURI(part.FileData.MIMEType, part.FileData.FileURI)
 		if err != nil {
 			return corechat.PartDelta{}, "", false, err
+		}
+		if err := validateProtocolMedia(provider, value); err != nil {
+			return corechat.PartDelta{}, "", false, fmt.Errorf("%w: %w", corechat.ErrInvalidResponse, err)
 		}
 		value.Name = part.FileData.DisplayName
 		mapped = corechat.NewMediaDelta(value)

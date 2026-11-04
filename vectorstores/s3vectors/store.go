@@ -210,15 +210,11 @@ func (s *Store) putRequests(records []types.PutInputVector) ([]*awss3.PutVectors
 // Scan evaluates predicate over pages the caller is authorized to enumerate.
 // MaxBytes counts returned key, encoded metadata and float32 coordinates;
 // service pagination provides no snapshot isolation. No partial result is returned.
-func (s *Store) Scan(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) ([]*document.Document, error) {
-	if err := budget.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
+	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	if predicate != nil {
-		if err := predicate.Validate(); err != nil {
-			return nil, err
-		}
-	}
+	budget, predicate := request.Budget, request.Filter
 	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
 	defer cancel()
 	if err := s.checkBinding(ctx); err != nil {
@@ -449,5 +445,5 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 }
 
 func incompleteWrite(keys []string, begin, n int, cause error) error {
-	return &vectorstore.WriteError{Err: cause, Acknowledged: slices.Clone(keys[:begin]), Unconfirmed: slices.Clone(keys[begin : begin+n]), Unattempted: slices.Clone(keys[begin+n:])}
+	return (vectorstore.WriteError{Err: cause, Acknowledged: keys[:begin], Unconfirmed: keys[begin : begin+n], Unattempted: keys[begin+n:]}).Clone()
 }

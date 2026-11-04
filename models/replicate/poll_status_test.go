@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/replicate"
 )
@@ -64,6 +65,13 @@ func TestPollReportsTerminalStatusInsteadOfWaiting(t *testing.T) {
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("Call() = %v, want the provider status rather than a local timeout", err)
+			}
+			wantKind := invocation.FailureFailed
+			if test.status == "vaporized" {
+				wantKind = invocation.FailureUnknown
+			}
+			if got := invocation.ClassifyFailure(err); got != wantKind {
+				t.Fatalf("failure = %s, want %s: %v", got, wantKind, err)
 			}
 			if !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Call() = %v, want an error naming %q", err, test.want)

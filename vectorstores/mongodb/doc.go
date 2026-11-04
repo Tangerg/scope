@@ -22,7 +22,7 @@
 // indexed term under binary collation and requires a matching ordinary ascending
 // metadata_terms index; its hint prevents a silent full collection scan.
 //
-// Scan and DeleteMatching are explicit alternatives for arbitrary Core predicates.
+// QueryByScan and DeleteMatching are explicit alternatives for arbitrary Core predicates.
 // Their budget covers source BSON bytes and records, including nonmatches, and
 // elapsed time. Server aggregation admits at most MaxRecords+1 candidates and
 // withholds payloads beyond the grant. Budget exhaustion returns no partial

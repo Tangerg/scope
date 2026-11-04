@@ -11,6 +11,8 @@
 // GenerateContent has one native decoder shared by unary and streaming calls.
 // SDK DTOs and authentication are reused; SDK response converters and automatic
 // continuation are not executed. HTTP extensions allow headers and timeout only.
+// Only ordinary content FileData may omit MIME because Gemini can resolve its
+// type remotely. Inline and function-response media require explicit MIME.
 // Core Citation owns validation of native citations with a URI. Invalid
 // citations fail Call and Stream rather than disappearing from a successful response.
 // Citation-only chunks reach Core's accumulator, which owns text attachment.
@@ -42,8 +44,20 @@
 // resolves them and then asks the resolved credential for its quota project,
 // which is a metadata-server call the context governs — so a caller can bound
 // or cancel its own wiring instead of a background context deciding for it.
-// [NewChatCompletions] is the exception: it builds an OpenAI-compatible client
-// and performs no I/O.
+// [NewChatCompletions] and [NewImageModel] borrow HTTP policy directly rather
+// than constructing a Gen AI client.
+//
+// [NewImageModel] owns the Gemini Interactions image capability. Native controls
+// are [ImageGenerationOptions] under [ImageRequestExtensionKey]; their typed
+// vocabulary and admission live with those public values.
+// Input image MIME declarations remain required; URLs do not establish their
+// content type. Only completed interactions produce Core image responses.
+// Interactions uses an independent HTTP transport because GenerateContent and
+// Vertex AI use different protocols and authentication contracts.
+//
+// Interactions targets the current steps schema. Hosts that pin API revisions
+// through their HTTPClient must choose one with that schema; legacy outputs
+// responses cannot establish a completed image result.
 //
 // [NewSpeechModel] performs unary-only Gemini 2.5 speech synthesis.
 // Unary speech and transcription require a STOP finish reason. Truncated,

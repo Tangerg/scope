@@ -451,7 +451,7 @@ func (s *Store) scoreVectors(ctx context.Context, tx neo4j.ManagedTransaction, v
 	return scores, nil
 }
 
-func (s *Store) Scan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, fmt.Errorf("neo4j: search: %w", err)
 	}

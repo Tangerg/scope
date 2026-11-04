@@ -95,7 +95,9 @@ func serveProtocol(source *sdka2a.AgentCard, bind func(*sdka2a.AgentCard) (a2asr
 	}
 	cardHandler := a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded})
 
-	rpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	rpcHandler := a2asrv.NewJSONRPCHandler(&a2asrv.InterceptedHandler{
+		Handler: requestHandler, Interceptors: []a2asrv.CallInterceptor{protocolErrors{}},
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case a2asrv.WellKnownAgentCardPath:

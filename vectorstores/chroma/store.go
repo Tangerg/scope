@@ -417,14 +417,14 @@ func nativeFailure(ctx context.Context, operation string, err error) error {
 // Counted bytes are ID, document text, stored Core metadata JSON and four bytes
 // per coordinate. The SDK has already materialized the current page: the byte
 // budget is not a transport frame limit. Offset pagination is not a snapshot.
-func (s *Store) Scan(ctx context.Context, config ScanConfig) ([]*document.Document, error) {
-	if err := config.Validate(); err != nil {
+func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
+	if err := request.Validate(); err != nil {
 		return nil, err
 	}
 	if err := s.verify(ctx); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeoutCause(ctx, config.Budget.Timeout, vectorstore.ErrScanBudget)
+	ctx, cancel := context.WithTimeoutCause(ctx, request.Budget.Timeout, vectorstore.ErrScanBudget)
 	defer cancel()
 	seen := make(map[v2.DocumentID]struct{})
 	var used int64
@@ -433,7 +433,7 @@ func (s *Store) Scan(ctx context.Context, config ScanConfig) ([]*document.Docume
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Join(err, context.Cause(ctx))
 		}
-		limit := min(pageSize, config.Budget.MaxRecords-offset+1)
+		limit := min(pageSize, request.Budget.MaxRecords-offset+1)
 		page, err := s.collection.Get(ctx, v2.WithOffset(offset), v2.WithLimit(limit), v2.WithInclude(v2.IncludeDocuments, v2.IncludeMetadatas, v2.IncludeEmbeddings))
 		if err != nil {
 			return nil, nativeFailure(ctx, "scan records", err)
@@ -448,7 +448,7 @@ func (s *Store) Scan(ctx context.Context, config ScanConfig) ([]*document.Docume
 		if len(ids) > limit || len(texts) != len(ids) || len(facts) != len(ids) || len(vectors) != len(ids) {
 			return nil, errors.New("chroma: scan returned inconsistent columns")
 		}
-		if len(ids) > config.Budget.MaxRecords-offset {
+		if len(ids) > request.Budget.MaxRecords-offset {
 			return nil, vectorstore.ErrScanBudget
 		}
 		for i, id := range ids {
@@ -471,7 +471,7 @@ func (s *Store) Scan(ctx context.Context, config ScanConfig) ([]*document.Docume
 				return nil, fmt.Errorf("chroma: %w: scan dimension", vectorstore.ErrIncompatibleSpace)
 			}
 			for _, bytes := range []int64{int64(len(id)), int64(len(texts[i].ContentString())), int64(len(raw)), int64(width) * 4} {
-				if bytes > config.Budget.MaxBytes-used {
+				if bytes > request.Budget.MaxBytes-used {
 					return nil, vectorstore.ErrScanBudget
 				}
 				used += bytes
@@ -480,7 +480,7 @@ func (s *Store) Scan(ctx context.Context, config ScanConfig) ([]*document.Docume
 			if err != nil {
 				return nil, err
 			}
-			match, err := matches(doc, config.Filter)
+			match, err := matches(doc, request.Filter)
 			if err != nil {
 				return nil, fmt.Errorf("chroma: filter document %q: %w", id, err)
 			}

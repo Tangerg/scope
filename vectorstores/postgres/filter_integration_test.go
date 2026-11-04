@@ -29,7 +29,7 @@ type nativeStore interface {
 	vectorstore.Upserter
 	vectorstore.Querier
 	vectorstore.IDDeleter
-	Scan(context.Context, postgres.ScanConfig) ([]*document.Document, error)
+	Scan(context.Context, vectorstore.ScanRequest) ([]*document.Document, error)
 }
 
 const fixtureSpace vectorstore.SpaceID = "native-test-space"
@@ -141,7 +141,7 @@ func TestLiveMetadataFilters(t *testing.T) {
 					if err := f.install(ctx, docs); err != nil {
 						return nil, err
 					}
-					found, err := f.store.Scan(ctx, postgres.ScanConfig{Budget: vectorstore.ScanBudget{MaxRecords: len(docs), MaxBytes: 4 << 20, Timeout: time.Minute}, Filter: p})
+					found, err := f.store.Scan(ctx, vectorstore.ScanRequest{Budget: vectorstore.ScanBudget{MaxRecords: len(docs), MaxBytes: 4 << 20, Timeout: time.Minute}, Filter: p})
 					if err != nil {
 						return nil, err
 					}
@@ -157,7 +157,7 @@ func TestLiveMetadataFilters(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, budget := range []vectorstore.ScanBudget{{MaxRecords: len(docs) - 1, MaxBytes: 4 << 20, Timeout: time.Minute}, {MaxRecords: len(docs), MaxBytes: 1, Timeout: time.Minute}} {
-				if partial, err := f.store.Scan(t.Context(), postgres.ScanConfig{Budget: budget}); !errors.Is(err, vectorstore.ErrScanBudget) || partial != nil {
+				if partial, err := f.store.Scan(t.Context(), vectorstore.ScanRequest{Budget: budget}); !errors.Is(err, vectorstore.ErrScanBudget) || partial != nil {
 					t.Fatalf("incomplete scan: docs=%v err=%v", partial, err)
 				}
 			}

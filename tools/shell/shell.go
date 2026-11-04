@@ -2,6 +2,8 @@ package shell
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -22,6 +24,16 @@ type Input struct {
 
 	// Timeout zero means no timeout beyond ctx.
 	Timeout time.Duration
+}
+
+func (i Input) Validate() error {
+	if strings.TrimSpace(i.Cmd) == "" {
+		return ErrEmptyCommand
+	}
+	if i.Timeout < 0 {
+		return fmt.Errorf("%w: timeout must not be negative", ErrInvalidInput)
+	}
+	return nil
 }
 
 // Output retains the executor's observations. ExitCode is -1 when no exit

@@ -6,6 +6,10 @@ import (
 	"io"
 )
 
+// Untrusted object, graphics-state and form nesting must fail before exhausting
+// the process stack or retaining an unbounded sequence of saved states.
+const maxNestingDepth = 1000
+
 var ErrBudget = errors.New("pdf: parser resource budget exhausted")
 
 // Limits applies to one complete parse, including all pages and repeated object
@@ -54,8 +58,12 @@ func (b *budget) objects(amount int64) { b.consume(&b.remainingObjects, amount) 
 
 func (b *budget) enter() {
 	b.step(1)
+	b.checkDepth(b.depth + 1)
 	b.depth++
-	if b.depth > maxObjectDepth {
+}
+
+func (b *budget) checkDepth(depth int) {
+	if depth > maxNestingDepth {
 		b.err = ErrBudget
 		panic(b.err)
 	}

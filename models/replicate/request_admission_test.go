@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/replicate"
 )
 
 func TestImageOptionsRejectUnmappedOrNullControlsBeforeIO(t *testing.T) {
-	for _, extension := range []string{`{"version":"unbound-version"}`, `null`} {
+	for _, extension := range []string{`{"version":"unbound-version"}`, `null`, `{"webhook":"http://example.com/webhook"}`, `{"webhook_events_filter":["completed"]}`, `{"webhook":"https://example.com/webhook","webhook_events_filter":["invalid"]}`} {
 		t.Run(extension, func(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
@@ -25,7 +26,7 @@ func TestImageOptionsRejectUnmappedOrNullControlsBeforeIO(t *testing.T) {
 				t.Fatal(setErr)
 			}
 			response, err := model.Call(t.Context(), request)
-			if response != nil || err == nil || calls != 0 {
+			if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls != 0 {
 				t.Fatalf("response=%v error=%v calls=%d", response, err, calls)
 			}
 		})

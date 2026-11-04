@@ -35,25 +35,25 @@ root. Use `-check` to detect drift or omit flags to print the current matrix.
 | `retrievers/vectara` | Managed retrieval | `CreateDocument`, `Retrieve` | [vectara](../retrievers/vectara/doc.go) |
 | `vectorstores/azureaisearch` | Native vectors | `Query`, `Scan`, `Upsert` | [azureaisearch](azureaisearch/doc.go) |
 | `vectorstores/azurecosmos` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [azurecosmos](azurecosmos/doc.go) |
-| `vectorstores/cassandra` | Native vectors (explicit scan only) | `DeleteMatching`, `Scan`, `Upsert` | [cassandra](cassandra/doc.go) |
+| `vectorstores/cassandra` | Native vectors (ranked scan only) | `DeleteMatching`, `QueryByScan`, `Upsert` | [cassandra](cassandra/doc.go) |
 | `vectorstores/chroma` | Native vectors | `Query`, `Scan`, `Upsert` | [chroma](chroma/doc.go) |
 | `vectorstores/clickhouse` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [clickhouse](clickhouse/doc.go) |
-| `vectorstores/couchbase` | Native vectors (explicit scan only) | `DeleteMatching`, `Scan`, `Upsert` | [couchbase](couchbase/doc.go) |
-| `vectorstores/elasticsearch` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [elasticsearch](elasticsearch/doc.go) |
-| `vectorstores/mariadb` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [mariadb](mariadb/doc.go) |
-| `vectorstores/milvus` | Native vectors | `Query`, `Scan`, `Upsert` | [milvus](milvus/doc.go) |
-| `vectorstores/mongodb` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [mongodb](mongodb/doc.go) |
-| `vectorstores/neo4j` | Native vectors (explicit scan only) | `DeleteMatching`, `Scan`, `Upsert` | [neo4j](neo4j/doc.go) |
-| `vectorstores/opensearch` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [opensearch](opensearch/doc.go) |
-| `vectorstores/oracle` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [oracle](oracle/doc.go) |
+| `vectorstores/couchbase` | Native vectors (ranked scan only) | `DeleteMatching`, `QueryByScan`, `Upsert` | [couchbase](couchbase/doc.go) |
+| `vectorstores/elasticsearch` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [elasticsearch](elasticsearch/doc.go) |
+| `vectorstores/mariadb` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [mariadb](mariadb/doc.go) |
+| `vectorstores/milvus` | Native vectors | `QueryByScan`, `Query`, `Upsert` | [milvus](milvus/doc.go) |
+| `vectorstores/mongodb` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [mongodb](mongodb/doc.go) |
+| `vectorstores/neo4j` | Native vectors (ranked scan only) | `DeleteMatching`, `QueryByScan`, `Upsert` | [neo4j](neo4j/doc.go) |
+| `vectorstores/opensearch` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [opensearch](opensearch/doc.go) |
+| `vectorstores/oracle` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [oracle](oracle/doc.go) |
 | `vectorstores/pinecone` | Native vectors | `Query`, `Upsert` | [pinecone](pinecone/doc.go) |
 | `vectorstores/postgres` | Native vectors | `Query`, `Scan`, `Upsert` | [cockroachdb](postgres/cockroachdb/doc.go), [pgvector](postgres/pgvector/doc.go) |
 | `vectorstores/qdrant` | Native vectors | `Query`, `Upsert` | [qdrant](qdrant/doc.go) |
-| `vectorstores/redis` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [redis](redis/doc.go) |
+| `vectorstores/redis` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [redis](redis/doc.go) |
 | `vectorstores/s3vectors` | Native vectors | `Query`, `Scan`, `Upsert` | [s3vectors](s3vectors/doc.go) |
-| `vectorstores/tidb` | Native vectors | `DeleteMatching`, `Query`, `Scan`, `Upsert` | [tidb](tidb/doc.go) |
-| `vectorstores/typesense` | Native vectors | `Query`, `Scan`, `Upsert` | [typesense](typesense/doc.go) |
-| `vectorstores/vespa` | Native vectors (explicit scan only) | `DeleteMatching`, `Scan`, `Upsert` | [vespa](vespa/doc.go) |
+| `vectorstores/tidb` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [tidb](tidb/doc.go) |
+| `vectorstores/typesense` | Native vectors | `QueryByScan`, `Query`, `Upsert` | [typesense](typesense/doc.go) |
+| `vectorstores/vespa` | Native vectors (ranked scan only) | `DeleteMatching`, `QueryByScan`, `Upsert` | [vespa](vespa/doc.go) |
 | `vectorstores/weaviate` | Native vectors | `Query`, `Upsert` | [weaviate](weaviate/doc.go) |
 
 <!-- vectorstore-catalog:end -->

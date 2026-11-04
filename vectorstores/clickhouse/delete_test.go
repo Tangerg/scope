@@ -21,7 +21,7 @@ func TestDeleteWhereUsesOnlyCoreMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.DeleteMatching(t.Context(), testScan(predicate)); err != nil {
+	if err := store.DeleteMatching(t.Context(), testScanRequest(predicate)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -31,14 +31,14 @@ func TestFilterErrorRejectsDeletionBeforeAnyEffect(t *testing.T) {
 	mock.ExpectExec("BEGIN TRANSACTION").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery("SELECT id, content, metadata").WillReturnRows(sqlmock.NewRows([]string{"id", "content", "metadata"}).AddRow("first", "text", `{"n":7}`).AddRow("last", "text", `{"n":"wrong"}`)).RowsWillBeClosed()
 	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
-	if err := store.DeleteMatching(t.Context(), testScan(filter.GT("n", 1))); err == nil {
+	if err := store.DeleteMatching(t.Context(), testScanRequest(filter.GT("n", 1))); err == nil {
 		t.Fatal("type mismatch silently became non-membership")
 	}
 }
 
 func TestDeleteRejectsMissingFilterAndEmptyIDsWithoutIO(t *testing.T) {
 	store, _ := mockStore(t)
-	if err := store.DeleteMatching(t.Context(), testScan(nil)); !errors.Is(err, vectorstore.ErrMissingFilter) {
+	if err := store.DeleteMatching(t.Context(), testScanRequest(nil)); !errors.Is(err, vectorstore.ErrMissingFilter) {
 		t.Fatal(err)
 	}
 	if err := store.DeleteIDs(t.Context(), nil); err != nil {

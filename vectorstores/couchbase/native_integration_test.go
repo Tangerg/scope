@@ -153,7 +153,7 @@ func TestNativeDistancesAndFilteredTopK(t *testing.T) {
 			if err := s.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
-			response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 2}}, fixtureBudget)
+			response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 2}}, fixtureBudget)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,11 +170,11 @@ func TestNativeDistancesAndFilteredTopK(t *testing.T) {
 			if math.Abs(response.Results[0].Score.Float64()-wantNear) > 1e-6 || math.Abs(response.Results[1].Score.Float64()-wantFar) > 1e-6 {
 				t.Fatal("distance scores differ")
 			}
-			response, err = s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("active", true)}}, fixtureBudget)
+			response, err = s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.EQ("active", true)}}, fixtureBudget)
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "far" {
 				t.Fatalf("TopK excluded lower-ranked matching record: %+v, %v", response, err)
 			}
-			response, err = s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 2, MinScore: vectorstore.ScoreFromValue((wantNear + wantFar) / 2)}}, fixtureBudget)
+			response, err = s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: 2, MinScore: vectorstore.ScoreFromValue((wantNear + wantFar) / 2)}}, fixtureBudget)
 			if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "near" {
 				t.Fatalf("MinScore not applied: %+v, %v", response, err)
 			}
@@ -184,7 +184,7 @@ func TestNativeDistancesAndFilteredTopK(t *testing.T) {
 			if err := s.DeleteIDs(t.Context(), []string{"near", "unknown"}); err != nil {
 				t.Fatal(err)
 			}
-			response, err = s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near")}, fixtureBudget)
+			response, err = s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near")}, fixtureBudget)
 			if err != nil || len(response.Results) != 0 {
 				t.Fatalf("native deletion incomplete: %+v, %v", response, err)
 			}
@@ -199,7 +199,7 @@ func TestNativeCoreFilterConformance(t *testing.T) {
 		if err := f.install(ctx, s, docs); err != nil {
 			return nil, err
 		}
-		response, err := s.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
+		response, err := s.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}}, fixtureBudget)
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +221,7 @@ func TestNativeCoreDeleteConformance(t *testing.T) {
 		if err := s.DeleteMatching(ctx, predicate, fixtureBudget); err != nil {
 			return nil, err
 		}
-		response, err := s.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
+		response, err := s.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +258,7 @@ func TestNativeEncodedFactsAndKVIdentity(t *testing.T) {
 	if err := s.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
+	response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestNativeEncodedFactsAndKVIdentity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: p}}, fixtureBudget)
+		r, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: p}}, fixtureBudget)
 		if err != nil || len(r.Results) != len(docs)-2 {
 			t.Fatalf("%s: %+v, %v", src, r, err)
 		}
@@ -318,7 +318,7 @@ func TestNativeEncodedFactsAndKVIdentity(t *testing.T) {
 	if err := s.DeleteIDs(t.Context(), []string{ids[2], ids[5]}); err != nil {
 		t.Fatal(err)
 	}
-	response, err = s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
+	response, err = s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}}, fixtureBudget)
 	if err != nil || len(response.Results) != len(docs)-2 {
 		t.Fatalf("exact deletion: %+v, %v", response, err)
 	}
@@ -335,7 +335,7 @@ func TestNativeFilterFailurePrecedesEffects(t *testing.T) {
 	if err := s.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
-	response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: filter.GT("n", 1)}}, fixtureBudget)
+	response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, MinScore: 1, Filter: filter.GT("n", 1)}}, fixtureBudget)
 	if err == nil || response != nil {
 		t.Fatal("wrong-type filter became limited success")
 	}
@@ -363,14 +363,14 @@ func TestNativeCapturedRecordRemainsStableAcrossReplacement(t *testing.T) {
 	if err := s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "target", Text: "before", Metadata: metadata.Map{"active": json.RawMessage(`true`)}}})); err != nil {
 		t.Fatal(err)
 	}
-	response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.EQ("active", true)}}, fixtureBudget)
+	response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.EQ("active", true)}}, fixtureBudget)
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.Text != "before" || response.Results[0].Score != 1 {
 		t.Fatalf("record facts advanced independently: %+v, %v", response, err)
 	}
 	if err = s.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "target", Text: "far", Metadata: metadata.Map{"active": json.RawMessage(`false`)}}})); err != nil {
 		t.Fatal(err)
 	}
-	response, err = s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
+	response, err = s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.Text != "far" || response.Results[0].Score != .5 {
 		t.Fatalf("replacement not published: %+v, %v", response, err)
 	}
@@ -382,7 +382,7 @@ func TestNativeStrictRecordsAndCancellation(t *testing.T) {
 	if _, err := f.collection.Upsert("legacy", map[string]any{"id": "forged", "content": "text", "metadata": map[string]any{}, "embedding": []float64{1, 0}}, &gocb.UpsertOptions{Context: t.Context()}); err != nil {
 		t.Fatal(err)
 	}
-	if response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget); err == nil || response != nil {
+	if response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget); err == nil || response != nil {
 		t.Fatal("obsolete record accepted")
 	}
 	if err := s.DeleteMatching(t.Context(), filter.EQ("active", true), fixtureBudget); err == nil {
@@ -393,7 +393,7 @@ func TestNativeStrictRecordsAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if response, err := s.Scan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget); response != nil || !errors.Is(err, context.Canceled) {
+	if response, err := s.QueryByScan(ctx, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget); response != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("search cancellation: %v", err)
 	}
 	if err := s.DeleteMatching(ctx, filter.EQ("active", true), fixtureBudget); !errors.Is(err, context.Canceled) {
@@ -443,7 +443,7 @@ func TestNativeCASProtectsConcurrentReplacement(t *testing.T) {
 	if err := s.DeleteMatching(t.Context(), filter.EQ("active", true), fixtureBudget); !errors.Is(err, gocb.ErrCasMismatch) {
 		t.Fatalf("concurrent replacement was not rejected: %v", err)
 	}
-	response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
+	response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}, fixtureBudget)
 	if !replaced || err != nil || len(response.Results) != 1 || response.Results[0].Document.Text != "after" {
 		t.Fatalf("CAS deleted unevaluated facts: %+v, %v", response, err)
 	}
@@ -461,7 +461,7 @@ func TestNativeRankingSpansAllBatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limit := range []int{1, len(docs)} {
-		response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: limit}}, fixtureBudget)
+		response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("near"), Options: vectorstore.SearchOptions{TopK: limit}}, fixtureBudget)
 		if err != nil || len(response.Results) != limit || response.Results[0].Document.ID != docs[len(docs)-1].ID || response.Results[0].Score != 1 {
 			t.Fatalf("ranking across native batches: %+v, %v", response, err)
 		}
@@ -510,7 +510,7 @@ func TestNativeScoreSaturationPreservesDistanceRanking(t *testing.T) {
 	if err := s.Upsert(t.Context(), &vectorstore.Batch{Space: fixtureSpace, Records: []vectorstore.Record{{Document: &document.Document{ID: "z_near", Text: "near"}, Values: []float64{1000, 0}}, {Document: &document.Document{ID: "a_far", Text: "far"}, Values: []float64{100, 0}}}}); err != nil {
 		t.Fatal(err)
 	}
-	response, err := s.Scan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}}, fixtureBudget)
+	response, err := s.QueryByScan(t.Context(), &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}}, fixtureBudget)
 	if err != nil || len(response.Results) != 1 || response.Results[0].Document.ID != "z_near" {
 		t.Fatalf("rounded Score reversed native distances: %+v, %v", response, err)
 	}

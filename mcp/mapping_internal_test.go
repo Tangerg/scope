@@ -137,7 +137,7 @@ func TestMapRemoteContentRejectsUnusableResources(t *testing.T) {
 		}
 	}
 	part, include, err := mapRemoteContent(&sdkmcp.ResourceLink{URI: "https://example.com/a"})
-	if err != nil || !include || part.Kind != corecontent.Media || part.Media.MIME != "application/octet-stream" {
+	if err != nil || !include || part.Kind != corecontent.Media || part.Media.MIME != "" {
 		t.Fatalf("resource without MIME = %#v, %v, %v", part, include, err)
 	}
 }
@@ -313,60 +313,12 @@ func TestMapServerContentEscapesInlineResourceNames(t *testing.T) {
 	}
 }
 
-func TestResourceMIMEInfersOnlyFromTheFixedTable(t *testing.T) {
-	for uri, want := range map[string]string{
-		"https://example.com/a.png":         "image/png",
-		"https://example.com/a.JPG":         "image/jpeg",
-		"https://example.com/a.jpeg?x=.gif": "image/jpeg",
-		"file:///repo/a.gif":                "image/gif",
-		"file:///repo/a.webp":               "image/webp",
-		"file:///repo/a.mp3":                "audio/mpeg",
-		"file:///repo/a.wav":                "audio/wav",
-		"file:///repo/a.pdf":                "application/pdf",
-		"file:///repo/a.txt":                "text/plain",
-		"file:///repo/a.html":               "application/octet-stream",
-		"file:///repo/a.md":                 "application/octet-stream",
-		"file:///repo/a":                    "application/octet-stream",
-		"%zz":                               "application/octet-stream",
-	} {
-		if got := resourceMIME("", uri); got != want {
-			t.Errorf("resourceMIME(%q) = %q, want %q", uri, got, want)
-		}
-	}
-	if got := resourceMIME("text/html", "file:///repo/a.png"); got != "text/html" {
-		t.Fatalf("declared MIME = %q, want text/html", got)
-	}
-}
-
-func TestMapServerContentRejectsAMisplacedInferredMIME(t *testing.T) {
-	image, err := media.NewBytes(pngMIME, []byte("\x89PNG"))
+func TestMapServerContentOmitsUnknownMIME(t *testing.T) {
+	linked, err := media.NewURI("", "https://example.com/a.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, test := range []struct {
-		part     corecontent.Block
-		envelope string
-	}{
-		{part: corecontent.Block{Kind: corecontent.Text, Text: "body"}, envelope: `{"type":"text","mimeTypeInferred":true}`},
-		{part: corecontent.Block{Kind: corecontent.Text, Text: "body"}, envelope: `{"type":"resource","resource":{"uri":"file:///a"},"mimeTypeInferred":true}`},
-		{part: corecontent.Block{Kind: corecontent.Media, Media: image}, envelope: `{"type":"image","mimeTypeInferred":true}`},
-	} {
-		part := test.part
-		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(test.envelope)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := mapServerContent(part); err == nil {
-			t.Fatalf("accepted inferred MIME in %s", test.envelope)
-		}
-	}
-}
-
-func TestMapServerContentOmitsAnInferredMIME(t *testing.T) {
-	linked, err := media.NewURI(pngMIME, "https://example.com/a.png")
-	if err != nil {
-		t.Fatal(err)
-	}
-	blob, err := media.NewBytes(pngMIME, []byte("\x89PNG"))
+	blob, err := media.NewBytes("", []byte("\x89PNG"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,8 +327,8 @@ func TestMapServerContentOmitsAnInferredMIME(t *testing.T) {
 		envelope string
 		want     string
 	}{
-		{media: linked, envelope: `{"type":"resource_link","mimeTypeInferred":true}`, want: `{"type":"resource_link","uri":"https://example.com/a.png"}`},
-		{media: blob, envelope: `{"type":"resource","resource":{"uri":"file:///a.png"},"mimeTypeInferred":true}`, want: `{"type":"resource","resource":{"uri":"file:///a.png","blob":"iVBORw=="}}`},
+		{media: linked, envelope: `{"type":"resource_link"}`, want: `{"type":"resource_link","uri":"https://example.com/a.png"}`},
+		{media: blob, envelope: `{"type":"resource","resource":{"uri":"file:///a.png"}}`, want: `{"type":"resource","resource":{"uri":"file:///a.png","blob":"iVBORw=="}}`},
 	} {
 		part := corecontent.Block{Kind: corecontent.Media, Media: test.media}
 		if err := part.Metadata.Set(ContentMetadataKey, json.RawMessage(test.envelope)); err != nil {

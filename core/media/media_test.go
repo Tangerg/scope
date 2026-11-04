@@ -93,7 +93,7 @@ func TestConstructorsRejectInvalidInputs(t *testing.T) {
 		new  func() (*media.Media, error)
 		want error
 	}{
-		{name: "empty MIME", new: func() (*media.Media, error) { return media.NewBytes("", []byte("x")) }, want: media.ErrInvalidMIME},
+		{name: "blank MIME", new: func() (*media.Media, error) { return media.NewBytes(" ", []byte("x")) }, want: media.ErrInvalidMIME},
 		{name: "malformed MIME", new: func() (*media.Media, error) { return media.NewBytes("image", []byte("x")) }, want: media.ErrInvalidMIME},
 		{name: "empty bytes", new: func() (*media.Media, error) { return media.NewBytes("image/png", nil) }, want: media.ErrInvalidSource},
 		{name: "relative URI", new: func() (*media.Media, error) { return media.NewURI("image/png", "/image.png") }, want: media.ErrInvalidSource},
@@ -176,6 +176,7 @@ func TestJSONRoundTrip(t *testing.T) {
 		{name: "bytes", new: func() (*media.Media, error) { return media.NewBytes("image/png", []byte{1, 2, 3, 255}) }},
 		{name: "URI", new: func() (*media.Media, error) { return media.NewURI("image/png", "data:image/png;base64,AQID") }},
 		{name: "reference", new: func() (*media.Media, error) { return media.NewReference("image/png", "file-123") }},
+		{name: "unknown MIME", new: func() (*media.Media, error) { return media.NewURI("", "https://example.com/image.png") }},
 	}
 
 	for _, tt := range tests {
@@ -237,5 +238,30 @@ func TestValidateRecursesIntoMetadata(t *testing.T) {
 	}
 	if _, err := jsonv2.Marshal(m); !errors.Is(err, metadata.ErrInvalidValue) {
 		t.Fatalf("Marshal error = %v, want metadata.ErrInvalidValue", err)
+	}
+}
+
+func TestRequireMIMERejectsUnknownWithoutInferringFromSource(t *testing.T) {
+	value, err := media.NewURI("", "https://example.com/image.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeErr := value.RequireMIME(); !errors.Is(mimeErr, media.ErrInvalidMIME) {
+		t.Fatalf("RequireMIME = %v, want ErrInvalidMIME", mimeErr)
+	}
+	encoded, err := jsonv2.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"mime"`) || value.MIME != "" {
+		t.Fatalf("unknown MIME acquired a declaration: %s", encoded)
+	}
+	value.MIME = "image/png"
+	if err := value.RequireMIME(); err != nil {
+		t.Fatalf("declared MIME was rejected: %v", err)
+	}
+	var absent *media.Media
+	if err := absent.RequireMIME(); !errors.Is(err, media.ErrNilMedia) {
+		t.Fatalf("nil RequireMIME = %v, want ErrNilMedia", err)
 	}
 }

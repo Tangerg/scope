@@ -38,7 +38,7 @@ func TestFilteredSearchCompletesNativeScanContinuation(t *testing.T) {
 					t.Error(err)
 				}
 			}
-			response, err := fixture.store().Scan(t.Context(), testScan(filter.EQ("tenant", "one")))
+			response, err := fixture.store().Scan(t.Context(), testScanRequest(filter.EQ("tenant", "one")))
 			if lateFailure {
 				if err == nil || response != nil {
 					t.Fatalf("incomplete scan hid invalid metadata: response=%v error=%v", response, err)

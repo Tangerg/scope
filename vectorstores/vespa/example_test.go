@@ -20,7 +20,7 @@ func ExampleNewStore() {
 	if err = store.Upsert(ctx, &vectorstore.Batch{Space: space, Records: []vectorstore.Record{{Document: &document.Document{ID: "guide", Text: "hello"}, Values: []float64{1, 0}}}}); err != nil {
 		panic(err)
 	}
-	_, err = store.Scan(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}}, vectorstore.ScanBudget{MaxRecords: 1000, MaxBytes: 4 << 20, Timeout: time.Second})
+	_, err = store.QueryByScan(ctx, &vectorstore.Query{Space: space, Values: []float64{1, 0}}, vectorstore.ScanBudget{MaxRecords: 1000, MaxBytes: 4 << 20, Timeout: time.Second})
 	if err != nil {
 		panic(err)
 	}

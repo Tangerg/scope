@@ -54,7 +54,7 @@ func TestClosedDatabaseFailuresPreserveEffectsAndCause(t *testing.T) {
 	if r, err := s.Query(t.Context(), q); r != nil || !errors.Is(err, vectorstore.ErrUnsupportedFilter) {
 		t.Fatalf("filtered native query: %v, %v", r, err)
 	}
-	if r, err := s.Scan(t.Context(), q, fixtureBudget()); r != nil || !errors.Is(err, closedErr) {
+	if r, err := s.QueryByScan(t.Context(), q, fixtureBudget()); r != nil || !errors.Is(err, closedErr) {
 		t.Fatalf("scan: %v, %v", r, err)
 	}
 	if err := s.DeleteMatching(t.Context(), q.Options.Filter, fixtureBudget()); !errors.Is(err, closedErr) {

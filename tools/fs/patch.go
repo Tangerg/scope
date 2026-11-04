@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/bluekeyes/go-gitdiff/gitdiff"
+
+	"github.com/Tangerg/scope/tools/textread"
 )
 
 const nullPatchPath = "/dev/null"
@@ -251,7 +253,15 @@ func (p preparedPatch) commit(ctx context.Context) (PatchFileResponse, error) {
 	return p.result, nil
 }
 
-func parseUnifiedPatch(patch string) (unifiedPatch, error) {
+func parseUnifiedPatch(patch string) (_ unifiedPatch, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("%w: %w", ErrInvalidInput, err)
+		}
+	}()
+	if err := textread.Validate([]byte(patch)); err != nil {
+		return unifiedPatch{}, ErrBinaryFile
+	}
 	if strings.TrimSpace(patch) == "" {
 		return unifiedPatch{}, errors.New("fs.ApplyPatch: patch must not be empty")
 	}

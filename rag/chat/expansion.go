@@ -148,7 +148,7 @@ func (m *MultiQueryExpander) Expand(ctx context.Context, query rag.Query) ([]rag
 	output, err := m.prompt.call(ctx, multiQueryPromptVariables{
 		Number: m.numberOfQueries,
 		Query:  query.Text(),
-	})
+	}, corechat.Options{})
 	if err != nil {
 		if errors.Is(err, chatclient.ErrInvalidOutput) {
 			return nil, fmt.Errorf("%w: model output: %w", rag.ErrInvalidExpansion, err)

@@ -220,7 +220,7 @@ func TestNativeFilterConformance(t *testing.T) {
 				return nil, err
 			}
 		}
-		found, err := s.Scan(ctx, ScanConfig{Budget: nativeBudget(), Filter: predicate})
+		found, err := s.Scan(ctx, vectorstore.ScanRequest{Budget: nativeBudget(), Filter: predicate})
 		if err != nil {
 			return nil, err
 		}
@@ -262,7 +262,7 @@ func TestNativeSchemaOwnsMetricAndCoreJSON(t *testing.T) {
 			if score := byID["original/路径'"].Score.Float64(); math.Abs(score-want) > 1e-7 {
 				t.Fatalf("native %s score=%v want %v", metric, score, want)
 			}
-			filtered, err := s.Scan(t.Context(), ScanConfig{Budget: nativeBudget(), Filter: nativePredicate(t, "ok == true")})
+			filtered, err := s.Scan(t.Context(), vectorstore.ScanRequest{Budget: nativeBudget(), Filter: nativePredicate(t, "ok == true")})
 			if err != nil || len(filtered) != 1 || filtered[0].ID != "original/路径'" {
 				t.Fatal(filtered, err)
 			}
@@ -280,19 +280,19 @@ func TestNativeCompletePaginationAndPreflight(t *testing.T) {
 		docs[i] = &document.Document{ID: fmt.Sprintf("doc-%03d", i), Text: "query", Metadata: metadata.Map{"rank": json.RawMessage(`1`)}}
 	}
 	nativeUpsert(t, s, docs...)
-	cfg := ScanConfig{Budget: nativeBudget(), Filter: nativePredicate(t, "rank == 1")}
-	found, err := s.Scan(t.Context(), cfg)
+	request := vectorstore.ScanRequest{Budget: nativeBudget(), Filter: nativePredicate(t, "rank == 1")}
+	found, err := s.Scan(t.Context(), request)
 	if err != nil || len(found) != 600 || found[599].ID != "doc-599" {
 		t.Fatal(len(found), err)
 	}
-	cfg.Budget.MaxRecords = 599
-	if found, err = s.Scan(t.Context(), cfg); found != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
+	request.Budget.MaxRecords = 599
+	if found, err = s.Scan(t.Context(), request); found != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 		t.Fatal(found, err)
 	}
 	f.replace(t, "doc-599", `{"rank":"wrong type"}`, "query", []float32{1, 0})
-	cfg.Budget = nativeBudget()
-	cfg.Filter = nativePredicate(t, "rank > 0")
-	if found, err = s.Scan(t.Context(), cfg); err == nil || found != nil {
+	request.Budget = nativeBudget()
+	request.Filter = nativePredicate(t, "rank > 0")
+	if found, err = s.Scan(t.Context(), request); err == nil || found != nil {
 		t.Fatal("malformed last page silently omitted")
 	}
 }
@@ -328,7 +328,7 @@ func TestNativeStrictRecordsAndCancellation(t *testing.T) {
 		if got, err := s.Query(t.Context(), query(vectorstore.SearchOptions{TopK: 1})); err == nil || got != nil {
 			t.Fatal(got, err)
 		}
-		if got, err := s.Scan(t.Context(), ScanConfig{Budget: nativeBudget()}); err == nil || got != nil {
+		if got, err := s.Scan(t.Context(), vectorstore.ScanRequest{Budget: nativeBudget()}); err == nil || got != nil {
 			t.Fatal(got, err)
 		}
 	}

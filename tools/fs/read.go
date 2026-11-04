@@ -9,6 +9,8 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+const readToolName = "read"
+
 // StartLine is one-based to match editors, grep, and language servers.
 type ReadRequest struct {
 	Path      string `json:"path" jsonschema:"minLength=1" jsonschema_description:"File path, absolute or relative to the workspace root."`
@@ -29,7 +31,7 @@ var _ toolcontract.Tool = (*ReadTool)(nil)
 
 // ReadTool declares parallel calls on the strength of the Reader contract.
 type ReadTool struct {
-	toolcontract.Func[ReadRequest, ReadResponse]
+	function toolcontract.Func[ReadRequest, ReadResponse]
 	executor Reader
 }
 
@@ -41,7 +43,7 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	typed, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
 			Effect: toolcontract.EffectSafe,
-			Name:   "read",
+			Name:   readToolName,
 			Description: "Read a text file from the filesystem. Returns the requested line range with the total line count and a truncation flag. " +
 				"By default returns the admitted file up to the backend's input, line, and output bounds; pass start_line and max_lines to page by 1-based line number. " +
 				"Call this in parallel when you need several files at once. " +
@@ -52,7 +54,7 @@ func NewReadTool(executor Reader) (*ReadTool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fs.NewReadTool: %w", err)
 	}
-	t.Func = typed
+	t.function = typed
 	return t, nil
 }
 
@@ -76,4 +78,12 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 		TotalLines: res.TotalLines,
 		Truncated:  res.Truncated,
 	}, nil
+}
+
+func (r *ReadTool) Definition() toolcontract.Definition { return r.function.Definition() }
+
+func (r *ReadTool) InputValidator() func([]byte) error { return r.function.InputValidator() }
+
+func (r *ReadTool) Call(ctx context.Context, invocation toolcontract.Invocation) (toolcontract.Result, error) {
+	return r.function.Call(ctx, invocation)
 }
