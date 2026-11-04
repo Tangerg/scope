@@ -224,7 +224,12 @@ type scriptFailureFixture struct {
 
 func newScriptFailureFixture(t *testing.T, script string) scriptFailureFixture {
 	t.Helper()
-	root := t.TempDir()
+	// Scripts resolve their root physically; a symlinked temporary directory
+	// (/var on macOS) must name the same path the script sees.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	realJQ, err := exec.LookPath("jq")
 	if err != nil {
 		t.Fatal(err)
