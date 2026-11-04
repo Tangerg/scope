@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/models/xiaomi
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.59.0
-	github.com/Tangerg/scope/models/protocol/anthropic v0.59.0
-	github.com/Tangerg/scope/models/protocol/openai v0.59.0
+	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.60.0
+	github.com/Tangerg/scope/models/protocol/openai v0.60.0
 )
 
 require (

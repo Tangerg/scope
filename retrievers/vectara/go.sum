@@ -1,7 +1,7 @@
-github.com/Tangerg/scope/core v0.59.0 h1:2WVra/d2lw9s7g+OsDpeuRadExN640ZtVzgdZUlOmso=
-github.com/Tangerg/scope/core v0.59.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/rag v0.59.0 h1:yChITN2aSGzII7OYO922CCxiZUb7KYc+FVgnhYziZbs=
-github.com/Tangerg/scope/rag v0.59.0/go.mod h1:HQSSEEWqEk47t5+1XoDbZzlmNHgxx28g1NyYuryB2lA=
+github.com/Tangerg/scope/core v0.60.0 h1:InGaTjSyC11jLkYu6ycjwdtgvcotFMluBL0sAk+WWpk=
+github.com/Tangerg/scope/core v0.60.0/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
+github.com/Tangerg/scope/rag v0.60.0 h1:SupC9hGBZNGRAcXm8bYgPJ6XaDY5U+lnY4clhv8lDQU=
+github.com/Tangerg/scope/rag v0.60.0/go.mod h1:L8ppDNVta2m+FJqyCQnpUAZxs8/g2zZ80KaExn+b1oA=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=
