@@ -207,7 +207,7 @@ func TestDeleteWhereUsesObservedETag(t *testing.T) {
 			if fault == "missing predicate" {
 				predicate = nil
 			}
-			err := store.DeleteMatching(t.Context(), testScanRequest(predicate))
+			err := store.DeleteMatching(t.Context(), predicate, testScanBudget())
 			if fault == "none" {
 				if err != nil || len(fixture.records) != 0 || !slices.Equal(fixture.deletes, []string{"one"}) {
 					t.Fatalf("DeleteWhere = %v, deletes %v", err, fixture.deletes)

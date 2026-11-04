@@ -40,7 +40,7 @@ func TestSpaceRoutesReadsWritesAndDeletes(t *testing.T) {
 		if got, err := first.Scan(t.Context(), request); got != nil || !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatalf("scan: %v, %v", got, err)
 		}
-		if err := first.DeleteMatching(t.Context(), request); !errors.Is(err, vectorstore.ErrScanBudget) || len(f.deletes) != 0 {
+		if err := first.DeleteMatching(t.Context(), request.Filter, request.Budget); !errors.Is(err, vectorstore.ErrScanBudget) || len(f.deletes) != 0 {
 			t.Fatalf("over-budget delete: %v", err)
 		}
 	}

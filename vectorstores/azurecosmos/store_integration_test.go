@@ -72,7 +72,7 @@ func TestNativeCosmos(t *testing.T) {
 				defer func() {
 					cleanup, stop := context.WithTimeout(context.WithoutCancel(queryCtx), time.Minute)
 					defer stop()
-					queryErr = errors.Join(queryErr, store.DeleteMatching(cleanup, testScanRequest(filter.IsNull("unused"))))
+					queryErr = errors.Join(queryErr, store.DeleteMatching(cleanup, filter.IsNull("unused"), testScanBudget()))
 				}()
 				if queryErr = store.Upsert(queryCtx, testBatch(docs)); queryErr != nil {
 					return nil, queryErr
@@ -104,7 +104,7 @@ func TestNativeCosmos(t *testing.T) {
 			if !errors.As(deleteErr, &nativeErr) || nativeErr.StatusCode != 412 {
 				t.Fatalf("native stale conditional delete = %v", deleteErr)
 			}
-			if deleteErr = store.DeleteMatching(ctx, testScanRequest(filter.IsNull("unused"))); deleteErr != nil {
+			if deleteErr = store.DeleteMatching(ctx, filter.IsNull("unused"), testScanBudget()); deleteErr != nil {
 				t.Fatal(deleteErr)
 			}
 		})

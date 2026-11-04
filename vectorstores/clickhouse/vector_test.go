@@ -62,7 +62,7 @@ func TestBudgetStopsAtomicDeleteBeforeMutation(t *testing.T) {
 		} else {
 			request.Budget.MaxRecords = 1
 		}
-		if err := s.DeleteMatching(t.Context(), request); !errors.Is(err, vectorstore.ErrScanBudget) {
+		if err := s.DeleteMatching(t.Context(), request.Filter, request.Budget); !errors.Is(err, vectorstore.ErrScanBudget) {
 			t.Fatal(err)
 		}
 	}

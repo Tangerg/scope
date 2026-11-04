@@ -43,7 +43,7 @@ func ExampleNewStore() {
 	if _, err = store.Query(ctx, &vectorstore.Query{Space: "manual-v1", Values: []float64{1, 0}}); err != nil {
 		panic(err)
 	}
-	if err = store.DeleteMatching(ctx, vectorstore.ScanRequest{Budget: vectorstore.ScanBudget{MaxRecords: 100, MaxBytes: 1 << 20, Timeout: time.Second}, Filter: filter.IsNull("unused")}); err != nil {
+	if err = store.DeleteMatching(ctx, filter.IsNull("unused"), vectorstore.ScanBudget{MaxRecords: 100, MaxBytes: 1 << 20, Timeout: time.Second}); err != nil {
 		panic(err)
 	}
 }

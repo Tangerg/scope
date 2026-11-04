@@ -625,10 +625,11 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (foun
 
 // DeleteMatching proves membership over the complete bounded snapshot before
 // buffering deletes on the same session. Only native COMMIT publishes them.
-func (s *Store) DeleteMatching(ctx context.Context, request vectorstore.ScanRequest) (err error) {
-	if request.Filter == nil {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (err error) {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
+	request := vectorstore.ScanRequest{Budget: budget, Filter: predicate}
 	if err = request.Validate(); err != nil {
 		return err
 	}

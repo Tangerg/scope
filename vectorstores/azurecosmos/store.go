@@ -389,11 +389,11 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 // DeleteMatching verifies the complete authorized scan before the first delete.
 // A replacement is protected by its native ETag. Deletes are individually
 // acknowledged, not atomic across a partition; failures return a WriteError.
-func (s *Store) DeleteMatching(ctx context.Context, request vectorstore.ScanRequest) error {
-	if request.Filter == nil {
+func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
+	if predicate == nil {
 		return vectorstore.ErrMissingFilter
 	}
-	selected, err := s.selectItems(ctx, request)
+	selected, err := s.selectItems(ctx, vectorstore.ScanRequest{Budget: budget, Filter: predicate})
 	if err != nil {
 		return err
 	}
