@@ -44,7 +44,7 @@ func TestAdvertisementDefectPreservesCompletedExternalWork(t *testing.T) {
 				t.Fatalf("termination=%+v calls=%d", result.Termination(), calls)
 			}
 			log := completedLog(t, store, handle.ID())
-			rounds := mustValue(SettledResults(program, log))
+			rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(log))
 			if len(rounds) != 1 || !rounds[0].Complete() || rounds[0].Entries()[0].Disposition != ResultSucceeded {
 				t.Fatal("successful external result retracted by declaration defect")
 			}

@@ -315,7 +315,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 	if inputs := PendingToolInputs(program, mustValue(completed.Inspect())); len(inputs) != 0 {
 		t.Fatal("completed call retained an answerable question")
 	}
-	rounds := mustValue(SettledResults(program, completed))
+	rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(completed))
 	if len(rounds) != 1 || !rounds[0].Complete() || rounds[0].Entries()[0].Reference != intended {
 		t.Fatal("continuations created additional logical calls")
 	}

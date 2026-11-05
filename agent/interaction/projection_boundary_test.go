@@ -203,7 +203,7 @@ func TestSparseRoundsRetainProviderOrderAndOnlyCommittedReferences(t *testing.T)
 		}
 		return false
 	})
-	rounds := mustValue(SettledResults(program, log))
+	rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(log))
 	if len(rounds) != 1 || rounds[0].Complete() || rounds[0].CallCount() != 2 || len(rounds[0].Entries()) != 1 || rounds[0].Entries()[0].ToolCallIndex != 0 {
 		t.Fatal("missing outcome changed provider indexes or fabricated completion")
 	}
@@ -232,7 +232,7 @@ func TestSparseRoundsRetainProviderOrderAndOnlyCommittedReferences(t *testing.T)
 		t.Fatal(err)
 	}
 	awaitOutput(t, handle)
-	completed := mustValue(SettledResults(program, completedLog(t, store, handle.ID())))
+	completed := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(completedLog(t, store, handle.ID())))
 	if len(completed) != 1 || !completed[0].Complete() || completed[0].Entries()[1].Call.ID != "uncertain" || completed[0].Entries()[1].Reference != request.ID() {
 		t.Fatal("resolution created a second logical call or changed provider order")
 	}
@@ -247,13 +247,13 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
 	different := mustValue(Compile(runtime.Compiler(), Config{Name: program.Descriptor().Name(), Description: program.Descriptor().Description(), Revision: "another-configuration", Model: CallModel(model)}))
-	if got := mustValue(SettledResults(different, log)); len(got) != 0 {
+	if got := mustValue(mustValue(NewHistoryProjection(different)).SettledResults(log)); len(got) != 0 {
 		t.Fatal("program name overrode exact binding identity")
 	}
 	if got := PendingToolInputs(different, mustValue(log.Inspect())); len(got) != 0 {
 		t.Fatal("foreign program acquired an input question")
 	}
-	if got := mustValue(DelegateAttributions(different, log)); len(got) != 0 {
+	if got := mustValue(mustValue(NewHistoryProjection(different)).DelegateAttributions(log)); len(got) != 0 {
 		t.Fatal("foreign program acquired a delegated child")
 	}
 	stage := mustValue(workflow.Transform("finish", func(context.Context, Input) (Output, error) {
@@ -261,7 +261,12 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 	}))
 	otherStrategy := mustValue(workflow.Compile[Input, Output](runtime.Compiler(), workflow.Config{Name: "test.workflow", Description: "Another strategy with identical Go shapes.", Revision: "finish", Stages: []workflow.Stage{stage}}))
 	for _, invalid := range []run.Program[Input, Output]{{}, otherStrategy} {
-		assertProjectionRejection(t, invalid, log)
+		if _, err := NewHistoryProjection(invalid); err == nil {
+			t.Fatal("non-interaction program acquired a history projection")
+		}
+	}
+	if _, err := (&HistoryProjection{}).SettledResults(log); err == nil {
+		t.Fatal("unbound projection acquired settled results")
 	}
 	broken := mustValue(log.Clone())
 	broken.Entries[2].LSN++
@@ -282,11 +287,12 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 
 func assertProjectionRejection(t *testing.T, program run.Program[Input, Output], log run.Log) {
 	t.Helper()
-	if _, err := SettledResults(program, log); err == nil {
-		t.Fatal("invalid log or program acquired settled results")
+	projection := mustValue(NewHistoryProjection(program))
+	if _, err := projection.SettledResults(log); err == nil {
+		t.Fatal("invalid log acquired settled results")
 	}
-	if _, err := DelegateAttributions(program, log); err == nil {
-		t.Fatal("invalid log or program acquired delegate attribution")
+	if _, err := projection.DelegateAttributions(log); err == nil {
+		t.Fatal("invalid log acquired delegate attribution")
 	}
 }
 
@@ -318,12 +324,12 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 			handle := startInteraction(t, runtime, program)
 			awaitOutput(t, handle)
 			log := completedLog(t, store, handle.ID())
-			rounds := mustValue(SettledResults(program, log))
+			rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(log))
 			if len(rounds) != 1 || !rounds[0].Complete() || len(rounds[0].Entries()) != 1 || !rounds[0].Entries()[0].Result.IsError {
 				t.Fatal("unsuccessful delegate became a successful result")
 			}
 			entry := rounds[0].Entries()[0]
-			attribution := mustValue(DelegateAttributions(program, log))
+			attribution := mustValue(mustValue(NewHistoryProjection(program)).DelegateAttributions(log))
 			if rejected {
 				if entry.Disposition != ResultRejected || len(attribution) != 0 {
 					t.Fatal("unstarted delegate acquired a child lifecycle")

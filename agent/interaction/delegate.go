@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"fmt"
 	"slices"
 
@@ -150,7 +149,7 @@ func (d Delegate) validateChild(spec run.ChildSpec, sequence uint64, call chat.T
 		return err
 	}
 	if spec.Key != expected.Key || spec.ProgramRef != expected.ProgramRef || spec.Budget != expected.Budget ||
-		!bytes.Equal(spec.Input.JSON(), expected.Input.JSON()) || !slices.Equal(spec.Capabilities.Values(), expected.Capabilities.Values()) {
+		!spec.Input.Equal(expected.Input) || !slices.Equal(spec.Capabilities.Values(), expected.Capabilities.Values()) {
 		return fmt.Errorf("%w: child intent differs from its declared delegation", ErrInvalidDelegate)
 	}
 	return nil

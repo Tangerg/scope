@@ -231,7 +231,7 @@ func TestDelegateResultProjectionRequiresTheDeclaredOutputContract(t *testing.T)
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
-	if rounds := mustValue(SettledResults(program, log)); len(rounds) != 1 || !rounds[0].Complete() {
+	if rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(log)); len(rounds) != 1 || !rounds[0].Complete() {
 		t.Fatal("valid delegated output was not projected")
 	}
 	corrupt := mustValue(log.Clone())

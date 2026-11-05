@@ -3,20 +3,78 @@ package interaction
 import (
 	"bytes"
 	"fmt"
+	"sync"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
 
-type interactionProjection struct {
-	rounds    []*RoundResults
-	delegates []DelegateAttribution
+// HistoryProjection reads one interaction Program's settled tool rounds and
+// delegate attributions from the complete history that run.Runtime.History
+// returns. A checkpoint does not keep settled rounds, so every read validates
+// and folds the whole caller-owned Log, exactly as the first read did.
+//
+// Strictly decoding committed model requests dominates that fold and grows with
+// the conversation, so the projection remembers what each dispatcher Effect of
+// its latest successfully projected history decoded to, keyed by EffectID and
+// its exact canonical payload. A host re-reading a growing history after each
+// commit therefore decodes every committed request once. The projection retains
+// those payloads until its next successful read. It is safe for concurrent use
+// and owns no acknowledgment, execution, persistence or retry policy.
+type HistoryProjection struct {
+	program    run.ProgramRef
+	definition *definition
+	mu         sync.Mutex
+	dispatches map[run.EffectID]dispatchFact
 }
 
-func projectInteractions(program run.Program[Input, Output], log run.Log) (interactionProjection, error) {
-	projector, err := newHistoryProjector(program)
+// NewHistoryProjection binds a projection to a compiled interaction Program.
+// Programs with the same Go types but another definition are rejected.
+func NewHistoryProjection(program run.Program[Input, Output]) (*HistoryProjection, error) {
+	if !program.Valid() {
+		return nil, ErrInvalidResult
+	}
+	definition, bound := program.Definition().(*definition)
+	if !bound {
+		return nil, ErrInvalidResult
+	}
+	return &HistoryProjection{program: program.ProgramRef(), definition: definition}, nil
+}
+
+// SettledResults returns the rounds with at least one settled call. Only
+// committed intents establish references. Locally rejected proposals that never
+// emitted an effect are not presented as externally executed operations.
+func (h *HistoryProjection) SettledResults(log run.Log) ([]RoundResults, error) {
+	projection, err := h.project(log)
 	if err != nil {
-		return interactionProjection{}, err
+		return nil, err
+	}
+	var result []RoundResults
+	for _, round := range projection.rounds {
+		if len(round.entries) == 0 {
+			continue
+		}
+		if err := round.seal(); err != nil {
+			return nil, err
+		}
+		result = append(result, *round)
+	}
+	return result, nil
+}
+
+// DelegateAttributions returns the started delegate children and the proposed
+// calls that own them.
+func (h *HistoryProjection) DelegateAttributions(log run.Log) ([]DelegateAttribution, error) {
+	projection, err := h.project(log)
+	if err != nil {
+		return nil, err
+	}
+	return projection.delegates, nil
+}
+
+func (h *HistoryProjection) project(log run.Log) (interactionProjection, error) {
+	if h == nil || h.definition == nil {
+		return interactionProjection{}, ErrInvalidResult
 	}
 	if !log.Complete() {
 		return interactionProjection{}, fmt.Errorf("%w: projection requires the complete history", ErrInvalidResult)
@@ -24,12 +82,51 @@ func projectInteractions(program run.Program[Input, Output], log run.Log) (inter
 	if err := log.Validate(); err != nil {
 		return interactionProjection{}, err
 	}
+	h.mu.Lock()
+	decoded := h.dispatches
+	h.mu.Unlock()
+	projector := newHistoryProjector(h.program, h.definition, decoded)
 	for _, entry := range log.Entries {
 		if err := projector.apply(entry.Record); err != nil {
 			return interactionProjection{}, err
 		}
 	}
+	// Published maps are never mutated, so a concurrent read may still use the
+	// previous one; either is a correct cache of the same pure decoding.
+	h.mu.Lock()
+	h.dispatches = projector.dispatches
+	h.mu.Unlock()
 	return projector.projection, nil
+}
+
+// dispatchFact is what later records need from one strictly decoded dispatcher
+// Effect. Decoding depends only on the canonical payload, so the same Effect
+// with identical payload bytes reuses its fact instead of decoding again.
+type dispatchFact struct {
+	payload           run.Payload
+	operation         operation
+	modelCallSequence uint64
+	toolCall          toolDispatchRequest
+}
+
+func decodeDispatchFact(payload run.Payload) (dispatchFact, error) {
+	envelope, err := decodeEffect(payload.JSON())
+	if err != nil {
+		return dispatchFact{}, err
+	}
+	fact := dispatchFact{payload: payload, operation: envelope.operation()}
+	switch fact.operation {
+	case operationModelCall:
+		fact.modelCallSequence = envelope.ModelCall.ModelCallSequence
+	case operationToolCall:
+		fact.toolCall = *envelope.ToolCall
+	}
+	return fact, nil
+}
+
+type interactionProjection struct {
+	rounds    []*RoundResults
+	delegates []DelegateAttribution
 }
 
 // historyProjector folds one Program's committed history into its tool rounds
@@ -40,32 +137,30 @@ type historyProjector struct {
 	definition *definition
 	projection interactionProjection
 	// members marks the processes that run this Program; others are skipped.
-	members   map[run.ProcessID]bool
-	intents   map[run.EffectID]run.EffectIntent
-	models    map[run.EffectID]modelCall
-	rounds    map[run.ProcessID]*RoundResults
-	calls     map[run.EffectID]*projectedCall
-	delegates map[run.ProcessID]*projectedCall
+	members map[run.ProcessID]bool
+	intents map[run.EffectID]run.EffectIntent
+	// decoded is the previous read's cache; dispatches holds only this history's facts.
+	decoded    map[run.EffectID]dispatchFact
+	dispatches map[run.EffectID]dispatchFact
+	models     map[run.EffectID]uint64
+	rounds     map[run.ProcessID]*RoundResults
+	calls      map[run.EffectID]*projectedCall
+	delegates  map[run.ProcessID]*projectedCall
 }
 
-func newHistoryProjector(program run.Program[Input, Output]) (*historyProjector, error) {
-	if !program.Valid() {
-		return nil, ErrInvalidResult
-	}
-	definition, bound := program.Definition().(*definition)
-	if !bound {
-		return nil, ErrInvalidResult
-	}
+func newHistoryProjector(program run.ProgramRef, definition *definition, decoded map[run.EffectID]dispatchFact) *historyProjector {
 	return &historyProjector{
-		program:    program.ProgramRef(),
+		program:    program,
 		definition: definition,
 		members:    make(map[run.ProcessID]bool),
 		intents:    make(map[run.EffectID]run.EffectIntent),
-		models:     make(map[run.EffectID]modelCall),
+		decoded:    decoded,
+		dispatches: make(map[run.EffectID]dispatchFact, len(decoded)),
+		models:     make(map[run.EffectID]uint64),
 		rounds:     make(map[run.ProcessID]*RoundResults),
 		calls:      make(map[run.EffectID]*projectedCall),
 		delegates:  make(map[run.ProcessID]*projectedCall),
-	}, nil
+	}
 }
 
 func (h *historyProjector) apply(record run.Record) error {
@@ -100,16 +195,21 @@ func (h *historyProjector) intended(intent run.EffectIntent) error {
 }
 
 func (h *historyProjector) intendedDispatch(intent run.EffectIntent) error {
-	envelope, err := decodeEffect(intent.Effect.Payload().JSON())
-	if err != nil {
-		return err
+	payload := intent.Effect.Payload()
+	fact, known := h.decoded[intent.ID]
+	if !known || !fact.payload.Equal(payload) {
+		var err error
+		if fact, err = decodeDispatchFact(payload); err != nil {
+			return err
+		}
 	}
-	switch envelope.operation() {
+	h.dispatches[intent.ID] = fact
+	switch fact.operation {
 	case operationModelCall:
-		h.models[intent.ID] = *envelope.ModelCall
+		h.models[intent.ID] = fact.modelCallSequence
 		return nil
 	case operationToolCall:
-		return h.intendedToolCall(intent.ID, *envelope.ToolCall)
+		return h.intendedToolCall(intent.ID, fact.toolCall)
 	default:
 		return nil
 	}
@@ -169,8 +269,8 @@ func (h *historyProjector) settled(settled run.EffectSettled) error {
 	if !found {
 		return ErrInvalidResult
 	}
-	if model, modelCall := h.models[settled.ID]; modelCall {
-		return h.settledModel(settled, model)
+	if sequence, modelCall := h.models[settled.ID]; modelCall {
+		return h.settledModel(settled, sequence)
 	}
 	call, found := h.calls[settled.ID]
 	if !found {
@@ -182,7 +282,7 @@ func (h *historyProjector) settled(settled run.EffectSettled) error {
 	return h.settledToolCall(settled, call)
 }
 
-func (h *historyProjector) settledModel(settled run.EffectSettled, model modelCall) error {
+func (h *historyProjector) settledModel(settled run.EffectSettled, sequence uint64) error {
 	if settled.Outcome.Status() != run.SettlementStatusSucceeded {
 		return nil
 	}
@@ -197,7 +297,7 @@ func (h *historyProjector) settledModel(settled run.EffectSettled, model modelCa
 	if err != nil {
 		return err
 	}
-	round := &RoundResults{model: settled.ID, sequence: model.ModelCallSequence, calls: proposed, references: make(map[uint32]run.EffectID)}
+	round := &RoundResults{model: settled.ID, sequence: sequence, calls: proposed, references: make(map[uint32]run.EffectID)}
 	h.rounds[settled.ID.Process] = round
 	h.projection.rounds = append(h.projection.rounds, round)
 	return nil

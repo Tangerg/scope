@@ -23,12 +23,3 @@ func (d DelegateAttribution) Valid() bool {
 	parent, child := d.processID.Parent()
 	return child && parent == d.reference.Process && d.reference.Valid() && d.modelCallSequence > 0 && d.toolCall.Validate() == nil
 }
-
-// DelegateAttributions projects the complete history that run.Runtime.History reads.
-func DelegateAttributions(program run.Program[Input, Output], log run.Log) ([]DelegateAttribution, error) {
-	projection, err := projectInteractions(program, log)
-	if err != nil {
-		return nil, err
-	}
-	return projection.delegates, nil
-}

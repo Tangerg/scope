@@ -221,7 +221,7 @@ func TestToolsUseDirectEffectsAndCommittedOutcomes(t *testing.T) {
 	if !slices.Equal(calls, []tool.IdempotencyKey{idempotencyKey(intents[1]), idempotencyKey(intents[2])}) {
 		t.Fatalf("idempotency keys %v are not the committed tool intents %v", calls, intents)
 	}
-	rounds, err := SettledResults(program, log)
+	rounds, err := mustValue(NewHistoryProjection(program)).SettledResults(log)
 	if err != nil || len(rounds) != 1 || !rounds[0].Complete() {
 		t.Fatalf("rounds=%+v err=%v", rounds, err)
 	}
@@ -485,7 +485,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)
 	log := completedLog(t, store, handle.ID())
-	attributed, err := DelegateAttributions(program, log)
+	attributed, err := mustValue(NewHistoryProjection(program)).DelegateAttributions(log)
 	if err != nil || len(attributed) != 1 || attributed[0].ProcessID().Depth() != 1 {
 		t.Fatalf("attribution=%+v err=%v", attributed, err)
 	}
@@ -496,7 +496,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 			t.Fatal("delegation attribution lost its intent or child identity")
 		}
 	}
-	rounds, err := SettledResults(program, log)
+	rounds, err := mustValue(NewHistoryProjection(program)).SettledResults(log)
 	if err != nil || len(rounds) != 1 || !rounds[0].Complete() {
 		t.Fatalf("rounds=%+v err=%v", rounds, err)
 	}

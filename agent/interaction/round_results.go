@@ -147,24 +147,3 @@ type roundResultsWire struct {
 	CallCount uint32        `json:"call_count"`
 	Entries   []ResultEntry `json:"entries"`
 }
-
-// SettledResults projects the complete history that run.Runtime.History reads.
-// Only committed intents establish references. Locally rejected proposals that
-// never emitted an effect are not presented as externally executed operations.
-func SettledResults(program run.Program[Input, Output], log run.Log) ([]RoundResults, error) {
-	projection, err := projectInteractions(program, log)
-	if err != nil {
-		return nil, err
-	}
-	var result []RoundResults
-	for _, round := range projection.rounds {
-		if len(round.entries) == 0 {
-			continue
-		}
-		if err := round.seal(); err != nil {
-			return nil, err
-		}
-		result = append(result, *round)
-	}
-	return result, nil
-}

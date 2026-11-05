@@ -49,7 +49,8 @@
 // must be deterministic, bounded, side-effect-free, and cancellation-aware.
 // External context processing belongs in its dispatcher Effect instead.
 //
-// [SettledResults] and [DelegateAttributions] project the complete history that
-// run.Runtime.History reads, because a checkpoint does not keep settled rounds.
-// They own no acknowledgment, execution, persistence, or retry policy.
+// [HistoryProjection] reads settled tool rounds and delegate attributions from
+// the complete history that run.Runtime.History reads, because a checkpoint does
+// not keep settled rounds. It owns no acknowledgment, execution, persistence, or
+// retry policy.
 package interaction

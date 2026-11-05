@@ -106,7 +106,7 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 		}
 		return false
 	})
-	rounds := mustValue(SettledResults(program, log))
+	rounds := mustValue(mustValue(NewHistoryProjection(program)).SettledResults(log))
 	if len(rounds) != 1 || rounds[0].Complete() || len(rounds[0].Entries()) != 1 || rounds[0].Entries()[0].ToolCallIndex != 1 || idempotencyKey(rounds[0].Entries()[0].Reference) != second {
 		t.Fatal("an early second result changed the provider's proposal indexes")
 	}
