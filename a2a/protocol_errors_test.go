@@ -56,7 +56,7 @@ func TestProtocolHandlerAppliesVersionAndErrorBoundariesToCustomHandlers(t *test
 			const diagnostic = "private-handler-diagnostic"
 			var calls atomic.Int32
 			card := &sdka2a.AgentCard{Name: "test", SupportedInterfaces: []*sdka2a.AgentInterface{sdka2a.NewAgentInterface("https://agent.example/invoke", sdka2a.TransportProtocolJSONRPC)}, Capabilities: sdka2a.AgentCapabilities{Streaming: true}}
-			handler, err := NewProtocolHTTPHandler(card, diagnosticRequestHandler{calls: &calls, err: errors.New(diagnostic)})
+			handler, err := NewProtocolHTTPHandler(ProtocolServerConfig{Card: card, Handler: diagnosticRequestHandler{calls: &calls, err: errors.New(diagnostic)}})
 			if err != nil {
 				t.Fatal(err)
 			}

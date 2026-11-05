@@ -31,6 +31,8 @@ type Config struct {
 	Authority func(ctx context.Context, tenant string) (string, error)
 	// Service isolates independently deployed endpoints sharing a runtime store.
 	Service string
+	// MaxRequestBytes has the meaning of [a2a.ServerConfig.MaxRequestBytes].
+	MaxRequestBytes int64
 }
 type handler struct {
 	runtime   *run.Runtime
@@ -67,7 +69,7 @@ func NewHTTPHandler(cfg Config) (http.Handler, error) {
 	card.DefaultInputModes = slices.Clone(content.inputs)
 	card.DefaultOutputModes = slices.Clone(content.outputs)
 	h := &handler{runtime: cfg.Runtime, program: cfg.Program, authority: cfg.Authority, service: cfg.Service, streaming: card.Capabilities.Streaming, content: content}
-	return a2a.NewProtocolHTTPHandler(&card, h)
+	return a2a.NewProtocolHTTPHandler(a2a.ProtocolServerConfig{Card: &card, Handler: h, MaxRequestBytes: cfg.MaxRequestBytes})
 }
 
 func (h *handler) scope(ctx context.Context, tenant string) (string, error) {

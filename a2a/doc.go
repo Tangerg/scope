@@ -7,6 +7,8 @@
 // responsibility rather than a hidden default.
 // Discovery has independent time and decoded-body limits configured by
 // [Endpoint.CardTimeout] and [Endpoint.CardMaxBytes]; neither limits RPC work.
+// A served handler bounds each RPC request body by
+// [ServerConfig.MaxRequestBytes] before the SDK decodes it.
 //
 // [Endpoint.ConcurrencyPolicy] supplies Host scheduling declarations for remote
 // tools; [ToolConcurrencyPolicy] describes their scope. The served handler is

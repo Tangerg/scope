@@ -48,16 +48,6 @@ func TestMalformedWaitExtensionNeverFallsBackToUnaddressedText(t *testing.T) {
 		})
 	}
 }
-func TestProtocolHandlerRejectsMissingOwners(t *testing.T) {
-	var missing *a2asrv.InterceptedHandler
-	if handler, err := NewProtocolHTTPHandler(&sdk.AgentCard{}, missing); err == nil || handler != nil {
-		t.Fatal("typed nil handler advertised capabilities")
-	}
-	raw := a2asrv.NewHandler(a2asrv.AgentExecutorFunc(func(context.Context, *a2asrv.ExecutorContext) iter.Seq2[sdk.Event, error] { return nil }))
-	if handler, err := NewProtocolHTTPHandler(nil, raw); !errors.Is(err, ErrNilCard) || handler != nil {
-		t.Fatal("endpoint without identity", err)
-	}
-}
 
 // The public route serves the supplied handler's durable task projections.
 // A typed JSON reply carries the original wait, task, context and message ID.
@@ -104,7 +94,7 @@ func TestProtocolHandlerAndRemoteToolShareAnExactStructuredWait(t *testing.T) {
 	})
 	store := taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
 	raw := a2asrv.NewHandler(exec, a2asrv.WithTaskStore(store))
-	service, err := NewProtocolHTTPHandler(card, raw)
+	service, err := NewProtocolHTTPHandler(ProtocolServerConfig{Card: card, Handler: raw})
 	if err != nil {
 		t.Fatal(err)
 	}

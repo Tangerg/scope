@@ -12,7 +12,9 @@ var (
 	ErrNilCard            = errors.New("a2a: agent card must not be nil")
 	ErrInvalidCard        = errors.New("a2a: invalid agent card")
 
-	ErrNilTaskStore = errors.New("a2a: task store must not be nil")
+	ErrNilTaskStore           = errors.New("a2a: task store must not be nil")
+	ErrNilProtocolHandler     = errors.New("a2a: protocol handler must not be nil")
+	ErrInvalidMaxRequestBytes = errors.New("a2a: maximum request bytes must not be negative")
 
 	ErrNilAgent = errors.New("a2a: agent must not be nil")
 

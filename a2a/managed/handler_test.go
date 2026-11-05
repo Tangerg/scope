@@ -551,3 +551,42 @@ func TestUnknownStartIsNotAClientRejection(t *testing.T) {
 		t.Fatalf("task read exposed a private storage diagnostic: %s %v", unavailable.Error, err)
 	}
 }
+
+func TestRequestBodiesAreBoundedBeforeDecoding(t *testing.T) {
+	const limit = 1 << 10
+	const request = `{"jsonrpc":"2.0","id":"1","method":"GetTask","params":{"id":"task-1"}}`
+	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: run.NewMemoryStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := rt.Close(context.Background()); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	handler, err := managed.NewHTTPHandler(managed.Config{
+		Runtime: rt, Program: program(t, rt.Compiler(), &dispatch{}), Service: "test", MaxRequestBytes: limit,
+		Card:      &sdk.AgentCard{Name: "test", SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("https://agent.example/rpc", sdk.TransportProtocolJSONRPC)}},
+		Authority: func(context.Context, string) (string, error) { return "public", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		size int
+		code string
+	}{
+		{size: limit, code: `"code":-32001`},
+		{size: limit + 1, code: `"code":-32700`},
+	} {
+		body := strings.Repeat(" ", test.size-len(request)) + request
+		req := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(sdk.SvcParamVersion, string(sdk.Version))
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+		if wire := resp.Body.String(); !strings.Contains(wire, test.code) {
+			t.Fatalf("%d-byte request under a %d-byte bound answered %s, want %s", test.size, limit, wire, test.code)
+		}
+	}
+}

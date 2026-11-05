@@ -36,7 +36,28 @@ type ServerConfig struct {
 	// lifetime with no eviction, so a long-running server must supply a store it
 	// can bound; a short-lived one may pass that in-memory store explicitly.
 	TaskStore taskstore.Store
+
+	// MaxRequestBytes bounds one RPC request body. The protocol decoder buffers a
+	// whole request before any authentication or admission can refuse it, so an
+	// unbounded body lets any caller choose this server's memory use. Zero selects
+	// 4 MiB, far above an ordinary text or JSON message; a Host exchanging larger
+	// payloads raises it.
+	MaxRequestBytes int64
 }
+
+// ProtocolServerConfig serves an already-bound A2A request handler.
+type ProtocolServerConfig struct {
+	// Card has the requirements of [ServerConfig.Card] apart from its text-only
+	// modes; Handler owns the semantics of every capability it declares.
+	Card *sdka2a.AgentCard
+
+	Handler a2asrv.RequestHandler
+
+	// MaxRequestBytes has the meaning of [ServerConfig.MaxRequestBytes].
+	MaxRequestBytes int64
+}
+
+const defaultMaxRequestBytes int64 = 4 << 20
 
 // NewHTTPHandler leaves listener, TLS, timeouts, and middleware ownership with
 // the Host. The assembled request handler owns which protocol capabilities this
@@ -53,7 +74,7 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 	if lo.IsNil(config.TaskStore) {
 		return nil, ErrNilTaskStore
 	}
-	return serveProtocol(config.Card, func(card *sdka2a.AgentCard) (a2asrv.RequestHandler, error) {
+	return serveProtocol(config.Card, config.MaxRequestBytes, func(card *sdka2a.AgentCard) (a2asrv.RequestHandler, error) {
 		enforcer, enforcerErr := a2asrv.NewAgentCardEnforcer(card)
 		if enforcerErr != nil {
 			return nil, fmt.Errorf("%w %q: %w", ErrInvalidCard, card.Name, enforcerErr)
@@ -66,17 +87,25 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 }
 
 // NewProtocolHTTPHandler serves a fixed agent card and an already-bound A2A
-// request handler on its declared JSON-RPC route. The supplied handler owns
-// lifecycle semantics and must implement the capabilities declared by its card.
-func NewProtocolHTTPHandler(card *sdka2a.AgentCard, handler a2asrv.RequestHandler) (http.Handler, error) {
-	if lo.IsNil(handler) {
-		return nil, fmt.Errorf("a2a: protocol handler required")
+// request handler on its declared JSON-RPC route.
+func NewProtocolHTTPHandler(config ProtocolServerConfig) (http.Handler, error) {
+	if lo.IsNil(config.Handler) {
+		return nil, ErrNilProtocolHandler
 	}
-	return serveProtocol(card, func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error) { return handler, nil })
+	return serveProtocol(config.Card, config.MaxRequestBytes, func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error) {
+		return config.Handler, nil
+	})
 }
-func serveProtocol(source *sdka2a.AgentCard, bind func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error)) (http.Handler, error) {
+
+func serveProtocol(source *sdka2a.AgentCard, maxRequestBytes int64, bind func(*sdka2a.AgentCard) (a2asrv.RequestHandler, error)) (http.Handler, error) {
 	if source == nil {
 		return nil, ErrNilCard
+	}
+	switch {
+	case maxRequestBytes < 0:
+		return nil, ErrInvalidMaxRequestBytes
+	case maxRequestBytes == 0:
+		maxRequestBytes = defaultMaxRequestBytes
 	}
 	card, encoded, err := freezeCard(source)
 	if err != nil {
@@ -95,9 +124,9 @@ func serveProtocol(source *sdka2a.AgentCard, bind func(*sdka2a.AgentCard) (a2asr
 	}
 	cardHandler := a2asrv.NewAgentCardHandler(staticAgentCard{card: card, encoded: encoded})
 
-	rpcHandler := a2asrv.NewJSONRPCHandler(&a2asrv.InterceptedHandler{
+	rpcHandler := http.MaxBytesHandler(a2asrv.NewJSONRPCHandler(&a2asrv.InterceptedHandler{
 		Handler: requestHandler, Interceptors: []a2asrv.CallInterceptor{protocolErrors{}},
-	})
+	}), maxRequestBytes)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case a2asrv.WellKnownAgentCardPath:

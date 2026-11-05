@@ -32,7 +32,7 @@ func testTaskStore(t testing.TB) taskstore.Store {
 	return taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
 }
 
-func TestNewHTTPHandlerRequiresAgentCardAndTaskStore(t *testing.T) {
+func TestNewHTTPHandlerRejectsInvalidConfig(t *testing.T) {
 	card := &sdka2a.AgentCard{Name: "test"}
 	var nilAgent *echoAgent
 	tests := []struct {
@@ -64,6 +64,11 @@ func TestNewHTTPHandlerRequiresAgentCardAndTaskStore(t *testing.T) {
 			name:   "typed nil task store",
 			config: a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: (*taskstore.InMemory)(nil)},
 			want:   a2a.ErrNilTaskStore,
+		},
+		{
+			name:   "negative request bound",
+			config: a2a.ServerConfig{Agent: echoAgent{}, Card: card, TaskStore: testTaskStore(t), MaxRequestBytes: -1},
+			want:   a2a.ErrInvalidMaxRequestBytes,
 		},
 	}
 
