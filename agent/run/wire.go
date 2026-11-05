@@ -81,8 +81,10 @@ func (p Payload) JSON() json.RawMessage { return bytes.Clone(p.data) }
 // IsZero distinguishes an absent optional payload from an explicit JSON null.
 func (p Payload) IsZero() bool { return !p.Valid() }
 
-// equal compares canonical encodings, which every Payload constructor produces.
-func (p Payload) equal(other Payload) bool { return bytes.Equal(p.data, other.data) }
+// Equal reports whether both payloads hold the same canonical JSON. Every
+// constructor normalizes its input, so equal values have identical bytes; two
+// absent payloads are equal.
+func (p Payload) Equal(other Payload) bool { return bytes.Equal(p.data, other.data) }
 
 func (p Payload) Valid() bool { return len(p.data) > 0 }
 

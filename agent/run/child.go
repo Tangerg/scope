@@ -51,7 +51,7 @@ func (c ChildSpec) Valid() bool { return c.Key.Valid() && c.ProgramRef.Valid() &
 
 func (c ChildSpec) equal(other ChildSpec) bool {
 	return c.Key == other.Key && c.ProgramRef == other.ProgramRef && c.Budget == other.Budget &&
-		slices.Equal(c.Capabilities.values, other.Capabilities.values) && c.Input.equal(other.Input)
+		slices.Equal(c.Capabilities.values, other.Capabilities.values) && c.Input.Equal(other.Input)
 }
 
 func (c *ChildSpec) UnmarshalJSON(data []byte) error {
@@ -95,6 +95,10 @@ func NewChildCancelEffect(child ProcessID, reason string) (Effect, error) {
 type childSignal struct {
 	Child  ProcessID `json:"child"`
 	Signal Signal    `json:"signal"`
+}
+
+func (c childSignal) equal(other childSignal) bool {
+	return c.Child == other.Child && c.Signal.equal(other.Signal)
 }
 
 type childCancellation struct {

@@ -30,6 +30,10 @@ func (s Signal) receipt() SignalReceipt {
 	return SignalReceipt{ID: s.ID, Wait: s.Wait, Digest: s.digest()}
 }
 
+func (s Signal) equal(other Signal) bool {
+	return s.ID == other.ID && s.Wait == other.Wait && s.Payload.Equal(other.Payload)
+}
+
 type Completion struct {
 	Effect  EffectID   `json:"effect"`
 	Outcome Settlement `json:"outcome"`

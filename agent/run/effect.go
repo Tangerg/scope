@@ -135,13 +135,23 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// equal never treats an invalid Effect as evidence of a committed one. Each
+// variant's value objects own their equality, so log validation compares
+// normalized facts instead of re-encoding payloads that grow with history.
 func (e Effect) equal(other Effect) bool {
-	left, err := jsonv2.Marshal(e)
-	if err != nil {
+	if !e.Valid() || !other.Valid() {
 		return false
 	}
-	right, err := jsonv2.Marshal(other)
-	return err == nil && string(left) == string(right)
+	switch {
+	case e.call.Valid():
+		return e.call.Equal(other.call)
+	case e.spawn != nil:
+		return other.spawn != nil && e.spawn.equal(*other.spawn)
+	case e.send != nil:
+		return other.send != nil && e.send.equal(*other.send)
+	default:
+		return other.cancel != nil && *e.cancel == *other.cancel
+	}
 }
 
 type effectWire struct {

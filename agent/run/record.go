@@ -128,7 +128,7 @@ type EffectSettled struct {
 
 func (EffectSettled) recordKind() RecordKind { return RecordKindEffectSettled }
 func (e EffectSettled) valid() bool {
-	return e.ID.Valid() && e.Outcome.Valid() && !e.At.IsZero() && (e.Failure == nil || e.Failure.Valid() && e.Outcome.Status() == SettlementStatusUnknown && e.Outcome.payload.equal(nullPayload))
+	return e.ID.Valid() && e.Outcome.Valid() && !e.At.IsZero() && (e.Failure == nil || e.Failure.Valid() && e.Outcome.Status() == SettlementStatusUnknown && e.Outcome.payload.Equal(nullPayload))
 }
 
 type Exited struct {

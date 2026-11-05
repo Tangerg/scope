@@ -143,13 +143,13 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// equal compares the committed facts the wire form encodes; absent and empty
+// effect or wait lists encode identically and are therefore the same.
 func (t Transition) equal(other Transition) bool {
-	left, err := jsonv2.Marshal(t)
-	if err != nil {
-		return false
-	}
-	right, err := jsonv2.Marshal(other)
-	return err == nil && string(left) == string(right)
+	return t.Valid() && other.Valid() && t.kind == other.kind && t.consumed == other.consumed &&
+		slices.EqualFunc(t.effects, other.effects, Effect.equal) &&
+		slices.EqualFunc(t.waits, other.waits, Wait.equal) &&
+		t.output.Equal(other.output) && t.failure == other.failure
 }
 
 func cloneEffects(effects []Effect) []Effect {

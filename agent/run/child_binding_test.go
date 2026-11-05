@@ -15,7 +15,7 @@ func TestChildBindingFreezesAuthorityIntoAnAdmittedChildSpec(t *testing.T) {
 	spec := controlValue(binding.Spec(key, input))
 	binding.Budget.Steps = NewQuota(9)
 	binding.Capabilities = CapabilitySet{}
-	if !spec.Valid() || spec.Key != key || spec.ProgramRef != program.ProgramRef() || spec.Budget.Steps != NewQuota(3) || !spec.Capabilities.Allows(capabilities) || !spec.Input.equal(input) {
+	if !spec.Valid() || spec.Key != key || spec.ProgramRef != program.ProgramRef() || spec.Budget.Steps != NewQuota(3) || !spec.Capabilities.Allows(capabilities) || !spec.Input.Equal(input) {
 		t.Fatal("child specification retained mutable binding authority")
 	}
 	for _, test := range []struct {
