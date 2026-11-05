@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync/atomic"
@@ -70,7 +71,14 @@ func TestClientConfigValidate(t *testing.T) {
 		{name: "missing hosts", config: ClientConfig{}, want: ErrMissingAllowedHosts},
 		{name: "invalid host", config: ClientConfig{AllowedHosts: []string{"bad*host"}}, want: ErrInvalidClientConfig},
 		{name: "host URL", config: ClientConfig{AllowedHosts: []string{"https://example.com"}}, want: ErrInvalidHostPattern},
-		{name: "host with port", config: ClientConfig{AllowedHosts: []string{"example.com:443"}}, want: ErrInvalidHostPattern},
+		{name: "host with port", config: ClientConfig{AllowedHosts: []string{"example.com:8443", "*.example.com:8443", "[::1]:8080", "127.0.0.1:8080"}}},
+		{name: "port zero", config: ClientConfig{AllowedHosts: []string{"example.com:0"}}, want: ErrInvalidHostPattern},
+		{name: "port out of range", config: ClientConfig{AllowedHosts: []string{"example.com:65536"}}, want: ErrInvalidHostPattern},
+		{name: "empty port", config: ClientConfig{AllowedHosts: []string{"example.com:"}}, want: ErrInvalidHostPattern},
+		{name: "named port", config: ClientConfig{AllowedHosts: []string{"example.com:https"}}, want: ErrInvalidHostPattern},
+		{name: "invalid network", config: ClientConfig{AllowedHosts: []string{"example.com"}, AllowedNetworks: []netip.Prefix{{}}}, want: ErrInvalidClientConfig},
+		{name: "networks with a supplied transport", config: ClientConfig{AllowedHosts: []string{"example.com"}, AllowedNetworks: loopback, HTTPClient: &http.Client{Transport: &http.Transport{}}}, want: ErrInvalidClientConfig},
+		{name: "networks with a client using the own transport", config: ClientConfig{AllowedHosts: []string{"example.com"}, AllowedNetworks: loopback, HTTPClient: &http.Client{}}},
 		{name: "wildcard IP", config: ClientConfig{AllowedHosts: []string{"*.127.0.0.1"}}, want: ErrInvalidHostPattern},
 		{name: "blank method", config: ClientConfig{AllowedHosts: []string{"example.com"}, AllowedMethods: []Method{""}}, want: ErrInvalidClientConfig},
 		{name: "unsupported method", config: ClientConfig{AllowedHosts: []string{"example.com"}, AllowedMethods: []Method{"CONNECT"}}, want: ErrInvalidMethod},
@@ -123,8 +131,8 @@ func TestAllowlistNormalizesDNSAndIPHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, host := range []string{"bücher.example", "xn--bcher-kva.example.", "2001:db8::1"} {
-		if !allowlist.Allows(host) {
+	for _, host := range []string{"bücher.example", "xn--bcher-kva.example.", "[2001:db8::1]"} {
+		if !allowlist.Allows(httpsURL(host)) {
 			t.Errorf("normalized host %q should be allowed", host)
 		}
 	}
@@ -165,12 +173,9 @@ func TestDo_HostAllowlist(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	srvURL := srv.URL
-	hostOnly, _, err := net.SplitHostPort(srv.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	authority := srv.Listener.Addr().String()
 
-	client, err := NewClient(ClientConfig{AllowedHosts: []string{hostOnly}})
+	client, err := NewClient(ClientConfig{AllowedHosts: []string{authority}, AllowedNetworks: loopback})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +214,7 @@ func TestDo_RedirectHostAllowlist(t *testing.T) {
 		}))
 		t.Cleanup(source.Close)
 
-		client, err := NewClient(ClientConfig{AllowedHosts: []string{testURLHostname(t, source.URL)}})
+		client, err := NewClient(ClientConfig{AllowedHosts: []string{testURLHost(t, source.URL), testURLHost(t, target.URL)}, AllowedNetworks: loopback})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -242,8 +247,9 @@ func TestDo_RedirectHostAllowlist(t *testing.T) {
 			},
 		}
 		client, err := NewClient(ClientConfig{
-			AllowedHosts: []string{testURLHostname(t, source.URL)},
-			HTTPClient:   httpClient,
+			AllowedHosts:    []string{testURLHost(t, source.URL)},
+			AllowedNetworks: loopback,
+			HTTPClient:      httpClient,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -279,8 +285,9 @@ func TestDo_RedirectRevalidatesMethod(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	client, err := NewClient(ClientConfig{
-		AllowedHosts:   []string{testURLHostname(t, srv.URL)},
-		AllowedMethods: []Method{MethodPOST},
+		AllowedHosts:    []string{testURLHost(t, srv.URL)},
+		AllowedNetworks: loopback,
+		AllowedMethods:  []Method{MethodPOST},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -308,16 +315,16 @@ func TestDo_WildcardHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !client.policy.allowedHosts.Allows("api.example.com") {
+	if !client.policy.allowedHosts.Allows(httpsURL("api.example.com")) {
 		t.Error("api.example.com should match *.example.com")
 	}
-	if !client.policy.allowedHosts.Allows("a.b.example.com") {
+	if !client.policy.allowedHosts.Allows(httpsURL("a.b.example.com")) {
 		t.Error("a.b.example.com should match *.example.com")
 	}
-	if client.policy.allowedHosts.Allows("example.com") {
+	if client.policy.allowedHosts.Allows(httpsURL("example.com")) {
 		t.Error("example.com should NOT match *.example.com (suffix-only)")
 	}
-	if client.policy.allowedHosts.Allows("evilexample.com") {
+	if client.policy.allowedHosts.Allows(httpsURL("evilexample.com")) {
 		t.Error("evilexample.com should NOT match *.example.com")
 	}
 }
@@ -328,12 +335,9 @@ func TestDo_MethodAllowlist(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	hostOnly, _, err := net.SplitHostPort(srv.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	authority := srv.Listener.Addr().String()
 
-	client, err := NewClient(ClientConfig{AllowedHosts: []string{hostOnly}})
+	client, err := NewClient(ClientConfig{AllowedHosts: []string{authority}, AllowedNetworks: loopback})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,8 +348,9 @@ func TestDo_MethodAllowlist(t *testing.T) {
 	}
 
 	writeClient, err := NewClient(ClientConfig{
-		AllowedHosts:   []string{hostOnly},
-		AllowedMethods: []Method{MethodGET, MethodPOST},
+		AllowedHosts:    []string{authority},
+		AllowedNetworks: loopback,
+		AllowedMethods:  []Method{MethodGET, MethodPOST},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -388,13 +393,11 @@ func TestDo_ResponseTruncation(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	hostOnly, _, err := net.SplitHostPort(srv.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	authority := srv.Listener.Addr().String()
 
 	client, err := NewClient(ClientConfig{
-		AllowedHosts:     []string{hostOnly},
+		AllowedHosts:     []string{authority},
+		AllowedNetworks:  loopback,
 		MaxResponseBytes: 100,
 	})
 	if err != nil {
@@ -434,13 +437,11 @@ func TestDo_DefaultHeadersAndQuery(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	hostOnly, _, err := net.SplitHostPort(srv.Listener.Addr().String())
-	if err != nil {
-		t.Fatal(err)
-	}
+	authority := srv.Listener.Addr().String()
 	client, err := NewClient(ClientConfig{
-		AllowedHosts:   []string{hostOnly},
-		DefaultHeaders: map[string]string{"Authorization": "Bearer secret"},
+		AllowedHosts:    []string{authority},
+		AllowedNetworks: loopback,
+		DefaultHeaders:  map[string]string{"Authorization": "Bearer secret"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -461,14 +462,19 @@ func TestDo_DefaultHeadersAndQuery(t *testing.T) {
 	}
 }
 
-func testURLHostname(t *testing.T, rawURL string) string {
+// loopback admits the test servers, which listen on the IPv4 loopback address.
+var loopback = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
+
+func testURLHost(t *testing.T, rawURL string) string {
 	t.Helper()
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		t.Fatalf("parse test URL: %v", err)
 	}
-	return parsed.Hostname()
+	return parsed.Host
 }
+
+func httpsURL(host string) *url.URL { return &url.URL{Scheme: "https", Host: host} }
 
 func testURLWithHostname(t *testing.T, rawURL, hostname string) string {
 	t.Helper()

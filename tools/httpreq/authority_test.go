@@ -28,7 +28,7 @@ func TestModelCannotOverrideHTTPAuthority(t *testing.T) {
 				t.Error("request with forbidden authority reached the transport")
 			}))
 			t.Cleanup(server.Close)
-			client, err := NewClient(ClientConfig{AllowedHosts: []string{"127.0.0.1"}, HTTPClient: server.Client()})
+			client, err := NewClient(ClientConfig{AllowedHosts: []string{server.Listener.Addr().String()}, HTTPClient: server.Client()})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -48,7 +48,7 @@ func TestTrustedDefaultAuthorityRemainsHostOwned(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	t.Cleanup(server.Close)
-	client, err := NewClient(ClientConfig{AllowedHosts: []string{"127.0.0.1"}, DefaultHeaders: map[string]string{"Host": "trusted.internal"}, HTTPClient: server.Client()})
+	client, err := NewClient(ClientConfig{AllowedHosts: []string{server.Listener.Addr().String()}, DefaultHeaders: map[string]string{"Host": "trusted.internal"}, HTTPClient: server.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRedirectKeepsHostVetoAndBindsSecretsToOriginalOrigin(t *testing.T) {
 	}))
 	defer source.Close()
 	denied := errors.New("host refused redirect")
-	cfg := ClientConfig{AllowedHosts: []string{"127.0.0.1"}, AllowedMethods: []Method{MethodGET, MethodPOST}, DefaultHeaders: map[string]string{"X-Private-Key": "secret"}, HTTPClient: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return denied }}}
+	cfg := ClientConfig{AllowedHosts: []string{source.Listener.Addr().String(), target.Listener.Addr().String()}, AllowedNetworks: loopback, AllowedMethods: []Method{MethodGET, MethodPOST}, DefaultHeaders: map[string]string{"X-Private-Key": "secret"}, HTTPClient: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return denied }}}
 	client, err := NewClient(cfg)
 	if err != nil {
 		t.Fatal(err)

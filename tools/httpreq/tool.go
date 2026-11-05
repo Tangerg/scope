@@ -42,7 +42,7 @@ func NewTool(client *Client) (*Tool, error) {
 const description = `Execute a single HTTP request and return the response.
 - The "url" must be a fully-formed absolute http(s) URL.
 - Method defaults to GET. Write methods (POST/PUT/PATCH/DELETE) only work when configured policy allows them.
-- Configured policy restricts which hosts and methods are reachable. A policy rejection is final for that host and method; do not retry the same request.
+- Configured policy restricts which hosts, ports and methods are reachable. A policy rejection is final for that host and method; do not retry the same request.
 - Response body is capped by the configured policy; when truncated, response.truncated == true.
 - Body and header values contain encoding and data: utf8 is readable text; base64 preserves non-UTF8 bytes.
 - For body with JSON content, pass a JSON-encoded string as "body" and set Content-Type via "headers".

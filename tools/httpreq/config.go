@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
+
+	"github.com/samber/lo"
 )
 
 const (
@@ -19,9 +22,18 @@ const maxSupportedResponseBytes = int64(math.MaxInt64 - 1)
 
 // ClientConfig requires AllowedHosts; there is no default network access.
 type ClientConfig struct {
-	// AllowedHosts accepts exact hosts and one leading wildcard, such as
-	// "api.example.com" or "*.example.com". A wildcard does not match its root.
+	// AllowedHosts accepts exact hosts and one leading wildcard, each with an
+	// optional port, such as "api.example.com", "*.example.com" or
+	// "localhost:8080". A wildcard does not match its root. A pattern without a
+	// port admits only the request scheme's default port.
 	AllowedHosts []string
+
+	// AllowedNetworks admits connections to addresses outside public unicast
+	// space, such as 127.0.0.0/8 for a loopback service. Without a matching
+	// network the client refuses private, loopback, link-local and other
+	// special-purpose addresses, including those a permitted host resolves to.
+	// It governs only the client's own transport.
+	AllowedNetworks []netip.Prefix
 
 	// AllowedMethods defaults to GET and HEAD. Comparison is case-insensitive.
 	AllowedMethods []Method
@@ -35,13 +47,17 @@ type ClientConfig struct {
 	// DefaultTimeout selects [DefaultTimeout] at zero.
 	DefaultTimeout time.Duration
 
-	// HTTPClient supplies caller-owned transport, cookie jar, proxy, and TLS
-	// settings. NewClient clones the value before installing redirect policy.
+	// HTTPClient supplies caller-owned redirect policy, cookie jar, and
+	// timeout. NewClient clones the value before installing its own redirect
+	// policy. A nil Transport selects the client's own, which connects directly
+	// through the address policy. A supplied Transport decides where its
+	// connections go, so it cannot be combined with AllowedNetworks.
 	HTTPClient *http.Client
 }
 
 type clientPolicy struct {
 	allowedHosts     Allowlist
+	addresses        addressPolicy
 	allowedMethods   map[Method]struct{}
 	maxResponseBytes int64
 	defaultTimeout   time.Duration
@@ -62,9 +78,8 @@ func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) 
 	if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
 		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
 	}
-	host := request.URL.Hostname()
-	if !c.allowedHosts.Allows(host) {
-		return fmt.Errorf("%w: redirect target %q", ErrHostNotAllowed, host)
+	if !c.allowedHosts.Allows(request.URL) {
+		return fmt.Errorf("%w: redirect target %q", ErrHostNotAllowed, request.URL.Host)
 	}
 	method, err := Method(request.Method).Normalize()
 	if err != nil {
@@ -98,12 +113,20 @@ func (c ClientConfig) compilePolicy() (clientPolicy, error) {
 	if err != nil {
 		return clientPolicy{}, fmt.Errorf("%w: allowed hosts: %w", ErrInvalidClientConfig, err)
 	}
+	if len(c.AllowedNetworks) != 0 && c.HTTPClient != nil && !lo.IsNil(c.HTTPClient.Transport) {
+		return clientPolicy{}, fmt.Errorf("%w: allowed networks govern only the client's own transport", ErrInvalidClientConfig)
+	}
+	addresses, err := newAddressPolicy(c.AllowedNetworks)
+	if err != nil {
+		return clientPolicy{}, err
+	}
 	allowedMethods, err := c.compileAllowedMethods()
 	if err != nil {
 		return clientPolicy{}, err
 	}
 	return clientPolicy{
 		allowedHosts:     allowedHosts,
+		addresses:        addresses,
 		allowedMethods:   allowedMethods,
 		maxResponseBytes: cmp.Or(c.MaxResponseBytes, DefaultMaxResponseBytes),
 		defaultTimeout:   cmp.Or(c.DefaultTimeout, DefaultTimeout),

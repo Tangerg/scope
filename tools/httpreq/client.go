@@ -34,7 +34,7 @@ func NewClient(config ClientConfig) (*Client, error) {
 		*transport = *config.HTTPClient
 	}
 	if lo.IsNil(transport.Transport) {
-		transport.Transport = http.DefaultTransport
+		transport.Transport = policy.addresses.transport()
 	}
 	hostRedirect := transport.CheckRedirect
 	transport.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -158,9 +158,8 @@ func (c *Client) admit(request *Request) (*Request, string, error) {
 	if err != nil {
 		return nil, "", &admissionError{fmt.Errorf("httpreq: parse validated request URL: %w", err)}
 	}
-	host := parsedURL.Hostname()
-	if !c.policy.allowedHosts.Allows(host) {
-		return nil, "", &admissionError{fmt.Errorf("%w: %s", ErrHostNotAllowed, host)}
+	if !c.policy.allowedHosts.Allows(parsedURL) {
+		return nil, "", &admissionError{fmt.Errorf("%w: %s", ErrHostNotAllowed, parsedURL.Host)}
 	}
-	return prepared, host, nil
+	return prepared, parsedURL.Hostname(), nil
 }
