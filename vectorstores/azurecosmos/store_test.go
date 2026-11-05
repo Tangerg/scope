@@ -22,6 +22,7 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
@@ -312,7 +313,7 @@ func storedDocument(t *testing.T, doc *document.Document) json.RawMessage {
 	}
 	vector := []float32{1, 0}
 	etag := `"original"`
-	record.Embedding = &vector
+	record.Embedding = new(corevector.Coordinates[float32](vector))
 	record.ETag = &etag
 	return mustJSON(t, record)
 }

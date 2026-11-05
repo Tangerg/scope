@@ -525,7 +525,7 @@ func TestDirectEffectRestorationAndExplicitCoordinates(t *testing.T) {
 	if err != nil || first.Kind() != run.TransitionKindYield {
 		t.Fatalf("first=%v %v", first, err)
 	}
-	response, err := (modelCallResult{Response: callResponse(requested("echo", "call"))}).settlement(run.MaxPayloadBytes)
+	response, err := (modelCallResult{Response: callResponse(requested("echo", "call"))}).settlement()
 	if err != nil {
 		t.Fatal(err)
 	}

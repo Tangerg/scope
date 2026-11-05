@@ -4,20 +4,19 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 
 	"github.com/couchbase/gocb/v2"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type storedDocument struct {
-	Content  string `json:"content"`
-	Metadata string `json:"metadata"`
-	// Nullable wire elements distinguish JSON null from a genuine zero component.
-	Embedding []*float64 `json:"embedding"`
+	Content   string                          `json:"content"`
+	Metadata  string                          `json:"metadata"`
+	Embedding corevector.Coordinates[float64] `json:"embedding"`
 }
 
 type storedRow struct {
@@ -52,16 +51,15 @@ func encodeStoredDocument(doc *document.Document, vector []float64) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	values := make([]*float64, len(vector))
-	for i := range vector {
-		values[i] = &vector[i]
-	}
-	return jsonv2.Marshal(storedDocument{Content: doc.Text, Metadata: string(encoded), Embedding: values})
+	return jsonv2.Marshal(storedDocument{Content: doc.Text, Metadata: string(encoded), Embedding: vector})
 }
 
 func decodeStoredRow(raw []byte) (storedCandidate, error) {
 	var row storedRow
 	if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
+		if errors.Is(err, corevector.ErrInvalidCoordinates) {
+			err = fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
+		}
 		return storedCandidate{}, fmt.Errorf("couchbase: decode stored record: %w", err)
 	}
 	if row.CAS == 0 {
@@ -78,27 +76,8 @@ func decodeStoredRow(raw []byte) (storedCandidate, error) {
 	if err := doc.Validate(); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored document: %w", err)
 	}
-	vector := make([]float64, len(row.Record.Embedding))
-	for i, value := range row.Record.Embedding {
-		if value == nil {
-			return storedCandidate{}, fmt.Errorf("couchbase: stored embedding[%d] is null", i)
-		}
-		vector[i] = *value
+	if err := row.Record.Embedding.Validate(); err != nil {
+		return storedCandidate{}, fmt.Errorf("%w: couchbase: invalid stored embedding: %w", vectorstore.ErrInvalidRequest, err)
 	}
-	if err := validCoordinates(vector); err != nil {
-		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored embedding: %w", err)
-	}
-	return storedCandidate{document: doc, embedding: vector, cas: gocb.Cas(row.CAS)}, nil
-}
-
-func validCoordinates(v []float64) error {
-	if len(v) == 0 {
-		return vectorstore.ErrInvalidRequest
-	}
-	for _, x := range v {
-		if math.IsNaN(x) || math.IsInf(x, 0) {
-			return vectorstore.ErrInvalidRequest
-		}
-	}
-	return nil
+	return storedCandidate{document: doc, embedding: row.Record.Embedding, cas: gocb.Cas(row.CAS)}, nil
 }

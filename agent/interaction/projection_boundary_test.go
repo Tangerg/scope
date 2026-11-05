@@ -74,7 +74,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 
 func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T) {
 	call := requested("echo", "one")
-	model := mustValue((modelCallResult{Response: finalResponse("done")}).settlement(run.MaxPayloadBytes))
+	model := mustValue((modelCallResult{Response: finalResponse("done")}).settlement())
 	toolResult := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("echo")}}).settlement())
 	failure := mustValue(run.NewFailure(run.FailureKindExternal, failureCodeModelFailed, "rejected"))
 	nullDetails := mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(`null`)))))

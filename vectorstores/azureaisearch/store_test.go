@@ -288,7 +288,7 @@ func TestSearchContinuationAndCredentialOrigin(t *testing.T) {
 }
 
 func TestSearchRejectsMalformedReturnedFacts(t *testing.T) {
-	for _, test := range []string{"flat metadata", "null metadata column", "invalid JSON", "wrong vector width", "missing text", "unknown field", "invalid key"} {
+	for _, test := range []string{"flat metadata", "null metadata column", "invalid JSON", "wrong vector width", "null coordinate", "missing text", "unknown field", "invalid key"} {
 		t.Run(test, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fixture.put(&document.Document{ID: "one", Text: "one"})
@@ -304,6 +304,8 @@ func TestSearchRejectsMalformedReturnedFacts(t *testing.T) {
 				_ = row.Set("scope_metadata", `{"n":`)
 			case "wrong vector width":
 				_ = row.Set(testSpace.StorageKey(), []float32{1})
+			case "null coordinate":
+				row[testSpace.StorageKey()] = json.RawMessage(`[1,null]`)
 			case "missing text":
 				delete(row, "content")
 			case "unknown field":

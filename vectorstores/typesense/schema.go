@@ -4,12 +4,11 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -65,7 +64,7 @@ func newCollectionSchema(schema *api.CollectionResponse, name string, space vect
 }
 
 func (c collectionSchema) narrow(vector []float64) ([]float32, error) {
-	narrowed := embedding.Float32Vector(vector)
+	narrowed := corevector.Float32(vector)
 	if err := c.validateVector(narrowed); err != nil {
 		return nil, err
 	}
@@ -73,14 +72,14 @@ func (c collectionSchema) narrow(vector []float64) ([]float32, error) {
 }
 
 func (c collectionSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != c.dimensions {
 		return fmt.Errorf("typesense: vector dimension %d differs from native dimension %d", len(vector), c.dimensions)
 	}
 	nonzero := false
 	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("typesense: vector is not finite float32")
-		}
 		nonzero = nonzero || value != 0
 	}
 	if !nonzero {

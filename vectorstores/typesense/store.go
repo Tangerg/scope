@@ -21,7 +21,7 @@ import (
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -200,7 +200,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		item.Embedding = &vec
+		item.Embedding = new(corevector.Coordinates[float32](vec))
 		wire, err := jsonv2.Marshal(item)
 		if err != nil {
 			return err

@@ -7,11 +7,11 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/vector"
 )
 
 // SpaceID identifies the Host's immutable pairing of document and query
@@ -25,23 +25,6 @@ const SpaceStorageKeyPrefix = "sv_"
 
 var ErrIncompatibleSpace = errors.New("vectorstore: incompatible vector space")
 var ErrUnsupportedFilter = errors.New("vectorstore: metadata predicate cannot be executed natively")
-
-// JSON null must not invent a measured zero coordinate.
-var coordinateJSON = jsonv2.UnmarshalFunc(func(data []byte, target *[]float64) error {
-	var decoded []*float64
-	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	values := make([]float64, len(decoded))
-	for index, value := range decoded {
-		if value == nil {
-			return fmt.Errorf("%w: coordinate %d must be a number", ErrInvalidRequest, index)
-		}
-		values[index] = *value
-	}
-	*target = values
-	return nil
-})
 
 // StorageKey is a compact SQL-identifier-safe projection for physical schemas
 // with length or character restrictions. Its input is the declared Host binding,
@@ -71,8 +54,8 @@ func (s SpaceID) Require(expected SpaceID) error {
 
 // Record associates an indexed document with already-computed coordinates.
 type Record struct {
-	Document *document.Document `json:"document"`
-	Values   []float64          `json:"values"`
+	Document *document.Document          `json:"document"`
+	Values   vector.Coordinates[float64] `json:"values"`
 }
 
 func (r Record) Validate() error {
@@ -82,7 +65,10 @@ func (r Record) Validate() error {
 	if err := validatePresentDocument(r.Document); err != nil {
 		return err
 	}
-	return validateCoordinates(r.Values)
+	if err := r.Values.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
+	}
+	return nil
 }
 
 func (r Record) MarshalJSON() ([]byte, error) {
@@ -98,7 +84,7 @@ func (r *Record) UnmarshalJSON(data []byte) error {
 	}
 	type wire Record
 	var decoded wire
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), jsonv2.WithUnmarshalers(coordinateJSON)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	candidate := Record(decoded)
@@ -141,10 +127,10 @@ func (b *Batch) ValidateFor(space SpaceID) error {
 // Query carries precomputed coordinates. LexicalText is only meaningful in
 // native hybrid mode: stores must not silently run a different search.
 type Query struct {
-	Space       SpaceID       `json:"space"`
-	Values      []float64     `json:"values"`
-	LexicalText string        `json:"lexical_text,omitzero"`
-	Options     SearchOptions `json:"options"`
+	Space       SpaceID                     `json:"space"`
+	Values      vector.Coordinates[float64] `json:"values"`
+	LexicalText string                      `json:"lexical_text,omitzero"`
+	Options     SearchOptions               `json:"options"`
 }
 
 func (q *Query) ValidateFor(space SpaceID) error {
@@ -154,26 +140,14 @@ func (q *Query) ValidateFor(space SpaceID) error {
 	if err := q.Space.Require(space); err != nil {
 		return err
 	}
-	if err := validateCoordinates(q.Values); err != nil {
-		return err
+	if err := q.Values.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	if err := q.Options.Validate(); err != nil {
 		return err
 	}
 	if !utf8.ValidString(q.LexicalText) || q.Options.Mode == SearchModeHybrid && strings.TrimSpace(q.LexicalText) == "" || q.Options.Mode != SearchModeHybrid && q.LexicalText != "" {
 		return fmt.Errorf("%w: lexical text is required only for hybrid search", ErrInvalidRequest)
-	}
-	return nil
-}
-
-func validateCoordinates(values []float64) error {
-	if len(values) == 0 {
-		return fmt.Errorf("%w: missing coordinates", ErrInvalidRequest)
-	}
-	for i, v := range values {
-		if math.IsInf(v, 0) || math.IsNaN(v) {
-			return fmt.Errorf("%w: coordinate %d is not finite", ErrInvalidRequest, i)
-		}
 	}
 	return nil
 }
@@ -237,7 +211,7 @@ func (q *Query) UnmarshalJSON(data []byte) error {
 	}
 	type wire Query
 	var decoded wire
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), jsonv2.WithUnmarshalers(coordinateJSON)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
 	candidate := Query(decoded)

@@ -13,12 +13,21 @@ type Entry struct {
 	Record Record
 }
 
-func (e Entry) belongsTo(root ProcessID) bool {
-	if validateRecord(e.Record) != nil {
-		return false
+// ValidateFor admits one entry's structure and tree membership. A nonzero LSN
+// is required, but the root's first Started legitimately has Epoch zero.
+// Continuity, epoch progression, and replay consistency require the owning Log.
+func (e Entry) ValidateFor(root ProcessID) error {
+	if !root.Valid() || root.Depth() != 0 || e.LSN == 0 {
+		return ErrInvalidLog
+	}
+	if err := validateRecord(e.Record); err != nil {
+		return err
 	}
 	process := recordProcess(e.Record)
-	return !process.Valid() || process.Root() == root
+	if process.Valid() && process.Root() != root {
+		return ErrInvalidLog
+	}
+	return nil
 }
 
 func (e Entry) MarshalJSON() ([]byte, error) {

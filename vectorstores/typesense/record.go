@@ -6,14 +6,15 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type storedRecord struct {
-	ID        *string    `json:"id"`
-	Content   *string    `json:"content"`
-	Metadata  *string    `json:"metadata"`
-	Embedding *[]float32 `json:"embedding"`
+	ID        *string                          `json:"id"`
+	Content   *string                          `json:"content"`
+	Metadata  *string                          `json:"metadata"`
+	Embedding *corevector.Coordinates[float32] `json:"embedding"`
 }
 
 func encodeKey(id string) (string, error) {

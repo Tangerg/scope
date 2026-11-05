@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -316,10 +316,8 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	if len(vector) != s.dimensions || len(vector) == 0 {
 		return nil, errors.New("neo4j: stored vector width mismatch")
 	}
-	for _, v := range vector {
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, errors.New("neo4j: nonfinite stored coordinate")
-		}
+	if err := corevector.Coordinates[float64](vector).Validate(); err != nil {
+		return nil, err
 	}
 	elementID, _ := record.Get("elementID")
 	handle, ok := elementID.(string)

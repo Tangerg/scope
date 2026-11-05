@@ -84,7 +84,7 @@ func TestContainerOwnsNativeVectorPolicy(t *testing.T) {
 }
 
 func TestSearchValidatesFullPartitionBeforeEmbedding(t *testing.T) {
-	for _, fault := range []string{"metadata", "dimension", "unknown field", "partition", "etag", "duplicate ID", "whitespace ID", "predicate type", "token"} {
+	for _, fault := range []string{"metadata", "dimension", "null coordinate", "unknown field", "partition", "etag", "duplicate ID", "whitespace ID", "predicate type", "token"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)
 			store := fixture.store()
@@ -100,6 +100,8 @@ func TestSearchValidatesFullPartitionBeforeEmbedding(t *testing.T) {
 				fields["metadata"] = json.RawMessage(`"{broken"`)
 			case "dimension":
 				fields["embedding"] = json.RawMessage(`[1]`)
+			case "null coordinate":
+				fields["embedding"] = json.RawMessage(`[1,null]`)
 			case "unknown field":
 				fields["legacy"] = json.RawMessage(`true`)
 			case "partition":

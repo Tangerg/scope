@@ -104,7 +104,17 @@ func (g grepSearch) file(path string) (err error) {
 
 // runRipgrep feeds input to one ripgrep process and decodes its events into
 // decoder. Files arrive on stdin because only os.Root may resolve their paths.
-func runRipgrep(ctx context.Context, executable string, args []string, input io.Reader, decoder *ripgrepDecoder) error {
+func runRipgrep(ctx context.Context, executable string, args []string, input io.Reader, decoder *ripgrepDecoder) (err error) {
+	defer func() {
+		if contextErr := ctx.Err(); contextErr != nil {
+			if !errors.Is(err, contextErr) {
+				err = errors.Join(err, contextErr)
+			}
+			if cause := context.Cause(ctx); !errors.Is(err, cause) {
+				err = errors.Join(err, cause)
+			}
+		}
+	}()
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Stdin = input
 	var stderr bytes.Buffer
@@ -128,9 +138,6 @@ func runRipgrep(ctx context.Context, executable string, args []string, input io.
 	waitErr := command.Wait()
 	if waitErr == nil {
 		return nil
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return ctxErr
 	}
 	if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok && exitErr.ExitCode() == ripgrepNoMatchesExitCode {
 		return nil

@@ -3,6 +3,7 @@ package managed
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"slices"
 )
 
 type formValueType string
@@ -66,8 +67,8 @@ func (f formProperty) validate() error {
 		return errForm
 	}
 	if len(f.Enum) != 0 {
-		var options []string
-		if jsonv2.Unmarshal(f.Enum, &options) != nil || len(options) == 0 {
+		var options []*string
+		if jsonv2.Unmarshal(f.Enum, &options) != nil || len(options) == 0 || slices.Contains(options, nil) {
 			return errForm
 		}
 	}

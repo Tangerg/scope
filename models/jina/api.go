@@ -10,7 +10,9 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 const (
@@ -85,9 +87,9 @@ type embeddingResponse struct {
 	Object string `json:"object"`
 	Model  string `json:"model"`
 	Data   []struct {
-		Object    string     `json:"object"`
-		Index     *int64     `json:"index"`
-		Embedding []*float64 `json:"embedding"`
+		Object    string                          `json:"object"`
+		Index     *int64                          `json:"index"`
+		Embedding corevector.Coordinates[float64] `json:"embedding"`
 	} `json:"data"`
 	Usage struct {
 		TotalTokens  *int64 `json:"total_tokens"`
@@ -129,6 +131,9 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		SetResult(&out).
 		Post(embeddingEndpointPath)
 	if err != nil {
+		if errors.Is(err, corevector.ErrInvalidCoordinates) {
+			return nil, fmt.Errorf("%w: jina: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
+		}
 		return nil, fmt.Errorf("jina: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {

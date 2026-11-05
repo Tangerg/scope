@@ -2,19 +2,18 @@ package weaviate
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"slices"
 
-	"encoding/json"
-
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
@@ -143,7 +142,7 @@ func (n nativeSchema) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 }
 
 func nativeVector(values []float64, dimensions int) ([]float32, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := validateVector(vector, dimensions); err != nil {
 		return nil, err
 	}
@@ -151,13 +150,11 @@ func nativeVector(values []float64, dimensions int) ([]float32, error) {
 }
 
 func validateVector(vector []float32, dimensions int) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) == 0 || dimensions != 0 && len(vector) != dimensions {
 		return fmt.Errorf("weaviate: vector width %d differs from observed native dimension %d", len(vector), dimensions)
-	}
-	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("weaviate: vector is not finite FLOAT32")
-		}
 	}
 	return nil
 }

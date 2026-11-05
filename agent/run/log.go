@@ -105,11 +105,11 @@ func (l Log) validateEnvelope() error {
 		if entry.LSN != first+LSN(index) {
 			return ErrInvalidLog
 		}
-		if err := limits.admitRecord(entry.Record); err != nil {
+		if err := entry.ValidateFor(l.Root); err != nil {
 			return err
 		}
-		if process := recordProcess(entry.Record); process.Valid() && process.Root() != l.Root {
-			return ErrInvalidLog
+		if err := limits.admitRecord(entry.Record); err != nil {
+			return err
 		}
 		if activation, ok := entry.Record.(Activated); ok {
 			if epoch == Epoch(math.MaxUint64) || activation.Epoch != epoch+1 {

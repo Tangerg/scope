@@ -11,6 +11,7 @@ import (
 	"time"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 type nativeDuration struct {
@@ -263,9 +264,9 @@ type nativeEmbedRequest struct {
 }
 
 type nativeEmbedResponse struct {
-	Model           string       `json:"model"`
-	Embeddings      [][]*float64 `json:"embeddings"`
-	TotalDuration   *int64       `json:"total_duration,omitzero"`
-	LoadDuration    *int64       `json:"load_duration,omitzero"`
-	PromptEvalCount *int64       `json:"prompt_eval_count,omitzero"`
+	Model           string                            `json:"model"`
+	Embeddings      []corevector.Coordinates[float64] `json:"embeddings"`
+	TotalDuration   *int64                            `json:"total_duration,omitzero"`
+	LoadDuration    *int64                            `json:"load_duration,omitzero"`
+	PromptEvalCount *int64                            `json:"prompt_eval_count,omitzero"`
 }

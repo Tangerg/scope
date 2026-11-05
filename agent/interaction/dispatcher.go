@@ -117,15 +117,12 @@ func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit ru
 	}
 	// A content-free stop is the smallest complete chat response. Measure it
 	// with the same owner and representation as the eventual settlement.
-	minimum := modelCallResult{Response: &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}}
-	if _, settlementErr := minimum.settlement(d.definition.maxResponseBytes); settlementErr != nil {
+	minimum := &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
+	if _, settlementErr := d.definition.settleModelResponse(minimum, nil); settlementErr != nil {
 		return failedSettlement(settlementErr)
 	}
 	response, err := d.callModelResponse(ctx, modelRequest, emit)
-	if err != nil {
-		return modelFailureSettlement(response, err)
-	}
-	return (modelCallResult{Response: response}).settlement(d.definition.maxResponseBytes)
+	return d.definition.settleModelResponse(response, err)
 }
 
 func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, call *modelCall) (run.Settlement, error) {

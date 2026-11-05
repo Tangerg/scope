@@ -148,7 +148,7 @@ func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transi
 	return run.Yield(consumed, []run.Effect{effect})
 }
 func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision Decision, consumed uint32) (run.Transition, error) {
-	if err := e.state.validateDecision(ctx, e.definition, decision); err != nil {
+	if err := e.state.validateDecision(ctx, e.definition, turn.Process, decision); err != nil {
 		return run.Transition{}, err
 	}
 	if decision.completes() {
@@ -172,7 +172,7 @@ func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision D
 	}
 	e.state.Controls = nil
 	for _, control := range decision.Controls {
-		effect, err := control.effect(tasks[control.Task])
+		effect, err := control.effect(turn.Process, tasks[control.Task])
 		if err != nil {
 			return run.Transition{}, err
 		}

@@ -70,6 +70,15 @@ func TestSimilarityRejectsMismatchedVectors(t *testing.T) {
 	}
 }
 
+func TestSimilarityRetainsEmptyVectorIdentities(t *testing.T) {
+	if score := inmemory.DotProductSimilarity(nil, nil); score != vectorstore.ScoreFromInnerProduct(0) {
+		t.Fatalf("empty inner product score = %v", score)
+	}
+	if score := inmemory.EuclideanSimilarity(nil, nil); score != vectorstore.ScoreFromDistance(0) {
+		t.Fatalf("empty Euclidean distance score = %v", score)
+	}
+}
+
 func TestCosineSimilarityHandlesZeroMagnitude(t *testing.T) {
 	score := inmemory.CosineSimilarity([]float64{0, 0}, []float64{1, 1})
 	if err := score.Validate(); err != nil {

@@ -131,6 +131,9 @@ func TestCurrentSourceValidatedBeforePredicateAndMutation(t *testing.T) {
 			"wrong tensor": func(row metadata.Map) {
 				row["embedding"] = json.RawMessage(`{"type":"tensor<double>(x[2])","values":[1,0]}`)
 			},
+			"null coordinate": func(row metadata.Map) {
+				row["embedding"] = json.RawMessage(`{"type":"tensor<float>(x[2])","values":[1,null]}`)
+			},
 			"missing content": func(row metadata.Map) { delete(row, "content") },
 		} {
 			t.Run(operation+"/"+name, func(t *testing.T) {

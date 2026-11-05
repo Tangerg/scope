@@ -61,3 +61,28 @@ func TestLimitsRejectUnknownWireMembersAtomically(t *testing.T) {
 		t.Fatalf("failed decode partially replaced limits: %+v", limits)
 	}
 }
+
+func TestLimitsRejectNegativeWireBoundsAtomically(t *testing.T) {
+	for _, data := range []string{`{"total_tokens":-1}`, `{"elapsed_ns":-1}`} {
+		t.Run(data, func(t *testing.T) {
+			limits := trajectory.Limits{TotalTokens: new(int64(15)), Elapsed: new(time.Minute)}
+			if err := jsonv2.Unmarshal([]byte(data), &limits); !errors.Is(err, trajectory.ErrInvalidSample) {
+				t.Fatalf("negative limit admitted: %v", err)
+			}
+			if limits.TotalTokens == nil || *limits.TotalTokens != 15 || limits.Elapsed == nil || *limits.Elapsed != time.Minute {
+				t.Fatalf("failed decode partially replaced limits: %+v", limits)
+			}
+		})
+	}
+}
+
+func TestLimitsRejectNegativeBoundsOnMarshal(t *testing.T) {
+	for _, limits := range []trajectory.Limits{
+		{TotalTokens: new(int64(-1))},
+		{Elapsed: new(time.Duration(-1))},
+	} {
+		if _, err := jsonv2.Marshal(limits); !errors.Is(err, trajectory.ErrInvalidSample) {
+			t.Fatalf("negative limit serialized: %v", err)
+		}
+	}
+}

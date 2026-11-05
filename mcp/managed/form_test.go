@@ -15,6 +15,7 @@ func TestFormPreservesAdmittedSchemaWithoutDiscardingConstraints(t *testing.T) {
 	for _, raw := range []string{
 		`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","title":"Decision","description":"Choose a destination","properties":{"city":{"type":"string","title":"City","description":"Destination","enum":["Paris","Berlin"],"default":"Paris","minLength":1.0,"maxLength":1e2},"confirmed":{"type":"boolean","default":false}},"required":["city"],"additionalProperties":false}`,
 		`{"type":"object","properties":{"value":{"type":"string","default":"","minLength":0}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","enum":["","yes"]}}}`,
 		`{"type":"object","properties":{"value":{"type":"boolean","default":true}},"required":[]}`,
 		`{"type":"object","properties":{"value":{"type":"string","format":"date"}}}`,
 		`{"type":"object","properties":{"value":{"type":"string","format":"date-time"}}}`,
@@ -44,6 +45,8 @@ func TestFormRejectsUnrepresentableConstraintsAtTheirOwner(t *testing.T) {
 		`{"type":"object","properties":{"value":{"type":"string","format":""}}}`,
 		`{"type":"object","properties":{"value":{"type":"string","default":null}}}`,
 		`{"type":"object","properties":{"value":{"type":"string","default":[]}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","enum":[null]}}}`,
+		`{"type":"object","properties":{"value":{"type":"string","enum":["yes",null]}}}`,
 		`{"type":"object","properties":{"value":{"type":"boolean","default":null}}}`,
 		`{"type":"object","properties":{"value":{"type":"boolean","minLength":0}}}`,
 		`{"type":"object","properties":{"value":{"type":"boolean","maxLength":10}}}`,

@@ -16,7 +16,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -156,31 +156,19 @@ func decodeDocument(id v2.DocumentID, text v2.Document, facts v2.DocumentMetadat
 	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
-	if err = validateVector(vector.ContentAsFloat32()); err != nil {
-		return nil, err
+	if err = corevector.Coordinates[float32](vector.ContentAsFloat32()).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
 	return doc, nil
-}
-
-func validateVector(values []float32) error {
-	if len(values) == 0 {
-		return fmt.Errorf("%w: missing vector", vectorstore.ErrInvalidRequest)
-	}
-	for i, v := range values {
-		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
-			return fmt.Errorf("%w: nonfinite coordinate %d", vectorstore.ErrInvalidRequest, i)
-		}
-	}
-	return nil
 }
 
 func (s *Store) coordinates(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("chroma: %w: got %d coordinates, want %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
 	}
-	native := embedding.Float32Vector(values)
-	if err := validateVector(native); err != nil {
-		return nil, err
+	native := corevector.Float32(values)
+	if err := corevector.Coordinates[float32](native).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
 	return native, nil
 }

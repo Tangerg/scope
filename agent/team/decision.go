@@ -54,16 +54,11 @@ type Task struct {
 	Rejection *agentrun.Failure     `json:"rejection,omitzero"`
 }
 
-func (t Task) processID() (agentrun.ProcessID, bool) {
-	if t.Process == nil {
-		return agentrun.ProcessID{}, false
-	}
-	return *t.Process, true
-}
-
 // Control targets an already admitted task. Exactly one of Signal and
 // CancelReason is present. Signal uses the recipient's own input contract and
 // caller-stable identity; cancellation is intent, not proof of resource release.
+// A task may exit during the coordinator turn; the runtime then decides the
+// control's receipt without invalidating the coordinator's decision.
 type Control struct {
 	Task         agentrun.ChildKey `json:"task"`
 	Signal       *agentrun.Signal  `json:"signal,omitzero"`
@@ -129,11 +124,11 @@ func (c Control) validate() error {
 	return nil
 }
 
-func (c Control) effect(task *Task) (agentrun.Effect, error) {
+func (c Control) effect(parent agentrun.ProcessID, task *taskState) (agentrun.Effect, error) {
 	if task == nil || c.validate() != nil {
 		return agentrun.Effect{}, ErrInvalidDecision
 	}
-	id, started := task.processID()
+	id, started := task.processID(parent)
 	if !started {
 		return agentrun.Effect{}, ErrInvalidDecision
 	}

@@ -284,7 +284,7 @@ func TestRestorePreservesProviderOrderOfDirectToolEffects(t *testing.T) {
 			definition := mustValue(newDefinition(definitionConfig{Name: "test.restore.order", Description: "Bind results to the original provider order.", Tools: tools, MaxConcurrentToolCalls: row.concurrency}))
 			execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 			advance(t, execution, 1)
-			modelOutcome := mustValue((modelCallResult{Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third"))}).settlement(run.MaxPayloadBytes))
+			modelOutcome := mustValue((modelCallResult{Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third"))}).settlement())
 			advance(t, execution, 2, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: modelOutcome})
 			advance(t, execution, 3)
 			if row.concurrency == 2 {

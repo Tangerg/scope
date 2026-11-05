@@ -8,22 +8,23 @@ import (
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 const maxItemBytes = 2 * 1024 * 1024
 
 type itemRecord struct {
-	ID           *string         `json:"id"`
-	PartitionKey *string         `json:"partition_key"`
-	Content      *string         `json:"content"`
-	Metadata     *string         `json:"metadata"`
-	Embedding    *[]float32      `json:"embedding"`
-	ETag         *string         `json:"_etag,omitzero"`
-	RID          json.RawMessage `json:"_rid,omitzero"`
-	Self         json.RawMessage `json:"_self,omitzero"`
-	Attachments  json.RawMessage `json:"_attachments,omitzero"`
-	Timestamp    json.RawMessage `json:"_ts,omitzero"`
+	ID           *string                          `json:"id"`
+	PartitionKey *string                          `json:"partition_key"`
+	Content      *string                          `json:"content"`
+	Metadata     *string                          `json:"metadata"`
+	Embedding    *corevector.Coordinates[float32] `json:"embedding"`
+	ETag         *string                          `json:"_etag,omitzero"`
+	RID          json.RawMessage                  `json:"_rid,omitzero"`
+	Self         json.RawMessage                  `json:"_self,omitzero"`
+	Attachments  json.RawMessage                  `json:"_attachments,omitzero"`
+	Timestamp    json.RawMessage                  `json:"_ts,omitzero"`
 }
 
 func (i itemRecord) marshal() ([]byte, error) {

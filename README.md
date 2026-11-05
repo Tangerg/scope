@@ -20,7 +20,8 @@ Each capability has one owning package and one public representation. Scope avoi
 | Managed execution | `interaction.Compile`, `run.Runtime.Run`, `run.Runtime.Start`, `run.Handle.Await` | [Direct versus managed](examples/agent/direct_vs_managed/main.go) |
 | Recovery and remote reconciliation | `run.Store`, `run.Runtime.Recover`, `interaction.SettleToolResult`, `run.Handle.ResolveUnknownEffect` | [Unknown outcomes](examples/agent/reconciliation/doc.go), [PostgreSQL and process crashes](agent/run/postgres/doc.go) |
 | Direct tool execution | `tool.Bind`, `Contract.Prepare(tool.Request, nil)`, `Binding.Call` | [Tool contracts](core/tool/doc.go) |
-| Embedded indexing and retrieval | `index.Writer.Write`, `vector.Encoder`, `vectorstore.Batch`, `vectorstore.Query` | [Native and hosted backends](vectorstores/README.md) |
+| Numeric vector coordinates | `vector.Coordinates`, `vector.Float32` from `core/vector` | [Coordinate invariants](core/vector/doc.go) |
+| Embedded indexing and retrieval | `index.Writer.Write`, `vector.Encoder` from `rag/vector`; `vectorstore.Batch`, `vectorstore.Query` | [Native and hosted backends](vectorstores/README.md) |
 | Revision-bound RAG citations | Named ETL input, shared query encoding and prompt-admitted evidence | [Offline citation example](examples/rag/citations/main.go) |
 | External input and observation | `Handle.Inspect`, `Handle.Answer`, `Handle.Observe` | [Typed programs](agent/interaction/doc.go) |
 

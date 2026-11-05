@@ -105,14 +105,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 func (e *EmbeddingModel) buildResponse(apiResp *nativeEmbedResponse, req *embedding.Request) (*embedding.Response, error) {
 	outputs := make([]*embedding.Output, len(req.Texts))
 	for index, vec := range apiResp.Embeddings {
-		values := make([]float64, len(vec))
-		for i, value := range vec {
-			if value == nil {
-				return nil, fmt.Errorf("%w: ollama: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, i)
-			}
-			values[i] = *value
-		}
-		if err := embedding.PlaceOutput(outputs, index, values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
 			return nil, fmt.Errorf("ollama: embed response: %w", err)
 		}
 	}

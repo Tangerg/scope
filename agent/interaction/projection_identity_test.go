@@ -335,7 +335,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, invocation.ID, outcome))
 	}
 	// The encoder rejects duplicate call IDs, so the log is forged at the wire.
-	distinct := mustValue((modelCallResult{Response: callResponse(requested("echo", "same"), requested("echo", "other"))}).settlement(run.MaxPayloadBytes))
+	distinct := mustValue((modelCallResult{Response: callResponse(requested("echo", "same"), requested("echo", "other"))}).settlement())
 	forged := bytes.ReplaceAll(distinct.Payload().JSON(), []byte(`"other"`), []byte(`"same"`))
 	duplicate := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, forged))
 	assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, model.ID, duplicate))

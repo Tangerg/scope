@@ -13,7 +13,7 @@
 // [github.com/Tangerg/scope/core/chat.Model]-shaped SPI that carries it:
 //
 //   - chat: messages, parts, tool calls, usage, and output format.
-//   - embedding: text-to-vector requests and vectors.
+//   - embedding: text-to-vector requests and responses.
 //   - image: image generation.
 //   - moderation: content classification.
 //   - rerank: query-to-document relevance ranking.
@@ -40,6 +40,8 @@
 // ordered text/media blocks and citations, the canonical Document, the Media container shared by every modality, and the
 // JSON-safe typed extension values. The timestamp package owns lossless JSON
 // admission for time.Time without introducing a competing time representation.
+// The vector package owns numeric coordinate admission and precision conversion
+// shared by embedding responses and precomputed-vector stores.
 // A protocol DTO never carries a closure,
 // reader, logger, tracer, registry, or native client.
 //

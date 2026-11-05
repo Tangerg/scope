@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/rerank"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 // The SDK's scalar response fields erase missing and null values. Validate
@@ -65,7 +66,7 @@ func (n *nativeResponseBody) Close() error { return n.source.Close() }
 func (n *nativeResponseBody) validate(raw []byte) error {
 	var response struct {
 		Embeddings *struct {
-			Float [][]*float64 `json:"float"`
+			Float []corevector.Coordinates[float64] `json:"float"`
 		} `json:"embeddings"`
 		Results []struct {
 			Index *int     `json:"index"`
@@ -84,13 +85,7 @@ func (n *nativeResponseBody) validate(raw []byte) error {
 		if response.Embeddings == nil || response.Embeddings.Float == nil {
 			return fmt.Errorf("%w: cohere: response requires embeddings.float", embedding.ErrInvalidResponse)
 		}
-		for index, vector := range response.Embeddings.Float {
-			for coordinate, value := range vector {
-				if value == nil {
-					return fmt.Errorf("%w: cohere: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
-				}
-			}
-		}
+
 	} else {
 		if response.Results == nil {
 			return fmt.Errorf("%w: cohere: response requires results", rerank.ErrInvalidResponse)

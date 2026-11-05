@@ -75,7 +75,8 @@ func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	})
 	first := mustProgram(t, mustDefinition(t, "first", stage), "shared-implementation")
 	second := mustProgram(t, mustDefinition(t, "second", stage), "shared-implementation")
-	runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: run.NewMemoryStore()})
+	store := run.NewMemoryStore()
+	runtime, err := run.New(t.Context(), run.Config{Build: conformancetest.Build, Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +96,27 @@ func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	if _, joinErr := root.Await(t.Context()); joinErr != nil {
 		t.Fatal(joinErr)
 	}
-	if _, err := runtime.Recover(t.Context(), second, root.ID()); !errors.Is(err, run.ErrInvalidProgram) {
-		t.Fatalf("different program accepted stored execution: %v", err)
+	// Await establishes the process exit; Close joins the writer before a
+	// replacement can acquire ownership of the same durable tree.
+	if closeErr := runtime.Close(t.Context()); closeErr != nil {
+		t.Fatal(closeErr)
 	}
-
+	replacement := conformancetest.Runtime(t, run.Config{Store: store})
+	if _, recoverErr := replacement.Recover(t.Context(), second, root.ID()); !errors.Is(recoverErr, run.ErrInvalidProgram) {
+		t.Fatalf("different program accepted stored execution: %v", recoverErr)
+	}
+	restored, err := replacement.Recover(t.Context(), first, root.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := restored.Await(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := result.Output()
+	if err != nil || !output.Equal(input) {
+		t.Fatalf("accepted program lost its durable result: %v", err)
+	}
 }
 
 func mustDefinition(t *testing.T, name string, stages ...Stage) *definition {

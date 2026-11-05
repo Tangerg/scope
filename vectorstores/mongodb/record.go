@@ -9,7 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
@@ -91,7 +91,7 @@ func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
@@ -99,15 +99,15 @@ func (n nativeSchema) vector(values []float64) ([]float32, error) {
 }
 
 func (n nativeSchema) validateVector(values []float32) error {
+	if err := corevector.Coordinates[float32](values).Validate(); err != nil {
+		return err
+	}
 	if len(values) != n.dimensions {
 		return fmt.Errorf("mongodb: vector width %d differs from native dimension %d", len(values), n.dimensions)
 	}
 	var squaredMagnitude float64
 	for _, value := range values {
 		coordinate := float64(value)
-		if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
-			return errors.New("mongodb: vector is not finite FLOAT32")
-		}
 		squaredMagnitude += coordinate * coordinate
 	}
 	if n.similarity == simCosine && squaredMagnitude == 0 {

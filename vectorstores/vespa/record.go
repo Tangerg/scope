@@ -4,15 +4,14 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -23,8 +22,8 @@ type nativeRecord struct {
 }
 
 type nativeTensor struct {
-	Type   string    `json:"type,omitzero"`
-	Values []float64 `json:"values"`
+	Type   string                          `json:"type,omitzero"`
+	Values corevector.Coordinates[float64] `json:"values"`
 }
 
 var denseTensorType = regexp.MustCompile(`^tensor<float>\([A-Za-z_][A-Za-z0-9_]*\[([1-9][0-9]*)\]\)$`)
@@ -87,10 +86,13 @@ func floatVector(values []float64, width int) ([]float32, error) {
 	if len(values) == 0 || (width != 0 && len(values) != width) {
 		return nil, errors.New("vespa: vector has inconsistent dimensions")
 	}
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return nil, err
+	}
 	for index, value := range values {
 		narrowed := float64(vector[index])
-		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsInf(narrowed, 0) || (value != 0 && narrowed == 0) {
+		if value != 0 && narrowed == 0 {
 			return nil, errors.New("vespa: vector is not representable in float32")
 		}
 	}

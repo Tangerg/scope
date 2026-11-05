@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"math/bits"
 
+	"github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -28,13 +29,13 @@ func CosineSimilarity(left, right []float64) vectorstore.Score {
 	if len(left) != len(right) || len(left) == 0 {
 		return 0
 	}
+	if vector.Coordinates[float64](left).Validate() != nil || vector.Coordinates[float64](right).Validate() != nil {
+		return vectorstore.Score(math.NaN())
+	}
 	var leftScale, rightScale float64
 	for index := range left {
 		leftScale = max(leftScale, math.Abs(left[index]))
 		rightScale = max(rightScale, math.Abs(right[index]))
-	}
-	if scale := max(leftScale, rightScale); math.IsNaN(scale) || math.IsInf(scale, 0) {
-		return vectorstore.Score(math.NaN())
 	}
 	if leftScale == 0 || rightScale == 0 {
 		return vectorstore.ScoreFromCosineSimilarity(0)
@@ -59,6 +60,12 @@ func DotProductSimilarity(left, right []float64) vectorstore.Score {
 	if len(left) != len(right) {
 		return 0
 	}
+	if len(left) == 0 {
+		return vectorstore.ScoreFromInnerProduct(0)
+	}
+	if vector.Coordinates[float64](left).Validate() != nil || vector.Coordinates[float64](right).Validate() != nil {
+		return vectorstore.Score(math.NaN())
+	}
 	_, largestExponent := math.Frexp(math.MaxFloat64)
 	_, smallestExponent := math.Frexp(math.SmallestNonzeroFloat64)
 	// Every finite float64 product fits this binary range. The count supplies
@@ -69,9 +76,6 @@ func DotProductSimilarity(left, right []float64) vectorstore.Score {
 	sum := new(big.Float).SetPrec(precision)
 	next := new(big.Float).SetPrec(precision)
 	for index := range left {
-		if math.IsNaN(left[index]) || math.IsNaN(right[index]) || math.IsInf(left[index], 0) || math.IsInf(right[index], 0) {
-			return vectorstore.Score(math.NaN())
-		}
 		next.Add(sum, product.Mul(a.SetFloat64(left[index]), b.SetFloat64(right[index])))
 		sum, next = next, sum
 	}
@@ -92,12 +96,15 @@ func EuclideanSimilarity(left, right []float64) vectorstore.Score {
 	if len(left) != len(right) {
 		return 0
 	}
+	if len(left) == 0 {
+		return vectorstore.ScoreFromDistance(0)
+	}
+	if vector.Coordinates[float64](left).Validate() != nil || vector.Coordinates[float64](right).Validate() != nil {
+		return vectorstore.Score(math.NaN())
+	}
 	var scale float64
 	for index := range left {
 		scale = max(scale, math.Abs(left[index]), math.Abs(right[index]))
-	}
-	if math.IsNaN(scale) || math.IsInf(scale, 0) {
-		return vectorstore.Score(math.NaN())
 	}
 	_, exponent := math.Frexp(scale)
 	var distance float64

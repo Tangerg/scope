@@ -51,17 +51,18 @@ func parseSkill(header, body []byte) (*Skill, error) {
 
 func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, int64, error) {
 	limited := io.LimitReader(contextReader{ctx: ctx, reader: reader}, maxBytes+1)
-	buffered := bufio.NewReaderSize(limited, int(min(maxBytes+1, 4096)))
+	input := &frontmatterReader{reader: limited}
+	buffered := bufio.NewReaderSize(input, int(min(maxBytes+1, 4096)))
 
 	var metadata bytes.Buffer
 	var bytesRead int64
 	for lineNumber := 0; ; lineNumber++ {
 		text, readErr := buffered.ReadString('\n')
 		if contextErr := contextError(ctx, "read frontmatter"); contextErr != nil {
-			return nil, 0, errors.Join(readErr, contextErr)
+			return nil, 0, errors.Join(readErr, input.failure, contextErr)
 		}
-		if readErr != nil && !errors.Is(readErr, io.EOF) {
-			return nil, 0, readErr
+		if input.failure != nil {
+			return nil, 0, input.failure
 		}
 		bytesRead += int64(len(text))
 		if bytesRead > maxBytes {
@@ -81,6 +82,21 @@ func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]b
 			return nil, 0, ErrNoFrontmatter
 		}
 	}
+}
+
+// A complete buffered line can hide the error returned with its bytes. Retain
+// that observed failure without an extra read after the closing fence.
+type frontmatterReader struct {
+	reader  io.Reader
+	failure error
+}
+
+func (f *frontmatterReader) Read(buffer []byte) (int, error) {
+	count, err := f.reader.Read(buffer)
+	if err != nil && err != io.EOF { //nolint:errorlint // A joined EOF can include an I/O failure; only the bare sentinel is clean completion.
+		f.failure = err
+	}
+	return count, err
 }
 
 func (s *Skill) Validate() error {

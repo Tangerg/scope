@@ -21,8 +21,8 @@ import (
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
@@ -257,7 +257,7 @@ func nativeRecord(t *testing.T, doc *document.Document) json.RawMessage {
 		t.Fatal(err)
 	}
 	vector := []float32{1, 0}
-	record.Embedding = &vector
+	record.Embedding = new(corevector.Coordinates[float32](vector))
 	return mustJSON(t, record)
 }
 

@@ -9,6 +9,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -62,11 +63,12 @@ func decodeHit(hit *pb.SearchResult, mode vectorstore.SearchMode, dimensions int
 	if len(raw)%4 != 0 || len(raw)/4 != dimensions {
 		return nil, id, 0, errors.New("weaviate: named vector has invalid width")
 	}
-	for i := 0; i < len(raw); i += 4 {
-		v := float64(math.Float32frombits(binary.LittleEndian.Uint32(raw[i:])))
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, id, 0, errors.New("weaviate: non-finite named vector")
-		}
+	coordinates := make(corevector.Coordinates[float32], dimensions)
+	for index := range coordinates {
+		coordinates[index] = math.Float32frombits(binary.LittleEndian.Uint32(raw[index*4:]))
+	}
+	if err := coordinates.Validate(); err != nil {
+		return nil, id, 0, err
 	}
 	if mode == vectorstore.SearchModeHybrid {
 		if !m.ScorePresent {

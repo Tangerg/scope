@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -240,6 +241,30 @@ func (d *definition) modelDefinitions(advertisedToolNames []string) ([]tool.Defi
 	return definitions, nil
 }
 
+func (d *definition) settleModelResponse(response *chat.Response, cause error) (run.Settlement, error) {
+	var outcome run.Settlement
+	var err error
+	if cause == nil {
+		outcome, err = (modelCallResult{Response: response}).settlement()
+	} else {
+		outcome, err = modelFailureSettlement(response, cause)
+	}
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	if err := d.validateResponsePayload(outcome.Payload()); err != nil {
+		return run.Settlement{}, errors.Join(err, cause)
+	}
+	return outcome, nil
+}
+
+func (d *definition) validateResponsePayload(payload run.Payload) error {
+	if len(payload.JSON()) > d.maxResponseBytes {
+		return ErrModelResponseTooLarge
+	}
+	return nil
+}
+
 func (d *definition) settlePreparedContext(req run.EffectRequest, messages []chat.Message) (run.Settlement, error) {
 	if !d.valid() || !d.prepareContext {
 		return run.Settlement{}, ErrInvalidDispatcherConfig
@@ -263,8 +288,8 @@ func (d *definition) settlePreparedContext(req run.EffectRequest, messages []cha
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	if len(payload.JSON()) > d.maxResponseBytes {
-		return run.Settlement{}, ErrModelResponseTooLarge
+	if err := d.validateResponsePayload(payload); err != nil {
+		return run.Settlement{}, err
 	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
 }

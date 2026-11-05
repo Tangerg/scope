@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -17,6 +16,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Tangerg/sse"
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/invocation"
@@ -71,42 +71,17 @@ func (g *GenerationClient) GenerateContentStream(ctx context.Context, model stri
 		}
 		defer cancel()
 		defer response.Body.Close()
-		scanner := bufio.NewScanner(response.Body)
-		scanner.Buffer(make([]byte, 1024), maxGenerationEventBytes)
-		scanner.Split(generationRecord)
-		for scanner.Scan() {
-			var data []byte
-			raw := bytes.TrimSpace(scanner.Bytes())
-			if len(raw) > 0 && raw[0] == '{' {
-				var envelope struct {
-					Error *genai.APIError `json:"error"`
-				}
-				if decodeErr := jsonv2.Unmarshal(raw, &envelope); decodeErr != nil {
-					yield(nil, decodeErr)
-				} else if envelope.Error != nil {
-					yield(nil, *envelope.Error)
-				} else {
-					yield(nil, errors.New("google: generation stream record has no data field"))
-				}
+		events := sse.NewReader(&generationStreamBody{
+			reader: response.Body, client: g, headers: response.Header, lineStart: true,
+		})
+		events.MaxLineBytes = maxGenerationEventBytes
+		events.MaxEventBytes = maxGenerationEventBytes
+		for event, eventErr := range events.Messages() {
+			if eventErr != nil {
+				yield(nil, eventErr)
 				return
 			}
-			for line := range bytes.SplitSeq(scanner.Bytes(), []byte("\n")) {
-				line = bytes.TrimSuffix(line, []byte("\r"))
-				if len(line) == 0 || line[0] == ':' {
-					continue
-				}
-				field, value, _ := bytes.Cut(line, []byte(":"))
-				if string(field) == "data" {
-					if len(data) > 0 {
-						data = append(data, '\n')
-					}
-					data = append(data, bytes.TrimPrefix(value, []byte(" "))...)
-				}
-			}
-			if len(data) == 0 {
-				continue
-			}
-			chunk, decodeErr := g.decode(data, response.Header)
+			chunk, decodeErr := g.decode(event.Data, response.Header)
 			if decodeErr != nil {
 				yield(nil, decodeErr)
 				return
@@ -114,9 +89,6 @@ func (g *GenerationClient) GenerateContentStream(ctx context.Context, model stri
 			if !yield(chunk, nil) {
 				return
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			yield(nil, err)
 		}
 	}
 }
@@ -339,25 +311,6 @@ type generationRequest struct {
 	ServiceTier       genai.ServiceTier       `json:"serviceTier,omitempty"`
 	ContinuationToken []byte                  `json:"continuationToken,omitempty"`
 	GenerationConfig  *genai.GenerationConfig `json:"generationConfig"`
-}
-
-func generationRecord(data []byte, atEOF bool) (int, []byte, error) {
-	end := -1
-	for _, separator := range [][]byte{[]byte("\n\n"), []byte("\r\n\r\n")} {
-		if index := bytes.Index(data, separator); index >= 0 {
-			candidate := index + len(separator)
-			if end == -1 || candidate < end {
-				end = candidate
-			}
-		}
-	}
-	if end >= 0 {
-		return end, data[:end], nil
-	}
-	if atEOF && len(data) > 0 {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
 }
 
 func validateGenerationObjects(value reflect.Value) error {

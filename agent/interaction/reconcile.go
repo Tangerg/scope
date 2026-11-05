@@ -33,7 +33,7 @@ func SettleModelResult[I, O any](program run.Program[I, O], request run.EffectRe
 	if envelope.operation() != operationModelCall || response == nil {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
-	return (modelCallResult{Response: response}).settlement(definition.maxResponseBytes)
+	return definition.settleModelResponse(response, nil)
 }
 
 // SettlePreparedContext validates investigated messages for a context effect

@@ -157,6 +157,7 @@ package_budget=(
   "core/tool 92.6"
   "core/tool/internal/arch none"
   "core/transcription 96.1"
+  "core/vector 96.5"
   "core/vectorstore 86.9"
   "core/vectorstore/filter 84.2"
   "core/vectorstore/filter/keyword 84.2"

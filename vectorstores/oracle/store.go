@@ -14,7 +14,7 @@ import (
 	oratypes "github.com/sijms/go-ora/v3/types"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -387,7 +387,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 		if encodeErr != nil {
 			return encodeErr
 		}
-		vectorJSON, encodeErr := jsonv2.Marshal(embedding.Float32Vector(r.Values))
+		vectorJSON, encodeErr := jsonv2.Marshal(corevector.Float32(r.Values))
 		if encodeErr != nil {
 			return encodeErr
 		}
@@ -512,7 +512,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		return nil, err
 	}
 
-	vectorJSON, err := jsonv2.Marshal(embedding.Float32Vector(request.Values))
+	vectorJSON, err := jsonv2.Marshal(corevector.Float32(request.Values))
 	if err != nil {
 		return nil, fmt.Errorf("oracle: marshal query vector: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/invocation"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 type EmbeddingModelConfig struct {
@@ -118,18 +119,11 @@ func (e *EmbeddingModel) buildEmbeddingResponse(apiResp *openai.CreateEmbeddingR
 		if !indexed || !item.JSON.Embedding.Valid() {
 			return nil, fmt.Errorf("%w: openai: embedding result %d requires index and embedding", embedding.ErrInvalidResponse, position)
 		}
-		var coordinates []*float64
+		var coordinates corevector.Coordinates[float64]
 		if err := jsonv2.Unmarshal([]byte(item.JSON.Embedding.Raw()), &coordinates); err != nil {
 			return nil, fmt.Errorf("%w: openai: embedding result %d: %w", embedding.ErrInvalidResponse, position, err)
 		}
-		values := make([]float64, len(coordinates))
-		for coordinate, value := range coordinates {
-			if value == nil {
-				return nil, fmt.Errorf("%w: openai: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, position, coordinate)
-			}
-			values[coordinate] = *value
-		}
-		if err := embedding.PlaceOutput(outputs, int(index), values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, int(index), coordinates, nil); err != nil {
 			return nil, fmt.Errorf("openai: embeddings response: %w", err)
 		}
 	}

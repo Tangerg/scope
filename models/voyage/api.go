@@ -10,7 +10,9 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 const (
@@ -81,9 +83,9 @@ func (e *embeddingRequest) UnmarshalJSON(data []byte) error {
 type embeddingResponse struct {
 	Object string `json:"object"`
 	Data   []struct {
-		Object    string     `json:"object"`
-		Embedding []*float64 `json:"embedding"`
-		Index     *int64     `json:"index"`
+		Object    string                          `json:"object"`
+		Embedding corevector.Coordinates[float64] `json:"embedding"`
+		Index     *int64                          `json:"index"`
 	} `json:"data"`
 	Model string `json:"model"`
 	Usage struct {
@@ -124,6 +126,9 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		SetResult(&out).
 		Post(embeddingEndpointPath)
 	if err != nil {
+		if errors.Is(err, corevector.ErrInvalidCoordinates) {
+			return nil, fmt.Errorf("%w: voyage: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
+		}
 		return nil, fmt.Errorf("voyage: request failed: %w", err)
 	}
 	if !resp.IsSuccess() {

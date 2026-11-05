@@ -139,6 +139,9 @@ type limitsWire struct {
 }
 
 func (l Limits) MarshalJSON() ([]byte, error) {
+	if err := l.Validate(); err != nil {
+		return nil, err
+	}
 	return jsonv2.Marshal(limitsWire{l.CommittedSteps, l.PreparedEffects, l.AcceptedMessages, l.TotalTokens, (*int64)(l.Elapsed)})
 }
 
@@ -150,7 +153,11 @@ func (l *Limits) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
-	*l = Limits{wire.CommittedSteps, wire.PreparedEffects, wire.AcceptedMessages, wire.TotalTokens, (*time.Duration)(wire.Elapsed)}
+	candidate := Limits{wire.CommittedSteps, wire.PreparedEffects, wire.AcceptedMessages, wire.TotalTokens, (*time.Duration)(wire.Elapsed)}
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	*l = candidate
 	return nil
 }
 

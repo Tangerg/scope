@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 const (
@@ -117,8 +118,8 @@ type embeddingResponse struct {
 	ID    string `json:"id"`
 	Model string `json:"model"`
 	Data  []*struct {
-		Index     *int       `json:"index"`
-		Embedding []*float64 `json:"embedding"`
+		Index     *int                            `json:"index"`
+		Embedding corevector.Coordinates[float64] `json:"embedding"`
 	} `json:"data"`
 	Usage *struct {
 		PromptTokens *int64 `json:"prompt_tokens"`
@@ -134,14 +135,7 @@ func (e *embeddingResponse) project(req *embedding.Request) (*embedding.Response
 		if result == nil || result.Index == nil {
 			return nil, fmt.Errorf("%w: mistral: embedding result %d requires an index", embedding.ErrInvalidResponse, position)
 		}
-		values := make([]float64, len(result.Embedding))
-		for coordinate, value := range result.Embedding {
-			if value == nil {
-				return nil, fmt.Errorf("%w: mistral: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, position, coordinate)
-			}
-			values[coordinate] = *value
-		}
-		if err := embedding.PlaceOutput(outputs, *result.Index, values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, *result.Index, result.Embedding, nil); err != nil {
 			return nil, fmt.Errorf("mistral: embedding result: %w", err)
 		}
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/invocation"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 // The SDK converts response JSON through scalar DTOs, losing field presence.
@@ -103,15 +104,15 @@ type nativeEmbeddingResponse struct {
 }
 
 type nativeEmbeddingResult struct {
-	Values     []*float64
+	Values     corevector.Coordinates[float64]
 	TokenCount json.RawMessage
 	Truncated  json.RawMessage
 }
 
 func (n *nativeEmbeddingResponse) decode(raw []byte) error {
 	type vector struct {
-		Values     []*float64                 `json:"values"`
-		Statistics map[string]json.RawMessage `json:"statistics"`
+		Values     corevector.Coordinates[float64] `json:"values"`
+		Statistics map[string]json.RawMessage      `json:"statistics"`
 	}
 	var wire struct {
 		Embeddings  []*vector `json:"embeddings"`
@@ -146,13 +147,6 @@ func (n *nativeEmbeddingResponse) decode(raw []byte) error {
 	}
 	if wire.Embedding != nil {
 		results = append(results, &nativeEmbeddingResult{Values: wire.Embedding.Values, TokenCount: wire.UsageMetadata.PromptTokenCount, Truncated: wire.Truncated})
-	}
-	for index, vector := range results {
-		for coordinate, value := range vector.Values {
-			if value == nil {
-				return fmt.Errorf("%w: google: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
-			}
-		}
 	}
 	n.Raw, n.Embeddings, n.BillableCharacterCount = raw, results, wire.Metadata.BillableCharacterCount
 	return nil

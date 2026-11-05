@@ -8,7 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3vectors/types"
 
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -36,7 +36,7 @@ func newIndexSchema(index *types.Index, bucket, name string, space vectorstore.S
 }
 
 func (i indexSchema) narrow(vector []float64) ([]float32, error) {
-	narrowed := embedding.Float32Vector(vector)
+	narrowed := corevector.Float32(vector)
 	if err := i.validateVector(narrowed); err != nil {
 		return nil, err
 	}
@@ -44,14 +44,14 @@ func (i indexSchema) narrow(vector []float64) ([]float32, error) {
 }
 
 func (i indexSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != i.dimensions {
 		return fmt.Errorf("s3vectors: vector dimension %d differs from native dimension %d", len(vector), i.dimensions)
 	}
 	nonzero := false
 	for _, component := range vector {
-		if math.IsNaN(float64(component)) || math.IsInf(float64(component), 0) {
-			return errors.New("s3vectors: vector is not finite float32")
-		}
 		if component != 0 {
 			nonzero = true
 		}

@@ -123,16 +123,13 @@ func (m modelCallResult) validate() error {
 	return nil
 }
 
-func (m modelCallResult) settlement(maxBytes int) (run.Settlement, error) {
+func (m modelCallResult) settlement() (run.Settlement, error) {
 	if err := m.validate(); err != nil {
 		return run.Settlement{}, err
 	}
 	payload, err := run.EncodePayload(resultEnvelope{ModelResult: &m})
 	if err != nil {
 		return run.Settlement{}, err
-	}
-	if len(payload.JSON()) > maxBytes {
-		return run.Settlement{}, ErrModelResponseTooLarge
 	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
 }

@@ -6,7 +6,7 @@ import (
 
 	pgvec "github.com/pgvector/pgvector-go"
 
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -59,11 +59,14 @@ func (d DistanceMetric) Vector(values []float64, width int) (pgvec.Vector, error
 	if len(values) != width || width <= 0 {
 		return pgvec.Vector{}, errors.New("postgres: vector dimensions disagree with native schema")
 	}
-	narrowed := embedding.Float32Vector(values)
+	narrowed := corevector.Float32(values)
+	if err := corevector.Coordinates[float32](narrowed).Validate(); err != nil {
+		return pgvec.Vector{}, err
+	}
 	nonzero := false
 	for index, value := range values {
 		converted := float64(narrowed[index])
-		if math.IsNaN(value) || math.IsInf(value, 0) || math.IsInf(converted, 0) || (value != 0 && converted == 0) {
+		if value != 0 && converted == 0 {
 			return pgvec.Vector{}, errors.New("postgres: vector is not representable in float32")
 		}
 		nonzero = nonzero || converted != 0

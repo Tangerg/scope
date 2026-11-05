@@ -131,10 +131,6 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 		if item == nil {
 			return nil, fmt.Errorf("%w: google: embeddings[%d] is null", embedding.ErrInvalidResponse, index)
 		}
-		values := make([]float64, len(item.Values))
-		for i, value := range item.Values {
-			values[i] = *value
-		}
 
 		var outputMetadata metadata.Map
 		if len(item.TokenCount) != 0 && string(item.TokenCount) != "null" {
@@ -148,7 +144,7 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 			}
 		}
 
-		if err := embedding.PlaceOutput(outputs, index, values, outputMetadata); err != nil {
+		if err := embedding.PlaceOutput(outputs, index, item.Values, outputMetadata); err != nil {
 			return nil, fmt.Errorf("google: embed_content response: %w", err)
 		}
 	}

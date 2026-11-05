@@ -8,7 +8,7 @@ import (
 	"math"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -34,7 +34,7 @@ type nativeSchema struct {
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
@@ -42,14 +42,14 @@ func (n nativeSchema) vector(values []float64) ([]float32, error) {
 }
 
 func (n nativeSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("elasticsearch: vector dimension %d differs from native dimension %d", len(vector), n.dimensions)
 	}
 	var magnitude float32
 	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("elasticsearch: vector is not finite FLOAT32")
-		}
 		term := float32(value * value)
 		magnitude = float32(magnitude + term)
 	}
@@ -121,9 +121,9 @@ func (n nativeSchema) decode(hit searchHit) (*document.Document, error) {
 }
 
 type storedDocument struct {
-	Content      string    `json:"content"`
-	Embedding    []float32 `json:"embedding"`
-	MetadataJSON string    `json:"metadata_json"`
+	Content      string                          `json:"content"`
+	Embedding    corevector.Coordinates[float32] `json:"embedding"`
+	MetadataJSON string                          `json:"metadata_json"`
 }
 
 type searchHit struct {

@@ -97,6 +97,9 @@ func (o *Observer) Consume(ctx context.Context, source LogSource, after run.LSN)
 		if entry.LSN == 0 || entry.LSN != after+1 {
 			return after, ErrObservationSequence
 		}
+		if err := entry.ValidateFor(projection.root); err != nil {
+			return after, err
+		}
 		if err := projection.apply(ctx, entry); err != nil {
 			return after, err
 		}

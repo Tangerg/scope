@@ -11,7 +11,9 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 type apiConfig struct {
@@ -35,6 +37,9 @@ func (a *api) embedding(ctx context.Context, request *embeddingRequest) (*embedd
 	var result embeddingResponse
 	response, err := a.http.R().SetContext(ctx).SetBody(request).SetResult(&result).Post("/embeddings")
 	if err != nil {
+		if errors.Is(err, corevector.ErrInvalidCoordinates) {
+			return nil, fmt.Errorf("%w: mistral: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
+		}
 		return nil, fmt.Errorf("mistral: embedding request: %w", err)
 	}
 	if !response.IsSuccess() {

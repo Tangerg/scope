@@ -119,6 +119,9 @@ func (r *Repository) readSummaries(ctx context.Context, reader fs.ReadDirFile) (
 		if err := contextError(ctx, "list"); err != nil {
 			return nil, errors.Join(readErr, err)
 		}
+		if readErr != nil && readErr != io.EOF { //nolint:errorlint // A joined EOF can include an I/O failure; only the bare sentinel ends discovery.
+			return nil, fmt.Errorf("skills: list directory: %w", readErr)
+		}
 		for _, entry := range entries {
 			entriesSeen++
 			if entriesSeen > r.limits.maxEntries {
@@ -132,11 +135,8 @@ func (r *Repository) readSummaries(ctx context.Context, reader fs.ReadDirFile) (
 				summaries = append(summaries, summary)
 			}
 		}
-		if errors.Is(readErr, io.EOF) {
-			return summaries, nil
-		}
 		if readErr != nil {
-			return nil, fmt.Errorf("skills: list directory: %w", readErr)
+			return summaries, nil
 		}
 	}
 }

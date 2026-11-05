@@ -13,7 +13,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -261,9 +261,9 @@ func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord,
 	if err != nil {
 		return storedRecord{}, err
 	}
-	narrowed := embedding.Float32Vector(vector)
-	if err := validateStoredVector(narrowed); err != nil {
-		return storedRecord{}, err
+	narrowed := corevector.Float32(vector)
+	if err := corevector.Coordinates[float32](narrowed).Validate(); err != nil {
+		return storedRecord{}, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
 	return storedRecord{id: doc.ID, content: doc.Text, metadata: string(encoded), vector: narrowed}, nil
 }
@@ -279,21 +279,10 @@ func decodeStoredRecord(record storedRecord) (*document.Document, error) {
 	if strings.TrimSpace(doc.ID) == "" {
 		return nil, vectorstore.ErrMissingDocumentID
 	}
-	if err := validateStoredVector(record.vector); err != nil {
-		return nil, err
+	if err := corevector.Coordinates[float32](record.vector).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
 	return doc, nil
-}
-func validateStoredVector(vector []float32) error {
-	if len(vector) == 0 {
-		return vectorstore.ErrInvalidRequest
-	}
-	for _, v := range vector {
-		if math.IsInf(float64(v), 0) || math.IsNaN(float64(v)) {
-			return vectorstore.ErrInvalidRequest
-		}
-	}
-	return nil
 }
 
 type storedCandidate struct {
@@ -443,9 +432,9 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	if len(request.Values) != s.dimensions {
 		return nil, vectorstore.ErrInvalidRequest
 	}
-	queryVector := embedding.Float32Vector(request.Values)
-	if err = validateStoredVector(queryVector); err != nil {
-		return nil, err
+	queryVector := corevector.Float32(request.Values)
+	if err = corevector.Coordinates[float32](queryVector).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
 	meter, err := budget.Begin(ctx)
 	if err != nil {

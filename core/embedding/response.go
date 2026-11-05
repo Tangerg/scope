@@ -3,18 +3,17 @@ package embedding
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"math"
 	"slices"
 	"time"
 
 	"github.com/Tangerg/scope/core/internal/modelid"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/timestamp"
+	"github.com/Tangerg/scope/core/vector"
 )
 
 type Output struct {
-	// Embedding contains reported numeric coordinates; JSON null is not a zero coordinate.
-	Embedding []float64 `json:"embedding"`
+	Embedding vector.Coordinates[float64] `json:"embedding"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
@@ -32,13 +31,8 @@ func (o *Output) Validate() error {
 	if o == nil {
 		return fmt.Errorf("%w: output must not be nil", ErrInvalidResponse)
 	}
-	if len(o.Embedding) == 0 {
-		return fmt.Errorf("%w: embedding vector must not be empty", ErrInvalidResponse)
-	}
-	for i, value := range o.Embedding {
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return fmt.Errorf("%w: embedding[%d] must be finite", ErrInvalidResponse, i)
-		}
+	if err := o.Embedding.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidResponse, err)
 	}
 	if err := o.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: output metadata: %w", ErrInvalidResponse, err)
@@ -58,20 +52,12 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output receiver is nil", ErrInvalidResponse)
 	}
-	var decoded struct {
-		Embedding []*float64   `json:"embedding"`
-		Metadata  metadata.Map `json:"metadata,omitzero"`
-	}
+	type wireOutput Output
+	var decoded wireOutput
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
 	}
-	candidate := Output{Embedding: make([]float64, len(decoded.Embedding)), Metadata: decoded.Metadata}
-	for index, coordinate := range decoded.Embedding {
-		if coordinate == nil {
-			return fmt.Errorf("%w: embedding[%d] must not be null", ErrInvalidResponse, index)
-		}
-		candidate.Embedding[index] = *coordinate
-	}
+	candidate := Output(decoded)
 	if err := candidate.Validate(); err != nil {
 		return err
 	}

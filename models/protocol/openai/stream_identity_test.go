@@ -50,6 +50,45 @@ func TestCompletionBindsItsUsageAndToolsToTheGeneratingResponse(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletionRequiresReportedChoiceIndex(t *testing.T) {
+	for _, sample := range []struct {
+		name  string
+		index string
+	}{
+		{"missing", ""},
+		{"null", `"index":null,`},
+		{"negative", `"index":-1,`},
+		{"different choice", `"index":1,`},
+		{"quoted", `"index":"0",`},
+		{"fractional", `"index":0.5,`},
+		{"boolean", `"index":false,`},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			model := newLifecycleStreamModel(t, []string{
+				fmt.Sprintf(`{%s"delta":{"content":"answer"},"finish_reason":"stop"}`, sample.index),
+			})
+			request := newToolStreamRequest(t)
+			if response, err := model.Call(t.Context(), request); response != nil || !errors.Is(err, chat.ErrInvalidResponse) {
+				t.Fatalf("Call = %#v, %v; want ErrInvalidResponse", response, err)
+			}
+			var streamErr error
+			for delta, err := range model.Stream(t.Context(), request) {
+				if err != nil {
+					streamErr = err
+					break
+				}
+				if len(delta.Parts) != 0 || delta.FinishReason != "" {
+					t.Fatalf("unidentified choice emitted output: %#v", delta)
+				}
+			}
+			if !errors.Is(streamErr, chat.ErrInvalidResponse) {
+				t.Fatalf("Stream error = %v; want ErrInvalidResponse", streamErr)
+			}
+		})
+	}
+}
+
 func TestDeprecatedFunctionCallCannotEscapeTypedToolAdmission(t *testing.T) {
 	for _, name := range []string{"functions", "function_call"} {
 		transport := new(numericTransport)

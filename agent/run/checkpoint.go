@@ -20,22 +20,33 @@ func (c Checkpoint) valid() bool {
 	if len(c.Processes) == 0 || c.StartedProcesses < uint64(len(c.Processes)) {
 		return false
 	}
+	root := c.root()
 	for index, process := range c.Processes {
-		if !process.valid() || index > 0 && c.Processes[index-1].Started.Process.compare(process.Started.Process) >= 0 {
+		if !process.valid() || process.Started.Process.Root() != root || index > 0 && c.Processes[index-1].Started.Process.compare(process.Started.Process) >= 0 {
 			return false
 		}
 	}
 	return true
 }
 
+func (c Checkpoint) root() ProcessID {
+	if len(c.Processes) == 0 {
+		return ProcessID{}
+	}
+	return c.Processes[0].Started.Process.Root()
+}
+
 // tree restores the materialization recorded at entry. Child counters are
 // derived from the captured membership instead of being stored a second time.
 func (c Checkpoint) tree(root ProcessID, entry Entry) (*treeState, error) {
+	if c.root() != root {
+		return nil, ErrInvalidLog
+	}
 	state := newTreeState(root)
 	state.head, state.epoch, state.startedProcesses = entry.LSN, entry.Epoch, c.StartedProcesses
 	for _, captured := range c.Processes {
 		id := captured.Started.Process
-		if id.Root() != root || state.processes[id] != nil {
+		if state.processes[id] != nil {
 			return nil, ErrInvalidLog
 		}
 		state.processes[id] = captured.process()

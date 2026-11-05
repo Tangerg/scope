@@ -238,16 +238,14 @@ func (t TreeLimits) admitsTreeSize(processes uint64) bool {
 }
 
 // admitRecord bounds each encoded record, and checkpoints separately, because a
-// record is the unit a Store must accept atomically.
+// record is the unit a Store must accept atomically. The enclosing Entry or
+// Batch has already admitted its structure and membership.
 func (t TreeLimits) admitRecord(record Record) error {
-	if err := validateRecord(record); err != nil {
-		return err
-	}
 	_, checkpoint := record.(Checkpoint)
 	if bounded := t.MaxRecordBytes.limited || checkpoint && t.MaxCheckpointBytes.limited; !bounded {
 		return nil
 	}
-	_, encoded, err := EncodeRecord(record)
+	_, encoded, err := encodeRecord(record)
 	if err != nil {
 		return err
 	}

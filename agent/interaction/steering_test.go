@@ -44,7 +44,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 		}
 		execution = mustValue(definition.Restore(t.Context(), mustValue(execution.Snapshot())))
 	}
-	completion := run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("candidate before steering")}).settlement(run.MaxPayloadBytes))}
+	completion := run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("candidate before steering")}).settlement())}
 	revised := advance(t, execution, 4, completion)
 	if len(revised.Effects()) != 1 || revised.Kind() != run.TransitionKindYield {
 		t.Fatal("pending guidance was discarded by a final model response")
@@ -60,7 +60,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 	if !slices.Equal(tail, []string{"candidate before steering", "first", "second"}) {
 		t.Fatalf("revised context=%v", tail)
 	}
-	completed := advance(t, execution, 5, run.Completion{Effect: testTurn(4).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("revised")}).settlement(run.MaxPayloadBytes))})
+	completed := advance(t, execution, 5, run.Completion{Effect: testTurn(4).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("revised")}).settlement())})
 	if completed.Kind() != run.TransitionKindComplete {
 		t.Fatal("revised response did not complete")
 	}
@@ -92,7 +92,7 @@ func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
 func TestSteeringAndOutcomeMessagesCannotCrossProtocolBoundaries(t *testing.T) {
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.messages", Description: "Reject messages outside their declared phase."}))
 	input := mustValue(run.EncodePayload(testInput()))
-	final := mustValue((modelCallResult{Response: finalResponse("answer")}).settlement(run.MaxPayloadBytes))
+	final := mustValue((modelCallResult{Response: finalResponse("answer")}).settlement())
 	for _, messages := range [][]run.Message{
 		{run.Exit{}},
 		{run.Completion{Effect: testTurn(9).EffectID(0), Outcome: final}},

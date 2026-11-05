@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
-
 	qdrantclient "github.com/qdrant/go-client/qdrant"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
 
 type nativeSchema struct {
@@ -38,7 +37,7 @@ func (n *nativeSchema) read(info *qdrantclient.CollectionInfo) error {
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
@@ -46,13 +45,11 @@ func (n nativeSchema) vector(values []float64) ([]float32, error) {
 }
 
 func (n nativeSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("qdrant: vector width %d differs from native dimension %d", len(vector), n.dimensions)
-	}
-	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("qdrant: vector is not finite FLOAT32")
-		}
 	}
 	return nil
 }

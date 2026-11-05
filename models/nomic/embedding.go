@@ -95,14 +95,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, req *embedding.Request) (*embedding.Response, error) {
 	outputs := make([]*embedding.Output, len(req.Texts))
 	for index, vec := range apiResp.Embeddings {
-		values := make([]float64, len(vec))
-		for coordinate, value := range vec {
-			if value == nil {
-				return nil, fmt.Errorf("%w: nomic: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, index, coordinate)
-			}
-			values[coordinate] = *value
-		}
-		if err := embedding.PlaceOutput(outputs, index, values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, index, vec, nil); err != nil {
 			return nil, fmt.Errorf("nomic: embedding response: %w", err)
 		}
 	}

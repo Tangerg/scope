@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
@@ -34,7 +34,7 @@ type nativeSchema struct {
 }
 
 func (n nativeSchema) vector(values []float64) ([]byte, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
@@ -42,14 +42,14 @@ func (n nativeSchema) vector(values []float64) ([]byte, error) {
 }
 
 func (n nativeSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("redis: vector dimension %d differs from native dimension %d", len(vector), n.dimensions)
 	}
 	nonzero := false
 	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("redis: vector is not finite float32")
-		}
 		nonzero = nonzero || value != 0
 	}
 	if n.metric == metricCosine && !nonzero {

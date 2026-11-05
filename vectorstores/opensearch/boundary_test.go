@@ -20,7 +20,7 @@ import (
 )
 
 func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
-	for _, fault := range []string{"timeout", "missing shards", "failed shard", "missing total", "missing hits", "missing source", "missing metadata", "shadow metadata", "missing vector", "missing tokens", "routing", "wrong index", "wrong membership", "repeated ID", "missing score", "bad score", "terminated early", "late corrupt hit"} {
+	for _, fault := range []string{"timeout", "missing shards", "failed shard", "missing total", "missing hits", "missing source", "missing metadata", "shadow metadata", "missing vector", "null coordinate", "missing tokens", "routing", "wrong index", "wrong membership", "repeated ID", "missing score", "bad score", "terminated early", "late corrupt hit"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			store := fixture.store()
@@ -52,6 +52,8 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 				source["metadata"] = json.RawMessage(`{}`)
 			case "missing vector":
 				delete(source, embeddingField)
+			case "null coordinate":
+				source[embeddingField] = json.RawMessage(`[1,null]`)
 			case "missing tokens":
 				hit.SeqNo = nil
 			case "routing":
@@ -67,7 +69,7 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 			case "terminated early":
 				page.TerminatedEarly = new(true)
 			}
-			if strings.Contains(fault, "metadata") || fault == "missing vector" {
+			if strings.Contains(fault, "metadata") || fault == "missing vector" || fault == "null coordinate" {
 				var err error
 				hit.Source, err = jsonv2.Marshal(source)
 				if err != nil {

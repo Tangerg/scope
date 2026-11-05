@@ -53,27 +53,18 @@ func newLogProjection(observer *Observer, root run.ProcessID) *logProjection {
 func (l *logProjection) apply(ctx context.Context, entry run.Entry) error {
 	switch fact := entry.Record.(type) {
 	case run.Started:
-		if fact.Process.Root() != l.root || !fact.Program.Valid() {
-			return run.ErrInvalidLog
-		}
 		l.startProcess(ctx, entry, fact)
 	case run.Stepped:
 		l.observer.instruments.steps.Add(ctx, 1)
 	case run.SignalAdmitted:
 		l.observer.instruments.messages.Add(ctx, 1)
 	case run.EffectIntent:
-		if fact.ID.Process.Root() != l.root {
-			return run.ErrInvalidLog
-		}
 		l.startEffect(ctx, entry, fact)
 	case run.EffectSettled:
 		l.settleEffect(ctx, entry, fact)
 	case run.Exited:
 		l.exitProcess(ctx, entry, fact)
 	case run.ExecutionFailed:
-		if fact.Process.Root() != l.root {
-			return run.ErrInvalidLog
-		}
 		if process, present := l.processes[fact.Process]; present {
 			process.span.AddEvent("agent.execution.failed", trace.WithTimestamp(fact.At), trace.WithAttributes(semconv.ErrorTypeKey.String(fact.Failure.Code())))
 		}

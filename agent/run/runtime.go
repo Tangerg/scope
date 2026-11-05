@@ -459,8 +459,11 @@ func (r *Runtime) scan(ctx context.Context, root ProcessID, after LSN, visit fun
 			if err != nil {
 				return struct{}{}, err
 			}
-			if entry.LSN != next || !entry.belongsTo(root) {
+			if entry.LSN != next {
 				return struct{}{}, ErrInvalidLog
+			}
+			if err := entry.ValidateFor(root); err != nil {
+				return struct{}{}, err
 			}
 			next++
 			if !visit(entry) {

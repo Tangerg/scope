@@ -12,7 +12,7 @@ import (
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 	"github.com/samber/lo"
 
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -83,7 +83,7 @@ func (n nativePolicy) vector(values []float64) ([]float32, error) {
 	if len(values) != n.dimensions {
 		return nil, fmt.Errorf("milvus: vector has width %d, want %d", len(values), n.dimensions)
 	}
-	result := embedding.Float32Vector(values)
+	result := corevector.Float32(values)
 	if err := n.validateVector(result); err != nil {
 		return nil, err
 	}
@@ -91,14 +91,14 @@ func (n nativePolicy) vector(values []float64) ([]float32, error) {
 }
 
 func (n nativePolicy) validateVector(values []float32) error {
+	if err := corevector.Coordinates[float32](values).Validate(); err != nil {
+		return err
+	}
 	if len(values) != n.dimensions {
 		return errors.New("milvus: native vector width is inconsistent")
 	}
 	nonzero := false
 	for _, value := range values {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("milvus: vector must be finite in float32")
-		}
 		nonzero = nonzero || value != 0
 	}
 	if n.metric == entity.COSINE && !nonzero {

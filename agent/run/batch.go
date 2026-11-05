@@ -37,12 +37,12 @@ func (b Batch) Validate() error {
 	if !b.Root.Valid() || b.Root.Depth() != 0 || len(b.Records) == 0 || uint64(len(b.Records)) > math.MaxUint64-uint64(b.After) {
 		return ErrInvalidLog
 	}
-	for _, record := range b.Records {
-		if _, _, err := EncodeRecord(record); err != nil {
+	for _, entry := range b.Entries() {
+		if err := entry.ValidateFor(b.Root); err != nil {
 			return err
 		}
-		if process := recordProcess(record); process.Valid() && process.Root() != b.Root {
-			return ErrInvalidLog
+		if _, _, err := encodeRecord(entry.Record); err != nil {
+			return err
 		}
 	}
 	if b.After == 0 {

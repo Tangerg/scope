@@ -132,14 +132,7 @@ func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, req *embeddin
 		if item.Index == nil {
 			return nil, fmt.Errorf("%w: voyage: embedding result %d requires index", embedding.ErrInvalidResponse, position)
 		}
-		values := make([]float64, len(item.Embedding))
-		for coordinate, value := range item.Embedding {
-			if value == nil {
-				return nil, fmt.Errorf("%w: voyage: embedding result %d coordinate %d is null", embedding.ErrInvalidResponse, position, coordinate)
-			}
-			values[coordinate] = *value
-		}
-		if err := embedding.PlaceOutput(outputs, int(*item.Index), values, nil); err != nil {
+		if err := embedding.PlaceOutput(outputs, int(*item.Index), item.Embedding, nil); err != nil {
 			return nil, fmt.Errorf("voyage: embedding response: %w", err)
 		}
 	}

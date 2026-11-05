@@ -33,6 +33,7 @@ var targetPublicPackages = map[string]struct{}{
 	"tokenizer":                  {},
 	"tool":                       {},
 	"transcription":              {},
+	"vector":                     {},
 	"vectorstore":                {},
 	"vectorstore/filter/keyword": {},
 	"vectorstore/filter":         {},

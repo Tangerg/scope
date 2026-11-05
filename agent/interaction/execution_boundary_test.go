@@ -129,7 +129,7 @@ func TestCompletionCancellationDoesNotCommitACandidate(t *testing.T) {
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)
 	turn := testTurn(2)
-	turn.Messages = []run.Message{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("candidate")}).settlement(run.MaxPayloadBytes))}}
+	turn.Messages = []run.Message{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: finalResponse("candidate")}).settlement())}}
 	if transition, err := execution.Step(ctx, turn); !errors.Is(err, context.Canceled) || transition.Valid() {
 		t.Fatal("canceled validation completed the process", err)
 	}
@@ -137,10 +137,11 @@ func TestCompletionCancellationDoesNotCommitACandidate(t *testing.T) {
 
 func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) {
 	response := finalResponse(strings.Repeat("<>&\u2028\u2029", 20))
-	encoded := mustValue((modelCallResult{Response: response}).settlement(run.MaxPayloadBytes))
+	encoded := mustValue((modelCallResult{Response: response}).settlement())
 	for _, offset := range []int{-1, 0, 1} {
 		limit := len(encoded.Payload().JSON()) + offset
-		settlement, err := (modelCallResult{Response: response}).settlement(limit)
+		definition := mustValue(newDefinition(definitionConfig{Name: "test.response.boundary", Description: "Bound canonical settlement bytes.", MaxResponseBytes: limit}))
+		settlement, err := definition.settleModelResponse(response, nil)
 		if offset < 0 {
 			if !errors.Is(err, ErrModelResponseTooLarge) || settlement.Valid() {
 				t.Fatal("oversized canonical outcome admitted", err)
@@ -150,7 +151,7 @@ func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) 
 		}
 	}
 	for _, result := range []modelCallResult{{}, {Response: &chat.Response{}}} {
-		if _, err := result.settlement(run.MaxPayloadBytes); !errors.Is(err, ErrInvalidProtocol) {
+		if _, err := result.settlement(); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatal("invalid model outcome was encoded", err)
 		}
 	}

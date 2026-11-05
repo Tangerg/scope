@@ -12,8 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
@@ -52,7 +52,7 @@ func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
-	vector := embedding.Float32Vector(values)
+	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err
 	}
@@ -60,13 +60,11 @@ func (n nativeSchema) vector(values []float64) ([]float32, error) {
 }
 
 func (n nativeSchema) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return err
+	}
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("pinecone: vector dimension %d differs from native dimension %d", len(vector), n.dimensions)
-	}
-	for _, value := range vector {
-		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
-			return errors.New("pinecone: vector is not finite FLOAT32")
-		}
 	}
 	return nil
 }

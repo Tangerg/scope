@@ -47,6 +47,17 @@ func (t taskState) project() Task {
 	return Task{Request: t.Request, Process: t.Invocation.Process, Outcome: t.Invocation.Termination, Rejection: t.Invocation.Rejection}
 }
 
+func (t taskState) processID(parent run.ProcessID) (run.ProcessID, bool) {
+	if t.Invocation.Process == nil && t.Invocation.Termination == nil {
+		return run.ProcessID{}, false
+	}
+	id, err := parent.Child(t.Request.Key)
+	if err != nil || t.Invocation.Process != nil && *t.Invocation.Process != id {
+		return run.ProcessID{}, false
+	}
+	return id, true
+}
+
 type controlState struct {
 	Control Control         `json:"control"`
 	Effect  *run.EffectID   `json:"effect,omitzero"`
@@ -110,10 +121,11 @@ func (e executionState) unapplied() bool {
 	}
 	return false
 }
-func (e executionState) taskIndex() map[run.ChildKey]*Task {
-	tasks := make(map[run.ChildKey]*Task, len(e.Tasks))
-	for _, task := range e.Tasks {
-		tasks[task.Request.Key] = new(task.project())
+func (e executionState) taskIndex() map[run.ChildKey]*taskState {
+	tasks := make(map[run.ChildKey]*taskState, len(e.Tasks))
+	for index := range e.Tasks {
+		task := &e.Tasks[index]
+		tasks[task.Request.Key] = task
 	}
 	return tasks
 }
@@ -181,7 +193,7 @@ func (e executionState) coordinatorValid() bool {
 	return err == nil && expected == key
 }
 
-func (e executionState) validateDecision(ctx context.Context, definition *definition, decision Decision) error {
+func (e executionState) validateDecision(ctx context.Context, definition *definition, process run.ProcessID, decision Decision) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -216,7 +228,7 @@ func (e executionState) validateDecision(ctx context.Context, definition *defini
 		keys[request.Key] = struct{}{}
 	}
 	for _, control := range decision.Controls {
-		if _, err := control.effect(tasks[control.Task]); err != nil {
+		if _, err := control.effect(process, tasks[control.Task]); err != nil {
 			return err
 		}
 	}

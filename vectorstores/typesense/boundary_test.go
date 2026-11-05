@@ -15,7 +15,6 @@ import (
 	"github.com/typesense/typesense-go/v3/typesense/api"
 
 	"github.com/Tangerg/scope/core/document"
-
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -58,7 +57,7 @@ func TestConstructorBindsActualNativeSchema(t *testing.T) {
 }
 
 func TestFullExportRejectsCorruptCurrentRecordsBeforeEmbedding(t *testing.T) {
-	for _, fault := range []string{"legacy metadata", "missing", "unknown", "dimension", "zero vector", "invalid key", "key alias", "whitespace ID", "corrupt metadata", "empty content", "duplicate"} {
+	for _, fault := range []string{"legacy metadata", "missing", "unknown", "dimension", "zero vector", "null coordinate", "invalid key", "key alias", "whitespace ID", "corrupt metadata", "empty content", "duplicate"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			store := fixture.store()
@@ -78,6 +77,13 @@ func TestFullExportRejectsCorruptCurrentRecordsBeforeEmbedding(t *testing.T) {
 				broken["embedding"] = []float32{1}
 			case "zero vector":
 				broken["embedding"] = []float32{0, 0}
+			case "null coordinate":
+				broken["embedding"] = json.RawMessage(`[1,null]`)
+				key, err := encodeKey("two")
+				if err != nil {
+					t.Fatal(err)
+				}
+				broken["id"] = key
 			case "invalid key":
 				broken["id"] = "*"
 			case "key alias":

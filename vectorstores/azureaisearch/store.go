@@ -17,10 +17,9 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/document"
-
-	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/metadata"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -168,7 +167,7 @@ func (s *Store) coordinates(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("azureaisearch: %w: expected %d coordinates", vectorstore.ErrIncompatibleSpace, s.dimensions)
 	}
-	native := embedding.Float32Vector(values)
+	native := corevector.Float32(values)
 	if err := s.validateVector(native); err != nil {
 		return nil, err
 	}
@@ -176,13 +175,11 @@ func (s *Store) coordinates(values []float64) ([]float32, error) {
 }
 
 func (s *Store) validateVector(vector []float32) error {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return fmt.Errorf("azureaisearch: %w: %w", vectorstore.ErrInvalidRequest, err)
+	}
 	if len(vector) != s.dimensions {
 		return fmt.Errorf("azureaisearch: native vector width is %d, got %d", s.dimensions, len(vector))
-	}
-	for _, v := range vector {
-		if math.IsInf(float64(v), 0) || math.IsNaN(float64(v)) {
-			return fmt.Errorf("azureaisearch: %w: nonfinite float32 coordinate", vectorstore.ErrInvalidRequest)
-		}
 	}
 	return nil
 }
@@ -212,7 +209,7 @@ func (s *Store) decodeDocument(row metadata.Map) (*document.Document, error) {
 	if err = doc.UnmarshalStoredMetadata([]byte(*encoded)); err != nil {
 		return nil, fmt.Errorf("azureaisearch: decode Core metadata: %w", err)
 	}
-	vector, present, err := row.Decode[[]float32](s.embeddingField)
+	vector, present, err := row.Decode[corevector.Coordinates[float32]](s.embeddingField)
 	if err != nil || !present {
 		return nil, fmt.Errorf("azureaisearch: missing or invalid vector: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
 	}

@@ -72,7 +72,7 @@ func pendingToolExecution(t *testing.T, definition *definition) (run.Execution, 
 	t.Helper()
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)
-	advance(t, execution, 2, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: callResponse(requested("echo", "call"))}).settlement(run.MaxPayloadBytes))})
+	advance(t, execution, 2, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue((modelCallResult{Response: callResponse(requested("echo", "call"))}).settlement())})
 	transition := advance(t, execution, 3)
 	if len(transition.Effects()) != 1 {
 		t.Fatal("fixture did not establish a direct tool obligation")
@@ -85,7 +85,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 	definition := mustValue(newDefinition(definitionConfig{Name: "test.tool.messages", Description: "Accept only the exact tool obligation.", Tools: tools}))
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	questionOutcome := mustValue((toolDispatchResult{InputRequest: &question}).settlement())
-	wrongOutcome := mustValue((modelCallResult{Response: finalResponse("another operation")}).settlement(run.MaxPayloadBytes))
+	wrongOutcome := mustValue((modelCallResult{Response: finalResponse("another operation")}).settlement())
 	for _, row := range []struct {
 		name     string
 		question bool

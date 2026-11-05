@@ -11,13 +11,13 @@ import (
 	"slices"
 	"unicode/utf8"
 
-	"github.com/Tangerg/scope/core/vectorstore/filter"
-
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos"
 
 	"github.com/Tangerg/scope/core/document"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 const Provider = "AzureCosmosDB"
@@ -121,7 +121,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		rec.Embedding = &v
+		rec.Embedding = new(corevector.Coordinates[float32](v))
 		bodies[i], err = rec.marshal()
 		if err != nil {
 			return err

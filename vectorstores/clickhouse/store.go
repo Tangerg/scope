@@ -12,11 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Tangerg/scope/core/vectorstore/filter"
-
 	"github.com/Tangerg/scope/core/document"
-	"github.com/Tangerg/scope/core/embedding"
+	corevector "github.com/Tangerg/scope/core/vector"
 	"github.com/Tangerg/scope/core/vectorstore"
+	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 const Provider = "ClickHouse"
@@ -245,12 +244,12 @@ func (s *Store) narrow(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("%w: %d coordinates for ClickHouse width %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
 	}
-	v := embedding.Float32Vector(values)
+	v := corevector.Float32(values)
+	if err := corevector.Coordinates[float32](v).Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
+	}
 	nonzero := false
 	for i := range v {
-		if math.IsInf(float64(v[i]), 0) || math.IsNaN(float64(v[i])) {
-			return nil, fmt.Errorf("%w: nonfinite float32", vectorstore.ErrInvalidRequest)
-		}
 		nonzero = nonzero || v[i] != 0
 	}
 	if !nonzero && s.distanceMetric == DistanceCosine {

@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/httpclient"
+	corevector "github.com/Tangerg/scope/core/vector"
 )
 
 const (
@@ -99,6 +101,9 @@ func (a *api) embed(ctx context.Context, req *nativeEmbedRequest) (*nativeEmbedR
 	}
 	var response nativeEmbedResponse
 	if err := a.call(ctx, "/api/embed", req, &response); err != nil {
+		if errors.Is(err, corevector.ErrInvalidCoordinates) {
+			return nil, fmt.Errorf("%w: ollama: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
+		}
 		return nil, err
 	}
 	return &response, nil

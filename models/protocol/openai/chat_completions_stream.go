@@ -146,8 +146,8 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	if field := choice.Delta.JSON.FunctionCall.Raw(); (field != "" && field != "null") || choice.FinishReason == string(constant.ValueOf[constant.FunctionCall]()) {
 		return nil, fmt.Errorf("%w: openai: deprecated function_call cannot identify a Core tool proposal", errors.ErrUnsupported)
 	}
-	if choice.Index != 0 {
-		return nil, fmt.Errorf("choice index is %d, want 0", choice.Index)
+	if index, present := responseIndex(choice.JSON.Index); !present || index != 0 {
+		return nil, fmt.Errorf("%w: choice index must be the reported integer zero", corechat.ErrInvalidResponse)
 	}
 	if o.finished() {
 		return nil, validateOpenAIStreamTail(choice)
