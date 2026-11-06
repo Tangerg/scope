@@ -8,6 +8,9 @@
 //
 // Metadata has one representation: scope_metadata stores the complete Core
 // metadata JSON including null versus an empty object and exact numeric values.
+// Inner JSON escapes preserve code points that Vespa forbids in native string
+// fields. Unicode escape spelling can change; decoded metadata keys and values
+// retain their original Unicode semantics.
 //
 // The deployed schema requires Vespa 8.741.10 or newer and this shape (adapt the
 // native tensor width and configured field/profile names to the application):

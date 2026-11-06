@@ -96,19 +96,15 @@ func (t textReasoningCodec) prepareMessage(message corechat.Message, wireIndex i
 		if part.Kind != corechat.PartReasoning || part.Text == "" {
 			continue
 		}
-		issuer, _, err := part.Metadata.Decode[string](textReasoningProviderKey)
+		partField, owned, err := textReasoningFieldFor(part, t.provider)
 		if err != nil {
-			return fmt.Errorf("parts[%d].metadata[%q]: %w", index, textReasoningProviderKey, err)
+			return fmt.Errorf("parts[%d]: %w", index, err)
 		}
-		if issuer != t.provider {
+		if !owned {
 			continue
 		}
-		partField, found, err := part.Metadata.Decode[TextReasoningField](textReasoningFieldKey)
-		if err != nil {
-			return fmt.Errorf("parts[%d].metadata[%q]: %w", index, textReasoningFieldKey, err)
-		}
-		if !found || !slices.Contains(t.config.Fields, partField) {
-			return fmt.Errorf("parts[%d]: invalid reasoning field %q for %s", index, partField, issuer)
+		if !slices.Contains(t.config.Fields, partField) {
+			return fmt.Errorf("parts[%d]: invalid reasoning field %q for %s", index, partField, t.provider)
 		}
 		if field != "" && field != partField {
 			return errors.New("assistant reasoning changes wire field")
@@ -122,6 +118,24 @@ func (t textReasoningCodec) prepareMessage(message corechat.Message, wireIndex i
 		target.Messages[wireIndex].OfAssistant.SetExtraFields(map[string]any{string(field): text.String()})
 	}
 	return nil
+}
+
+func textReasoningFieldFor(part corechat.Part, provider string) (TextReasoningField, bool, error) {
+	issuer, _, err := part.Metadata.Decode[string](textReasoningProviderKey)
+	if err != nil {
+		return "", false, fmt.Errorf("metadata[%q]: %w", textReasoningProviderKey, err)
+	}
+	if issuer != provider {
+		return "", false, nil
+	}
+	field, found, err := part.Metadata.Decode[TextReasoningField](textReasoningFieldKey)
+	if err != nil {
+		return "", false, fmt.Errorf("metadata[%q]: %w", textReasoningFieldKey, err)
+	}
+	if !found || !field.valid() {
+		return "", false, fmt.Errorf("invalid reasoning field %q for %s", field, issuer)
+	}
+	return field, true, nil
 }
 
 // Each stream owns its selected wire field; a shared model must not carry one

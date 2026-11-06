@@ -4,7 +4,10 @@
 //
 // [Compile] freezes the planning domain, action bindings, and limits using the
 // Runtime's Compiler. Revision identifies the opaque Sensor, Planner, and action
-// implementations. A Planner performs deterministic search over a Problem.
+// implementations. The definition retains only action declarations; its
+// dispatcher owns the Sensor and ActionExecutors and shares the same immutable
+// action index, so execution cannot diverge from the declared authority.
+// A Planner performs deterministic search over a Problem.
 // A Sensor reads actual world state through a dispatcher Effect. Actions execute
 // through dispatcher Effects or exact child Programs, then the strategy senses
 // again before accepting that their predicted effects became true.

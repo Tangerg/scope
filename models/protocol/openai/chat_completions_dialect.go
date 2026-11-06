@@ -120,6 +120,9 @@ type DialectConfig struct {
 	Provider        string
 	PrepareRequest  func(source *corechat.Request, target *CompatibleRequest) error
 	TokenLimitField TokenLimitField
+	// SupportsTopK enables the Core option's wire projection for compatible
+	// endpoints that support it. Raw request extensions never own this field.
+	SupportsTopK bool
 	// NativeOutputFormat reports whether this compatible endpoint natively
 	// supports a Core output format. A nil function means the full OpenAI response_format
 	// surface is supported. Unsupported formats return ErrUnsupportedOutputFormat.

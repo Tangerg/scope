@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/Tangerg/scope/core/document"
@@ -18,6 +19,11 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 	"github.com/Tangerg/scope/core/vectorstore/filter/keyword"
 )
+
+// The server's exact metadata accounting is unpublished. Counting the SDK's
+// complete protobuf Struct, including framing, with decimal KB reserves room
+// within the published 40 KB limit without omitting derived metadata fields.
+const metadataByteBudget = 40_000
 
 type nativeSchema struct {
 	dimensions int
@@ -151,7 +157,11 @@ func encodeRecord(doc *document.Document) (*pineconesdk.Vector, error) {
 	for _, t := range terms {
 		list.Values = append(list.Values, structpb.NewStringValue(t))
 	}
-	return &pineconesdk.Vector{Id: doc.ID, Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{termsField: structpb.NewListValue(list), contentField: structpb.NewStringValue(doc.Text), metadataField: structpb.NewStringValue(string(facts))}}}, nil
+	point := &pineconesdk.Vector{Id: doc.ID, Metadata: &structpb.Struct{Fields: map[string]*structpb.Value{termsField: structpb.NewListValue(list), contentField: structpb.NewStringValue(doc.Text), metadataField: structpb.NewStringValue(string(facts))}}}
+	if size := proto.Size(point.Metadata); size > metadataByteBudget {
+		return nil, fmt.Errorf("%w: pinecone document %q metadata requires %d protobuf bytes; admission budget is %d", vectorstore.ErrInvalidDocument, doc.ID, size, metadataByteBudget)
+	}
+	return point, nil
 }
 
 func validateNativeIdentifier(value string, allowEmpty bool) error {

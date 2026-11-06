@@ -1,8 +1,11 @@
 package markdown
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -11,23 +14,83 @@ import (
 	"github.com/yuin/goldmark/v2/text"
 )
 
+const DefaultMaxExpandedBytes = 32 << 20
+
+// ErrReferenceExpansionTooLarge means no partially expanded source is exposed.
+var ErrReferenceExpansionTooLarge = errors.New("markdown: reference expansion exceeds byte limit")
+
 var (
 	destinationEscaper = strings.NewReplacer("&", "&amp;", "\\", "\\\\", "<", "\\<", ">", "\\>")
 	titleEscaper       = strings.NewReplacer("&", "&amp;", "\\", "\\\\", "\"", "\\\"")
 )
 
 type referenceEdit struct {
-	start int
-	end   int
-	tail  string
+	start       int
+	end         int
+	destination text.SingleLineValue
+	title       text.MultiLineValue
+}
+
+func (r referenceEdit) writeTail(writer io.Writer, source []byte) error {
+	if _, err := io.WriteString(writer, "(<"); err != nil {
+		return err
+	}
+	if _, err := destinationEscaper.WriteString(writer, r.destination.Value(source)); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(writer, ">"); err != nil {
+		return err
+	}
+	if !r.title.IsEmpty() {
+		if _, err := io.WriteString(writer, " \""); err != nil {
+			return err
+		}
+		if _, err := titleEscaper.WriteString(writer, r.title.Value(source)); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(writer, "\""); err != nil {
+			return err
+		}
+	}
+	_, err := io.WriteString(writer, ")")
+	return err
+}
+
+type referenceResolver struct {
+	parser   parser.Parser
+	maxBytes int
+}
+
+func newReferenceResolver(markdownParser parser.Parser, maxBytes int) (referenceResolver, error) {
+	if maxBytes < 0 {
+		return referenceResolver{}, errors.New("markdown: expanded byte limit must not be negative")
+	}
+	if maxBytes == 0 {
+		maxBytes = DefaultMaxExpandedBytes
+	}
+	return referenceResolver{parser: markdownParser, maxBytes: maxBytes}, nil
+}
+
+func (r referenceResolver) checkSize(size int) error {
+	if size > r.maxBytes {
+		return fmt.Errorf("%w: maximum is %d bytes", ErrReferenceExpansionTooLarge, r.maxBytes)
+	}
+	return nil
 }
 
 // Resolving reference tails before cutting keeps the source parser's first
 // definition, case folding and escape rules authoritative. Each emitted link
 // then owns all syntax needed to parse independently; its bytes count in the
-// ordinary chunk budget. Tail-only edits also preserve nested image labels.
-func resolveReferences(ctx context.Context, markdownParser parser.Parser, source []byte) ([]byte, ast.Node, error) {
-	root := markdownParser.Parse(source)
+// ordinary chunk budget. The counting pass shares the encoder and retains only
+// source ranges, so repeated definitions cannot allocate unbounded tails.
+func (r referenceResolver) resolve(ctx context.Context, source []byte) ([]byte, ast.Node, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := r.checkSize(len(source)); err != nil {
+		return nil, nil, err
+	}
+	root := r.parser.Parse(source)
 	var edits []referenceEdit
 	err := ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -60,11 +123,7 @@ func resolveReferences(ctx context.Context, markdownParser parser.Parser, source
 		if start < node.Pos() || end < start || end > len(source) {
 			return ast.WalkStop, fmt.Errorf("markdown: invalid reference source range")
 		}
-		tail := "(<" + destinationEscaper.Replace(destination.Value(source)) + ">"
-		if !title.IsEmpty() {
-			tail += " \"" + titleEscaper.Replace(title.Value(source)) + "\""
-		}
-		edits = append(edits, referenceEdit{start: start, end: end, tail: tail + ")"})
+		edits = append(edits, referenceEdit{start: start, end: end, destination: destination, title: title})
 		return ast.WalkContinue, nil
 	})
 	if err != nil {
@@ -74,19 +133,64 @@ func resolveReferences(ctx context.Context, markdownParser parser.Parser, source
 		return source, root, nil
 	}
 	slices.SortFunc(edits, func(left, right referenceEdit) int { return left.start - right.start })
-	var resolved strings.Builder
+	unchangedBytes := len(source)
 	offset := 0
 	for _, edit := range edits {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		if edit.start < offset {
 			return nil, nil, fmt.Errorf("markdown: overlapping reference tails")
 		}
+		unchangedBytes -= edit.end - edit.start
+		offset = edit.end
+	}
+	allowance := referenceAllowance{remaining: r.maxBytes - unchangedBytes}
+	for _, edit := range edits {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		if err := edit.writeTail(&allowance, source); err != nil {
+			return nil, nil, fmt.Errorf("markdown: expand reference: %w", err)
+		}
+	}
+	var resolved bytes.Buffer
+	resolved.Grow(r.maxBytes - allowance.remaining)
+	offset = 0
+	for _, edit := range edits {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		resolved.Write(source[offset:edit.start])
-		resolved.WriteString(edit.tail)
+		if err := edit.writeTail(&resolved, source); err != nil {
+			return nil, nil, err
+		}
 		offset = edit.end
 	}
 	resolved.Write(source[offset:])
-	source = []byte(resolved.String())
-	return source, markdownParser.Parse(source), nil
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	source = resolved.Bytes()
+	root = r.parser.Parse(source)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	return source, root, nil
+}
+
+type referenceAllowance struct{ remaining int }
+
+func (r *referenceAllowance) Write(data []byte) (int, error) { return r.consume(len(data)) }
+
+func (r *referenceAllowance) WriteString(value string) (int, error) { return r.consume(len(value)) }
+
+func (r *referenceAllowance) consume(size int) (int, error) {
+	if size > r.remaining {
+		return 0, ErrReferenceExpansionTooLarge
+	}
+	r.remaining -= size
+	return size, nil
 }
 
 type inlineRange struct {
@@ -97,10 +201,10 @@ type inlineRange struct {
 // The token search may probe any rune boundary. Returning an empty rendering
 // rejects boundaries inside links instead of emitting syntactically broken
 // fragments that merely happen to fit the tokenizer.
-func inlineRanges(markdownParser parser.Parser, source string) []inlineRange {
+func (r referenceResolver) inlineRanges(source string) []inlineRange {
 	raw := []byte(source)
 	var ranges []inlineRange
-	_ = ast.Walk(markdownParser.Parse(raw), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+	_ = ast.Walk(r.parser.Parse(raw), func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}

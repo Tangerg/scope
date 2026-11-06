@@ -43,14 +43,18 @@
 // it. Copying inputTokens through would understate the input by the whole
 // cached prefix and put a breakdown above its own total.
 //
-// Reasoning. Converse has no reasoning field: reasoning rides in
-// additionalModelRequestFields, and its shape belongs to the model generation
-// rather than to Converse — Claude 3.7 takes reasoning_config with a
-// budget_tokens count, while newer models reject that form and take thinking
-// with an output_config effort. A portable reasoning effort is therefore
+// Request ownership. AdditionalModelRequestFields accepts provider-only
+// controls. Native aliases for Core facts are rejected even when the Core
+// option is absent or unsupported by this binding. This includes top_k,
+// reasoning_effort, output_config.effort, and reasoningConfig.maxReasoningEffort;
+// an extension cannot bypass Core admission. Static defaults and resolved
+// requests use the same ownership check. Model-only token budgets and thinking
+// modes remain native fields.
+//
+// Reasoning. Converse has no portable reasoning control, so ReasoningEffort is
 // refused rather than translated into an invented token budget or a guessed
-// generation; state the model's own parameters through the request
-// extension's AdditionalModelRequestFields.
+// model generation. A model's distinct native controls, such as thinking or
+// reasoning_config token budgets, use AdditionalModelRequestFields.
 // Signed and redacted response blocks retain their boundaries when replayed.
 // Unsigned reasoning remains visible in Core output, but is excluded from later
 // Converse requests, as in the documented DeepSeek multi-turn workflow.

@@ -34,10 +34,10 @@
 // JSON objects. A Core media reference is an opaque handle
 // valid only with the provider that issued it, so serving one fails with
 // [ErrMediaReference]; a received resource link is always a URI. When a
-// server declares no media type, the client infers one from the URI extension
-// with a fixed table independent of the host, falls back to
-// application/octet-stream, and marks the envelope so that serving the content
-// again omits the guess. Empty text without metadata is omitted. Embedded
+// server declares no media type for a resource link or embedded resource,
+// Core retains that absence; the current Core MIME field owns any later
+// declaration. Image and audio content require a declared media type.
+// Empty text without metadata is omitted. Embedded
 // resources require a URI and inline content; their URI records provenance,
 // never a link fallback. Empty inline resources return [ErrEmptyEmbeddedResource]
 // because Core cannot represent them. Malformed or unsupported content is rejected.

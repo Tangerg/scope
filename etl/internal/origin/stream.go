@@ -22,6 +22,9 @@ func (s *Stream) Read(ctx context.Context, budget etl.SourceBudget, name string)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	if err := document.SourceName(name).Validate(); err != nil {
+		return nil, nil, err
+	}
 	if !s.admitted.CompareAndSwap(false, true) {
 		return nil, nil, etl.ErrSourceConsumed
 	}

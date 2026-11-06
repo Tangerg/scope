@@ -682,6 +682,18 @@ func (r *Runtime) bindRestoredProcess(state *treeState, process *processState, r
 	if err := bound.descriptor.ValidateInput(process.started.Input); err != nil {
 		return err
 	}
+	if output, completed := process.terminal.Output(); completed {
+		if err := bound.descriptor.ValidateOutput(output); err != nil {
+			return err
+		}
+	}
+	for _, message := range process.inbox {
+		if signal, ok := message.(Signal); ok && !signal.Wait.Valid() {
+			if err := bound.descriptor.ValidateSignal(signal.Payload); err != nil {
+				return err
+			}
+		}
+	}
 	process.program = bound
 	return nil
 }

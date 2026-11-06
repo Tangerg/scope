@@ -36,6 +36,9 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("text reader: source must not be nil")
 	}
+	if err := document.SourceName(config.SourceName).Validate(); err != nil {
+		return nil, fmt.Errorf("text reader: %w", err)
+	}
 	return &Reader{source: origin.NewStream(source), sourceName: config.SourceName, sourceBudget: config.SourceBudget}, nil
 }
 

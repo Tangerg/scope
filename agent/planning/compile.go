@@ -32,11 +32,15 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 	if err != nil {
 		return zero, err
 	}
-	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, InputSchema: in, Goal: cfg.Goal, Actions: cfg.Actions, Planner: cfg.Planner, MaxActionAttempts: cfg.MaxActionAttempts})
+	declarations, executors, err := splitActionBindings(cfg.Actions)
 	if err != nil {
 		return zero, err
 	}
-	dispatch, err := newDispatcher(def, cfg.Sensor)
+	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, InputSchema: in, Goal: cfg.Goal, Actions: declarations, Planner: cfg.Planner, MaxActionAttempts: cfg.MaxActionAttempts})
+	if err != nil {
+		return zero, err
+	}
+	dispatch, err := newDispatcher(dispatcherConfig{Definition: def, Sensor: cfg.Sensor, Executors: executors})
 	if err != nil {
 		return zero, err
 	}
@@ -67,4 +71,16 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 		Definition: def, Dispatcher: dispatch, Revision: cfg.Revision,
 		Configuration: configuration,
 	})
+}
+
+func splitActionBindings(bindings []ActionBinding) ([]actionDeclaration, []ActionExecutor, error) {
+	declarations := make([]actionDeclaration, len(bindings))
+	executors := make([]ActionExecutor, len(bindings))
+	for index, binding := range bindings {
+		if !binding.Valid() {
+			return nil, nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
+		}
+		declarations[index], executors[index] = binding.declaration, binding.executor
+	}
+	return declarations, executors, nil
 }

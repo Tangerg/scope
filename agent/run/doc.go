@@ -6,6 +6,10 @@
 // Checkpoint is the authority for its prefix: recovery never re-executes the
 // Steps it covers, so nondeterministic code is detected only in Steps after
 // the newest Checkpoint.
+// Retained inputs, successful outputs and unaddressed Signals must satisfy
+// their bound Program's Descriptor before recovery acquires a writer Epoch.
+// Wait answers belong to their Wait's schema; Definition.Restore owns only
+// the opaque execution state.
 //
 // A Runtime owns the host Build identity. Its Compiler capability lets strategy
 // packages freeze declarations into Program references without exposing the

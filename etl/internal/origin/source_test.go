@@ -65,3 +65,17 @@ func TestSplitLocationsCannotEscapeCancellationOrAliasSource(t *testing.T) {
 		}
 	}
 }
+
+func TestInvalidIdentityCannotSpendAStreamAttempt(t *testing.T) {
+	const content = "original"
+	source := strings.NewReader(content)
+	stream := origin.NewStream(source)
+	data, p, err := stream.Read(t.Context(), etl.SourceBudget{}, " \t")
+	if !errors.Is(err, document.ErrInvalidDocument) || data != nil || p != nil || source.Len() != len(content) {
+		t.Fatalf("invalid attempt: data=%q provenance=%v unread=%d error=%v", data, p, source.Len(), err)
+	}
+	data, p, err = stream.Read(t.Context(), etl.SourceBudget{}, "original.txt")
+	if err != nil || string(data) != content || p == nil || p.Source != "original.txt" {
+		t.Fatalf("valid attempt: data=%q provenance=%v error=%v", data, p, err)
+	}
+}

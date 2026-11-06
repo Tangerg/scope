@@ -20,7 +20,19 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-const imageMIMETypePrefix = "image/"
+const (
+	imageMIMETypePrefix      = "image/"
+	imageFieldModel          = "model"
+	imageFieldPrompt         = "prompt"
+	imageFieldNegativePrompt = "negative_prompt"
+	imageFieldWidth          = "width"
+	imageFieldHeight         = "height"
+	imageFieldSeed           = "seed"
+	imageFieldOutputFormat   = "output_format"
+	imageFieldSize           = "size"
+	imageFieldStream         = "stream"
+	imageFieldPartialImages  = "partial_images"
+)
 
 type ImageModelConfig struct {
 	Provider       string
@@ -84,8 +96,8 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 		return nil, err
 	}
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: image", map[string]bool{
-		"negative_prompt": effectiveOptions.NegativePrompt != "",
-		"seed":            effectiveOptions.Seed != nil,
+		imageFieldNegativePrompt: effectiveOptions.NegativePrompt != "",
+		imageFieldSeed:           effectiveOptions.Seed != nil,
 	}); rejectUnsupportedOptionsErr != nil {
 		return nil, rejectUnsupportedOptionsErr
 	}
@@ -93,7 +105,9 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 		return nil, errors.New("openai: image: width and height must be set together")
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(i.provider, "image"), "model", "prompt", "output_format", "size", "stream", "partial_images")
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(i.provider, "image"),
+		imageFieldModel, imageFieldPrompt, imageFieldNegativePrompt, imageFieldWidth, imageFieldHeight,
+		imageFieldSeed, imageFieldOutputFormat, imageFieldSize, imageFieldStream, imageFieldPartialImages)
 	if err != nil {
 		return nil, err
 	}

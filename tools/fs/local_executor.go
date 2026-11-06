@@ -35,7 +35,8 @@ const (
 //   - Mutations serialize within this executor and pin parent directories.
 //     Directory aliases are supported; leaf symlinks are rejected.
 //   - Read normalizes CRLF to LF and strips a UTF-8 BOM; Write and Edit
-//     restore both when the existing file uses them.
+//     restore both when the existing file uses them. Existing mutation inputs
+//     are limited to 8 MiB so format preservation never relies on a sample.
 type LocalExecutor struct {
 	rootPath string
 	root     *os.Root

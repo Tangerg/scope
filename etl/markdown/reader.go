@@ -33,13 +33,16 @@ type ReaderConfig struct {
 	SourceName        string
 	Metadata          coremetadata.Map
 	SourceBudget      etl.SourceBudget
+	// MaxExpandedBytes bounds source bytes before parsing and after reference expansion.
+	// Zero uses DefaultMaxExpandedBytes; whole-document reads do not expand links.
+	MaxExpandedBytes int
 }
 
 // Read admits one attempt on the sequential source. Reopen the input to
 // retry after a failure; concurrent or later attempts return [etl.ErrSourceConsumed].
 type Reader struct {
 	source            *origin.Stream
-	parser            parser.Parser
+	references        referenceResolver
 	headingSplitLevel int
 	sourceName        string
 	extraMetadata     coremetadata.Map
@@ -50,9 +53,16 @@ func NewReader(source io.Reader, config ReaderConfig) (*Reader, error) {
 	if lo.IsNil(source) {
 		return nil, errors.New("markdown reader: source must not be nil")
 	}
+	if err := document.SourceName(config.SourceName).Validate(); err != nil {
+		return nil, fmt.Errorf("markdown reader: %w", err)
+	}
+	references, err := newReferenceResolver(parser.New(), config.MaxExpandedBytes)
+	if err != nil {
+		return nil, err
+	}
 	r := &Reader{
 		source:            origin.NewStream(source),
-		parser:            parser.New(),
+		references:        references,
 		headingSplitLevel: config.HeadingSplitLevel,
 		sourceName:        config.SourceName,
 		extraMetadata:     config.Metadata.Clone(),
@@ -115,7 +125,7 @@ func (r *Reader) readWhole(raw []byte, p *document.Provenance) ([]*document.Docu
 
 // Content before the first split heading forms an unnamed lead-in section.
 func (r *Reader) collectSections(ctx context.Context, raw []byte) ([]*section, error) {
-	raw, root, err := resolveReferences(ctx, r.parser, raw)
+	raw, root, err := r.references.resolve(ctx, raw)
 	if err != nil {
 		return nil, err
 	}

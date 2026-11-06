@@ -64,26 +64,12 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	records := make([]nativeRecord, 0, len(batch.Records))
 	ids := make([]string, 0, len(batch.Records))
 	for _, r := range batch.Records {
-		doc := r.Document
-		if doc.Media != nil {
-			return vectorstore.ErrInvalidDocument
-		}
-		if err := validateText(doc.ID); err != nil {
-			return err
-		}
-		if err := validateText(doc.Text); err != nil {
-			return err
-		}
-		facts, err := doc.MarshalStoredMetadata()
+		record, err := encodeRecord(r, s.dimensions)
 		if err != nil {
 			return err
 		}
-		values, err := floatVector(r.Values, s.dimensions)
-		if err != nil {
-			return err
-		}
-		records = append(records, nativeRecord{document: doc, metadata: string(facts), vector: values})
-		ids = append(ids, doc.ID)
+		records = append(records, record)
+		ids = append(ids, record.document.ID)
 	}
 	for i, record := range records {
 		if err := ctx.Err(); err != nil {

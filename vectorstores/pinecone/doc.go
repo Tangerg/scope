@@ -15,6 +15,10 @@
 // contain at most MaxVectorsPerUpsert entries and fit a conservative 2,000,000-byte
 // protobuf request budget, including the namespace and message envelopes.
 // A record that cannot fit alone fails before any group is published.
+// CheckDocuments and Upsert also enforce a conservative 40,000-byte budget on
+// each complete protobuf metadata Struct, including content, metadata_json,
+// metadata_terms and framing. This adapter admission measure does not claim
+// to reproduce the service's unpublished metadata accounting.
 // On failure vectorstore.WriteError
 // distinguishes acknowledged IDs, unconfirmed IDs with a possible count-only
 // acknowledgment, and unattempted groups. It never guesses which IDs in a

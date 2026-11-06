@@ -1,9 +1,11 @@
 package html_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl/html"
 )
 
@@ -20,6 +22,12 @@ func TestInvalidUTF8CannotEscapeThroughContentOrMetadata(t *testing.T) {
 		} {
 			t.Run(test.name+"/"+selector, func(t *testing.T) {
 				reader, err := html.NewReader(strings.NewReader(test.content), html.ReaderConfig{Selector: selector, SourceName: test.sourceName})
+				if test.sourceName != "" {
+					if reader != nil || !errors.Is(err, document.ErrInvalidDocument) {
+						t.Fatalf("invalid source admitted: reader=%v error=%v", reader, err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

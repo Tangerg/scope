@@ -15,9 +15,10 @@ import (
 
 const applyPatchToolName = "apply_patch"
 
-// ApplyPatchRequest accepts Git-compatible create, modify, delete, and rename patches.
+// ApplyPatchRequest changes regular-file text. Unsupported file types and
+// permission changes are rejected before any file can commit.
 type ApplyPatchRequest struct {
-	Patch string `json:"patch" jsonschema:"minLength=1" jsonschema_description:"Git-compatible unified diff. Supports create, modify, delete, and rename operations; express moves with Git rename metadata."`
+	Patch string `json:"patch" jsonschema:"minLength=1" jsonschema_description:"Git-compatible unified text diff for regular files. Supports create, modify, delete, and rename operations; express moves with Git rename metadata. File type and permission changes are unsupported; new files use mode 100644 subject to the process umask."`
 }
 
 func (a ApplyPatchRequest) Validate() error {
@@ -72,6 +73,10 @@ func NewApplyPatchTool(executor PatchApplier) (*ApplyPatchTool, error) {
 			Description: "Apply one Git-compatible unified diff across one or more files, including create, modify, delete, and rename operations. " +
 				"Read existing files first so patch hunks reflect their current contents. Group coordinated multi-file changes in one patch. " +
 				"Express moves with Git rename metadata. The patch must match exactly, and an existing rename destination is never overwritten." + `
+
+Only regular-file text changes are supported. File type and permission changes,
+symlinks, submodules, copies, and binary patches are rejected. New files use
+mode 100644 subject to the process umask; existing permissions are preserved.
 
 Prefer edit when the change is in one place: it takes the text to replace and
 needs no line numbers and no counts. Reach for apply_patch when one call has to

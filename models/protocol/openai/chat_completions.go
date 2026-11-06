@@ -245,7 +245,15 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		return errors.New("openai: model is required in defaults or request options")
 	}
 	if options.TopK != nil {
-		return errors.New("openai: options.top_k is not supported by Chat Completions")
+		if !c.dialect.SupportsTopK {
+			return fmt.Errorf("openai: options.top_k is not supported by %s Chat Completions", c.dialect.Provider)
+		}
+		fields := maps.Clone(params.ExtraFields())
+		if fields == nil {
+			fields = make(map[string]any)
+		}
+		fields[chatFieldTopK] = *options.TopK
+		params.SetExtraFields(fields)
 	}
 	params.Model = openaisdk.ChatModel(options.Model)
 	if options.FrequencyPenalty != nil {

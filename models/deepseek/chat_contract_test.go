@@ -1,6 +1,7 @@
 package deepseek_test
 
 import (
+	"cmp"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 func TestThinkingUsesEffectiveCoreOptions(t *testing.T) {
 	for _, test := range []struct {
 		name        string
+		model       string
 		effort      chat.ReasoningEffort
 		topP        *float64
 		temperature *float64
@@ -32,6 +34,10 @@ func TestThinkingUsesEffectiveCoreOptions(t *testing.T) {
 		{name: "thinking refuses forced tools", effort: "high", choice: &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup"}, wantErr: "not supported while DeepSeek thinking"},
 		{name: "non-thinking permits forced tools", effort: "none", choice: &chat.ToolChoice{Mode: chat.ToolChoiceNamed, Name: "lookup"}},
 		{name: "minimal alias", effort: "minimal"}, {name: "medium alias", effort: "medium"}, {name: "xhigh alias", effort: "xhigh"},
+		{name: "Pro non-thinking accepts top_p", model: deepseek.ModelV4Pro, effort: "none", topP: new(0.8)},
+		{name: "Pro thinking refuses ignored top_p", model: deepseek.ModelV4Pro, effort: "high", topP: new(0.99), wantErr: "options.top_p has no effect"},
+		{name: "Pro default thinking refuses ignored top_p", model: deepseek.ModelV4Pro, topP: new(0.99), wantErr: "options.top_p has no effect"},
+		{name: "unknown model refuses top_p", model: "unknown-model", effort: "none", topP: new(0.8), wantErr: "sampling policy is unknown"},
 	} {
 		for _, defaults := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/defaults=%v", test.name, defaults), func(t *testing.T) {
@@ -55,10 +61,10 @@ func TestThinkingUsesEffectiveCoreOptions(t *testing.T) {
 						t.Errorf("duplicate thinking toggle = %v", body["thinking"])
 					}
 					writer.Header().Set("Content-Type", "text/event-stream")
-					fmt.Fprint(writer, "data: {\"id\":\"chat-1\",\"model\":\"deepseek-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+					fmt.Fprintf(writer, "data: {\"id\":\"chat-1\",\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", body["model"])
 				}))
 				defer server.Close()
-				options := chat.Options{Model: deepseek.ModelFlash, ReasoningEffort: test.effort, TopP: test.topP, Temperature: test.temperature}
+				options := chat.Options{Model: cmp.Or(test.model, deepseek.ModelFlash), ReasoningEffort: test.effort, TopP: test.topP, Temperature: test.temperature}
 				config := deepseek.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL}
 				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}, ToolChoice: test.choice, Tools: []toolcontract.Definition{{Name: "lookup", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 				if defaults {

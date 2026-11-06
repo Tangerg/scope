@@ -16,12 +16,13 @@ import (
 )
 
 type resultConnector struct {
-	rows *resultRows
-	stmt driver.Stmt
+	rows    *resultRows
+	stmt    driver.Stmt
+	binding []driver.Value
 }
 
 func (r resultConnector) Connect(context.Context) (driver.Conn, error) {
-	return &resultConnection{rows: r.rows, stmt: r.stmt}, nil
+	return &resultConnection{rows: r.rows, stmt: r.stmt, binding: r.binding}, nil
 }
 func (r resultConnector) Driver() driver.Driver { return resultDriver{} }
 
@@ -30,8 +31,9 @@ type resultDriver struct{}
 func (r resultDriver) Open(string) (driver.Conn, error) { return nil, errors.New("connector required") }
 
 type resultConnection struct {
-	rows *resultRows
-	stmt driver.Stmt
+	rows    *resultRows
+	stmt    driver.Stmt
+	binding []driver.Value
 }
 
 func (r *resultConnection) Prepare(string) (driver.Stmt, error) {
@@ -52,7 +54,16 @@ func (r *resultConnection) QueryContext(_ context.Context, stmt string, _ []driv
 		return &resultRows{cols: []string{"COUNT"}, values: [][]driver.Value{{int64(1)}}}, nil
 	}
 	if strings.Contains(stmt, "TABLE_COMMENT") {
-		return &resultRows{cols: []string{"TABLE_COMMENT", "COLUMN_TYPE"}, values: [][]driver.Value{{fixtureSpace.StorageKey(), "vector(2)"}}}, nil
+		binding := r.binding
+		if binding == nil {
+			binding = []driver.Value{fixtureSpace.StorageKey(), "vector(2)", "text", "utf8mb4", int64(262140)}
+		}
+		columns := []string{"TABLE_COMMENT", "COLUMN_TYPE", "DATA_TYPE", "CHARACTER_SET_NAME", "CHARACTER_OCTET_LENGTH"}
+		if !strings.Contains(stmt, "CHARACTER_OCTET_LENGTH") {
+			columns = columns[:len(columns)-1]
+			binding = binding[:len(binding)-1]
+		}
+		return &resultRows{cols: columns, values: [][]driver.Value{binding}}, nil
 	}
 
 	return r.rows, nil

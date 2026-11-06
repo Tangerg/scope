@@ -3,6 +3,13 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Content requires a utf8mb4 TEXT-family column. CheckDocuments and Upsert derive
+// its byte capacity from the actual native column type and reject the complete
+// batch before writes; the default TEXT schema permits at most 65,535 UTF-8 bytes
+// per document. Other server limits, including transaction row size, still apply.
+// Cosine vectors must have a finite positive squared norm accumulated in
+// float32, on both write and query paths. Nonzero finite coordinates can still
+// underflow or overflow in TiDB's native calculation and produce NULL distances.
 //
 // Query performs native nearest-neighbor ranking without enumerating metadata.
 // The stored metadata representation cannot implement exact Core predicates

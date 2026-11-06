@@ -77,6 +77,9 @@ func mapProtocolRequest(provider string, defaults corechat.Options, req *corecha
 		return "", nil, nil, err
 	}
 	if thinkingLevel != genai.ThinkingLevelUnspecified {
+		if config.ThinkingConfig != nil && config.ThinkingConfig.ThinkingBudget != nil {
+			return "", nil, nil, errors.New("google: options.reasoning_effort and thinkingConfig.thinkingBudget are mutually exclusive")
+		}
 		if config.ThinkingConfig == nil {
 			config.ThinkingConfig = &genai.ThinkingConfig{}
 		}

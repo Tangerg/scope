@@ -82,6 +82,9 @@ func TestClearCleanupFailureKeepsConversationClosed(t *testing.T) {
 	if messages, err := store.Read(t.Context(), batch.ConversationID()); err != nil || len(messages) != 0 {
 		t.Fatalf("closed history=%v error=%v", messages, err)
 	}
+	if ids, err := store.Conversations(t.Context()); err != nil || ids == nil || len(ids) != 0 {
+		t.Fatalf("closed listing=%v error=%v", ids, err)
+	}
 	if err := server.admin.Do(t.Context(), "ACL", "SETUSER", "history-fixture", "+del").Err(); err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ local ledger = KEYS[2]
 local closedField = 'closed'
 local receiptPrefix = 'append:'
 local accepted = 1
+local absent = 0
 local conflict = -1
 local closed = -2
 
@@ -26,6 +27,11 @@ end
 local messageType = redis.call('TYPE', messages).ok
 if messageType ~= 'none' and messageType ~= 'list' then
     return redis.error_reply('history messages must be a list')
+end
+
+if operation == 'visible' then
+    if messageType == 'list' then return accepted end
+    return absent
 end
 
 if operation == 'read' then

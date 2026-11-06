@@ -96,6 +96,10 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 			return err
 		}
 		delete(p.waits, signal.Wait)
+	} else if p.program.Valid() {
+		if err := p.program.descriptor.ValidateSignal(signal.Payload); err != nil {
+			return err
+		}
 	}
 	p.receipts[signal.ID] = SignalReceipt{ID: signal.ID, Wait: signal.Wait, Digest: digest}
 	p.inbox = append(p.inbox, signal)

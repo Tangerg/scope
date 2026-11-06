@@ -50,6 +50,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		Provider:        Provider,
 		PrepareRequest:  prepareOpenAIRequest,
 		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
+		SupportsTopK:    true,
 		ReasoningDetails: &openai.ReasoningDetailsConfig{
 			TextField:       "reasoning",
 			DetailsField:    "reasoning_details",

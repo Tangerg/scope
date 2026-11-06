@@ -7,6 +7,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -77,6 +78,32 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 	default:
 		return vectorstore.ScoreFromCosineDistance(distance)
 	}
+}
+
+func (d DistanceMetric) encodeVector(values []float64, width int) (string, error) {
+	if len(values) != width {
+		return "", fmt.Errorf("%w: native vector width is %d", vectorstore.ErrInvalidRequest, width)
+	}
+	vector := corevector.Float32(values)
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
+		return "", fmt.Errorf("%w: tidb float32 vector: %w", vectorstore.ErrInvalidRequest, err)
+	}
+	if d == DistanceCosine {
+		// TiDB accumulates squared norms in float32. Finite, nonzero
+		// coordinates can still underflow or overflow into NULL distances.
+		var squaredNorm float32
+		for _, value := range vector {
+			squaredNorm += value * value
+		}
+		if squaredNorm <= 0 || math.IsInf(float64(squaredNorm), 0) {
+			return "", fmt.Errorf("%w: tidb cosine vector requires a finite positive float32 squared norm", vectorstore.ErrInvalidRequest)
+		}
+	}
+	encoded, err := jsonv2.Marshal(vector)
+	if err != nil {
+		return "", fmt.Errorf("%w: tidb encode vector: %w", vectorstore.ErrInvalidRequest, err)
+	}
+	return string(encoded), nil
 }
 
 type StoreConfig struct {
@@ -303,29 +330,44 @@ func (s *Store) createTableStatement() string {
 	)
 }
 
-func (s *Store) binding(ctx context.Context) (int, error) {
-	var marker, shape string
-	err := s.db.QueryRowContext(ctx, `SELECT t.TABLE_COMMENT,c.COLUMN_TYPE FROM information_schema.TABLES t JOIN information_schema.COLUMNS c ON c.TABLE_SCHEMA=t.TABLE_SCHEMA AND c.TABLE_NAME=t.TABLE_NAME WHERE t.TABLE_SCHEMA=COALESCE(NULLIF(?,''),DATABASE()) AND t.TABLE_NAME=? AND c.COLUMN_NAME=?`, s.schemaName, s.tableName, s.embeddingColumn).Scan(&marker, &shape)
+func (s *Store) binding(ctx context.Context) (nativeBinding, error) {
+	var marker, shape, contentCharset string
+	var contentType nativeTextType
+	const query = `SELECT t.TABLE_COMMENT, v.COLUMN_TYPE, c.DATA_TYPE, c.CHARACTER_SET_NAME
+FROM information_schema.TABLES t
+JOIN information_schema.COLUMNS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME
+JOIN information_schema.COLUMNS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+WHERE t.TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND t.TABLE_NAME = ?
+AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ?`
+	err := s.db.QueryRowContext(ctx, query, s.schemaName, s.tableName, s.embeddingColumn, s.contentColumn).Scan(&marker, &shape, &contentType, &contentCharset)
 	if err != nil {
-		return 0, err
+		return nativeBinding{}, err
 	}
 	if marker != s.space.StorageKey() {
-		return 0, vectorstore.ErrIncompatibleSpace
+		return nativeBinding{}, vectorstore.ErrIncompatibleSpace
+	}
+	contentBytes, err := contentType.byteCapacity()
+	if err != nil {
+		return nativeBinding{}, err
+	}
+	if contentCharset != "utf8mb4" {
+		return nativeBinding{}, errors.New("tidb: content column requires utf8mb4")
 	}
 	width, ok := strings.CutPrefix(strings.ToLower(shape), "vector(")
 	if !ok {
-		return 0, errors.New("tidb: requires a fixed native vector width")
+		return nativeBinding{}, errors.New("tidb: requires a fixed native vector width")
 	}
 	width, ok = strings.CutSuffix(width, ")")
 	if !ok {
-		return 0, errors.New("tidb: invalid native vector type")
+		return nativeBinding{}, errors.New("tidb: invalid native vector type")
 	}
 	dim, err := strconv.Atoi(width)
 	if err != nil || dim <= 0 {
-		return 0, errors.New("tidb: invalid native vector width")
+		return nativeBinding{}, errors.New("tidb: invalid native vector width")
 	}
-	return dim, nil
+	return nativeBinding{dimensions: dim, contentBytes: contentBytes}, nil
 }
+
 func (s *Store) checkDocument(d *document.Document) error {
 	if len(d.ID) > documentIDBytes || d.Media != nil {
 		return fmt.Errorf("%w: unsupported document identity or media", vectorstore.ErrInvalidDocument)
@@ -344,8 +386,16 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 			return err
 		}
 	}
-	_, err := s.binding(ctx)
-	return err
+	binding, err := s.binding(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range docs {
+		if err := binding.checkContent(d.Text); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error) {
 	if batchErr := batch.ValidateFor(s.space); batchErr != nil {
@@ -359,27 +409,27 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			return docErr
 		}
 	}
-	width, err := s.binding(ctx)
+	binding, err := s.binding(ctx)
 	if err != nil {
 		return err
-	}
-	if len(batch.Records[0].Values) != width {
-		return fmt.Errorf("%w: native vector width is %d", vectorstore.ErrInvalidRequest, width)
 	}
 	args := make([][]any, len(batch.Records))
 	ids := make([]string, len(args))
 	for i, r := range batch.Records {
 		doc := r.Document
+		if contentErr := binding.checkContent(doc.Text); contentErr != nil {
+			return contentErr
+		}
 		ids[i] = doc.ID
 		metaJSON, encodeErr := doc.MarshalStoredMetadata()
 		if encodeErr != nil {
 			return encodeErr
 		}
-		vectorJSON, encodeErr := jsonv2.Marshal(corevector.Float32(r.Values))
+		vectorJSON, encodeErr := s.distanceMetric.encodeVector(r.Values, binding.dimensions)
 		if encodeErr != nil {
 			return encodeErr
 		}
-		args[i] = []any{[]byte(doc.ID), doc.Text, metaJSON, string(vectorJSON)}
+		args[i] = []any{[]byte(doc.ID), doc.Text, metaJSON, vectorJSON}
 	}
 	upsert := fmt.Sprintf(
 		`INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?) `+
@@ -476,12 +526,13 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 			response = nil
 		}
 	}()
-	width, err := s.binding(ctx)
+	binding, err := s.binding(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(request.Values) != width {
-		return nil, vectorstore.ErrInvalidRequest
+	encoded, err := s.distanceMetric.encodeVector(request.Values, binding.dimensions)
+	if err != nil {
+		return nil, err
 	}
 	var transaction *sql.Tx
 	if request.Options.Filter != nil {
@@ -495,13 +546,9 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		}
 	}
 
-	encoded, err := jsonv2.Marshal(corevector.Float32(request.Values))
-	if err != nil {
-		return nil, fmt.Errorf("tidb: marshal query vector: %w", err)
-	}
 	var ranked []rankedResult
 	if request.Options.Filter == nil {
-		ranked, err = s.searchRows(ctx, nil, request, string(encoded), nil)
+		ranked, err = s.searchRows(ctx, nil, request, encoded, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -517,7 +564,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 				for index, match := range page.matches {
 					ids[index] = match.id
 				}
-				candidates, queryErr := s.searchRows(ctx, transaction, request, string(encoded), ids)
+				candidates, queryErr := s.searchRows(ctx, transaction, request, encoded, ids)
 				if queryErr != nil {
 					return nil, queryErr
 				}

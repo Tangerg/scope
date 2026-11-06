@@ -13,18 +13,18 @@ import (
 )
 
 const (
-	maximumStopSequences   = 16
-	maximumTools           = 128
-	maximumTopLogProbs     = 20
-	maximumUserIDLength    = 512
-	minimumThinkingTopP    = 0.95
-	reasoningEffortNone    = corechat.ReasoningEffort("none")
-	reasoningEffortMinimal = corechat.ReasoningEffort("minimal")
-	reasoningEffortMedium  = corechat.ReasoningEffort("medium")
-	reasoningEffortXHigh   = corechat.ReasoningEffort("xhigh")
-	reasoningEffortLow     = corechat.ReasoningEffort("low")
-	reasoningEffortHigh    = corechat.ReasoningEffort("high")
-	reasoningEffortMax     = corechat.ReasoningEffort("max")
+	maximumStopSequences     = 16
+	maximumTools             = 128
+	maximumTopLogProbs       = 20
+	maximumUserIDLength      = 512
+	minimumFlashThinkingTopP = 0.95
+	reasoningEffortNone      = corechat.ReasoningEffort("none")
+	reasoningEffortMinimal   = corechat.ReasoningEffort("minimal")
+	reasoningEffortMedium    = corechat.ReasoningEffort("medium")
+	reasoningEffortXHigh     = corechat.ReasoningEffort("xhigh")
+	reasoningEffortLow       = corechat.ReasoningEffort("low")
+	reasoningEffortHigh      = corechat.ReasoningEffort("high")
+	reasoningEffortMax       = corechat.ReasoningEffort("max")
 )
 
 // Namespacing preserves provider-specific data without promoting it into the
@@ -126,11 +126,8 @@ func (r RequestOptions) ValidateFor(generation corechat.Options, tools []toolcon
 		return errors.New("options.temperature has no effect while DeepSeek thinking is enabled")
 	}
 	if generation.TopP != nil {
-		if !thinkingEnabled {
-			return errors.New("options.top_p has no effect while DeepSeek thinking is disabled")
-		}
-		if *generation.TopP < minimumThinkingTopP {
-			return fmt.Errorf("options.top_p must be at least %g while DeepSeek thinking is enabled", minimumThinkingTopP)
+		if err := validateTopP(generation.Model, thinkingEnabled, *generation.TopP); err != nil {
+			return err
 		}
 	}
 	if len(generation.Stop) > maximumStopSequences {
@@ -158,6 +155,29 @@ func (r RequestOptions) ValidateFor(generation corechat.Options, tools []toolcon
 		if !userIDPattern.MatchString(r.UserID) {
 			return errors.New("user_id may contain only ASCII letters, digits, hyphens, and underscores")
 		}
+	}
+	return nil
+}
+
+func validateTopP(model string, thinkingEnabled bool, value float64) error {
+	switch model {
+	case "":
+		// Defaults may leave the model to the request. Admission checks the
+		// resolved model before dispatch instead of guessing its sampling policy.
+		return nil
+	case ModelFlash:
+		if !thinkingEnabled {
+			return errors.New("options.top_p has no effect while DeepSeek Flash thinking is disabled")
+		}
+		if value < minimumFlashThinkingTopP {
+			return fmt.Errorf("options.top_p must be at least %g while DeepSeek Flash thinking is enabled", minimumFlashThinkingTopP)
+		}
+	case ModelV4Pro:
+		if thinkingEnabled {
+			return errors.New("options.top_p has no effect while DeepSeek V4 Pro thinking is enabled")
+		}
+	default:
+		return fmt.Errorf("options.top_p is unsupported for model %q: its sampling policy is unknown", model)
 	}
 	return nil
 }

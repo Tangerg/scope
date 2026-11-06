@@ -125,7 +125,7 @@ func (e *execution) failPlanning(consumedMessages uint32, kind run.FailureKind, 
 	return stepfail.Transition(consumedMessages, kind, code, err.Error())
 }
 
-func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding ActionBinding) (run.Transition, error) {
+func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding actionDeclaration) (run.Transition, error) {
 	input, err := e.state.input()
 	if err != nil {
 		return run.Transition{}, err
@@ -143,7 +143,7 @@ func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding 
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
-func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding ActionBinding, input run.Payload) (run.Transition, error) {
+func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding actionDeclaration, input run.Payload) (run.Transition, error) {
 	childInput := input
 	if binding.childInput != nil {
 		var err error

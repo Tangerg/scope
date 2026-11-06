@@ -1,9 +1,11 @@
 package markdown_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/etl/markdown"
 )
 
@@ -20,6 +22,12 @@ func TestReaderRejectsInvalidContentAndMetadataWithoutPartialDocuments(t *testin
 		} {
 			t.Run(test.name, func(t *testing.T) {
 				reader, err := markdown.NewReader(strings.NewReader(test.content), markdown.ReaderConfig{HeadingSplitLevel: level, SourceName: test.sourceName})
+				if test.sourceName != "" {
+					if reader != nil || !errors.Is(err, document.ErrInvalidDocument) {
+						t.Fatalf("invalid source admitted: reader=%v error=%v", reader, err)
+					}
+					return
+				}
 				if err != nil {
 					t.Fatal(err)
 				}

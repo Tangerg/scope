@@ -16,7 +16,11 @@ import (
 	"github.com/Tangerg/scope/tools/textread"
 )
 
-const nullPatchPath = "/dev/null"
+const (
+	nullPatchPath               = "/dev/null"
+	gitFileTypeMask os.FileMode = 0o170000
+	gitRegularFile  os.FileMode = 0o100000
+)
 
 type unifiedPatch struct {
 	files []filePatch
@@ -114,6 +118,9 @@ func (f filePatch) validate() error {
 	if f.oldPath == "" && f.newPath == "" {
 		return errors.New("fs.ApplyPatch: file patch is missing source and destination paths")
 	}
+	if err := f.validateModes(); err != nil {
+		return err
+	}
 	// Creating or deleting an empty file and a pure rename are the patches with
 	// nothing to apply. Every other shape without a hunk says nothing at all.
 	if f.hunks() == 0 && !f.created() && !f.deleted() && !f.moved() {
@@ -128,6 +135,24 @@ func (f filePatch) validate() error {
 		if path == "." || path == string(filepath.Separator) {
 			return fmt.Errorf("fs.ApplyPatch: invalid file path %q", path)
 		}
+	}
+	return nil
+}
+
+func (f filePatch) validateModes() error {
+	for _, mode := range [...]os.FileMode{f.parsed.OldMode, f.parsed.NewMode} {
+		if mode != 0 && mode&gitFileTypeMask != gitRegularFile {
+			return fmt.Errorf("fs.ApplyPatch: %s: only regular-file modes are supported", f.path())
+		}
+	}
+	if f.created() {
+		if f.parsed.NewMode != 0 && f.parsed.NewMode != gitRegularFile|defaultFileMode {
+			return fmt.Errorf("fs.ApplyPatch: %s: new files require mode %o", f.path(), gitRegularFile|defaultFileMode)
+		}
+		return nil
+	}
+	if f.parsed.NewMode != 0 && f.parsed.NewMode != f.parsed.OldMode {
+		return fmt.Errorf("fs.ApplyPatch: %s: permission changes are not supported", f.path())
 	}
 	return nil
 }

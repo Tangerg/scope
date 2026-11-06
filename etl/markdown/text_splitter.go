@@ -42,13 +42,16 @@ type TextSplitterConfig struct {
 	// MaxSearchWork bounds each paragraph prefix search in bytes rendered or
 	// encoded plus tokens decoded; zero uses etl.DefaultMaxSearchWork.
 	MaxSearchWork int
+	// MaxExpandedBytes bounds source bytes before parsing and after reference expansion.
+	// Zero uses DefaultMaxExpandedBytes.
+	MaxExpandedBytes int
 }
 
 // TextSplitter is the etl.TextSplitter that produces token-bounded Markdown chunks without severing tables,
 // list items, or code lines. Active heading ancestry is repeated in each chunk
 // so independently retrieved chunks retain their section context.
 type TextSplitter struct {
-	parser            parser.Parser
+	references        referenceResolver
 	tokenizer         tokenizer.Tokenizer
 	maxTokensPerChunk int
 	maxChunks         int
@@ -71,9 +74,13 @@ func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 	if config.MaxChunks == 0 {
 		config.MaxChunks = defaultMaxChunks
 	}
+	references, err := newReferenceResolver(parser.New(parser.WithExtensions(extension.TableParser)), config.MaxExpandedBytes)
+	if err != nil {
+		return nil, err
+	}
 
 	return &TextSplitter{
-		parser:            parser.New(parser.WithExtensions(extension.TableParser)),
+		references:        references,
 		tokenizer:         config.Tokenizer,
 		maxTokensPerChunk: config.MaxTokensPerChunk,
 		maxChunks:         config.MaxChunks,
@@ -85,6 +92,9 @@ func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 // non-empty and within MaxTokensPerChunk. The total is bounded by MaxChunks.
 func (t *TextSplitter) SplitText(ctx context.Context, source string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := t.references.checkSize(len(source)); err != nil {
 		return nil, err
 	}
 	if !utf8.ValidString(source) {
@@ -177,7 +187,7 @@ func (s *sectionBuilder) finish() []markdownSection {
 }
 
 func (t *TextSplitter) parseSections(ctx context.Context, source []byte) ([]markdownSection, error) {
-	source, root, err := resolveReferences(ctx, t.parser, source)
+	source, root, err := t.references.resolve(ctx, source)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +356,7 @@ func (t *TextSplitter) splitBlock(ctx context.Context, prefix string, block mark
 
 func (t *TextSplitter) splitParagraph(ctx context.Context, prefix, paragraph string) ([]string, error) {
 	paragraph = strings.TrimSpace(paragraph)
-	protected := inlineRanges(t.parser, paragraph)
+	protected := t.references.inlineRanges(paragraph)
 	offset := 0
 	render := func(body string) string {
 		boundary := offset + len(body)

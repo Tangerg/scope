@@ -4,24 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// dispatcher freezes the sensor and the executable action bindings together.
+type dispatcherConfig struct {
+	Definition *definition
+	Sensor     Sensor
+	Executors  []ActionExecutor
+}
+
+// Executor slots use the definition's immutable action index; a separate name
+// registry could bind different authority and execution to the same Action.
 // Concurrent processes require concurrency-safe host implementations.
 type dispatcher struct {
 	definition *definition
 	sensor     Sensor
+	executors  []ActionExecutor
 }
 
-func newDispatcher(definition *definition, sensor Sensor) (*dispatcher, error) {
-	if !definition.valid() || lo.IsNil(sensor) {
+func newDispatcher(config dispatcherConfig) (*dispatcher, error) {
+	if !config.Definition.valid() || lo.IsNil(config.Sensor) || len(config.Executors) != len(config.Definition.bindings) {
 		return nil, ErrInvalidDispatcherConfig
 	}
-	return &dispatcher{definition: definition, sensor: sensor}, nil
+	for index, binding := range config.Definition.bindings {
+		if binding.delegatesToChild() != lo.IsNil(config.Executors[index]) {
+			return nil, fmt.Errorf("%w: Action %q execution owner", ErrInvalidDispatcherConfig, binding.action.name)
+		}
+	}
+	return &dispatcher{definition: config.Definition, sensor: config.Sensor, executors: slices.Clone(config.Executors)}, nil
 }
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors
@@ -100,15 +114,19 @@ func (d *dispatcher) execute(
 	input run.Payload,
 	call actionCall,
 ) (run.Settlement, error) {
-	binding, found := d.definition.binding(call.Name)
-	if !found || binding.delegatesToChild() || !binding.action.Applicable(call.WorldState) {
+	index, found := d.definition.bindingsByName[call.Name]
+	if !found {
+		return planningFailureSettlement(fmt.Errorf("%w: Action %q is not bound", ErrInvalidProtocol, call.Name))
+	}
+	binding := d.definition.bindings[index]
+	if binding.delegatesToChild() || !binding.action.Applicable(call.WorldState) {
 		return planningFailureSettlement(fmt.Errorf("%w: Action %q does not match frozen binding", ErrInvalidProtocol, call.Name))
 	}
 	request := ActionRequest{
 		EffectID: effectRequest.ID(), Input: input, ActionName: call.Name,
 		ActionDescription: binding.action.description, WorldState: call.WorldState,
 	}
-	result, err := binding.executor.Execute(ctx, request)
+	result, err := d.executors[index].Execute(ctx, request)
 	if err != nil {
 		return run.Settlement{}, fmt.Errorf("planning: execute Action %q: %w", call.Name, err)
 	}

@@ -142,25 +142,63 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if !e.withinBounds(definition) || !e.coordinatorValid() {
 		return ErrInvalidExecutionState
 	}
-	keys := make(map[run.ChildKey]struct{}, len(e.Tasks))
-	for _, task := range e.Tasks {
+	tasks := make(map[run.ChildKey]*taskState, len(e.Tasks))
+	for index := range e.Tasks {
+		task := &e.Tasks[index]
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if _, exists := keys[task.Request.Key]; exists {
+		if _, exists := tasks[task.Request.Key]; exists {
 			return ErrInvalidExecutionState
 		}
 		if err := task.validate(definition); err != nil {
 			return err
 		}
-		keys[task.Request.Key] = struct{}{}
+		tasks[task.Request.Key] = task
 	}
 	for _, control := range e.Controls {
-		if _, present := keys[control.Control.Task]; !present || !control.valid() {
+		task := tasks[control.Control.Task]
+		if task == nil || !control.valid() || task.Invocation.Request != nil || task.Invocation.Rejection != nil {
 			return ErrInvalidExecutionState
 		}
 	}
-	return nil
+	return e.validateObligations(ctx)
+}
+
+func (e executionState) validateObligations(ctx context.Context) error {
+	var claims obligationClaims
+	if e.Coordinator != nil && !claims.claimInvocation(*e.Coordinator) {
+		return ErrInvalidExecutionState
+	}
+	for index, task := range e.Tasks {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !claims.claimInvocation(task.Invocation) {
+			return ErrInvalidExecutionState
+		}
+		if request := task.Invocation.Request; request != nil {
+			if uint64(request.Index) > uint64(index) || !claims.claimBatchStart(uint64(index)-uint64(request.Index)) {
+				return ErrInvalidExecutionState
+			}
+		}
+	}
+	for index, control := range e.Controls {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if control.Effect == nil {
+			continue
+		}
+		if !claims.claimEffect(*control.Effect) || uint64(control.Effect.Index) < uint64(index) {
+			return ErrInvalidExecutionState
+		}
+		newTasks := uint64(control.Effect.Index) - uint64(index)
+		if newTasks > uint64(len(e.Tasks)) || !claims.claimBatchStart(uint64(len(e.Tasks))-newTasks) {
+			return ErrInvalidExecutionState
+		}
+	}
+	return ctx.Err()
 }
 
 // A completed collaboration keeps no state: its output belongs to the runtime.
@@ -182,7 +220,10 @@ func (e executionState) coordinatorValid() bool {
 	if e.Coordinator == nil {
 		return true
 	}
-	if !e.Coordinator.Valid() || e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask {
+	if !e.Coordinator.Valid() || e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask || e.unapplied() {
+		return false
+	}
+	if e.Coordinator.Request != nil && e.Coordinator.Request.Index != 0 {
 		return false
 	}
 	if e.Coordinator.Process == nil {

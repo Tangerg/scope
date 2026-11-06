@@ -139,6 +139,10 @@ func (s scanHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.
 }
 func (s scanHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
 	return func(ctx context.Context, command goredis.Cmder) error {
+		if command.Name() == "eval" && command.Args()[len(command.Args())-1] == operationVisible {
+			command.(*goredis.Cmd).SetVal(scriptAccepted)
+			return nil
+		}
 		scan, ok := command.(*goredis.ScanCmd)
 		if !ok {
 			return next(ctx, command)
@@ -147,6 +151,50 @@ func (s scanHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
 		scan.SetVal(keys, cursor)
 		scan.SetErr(err)
 		return err
+	}
+}
+
+func TestConversationsRequireLedgerVisibility(t *testing.T) {
+	cause := errors.New("ledger unavailable")
+	for _, test := range []struct {
+		name    string
+		status  int64
+		failure error
+		visible bool
+		invalid bool
+	}{
+		{name: "live messages", status: scriptAccepted, visible: true},
+		{name: "expired messages", status: scriptAbsent},
+		{name: "closed with retained messages", status: scriptClosed},
+		{name: "ledger failure", failure: cause, invalid: true},
+		{name: "unexpected status", status: 2, invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			keys := conversationKeyspace{prefix: DefaultKeyPrefix}
+			node := scannedClient(t, &pagedScanner{pages: [][]string{{keys.messages("candidate"), keys.messages("candidate")}}})
+			client := &appendReplyClient{status: test.status, failure: test.failure}
+			store, err := NewStore(t.Context(), StoreConfig{Client: client, ScanNodes: singleNode(node)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids, err := store.Conversations(t.Context())
+			if test.invalid {
+				if err == nil || ids != nil || test.failure != nil && !errors.Is(err, test.failure) {
+					t.Fatalf("ids=%v error=%v", ids, err)
+				}
+			} else {
+				want := []history.ConversationID{}
+				if test.visible {
+					want = append(want, "candidate")
+				}
+				if err != nil || ids == nil || !slices.Equal(ids, want) {
+					t.Fatalf("ids=%v error=%v", ids, err)
+				}
+			}
+			if client.calls != 1 || !slices.Equal(client.keys, store.scriptKeys("candidate")) || len(client.arguments) != 1 || client.arguments[0] != operationVisible {
+				t.Fatalf("calls=%d keys=%v arguments=%v", client.calls, client.keys, client.arguments)
+			}
+		})
 	}
 }
 

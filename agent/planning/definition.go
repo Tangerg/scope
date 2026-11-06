@@ -28,7 +28,7 @@ type definitionConfig struct {
 
 	Goal Goal
 
-	Actions []ActionBinding
+	Actions []actionDeclaration
 
 	Planner Planner
 
@@ -49,7 +49,7 @@ type definitionConfig struct {
 type definition struct {
 	descriptor        run.Descriptor
 	goal              Goal
-	bindings          []ActionBinding
+	bindings          []actionDeclaration
 	bindingsByName    map[string]int
 	planner           Planner
 	maxActionAttempts run.Quota
@@ -65,7 +65,7 @@ func newDefinition(config definitionConfig) (*definition, error) {
 	bindings := slices.Clone(config.Actions)
 	names := make(map[string]int, len(bindings))
 	for index, binding := range bindings {
-		if !binding.Valid() {
+		if !binding.valid() {
 			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
 		}
 		name := binding.action.name
@@ -143,10 +143,10 @@ func (d *definition) valid() bool {
 	return d != nil && d.descriptor.Valid()
 }
 
-func (d *definition) binding(name string) (ActionBinding, bool) {
+func (d *definition) binding(name string) (actionDeclaration, bool) {
 	index, found := d.bindingsByName[name]
 	if !found {
-		return ActionBinding{}, false
+		return actionDeclaration{}, false
 	}
 	return d.bindings[index], true
 }

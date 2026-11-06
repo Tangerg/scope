@@ -42,8 +42,9 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		return nil, err
 	}
 	reasoningDialect := openai.DialectConfig{Provider: Provider, TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-		TextField:    "reasoning_content",
-		DetailsField: "reasoning_details",
+		TextField:       "reasoning_content",
+		DetailsField:    "reasoning_details",
+		ReplayPlainText: true,
 	}}
 	reasoningDialect.PrepareRequest = prepareOpenAIRequest
 	reasoningDialect.DisableRawRequestExtension = true

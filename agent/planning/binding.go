@@ -32,11 +32,8 @@ type ChildBindingConfig struct {
 // ActionBinding fixes one action's prediction, authority, and execution
 // mechanism together, so a separate name-indexed registry cannot redirect it.
 type ActionBinding struct {
-	action     Action
-	executor   ActionExecutor
-	policy     run.EffectPolicy
-	child      run.ChildBinding
-	childInput ChildInputFunc
+	declaration actionDeclaration
+	executor    ActionExecutor
 }
 
 func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error) {
@@ -54,26 +51,18 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 	if err != nil {
 		return ActionBinding{}, fmt.Errorf("%w: required capabilities: %w", ErrInvalidAction, err)
 	}
-	return ActionBinding{action: config.Action, executor: config.Executor, policy: run.EffectPolicy{Replay: replay, RequiredCapabilities: required}}, nil
+	return ActionBinding{declaration: actionDeclaration{action: config.Action, policy: run.EffectPolicy{Replay: replay, RequiredCapabilities: required}}, executor: config.Executor}, nil
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
 	if !config.Action.Valid() || !config.Child.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: invalid child binding", ErrInvalidAction)
 	}
-	return ActionBinding{action: config.Action, child: config.Child, childInput: config.Input}, nil
+	return ActionBinding{declaration: actionDeclaration{action: config.Action, child: config.Child, childInput: config.Input}}, nil
 }
 
-func (a ActionBinding) Action() Action { return a.action }
-
-func (a ActionBinding) delegatesToChild() bool { return a.child.Valid() }
+func (a ActionBinding) Action() Action { return a.declaration.action }
 
 func (a ActionBinding) Valid() bool {
-	if !a.action.Valid() {
-		return false
-	}
-	if a.delegatesToChild() {
-		return lo.IsNil(a.executor) && !a.policy.Valid()
-	}
-	return a.childInput == nil && !lo.IsNil(a.executor) && a.policy.Valid()
+	return a.declaration.valid() && a.declaration.delegatesToChild() == lo.IsNil(a.executor)
 }

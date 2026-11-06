@@ -5,6 +5,8 @@
 // Set chat.Options.ReasoningEffort for the chat reasoning effort. The raw
 // OpenAI request extension cannot also set reasoning.effort; other native
 // reasoning settings remain available through that extension.
+// Core Options.TopK exclusively owns top-k sampling for Chat Completions;
+// the raw request extension cannot set top_k even when Core leaves it unset.
 // Structured reasoning keeps each native detail as a separate Core Part:
 // Part.Text owns visible text, while ReasoningState retains native replay fields.
 // An explicit empty reasoning_details array retains an opaque reasoning Part so

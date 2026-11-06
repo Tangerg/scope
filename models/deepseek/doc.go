@@ -12,8 +12,10 @@
 // Core Options.ReasoningEffort owns both the thinking mode and its intensity:
 // "none" disables thinking; "low", "high", and "max" enable it. The provider
 // defaults to thinking with high effort. In thinking mode temperature is
-// unsupported and top_p must be in [0.95, 1]; in non-thinking mode top_p is
-// unsupported. Required and named tool choices require non-thinking mode.
+// unsupported. Flash honors top_p only in thinking mode, in [0.95, 1]; V4 Pro
+// honors it only in non-thinking mode. Explicit top_p for an unknown model is
+// rejected because its sampling semantics cannot be established. Required and
+// named tool choices require non-thinking mode.
 //
 // Provider-specific request controls use the typed [RequestOptions] extension;
 // the OpenAI SDK request shape is intentionally not exposed. Prefix completion

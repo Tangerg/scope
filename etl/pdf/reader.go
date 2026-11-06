@@ -71,6 +71,9 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 	if lo.IsNil(source) {
 		return nil, errors.New("pdf reader: source must not be nil")
 	}
+	if err := document.SourceName(config.SourceName).Validate(); err != nil {
+		return nil, fmt.Errorf("pdf reader: %w", err)
+	}
 	if size <= 0 {
 		return nil, errors.New("pdf reader: size must be positive")
 	}

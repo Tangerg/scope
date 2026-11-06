@@ -27,12 +27,14 @@ const DefaultKeyPrefix = "chat:history:"
 var historyScript string
 
 const (
-	operationAppend       = "append"
-	operationRead         = "read"
-	operationClear        = "clear"
-	scriptAccepted  int64 = 1
-	scriptConflict  int64 = -1
-	scriptClosed    int64 = -2
+	operationAppend        = "append"
+	operationRead          = "read"
+	operationClear         = "clear"
+	operationVisible       = "visible"
+	scriptAccepted   int64 = 1
+	scriptAbsent     int64 = 0
+	scriptConflict   int64 = -1
+	scriptClosed     int64 = -2
 )
 
 var scanPatternEscaper = strings.NewReplacer(
@@ -202,7 +204,28 @@ func (s *Store) Conversations(ctx context.Context) ([]history.ConversationID, er
 	if err := s.scanNodes(ctx, collector.scanNode); err != nil {
 		return nil, fmt.Errorf("redis: list conversations: scan keyspace: %w", err)
 	}
-	return collector.sorted(), nil
+	candidates := collector.sorted()
+	visible := candidates[:0]
+	for _, id := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// A failed physical cleanup can leave messages behind after the ledger
+		// closes an identity. Route through Client so cluster slot moves retain
+		// the same lifecycle authority as Read and Append.
+		status, err := s.client.Eval(ctx, historyScript, s.scriptKeys(id), operationVisible).Int64()
+		if err != nil {
+			return nil, fmt.Errorf("redis: list conversations: check visibility: %w", err)
+		}
+		switch status {
+		case scriptAccepted:
+			visible = append(visible, id)
+		case scriptAbsent, scriptClosed:
+		default:
+			return nil, fmt.Errorf("redis: unexpected conversation visibility %d", status)
+		}
+	}
+	return visible, nil
 }
 
 type conversationCollector struct {

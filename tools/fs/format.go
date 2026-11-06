@@ -14,15 +14,18 @@ import (
 const utf8BOM = "\ufeff"
 
 func normalizeText(data []byte) (text string, hadBOM, hadCRLF bool) {
-	if bytes.HasPrefix(data, []byte(utf8BOM)) {
+	hadBOM, hadCRLF = detectTextFormat(data)
+	if hadBOM {
 		data = data[len(utf8BOM):]
-		hadBOM = true
 	}
-	if bytes.Contains(data, []byte("\r\n")) {
+	if hadCRLF {
 		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
-		hadCRLF = true
 	}
 	return string(data), hadBOM, hadCRLF
+}
+
+func detectTextFormat(data []byte) (hadBOM, hadCRLF bool) {
+	return bytes.HasPrefix(data, []byte(utf8BOM)), bytes.Contains(data, []byte("\r\n"))
 }
 
 func restoreFormat(text string, hadBOM, hadCRLF bool) []byte {

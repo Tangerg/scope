@@ -12,6 +12,8 @@
 // owns sampling, output format, reasoning effort, system messages, function
 // tools, and tool choice; duplicate native fields are rejected. Provider-only
 // safety, grounding, modalities, and thinking-budget fields remain available.
+// Thinking budget and Core reasoning effort are mutually exclusive after
+// resolving defaults.
 // Code execution is rejected before I/O because Core cannot represent its
 // output and replay losslessly. Execution parts in responses fail validation.
 // Each stream binds the first reported response ID and model version; later

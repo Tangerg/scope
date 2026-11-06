@@ -60,8 +60,8 @@ func newSenseEffect(input run.Payload) (run.Effect, error) {
 	return run.NewDispatcherEffect(payload)
 }
 
-func newActionEffect(input run.Payload, binding ActionBinding, state WorldState) (run.Effect, error) {
-	if !input.Valid() || !binding.Valid() || binding.delegatesToChild() ||
+func newActionEffect(input run.Payload, binding actionDeclaration, state WorldState) (run.Effect, error) {
+	if !input.Valid() || !binding.valid() || binding.delegatesToChild() ||
 		!binding.action.Applicable(state) {
 		return run.Effect{}, ErrInvalidProtocol
 	}

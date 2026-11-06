@@ -19,7 +19,8 @@
 // Sampling, output format, reasoning effort, system messages, function tools,
 // and tool choice belong to Core; attempts to set them again in native config
 // are rejected even when the Core value is absent. Native safety, grounding,
-// modalities, and thinking-budget settings remain available.
+// modalities, and thinking-budget settings remain available. Thinking budget
+// and Core reasoning effort are mutually exclusive after resolving defaults.
 // Code execution is rejected before I/O because Core cannot represent its
 // output and replay losslessly. Execution parts in responses fail validation.
 // Each stream binds the first reported response ID and model version; later

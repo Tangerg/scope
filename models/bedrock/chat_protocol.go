@@ -53,6 +53,9 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	if decoded == nil {
 		return errors.New("bedrock: chat request options must be a JSON object")
 	}
+	if err := validateAdditionalModelRequestFields(decoded.AdditionalModelRequestFields); err != nil {
+		return err
+	}
 	*c = ChatRequestOptions(*decoded)
 	return nil
 }
@@ -74,6 +77,9 @@ type ChatConfig struct {
 
 func (c ChatConfig) Validate() error {
 	if err := c.DefaultOptions.Validate(); err != nil {
+		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
+	}
+	if _, _, err := c.DefaultOptions.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey); err != nil {
 		return fmt.Errorf("bedrock: DefaultOptions: %w", err)
 	}
 	return nil
@@ -236,19 +242,12 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if options.FrequencyPenalty != nil || options.PresencePenalty != nil || options.TopK != nil {
 		return nil, errors.New("bedrock: frequency_penalty, presence_penalty, and top_k are not supported by Converse inference configuration")
 	}
-	// Converse has no reasoning field. Reasoning rides in
-	// additionalModelRequestFields, and its shape belongs to the model
-	// generation rather than to Converse: Claude 3.7 takes
-	// reasoning_config with a budget_tokens count, while the newer models
-	// reject that form and take thinking with an output_config effort. Turning
-	// an effort into a token budget would mean inventing the number, and
-	// picking between the two shapes would mean guessing the generation from a
-	// model id — so the option is refused and the caller states what the model
-	// actually accepts through [ChatRequestOptions.AdditionalModelRequestFields].
+	// Converse has no portable reasoning control. Mapping an effort to a
+	// model's token budget would invent a value and guess a model generation.
 	if options.ReasoningEffort != "" {
 		return nil, fmt.Errorf(
-			"bedrock: options.reasoning_effort %q is not supported: Converse has no reasoning field, so set the model's own reasoning parameters through the %q extension's AdditionalModelRequestFields",
-			options.ReasoningEffort, ChatRequestExtensionKey)
+			"bedrock: options.reasoning_effort %q is not supported by this Converse binding",
+			options.ReasoningEffort)
 	}
 
 	native, _, err := req.Options.Extensions.Decode[ChatRequestOptions](ChatRequestExtensionKey)

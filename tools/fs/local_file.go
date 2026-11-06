@@ -1,7 +1,6 @@
 package fs
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -17,7 +16,6 @@ const (
 	defaultReadLineBytes            = 1 << 20
 	defaultReadOutputBytes          = 1 << 20
 	defaultMutationInputBytes int64 = 8 << 20
-	formatDetectionBytes      int64 = 64 << 10
 )
 
 type readLimits struct {
@@ -65,16 +63,10 @@ func readBoundedRootFile(ctx context.Context, root *os.Root, path string, maxByt
 }
 
 func detectRootFormat(ctx context.Context, root *os.Root, path string) (hadBOM, hadCRLF bool, err error) {
-	file, _, err := openRegularRootFile(ctx, root, path)
+	data, err := readBoundedRootFile(ctx, root, path, defaultMutationInputBytes)
 	if err != nil {
 		return false, false, err
 	}
-	defer func() {
-		err = errors.Join(err, file.Close())
-	}()
-	prefix, err := io.ReadAll(io.LimitReader(contextreader.New(ctx, file), formatDetectionBytes))
-	if err != nil {
-		return false, false, err
-	}
-	return bytes.HasPrefix(prefix, []byte(utf8BOM)), bytes.Contains(prefix, []byte("\r\n")), nil
+	hadBOM, hadCRLF = detectTextFormat(data)
+	return hadBOM, hadCRLF, nil
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -170,7 +169,10 @@ func (p *Provenance) Validate() error {
 	if p == nil {
 		return nil
 	}
-	if (p.Source == "") != (p.Revision == "") || !validSourceText(p.Source) || !validSourceText(p.Revision) {
+	if err := SourceName(p.Source).Validate(); err != nil {
+		return err
+	}
+	if (p.Source == "") != (p.Revision == "") || !validProvenanceText(p.Revision) {
 		return fmt.Errorf("%w: provenance requires a source and its revision together", ErrInvalidDocument)
 	}
 	if p.Source == "" && len(p.Chunks) == 0 && p.Page == 0 && p.Bytes == nil {
@@ -202,8 +204,4 @@ func (p *Provenance) RequireRevision() error {
 		return ErrUnversionedSource
 	}
 	return nil
-}
-
-func validSourceText(s string) bool {
-	return s == "" || (utf8.ValidString(s) && strings.TrimSpace(s) != "")
 }

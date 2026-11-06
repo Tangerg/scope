@@ -43,6 +43,12 @@
 // Provider-specific fields not modeled by Core reach the wire through request
 // extensions scoped to the endpoint provider. Raw response details use that
 // same namespace, so compatible endpoints never leak OpenAI provider metadata.
+// Core ownership does not depend on endpoint support: unsupported Core options
+// remain reserved in raw extensions and dialect callbacks. Responses rejects
+// native frequency_penalty, presence_penalty, top_k, and stop. Image dimensions
+// belong to Core and project to size; seed and negative_prompt remain unsupported.
+// Image response_format selects native delivery, independently of Core's image
+// MIME OutputFormat, and remains available through the extension.
 // Audio transcription and translation extensions use the SDK's typed multipart
 // fields. Unknown fields, nulls, and empty arrays are rejected because the SDK
 // cannot preserve them in that form. Their response_format must select JSON;
@@ -54,6 +60,8 @@
 //
 // Chat Completions owns its single output. Neither a raw request extension nor
 // a compatible dialect can set n.
+// Core Options.TopK is projected only when the binding's SupportsTopK facet is
+// enabled. Neither raw extensions nor request callbacks may supply top_k.
 // Standard Chat Completions requests stream_options.include_usage by default
 // for both Call and Stream. Explicit false or null stream_options are respected;
 // compatible providers retain their own request policy. Missing provider usage

@@ -11,6 +11,12 @@ import (
 )
 
 func Read(ctx context.Context, r io.Reader, budget etl.SourceBudget, name string) ([]byte, *document.Provenance, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if err := document.SourceName(name).Validate(); err != nil {
+		return nil, nil, err
+	}
 	raw, err := budget.ReadAll(ctx, r)
 	if err != nil {
 		return nil, nil, err

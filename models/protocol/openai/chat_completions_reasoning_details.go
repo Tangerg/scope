@@ -28,8 +28,10 @@ var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
 // shared by several OpenAI-compatible providers. The final binding supplies
 // the issuer, so this wire configuration cannot select another replay owner.
 type ReasoningDetailsConfig struct {
-	TextField       string
-	DetailsField    string
+	TextField    string
+	DetailsField string
+	// ReplayPlainText replays only text issued by this provider and wire field.
+	// Foreign native state never becomes a plain-text replay for this issuer.
 	ReplayPlainText bool
 }
 
@@ -213,6 +215,16 @@ func (r reasoningDetailsCodec) mapHistory(parts []corechat.Part) ([]json.RawMess
 			continue
 		}
 		if len(part.ReasoningState) == 0 {
+			field, owned, err := textReasoningFieldFor(part, r.provider)
+			if err != nil {
+				return nil, "", fmt.Errorf("parts[%d]: %w", partIndex, err)
+			}
+			if !owned {
+				continue
+			}
+			if string(field) != r.config.TextField {
+				return nil, "", fmt.Errorf("parts[%d]: invalid reasoning field %q for %s", partIndex, field, r.provider)
+			}
 			plain.WriteString(part.Text)
 			continue
 		}
@@ -221,7 +233,6 @@ func (r reasoningDetailsCodec) mapHistory(parts []corechat.Part) ([]json.RawMess
 			return nil, "", fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
 		}
 		if !framed || !ownProvider {
-			plain.WriteString(part.Text)
 			continue
 		}
 		if frames == nil {

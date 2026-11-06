@@ -24,7 +24,7 @@ func BenchmarkActionHistory(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			bindings := make([]ActionBinding, count)
+			bindings := make([]actionDeclaration, count)
 			attempts := make([]Attempt, count)
 			for index := range count {
 				name := fmt.Sprintf("action.%04d", index)
@@ -32,10 +32,7 @@ func BenchmarkActionHistory(b *testing.B) {
 				if actionErr != nil {
 					b.Fatal(actionErr)
 				}
-				bindings[index], err = NewDispatcherBinding(DispatcherBindingConfig{Action: action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) { return ActionSucceeded(), nil })})
-				if err != nil {
-					b.Fatal(err)
-				}
+				bindings[index] = actionDeclaration{action: action, policy: run.EffectPolicy{Replay: run.ReplayPolicyNever}}
 				attempts[index] = Attempt{ActionName: run.QualifiedName(name), Status: AttemptFailed, Diagnostic: "operation failed"}
 			}
 			definition, err := newDefinition(definitionConfig{Name: "benchmark.planning", Description: "Measure action history admission.", InputSchema: schema, Goal: goal, Actions: bindings, MaxActionAttempts: run.NewQuota(uint64(count)), Planner: PlannerFunc(func(context.Context, Problem) (Plan, bool, error) { return Plan{}, false, nil })})

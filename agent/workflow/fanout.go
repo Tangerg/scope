@@ -43,6 +43,14 @@ type fanoutStage struct {
 	complete func(ctx context.Context, input json.RawMessage, outputs []json.RawMessage) (json.RawMessage, error)
 }
 
+func (f fanoutStage) validateOutput(raw json.RawMessage) error {
+	output, err := run.ParsePayload(raw)
+	if err != nil {
+		return err
+	}
+	return f.outputSchema.Validate(output.JSON())
+}
+
 type fanoutOutputs struct {
 	stageName    string
 	stageID      string

@@ -32,6 +32,7 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 		{name: "text then empty", chunks: []string{text, empty}, want: wantText},
 		{name: "empty with duplicate plain field", chunks: []string{empty + `,"reasoning":"duplicate"`}, want: []any{}},
 		{name: "empty is provider scoped", chunks: []string{empty}, replayProvider: "other"},
+		{name: "text is provider scoped", chunks: []string{text}, replayProvider: "other"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			captured := make(chan []map[string]json.RawMessage, 2)

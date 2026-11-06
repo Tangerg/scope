@@ -3,6 +3,13 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Content requires a utf8mb4 TEXT-family column. CheckDocuments and Upsert read
+// its actual byte capacity and reject the complete batch before writes; the
+// default TEXT schema permits at most 65,535 UTF-8 bytes per document.
+// Write and query coordinates must have a finite squared norm accumulated in
+// float32, as required by MariaDB's native VECTOR type. Cosine additionally
+// requires a positive norm because zero and squared-norm underflow make its
+// distance undefined. Euclidean vectors may have a zero norm.
 //
 // Query performs native nearest-neighbor ranking without enumerating metadata.
 // The stored metadata representation cannot implement exact Core predicates

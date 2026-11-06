@@ -82,11 +82,8 @@ func TestInvalidSourceCannotEscapeInProvenance(t *testing.T) {
 	payload := testPDF("readable")
 	for _, perPage := range []bool{false, true} {
 		reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{PerPage: perPage, SourceName: "bad\xff"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if docs, err := reader.Read(t.Context()); docs != nil || !errors.Is(err, document.ErrInvalidDocument) {
-			t.Fatalf("perPage=%t Read = %v, %v", perPage, docs, err)
+		if reader != nil || !errors.Is(err, document.ErrInvalidDocument) {
+			t.Fatalf("perPage=%t NewReader = %v, %v", perPage, reader, err)
 		}
 	}
 }

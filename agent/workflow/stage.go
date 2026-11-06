@@ -162,7 +162,11 @@ func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failur
 	if failure != nil || err != nil {
 		return failure, nil, err
 	}
-	return nil, output.JSON(), nil
+	raw := output.JSON()
+	if err := s.fanout.validateOutput(raw); err != nil {
+		return nil, nil, fmt.Errorf("%s output: %w", subject, err)
+	}
+	return nil, raw, nil
 }
 
 // childOutcome classifies a finished child that subject names: the Output it

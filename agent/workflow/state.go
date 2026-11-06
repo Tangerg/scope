@@ -169,6 +169,13 @@ func (e executionState) validateFanout(ctx context.Context, definition *definiti
 		if !invocation.Valid() {
 			return ErrInvalidExecutionState
 		}
+		if invocation.Termination != nil {
+			if output, completed := invocation.Termination.Output(); completed {
+				if err := stage.fanout.validateOutput(output.JSON()); err != nil {
+					return fmt.Errorf("%w: active fan-out output %d: %w", ErrInvalidExecutionState, index, err)
+				}
+			}
+		}
 		var process run.ProcessID
 		if invocation.Request != nil {
 			if invocation.Request.Index != uint32(index) || spawnStep != 0 && invocation.Request.Step != spawnStep {
@@ -233,12 +240,8 @@ func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stag
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		value, err := run.ParsePayload(output)
-		if err != nil {
+		if err := stage.fanout.validateOutput(output); err != nil {
 			return fmt.Errorf("%w: completed fan-out output %d: %w", ErrInvalidExecutionState, index, err)
-		}
-		if err := stage.fanout.outputSchema.Validate(value.JSON()); err != nil {
-			return fmt.Errorf("%w: completed fan-out output %d schema: %w", ErrInvalidExecutionState, index, err)
 		}
 	}
 	return ctx.Err()
