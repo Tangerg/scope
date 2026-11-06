@@ -38,8 +38,10 @@ func OpenToolSet(ctx context.Context, endpoints ...Endpoint) (*ToolSet, error) {
 
 		remote, err := newRemoteTool(remoteToolConfig{
 			client: client, card: card, name: endpoint.Name,
-			concurrencyPolicy: endpoint.ConcurrencyPolicy,
-			effect:            endpoint.Effect,
+			concurrencyPolicy:    endpoint.ConcurrencyPolicy,
+			effect:               endpoint.Effect,
+			cardURL:              endpoint.CardURL,
+			continuationIdentity: endpoint.ContinuationIdentity,
 		})
 		if err != nil {
 			return nil, errors.Join(err, toolSet.Close())

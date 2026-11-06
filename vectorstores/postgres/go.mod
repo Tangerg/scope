@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/postgres
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/pgvector/pgvector-go v0.4.1
 )

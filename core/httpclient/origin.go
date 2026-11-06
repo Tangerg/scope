@@ -24,8 +24,9 @@ const (
 // an origin other than the one configured by its owner.
 var ErrOriginNotAllowed = errors.New("httpclient: request origin is not authorized")
 
-// Origin is an immutable HTTP origin. Equality includes the scheme, host, and
-// effective port; its zero value authorizes no requests.
+// Origin is an immutable HTTP origin. Only hierarchical URLs are admitted, so
+// Opaque cannot replace the checked authority on the wire. Equality includes
+// the scheme, host, and effective port; its zero value authorizes no requests.
 type Origin struct {
 	scheme string
 	host   string
@@ -44,8 +45,8 @@ func parseOrigin(raw string) (Origin, error) {
 }
 
 func originFromURL(endpoint *url.URL) (Origin, error) {
-	if endpoint == nil || endpoint.User != nil || endpoint.Hostname() == "" {
-		return Origin{}, errors.New("endpoint must have a host and no user information")
+	if endpoint == nil || endpoint.Opaque != "" || endpoint.User != nil || endpoint.Hostname() == "" {
+		return Origin{}, errors.New("endpoint must be hierarchical, have a host, and have no user information")
 	}
 	port := endpoint.Port()
 	switch endpoint.Scheme {

@@ -8,8 +8,11 @@ import (
 )
 
 var (
-	ErrInvalidConfig         = errors.New("run: invalid runtime configuration")
-	ErrClosed                = errors.New("run: runtime is closed")
+	ErrInvalidConfig = errors.New("run: invalid runtime configuration")
+	ErrClosed        = errors.New("run: runtime is closed")
+	// ErrWriterStopped is the work context's cancellation cause when its local
+	// writer ends. It does not declare cancellation of the durable Process.
+	ErrWriterStopped         = errors.New("run: local writer stopped")
 	ErrProcessNotFound       = errors.New("run: process not found")
 	ErrProcessNotActive      = errors.New("run: process has no active local writer")
 	ErrProcessFinished       = errors.New("run: process has finished")

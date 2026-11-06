@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/Tangerg/scope/models/anthropic v0.60.0
 	github.com/Tangerg/scope/models/assemblyai v0.60.0
 	github.com/Tangerg/scope/models/bedrock v0.60.0
@@ -34,6 +34,7 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
 	github.com/Tangerg/scope/models/protocol/anthropic v0.60.0 // indirect
 	github.com/Tangerg/scope/models/protocol/openai v0.60.0 // indirect
 	github.com/Tangerg/sse v0.0.6 // indirect
@@ -64,6 +65,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.11 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.24 // indirect
@@ -76,6 +78,7 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
+	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.2.0 // indirect

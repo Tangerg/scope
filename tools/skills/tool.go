@@ -19,7 +19,7 @@ type ListSkillsRequest struct {
 // LoadSkillRequest uses an exact name; it does not search or broaden the selection.
 type LoadSkillRequest struct {
 	Cursor *Cursor `json:"cursor,omitzero" jsonschema_description:"Echo next_cursor to continue this exact skill; omit to start."`
-	Name   string  `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact skill name returned by list_skills or already known from the prompt."`
+	Name   string  `json:"name" jsonschema:"minLength=1" jsonschema_description:"Exact name of the selected skill."`
 }
 
 // Resource reads remain confined to the named skill.
@@ -36,6 +36,10 @@ type toolSet struct {
 }
 
 const (
+	listSkillsToolName        = "list_skills"
+	loadSkillToolName         = "load_skill"
+	readSkillResourceToolName = "read_skill_resource"
+
 	DefaultMaxOutputBytes = int64(256 * 1024)
 	minimumMaxOutputBytes = int64(160)
 	maximumMaxOutputBytes = int64(^uint(0)>>1) - 1
@@ -86,31 +90,31 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 	set := &toolSet{source: source, maxOutputBytes: maxOutputBytes, maxResourceBytes: maxResourceBytes}
 	list, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name:   "list_skills",
+			Name:   listSkillsToolName,
 			Effect: toolcontract.EffectSafe,
 			Description: "List a page of visible skill names and descriptions. Echo next_cursor until absent to finish discovery. " +
-				"Use this when a relevant skill may exist but its exact name is unknown. Load a matching skill with load_skill before following it.",
+				"Use this when a relevant skill may exist but its exact name is unknown. Load a matching skill with " + loadSkillToolName + " before following it.",
 		},
 		set.list,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("skills: build list_skills: %w", err)
+		return nil, fmt.Errorf("skills: build %s: %w", listSkillsToolName, err)
 	}
 	load, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name:   "load_skill",
+			Name:   loadSkillToolName,
 			Effect: toolcontract.EffectSafe,
 			Description: "Read instructions for one exact skill name. Echo next_cursor until absent and concatenate content before following the instructions. Call this when the task matches that skill's description, " +
-				"then follow the returned instructions. Use read_skill_resource only for a bundled file referenced by those instructions.",
+				"then follow the returned instructions. Use " + readSkillResourceToolName + " only for a bundled file referenced by those instructions.",
 		},
 		set.load,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("skills: build load_skill: %w", err)
+		return nil, fmt.Errorf("skills: build %s: %w", loadSkillToolName, err)
 	}
 	readResource, err := toolcontract.NewFunc(
 		toolcontract.FuncConfig{
-			Name:   "read_skill_resource",
+			Name:   readSkillResourceToolName,
 			Effect: toolcontract.EffectSafe,
 			Description: "Read a page of one bundled resource referenced by a loaded skill. Echo next_cursor until absent and concatenate content to read the complete file. The path is relative to that skill's directory. " +
 				"This returns the resource as UTF-8 text only and never executes scripts; a resource that is not valid UTF-8 is rejected rather than returned as binary.",
@@ -118,7 +122,7 @@ func NewTools(source Source, config Config) ([]toolcontract.Tool, error) {
 		set.readResource,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("skills: build read_skill_resource: %w", err)
+		return nil, fmt.Errorf("skills: build %s: %w", readSkillResourceToolName, err)
 	}
 	return []toolcontract.Tool{list, load, readResource}, nil
 }

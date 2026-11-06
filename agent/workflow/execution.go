@@ -18,8 +18,9 @@ const (
 )
 
 type execution struct {
-	definition *definition
-	state      executionState
+	definition  *definition
+	state       executionState
+	fanoutInput fanoutInput
 }
 
 func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
@@ -155,6 +156,7 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 }
 
 func (e *execution) finishStage(consumedMessages uint32) (run.Transition, error) {
+	e.fanoutInput = nil
 	e.state.finishStage()
 	if e.state.StageIndex < uint32(len(e.definition.stages)) {
 		return run.Continue(consumedMessages)
@@ -206,14 +208,22 @@ func (e *execution) finishLoopIteration(
 func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
 	stage := e.stage()
 	start := e.state.fanoutWindowStart()
-	inputs, count, err := stage.fanout.source.windowInputs(ctx, e.state.CurrentValue, start, stage.fanout.windowSize)
-	if err != nil {
-		if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
-			return stepfail.Transition(consumedMessages, run.FailureKindContract, stage.failureCode(failureSuffixMaxItemsExceeded),
-				"Map Stage "+stage.id+" input exceeds its configured maximum items")
+	if e.fanoutInput == nil {
+		input, err := stage.fanout.source.prepareInput(ctx, e.state.CurrentValue)
+		if err != nil {
+			if _, exceeded := errors.AsType[mapMaxItemsExceededError](err); exceeded {
+				return stepfail.Transition(consumedMessages, run.FailureKindContract, stage.failureCode(failureSuffixMaxItemsExceeded),
+					"Map Stage "+stage.id+" input exceeds its configured maximum items")
+			}
+			return run.Transition{}, err
 		}
+		e.fanoutInput = input
+	}
+	inputs, err := e.fanoutInput.windowInputs(ctx, start, stage.fanout.windowSize)
+	if err != nil {
 		return run.Transition{}, err
 	}
+	count := e.fanoutInput.count()
 	if start == count {
 		value, err := stage.fanout.complete(ctx, e.state.CurrentValue, e.state.CompletedFanoutOutputs)
 		if err != nil {

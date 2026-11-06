@@ -372,7 +372,7 @@ func (s *Store) wire(ctx context.Context, method, path string, body any, meter *
 		return nil, 0, fmt.Errorf("vespa: response exceeds %d-byte limit", maximum)
 	}
 	if response.StatusCode != http.StatusOK && (method != http.MethodDelete || response.StatusCode != http.StatusPreconditionFailed) {
-		return nil, 0, fmt.Errorf("vespa: %s status %d: %s", method, response.StatusCode, raw)
+		return nil, 0, fmt.Errorf("vespa: %s: %w", method, httpclient.NewResponseError(response.StatusCode, response.Header))
 	}
 	return raw, response.StatusCode, nil
 }

@@ -286,18 +286,12 @@ func (h *Handle[O]) nextCommit() <-chan struct{} {
 }
 
 func (h *Handle[O]) waitForCommit(ctx context.Context, commit <-chan struct{}) error {
-	if commit == nil {
-		timer := time.NewTimer(observationPollInterval)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	timer := time.NewTimer(observationPollInterval)
+	defer timer.Stop()
 	select {
 	case <-commit:
+		return nil
+	case <-timer.C:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

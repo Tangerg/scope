@@ -65,14 +65,20 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 				attribute.String(attrContextID, execCtx.ContextID),
 			),
 		)
-		defer span.End()
+		var executionErr error
+		defer errortelemetry.Finish(&executionErr, func(observed error) {
+			if observed != nil {
+				errortelemetry.Record(span, errortelemetry.Classify(observed))
+			}
+			span.End()
+		})
 
 		input := ""
 		if execCtx.Message != nil {
-			var err error
-			input, err = projection.parts(execCtx.Message.Parts)
-			if err != nil {
-				yield(nil, fmt.Errorf("%w: %w", sdka2a.ErrUnsupportedContentType, err))
+			input, executionErr = projection.parts(execCtx.Message.Parts)
+			if executionErr != nil {
+				executionErr = fmt.Errorf("%w: %w", sdka2a.ErrUnsupportedContentType, executionErr)
+				yield(nil, executionErr)
 				return
 			}
 		}
@@ -87,7 +93,7 @@ func (e *executor) Execute(ctx context.Context, execCtx *a2asrv.ExecutorContext)
 		}
 
 		fail := func(err error) {
-			errortelemetry.Record(span, errortelemetry.Classify(err))
+			executionErr = err
 			message := sdka2a.NewMessage(sdka2a.MessageRoleAgent, sdka2a.NewTextPart(taskFailureMessage))
 			yield(sdka2a.NewStatusUpdateEvent(execCtx, sdka2a.TaskStateFailed, message), nil)
 		}

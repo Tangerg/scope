@@ -1,6 +1,7 @@
 package textread
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -83,6 +84,28 @@ func TestScanPreservesReadFailureDuringCancellation(t *testing.T) {
 type cancelingReader struct {
 	cancel  context.CancelFunc
 	failure error
+}
+
+type terminalReader struct {
+	failure error
+}
+
+func (t terminalReader) Read(buffer []byte) (int, error) {
+	return copy(buffer, "partial"), t.failure
+}
+
+func TestReadBoundaryPreservesFailuresJoinedWithEOF(t *testing.T) {
+	failure := errors.New("storage checksum failed")
+	for _, terminal := range []error{errors.Join(io.EOF, failure), errors.Join(bufio.ErrBufferFull, failure)} {
+		source := terminalReader{failure: terminal}
+		result, err := Scan(t.Context(), source, Options{InputBytes: 32, LineBytes: 32, OutputBytes: 32})
+		if !errors.Is(err, failure) || result != (Result{}) {
+			t.Fatalf("Scan = %+v, %v; want no result and source failure", result, err)
+		}
+		if err := VisitLines(t.Context(), source, Limits{InputBytes: 32, LineBytes: 32}, func(int, []byte) error { return nil }); !errors.Is(err, failure) {
+			t.Fatalf("VisitLines = %v, want source failure", err)
+		}
+	}
 }
 
 func (c cancelingReader) Read(buffer []byte) (int, error) {

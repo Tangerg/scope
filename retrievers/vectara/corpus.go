@@ -220,7 +220,7 @@ func (c *Corpus) sendJSON(ctx context.Context, method, path string, body any, ex
 		return nil, ErrDocumentExists
 	}
 	if !slices.Contains(expected, response.StatusCode) {
-		return nil, fmt.Errorf("vectara: unexpected native status %d: %s", response.StatusCode, raw)
+		return nil, fmt.Errorf("vectara: %s: %w", method, httpclient.NewResponseError(response.StatusCode, response.Header))
 	}
 	return raw, nil
 }

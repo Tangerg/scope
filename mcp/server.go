@@ -61,10 +61,16 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (ou
 		// The SDK invokes this callback on its own goroutine; an HTTP recovery
 		// middleware cannot contain it or prevent private panic values escaping.
 		if recover() != nil {
-			out, err = s.callError(span, errToolCallbackPanic)
+			out, err = s.callError(errToolCallbackPanic)
+		}
+	}()
+	var callErr error
+	defer errortelemetry.Finish(&callErr, func(observed error) {
+		if observed != nil {
+			errortelemetry.Record(span, errortelemetry.Classify(observed))
 		}
 		span.End()
-	}()
+	})
 	ctx = toolcontract.WithProgressReporter(ctx, requestProgress(req))
 
 	var rawArgs string
@@ -72,31 +78,32 @@ func (s serverTool) handle(ctx context.Context, req *sdkmcp.CallToolRequest) (ou
 		if req.Params.InputResponses != nil || req.Params.RequestState != "" {
 			// This direct binding never issued a server-side continuation. Treating
 			// a retry as a fresh call could repeat an external write.
-			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "no continuation was issued for this tool binding"}
+			callErr = &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "no continuation was issued for this tool binding"}
+			return nil, callErr
 		}
 		rawArgs = string(req.Params.Arguments)
 	}
 
-	invocation, err := s.executable.Contract().Prepare(toolcontract.Request{Name: toolName, Arguments: rawArgs}, toolcontract.Admission{})
-	if err != nil {
-		return s.prepareError(span, err)
+	invocation, callErr := s.executable.Contract().Prepare(toolcontract.Request{Name: toolName, Arguments: rawArgs}, toolcontract.Admission{})
+	if callErr != nil {
+		return s.prepareError(callErr)
 	}
-	output, err := s.executable.Call(ctx, invocation)
-	if err != nil {
-		return s.callError(span, err)
+	output, callErr := s.executable.Call(ctx, invocation)
+	if callErr != nil {
+		return s.callError(callErr)
 	}
 	if output.InputRequest != nil {
-		return s.callError(span, errors.New("mcp: Tool requested external input; the server call has no continuation binding"))
+		callErr = errors.New("mcp: Tool requested external input; the server call has no continuation binding")
+		return s.callError(callErr)
 	}
-	result, err := EncodeToolResult(output.Output)
-	if err != nil {
-		return s.callError(span, err)
+	result, callErr := EncodeToolResult(output.Output)
+	if callErr != nil {
+		return s.callError(callErr)
 	}
 	return result, nil
 }
 
-func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
-	errortelemetry.Record(span, errortelemetry.Classify(err))
+func (s serverTool) prepareError(err error) (*sdkmcp.CallToolResult, error) {
 	rejection, public := toolcontract.ClassifyInputRejection(err)
 	if !public {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "tool input validation failed"}
@@ -107,8 +114,7 @@ func (s serverTool) prepareError(span trace.Span, err error) (*sdkmcp.CallToolRe
 	}, nil
 }
 
-func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResult, error) {
-	errortelemetry.Record(span, errortelemetry.Classify(err))
+func (s serverTool) callError(err error) (*sdkmcp.CallToolResult, error) {
 	protocolError := &jsonrpc.Error{
 		Code: jsonrpc.CodeInternalError, Message: "tool call did not produce a valid result",
 	}
@@ -118,7 +124,6 @@ func (s serverTool) callError(span trace.Span, err error) (*sdkmcp.CallToolResul
 	}
 	result, err := EncodeToolResult(failure.Output())
 	if err != nil {
-		errortelemetry.Record(span, errortelemetry.Classify(err))
 		return nil, protocolError
 	}
 	result.IsError = true

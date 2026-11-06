@@ -67,8 +67,8 @@ func (s StoreConfig) Validate() error {
 	if err != nil || originErr != nil || strings.ContainsAny(s.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
 		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
 	}
-	if s.IndexName == "" {
-		return errors.New("azureaisearch: IndexName is required")
+	if !validIndexName(s.IndexName) {
+		return errors.New("azureaisearch: invalid native index name")
 	}
 	if s.HTTPClient == nil {
 		return errors.New("azureaisearch: HTTPClient is required")
@@ -545,7 +545,7 @@ func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]
 		return nil, fmt.Errorf("azureaisearch: response exceeds %d-byte limit", limit)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("azureaisearch: status=%d body=%s", response.StatusCode, raw)
+		return nil, fmt.Errorf("azureaisearch: %s: %w", method, httpclient.NewResponseError(response.StatusCode, response.Header))
 	}
 	return raw, nil
 }

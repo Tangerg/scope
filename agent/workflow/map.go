@@ -38,31 +38,12 @@ type mapSource struct {
 	decodeItem func(jsontext.Value) (run.Payload, error)
 }
 
-func (m mapSource) count(ctx context.Context, raw json.RawMessage) (uint32, error) {
-	return m.codec.scan(ctx, raw, 0, 0, nil)
-}
-
-func (m mapSource) windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) ([]run.Payload, uint32, error) {
-	if start > m.codec.maxItems {
-		return nil, 0, ErrInvalidExecutionState
-	}
-	end := start + min(windowSize, m.codec.maxItems-start)
-	var items []run.Payload
-	count, err := m.codec.scan(ctx, raw, start, end, func(value jsontext.Value) error {
-		input, err := m.decodeItem(value)
-		if err != nil {
-			return err
-		}
-		items = append(items, input)
-		return nil
-	})
+func (m mapSource) prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error) {
+	spans, err := m.codec.index(ctx, raw)
 	if err != nil {
-		return nil, 0, errors.Join(ErrInvalidExecutionState, err)
+		return nil, errors.Join(ErrInvalidExecutionState, err)
 	}
-	if start > count {
-		return nil, 0, fmt.Errorf("%w: window start %d exceeds item count %d", ErrInvalidExecutionState, start, count)
-	}
-	return items, count, nil
+	return mapInputIndex{raw: raw, spans: spans, decodeItem: m.decodeItem, stageID: m.codec.id}, nil
 }
 
 func (m mapSource) member(index uint32) (fanoutMember, bool) {
@@ -74,6 +55,46 @@ func (m mapSource) bindings() []run.ChildBinding { return []run.ChildBinding{m.b
 func (m mapSource) topology(_ jsonschema.Schema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32) {
 	return []BindingTopology{bindingTopology(m.binding, BindingRoleItem, "", m.codec.schemas.itemInput, outputSchema)}, m.codec.maxItems
 }
+
+// The immutable stage input owns item bytes. Offsets are a disposable index;
+// only the requested window is decoded into typed child inputs.
+type mapInputIndex struct {
+	raw        json.RawMessage
+	spans      []mapItemSpan
+	decodeItem func(jsontext.Value) (run.Payload, error)
+	stageID    string
+}
+
+func (m mapInputIndex) count() uint32 { return uint32(len(m.spans)) }
+
+func (m mapInputIndex) windowInputs(ctx context.Context, start, windowSize uint32) ([]run.Payload, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	count := m.count()
+	if start > count {
+		return nil, fmt.Errorf("%w: window start %d exceeds item count %d", ErrInvalidExecutionState, start, count)
+	}
+	end := start + fanoutWindowLen(start, count, windowSize)
+	var inputs []run.Payload
+	if end > start {
+		inputs = make([]run.Payload, 0, end-start)
+	}
+	for index := start; index < end; index++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		span := m.spans[index]
+		input, err := m.decodeItem(jsontext.Value(m.raw[span.start:span.end]))
+		if err != nil {
+			return nil, fmt.Errorf("%w: Map %q item %d: %w", ErrInvalidExecutionState, m.stageID, index, err)
+		}
+		inputs = append(inputs, input)
+	}
+	return inputs, nil
+}
+
+type mapItemSpan struct{ start, end int }
 
 // Map constructs one bounded managed item fan-out Stage. Empty input is valid
 // and produces a non-nil empty []O without creating child Processes.
@@ -139,53 +160,43 @@ type mapValueCodec struct {
 	schemas  mapSchemas
 }
 
-// scan enforces the item limit before materializing the next value. Values
-// outside the selected window are checked structurally without typed decoding.
-func (m mapValueCodec) scan(
-	ctx context.Context,
-	raw json.RawMessage,
-	start, end uint32,
-	consume func(jsontext.Value) error,
-) (uint32, error) {
+// index validates the entire array once and enforces the item limit before
+// reading another value. Decoder offsets refer to the immutable input, so
+// later windows need neither rescanning nor a second copy of item bytes.
+func (m mapValueCodec) index(ctx context.Context, raw json.RawMessage) ([]mapItemSpan, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.ReadToken()
 	if err != nil || token.Kind() != '[' {
-		return 0, errors.Join(ErrInvalidExecutionState, err)
+		return nil, errors.Join(ErrInvalidExecutionState, err)
 	}
-	var count uint32
+	var spans []mapItemSpan
 	for decoder.PeekKind() != ']' {
 		if err := ctx.Err(); err != nil {
-			return 0, err
+			return nil, err
 		}
-		if count == m.maxItems {
-			return 0, mapMaxItemsExceededError{count: uint64(count) + 1, maximum: m.maxItems}
+		if uint64(len(spans)) == uint64(m.maxItems) {
+			return nil, mapMaxItemsExceededError{count: uint64(len(spans)) + 1, maximum: m.maxItems}
 		}
-		if count >= start && count < end {
-			value, err := decoder.ReadValue()
-			if err != nil {
-				return 0, err
-			}
-			if err := consume(value); err != nil {
-				return 0, fmt.Errorf("Map %q item %d: %w", m.id, count, err)
-			}
-		} else if err := decoder.SkipValue(); err != nil {
-			return 0, err
+		value, err := decoder.ReadValue()
+		if err != nil {
+			return nil, err
 		}
-		count++
+		end := int(decoder.InputOffset())
+		spans = append(spans, mapItemSpan{start: end - len(value), end: end})
 	}
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	if _, err := decoder.ReadToken(); err != nil {
-		return 0, err
+		return nil, err
 	}
 	if _, err := decoder.ReadToken(); !errors.Is(err, io.EOF) {
-		return 0, errors.Join(ErrInvalidExecutionState, err)
+		return nil, errors.Join(ErrInvalidExecutionState, err)
 	}
-	return count, nil
+	return spans, nil
 }
 
 // Each child receives EncodePayload(I), including any typed codec behavior.

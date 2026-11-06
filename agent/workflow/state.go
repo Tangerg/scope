@@ -210,10 +210,11 @@ func (e executionState) validateFanoutBoundary(ctx context.Context, definition *
 	if stage.kind != StageKindFork && stage.kind != StageKindMap {
 		return Stage{}, fmt.Errorf("%w: fan-out progress requires a fork or map stage", ErrInvalidExecutionState)
 	}
-	count, err := stage.fanout.source.count(ctx, e.CurrentValue)
+	input, err := stage.fanout.source.prepareInput(ctx, e.CurrentValue)
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: fan-out count: %w", ErrInvalidExecutionState, err)
 	}
+	count := input.count()
 	if uint64(len(e.CompletedFanoutOutputs)) >= uint64(count) {
 		return Stage{}, fmt.Errorf("%w: completed fan-out outputs leave no active window", ErrInvalidExecutionState)
 	}

@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/a2a/managed
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/a2a v0.60.0
-	github.com/Tangerg/scope/agent v0.60.0
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/a2a v0.60.1-0.20261105130039-c06bdd878183
+	github.com/Tangerg/scope/agent v0.60.1-0.20261105130039-c06bdd878183
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/a2aproject/a2a-go/v2 v2.7.0
 )
 

@@ -467,10 +467,16 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if len(request.Values) != width {
 		return nil, vectorstore.ErrInvalidRequest
 	}
-	transaction, err := s.prepareFilter(ctx, request.Options.Filter, true, budget)
-	defer finishTransaction(transaction, &err)
-	if err != nil {
-		return nil, err
+	var transaction *sql.Tx
+	if request.Options.Filter != nil {
+		transaction, err = s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+		if err != nil {
+			return nil, fmt.Errorf("mariadb: begin filter transaction: %w", err)
+		}
+		defer rollbackTransaction(transaction, &err)
+		if err = s.prepareFilter(ctx, transaction, request.Options.Filter, budget); err != nil {
+			return nil, err
+		}
 	}
 
 	encoded, err := jsonv2.Marshal(corevector.Float32(request.Values))
@@ -513,6 +519,11 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	results := make([]*vectorstore.SearchResult, len(ranked))
 	for index, candidate := range ranked {
 		results[index] = candidate.result
+	}
+	if transaction != nil {
+		if err = transaction.Commit(); err != nil {
+			return nil, fmt.Errorf("mariadb: commit filter transaction: %w", err)
+		}
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
@@ -590,9 +601,12 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 	if validateErr := predicate.Validate(); validateErr != nil {
 		return fmt.Errorf("mariadb.Store.DeleteMatching: %w", validateErr)
 	}
-	transaction, err := s.prepareFilter(ctx, predicate, false, &budget)
-	defer finishTransaction(transaction, &err)
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
+		return fmt.Errorf("mariadb: begin filter transaction: %w", err)
+	}
+	defer rollbackTransaction(transaction, &err)
+	if err = s.prepareFilter(ctx, transaction, predicate, &budget); err != nil {
 		return err
 	}
 	var lastID []byte
@@ -601,14 +615,18 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		if pageErr != nil {
 			return pageErr
 		}
-		if err := s.deleteIDs(ctx, transaction, page.ids); err != nil {
-			return err
+		if deleteErr := s.deleteIDs(ctx, transaction, page.ids); deleteErr != nil {
+			return deleteErr
 		}
 		if page.count < filterPageSize {
-			return nil
+			break
 		}
 		lastID = page.lastID
 	}
+	if err = transaction.Commit(); err != nil {
+		return fmt.Errorf("mariadb: commit filter transaction: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
@@ -697,52 +715,32 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 // Validate every row before embedding or deletion. Paging bounds wire arguments
 // and retained IDs; a second pass projects matches from the same transaction.
 // Serializable reads prevent DELETE's current reads from racing that snapshot.
-func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate, readOnly bool, budget *vectorstore.ScanBudget) (*sql.Tx, error) {
-	if predicate == nil {
-		return nil, nil
-	}
-	isolation := sql.LevelSerializable
-	if readOnly {
-		isolation = sql.LevelRepeatableRead
-	}
-	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: isolation, ReadOnly: readOnly})
-	if err != nil {
-		return nil, fmt.Errorf("mariadb: begin filter transaction: %w", err)
-	}
+func (s *Store) prepareFilter(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, budget *vectorstore.ScanBudget) error {
 	if budget == nil {
-		return transaction, vectorstore.ErrUnsupportedFilter
+		return vectorstore.ErrUnsupportedFilter
 	}
 	var allowed int
 	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=? AND 2*COALESCE(SUM(n),0)<=? THEN 1 ELSE 0 END FROM (SELECT OCTET_LENGTH(%s)+COALESCE(OCTET_LENGTH(%s),0) AS n FROM %s LIMIT ?) AS bounded", s.idColumn, s.metadataColumn, s.fullTable)
 	if err := transaction.QueryRowContext(ctx, statement, budget.MaxRecords, budget.MaxBytes, budget.MaxRecords+1).Scan(&allowed); err != nil {
-		return transaction, err
+		return err
 	}
 	if allowed != 1 {
-		return transaction, vectorstore.ErrScanBudget
+		return vectorstore.ErrScanBudget
 	}
 	var lastID []byte
 	for {
 		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
 		if pageErr != nil {
-			return transaction, pageErr
+			return pageErr
 		}
 		if page.count < filterPageSize {
-			return transaction, nil
+			return nil
 		}
 		lastID = page.lastID
 	}
 }
 
-func finishTransaction(transaction *sql.Tx, err *error) {
-	if transaction == nil {
-		return
-	}
-	if *err == nil {
-		if commitErr := transaction.Commit(); commitErr != nil {
-			*err = fmt.Errorf("mariadb: commit filter transaction: %w", commitErr)
-		}
-		return
-	}
+func rollbackTransaction(transaction *sql.Tx, err *error) {
 	if rollbackErr := transaction.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 		*err = errors.Join(*err, fmt.Errorf("mariadb: rollback filter transaction: %w", rollbackErr))
 	}

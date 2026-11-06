@@ -64,8 +64,10 @@ func (m MiddlewareConfig) Validate() error {
 	return nil
 }
 
-// Middleware instruments vector-store capabilities without changing
-// the capability set of the wrapped value.
+// Middleware decorates one Core operation at a time. Its returned value exposes
+// only that operation; provider-specific admission methods remain on the store.
+// A host using RAG must compose those methods with the decorated operations from
+// that same store so admission and execution keep one policy owner.
 type Middleware struct {
 	system     string
 	collection string

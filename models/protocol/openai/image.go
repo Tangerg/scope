@@ -1,8 +1,10 @@
 package openai
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,12 +12,15 @@ import (
 	"time"
 
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/respjson"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
+
+const imageMIMETypePrefix = "image/"
 
 type ImageModelConfig struct {
 	Provider       string
@@ -99,7 +104,11 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	params.Prompt = req.Prompt
 
 	if effectiveOptions.OutputFormat != "" {
-		params.OutputFormat = openai.ImageGenerateParamsOutputFormat(strings.TrimPrefix(effectiveOptions.OutputFormat, "image/"))
+		format := openai.ImagesResponseOutputFormat(strings.TrimPrefix(effectiveOptions.OutputFormat, imageMIMETypePrefix))
+		if _, err := imageOutputMIMEType(format); err != nil {
+			return nil, err
+		}
+		params.OutputFormat = openai.ImageGenerateParamsOutputFormat(format)
 	}
 	if effectiveOptions.Width != nil && effectiveOptions.Height != nil {
 		params.Size = openai.ImageGenerateParamsSize(fmt.Sprintf("%dx%d", *effectiveOptions.Width, *effectiveOptions.Height))
@@ -108,9 +117,19 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	return params, nil
 }
 
-func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, mimeType string) (*image.Response, error) {
+func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, requestedFormat openai.ImageGenerateParamsOutputFormat) (*image.Response, error) {
 	if resp == nil || len(resp.Data) == 0 {
 		return nil, fmt.Errorf("%w: openai: image response has no data", image.ErrInvalidResponse)
+	}
+	format := cmp.Or(openai.ImagesResponseOutputFormat(requestedFormat), openai.ImagesResponseOutputFormatPNG)
+	if raw := resp.JSON.OutputFormat.Raw(); raw != respjson.Omitted && raw != respjson.Null {
+		if err := jsonv2.Unmarshal([]byte(raw), &format); err != nil {
+			return nil, fmt.Errorf("%w: openai: image output_format: %w", image.ErrInvalidResponse, err)
+		}
+	}
+	mimeType, err := imageOutputMIMEType(format)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", image.ErrInvalidResponse, err)
 	}
 
 	outputs := make([]*image.Output, 0, len(resp.Data))
@@ -137,6 +156,15 @@ func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, mimeType st
 		responseMetadata.CreatedAt = time.Unix(resp.Created, 0).UTC()
 	}
 	return image.NewResponse(outputs, responseMetadata)
+}
+
+func imageOutputMIMEType(format openai.ImagesResponseOutputFormat) (string, error) {
+	switch format {
+	case openai.ImagesResponseOutputFormatPNG, openai.ImagesResponseOutputFormatJPEG, openai.ImagesResponseOutputFormatWebP:
+		return imageMIMETypePrefix + string(format), nil
+	default:
+		return "", fmt.Errorf("openai: image: unsupported output format %q", format)
+	}
 }
 
 func openAIImageMedia(mimeType, uri, encoded string) (*media.Media, error) {
@@ -168,9 +196,5 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		return nil, err
 	}
 
-	mimeType := "image/png"
-	if apiReq.OutputFormat != "" {
-		mimeType = "image/" + string(apiReq.OutputFormat)
-	}
-	return i.buildImageResponse(apiResp, mimeType)
+	return i.buildImageResponse(apiResp, apiReq.OutputFormat)
 }

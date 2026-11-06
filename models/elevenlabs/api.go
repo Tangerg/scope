@@ -123,7 +123,7 @@ type voiceSettings struct {
 // MUST be closed by the caller.
 func (a *api) textToSpeechStream(ctx context.Context, voiceID, outputFormat string, body *ttsRequest) (io.ReadCloser, http.Header, error) {
 	req := a.buildAudioRequest(ctx, outputFormat, body).SetDoNotParseResponse(true)
-	resp, err := req.Post("/text-to-speech/" + voiceID + "/stream")
+	resp, err := req.Post("/text-to-speech/" + url.PathEscape(voiceID) + "/stream")
 	if err != nil {
 		return nil, nil, fmt.Errorf("elevenlabs: request failed: %w", err)
 	}

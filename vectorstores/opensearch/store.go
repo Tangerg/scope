@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -51,7 +52,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
 	raw, err := s.request(ctx, http.MethodGet, "/"+s.indexName+"/_mapping", nil, nil)
 	if err != nil {
-		if failure, ok := errors.AsType[*httpFailure](err); ok && failure.status == http.StatusNotFound {
+		if failure, ok := errors.AsType[*httpclient.ResponseError](err); ok && failure.HTTPStatus() == http.StatusNotFound {
 			return nativeSchema{}, fmt.Errorf("%w: %w", ErrIndexMissing, err)
 		}
 		return nativeSchema{}, err
@@ -128,8 +129,8 @@ func (s *Store) read(ctx context.Context, method, path string, query url.Values,
 		}
 		return raw, errors.New("opensearch: native response exceeds MaxResponseBytes")
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return raw, &httpFailure{status: response.StatusCode, body: string(raw)}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return raw, fmt.Errorf("opensearch: %s: %w", method, httpclient.NewResponseError(response.StatusCode, response.Header))
 	}
 	return raw, nil
 }
@@ -590,15 +591,6 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		}
 	}
 	return nil
-}
-
-type httpFailure struct {
-	status int
-	body   string
-}
-
-func (h *httpFailure) Error() string {
-	return fmt.Sprintf("opensearch: native HTTP %d: %s", h.status, h.body)
 }
 
 func appendBulkLine(body []byte, value any) ([]byte, error) {

@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const defaultSeparator = "\n"
+
 // SeparatorSplitterConfig configures fixed-separator chunking. The zero
 // Separator uses a newline.
 type SeparatorSplitterConfig struct {
@@ -18,7 +20,7 @@ type SeparatorSplitter struct {
 }
 
 func NewSeparatorSplitter(config SeparatorSplitterConfig) (*SeparatorSplitter, error) {
-	separator := cmp.Or(config.Separator, "\n")
+	separator := cmp.Or(config.Separator, defaultSeparator)
 	if err := validateTextEncoding(separator); err != nil {
 		return nil, err
 	}

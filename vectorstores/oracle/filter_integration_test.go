@@ -350,11 +350,14 @@ func nativeFilterSnapshot(t *testing.T, f *nativeFixture) {
 	defer cancel()
 	budget := fixtureBudget()
 	predicate := nativePredicate(t, `value > 3`)
-	tx, err := f.store.prepareFilter(ctx, predicate, false, &budget)
+	tx, err := f.db.BeginTx(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
+	if err := f.store.prepareFilter(ctx, tx, predicate, false, &budget); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.db.ExecContext(ctx, "UPDATE "+f.table+" SET FACTS = :1 WHERE ID = :2", nativeBlob(t, []byte(`{"value":"7"}`)), []byte(docs[0].ID)); err != nil {
 		t.Fatal(err)
 	}

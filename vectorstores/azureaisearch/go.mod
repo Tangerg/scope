@@ -2,7 +2,7 @@ module github.com/Tangerg/scope/vectorstores/azureaisearch
 
 go 1.27.3
 
-require github.com/Tangerg/scope/core v0.60.0
+require github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect

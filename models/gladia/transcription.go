@@ -62,15 +62,15 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	if err != nil {
 		return nil, err
 	}
-	pi := config.PollInterval
-	if pi == 0 {
-		pi = DefaultPollInterval
+	pollInterval := config.PollInterval
+	if pollInterval == 0 {
+		pollInterval = DefaultPollInterval
 	}
-	pt := config.PollTimeout
-	if pt == 0 {
-		pt = DefaultPollTimeout
+	pollTimeout := config.PollTimeout
+	if pollTimeout == 0 {
+		pollTimeout = DefaultPollTimeout
 	}
-	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
+	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pollInterval, pollTimeout: pollTimeout}, nil
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {

@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/weaviate
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/google/uuid v1.6.0
 	github.com/weaviate/weaviate-go-client/v6 v6.0.0
 	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261028093924-075fe4065cb2
@@ -26,6 +26,7 @@ require (
 	github.com/oasdiff/yaml3 v0.0.16 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
+	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/samber/lo v1.53.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/speakeasy-api/jsonpath v0.7.0 // indirect

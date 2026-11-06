@@ -2,11 +2,12 @@
 // float subset of current v5, v4, v3, CLIP, and code embedding models that
 // maps losslessly to core/embedding.
 //
-// Jina-specific knobs that don't fit the generic surface — task type
-// ("retrieval.query" / "retrieval.passage" / "text-matching" /
-// "classification" / "separation"), late chunking, embedding_type
-// and normalization use [EmbeddingRequestExtensionKey]. Unknown controls and
-// encodings other than float are rejected before provider I/O.
+// Task type, late chunking, embedding_type and normalization use
+// [EmbeddingRequestExtensionKey]. Tasks are admitted by the effective model's
+// schema: v3 separation, v4 code tasks, and v5 clustering are distinct controls.
+// An explicit task requires a recognized model schema; omitting task leaves
+// model selection open. Unknown controls and encodings other than float are
+// rejected before provider I/O.
 //
 // Jina's /embeddings dialect partially overlaps OpenAI's but uses
 // "dimensions" rather than "output_dimension" and exposes the

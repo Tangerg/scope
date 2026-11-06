@@ -36,7 +36,7 @@ func ended(value any) run.Termination {
 	}
 	return result
 }
-func waitFor(t *testing.T, handle *run.Handle[run.Signal]) run.Wait {
+func waitFor[O any](t *testing.T, handle *run.Handle[O]) run.Wait {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -63,7 +63,7 @@ func waitFor(t *testing.T, handle *run.Handle[run.Signal]) run.Wait {
 func TestInputGateDeclaresLocalWaitWithoutHandshake(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	schema := require(jsonschema.For[string]())
-	program := require(Compile[string, run.Signal](runtime.Compiler(), Config{Name: "test.input", Description: "Ask one question.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema, MaxAnswerBytes: 16}}))
+	program := require(Compile[string, string](runtime.Compiler(), Config{Name: "test.input", Description: "Ask one question.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema, MaxAnswerBytes: 16}}))
 	input := require(run.EncodePayload("question"))
 	definition := program.Definition()
 	execution := require(definition.Start(input))
@@ -82,7 +82,7 @@ func TestInputGateAnswerIsSchemaCheckedAndStableAcrossRecovery(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, CheckpointInterval: 1})
 	schema := require(jsonschema.For[string]())
 	config := Config{Name: "test.input", Description: "Ask one question.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema, MaxAnswerBytes: 16}}
-	program := require(Compile[string, run.Signal](runtime.Compiler(), config))
+	program := require(Compile[string, string](runtime.Compiler(), config))
 	handle := require(runtime.Start(t.Context(), program, run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: "question"}))
 	wait := waitFor(t, handle)
 	if err := handle.Answer(t.Context(), wait.Key, 42); !errors.Is(err, run.ErrSignalRejected) {
@@ -92,7 +92,7 @@ func TestInputGateAnswerIsSchemaCheckedAndStableAcrossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	recoveredRuntime := conformancetest.Runtime(t, run.Config{Store: store})
-	recoveredProgram := require(Compile[string, run.Signal](recoveredRuntime.Compiler(), config))
+	recoveredProgram := require(Compile[string, string](recoveredRuntime.Compiler(), config))
 	recovered := require(recoveredRuntime.Recover(t.Context(), recoveredProgram, handle.ID()))
 	if restored := waitFor(t, recovered); restored.Key != wait.Key {
 		t.Fatal("recovery changed question identity")
@@ -102,7 +102,7 @@ func TestInputGateAnswerIsSchemaCheckedAndStableAcrossRecovery(t *testing.T) {
 	}
 	result := require(recovered.Await(t.Context()))
 	answer := require(result.Output())
-	if require(answer.Payload.Decode[string]()) != "yes" || answer.Wait != wait.Key {
+	if answer != "yes" {
 		t.Fatalf("answer=%+v", answer)
 	}
 }

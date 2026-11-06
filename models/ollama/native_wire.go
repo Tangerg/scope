@@ -6,52 +6,12 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	corevector "github.com/Tangerg/scope/core/vector"
 )
-
-type nativeDuration struct {
-	time.Duration
-}
-
-func (n nativeDuration) MarshalJSON() ([]byte, error) {
-	if n.Duration < 0 {
-		return []byte("-1"), nil
-	}
-	return jsonv2.Marshal(n.String())
-}
-
-func (n *nativeDuration) UnmarshalJSON(data []byte) error {
-	var value any
-	if err := jsonv2.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	switch typed := value.(type) {
-	case float64:
-		if typed < 0 {
-			n.Duration = time.Duration(math.MaxInt64)
-			return nil
-		}
-		n.Duration = time.Duration(typed * float64(time.Second))
-		return nil
-	case string:
-		parsed, err := time.ParseDuration(typed)
-		if err != nil {
-			return err
-		}
-		if parsed < 0 {
-			parsed = time.Duration(math.MaxInt64)
-		}
-		n.Duration = parsed
-		return nil
-	default:
-		return errors.New("ollama: duration must be a number of seconds or duration string")
-	}
-}
 
 type nativeThinkValue struct {
 	value any

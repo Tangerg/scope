@@ -50,8 +50,7 @@ func Execute(request *resty.Request, method string, path string, result any) err
 		return err
 	}
 	if !response.IsSuccess() {
-		// Upstream diagnostics can echo query text, access tokens or fetched content.
-		return fmt.Errorf("provider HTTP status %d", response.StatusCode())
+		return httpclient.NewResponseError(response.StatusCode(), response.Header())
 	}
 	if body := bytes.TrimSpace(response.Body()); len(body) == 0 || bytes.Equal(body, []byte("null")) {
 		return fmt.Errorf("HTTP %d: %w", response.StatusCode(), errEmptyBody)

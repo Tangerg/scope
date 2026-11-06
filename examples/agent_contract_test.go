@@ -76,7 +76,7 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 			defer runtime.Close(context.WithoutCancel(ctx))
 			compiler := runtime.Compiler()
 			schema := contractValue(jsonschema.For[string]())
-			gate := contractValue(coordination.Compile[string, run.Signal](compiler, coordination.Config{Name: "contract.winner", Description: "Wait for explicit completion.", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}}))
+			gate := contractValue(coordination.Compile[string, run.Payload](compiler, coordination.Config{Name: "contract.winner", Description: "Wait for explicit completion.", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 			var loserCalls atomic.Int32
 			loser := contractInteraction(compiler, interaction.Config{Name: "contract.loser", Description: "Retain an unknown remote outcome.", MaxModelCalls: run.NewQuota(1)}, chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				loserCalls.Add(1)

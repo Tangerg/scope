@@ -34,7 +34,8 @@ func newImageModel(t *testing.T, baseURL, modelID string) *openai.ImageModel {
 
 func TestImageModel_Call_Mock(t *testing.T) {
 	resp := openaisdk.ImagesResponse{
-		Created: 1700000000,
+		Created:      1700000000,
+		OutputFormat: openaisdk.ImagesResponseOutputFormatPNG,
 		Data: []openaisdk.Image{
 			{URL: "https://example.com/img1.png", B64JSON: ""},
 			{URL: "https://example.com/img2.png", B64JSON: ""},

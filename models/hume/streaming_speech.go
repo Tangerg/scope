@@ -57,7 +57,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		for {
 			var event ttsStreamEvent
 			if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
-				if errors.Is(err, io.EOF) {
+				if err == io.EOF { //nolint:errorlint // Wrapped or joined EOF can carry a read failure; only bare EOF completes the stream.
 					if contextErr := ctx.Err(); contextErr != nil {
 						yield(nil, contextErr)
 					} else if completionErr := lifecycle.complete(); completionErr != nil {

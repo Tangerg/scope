@@ -15,7 +15,7 @@ import (
 
 func TestOfficialTranscriptionOptionsReachQuery(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.URL.RawQuery; got != "diarize=true&keyterm=Scope&keyterm=Go&model=nova-3&punctuate=false&redact=pci&redact=ssn&smart_format=true" {
+		if got := r.URL.RawQuery; got != "diarize=true&keyterm=Scope&keyterm=Go&model=nova-3&punctuate=false&redact=pci&redact=ssn&smart_format=true&tag=scope&tag=test" {
 			t.Errorf("query=%q", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -23,7 +23,7 @@ func TestOfficialTranscriptionOptionsReachQuery(t *testing.T) {
 	}))
 	defer server.Close()
 	opts := transcription.Options{Model: "nova-3"}
-	if err := opts.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"redact": []string{"pci", "ssn"}, "smart_format": true, "diarize": true, "punctuate": false, "keyterm": []string{"Scope", "Go"}}); err != nil {
+	if err := opts.Extensions.Set(deepgram.TranscriptionRequestExtensionKey, map[string]any{"redact": []string{"pci", "ssn"}, "smart_format": true, "diarize": true, "punctuate": false, "keyterm": []string{"Scope", "Go"}, "extra": map[string][]string{"tag": {"scope", "test"}}}); err != nil {
 		t.Fatal(err)
 	}
 	model, err := deepgram.NewTranscriptionModel(t.Context(), deepgram.TranscriptionModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts})
@@ -43,7 +43,7 @@ func TestOfficialSpeechOptionsReachQuery(t *testing.T) {
 	for _, test := range []struct {
 		format, native, query, contentType string
 	}{
-		{"mp3", `{"bit_rate":32000}`, "bit_rate=32000&encoding=mp3&model=aura-2-thalia-en&speed=1.1", "audio/mpeg"},
+		{"mp3", `{"bit_rate":32000,"extra":{"tag":["scope","test"]}}`, "bit_rate=32000&encoding=mp3&model=aura-2-thalia-en&speed=1.1&tag=scope&tag=test", "audio/mpeg"},
 		{"wav", `{"sample_rate":24000}`, "container=wav&encoding=linear16&model=aura-2-thalia-en&sample_rate=24000&speed=1.1", "audio/wav"},
 	} {
 		t.Run(test.format, func(t *testing.T) {

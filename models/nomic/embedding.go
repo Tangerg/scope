@@ -10,6 +10,12 @@ import (
 	"github.com/Tangerg/scope/core/invocation"
 )
 
+const (
+	embeddingFieldModel          = "model"
+	embeddingFieldTexts          = "texts"
+	embeddingFieldDimensionality = "dimensionality"
+)
+
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
@@ -63,7 +69,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []string{"model", "texts", "dimensionality"} {
+	for _, field := range []string{embeddingFieldModel, embeddingFieldTexts, embeddingFieldDimensionality} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("nomic: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
 		}
@@ -78,6 +84,16 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 
 	apiReq.Model = effectiveOptions.Model
 	apiReq.Texts = req.Texts
+	if apiReq.TaskType != nil {
+		if err := apiReq.TaskType.validate(); err != nil {
+			return nil, err
+		}
+	}
+	if apiReq.LongTextMode != nil {
+		if err := apiReq.LongTextMode.validate(); err != nil {
+			return nil, err
+		}
+	}
 
 	if effectiveOptions.Dimensions != nil {
 		apiReq.Dimensionality = effectiveOptions.Dimensions

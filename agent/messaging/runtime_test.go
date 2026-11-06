@@ -164,7 +164,7 @@ func TestMessageDeliveryReconcilesLostAcknowledgmentWithSameSignalIdentity(t *te
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
 	schema := require(jsonschema.For[string]())
-	gate := require(coordination.Compile[string, run.Signal](runtime.Compiler(), coordination.Config{Name: "test.recipient", Description: "Receive one answer.", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}}))
+	gate := require(coordination.Compile[string, string](runtime.Compiler(), coordination.Config{Name: "test.recipient", Description: "Receive one answer.", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 	recipient := require(runtime.Start(t.Context(), gate, run.StartRequest[string]{ID: run.StartID{Scope: "recipient", Key: t.Name()}, Input: "question"}))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -211,7 +211,7 @@ func TestMessageDeliveryReconcilesLostAcknowledgmentWithSameSignalIdentity(t *te
 	}
 	recipientResult := require(recipient.Await(ctx))
 	answer := require(recipientResult.Output())
-	if require(answer.Payload.Decode[string]()) != "answer" {
+	if answer != "answer" {
 		t.Fatal("recipient answer changed")
 	}
 	if err := handle.ReplayUnknownEffect(ctx, unknown); err != nil {

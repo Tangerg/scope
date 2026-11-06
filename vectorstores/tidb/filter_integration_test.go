@@ -297,11 +297,14 @@ func nativeFilterSnapshot(t *testing.T, f *nativeFixture) {
 	defer cancel()
 	budget := fixtureBudget()
 	predicate := nativePredicate(t, `value > 3`)
-	tx, err := f.store.prepareFilter(ctx, predicate, &budget)
+	tx, err := f.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
+	if err := f.store.prepareFilter(ctx, tx, predicate, &budget); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.db.ExecContext(ctx, "UPDATE "+f.table+" SET facts = ? WHERE id = ?", `{"value":"7"}`, docs[0].ID); err != nil {
 		t.Fatal(err)
 	}

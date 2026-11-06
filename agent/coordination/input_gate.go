@@ -6,7 +6,6 @@ import (
 
 	"github.com/Tangerg/scope/agent/internal/strategy/restore"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 const (
@@ -16,22 +15,23 @@ const (
 
 type inputGateDefinition struct {
 	descriptor run.Descriptor
-	policy     InputGate
+	wait       run.Wait
 }
 
 func newInputGate(name, description string, policy InputGate) (*inputGateDefinition, error) {
-	if !policy.AnswerSchema.Valid() || policy.MaxAnswerBytes < 0 {
+	key, err := run.ParseWaitKey(inputGateWaitKey)
+	if err != nil {
+		return nil, err
+	}
+	wait := run.Wait{Key: key, AnswerSchema: policy.AnswerSchema, MaxAnswerBytes: policy.MaxAnswerBytes}
+	if !wait.Valid() || !wait.AnswerSchema.Valid() {
 		return nil, ErrInvalidConfig
 	}
-	output, err := jsonschema.For[run.Signal]()
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: name, Description: description, InputSchema: policy.RequestSchema, OutputSchema: wait.AnswerSchema})
 	if err != nil {
 		return nil, err
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: name, Description: description, InputSchema: policy.RequestSchema, OutputSchema: output})
-	if err != nil {
-		return nil, err
-	}
-	return &inputGateDefinition{descriptor: descriptor, policy: policy}, nil
+	return &inputGateDefinition{descriptor: descriptor, wait: wait}, nil
 }
 func (i *inputGateDefinition) Descriptor() run.Descriptor                           { return i.descriptor }
 func (*inputGateDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
@@ -96,28 +96,22 @@ func (i *inputGateExecution) Step(ctx context.Context, turn run.Turn) (run.Trans
 	if i.state.Phase == inputGateCompleted {
 		return run.Transition{}, ErrInvalidProtocol
 	}
-	key, err := run.ParseWaitKey(inputGateWaitKey)
-	if err != nil {
-		return run.Transition{}, err
-	}
 	if i.state.Phase == inputGateReady {
 		if len(turn.Messages) != 0 {
 			return run.Transition{}, ErrInvalidProtocol
 		}
 		i.state.Phase = inputGateWaiting
-		return run.Yield(0, nil, run.Wait{Key: key, Question: i.state.Request, AnswerSchema: i.definition.policy.AnswerSchema, MaxAnswerBytes: i.definition.policy.MaxAnswerBytes})
+		wait := i.definition.wait
+		wait.Question = i.state.Request
+		return run.Yield(0, nil, wait)
 	}
 	if len(turn.Messages) != 1 {
 		return run.Transition{}, ErrInvalidProtocol
 	}
 	answer, ok := turn.Messages[0].(run.Signal)
-	if !ok || answer.Wait != key {
+	if !ok || answer.Wait != i.definition.wait.Key {
 		return run.Transition{}, fmt.Errorf("%w: answer does not address input gate", ErrInvalidProtocol)
 	}
-	output, err := run.EncodePayload(answer)
-	if err != nil {
-		return run.Transition{}, err
-	}
 	i.state = inputGateState{Phase: inputGateCompleted}
-	return run.Complete(1, output)
+	return run.Complete(1, answer.Payload)
 }

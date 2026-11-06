@@ -8,6 +8,54 @@ import (
 	"testing/synctest"
 )
 
+func TestObservationFollowsTakeoverWhileOldWriterIsIdle(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		store := NewMemoryStore()
+		original := kernelRuntime(t, Config{Store: store})
+		program := lifecycleEchoProgram(t, original, "test.observation_takeover")
+		ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
+		defer cancel()
+		handle := controlValue(original.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
+		waitForKernelStep(t, ctx, handle, 1)
+		head := controlValue(handle.Inspect(ctx)).Head
+		observed := make(chan error, 1)
+		go func() {
+			cursor, exited := head, false
+			for entry, err := range handle.Observe(ctx, head) {
+				if err != nil {
+					observed <- err
+					return
+				}
+				if entry.LSN != cursor+1 {
+					observed <- ErrInvalidLog
+					return
+				}
+				cursor = entry.LSN
+				if record, ok := entry.Record.(Exited); ok && record.Process == handle.ID() {
+					exited = true
+				}
+			}
+			if !exited {
+				observed <- errors.New("observation ended without the committed root exit")
+				return
+			}
+			observed <- nil
+		}()
+		synctest.Wait()
+		replacement := kernelRuntime(t, Config{Store: store})
+		recovered := controlValue(replacement.Recover(ctx, program, handle.ID()))
+		if err := recovered.Answer(ctx, kernelWait().Key, 42); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := recovered.Await(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-observed; err != nil {
+			t.Fatalf("old handle missed the replacement writer's commits: %v", err)
+		}
+	})
+}
+
 func TestTerminalRecoveryObservationsStopAtCommittedHead(t *testing.T) {
 	for _, test := range []struct {
 		name     string

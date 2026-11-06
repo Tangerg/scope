@@ -24,6 +24,12 @@
 // original task, context, and tool binding. A validated text answer reuses
 // the reply identity and continues the same task. Authentication requests
 // require explicit Host handling.
+// Durable Hosts set Endpoint.ContinuationIdentity from their stable principal
+// and execution revision, and use that same revision in the interaction's ToolSet
+// declaration. The adapter also binds discovery, remote interfaces and tool name.
+// Reconstructing an equivalent ToolSet can then resume a saved InputRequest;
+// changing its authority rejects the continuation before RPC dispatch. With an
+// empty identity, continuations belong only to the opened ToolSet's lifetime.
 //
 // The text boundary rejects structured, binary and URI parts explicitly.
 // Independently encoded JSON-RPC and HTTP+JSON peers check result semantics;

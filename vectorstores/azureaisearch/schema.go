@@ -21,6 +21,9 @@ const (
 	nativeCosineMinimum = 1.0 / 3
 	nativeCosineMaximum = 1.0
 	cosineScoreOffset   = 2.0
+
+	minimumIndexNameLength = 2
+	maximumIndexNameLength = 128
 )
 
 func (n nativeMetric) valid() bool {
@@ -136,6 +139,21 @@ func (i indexSchema) bind(idField, contentField, embeddingField, metadataField s
 		return "", 0, fmt.Errorf("%w: native vector algorithm is absent", ErrIncompatibleIndex)
 	}
 	return metric, vector.Dimensions, nil
+}
+
+func validIndexName(name string) bool {
+	if len(name) < minimumIndexNameLength || len(name) > maximumIndexNameLength {
+		return false
+	}
+	for index, character := range []byte(name) {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' {
+			continue
+		}
+		if character != '-' && character != '_' || index == 0 || name[index-1] == character {
+			return false
+		}
+	}
+	return true
 }
 
 func validFieldName(name string) bool {

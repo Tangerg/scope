@@ -131,7 +131,7 @@ func TestControlAndFailureEvidenceSurvivesBehaviorProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program, err := coordination.Compile[string, run.Signal](runtime.Compiler(), coordination.Config{Name: "test.control", Description: "Wait for explicit input", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}})
+	program, err := coordination.Compile[string, run.Payload](runtime.Compiler(), coordination.Config{Name: "test.control", Description: "Wait for explicit input", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}})
 	if err != nil {
 		t.Fatal(err)
 	}

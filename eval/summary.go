@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"slices"
 
 	"github.com/Tangerg/scope/core/metadata"
@@ -305,14 +306,14 @@ func distribution(values []float64) Distribution {
 		Count: len(values), Minimum: values[0], Maximum: values[len(values)-1],
 		P10: percentile(values, 0.10), P50: percentile(values, 0.50), P90: percentile(values, 0.90),
 	}
-	scale := max(math.Abs(result.Minimum), math.Abs(result.Maximum))
-	if scale == 0 {
-		return result
-	}
+	// Scaling or rounding intermediate sums can erase a representable residual
+	// after cancellation. Only the final mean is rounded back to float64.
+	var sum, sample big.Rat
 	for _, value := range values {
-		result.Mean += value / scale
+		sum.Add(&sum, sample.SetFloat64(value))
 	}
-	result.Mean = result.Mean / float64(len(values)) * scale
+	sum.Quo(&sum, big.NewRat(int64(len(values)), 1))
+	result.Mean, _ = sum.Float64()
 	return result
 }
 

@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	Provider                = "BedrockKnowledgeBase"
-	DefaultMaxResponseBytes = int64(16 * 1024 * 1024)
-	maximumResults          = 100
+	Provider                 = "BedrockKnowledgeBase"
+	DefaultMaxResponseBytes  = int64(16 * 1024 * 1024)
+	maximumResults           = 100
+	nativeRequestIDHeader    = "X-Amzn-Requestid"
+	canonicalRequestIDHeader = "Request-Id"
 
 	// SourceDocumentIDMetadataKey and SourceLocationMetadataKey reserve the
 	// native provenance independently of the returned chunk identity.
@@ -275,7 +277,12 @@ func (r *Retriever) retrieve(ctx context.Context, body retrievalRequest, remaini
 		return nil, fmt.Errorf("bedrockkb: response exceeds %d-byte limit", r.maxResponseBytes)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("bedrockkb: native status=%d body=%s", response.StatusCode, raw)
+		headers := response.Header
+		if requestID := headers.Get(nativeRequestIDHeader); requestID != "" {
+			headers = headers.Clone()
+			headers.Set(canonicalRequestIDHeader, requestID)
+		}
+		return nil, fmt.Errorf("bedrockkb: retrieve: %w", httpclient.NewResponseError(response.StatusCode, headers))
 	}
 	return raw, nil
 }

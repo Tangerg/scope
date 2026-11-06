@@ -58,13 +58,13 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 }
 
 type embeddingRequest struct {
-	Input           []string `json:"input"`
-	Model           string   `json:"model"`
-	InputType       string   `json:"input_type,omitempty"`
-	Truncation      *bool    `json:"truncation,omitzero"`
-	OutputDimension *int64   `json:"output_dimension,omitzero"`
-	OutputDtype     string   `json:"output_dtype,omitempty"`
-	EncodingFormat  string   `json:"encoding_format,omitempty"`
+	Input           []string            `json:"input"`
+	Model           string              `json:"model"`
+	InputType       *embeddingInputType `json:"input_type,omitzero"`
+	Truncation      *bool               `json:"truncation,omitzero"`
+	OutputDimension *int64              `json:"output_dimension,omitzero"`
+	OutputDtype     string              `json:"output_dtype,omitempty"`
+	EncodingFormat  string              `json:"encoding_format,omitempty"`
 }
 
 func (e *embeddingRequest) UnmarshalJSON(data []byte) error {

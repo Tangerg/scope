@@ -58,3 +58,30 @@ func TestContinuationCannotMisrouteOrAlterElicitationActions(t *testing.T) {
 		t.Fatal("misrouting and an unfinished result are distinct")
 	}
 }
+
+func TestSchemaEmbeddingDistinguishesKeywordsFromInstanceKeys(t *testing.T) {
+	for _, test := range []struct {
+		schema string
+		unsafe bool
+	}{
+		{`{"properties":{"$ref":{"type":"string"}}}`, false},
+		{`{"const":{"$id":"value"},"default":{"$ref":"value"},"examples":[{"$schema":"value"}]}`, false},
+		{`{"properties":{"value":{"$ref":"#/$defs/value"}}}`, true},
+		{`{"properties":{"$id":{"$id":"nested"}}}`, true},
+		{`{"items":[{"$ref":"#/type"}]}`, true},
+		{`{"items":{"$dynamicRef":"#type"}}`, true},
+		{`{"dependentSchemas":{"$ref":{"properties":{"value":{"$id":"nested"}}}}}`, true},
+		{`{"dependencies":{"value":["$ref"]}}`, false},
+		{`{"dependencies":{"value":{"$recursiveRef":"#"}}}`, true},
+		{`{"if":{"type":"object"},"then":{"additionalProperties":{"$ref":"#/$defs/value"}}}`, true},
+		{`{"allOf":[{"properties":{"$id":{"type":"string"}}}]}`, false},
+	} {
+		var value any
+		if err := jsonv2.Unmarshal([]byte(test.schema), &value); err != nil {
+			t.Fatal(err)
+		}
+		if got := relocatesSchema(value); got != test.unsafe {
+			t.Errorf("relocatesSchema(%s) = %t, want %t", test.schema, got, test.unsafe)
+		}
+	}
+}

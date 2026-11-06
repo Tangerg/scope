@@ -60,33 +60,15 @@ func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, 
 	return forkSource{branches: branches}, nil
 }
 
-func (f forkSource) count(ctx context.Context, _ json.RawMessage) (uint32, error) {
-	return uint32(len(f.branches)), ctx.Err()
-}
-
-func (f forkSource) windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) ([]run.Payload, uint32, error) {
+func (f forkSource) prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, 0, err
-	}
-	count := uint32(len(f.branches))
-	if start > count {
-		return nil, 0, ErrInvalidExecutionState
+		return nil, err
 	}
 	input, err := run.ParsePayload(raw)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	var inputs []run.Payload
-	if size := fanoutWindowLen(start, count, windowSize); size > 0 {
-		inputs = make([]run.Payload, size)
-	}
-	for index := range inputs {
-		if err := ctx.Err(); err != nil {
-			return nil, 0, err
-		}
-		inputs[index] = input
-	}
-	return inputs, count, nil
+	return forkInputValue{payload: input, branchCount: uint32(len(f.branches))}, nil
 }
 
 func (f forkSource) member(index uint32) (fanoutMember, bool) {
@@ -110,6 +92,33 @@ func (f forkSource) topology(inputSchema, outputSchema jsonschema.Schema) ([]Bin
 		bindings[index] = bindingTopology(branch.binding, BindingRoleBranch, branch.id, inputSchema, outputSchema)
 	}
 	return bindings, 0
+}
+
+type forkInputValue struct {
+	payload     run.Payload
+	branchCount uint32
+}
+
+func (f forkInputValue) count() uint32 { return f.branchCount }
+
+func (f forkInputValue) windowInputs(ctx context.Context, start, windowSize uint32) ([]run.Payload, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if start > f.branchCount {
+		return nil, ErrInvalidExecutionState
+	}
+	var inputs []run.Payload
+	if size := fanoutWindowLen(start, f.branchCount, windowSize); size > 0 {
+		inputs = make([]run.Payload, size)
+	}
+	for index := range inputs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		inputs[index] = f.payload
+	}
+	return inputs, nil
 }
 
 // Fork constructs one windowed managed fan-out Stage. Branch inputs and

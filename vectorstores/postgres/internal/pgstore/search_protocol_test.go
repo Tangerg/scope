@@ -23,8 +23,10 @@ import (
 )
 
 type searchPeer struct {
-	queries int
-	facts   []byte
+	queries   int
+	facts     []byte
+	commits   int
+	rollbacks int
 }
 
 func (s *searchPeer) serve(conn net.Conn) error {
@@ -78,12 +80,16 @@ func (s *searchPeer) serve(conn net.Conn) error {
 		case strings.Contains(query.String, "FROM pg_constraint"):
 			backend.Send(&pgproto3.RowDescription{Fields: []pgproto3.FieldDescription{{Name: []byte("conkey"), DataTypeOID: pgtype.Int2ArrayOID}}})
 			backend.Send(&pgproto3.DataRow{Values: [][]byte{[]byte("{1}")}})
-		case query.String == "begin isolation level serializable read only":
+		case query.String == "begin isolation level serializable read only" || query.String == "begin isolation level serializable":
 			tag, status = "BEGIN", 'T'
 		case query.String == "commit":
+			s.commits++
 			tag, status = "COMMIT", 'I'
 		case query.String == "rollback":
+			s.rollbacks++
 			tag, status = "ROLLBACK", 'I'
+		case strings.HasPrefix(query.String, "DELETE FROM "):
+			tag = "DELETE 1"
 		case strings.HasPrefix(query.String, "SELECT id,content,"):
 			// A native ranking query needs the vector, limit, and distance order.
 			// A preliminary full-source read cannot satisfy this boundary.
@@ -153,5 +159,76 @@ func TestUnfilteredSearchUsesNativeRankingWithoutSourceEnumeration(t *testing.T)
 	got := response.Results[0].Document
 	if got.Metadata != nil || !reflect.DeepEqual(got.Provenance, original) {
 		t.Fatalf("retrieved SQL facts discarded or exposed provenance: %+v", got)
+	}
+}
+
+type queryPanicKey struct{}
+
+type queryPanicTracer struct {
+	prefix string
+	value  any
+}
+
+func (q queryPanicTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	return context.WithValue(ctx, queryPanicKey{}, strings.HasPrefix(data.SQL, q.prefix))
+}
+func (q queryPanicTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+	if ctx.Value(queryPanicKey{}) == true {
+		panic(q.value)
+	}
+}
+
+func TestNativeOperationPanicRollsBackWithoutCommit(t *testing.T) {
+	for _, operation := range []string{"query", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			client, server := net.Pipe()
+			peer := &searchPeer{facts: []byte("null")}
+			done := make(chan error, 1)
+			go func() { done <- peer.serve(server) }()
+			config, err := pgxpool.ParseConfig("postgres://scope@localhost/scope?sslmode=disable")
+			if err != nil {
+				t.Fatal(err)
+			}
+			config.MaxConns = 1
+			config.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+			config.ConnConfig.DialFunc = func(context.Context, string, string) (net.Conn, error) { return client, nil }
+			panicValue := &struct{ reason string }{"native trace panic"}
+			prefix := "SELECT id,content,"
+			if operation == "delete" {
+				prefix = "DELETE FROM "
+			}
+			config.ConnConfig.Tracer = queryPanicTracer{prefix: prefix, value: panicValue}
+			pool, err := pgxpool.NewWithConfig(t.Context(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				pool.Close()
+				client.Close()
+				server.Close()
+				if peerErr := <-done; peerErr != nil {
+					t.Error(peerErr)
+				}
+				if peer.commits != 0 || peer.rollbacks != 1 {
+					t.Errorf("commits=%d rollbacks=%d", peer.commits, peer.rollbacks)
+				}
+			})
+			store, err := pgstore.New(t.Context(), pgstore.Config{Provider: "pgvector", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				if operation == "delete" {
+					err = store.DeleteIDs(t.Context(), []string{"one"})
+				} else {
+					_, err = store.Query(t.Context(), &vectorstore.Query{Space: "test", Values: []float64{1, 0}, Options: vectorstore.SearchOptions{TopK: 1}})
+				}
+			}()
+			if err != nil || recovered != panicValue {
+				t.Fatalf("error=%v panic=%v", err, recovered)
+			}
+		})
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/samber/lo"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -59,11 +60,13 @@ type remoteTool struct {
 var _ toolcontract.Tool = remoteTool{}
 
 type remoteToolConfig struct {
-	client            *a2aclient.Client
-	card              *sdka2a.AgentCard
-	name              string
-	concurrencyPolicy ToolConcurrencyPolicy
-	effect            toolcontract.Effect
+	client               *a2aclient.Client
+	card                 *sdka2a.AgentCard
+	name                 string
+	concurrencyPolicy    ToolConcurrencyPolicy
+	effect               toolcontract.Effect
+	cardURL              string
+	continuationIdentity string
 }
 
 func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
@@ -86,9 +89,22 @@ func newRemoteTool(config remoteToolConfig) (remoteTool, error) {
 	if err := definition.Validate(); err != nil {
 		return remoteTool{}, fmt.Errorf("a2a: build tool for agent %q: %w", config.card.Name, err)
 	}
+	binding := rand.Text()
+	if config.continuationIdentity != "" {
+		identity, err := jsonv2.Marshal(struct {
+			Host       string
+			CardURL    string
+			Name       string
+			Interfaces []*sdka2a.AgentInterface
+		}{config.continuationIdentity, config.cardURL, definition.Name, config.card.SupportedInterfaces}, jsonv2.Deterministic(true))
+		if err != nil {
+			return remoteTool{}, fmt.Errorf("a2a: encode continuation identity: %w", err)
+		}
+		binding = fmt.Sprintf("%x", sha256.Sum256(identity))
+	}
 	return remoteTool{
 		client:            config.client,
-		binding:           rand.Text(),
+		binding:           binding,
 		definition:        definition,
 		concurrencyPolicy: config.concurrencyPolicy,
 	}, nil
@@ -122,12 +138,12 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(semconv.GenAIAgentName(r.definition.Name)),
 	)
-	defer func() {
-		if err != nil {
-			errortelemetry.Record(span, errortelemetry.Classify(err))
+	defer errortelemetry.Finish(&err, func(observed error) {
+		if observed != nil {
+			errortelemetry.Record(span, errortelemetry.Classify(observed))
 		}
 		span.End()
-	}()
+	})
 
 	input, err := parseCallArguments(invocation.Arguments())
 	if err != nil {
@@ -152,10 +168,10 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		return toolcontract.Result{}, fmt.Errorf("a2a: call agent %q: %w", r.definition.Name, err)
 	}
 
+	if req.Message.TaskID != "" && (lo.IsNil(result) || result.TaskInfo() != req.Message.TaskInfo()) {
+		return toolcontract.Result{}, ErrContinuationBinding
+	}
 	if task, ok := result.(*sdka2a.Task); ok && task != nil {
-		if req.Message.TaskID != "" && (task.ID != req.Message.TaskID || task.ContextID != req.Message.ContextID) {
-			return toolcontract.Result{}, ErrContinuationBinding
-		}
 		if task.Status.State == sdka2a.TaskStateInputRequired {
 			return r.awaitInput(task, invocation)
 		}

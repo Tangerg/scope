@@ -13,7 +13,10 @@ import (
 	"github.com/samber/lo"
 )
 
-const SkillFile = "SKILL.md"
+const (
+	SkillFile              = "SKILL.md"
+	directoryReadBatchSize = 64
+)
 
 // Repository is a read-only Agent Skills repository backed by an [fs.FS].
 // Reads are lazy and per-call, so changes to the backing filesystem are
@@ -115,7 +118,7 @@ func (r *Repository) readSummaries(ctx context.Context, reader fs.ReadDirFile) (
 		if err := contextError(ctx, "list"); err != nil {
 			return nil, err
 		}
-		entries, readErr := reader.ReadDir(64)
+		entries, readErr := reader.ReadDir(directoryReadBatchSize)
 		if err := contextError(ctx, "list"); err != nil {
 			return nil, errors.Join(readErr, err)
 		}

@@ -53,12 +53,12 @@ func (r remoteTool) Call(ctx context.Context, invocation toolcontract.Invocation
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(semconv.GenAIToolName(remoteName)),
 	)
-	defer func() {
-		if err != nil {
-			errortelemetry.Record(span, errortelemetry.Classify(err))
+	defer errortelemetry.Finish(&err, func(observed error) {
+		if observed != nil {
+			errortelemetry.Record(span, errortelemetry.Classify(observed))
 		}
 		span.End()
-	}()
+	})
 
 	params := &sdkmcp.CallToolParams{
 		Name:      remoteName,
@@ -131,28 +131,6 @@ func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.Cal
 		return toolcontract.Result{InputRequest: &request}, nil
 	}
 	return toolcontract.Result{}, ErrIncompleteResult
-}
-
-func relocatesSchema(value any) bool {
-	switch v := value.(type) {
-	case map[string]any:
-		for k, child := range v {
-			switch k {
-			case "$ref", "$dynamicRef", "$id", "$schema":
-				return true
-			}
-			if relocatesSchema(child) {
-				return true
-			}
-		}
-	case []any:
-		for _, child := range v {
-			if relocatesSchema(child) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (r remoteTool) resume(params *sdkmcp.CallToolParams, invocation toolcontract.Invocation, continuation toolcontract.Continuation) error {

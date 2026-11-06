@@ -71,6 +71,9 @@ type DeltaEmitter func(json.RawMessage)
 
 // Policy is captured in EffectIntent before dispatch. Recovery uses that
 // acknowledged declaration, never a newly queried replay decision.
+// Dispatch must distinguish a definite result from interruption: an error
+// leaves the outcome unknown. A work context canceled by local writer shutdown
+// has ErrWriterStopped as its cause; this is not a durable business failure.
 type Dispatcher interface {
 	Dispatch(context.Context, EffectRequest, DeltaEmitter) (Settlement, error)
 	Policy(Effect) EffectPolicy

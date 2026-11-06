@@ -16,4 +16,5 @@ require (
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 )

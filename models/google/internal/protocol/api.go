@@ -180,7 +180,7 @@ func (*api) wrapError(err error) error {
 	if !ok {
 		return err
 	}
-	return &responseError{err: err, status: apiErr.Code}
+	return newResponseError(err, apiErr.Code, nil)
 }
 
 func (a *api) wrapResult[T any](value *T, err error) (*T, error) {

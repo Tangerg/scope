@@ -59,25 +59,25 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 // Extra is available for newly released official query parameters that have
 // not yet acquired a typed field.
 type listenParams struct {
-	Model          string     `json:"model,omitempty"`
-	Language       string     `json:"language,omitempty"`
-	Tier           string     `json:"tier,omitempty"`
-	Version        string     `json:"version,omitempty"`
-	Punctuate      *bool      `json:"punctuate,omitzero"`
-	SmartFormat    *bool      `json:"smart_format,omitzero"`
-	Diarize        *bool      `json:"diarize,omitzero"`
-	Numerals       *bool      `json:"numerals,omitzero"`
-	Paragraphs     *bool      `json:"paragraphs,omitzero"`
-	Utterances     *bool      `json:"utterances,omitzero"`
-	Topics         *bool      `json:"topics,omitzero"`
-	Sentiment      *bool      `json:"sentiment,omitzero"`
-	Intents        *bool      `json:"intents,omitzero"`
-	DetectEntities *bool      `json:"detect_entities,omitzero"`
-	DetectLanguage *bool      `json:"detect_language,omitzero"`
-	Summarize      string     `json:"summarize,omitempty"`
-	Redact         []string   `json:"redact,omitzero"`
-	Keyterms       []string   `json:"keyterm,omitzero"`
-	Extra          url.Values `json:"extra,omitzero"`
+	Model          string                  `json:"model,omitempty"`
+	Language       string                  `json:"language,omitempty"`
+	Tier           string                  `json:"tier,omitempty"`
+	Version        string                  `json:"version,omitempty"`
+	Punctuate      *bool                   `json:"punctuate,omitzero"`
+	SmartFormat    *bool                   `json:"smart_format,omitzero"`
+	Diarize        *bool                   `json:"diarize,omitzero"`
+	Numerals       *bool                   `json:"numerals,omitzero"`
+	Paragraphs     *bool                   `json:"paragraphs,omitzero"`
+	Utterances     *bool                   `json:"utterances,omitzero"`
+	Topics         *bool                   `json:"topics,omitzero"`
+	Sentiment      *bool                   `json:"sentiment,omitzero"`
+	Intents        *bool                   `json:"intents,omitzero"`
+	DetectEntities *bool                   `json:"detect_entities,omitzero"`
+	DetectLanguage *bool                   `json:"detect_language,omitzero"`
+	Summarize      string                  `json:"summarize,omitempty"`
+	Redact         []string                `json:"redact,omitzero"`
+	Keyterms       []string                `json:"keyterm,omitzero"`
+	Extra          synchronousQueryOptions `json:"extra,omitzero"`
 }
 
 func (l *listenParams) UnmarshalJSON(data []byte) error {
@@ -183,13 +183,13 @@ func (a *api) listen(ctx context.Context, audio []byte, contentType string, para
 }
 
 type speakParams struct {
-	Model      string     `json:"model,omitempty"`
-	Encoding   string     `json:"encoding,omitempty"`
-	Container  string     `json:"container,omitempty"`
-	SampleRate *int       `json:"sample_rate,omitzero"`
-	BitRate    *int       `json:"bit_rate,omitzero"`
-	Speed      float64    `json:"speed,omitzero"`
-	Extra      url.Values `json:"extra,omitzero"`
+	Model      string                  `json:"model,omitempty"`
+	Encoding   string                  `json:"encoding,omitempty"`
+	Container  string                  `json:"container,omitempty"`
+	SampleRate *int                    `json:"sample_rate,omitzero"`
+	BitRate    *int                    `json:"bit_rate,omitzero"`
+	Speed      float64                 `json:"speed,omitzero"`
+	Extra      synchronousQueryOptions `json:"extra,omitzero"`
 }
 
 func (s *speakParams) UnmarshalJSON(data []byte) error {

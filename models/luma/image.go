@@ -14,6 +14,7 @@ import (
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
@@ -286,7 +287,7 @@ func (i *ImageModel) downloadOutput(ctx context.Context, rawURL string) ([]byte,
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, "", fmt.Errorf("download HTTP %d", response.StatusCode)
+		return nil, "", fmt.Errorf("download: %w", httpclient.NewResponseError(response.StatusCode, response.Header))
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, i.maxOutputBytes+1))
 	if err != nil {

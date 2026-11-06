@@ -32,7 +32,7 @@ func TestCoordinationConstructionRejectsInvalidNamesSchemasAndLimits(t *testing.
 
 func TestInputGateRejectsUnaddressedMessagesAndDropsCompletedRequest(t *testing.T) {
 	schema := require(jsonschema.For[string]())
-	program := require(Compile[string, run.Signal](conformancetest.Compiler(t), Config{Name: "test.gate", Description: "Ask once.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema}}))
+	program := require(Compile[string, string](conformancetest.Compiler(t), Config{Name: "test.gate", Description: "Ask once.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 	definition := program.Definition()
 	if _, err := definition.Start(require(run.EncodePayload(12))); err == nil {
 		t.Fatal("request violated its declared schema")
@@ -67,8 +67,8 @@ func TestInputGateRejectsUnaddressedMessagesAndDropsCompletedRequest(t *testing.
 	}
 	completed := require(execution.Step(t.Context(), turn(2, answer)))
 	output, present := completed.Output()
-	if !present || require(output.Decode[run.Signal]()).ID != answer.ID {
-		t.Fatal("completion changed the admitted signal")
+	if !present || !output.Equal(answer.Payload) {
+		t.Fatal("completion changed the admitted answer")
 	}
 	state := require(execution.Snapshot())
 	retained := require(state.Decode[inputGateState](inputGateStateKind))

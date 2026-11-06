@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Tangerg/scope/vectorstores/postgres"
 
@@ -18,6 +19,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
+
+const transactionCleanupTimeout = 5 * time.Second
 
 type Config struct {
 	Provider       string
@@ -95,22 +98,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err == nil {
-			if commitErr := transaction.Commit(ctx); errors.Is(commitErr, pgx.ErrTxCommitRollback) {
-				err = commitErr
-			} else if commitErr != nil {
-				ids := make([]string, len(batch.Records))
-				for i, r := range batch.Records {
-					ids[i] = r.Document.ID
-				}
-				err = vectorstore.NewWriteError(commitErr, vectorstore.WriteOutcome{Unconfirmed: ids})
-			}
-		}
-		if rollbackErr := transaction.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			err = errors.Join(err, rollbackErr)
-		}
-	}()
+	defer s.rollbackTransaction(ctx, transaction, &err)
 	width, err := s.readSchema(ctx, transaction)
 	if err != nil {
 		return err
@@ -119,13 +107,13 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	statement := fmt.Sprintf("INSERT INTO %s (id,content,%s,embedding) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET content=EXCLUDED.content,%s=EXCLUDED.%s,embedding=EXCLUDED.embedding", s.fullTable, s.metadataColumn, s.metadataColumn, s.metadataColumn)
 	for _, record := range batch.Records {
 		doc := record.Document
-		facts, err := doc.MarshalStoredMetadata()
-		if err != nil {
-			return err
+		facts, metadataErr := doc.MarshalStoredMetadata()
+		if metadataErr != nil {
+			return metadataErr
 		}
-		coords, err := s.distanceMetric.Vector(record.Values, width)
-		if err != nil {
-			return err
+		coords, vectorErr := s.distanceMetric.Vector(record.Values, width)
+		if vectorErr != nil {
+			return vectorErr
 		}
 		prepared.Queue(statement, []byte(doc.ID), doc.Text, facts, coords)
 	}
@@ -139,7 +127,17 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			return errors.Join(errors.New("pgstore: upsert did not acknowledge one row"), results.Close())
 		}
 	}
-	return results.Close()
+	if err = results.Close(); err != nil {
+		return err
+	}
+	if err = transaction.Commit(ctx); err == nil || errors.Is(err, pgx.ErrTxCommitRollback) {
+		return err
+	}
+	ids := make([]string, len(batch.Records))
+	for index, record := range batch.Records {
+		ids[index] = record.Document.ID
+	}
+	return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
 }
 
 // Metadata is stored as opaque Core JSON bytes. Without an equivalent native
@@ -186,7 +184,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, err
 	}
 	defer func() {
-		s.finishTransaction(ctx, transaction, &err)
+		s.rollbackTransaction(ctx, transaction, &err)
 		if err != nil {
 			response = nil
 		}
@@ -236,6 +234,9 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err = request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
+	if err = transaction.Commit(ctx); err != nil {
+		return nil, err
+	}
 	return response, nil
 }
 
@@ -256,12 +257,14 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	if err != nil {
 		return err
 	}
-	defer s.finishTransaction(ctx, transaction, &err)
+	defer s.rollbackTransaction(ctx, transaction, &err)
 	if _, err = s.readSchema(ctx, transaction); err != nil {
 		return err
 	}
-	_, err = transaction.Exec(ctx, "DELETE FROM "+s.fullTable+" WHERE id=ANY($1)", nativeIDs)
-	return err
+	if _, err = transaction.Exec(ctx, "DELETE FROM "+s.fullTable+" WHERE id=ANY($1)", nativeIDs); err != nil {
+		return err
+	}
+	return transaction.Commit(ctx)
 }
 
 func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
@@ -372,7 +375,7 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (resu
 		return nil, err
 	}
 	defer func() {
-		s.finishTransaction(ctx, tx, &err)
+		s.rollbackTransaction(ctx, tx, &err)
 		if err != nil {
 			result = nil
 		}
@@ -393,7 +396,14 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (resu
 	if err != nil {
 		return nil, err
 	}
-	return selectRecords(ctx, docs, request.Filter)
+	result, err = selectRecords(ctx, docs, request.Filter)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (s *Store) readSource(ctx context.Context, transaction pgx.Tx, width int) ([]*document.Document, error) {
@@ -434,11 +444,10 @@ func (s *Store) validateNativeVector(vector pgvec.Vector, width int) error {
 	return err
 }
 
-func (s *Store) finishTransaction(ctx context.Context, transaction pgx.Tx, operationErr *error) {
-	if *operationErr == nil {
-		*operationErr = transaction.Commit(ctx)
-	}
-	if err := transaction.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+func (s *Store) rollbackTransaction(ctx context.Context, transaction pgx.Tx, operationErr *error) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), transactionCleanupTimeout)
+	defer cancel()
+	if err := transaction.Rollback(cleanup); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
 		*operationErr = errors.Join(*operationErr, err)
 	}
 }

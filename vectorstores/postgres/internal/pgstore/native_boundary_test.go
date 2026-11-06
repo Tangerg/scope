@@ -161,26 +161,23 @@ func TestNativeSourceValidatedBeforeSelection(t *testing.T) {
 	}
 }
 
-func TestTransactionFinalizationPreservesFailures(t *testing.T) {
+func TestTransactionRollbackNeverCommitsAndPreservesFailures(t *testing.T) {
 	failure := errors.New("native failure")
 	for name, operationErr := range map[string]error{"success": nil, "failure": failure} {
 		t.Run(name, func(t *testing.T) {
 			transaction := &fixtureTransaction{rollbackErr: pgx.ErrTxClosed}
 			store := Store{}
 			err := operationErr
-			store.finishTransaction(t.Context(), transaction, &err)
-			expected := 0
-			if operationErr == nil {
-				expected = 1
-			}
-			if transaction.commits != expected || transaction.rollbacks != 1 || !errors.Is(err, operationErr) {
+			store.rollbackTransaction(t.Context(), transaction, &err)
+
+			if transaction.commits != 0 || transaction.rollbacks != 1 || !errors.Is(err, operationErr) {
 				t.Fatalf("transaction: commits=%d rollbacks=%d error=%v", transaction.commits, transaction.rollbacks, err)
 			}
 		})
 	}
 	transaction := &fixtureTransaction{commitErr: failure, rollbackErr: errors.New("rollback failure")}
-	var err error
-	(&Store{}).finishTransaction(t.Context(), transaction, &err)
+	err := failure
+	(&Store{}).rollbackTransaction(t.Context(), transaction, &err)
 	if !errors.Is(err, failure) || !errors.Is(err, transaction.rollbackErr) {
 		t.Fatalf("finalization cause lost: %v", err)
 	}

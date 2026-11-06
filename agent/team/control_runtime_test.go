@@ -9,7 +9,6 @@ import (
 	"github.com/Tangerg/scope/agent/coordination"
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
 	"github.com/Tangerg/scope/agent/run"
-	"github.com/Tangerg/scope/agent/workflow"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -17,20 +16,13 @@ func TestTeamRuntimeReceiptsControlAfterTaskExit(t *testing.T) {
 	for _, operation := range []string{"signal", "cancel"} {
 		t.Run(operation, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
-			worker := require(coordination.Compile[string, run.Signal](runtime.Compiler(), coordination.Config{
+			worker := require(coordination.Compile[string, string](runtime.Compiler(), coordination.Config{
 				Name: "test.worker", Description: "Complete after the test answers.",
 				Policy: coordination.InputGate{RequestSchema: require(jsonschema.For[string]()), AnswerSchema: require(jsonschema.For[string]())},
 			})).Erase()
-			gate := require(coordination.Compile[Turn, run.Signal](runtime.Compiler(), coordination.Config{
-				Name: "test.coordinator.input", Description: "Select the next team decision.",
+			coordinator := require(coordination.Compile[Turn, Decision](runtime.Compiler(), coordination.Config{
+				Name: "test.coordinator", Description: "Select the next team decision.",
 				Policy: coordination.InputGate{RequestSchema: require(jsonschema.For[Turn]()), AnswerSchema: require(jsonschema.For[Decision]())},
-			})).Erase()
-			coordinator := require(workflow.Compile[Turn, Decision](runtime.Compiler(), workflow.Config{
-				Name: "test.coordinator", Description: "Apply the answered decision.", Revision: "test",
-				Stages: []workflow.Stage{
-					require(workflow.Call(workflow.CallConfig{ID: "ask", Child: run.ChildBinding{Program: gate}})),
-					require(workflow.Transform("decision", func(_ context.Context, answer run.Signal) (Decision, error) { return answer.Payload.Decode[Decision]() })),
-				},
 			})).Erase()
 			handle := require(runtime.Start(t.Context(), compileTeam(t, runtime, coordinator, worker), run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: operation}, Input: "initial"}))
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

@@ -97,7 +97,7 @@ func TestRedirectOriginUsesSchemeHostAndEffectivePort(t *testing.T) {
 
 func TestHostRedirectPolicyCannotChangeTheAuthorizedDestination(t *testing.T) {
 	denied := errors.New("host rejected redirect")
-	for _, change := range []string{"deny", "url", "host"} {
+	for _, change := range []string{"deny", "url", "host", "opaque"} {
 		t.Run(change, func(t *testing.T) {
 			calls, policyCalls := 0, 0
 			transport := &recordingTransport{roundTrip: func(request *http.Request) (*http.Response, error) {
@@ -116,6 +116,8 @@ func TestHostRedirectPolicyCannotChangeTheAuthorizedDestination(t *testing.T) {
 						request.Host = "api.example"
 					case "host":
 						request.Host = "other.example"
+					case "opaque":
+						request.URL.Opaque = "//other.example/next"
 					}
 					return nil
 				}},

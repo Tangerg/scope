@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/google
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/Tangerg/scope/models/protocol/openai v0.60.0
 	github.com/Tangerg/sse v0.0.6
 	github.com/go-resty/resty/v2 v2.17.2
@@ -14,6 +14,7 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

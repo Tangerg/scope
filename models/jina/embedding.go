@@ -10,6 +10,13 @@ import (
 	"github.com/Tangerg/scope/core/invocation"
 )
 
+const (
+	embeddingFieldModel      = "model"
+	embeddingFieldInput      = "input"
+	embeddingFieldDimensions = "dimensions"
+	embeddingTypeFloat       = "float"
+)
+
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
@@ -63,7 +70,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []string{"model", "input", "dimensions"} {
+	for _, field := range []string{embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("jina: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
 		}
@@ -78,14 +85,19 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 
 	apiReq.Model = effectiveOptions.Model
 	apiReq.Input = req.Texts
+	if apiReq.Task != nil {
+		if err := apiReq.Task.validate(apiReq.Model); err != nil {
+			return nil, err
+		}
+	}
 
 	if effectiveOptions.Dimensions != nil {
 		apiReq.Dimensions = effectiveOptions.Dimensions
 	}
 	if apiReq.EmbeddingType == "" {
-		apiReq.EmbeddingType = "float"
+		apiReq.EmbeddingType = embeddingTypeFloat
 	}
-	if apiReq.EmbeddingType != "float" {
+	if apiReq.EmbeddingType != embeddingTypeFloat {
 		return nil, fmt.Errorf("jina: extension %q embedding_type %q cannot be represented by Core float embeddings", EmbeddingRequestExtensionKey, apiReq.EmbeddingType)
 	}
 

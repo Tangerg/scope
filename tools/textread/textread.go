@@ -160,8 +160,9 @@ func (l *lineScanner) append(fragment []byte) error {
 }
 
 func (l *lineScanner) accept(ctx context.Context, readErr error, inputBytes int64) (bool, error) {
-	switch {
-	case readErr == nil:
+	//nolint:errorlint // Only bare sentinels are control signals; compound errors preserve read failures.
+	switch readErr {
+	case nil:
 		line := l.line[:len(l.line)-1]
 		if len(line) > 0 && line[len(line)-1] == '\r' {
 			line = line[:len(line)-1]
@@ -172,10 +173,10 @@ func (l *lineScanner) accept(ctx context.Context, readErr error, inputBytes int6
 		l.line = l.line[:0]
 		l.endedWithNewline = true
 		return false, nil
-	case errors.Is(readErr, bufio.ErrBufferFull):
+	case bufio.ErrBufferFull:
 		l.endedWithNewline = false
 		return false, nil
-	case errors.Is(readErr, io.EOF):
+	case io.EOF:
 		return true, l.finish(ctx, inputBytes)
 	default:
 		return false, readErr

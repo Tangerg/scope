@@ -55,12 +55,12 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 }
 
 type embeddingRequest struct {
-	Model            string   `json:"model"`
-	Texts            []string `json:"texts"`
-	TaskType         string   `json:"task_type,omitempty"`
-	Dimensionality   *int64   `json:"dimensionality,omitzero"`
-	LongTextMode     string   `json:"long_text_mode,omitempty"`
-	MaxTokensPerText *int64   `json:"max_tokens_per_text,omitzero"`
+	Model            string         `json:"model"`
+	Texts            []string       `json:"texts"`
+	TaskType         *embeddingTask `json:"task_type,omitzero"`
+	Dimensionality   *int64         `json:"dimensionality,omitzero"`
+	LongTextMode     *longTextMode  `json:"long_text_mode,omitzero"`
+	MaxTokensPerText *int64         `json:"max_tokens_per_text,omitzero"`
 }
 
 func (e *embeddingRequest) UnmarshalJSON(data []byte) error {

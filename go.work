@@ -4,6 +4,7 @@ use (
 	./a2a
 	./a2a/managed
 	./agent
+	./agent/run/postgres
 	./core
 	./dev/providerconformance
 	./dev/repoarch
@@ -66,7 +67,6 @@ use (
 	./rag
 	./retrievers/bedrockkb
 	./retrievers/vectara
-	./agent/run/postgres
 	./skills
 	./tokenizers/tiktoken
 	./tools

@@ -13,9 +13,9 @@ import (
 // deadlineDispatcher is the stateless Dispatcher for Deadline. Its call owns and stops its
 // timer. Waiting for the same absolute instant has no external side effect, so
 // pending recovery can safely repeat that operation with the same identity.
-// A reached deadline settles Succeeded with an empty object. Malformed timer
-// payloads and cancellation settle Failed with a typed diagnostic, so
-// cancellation never leaves an unknown external outcome.
+// A reached deadline settles Succeeded with an empty object. Business
+// cancellation before the deadline settles Failed to drain the timer, but
+// local writer shutdown leaves it unresolved for an explicit SameIdentity replay.
 type deadlineDispatcher struct{}
 
 type timerRequest struct {
@@ -66,8 +66,11 @@ func (deadlineDispatcher) Dispatch(ctx context.Context, request run.EffectReques
 	if err != nil {
 		return timerFailureSettlement(err)
 	}
-	if ctx.Err() != nil || !waitUntil(ctx, operation.Deadline) {
-		return timerFailureSettlement(errors.New("timer returned before its deadline"))
+	if !waitUntil(ctx, operation.Deadline) {
+		if errors.Is(context.Cause(ctx), run.ErrWriterStopped) {
+			return run.Settlement{}, context.Cause(ctx)
+		}
+		return timerFailureSettlement(ctx.Err())
 	}
 	payload, err := jsonv2.Marshal(timerReached{})
 	if err != nil {
@@ -82,7 +85,7 @@ func waitUntil(ctx context.Context, deadline time.Time) bool {
 	for {
 		select {
 		case <-ctx.Done():
-			return false
+			return !time.Now().Before(deadline)
 		case <-timer.C:
 			// A duration limit or wall-clock adjustment can leave the absolute deadline ahead.
 			remaining := time.Until(deadline)

@@ -17,6 +17,8 @@ const (
 	ModelEmbeddingsV4          = "jina-embeddings-v4"
 	ModelEmbeddingsV3          = "jina-embeddings-v3"
 	ModelEmbeddingsV2BaseEN    = "jina-embeddings-v2-base-en"
+	ModelCodeEmbeddings500M    = "jina-code-embeddings-0.5b"
+	ModelCodeEmbeddings1500M   = "jina-code-embeddings-1.5b"
 	ModelClipV2                = "jina-clip-v2"
 	ModelColbertV2             = "jina-colbert-v2"
 

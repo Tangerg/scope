@@ -33,6 +33,12 @@ type Endpoint struct {
 	// CardURL is the absolute HTTP(S) AgentCard URL.
 	CardURL string
 
+	// ContinuationIdentity is the Host's stable, non-secret identity for the
+	// endpoint's principal and execution revision. Reuse it across reconstruction
+	// only while both remain the same. Empty confines continuations to this
+	// ToolSet's lifetime; HTTPClient credentials cannot establish durable identity.
+	ContinuationIdentity string
+
 	// HTTPClient serves card resolution and RPC calls. Nil uses
 	// http.DefaultClient. The caller retains ownership; a restricted shallow
 	// copy is used internally.

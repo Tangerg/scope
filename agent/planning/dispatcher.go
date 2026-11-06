@@ -2,6 +2,7 @@ package planning
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -24,9 +25,10 @@ func newDispatcher(definition *definition, sensor Sensor) (*dispatcher, error) {
 }
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors
-// and valid ActionResult failures are definite failed settlements; an
-// ActionExecutor error leaves the Effect outcome unknown. The Runtime enforces
-// the capabilities Policy declares for each Action before dispatch. Input that
+// other than local writer interruption and valid ActionResult failures are
+// definite failed settlements; an ActionExecutor error leaves the Effect
+// outcome unknown. The Runtime enforces the capabilities Policy declares for
+// each Action before dispatch. Input that
 // violates the definition schema or an Action whose binding does not admit the
 // request's world state returns a failed contract settlement; Execution
 // consumes it as a contract failure without another external attempt.
@@ -81,6 +83,10 @@ func (d *dispatcher) sense(
 ) (run.Settlement, error) {
 	request := SenseRequest{EffectID: effectID, Input: input}
 	state, senseErr := d.sensor.Sense(ctx, request)
+	cause := context.Cause(ctx)
+	if errors.Is(cause, run.ErrWriterStopped) && (errors.Is(senseErr, ctx.Err()) || errors.Is(senseErr, cause)) {
+		return run.Settlement{}, fmt.Errorf("planning: sense: %w", senseErr)
+	}
 	settlement, err := senseSettlement(state, senseErr)
 	if err != nil {
 		return planningFailureSettlement(err)

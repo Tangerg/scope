@@ -80,7 +80,7 @@ func TestChildWaitProjectsParentageAndEveryMessageVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate, err := coordination.Compile[string, run.Signal](runtime.Compiler(), coordination.Config{Name: "test.gate", Description: "Wait for a string", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}})
+	gate, err := coordination.Compile[string, run.Payload](runtime.Compiler(), coordination.Config{Name: "test.gate", Description: "Wait for a string", Policy: coordination.InputGate{RequestSchema: schema, AnswerSchema: schema}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestChildWaitProjectsParentageAndEveryMessageVariant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parent, err := workflow.Compile[string, run.Signal](runtime.Compiler(), workflow.Config{Name: "test.parent", Description: "Join a child", Stages: []workflow.Stage{stage}})
+	parent, err := workflow.Compile[string, run.Payload](runtime.Compiler(), workflow.Config{Name: "test.parent", Description: "Join a child", Stages: []workflow.Stage{stage}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestExecutionFailureProjectsOnlyItsStableClassification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	program, err := workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.failure", Description: "Fail before publication", Revision: "failure", Stages: []workflow.Stage{stage}})
+	program, err := workflow.Compile[string, run.Payload](runtime.Compiler(), workflow.Config{Name: "test.failure", Description: "Fail before publication", Revision: "failure", Stages: []workflow.Stage{stage}})
 	if err != nil {
 		t.Fatal(err)
 	}

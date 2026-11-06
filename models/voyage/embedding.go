@@ -17,6 +17,13 @@ import (
 // surfaces as a provider error.
 const MaxTextsPerEmbedRequest = 1000
 
+const (
+	embeddingFieldModel           = "model"
+	embeddingFieldInput           = "input"
+	embeddingFieldOutputDimension = "output_dimension"
+	embeddingDtypeFloat           = "float"
+)
+
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options
@@ -84,7 +91,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []string{"model", "input", "output_dimension"} {
+	for _, field := range []string{embeddingFieldModel, embeddingFieldInput, embeddingFieldOutputDimension} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, fmt.Errorf("voyage: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
 		}
@@ -98,6 +105,11 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	}
 
 	apiReq.Model = effectiveOptions.Model
+	if apiReq.InputType != nil {
+		if err := apiReq.InputType.validate(); err != nil {
+			return nil, err
+		}
+	}
 	if len(req.Texts) > MaxTextsPerEmbedRequest {
 		return nil, fmt.Errorf("voyage: embed accepts at most %d texts per call, got %d",
 			MaxTextsPerEmbedRequest, len(req.Texts))
@@ -109,9 +121,9 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 		apiReq.OutputDimension = effectiveOptions.Dimensions
 	}
 	if apiReq.OutputDtype == "" {
-		apiReq.OutputDtype = "float"
+		apiReq.OutputDtype = embeddingDtypeFloat
 	}
-	if apiReq.OutputDtype != "float" {
+	if apiReq.OutputDtype != embeddingDtypeFloat {
 		return nil, fmt.Errorf("voyage: extension %q output_dtype %q cannot be represented by Core float embeddings", EmbeddingRequestExtensionKey, apiReq.OutputDtype)
 	}
 	if apiReq.EncodingFormat != "" {

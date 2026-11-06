@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/models/jina
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/go-resty/resty/v2 v2.17.2
 )
 

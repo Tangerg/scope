@@ -77,3 +77,10 @@ func TestOriginRejectsMissingAndConflictingAuthorities(t *testing.T) {
 		t.Fatal("nil endpoint constructed an origin")
 	}
 }
+
+func TestOriginRejectsOpaqueEndpoints(t *testing.T) {
+	endpoint := &url.URL{Scheme: "http", Host: "api.example", Opaque: "//other.example/private"}
+	if _, err := httpclient.NewOrigin(t.Context(), endpoint); err == nil {
+		t.Fatal("opaque endpoint constructed an origin from an authority it can replace")
+	}
+}

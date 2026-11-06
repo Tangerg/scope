@@ -48,6 +48,9 @@
 // cannot preserve them in that form. Their response_format must select JSON;
 // text, srt, and vtt require a different decoder. Image, transcription, and
 // translation calls own their unary mode, so extensions cannot enable streaming.
+// Image output formats are PNG, JPEG, and WebP. Reported response formats own
+// the generated media's MIME type; an absent format uses the requested format
+// or the provider's PNG default. Unknown response formats are invalid responses.
 //
 // Chat Completions owns its single output. Neither a raw request extension nor
 // a compatible dialect can set n.

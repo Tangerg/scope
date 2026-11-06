@@ -506,10 +506,16 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if len(request.Values) != width {
 		return nil, vectorstore.ErrInvalidRequest
 	}
-	transaction, err := s.prepareFilter(ctx, request.Options.Filter, false, budget)
-	defer finishTransaction(transaction, &err)
-	if err != nil {
-		return nil, err
+	var transaction *sql.Tx
+	if request.Options.Filter != nil {
+		transaction, err = s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, fmt.Errorf("oracle: begin filter transaction: %w", err)
+		}
+		defer rollbackTransaction(transaction, &err)
+		if err = s.prepareFilter(ctx, transaction, request.Options.Filter, false, budget); err != nil {
+			return nil, err
+		}
 	}
 
 	vectorJSON, err := jsonv2.Marshal(corevector.Float32(request.Values))
@@ -552,6 +558,11 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	results := make([]*vectorstore.SearchResult, len(ranked))
 	for index, candidate := range ranked {
 		results[index] = candidate.result
+	}
+	if transaction != nil {
+		if err = transaction.Commit(); err != nil {
+			return nil, fmt.Errorf("oracle: commit filter transaction: %w", err)
+		}
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
@@ -638,9 +649,12 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		return fmt.Errorf("oracle.Store.DeleteMatching: %w", validateErr)
 	}
 
-	transaction, err := s.prepareFilter(ctx, predicate, true, &budget)
-	defer finishTransaction(transaction, &err)
+	transaction, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("oracle: begin filter transaction: %w", err)
+	}
+	defer rollbackTransaction(transaction, &err)
+	if err = s.prepareFilter(ctx, transaction, predicate, true, &budget); err != nil {
 		return err
 	}
 	var lastID []byte
@@ -669,10 +683,14 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 			}
 		}
 		if page.count < filterPageSize {
-			return nil
+			break
 		}
 		lastID = page.lastID
 	}
+	if err = transaction.Commit(); err != nil {
+		return fmt.Errorf("oracle: commit filter transaction: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
@@ -755,60 +773,44 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 // can reject unchanged rows through Oracle's block-level conflict detection.
 // NOWAIT leaves lock contention explicit without queuing a native operation
 // that the driver's in-band cancellation may fail to interrupt.
-func (s *Store) prepareFilter(ctx context.Context, predicate filter.Predicate, forDeletion bool, budget *vectorstore.ScanBudget) (*sql.Tx, error) {
-	if predicate == nil {
-		return nil, nil
-	}
-	transaction, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("oracle: begin filter transaction: %w", err)
-	}
+func (s *Store) prepareFilter(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, forDeletion bool, budget *vectorstore.ScanBudget) error {
 	isolation := "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
 	if forDeletion {
 		isolation = "SET TRANSACTION ISOLATION LEVEL READ COMMITTED"
 	}
 	if _, err := transaction.ExecContext(ctx, isolation); err != nil {
-		return transaction, fmt.Errorf("oracle: set filter transaction isolation: %w", err)
+		return fmt.Errorf("oracle: set filter transaction isolation: %w", err)
 	}
 	if forDeletion {
 		if _, err := transaction.ExecContext(ctx, "LOCK TABLE "+s.fullTable+" IN EXCLUSIVE MODE NOWAIT"); err != nil {
-			return transaction, fmt.Errorf("oracle: lock documents for filtered deletion: %w", err)
+			return fmt.Errorf("oracle: lock documents for filtered deletion: %w", err)
 		}
 	}
 	if budget == nil {
-		return transaction, vectorstore.ErrUnsupportedFilter
+		return vectorstore.ErrUnsupportedFilter
 	}
 	var allowed int
 	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=:1 AND 2*COALESCE(SUM(n),0)<=:2 THEN 1 ELSE 0 END FROM (SELECT UTL_RAW.LENGTH(%s)+COALESCE(DBMS_LOB.GETLENGTH(%s),0) n FROM %s FETCH FIRST :3 ROWS ONLY)", s.idColumn, s.metadataColumn, s.fullTable)
 	if err := transaction.QueryRowContext(ctx, statement, budget.MaxRecords, budget.MaxBytes, budget.MaxRecords+1).Scan(&allowed); err != nil {
-		return transaction, err
+		return err
 	}
 	if allowed != 1 {
-		return transaction, vectorstore.ErrScanBudget
+		return vectorstore.ErrScanBudget
 	}
 	var lastID []byte
 	for {
 		page, pageErr := s.readFilterPage(ctx, transaction, predicate, lastID)
 		if pageErr != nil {
-			return transaction, pageErr
+			return pageErr
 		}
 		if page.count < filterPageSize {
-			return transaction, nil
+			return nil
 		}
 		lastID = page.lastID
 	}
 }
 
-func finishTransaction(transaction *sql.Tx, err *error) {
-	if transaction == nil {
-		return
-	}
-	if *err == nil {
-		if commitErr := transaction.Commit(); commitErr != nil {
-			*err = fmt.Errorf("oracle: commit filter transaction: %w", commitErr)
-		}
-		return
-	}
+func rollbackTransaction(transaction *sql.Tx, err *error) {
 	if rollbackErr := transaction.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
 		*err = errors.Join(*err, fmt.Errorf("oracle: rollback filter transaction: %w", rollbackErr))
 	}

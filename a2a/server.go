@@ -82,7 +82,12 @@ func NewHTTPHandler(config ServerConfig) (http.Handler, error) {
 		if err := (textProjection{}).validateCard(card); err != nil {
 			return nil, err
 		}
-		return a2asrv.NewHandler(exec, a2asrv.WithCallInterceptors(enforcer), a2asrv.WithTaskStore(config.TaskStore)), nil
+		return a2asrv.NewHandler(exec,
+			a2asrv.WithCallInterceptors(enforcer),
+			a2asrv.WithTaskStore(config.TaskStore),
+			// The SDK's default worker recovery formats private panic values into logs.
+			a2asrv.WithExecutionPanicHandler(func(any) error { return sdka2a.ErrInternalError }),
+		), nil
 	})
 }
 

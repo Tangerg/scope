@@ -190,9 +190,9 @@ func (g *GenerationClient) request(ctx context.Context, model string, contents [
 			Error genai.APIError `json:"error"`
 		}
 		if decodeErr := jsonv2.UnmarshalRead(io.LimitReader(response.Body, maxGenerationEventBytes), &envelope); decodeErr != nil {
-			return nil, nil, &responseError{status: response.StatusCode, err: decodeErr}
+			return nil, nil, newResponseError(decodeErr, response.StatusCode, response.Header)
 		}
-		return nil, nil, &responseError{status: response.StatusCode, err: envelope.Error}
+		return nil, nil, newResponseError(envelope.Error, response.StatusCode, response.Header)
 	}
 	return response, cancel, nil
 }
@@ -285,7 +285,7 @@ func (g *GenerationClient) decode(raw []byte, headers http.Header) (*genai.Gener
 		return nil, fmt.Errorf("google: invalid generation frame: %w", err)
 	}
 	if wire.Error != nil {
-		return nil, *wire.Error
+		return nil, newResponseError(*wire.Error, wire.Error.Code, headers)
 	}
 	if err := validateGenerationObjects(reflect.ValueOf(wire.generationResponse)); err != nil {
 		return nil, err

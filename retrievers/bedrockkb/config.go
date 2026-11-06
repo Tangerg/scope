@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -233,28 +234,51 @@ type nativeImplicitFilter struct {
 	Attributes []nativeMetadataAttribute `json:"metadataAttributes"`
 }
 
+const (
+	maximumImplicitModelReferenceCharacters       = 2048
+	maximumImplicitMetadataAttributes             = 25
+	maximumMetadataAttributeKeyCharacters         = 256
+	maximumMetadataAttributeDescriptionCharacters = 1024
+)
+
+var implicitModelReferencePattern = regexp.MustCompile(`^(arn:aws(-[^:]+)?:(bedrock|sagemaker):[a-z0-9-]{1,20}:([0-9]{12})?:([a-z-]+/)?)?([a-z0-9.-]{1,63}){0,2}(([:][a-z0-9-]{1,63}){0,2})?(/[a-z0-9]{1,12})?$`)
+
 func newNativeImplicitFilter(config *types.ImplicitFilterConfiguration) (*nativeImplicitFilter, error) {
 	if config == nil {
 		return nil, nil
 	}
-	if config.ModelArn == nil || *config.ModelArn == "" {
-		return nil, errors.New("bedrockkb: implicit filter model ARN is required")
+	if config.ModelArn == nil || *config.ModelArn == "" || !utf8.ValidString(*config.ModelArn) || utf8.RuneCountInString(*config.ModelArn) > maximumImplicitModelReferenceCharacters || !implicitModelReferencePattern.MatchString(*config.ModelArn) {
+		return nil, errors.New("bedrockkb: invalid implicit filter model reference")
+	}
+	if len(config.MetadataAttributes) == 0 || len(config.MetadataAttributes) > maximumImplicitMetadataAttributes {
+		return nil, fmt.Errorf("bedrockkb: implicit filtering requires 1..%d metadata attributes", maximumImplicitMetadataAttributes)
 	}
 	attributes := make([]nativeMetadataAttribute, len(config.MetadataAttributes))
 	for index, attribute := range config.MetadataAttributes {
-		attributes[index].Type = attribute.Type
-		if attribute.Key != nil {
-			attributes[index].Key = new(*attribute.Key)
+		projected, err := newNativeMetadataAttribute(attribute)
+		if err != nil {
+			return nil, fmt.Errorf("bedrockkb: implicit metadata attribute %d: %w", index, err)
 		}
-		if attribute.Description != nil {
-			attributes[index].Description = new(*attribute.Description)
-		}
+		attributes[index] = projected
 	}
 	return &nativeImplicitFilter{ARN: *config.ModelArn, Attributes: attributes}, nil
 }
 
 type nativeMetadataAttribute struct {
-	Key         *string             `json:"key"`
+	Key         string              `json:"key"`
 	Type        types.AttributeType `json:"type"`
-	Description *string             `json:"description"`
+	Description string              `json:"description"`
+}
+
+func newNativeMetadataAttribute(attribute types.MetadataAttributeSchema) (nativeMetadataAttribute, error) {
+	if attribute.Key == nil || *attribute.Key == "" || !utf8.ValidString(*attribute.Key) || utf8.RuneCountInString(*attribute.Key) > maximumMetadataAttributeKeyCharacters {
+		return nativeMetadataAttribute{}, fmt.Errorf("key must contain 1..%d UTF-8 characters", maximumMetadataAttributeKeyCharacters)
+	}
+	if attribute.Description == nil || *attribute.Description == "" || !utf8.ValidString(*attribute.Description) || utf8.RuneCountInString(*attribute.Description) > maximumMetadataAttributeDescriptionCharacters {
+		return nativeMetadataAttribute{}, fmt.Errorf("description must contain 1..%d UTF-8 characters", maximumMetadataAttributeDescriptionCharacters)
+	}
+	if !slices.Contains(attribute.Type.Values(), attribute.Type) {
+		return nativeMetadataAttribute{}, errors.New("unsupported type")
+	}
+	return nativeMetadataAttribute{Key: *attribute.Key, Type: attribute.Type, Description: *attribute.Description}, nil
 }

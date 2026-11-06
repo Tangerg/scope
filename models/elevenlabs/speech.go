@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"strings"
 
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
@@ -97,6 +98,9 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 
 	if effectiveOptions.Voice == "" {
 		return "", "", nil, errors.New("elevenlabs: Voice (voice id) is required - set Options.Voice")
+	}
+	if effectiveOptions.Voice == "." || effectiveOptions.Voice == ".." || strings.ContainsAny(effectiveOptions.Voice, "/\\?#%") {
+		return "", "", nil, errors.New("elevenlabs: Voice must be a single unescaped path segment")
 	}
 
 	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)

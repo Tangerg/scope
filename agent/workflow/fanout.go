@@ -10,13 +10,17 @@ import (
 )
 
 type fanoutSource interface {
-	count(ctx context.Context, raw json.RawMessage) (uint32, error)
-	// windowInputs rejects start beyond the source count and returns the
-	// ordered window plus the total count. A start at count returns an empty window.
-	windowInputs(ctx context.Context, raw json.RawMessage, start, windowSize uint32) (inputs []run.Payload, count uint32, err error)
+	prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32)
 	bindings() []run.ChildBinding
+}
+
+// fanoutInput is an execution-local view of the current stage input. It cannot
+// advance progress, and is discarded when the owning stage finishes.
+type fanoutInput interface {
+	count() uint32
+	windowInputs(ctx context.Context, start, windowSize uint32) ([]run.Payload, error)
 }
 
 type fanoutMember struct {

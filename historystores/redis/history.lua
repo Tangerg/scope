@@ -47,8 +47,14 @@ if not ttl or ttl < 0 then
     return redis.error_reply('invalid history message retention')
 end
 
--- Type and argument errors are rejected before the first mutation; scripts
--- retain their write permission after that point, including across maxmemory.
+-- Lua isolation does not roll back a later ACL failure. Check every write
+-- before publishing either the message or its durable receipt.
+if not redis.acl_check_cmd('RPUSH', messages, ARGV[4])
+    or not redis.acl_check_cmd('HSET', ledger, receiptField, digest)
+    or (ttl > 0 and not redis.acl_check_cmd('PEXPIRE', messages, ttl)) then
+    return redis.error_reply('NOPERM history append write permission denied')
+end
+
 redis.call('RPUSH', messages, ARGV[4])
 redis.call('HSET', ledger, receiptField, digest)
 if ttl > 0 then redis.call('PEXPIRE', messages, ttl) end

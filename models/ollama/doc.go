@@ -24,6 +24,9 @@
 // from a prefix and nothing reports it; setting it false makes Ollama return an
 // error instead. The knob reaches the wire through the native request
 // extension.
+// Native keep_alive admits numeric seconds or Go duration strings. Finite
+// values must fit time.Duration; negative values request indefinite residency.
+// Both chat and embedding reject overflow before dispatching a request.
 //
 // See https://github.com/ollama/ollama/blob/main/docs/api.md for the API
 // reference.

@@ -9,6 +9,9 @@
 // Provider extras (speaker diarization, auto chapters, sentiment
 // analysis, entity detection, PII redaction, content safety,
 // language detection) use official JSON names under [RequestExtensionKey].
+// A Core language, native language_codes, and enabled language_detection are
+// mutually exclusive after defaults and per-call options resolve. Conflicts
+// fail before either upload or transcript creation.
 //
 // See https://www.assemblyai.com/docs for the full reference.
 package assemblyai

@@ -33,6 +33,14 @@ type EmbeddingRequestOptions struct {
 }
 
 func (e EmbeddingRequestOptions) Validate() error {
+	if _, err := cohere.NewEmbedInputTypeFromString(e.InputType); err != nil {
+		return fmt.Errorf("cohere: input_type: %w", err)
+	}
+	if e.Truncate != nil {
+		if _, err := cohere.NewV2EmbedRequestTruncateFromString(*e.Truncate); err != nil {
+			return fmt.Errorf("cohere: truncate: %w", err)
+		}
+	}
 	if e.Priority != nil {
 		return requestPriority(*e.Priority).validate()
 	}
@@ -106,8 +114,16 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 	if err != nil {
 		return nil, err
 	}
+	if len(req.Texts) > MaxTextsPerEmbedRequest {
+		return nil, fmt.Errorf("cohere: embed accepts at most %d texts per call, got %d",
+			MaxTextsPerEmbedRequest, len(req.Texts))
+	}
+	inputType, err := cohere.NewEmbedInputTypeFromString(options.InputType)
+	if err != nil {
+		return nil, fmt.Errorf("cohere: input_type: %w", err)
+	}
 	apiReq := &cohere.V2EmbedRequest{
-		InputType: cohere.EmbedInputType(options.InputType),
+		InputType: inputType,
 		MaxTokens: options.MaxTokens,
 		Priority:  options.Priority,
 	}
@@ -115,20 +131,15 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*cohere.V2Embe
 		apiReq.EmbeddingTypes = append(apiReq.EmbeddingTypes, cohere.EmbeddingType(encoding))
 	}
 	if options.Truncate != nil {
-		apiReq.Truncate = new(cohere.V2EmbedRequestTruncate(*options.Truncate))
-	}
-
-	if len(req.Texts) > MaxTextsPerEmbedRequest {
-		return nil, fmt.Errorf("cohere: embed accepts at most %d texts per call, got %d",
-			MaxTextsPerEmbedRequest, len(req.Texts))
+		truncate, parseErr := cohere.NewV2EmbedRequestTruncateFromString(*options.Truncate)
+		if parseErr != nil {
+			return nil, fmt.Errorf("cohere: truncate: %w", parseErr)
+		}
+		apiReq.Truncate = &truncate
 	}
 
 	apiReq.Model = effectiveOptions.Model
 	apiReq.Texts = req.Texts
-
-	if apiReq.InputType == "" {
-		return nil, fmt.Errorf("cohere: extension %q input_type is required; choose search_document, search_query, classification, or clustering", EmbeddingRequestExtensionKey)
-	}
 
 	// Cohere requires at least one embedding type. Core normalizes provider
 	// responses to float vectors, so request that wire shape explicitly.

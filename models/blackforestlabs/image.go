@@ -89,15 +89,15 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	pi := config.PollInterval
-	if pi == 0 {
-		pi = DefaultPollInterval
+	pollInterval := config.PollInterval
+	if pollInterval == 0 {
+		pollInterval = DefaultPollInterval
 	}
-	pt := config.PollTimeout
-	if pt == 0 {
-		pt = DefaultPollTimeout
+	pollTimeout := config.PollTimeout
+	if pollTimeout == 0 {
+		pollTimeout = DefaultPollTimeout
 	}
-	return &ImageModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pi, pollTimeout: pt}, nil
+	return &ImageModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pollInterval, pollTimeout: pollTimeout}, nil
 }
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
@@ -123,6 +123,9 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	effectiveOptions, err := i.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return "", nil, err
+	}
+	if effectiveOptions.Model == "." || effectiveOptions.Model == ".." || strings.ContainsAny(effectiveOptions.Model, "/\\?#%") {
+		return "", nil, errors.New("blackforestlabs: model must be a single unescaped path segment")
 	}
 	if effectiveOptions.NegativePrompt != "" {
 		return "", nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")

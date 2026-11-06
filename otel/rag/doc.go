@@ -8,4 +8,9 @@
 // retrieval. Query text and document content are never recorded; only the
 // operation name and returned document count become attributes. A panicking
 // retriever ends the observation and re-panics the original value unchanged.
+//
+// Vector-store operation decorators expose only the Core operation they wrap.
+// A RAG source or destination also needs provider admission before embedding.
+// Compose the original store's admission methods with its decorated operations,
+// as the vectorStoreComposition example shows; the store retains all validation.
 package rag

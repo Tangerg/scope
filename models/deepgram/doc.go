@@ -13,5 +13,9 @@
 // modeled here — the WebSocket flow doesn't fit Core's request/
 // response shape.
 //
+// Native query extensions cannot select callback delivery: an asynchronous
+// acknowledgement cannot satisfy either model's returned-result contract.
+// Both callback and callback_method are rejected before submission.
+//
 // See https://developers.deepgram.com/docs for the full reference.
 package deepgram

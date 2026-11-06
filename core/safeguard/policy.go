@@ -63,6 +63,21 @@ type Matcher interface {
 	Match(ctx context.Context, text string) (Match, error)
 }
 
+// StreamMatcher optionally supplies incremental decisions. Each scan owns one
+// stream's state; accepting a fragment must include matches across all earlier
+// fragment boundaries. Matchers without this capability are screened once after
+// buffering the complete output, before any output is exposed.
+type StreamMatcher interface {
+	NewScan() Scan
+}
+
+// Scan consumes successive UTF-8 fragments. Found is a rejection of the text
+// seen so far, and errors mean no decision was reached. A scan belongs to one
+// sequential caller and must not be reused for another stream.
+type Scan interface {
+	Add(ctx context.Context, fragment string) (Match, error)
+}
+
 type MatcherFunc func(ctx context.Context, text string) (Match, error)
 
 func (m MatcherFunc) Match(ctx context.Context, text string) (Match, error) {

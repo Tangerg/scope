@@ -42,13 +42,13 @@ type treeRuntime struct {
 	failure         error
 	checkpointAfter uint64
 	// commit is closed and replaced after every acknowledged append so local
-	// readers wake without polling; it is nil once this writer stops.
+	// readers wake immediately; it is nil once this writer stops.
 	commit chan struct{}
 }
 
 func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *treeRuntime {
-	work, cancel := context.WithCancel(ctx)
-	return &treeRuntime{runtime: runtime, state: state, host: ctx, ctx: work, cancel: cancel, commands: make(chan treeCommand, treeCommandCapacity), results: make(chan jobResult, dispatchResultCapacity), done: make(chan struct{}), commit: make(chan struct{}), stopRequested: make(chan struct{}), jobs: make(map[EffectID]*dispatchJob), steps: make(map[ProcessID]*stepJob), emitters: make(map[EffectID]*deltaEmitter)}
+	work, cancel := context.WithCancelCause(ctx)
+	return &treeRuntime{runtime: runtime, state: state, host: ctx, ctx: work, cancel: func() { cancel(ErrWriterStopped) }, commands: make(chan treeCommand, treeCommandCapacity), results: make(chan jobResult, dispatchResultCapacity), done: make(chan struct{}), commit: make(chan struct{}), stopRequested: make(chan struct{}), jobs: make(map[EffectID]*dispatchJob), steps: make(map[ProcessID]*stepJob), emitters: make(map[EffectID]*deltaEmitter)}
 }
 
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }

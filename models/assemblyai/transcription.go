@@ -121,12 +121,15 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
+	language, err := newLanguageSelection(effectiveOptions.Language, apiReq.LanguageCodes, apiReq.LanguageDetection)
+	if err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
+	language.apply(apiReq)
 	apiReq.SpeechModels = prioritizedSpeechModels(effectiveOptions.Model, apiReq.SpeechModels)
 	if validateTranscriptRequestErr := apiReq.validate(); validateTranscriptRequestErr != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptRequestErr}
 	}
-	apiReq.LanguageCode = effectiveOptions.Language
-
 	if req.Audio.Source.Kind == media.SourceURI {
 		apiReq.AudioURL = req.Audio.Source.URI
 	} else {

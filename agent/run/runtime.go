@@ -482,6 +482,18 @@ func (r *Runtime) Answered(ctx context.Context, process ProcessID, wait WaitKey,
 	if r == nil {
 		return false, ErrInvalidConfig
 	}
+	if err := RequireContext(ctx).Err(); err != nil {
+		return false, err
+	}
+	if !process.Valid() {
+		return false, ErrInvalidIdentity
+	}
+	if !wait.Valid() {
+		return false, ErrSignalRejected
+	}
+	if !answer.Valid() {
+		return false, ErrInvalidPayload
+	}
 	receipts, _, err := r.receipts(ctx, process)
 	if err != nil {
 		return false, err

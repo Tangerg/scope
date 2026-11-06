@@ -40,6 +40,10 @@ func (m *Middleware) screen(ctx context.Context, direction Direction, text strin
 		return nil
 	}
 	match, err := m.config.Matcher.Match(ctx, text)
+	return m.decision(ctx, direction, match, err)
+}
+
+func (m *Middleware) decision(ctx context.Context, direction Direction, match Match, err error) error {
 	if err != nil {
 		return fmt.Errorf("safeguard: match %s content: %w", direction, err)
 	}
@@ -86,20 +90,24 @@ func (m *Middleware) Call(next chat.Model) chat.Model {
 
 		response, err := next.Call(ctx, request)
 		if screeningErr := m.screenOutput(ctx, response); screeningErr != nil {
-			kind := invocation.FailureFailed
-			if err != nil && invocation.ClassifyFailure(err) != invocation.FailureFailed {
-				kind = invocation.FailureUnknown
-			}
-			return nil, &invocation.Failure{Kind: kind, Cause: errors.Join(err, screeningErr)}
+			return nil, m.outputFailure(err, screeningErr)
 		}
 		return response, err
 	})
 }
 
-// Stream is a [chat.StreamMiddleware]. Output chunks are accumulated before
-// screening so a term split across provider chunks is still detected. The
-// chunk that completes an unsafe match is not yielded, and a chunk paired with
-// a provider error is dropped because it was never screened.
+func (m *Middleware) outputFailure(cause, screeningErr error) error {
+	kind := invocation.FailureFailed
+	if cause != nil && invocation.ClassifyFailure(cause) != invocation.FailureFailed {
+		kind = invocation.FailureUnknown
+	}
+	return &invocation.Failure{Kind: kind, Cause: errors.Join(cause, screeningErr)}
+}
+
+// Stream is a [chat.StreamMiddleware]. Incremental matchers screen each fragment
+// before yielding its chunk. Other matchers screen the complete buffered output
+// once. A completed, safe generation survives a later provider error; incomplete
+// or rejected output is discarded. A chunk paired with an error is never exposed.
 func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 	return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
@@ -108,6 +116,14 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 				return
 			}
 
+			stream := safeguardStream{ctx: ctx, middleware: m, yield: yield}
+			if matcher, ok := m.config.Matcher.(StreamMatcher); ok && m.config.Scope.inspects(DirectionOutput) {
+				stream.scan = matcher.NewScan()
+				if lo.IsNil(stream.scan) {
+					yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("%w: matcher returned a nil scan", ErrInvalidMiddlewareConfig)})
+					return
+				}
+			}
 			sequence := next.Stream(ctx, request)
 			if sequence == nil {
 				yield(nil, chat.ErrNilStream)
@@ -117,8 +133,8 @@ func (m *Middleware) Stream(next chat.Streamer) chat.Streamer {
 				sequence(yield)
 				return
 			}
-			stream := safeguardStream{ctx: ctx, middleware: m, yield: yield}
 			sequence(stream.consume)
+			stream.finish(nil)
 		}
 	})
 }
@@ -128,6 +144,8 @@ type safeguardStream struct {
 	middleware  *Middleware
 	yield       func(*chat.ResponseDelta, error) bool
 	accumulator chat.ResponseAccumulator
+	scan        Scan
+	buffer      []*chat.ResponseDelta
 	stopped     bool
 }
 
@@ -136,19 +154,60 @@ func (s *safeguardStream) consume(chunk *chat.ResponseDelta, streamErr error) bo
 		return false
 	}
 	if streamErr != nil {
+		if s.scan == nil {
+			s.finish(streamErr)
+			return false
+		}
 		return s.stop(streamErr)
 	}
 	if err := s.accumulator.Add(chunk); err != nil {
 		return s.stop(fmt.Errorf("safeguard: accumulate stream: %w", err))
 	}
-	if err := s.middleware.screen(s.ctx, DirectionOutput, s.accumulator.Text()); err != nil {
-		return s.stop(&invocation.Failure{Kind: invocation.FailureFailed, Cause: err})
+	if s.scan == nil {
+		s.buffer = append(s.buffer, chunk.Clone())
+		return true
+	}
+	match, matchErr := s.scan.Add(s.ctx, chunk.Text())
+	if screeningErr := s.middleware.decision(s.ctx, DirectionOutput, match, matchErr); screeningErr != nil {
+		return s.stop(s.middleware.outputFailure(nil, screeningErr))
 	}
 	if !s.yield(chunk, nil) {
 		s.stopped = true
 		return false
 	}
 	return true
+}
+
+func (s *safeguardStream) finish(streamErr error) {
+	if s.stopped {
+		return
+	}
+	response, completionErr := s.accumulator.Response()
+	if completionErr != nil {
+		if streamErr == nil {
+			streamErr = fmt.Errorf("safeguard: complete stream: %w", completionErr)
+		}
+		s.stop(streamErr)
+		return
+	}
+	if s.scan != nil {
+		return
+	}
+	if screeningErr := s.middleware.screenOutput(s.ctx, response); screeningErr != nil {
+		s.stop(s.middleware.outputFailure(streamErr, screeningErr))
+		return
+	}
+	for _, chunk := range s.buffer {
+		if !s.yield(chunk, nil) {
+			s.stopped = true
+			return
+		}
+	}
+	if streamErr != nil {
+		s.stop(streamErr)
+		return
+	}
+	s.stopped = true
 }
 
 func (s *safeguardStream) stop(err error) bool {
