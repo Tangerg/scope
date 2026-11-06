@@ -1,5 +1,5 @@
-github.com/Tangerg/go-sdk v1.8.1-scope.4 h1:6gRdD4hLUKAoxZM5gxk7HbKRFka70Hig6GoqBwozQrQ=
-github.com/Tangerg/go-sdk v1.8.1-scope.4/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
+github.com/Tangerg/go-sdk v1.8.1-scope.5 h1:pB2OimDljbusbZIeTXA19SnEwxi635AStK9u5Wpn/1U=
+github.com/Tangerg/go-sdk v1.8.1-scope.5/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
 github.com/Tangerg/scope/agent v0.60.1-0.20261105130039-c06bdd878183 h1:mwOkk/zuLnH6DdgomHy9IC4D2Czg8vE4C6wYLylXnzQ=
 github.com/Tangerg/scope/agent v0.60.1-0.20261105130039-c06bdd878183/go.mod h1:zfkmTf7z1vu4L3WWjjZx13rm0nOM76TvXCsSdUPu4XY=
 github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183 h1:eZzgwNiEkNqG3snnddjfsBm6fY+f3X659vCtc5J7W3o=
