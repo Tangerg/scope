@@ -5,20 +5,20 @@ import (
 	"errors"
 	"io/fs"
 	"testing"
-	"testing/fstest"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 type cancelOnCloseFS struct {
-	files    fs.FS
+	skills.ResourceFS
 	cancel   context.CancelCauseFunc
 	cause    error
 	closeErr error
 }
 
 func (c cancelOnCloseFS) Open(name string) (fs.File, error) {
-	file, err := c.files.Open(name)
+	file, err := c.ResourceFS.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func TestLookupPreservesCancellationAndConcurrentCleanupFailure(t *testing.T) {
 			ctx, cancel := context.WithCancelCause(t.Context())
 			defer cancel(nil)
 			repository, err := skills.NewRepository(cancelOnCloseFS{
-				files: fstest.MapFS{"guide/SKILL.md": {Data: []byte(test.content)}}, cancel: cancel, cause: cause, closeErr: test.closeErr,
+				ResourceFS: testfs.FS{"guide/SKILL.md": {Data: []byte(test.content)}}, cancel: cancel, cause: cause, closeErr: test.closeErr,
 			}, skills.RepositoryConfig{})
 			if err != nil {
 				t.Fatal(err)

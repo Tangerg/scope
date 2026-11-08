@@ -8,15 +8,16 @@ import (
 	"testing/fstest"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 var errFixtureClose = errors.New("injected skill file close failure")
 
-type fixtureClosingFS struct{ fs.FS }
+type fixtureClosingFS struct{ skills.ResourceFS }
 type fixtureClosingFile struct{ fs.File }
 
 func (f fixtureClosingFS) Open(name string) (fs.File, error) {
-	file, err := f.FS.Open(name)
+	file, err := f.ResourceFS.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +28,7 @@ func (f fixtureClosingFS) Open(name string) (fs.File, error) {
 }
 func (f fixtureClosingFile) Close() error { return errors.Join(f.File.Close(), errFixtureClose) }
 func TestListPreservesIOError(t *testing.T) {
-	fsys := fixtureClosingFS{fstest.MapFS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("not frontmatter\n")}}}
+	fsys := fixtureClosingFS{testfs.FS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("not frontmatter\n")}}}
 	r, err := skills.NewRepository(fsys, skills.RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -39,12 +40,12 @@ func TestListPreservesIOError(t *testing.T) {
 }
 
 type fixtureDirectoryReadErrorFS struct {
-	fs.FS
+	skills.ResourceFS
 	cause error
 }
 
 func (f fixtureDirectoryReadErrorFS) Open(name string) (fs.File, error) {
-	file, err := f.FS.Open(name)
+	file, err := f.ResourceFS.Open(name)
 	if err != nil || name != "." {
 		return file, err
 	}
@@ -65,22 +66,22 @@ func TestListPreservesDirectoryReadErrorWithEntries(t *testing.T) {
 	cause := errors.New("injected directory read failure")
 	for _, test := range []struct {
 		name  string
-		fsys  fs.FS
+		fsys  skills.ResourceFS
 		cause error
 	}{
 		{
 			name:  "lookup also fails",
-			fsys:  fixtureClosingFS{fstest.MapFS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("not frontmatter\n")}}},
+			fsys:  fixtureClosingFS{testfs.FS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("not frontmatter\n")}}},
 			cause: cause,
 		},
 		{
 			name:  "read error includes EOF",
-			fsys:  fstest.MapFS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: demo\ndescription: Demo skill.\n---\n")}},
+			fsys:  testfs.FS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: demo\ndescription: Demo skill.\n---\n")}},
 			cause: errors.Join(io.EOF, cause),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			repository, err := skills.NewRepository(fixtureDirectoryReadErrorFS{FS: test.fsys, cause: test.cause}, skills.RepositoryConfig{})
+			repository, err := skills.NewRepository(fixtureDirectoryReadErrorFS{ResourceFS: test.fsys, cause: test.cause}, skills.RepositoryConfig{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,12 +94,12 @@ func TestListPreservesDirectoryReadErrorWithEntries(t *testing.T) {
 }
 
 type fixtureContentReadErrorFS struct {
-	fs.FS
+	skills.ResourceFS
 	cause error
 }
 
 func (f fixtureContentReadErrorFS) Open(name string) (fs.File, error) {
-	file, err := f.FS.Open(name)
+	file, err := f.ResourceFS.Open(name)
 	if err != nil || name != "demo/SKILL.md" {
 		return file, err
 	}
@@ -132,7 +133,7 @@ func TestRepositoryPreservesFrontmatterReadFailureWithContent(t *testing.T) {
 		for _, operation := range []string{"lookup", "list", "load"} {
 			t.Run(test.name+"/"+operation, func(t *testing.T) {
 				repository, err := skills.NewRepository(fixtureContentReadErrorFS{
-					FS: fstest.MapFS{"demo/SKILL.md": &fstest.MapFile{Data: []byte(test.content)}}, cause: test.cause,
+					ResourceFS: testfs.FS{"demo/SKILL.md": &fstest.MapFile{Data: []byte(test.content)}}, cause: test.cause,
 				}, skills.RepositoryConfig{})
 				if err != nil {
 					t.Fatal(err)

@@ -4,9 +4,9 @@ import (
 	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
-	"testing/fstest"
 
 	"github.com/Tangerg/scope/core/tool"
 	skillsrc "github.com/Tangerg/scope/skills"
@@ -14,9 +14,12 @@ import (
 )
 
 func ExampleNewTools() {
-	source, err := skillsrc.NewRepository(fstest.MapFS{
-		"pdf-processing/SKILL.md": {Data: []byte("---\nname: pdf-processing\ndescription: Handle PDFs.\n---\nInstruction body.")},
-	}, skillsrc.RepositoryConfig{})
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		panic(err)
+	}
+	defer root.Close()
+	source, err := skillsrc.NewDirectoryRepository(root, skillsrc.RepositoryConfig{})
 	if err != nil {
 		panic(err)
 	}
@@ -39,10 +42,12 @@ func ExampleNewTools() {
 }
 
 func ExampleNewTools_pagination() {
-	content := strings.Repeat("Complete instructions. ", 20)
-	source, err := skillsrc.NewRepository(fstest.MapFS{
-		"guide/SKILL.md": {Data: []byte("---\nname: guide\ndescription: Example guide.\n---\n" + content)},
-	}, skillsrc.RepositoryConfig{})
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		panic(err)
+	}
+	defer root.Close()
+	source, err := skillsrc.NewDirectoryRepository(root, skillsrc.RepositoryConfig{})
 	if err != nil {
 		panic(err)
 	}
@@ -89,6 +94,6 @@ func ExampleNewTools_pagination() {
 		}
 		request.Cursor = page.NextCursor
 	}
-	fmt.Println(instructions.String() == content)
+	fmt.Println(instructions.String() == strings.Repeat("Complete instructions.\n", 20))
 	// Output: true
 }

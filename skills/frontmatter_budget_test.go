@@ -7,6 +7,7 @@ import (
 	"testing/fstest"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 func TestLookupMeasuresRawFrontmatterBytes(t *testing.T) {
@@ -26,7 +27,7 @@ func TestLookupMeasuresRawFrontmatterBytes(t *testing.T) {
 			extra int64
 		}{{"exact", 0}, {"over", -1}} {
 			t.Run(test.name+"/"+budget.name, func(t *testing.T) {
-				repository, err := skills.NewRepository(fstest.MapFS{
+				repository, err := skills.NewRepository(testfs.FS{
 					"audit/SKILL.md": &fstest.MapFile{Data: []byte(test.content)},
 				}, skills.RepositoryConfig{MaxFrontmatterBytes: int64(len(test.content)) + budget.extra})
 				if err != nil {
@@ -49,7 +50,7 @@ func TestLookupMeasuresRawFrontmatterBytes(t *testing.T) {
 
 func TestLookupRejectsTruncatedClosingFence(t *testing.T) {
 	const prefix = "\ufeff---\nname: audit\ndescription: inspect\n"
-	repository, err := skills.NewRepository(fstest.MapFS{
+	repository, err := skills.NewRepository(testfs.FS{
 		"audit/SKILL.md": &fstest.MapFile{Data: []byte(prefix + "----\ninstructions")},
 	}, skills.RepositoryConfig{MaxFrontmatterBytes: int64(len(prefix) + 2)})
 	if err != nil {

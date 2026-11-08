@@ -34,9 +34,13 @@ type SpeechModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (s SpeechModelConfig) apiConfig() apiConfig {
+	return apiConfig{APIKey: s.APIKey, BaseURL: s.BaseURL, HTTPClient: s.HTTPClient}
+}
+
 func (s SpeechModelConfig) Validate() error {
-	if s.APIKey == "" {
-		return errors.New("hume: APIKey is required")
+	if err := s.apiConfig().validate(); err != nil {
+		return err
 	}
 	if s.DefaultOptions.Model == "" {
 		return errors.New("hume: DefaultOptions.Model is required")

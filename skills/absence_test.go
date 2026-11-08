@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"testing"
-	"testing/fstest"
+
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 type failingLookupSource struct {
@@ -30,7 +31,7 @@ func (p providerMissing) Is(target error) bool { return target == ErrSkillNotFou
 
 func TestOverlayHonorsSingleScopeAbsenceTranslation(t *testing.T) {
 	noRecord := errors.New("no record in backend")
-	lower := mustNewFS(fstest.MapFS{"demo/SKILL.md": skillFile("demo", "lower", "text")})
+	lower := mustNewFS(testfs.FS{"demo/SKILL.md": skillFile("demo", "lower", "text")})
 	for _, tc := range []struct {
 		name   string
 		cause  error
@@ -59,7 +60,7 @@ func TestOverlayHonorsSingleScopeAbsenceTranslation(t *testing.T) {
 func TestIndependentAccessFailurePreventsSkillFallback(t *testing.T) {
 	denied := fmt.Errorf("upstream: %w", errors.Join(ErrSkillNotFound, fs.ErrPermission))
 	higher := failingLookupSource{ResourceSource: Overlay(), err: denied}
-	lower := mustNewFS(fstest.MapFS{
+	lower := mustNewFS(testfs.FS{
 		"demo/SKILL.md": skillFile("demo", "lower", "text"),
 		"demo/note":     {Data: []byte("text")},
 	})
@@ -102,6 +103,10 @@ type failedOpenFS func(string) (fs.File, error)
 
 func (f failedOpenFS) Open(name string) (fs.File, error) { return f(name) }
 
+func (f failedOpenFS) OpenInDir(string, string) (fs.File, error) {
+	return nil, fs.ErrPermission
+}
+
 func TestRepositoryRequiresDefiniteAbsence(t *testing.T) {
 	missing := func(path string) error { return &fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist} }
 	for _, failurePath := range []string{".", "demo/SKILL.md", "demo", ""} {
@@ -124,7 +129,7 @@ func TestRepositoryRequiresDefiniteAbsence(t *testing.T) {
 				t.Fatalf("bundle absence: %v", err)
 			}
 			if !denied {
-				lower := mustNewFS(fstest.MapFS{"demo/SKILL.md": skillFile("demo", "lower", "text")})
+				lower := mustNewFS(testfs.FS{"demo/SKILL.md": skillFile("demo", "lower", "text")})
 				if skill, err := Overlay(repo, lower).Load(ctx, "demo"); err != nil || skill.Description != "lower" {
 					t.Fatalf("wrapped absence blocked lower source: %v, %v", skill, err)
 				}
@@ -139,7 +144,7 @@ func TestInstructionReferencePreservesCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	cause := errors.New("authorization revoked")
-	valid := mustNewFS(fstest.MapFS{"demo/SKILL.md": skillFile("demo", "example", "text")})
+	valid := mustNewFS(testfs.FS{"demo/SKILL.md": skillFile("demo", "example", "text")})
 	for _, tc := range []struct {
 		name    string
 		source  ResourceSource

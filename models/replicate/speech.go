@@ -28,9 +28,21 @@ type SpeechModelConfig struct {
 	PollTimeout  time.Duration
 }
 
+func (s SpeechModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     s.APIKey,
+		BaseURL:    s.BaseURL,
+		HTTPClient: s.HTTPClient,
+	}
+}
+
+func (s SpeechModelConfig) pollingPolicy() pollingPolicy {
+	return pollingPolicy{interval: s.PollInterval, timeout: s.PollTimeout}
+}
+
 func (s SpeechModelConfig) Validate() error {
-	if s.APIKey == "" {
-		return errors.New("replicate: APIKey is required")
+	if err := s.apiConfig().validate(); err != nil {
+		return err
 	}
 	if s.DefaultOptions.Model == "" {
 		return errors.New("replicate: DefaultOptions.Model is required")
@@ -44,13 +56,7 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.InputSchema.Validate(); err != nil {
 		return err
 	}
-	if s.PollInterval < 0 {
-		return errors.New("replicate: PollInterval must not be negative")
-	}
-	if s.PollTimeout < 0 {
-		return errors.New("replicate: PollTimeout must not be negative")
-	}
-	return nil
+	return s.pollingPolicy().validate()
 }
 
 // SpeechInputSchema explicitly binds Core speech fields to one Replicate
@@ -130,16 +136,16 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}
 	return &SpeechModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, DefaultSpeechPollTimeout, speech.ErrInvalidResponse),
+		predictions: predictionRunner{
+			api:             api,
+			polling:         config.pollingPolicy().resolve(DefaultSpeechPollTimeout),
+			invalidResponse: speech.ErrInvalidResponse,
+		},
 		inputSchema:    config.InputSchema,
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil

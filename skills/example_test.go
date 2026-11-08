@@ -3,15 +3,18 @@ package skills_test
 import (
 	"context"
 	"fmt"
-	"testing/fstest"
+	"os"
 
 	"github.com/Tangerg/scope/skills"
 )
 
-func ExampleNewRepository() {
-	repository, err := skills.NewRepository(fstest.MapFS{
-		"review/SKILL.md": {Data: []byte("---\nname: review\ndescription: Review code.\n---\nRead the code before suggesting changes.")},
-	}, skills.RepositoryConfig{})
+func ExampleNewDirectoryRepository() {
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		panic(err)
+	}
+	defer root.Close()
+	repository, err := skills.NewDirectoryRepository(root, skills.RepositoryConfig{})
 	if err != nil {
 		panic(err)
 	}

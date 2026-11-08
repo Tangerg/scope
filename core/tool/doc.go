@@ -1,6 +1,6 @@
 // Package tool defines the provider-neutral executable Tool protocol, its
 // immutable Contract and execution Binding, authorization boundary, typed
-// typed signature, function adapter, and instance-scoped registry. Bind freezes
+// signature, function adapter, and instance-scoped registry. Bind freezes
 // the definition once; CallMiddleware decorates execution without becoming a
 // second owner of the tool's schema or capabilities.
 //

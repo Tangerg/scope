@@ -249,8 +249,3 @@ type bulkItemResult struct {
 	Status *int            `json:"status"`
 	Error  json.RawMessage `json:"error,omitzero"`
 }
-
-type bulkPublication struct {
-	body []byte
-	ids  []string
-}

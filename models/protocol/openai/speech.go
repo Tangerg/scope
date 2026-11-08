@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"iter"
 	"net/http"
 
@@ -163,7 +162,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		defer apiResp.Body.Close()
 
 		received := false
-		for chunk, err := range readAudioChunks(apiResp.Body) {
+		for chunk, err := range speech.ReadChunks(apiResp.Body) {
 			if err != nil {
 				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return
@@ -182,26 +181,6 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		}
 		if !received {
 			yield(nil, fmt.Errorf("openai: %w: speech stream returned no audio", speech.ErrInvalidResponse))
-		}
-	}
-}
-
-func readAudioChunks(reader io.Reader) iter.Seq2[[]byte, error] {
-	const chunkSize = 16 * 1024
-	return func(yield func([]byte, error) bool) {
-		for {
-			buffer := make([]byte, chunkSize)
-			read, err := reader.Read(buffer)
-			// Reader may return both bytes and an error; deliver the bytes first.
-			if read > 0 && !yield(buffer[:read], nil) {
-				return
-			}
-			if err != nil {
-				if err != io.EOF {
-					yield(nil, err)
-				}
-				return
-			}
 		}
 	}
 }

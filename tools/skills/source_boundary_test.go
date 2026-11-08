@@ -45,7 +45,7 @@ func TestMalformedCursorIsRejectedBeforeSourceIO(t *testing.T) {
 }
 
 func TestCursorCannotContinueBeyondItsExactSnapshot(t *testing.T) {
-	set := &toolSet{source: newToolFS(), maxOutputBytes: DefaultMaxOutputBytes, maxResourceBytes: skillsrc.DefaultMaxResourceBytes}
+	set := &toolSet{source: newToolFS(t), maxOutputBytes: DefaultMaxOutputBytes, maxResourceBytes: skillsrc.DefaultMaxResourceBytes}
 	for _, cursor := range []*Cursor{
 		{Offset: 0, Snapshot: strings.Repeat("a", 64)},
 		{Offset: 1, Snapshot: "short"},
@@ -75,7 +75,7 @@ func TestInvalidLimitsCannotConstructTools(t *testing.T) {
 		{MaxResourceBytes: -1},
 		{MaxResourceBytes: maximumMaxOutputBytes + 1},
 	} {
-		if built, err := NewTools(newToolFS(), config); built != nil || !errors.Is(err, skillsrc.ErrInvalidLimit) {
+		if built, err := NewTools(newToolFS(t), config); built != nil || !errors.Is(err, skillsrc.ErrInvalidLimit) {
 			t.Fatalf("NewTools(%+v) = %v, %v", config, built, err)
 		}
 	}

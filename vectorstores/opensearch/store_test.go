@@ -48,22 +48,24 @@ func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectors
 }
 
 type protocolFixture struct {
-	t            *testing.T
-	client       *opensearchsdk.Client
-	mapping      nativeMapping
-	settings     nativeSettings
-	rows         map[string]storedDocument
-	snapshot     []searchHit
-	position     int
-	pageSize     int
-	writes       int
-	cleared      int
-	groups       []int
-	scores       map[string]float64
-	reply        any
-	scanReply    any
-	beforeSearch func()
-	beforeDelete func()
+	t             *testing.T
+	client        *opensearchsdk.Client
+	mapping       nativeMapping
+	settings      nativeSettings
+	rows          map[string]storedDocument
+	snapshot      []searchHit
+	position      int
+	pageSize      int
+	writes        int
+	cleared       int
+	groups        []int
+	bulkBodies    [][]byte
+	bulkFailureAt int
+	scores        map[string]float64
+	reply         any
+	scanReply     any
+	beforeSearch  func()
+	beforeDelete  func()
 }
 
 func newProtocolFixture(t *testing.T) *protocolFixture {
@@ -131,6 +133,11 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			p.t.Error(err)
 			w.WriteHeader(500)
+			return
+		}
+		p.bulkBodies = append(p.bulkBodies, body)
+		if len(p.bulkBodies) == p.bulkFailureAt {
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 		lines := bytes.Split(bytes.TrimSuffix(body, []byte{'\n'}), []byte{'\n'})

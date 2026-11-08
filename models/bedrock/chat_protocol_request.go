@@ -26,6 +26,21 @@ type preparedChatRequest struct {
 	native       ChatRequestOptions
 }
 
+func (p preparedChatRequest) validate() error {
+	if p.tools != nil {
+		return nil
+	}
+	for messageIndex, message := range p.messages {
+		for partIndex, part := range message.Content {
+			switch part.(type) {
+			case *types.ContentBlockMemberToolUse, *types.ContentBlockMemberToolResult:
+				return fmt.Errorf("bedrock: Converse messages[%d].content[%d]: tool history requires enabled tool definitions: %w", messageIndex, partIndex, errors.ErrUnsupported)
+			}
+		}
+	}
+	return nil
+}
+
 func mapGuardrailOptions(options *GuardrailOptions) *types.GuardrailStreamConfiguration {
 	if options == nil {
 		return nil

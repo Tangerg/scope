@@ -22,9 +22,13 @@ type TranscriptionModelConfig struct {
 	PollTimeout    time.Duration
 }
 
+func (t TranscriptionModelConfig) apiConfig() apiConfig {
+	return apiConfig{APIKey: t.APIKey, BaseURL: t.BaseURL, HTTPClient: t.HTTPClient}
+}
+
 func (t TranscriptionModelConfig) Validate() error {
-	if t.APIKey == "" {
-		return errors.New("gladia: APIKey is required")
+	if err := t.apiConfig().validate(); err != nil {
+		return err
 	}
 	if t.DefaultOptions.Model == "" {
 		return errors.New("gladia: DefaultOptions.Model is required")
@@ -58,7 +62,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

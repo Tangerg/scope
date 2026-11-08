@@ -37,10 +37,12 @@ func TestProviderIdentifierIsPresent(t *testing.T) {
 }
 
 type endpointTransport struct {
-	url string
+	url   string
+	calls int
 }
 
 func (e *endpointTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	e.calls++
 	e.url = r.URL.String()
 	return &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"captured"}}`)), Request: r}, nil
 }

@@ -28,6 +28,8 @@ const (
 
 	chatOutputFormatOwner = "options.output_format"
 	chatToolsOwner        = "tools"
+	toolResultOutputField = "output"
+	toolResultErrorField  = "error"
 )
 
 var chatCoreFieldOwners = [...]struct{ name, member, owner string }{
@@ -409,17 +411,11 @@ func mapProtocolToolMedia(value *media.Media) (*genai.FunctionResponsePart, erro
 }
 
 func protocolToolResultJSON(result []byte, isError bool) map[string]any {
-	key := "output"
+	key := toolResultOutputField
 	if isError {
-		key = "error"
+		key = toolResultErrorField
 	}
 	if jsontext.Value(result).IsValid() {
-		if !isError && bytes.HasPrefix(bytes.TrimSpace(result), []byte("{")) {
-			var object map[string]json.RawMessage
-			if err := jsonv2.Unmarshal(result, &object); err == nil {
-				return protocolJSONFields(object)
-			}
-		}
 		return map[string]any{key: json.RawMessage(bytes.Clone(result))}
 	}
 	return map[string]any{key: string(result)}

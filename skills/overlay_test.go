@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 func skillFile(name, desc, body string) *fstest.MapFile {
@@ -76,11 +76,11 @@ func (c cancelAfterOpenSource) OpenResource(ctx context.Context, name, resource 
 }
 
 func TestOverlayPrecedence(t *testing.T) {
-	project := mustNewFS(fstest.MapFS{
+	project := mustNewFS(testfs.FS{
 		"shared/SKILL.md":    skillFile("shared", "PROJECT copy", "project body"),
 		"only-proj/SKILL.md": skillFile("only-proj", "project only", "x"),
 	})
-	global := mustNewFS(fstest.MapFS{
+	global := mustNewFS(testfs.FS{
 		"shared/SKILL.md":    skillFile("shared", "GLOBAL copy", "global body"),
 		"only-glob/SKILL.md": skillFile("only-glob", "global only", "y"),
 	})
@@ -119,8 +119,8 @@ func TestOverlayPrecedence(t *testing.T) {
 func TestOverlaidDiscoveryReadsMetadataOnly(t *testing.T) {
 	for _, sourceCount := range []int{1, 2} {
 		t.Run(fmt.Sprintf("sources_%d", sourceCount), func(t *testing.T) {
-			primary := &countingFS{FS: fstest.MapFS{"shared/SKILL.md": skillFile("shared", "primary", strings.Repeat("body", 4096))}}
-			secondary := &countingFS{FS: fstest.MapFS{
+			primary := &countingFS{ResourceFS: testfs.FS{"shared/SKILL.md": skillFile("shared", "primary", strings.Repeat("body", 4096))}}
+			secondary := &countingFS{ResourceFS: testfs.FS{
 				"shared/SKILL.md":    skillFile("shared", "secondary", strings.Repeat("body", 4096)),
 				"secondary/SKILL.md": skillFile("secondary", "secondary", strings.Repeat("body", 4096)),
 			}}
@@ -155,8 +155,8 @@ func TestOverlaidDiscoveryReadsMetadataOnly(t *testing.T) {
 }
 
 func TestOverlayDoesNotReplaceBundleMissingMetadata(t *testing.T) {
-	primary := mustNewFS(fstest.MapFS{"shared/resource.txt": {Data: []byte("primary")}})
-	secondary := mustNewFS(fstest.MapFS{
+	primary := mustNewFS(testfs.FS{"shared/resource.txt": {Data: []byte("primary")}})
+	secondary := mustNewFS(testfs.FS{
 		"shared/SKILL.md":     skillFile("shared", "secondary", "body"),
 		"shared/resource.txt": {Data: []byte("secondary")},
 	})
@@ -176,8 +176,8 @@ func TestOverlayDoesNotReplaceBundleMissingMetadata(t *testing.T) {
 func TestOverlaidDiscoveryPreservesCancellationDuringOwnershipLookup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	primary := cancelAfterLookupSource{ResourceSource: mustNewFS(fstest.MapFS{}), cancel: cancel}
-	secondary := mustNewFS(fstest.MapFS{"shared/SKILL.md": skillFile("shared", "secondary", "body")})
+	primary := cancelAfterLookupSource{ResourceSource: mustNewFS(testfs.FS{}), cancel: cancel}
+	secondary := mustNewFS(testfs.FS{"shared/SKILL.md": skillFile("shared", "secondary", "body")})
 	_, err := Overlay(primary, secondary).List(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("ownership lookup hid cancellation as absence: %v", err)
@@ -185,7 +185,7 @@ func TestOverlaidDiscoveryPreservesCancellationDuringOwnershipLookup(t *testing.
 }
 
 func TestOverlayDropsNilSources(t *testing.T) {
-	only := mustNewFS(fstest.MapFS{})
+	only := mustNewFS(testfs.FS{})
 	var typedNil *panicResourceSource
 	for _, source := range []ResourceSource{
 		Overlay(only),
@@ -229,7 +229,9 @@ func TestOverlayRejectsInvalidSourceModels(t *testing.T) {
 }
 
 func TestListMissingDir(t *testing.T) {
-	repository, err := NewRepository(os.DirFS(filepath.Join(t.TempDir(), "missing")), RepositoryConfig{})
+	repository, err := NewRepository(failedOpenFS(func(name string) (fs.File, error) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}), RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,11 +245,11 @@ func TestListMissingDir(t *testing.T) {
 }
 
 func TestOverlayReadResource(t *testing.T) {
-	project := mustNewFS(fstest.MapFS{
+	project := mustNewFS(testfs.FS{
 		"shared/SKILL.md":           skillFile("shared", "project shared", "x"),
 		"shared/references/note.md": {Data: []byte("PROJECT note")},
 	})
-	global := mustNewFS(fstest.MapFS{
+	global := mustNewFS(testfs.FS{
 		"shared/SKILL.md":           skillFile("shared", "global shared", "y"),
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 		"glob-only/SKILL.md":        skillFile("glob-only", "global only", "z"),
@@ -273,10 +275,10 @@ func TestOverlayReadResource(t *testing.T) {
 }
 
 func TestOverlayKeepsResourcesWithWinningSkill(t *testing.T) {
-	project := mustNewFS(fstest.MapFS{
+	project := mustNewFS(testfs.FS{
 		"shared/SKILL.md": skillFile("shared", "project shared", "project body without resource"),
 	})
-	global := mustNewFS(fstest.MapFS{
+	global := mustNewFS(testfs.FS{
 		"shared/SKILL.md":           skillFile("shared", "global shared", "global body"),
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 	})
@@ -288,10 +290,10 @@ func TestOverlayKeepsResourcesWithWinningSkill(t *testing.T) {
 }
 
 func TestOverlayDoesNotMaskMalformedWinningSkill(t *testing.T) {
-	project := mustNewFS(fstest.MapFS{
+	project := mustNewFS(testfs.FS{
 		"shared/SKILL.md": {Data: []byte("---\nname: shared\ndescription: \n---\nbroken")},
 	})
-	global := mustNewFS(fstest.MapFS{
+	global := mustNewFS(testfs.FS{
 		"shared/SKILL.md":           skillFile("shared", "global shared", "global body"),
 		"shared/references/note.md": {Data: []byte("GLOBAL note")},
 	})
@@ -315,7 +317,7 @@ func TestOverlayDoesNotMaskMalformedWinningSkill(t *testing.T) {
 }
 
 func TestOverlayTreatsEmptyOverlaidSourceAsNotFound(t *testing.T) {
-	global := mustNewFS(fstest.MapFS{
+	global := mustNewFS(testfs.FS{
 		"global-skill/SKILL.md": skillFile("global-skill", "global skill", "body"),
 	})
 
@@ -329,11 +331,11 @@ func TestOverlayTreatsEmptyOverlaidSourceAsNotFound(t *testing.T) {
 }
 
 func TestOverlayObservesCancellationAfterSourceCalls(t *testing.T) {
-	base := mustNewFS(fstest.MapFS{
+	base := mustNewFS(testfs.FS{
 		"safe-skill/SKILL.md":           skillFile("safe-skill", "safe skill", "body"),
 		"safe-skill/references/note.md": {Data: []byte("note")},
 	})
-	fallback := mustNewFS(fstest.MapFS{})
+	fallback := mustNewFS(testfs.FS{})
 	tests := []struct {
 		name   string
 		source func(context.CancelFunc) ResourceSource

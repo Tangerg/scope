@@ -17,6 +17,9 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
+// DefaultMaxResponseBytes prevents unbounded buffering in speech and transcription calls.
+const DefaultMaxResponseBytes = int64(32 * 1024 * 1024)
+
 type apiConfig struct {
 	APIKey           string
 	BaseURL          string
@@ -27,6 +30,12 @@ type apiConfig struct {
 func (a apiConfig) validate() error {
 	if a.APIKey == "" {
 		return errors.New("deepgram: APIKey is required")
+	}
+	if a.MaxResponseBytes < 0 {
+		return errors.New("deepgram: MaxResponseBytes must not be negative")
+	}
+	if int64(int(a.MaxResponseBytes)) != a.MaxResponseBytes {
+		return errors.New("deepgram: MaxResponseBytes exceeds the HTTP adapter's integer capacity")
 	}
 	return nil
 }
@@ -42,6 +51,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	}
 
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
+	maxResponseBytes := cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)
 	boundClient, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
 	if err != nil {
 		return nil, fmt.Errorf("deepgram: HTTP client: %w", err)
@@ -51,9 +61,9 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) })
 	client.SetBaseURL(baseURL).
 		SetHeader(headerAuthorization, authorizationTokenPrefix+config.APIKey).
-		SetResponseBodyLimit(int(config.MaxResponseBytes))
+		SetResponseBodyLimit(int(maxResponseBytes))
 
-	return &api{http: client, maxResponseBytes: config.MaxResponseBytes}, nil
+	return &api{http: client, maxResponseBytes: maxResponseBytes}, nil
 }
 
 // Extra is available for newly released official query parameters that have

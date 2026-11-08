@@ -25,7 +25,13 @@ type Config struct {
 	// Program fixes the binding used for new submissions. Bind an existing
 	// typed program with Program.Erase; its actual input/output schemas remain.
 	Program run.Program[run.Payload, run.Payload]
-	Card    *sdk.AgentCard
+	// Card declares the encoding policy independently of the program's value
+	// schemas. DefaultOutputModes defaults to application/json; text/plain
+	// renders strings as text and other values as their exact JSON text. When
+	// both modes are declared, strings use text/plain and other values use JSON.
+	// The same policy encodes questions and artifacts. Clients must accept every
+	// declared output mode. Construction freezes the declaration.
+	Card *sdk.AgentCard
 	// Authority returns a stable server-authorized scope for this authenticated
 	// caller and requested tenant. Never return the untrusted tenant verbatim.
 	Authority func(ctx context.Context, tenant string) (string, error)
@@ -62,7 +68,7 @@ func NewHTTPHandler(cfg Config) (http.Handler, error) {
 		}
 	}
 	card.Capabilities.Extensions = append(card.Capabilities.Extensions, sdk.AgentExtension{URI: a2a.ExternalWaitExtension, Description: "Select a pending wait by " + a2a.WaitMetadataKey + " and answer its declared schema."})
-	content, err := newContentPolicy(card, cfg.Program.Descriptor().OutputSchema().JSON())
+	content, err := newContentPolicy(card)
 	if err != nil {
 		return nil, err
 	}

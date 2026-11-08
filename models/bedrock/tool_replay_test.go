@@ -45,11 +45,14 @@ func TestEmptyToolObjectsReachBedrockWire(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	model := &Chat{api: &api{}, defaults: corechat.Options{Model: "anthropic.claude-test"}}
-	input, _, err := model.buildConverseStreamInput(&corechat.Request{Messages: []corechat.Message{
-		corechat.NewUserMessage(corechat.NewTextPart("read the clock")),
-		corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "clock", Arguments: `{}`})),
-		corechat.NewToolMessage(corechat.ToolResult{ID: "call-1", Name: "clock", Output: toolcontract.Output{Details: json.RawMessage(`{}`)}}),
-	}})
+	input, _, err := model.buildConverseStreamInput(&corechat.Request{
+		Messages: []corechat.Message{
+			corechat.NewUserMessage(corechat.NewTextPart("read the clock")),
+			corechat.NewAssistantMessage(corechat.NewToolCallPart(corechat.ToolCall{ID: "call-1", Name: "clock", Arguments: `{}`})),
+			corechat.NewToolMessage(corechat.ToolResult{ID: "call-1", Name: "clock", Output: toolcontract.Output{Details: json.RawMessage(`{}`)}}),
+		},
+		Tools: []toolcontract.Definition{{Name: "clock", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

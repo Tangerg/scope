@@ -173,8 +173,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var groups []bulkPublication
-	var pending bulkPublication
+	plan := bulkPlan{maxBytes: s.maxBulkBytes}
 	for _, r := range batch.Records {
 		doc := r.Document
 		if err := s.checkDocument(doc); err != nil {
@@ -188,28 +187,14 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		item, err := appendBulkLine(nil, bulkAction{Index: &bulkActionTarget{Index: s.indexName, ID: doc.ID}})
-		if err != nil {
+		if err := plan.addIndex(bulkActionTarget{Index: s.indexName, ID: doc.ID}, storedDocument{Content: doc.Text, MetadataJSON: string(facts), Embedding: coords}); err != nil {
 			return err
 		}
-		item, err = appendBulkLine(item, storedDocument{Content: doc.Text, MetadataJSON: string(facts), Embedding: coords})
-		if err != nil {
-			return err
-		}
-		if len(item) > s.maxBulkBytes {
-			return fmt.Errorf("opensearch: encoded record %q exceeds MaxBulkBytes", doc.ID)
-		}
-		if len(item) > s.maxBulkBytes-len(pending.body) {
-			groups = append(groups, pending)
-			pending = bulkPublication{}
-		}
-		pending.ids = append(pending.ids, doc.ID)
-		pending.body = append(pending.body, item...)
 	}
-	groups = append(groups, pending)
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
+	groups := plan.publications
 	for i, g := range groups {
 		if err := s.publish(ctx, g, bulkOperationIndex, false); err != nil {
 			outcome, cause := vectorstore.WriteOutcome{Unconfirmed: g.ids}, err
@@ -540,22 +525,16 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(unique) == 0 {
 		return nil
 	}
+	plan := bulkPlan{maxBytes: s.maxBulkBytes}
+	for _, id := range unique {
+		if err := plan.addDelete(bulkActionTarget{Index: s.indexName, ID: id}); err != nil {
+			return err
+		}
+	}
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	var prepared []bulkPublication
-	for group := range slices.Chunk(unique, filterBatchSize) {
-		publication := bulkPublication{ids: group}
-		for _, id := range group {
-			var err error
-			publication.body, err = appendBulkLine(publication.body, bulkAction{Delete: &bulkActionTarget{Index: s.indexName, ID: id}})
-			if err != nil {
-				return err
-			}
-		}
-		prepared = append(prepared, publication)
-	}
-	for _, publication := range prepared {
+	for _, publication := range plan.publications {
 		if err := s.publish(ctx, publication, bulkOperationDelete, true); err != nil {
 			return err
 		}
@@ -582,27 +561,17 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 	if err != nil {
 		return err
 	}
-	for group := range slices.Chunk(slices.Sorted(maps.Keys(matches)), filterBatchSize) {
-		publication := bulkPublication{ids: group}
-		for _, id := range group {
-			hit := matches[id]
-			publication.body, err = appendBulkLine(publication.body, bulkAction{Delete: &bulkActionTarget{Index: s.indexName, ID: id, SeqNo: hit.SeqNo, PrimaryTerm: hit.PrimaryTerm}})
-			if err != nil {
-				return err
-			}
+	plan := bulkPlan{maxBytes: s.maxBulkBytes}
+	for _, id := range slices.Sorted(maps.Keys(matches)) {
+		hit := matches[id]
+		if err := plan.addDelete(bulkActionTarget{Index: s.indexName, ID: id, SeqNo: hit.SeqNo, PrimaryTerm: hit.PrimaryTerm}); err != nil {
+			return err
 		}
+	}
+	for _, publication := range plan.publications {
 		if err := s.publish(ctx, publication, bulkOperationDelete, false); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func appendBulkLine(body []byte, value any) ([]byte, error) {
-	encoded, err := jsonv2.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	body = append(body, encoded...)
-	return append(body, '\n'), nil
 }

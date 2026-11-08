@@ -13,6 +13,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+const maximumDocumentBytes = 20 << 20
+
 type storedDocument struct {
 	Content   string                          `json:"content"`
 	Metadata  string                          `json:"metadata"`
@@ -46,15 +48,27 @@ type rankedResult struct {
 	distance float64
 }
 
-func encodeStoredDocument(doc *document.Document, vector []float64) ([]byte, error) {
+func encodeStoredDocument(doc *document.Document, vector []float64, policy vectorPolicy) ([]byte, error) {
+	if err := policy.validate(vector); err != nil {
+		return nil, err
+	}
 	encoded, err := doc.MarshalStoredMetadata()
 	if err != nil {
 		return nil, err
 	}
-	return jsonv2.Marshal(storedDocument{Content: doc.Text, Metadata: string(encoded), Embedding: vector})
+	payload, err := jsonv2.Marshal(storedDocument{Content: doc.Text, Metadata: string(encoded), Embedding: vector})
+	if err != nil {
+		return nil, err
+	}
+	// Couchbase applies its value limit after decompression. JSON framing,
+	// escaped text, metadata and coordinates all consume that same budget.
+	if len(payload) > maximumDocumentBytes {
+		return nil, fmt.Errorf("couchbase: %w: encoded document requires %d bytes; native value limit is %d", vectorstore.ErrInvalidDocument, len(payload), maximumDocumentBytes)
+	}
+	return payload, nil
 }
 
-func decodeStoredRow(raw []byte) (storedCandidate, error) {
+func decodeStoredRow(raw []byte, policy vectorPolicy) (storedCandidate, error) {
 	var row storedRow
 	if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
 		if errors.Is(err, corevector.ErrInvalidCoordinates) {
@@ -76,8 +90,8 @@ func decodeStoredRow(raw []byte) (storedCandidate, error) {
 	if err := doc.Validate(); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored document: %w", err)
 	}
-	if err := row.Record.Embedding.Validate(); err != nil {
-		return storedCandidate{}, fmt.Errorf("%w: couchbase: invalid stored embedding: %w", vectorstore.ErrInvalidRequest, err)
+	if err := policy.validate(row.Record.Embedding); err != nil {
+		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored embedding for %q: %w", row.ID, err)
 	}
 	return storedCandidate{document: doc, embedding: row.Record.Embedding, cas: gocb.Cas(row.CAS)}, nil
 }

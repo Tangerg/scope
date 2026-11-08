@@ -44,8 +44,8 @@ func TestInvalidHostAuthorityCannotCollapseTwoNamespaces(t *testing.T) {
 }
 
 func TestContentPolicyRequiresEveryPossibleOutputMode(t *testing.T) {
-	card := sdk.AgentCard{DefaultInputModes: []string{"application/json"}}
-	policy, err := newContentPolicy(card, []byte(`{"type":["string","null"]}`))
+	card := sdk.AgentCard{DefaultInputModes: []string{"application/json"}, DefaultOutputModes: []string{"text/plain", "application/json"}}
+	policy, err := newContentPolicy(card)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,14 +72,23 @@ func TestContentPolicyRequiresEveryPossibleOutputMode(t *testing.T) {
 		}
 	}
 	card.DefaultInputModes[0] = "text/plain"
+	card.DefaultOutputModes[0] = "image/png"
+	card.DefaultOutputModes[1] = "image/jpeg"
 	_, err = policy.prepare(&sdk.SendMessageRequest{Message: sdk.NewMessage(sdk.MessageRoleUser, sdk.NewTextPart("hello"))})
 	if !errors.Is(err, sdk.ErrUnsupportedContentType) {
 		t.Fatalf("mutating the host card changed the bound input policy: %v", err)
 	}
+	_, err = policy.prepare(&sdk.SendMessageRequest{
+		Message: sdk.NewMessage(sdk.MessageRoleUser, sdk.NewDataPart(map[string]any{"enabled": true})),
+		Config:  &sdk.SendMessageConfig{AcceptedOutputModes: []string{"text/plain", "application/json"}},
+	})
+	if err != nil || policy.part([]byte(`"frozen"`)).MediaType != mediaTypePlainText {
+		t.Fatalf("mutating the host card changed the bound output policy: %v", err)
+	}
 }
 
 func TestContentPolicyRejectsUnservedConfiguration(t *testing.T) {
-	policy, err := newContentPolicy(sdk.AgentCard{}, []byte(`{"type":"string"}`))
+	policy, err := newContentPolicy(sdk.AgentCard{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,15 +109,29 @@ func TestContentPolicyRejectsUnservedConfiguration(t *testing.T) {
 
 func TestProjectedPartsPreserveExactJSONAndStringMeaning(t *testing.T) {
 	for _, sample := range []struct {
-		raw, mediaType, text string
+		raw, text string
 	}{
-		{raw: `"hello"`, mediaType: "text/plain", text: "hello"},
-		{raw: `null`, mediaType: "application/json", text: "null"},
-		{raw: `{"amount":9007199254740993}`, mediaType: "application/json", text: `{"amount":9007199254740993}`},
+		{raw: `"hello"`, text: "hello"},
+		{raw: `null`, text: "null"},
+		{raw: `{"amount":9007199254740993}`, text: `{"amount":9007199254740993}`},
+		{raw: `18446744073709551615`, text: `18446744073709551615`},
 	} {
-		part := (contentPolicy{outputs: []string{mediaTypePlainText, mediaTypeJSON}}).part([]byte(sample.raw))
-		if part.MediaType != sample.mediaType || part.Text() != sample.text {
-			t.Fatalf("raw=%s part=%+v", sample.raw, part)
+		for _, modes := range [][]string{nil, {mediaTypePlainText}, {mediaTypeJSON}, {mediaTypePlainText, mediaTypeJSON}} {
+			policy, err := newContentPolicy(sdk.AgentCard{DefaultOutputModes: modes})
+			if err != nil {
+				t.Fatal(err)
+			}
+			part := policy.part([]byte(sample.raw))
+			wantMode, wantText := mediaTypeJSON, sample.raw
+			if len(modes) != 0 && modes[0] == mediaTypePlainText {
+				wantText = sample.text
+				if len(modes) == 1 || sample.raw == `"hello"` {
+					wantMode = mediaTypePlainText
+				}
+			}
+			if part.MediaType != wantMode || part.Text() != wantText {
+				t.Fatalf("modes=%v raw=%s part=%+v, want %s %q", modes, sample.raw, part, wantMode, wantText)
+			}
 		}
 	}
 }
@@ -127,13 +150,13 @@ func TestQuestionsUseTheSameDeclaredOutputPolicyAsFinalArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name, outputSchema, accepted, question, text string
+		name, accepted, question, text string
 	}{
-		{"structured question in text", `{"type":"string"}`, mediaTypePlainText, `{"confirm":"Proceed?","amount":9007199254740993}`, `{"confirm":"Proceed?","amount":9007199254740993}`},
-		{"string question in JSON", `{"type":"object"}`, mediaTypeJSON, `"Proceed?"`, `"Proceed?"`},
+		{"structured question in text", mediaTypePlainText, `{"confirm":"Proceed?","amount":9007199254740993}`, `{"amount":9007199254740993,"confirm":"Proceed?"}`},
+		{"string question in JSON", mediaTypeJSON, `"Proceed?"`, `"Proceed?"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			policy, err := newContentPolicy(sdk.AgentCard{}, []byte(test.outputSchema))
+			policy, err := newContentPolicy(sdk.AgentCard{DefaultOutputModes: []string{test.accepted}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,17 +168,13 @@ func TestQuestionsUseTheSameDeclaredOutputPolicyAsFinalArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantText := test.text
-			if test.accepted == mediaTypePlainText {
-				wantText = string(question.JSON())
-			}
 			head := run.TreeInspection{Root: root, Processes: []run.ProcessInspection{{ID: root, Status: run.StatusWaiting, Waits: []run.Wait{{Key: key, Question: question, AnswerSchema: answerSchema}}}}}
 			task, err := projectTask(taskKey{id: "task", context: "context"}, head, policy)
 			if err != nil {
 				t.Fatal(err)
 			}
 			message := task.Status.Message
-			if message == nil || len(message.Parts) != 1 || message.Parts[0].MediaType != test.accepted || message.Parts[0].Text() != wantText {
+			if message == nil || len(message.Parts) != 1 || message.Parts[0].MediaType != test.accepted || message.Parts[0].Text() != test.text {
 				t.Fatalf("question escaped the declared output modes: %+v", message)
 			}
 			if message.Metadata[a2a.AnswerSchemaMetadataKey] != string(answerSchema.JSON()) || message.Metadata[a2a.WaitMetadataKey] == nil {

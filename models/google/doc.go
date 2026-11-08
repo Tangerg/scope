@@ -5,6 +5,8 @@
 // preserving interrupted and invalid-call outcomes and the native finish reason.
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
+// ToolResult.IsError alone selects the native error or output envelope. The
+// complete result stays inside it so business fields cannot change its status.
 // Native chat request extensions use the SDK's camelCase JSON fields only.
 // Chat, speech, and transcription each produce a single candidate. An explicit
 // count of one is supported; larger or negative counts fail before provider I/O.

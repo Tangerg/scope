@@ -23,9 +23,17 @@ type EmbeddingModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (e EmbeddingModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     e.APIKey,
+		BaseURL:    e.BaseURL,
+		HTTPClient: e.HTTPClient,
+	}
+}
+
 func (e EmbeddingModelConfig) Validate() error {
-	if e.APIKey == "" {
-		return errors.New("nomic: APIKey is required")
+	if err := e.apiConfig().validate(); err != nil {
+		return err
 	}
 	if e.DefaultOptions.Model == "" {
 		return errors.New("nomic: DefaultOptions.Model is required")
@@ -48,11 +56,7 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 		return nil, err
 	}
 
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

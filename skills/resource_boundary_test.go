@@ -4,21 +4,32 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
-	"testing/fstest"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 type resourceCountingFS struct {
-	fs.FS
+	skills.ResourceFS
 	opens map[string]int
 	stats map[string]int
 }
 
 func (r *resourceCountingFS) Open(name string) (fs.File, error) {
+	file, err := r.ResourceFS.Open(name)
+	return r.record(name, file, err)
+}
+
+func (r *resourceCountingFS) OpenInDir(dir, name string) (fs.File, error) {
+	file, err := r.ResourceFS.OpenInDir(dir, name)
+	return r.record(dir+"/"+name, file, err)
+}
+
+func (r *resourceCountingFS) record(name string, file fs.File, err error) (fs.File, error) {
 	r.opens[name]++
-	file, err := r.FS.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +49,7 @@ func (r resourceCountingFile) Stat() (fs.FileInfo, error) {
 
 func TestOverlaidResourceReadsOwningSkillAndChecksFileOnce(t *testing.T) {
 	backing := &resourceCountingFS{
-		FS: fstest.MapFS{
+		ResourceFS: testfs.FS{
 			"demo/SKILL.md": {Data: []byte("---\nname: demo\ndescription: Demonstration\n---\nInstructions")},
 			"demo/note":     {Data: []byte("resource")},
 		},
@@ -58,7 +69,7 @@ func TestOverlaidResourceReadsOwningSkillAndChecksFileOnce(t *testing.T) {
 }
 
 func TestResourceAbsenceRetainsSkillOwnership(t *testing.T) {
-	repository, err := skills.NewRepository(fstest.MapFS{
+	repository, err := skills.NewRepository(testfs.FS{
 		"demo/SKILL.md": {Data: []byte("---\nname: demo\ndescription: Demonstration\n---\nInstructions")},
 	}, skills.RepositoryConfig{})
 	if err != nil {
@@ -81,5 +92,42 @@ func TestOverlayDoesNotHideCancellationAsSkillAbsence(t *testing.T) {
 	_, err := source.OpenResource(ctx, "demo", "note")
 	if !errors.Is(err, context.Canceled) || !errors.Is(err, failure) {
 		t.Fatalf("canceled missing-skill lookup = %v", err)
+	}
+}
+
+type resourceDeniedFS struct {
+	fs.FS
+	resourceOpens int
+}
+
+func (r *resourceDeniedFS) OpenInDir(string, string) (fs.File, error) {
+	r.resourceOpens++
+	return nil, fs.ErrPermission
+}
+
+func TestRepositoryCannotBypassResourceAuthorityThroughFilesystemOpen(t *testing.T) {
+	directory := t.TempDir()
+	bundle := filepath.Join(directory, "guide")
+	if err := os.Mkdir(bundle, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, skills.SkillFile), []byte("---\nname: guide\ndescription: Guide.\n---\nbody"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("outside the repository"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(bundle, "secret")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	backend := &resourceDeniedFS{FS: os.DirFS(directory)}
+	repository, err := skills.NewRepository(backend, skills.RepositoryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, truncated, err := skills.ReadResource(t.Context(), skills.Overlay(repository), "guide", "secret", 128)
+	if !errors.Is(err, fs.ErrPermission) || len(data) != 0 || truncated || backend.resourceOpens != 1 {
+		t.Fatalf("resource authority was bypassed: data=%q truncated=%t calls=%d error=%v", data, truncated, backend.resourceOpens, err)
 	}
 }

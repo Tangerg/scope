@@ -170,21 +170,6 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 	}
 }
 
-func mediaLocation(value *media.Media) (string, error) {
-	switch value.Source.Kind {
-	case media.SourceURI:
-		return value.URI()
-	case media.SourceBytes:
-		data, err := value.Bytes()
-		if err != nil {
-			return "", err
-		}
-		return "data:" + value.MIME + ";base64," + base64.StdEncoding.EncodeToString(data), nil
-	default:
-		return "", fmt.Errorf("source %q cannot be represented as a URL", value.Source.Kind)
-	}
-}
-
 func mapAssistantMessage(message corechat.Message) (openaisdk.ChatCompletionMessageParamUnion, error) {
 	if len(message.Parts) == 0 {
 		return openaisdk.ChatCompletionMessageParamUnion{}, errors.New("assistant metadata has no replayable Chat Completions content")

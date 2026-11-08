@@ -10,8 +10,13 @@
 // SendMessage accepts one plain text part or JSON carried losslessly as raw
 // bytes or text. SDK Data values with numbers cannot prove their original
 // precision and are rejected. Files and lossy multi-part conversions are
-// rejected before starting work. String results are text artifacts; other
-// results keep their exact JSON representation.
+// rejected before starting work. Card.DefaultOutputModes owns output encoding,
+// independently of the program's JSON Schemas. Its default is application/json,
+// preserving every result's JSON representation, including quoted strings.
+// Explicit text/plain renders strings as text and other values as their exact
+// JSON text. Declaring both modes uses text/plain for strings and JSON for other
+// values. Questions and final artifacts follow the same frozen policy; clients
+// must accept every declared output mode.
 //
 // An input-required status lists every pending question, its owner and schema.
 // Reply to the task/context with the chosen scope.wait address (process and

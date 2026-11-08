@@ -31,9 +31,21 @@ type ImageModelConfig struct {
 	PollTimeout  time.Duration
 }
 
+func (i ImageModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     i.APIKey,
+		BaseURL:    i.BaseURL,
+		HTTPClient: i.HTTPClient,
+	}
+}
+
+func (i ImageModelConfig) pollingPolicy() pollingPolicy {
+	return pollingPolicy{interval: i.PollInterval, timeout: i.PollTimeout}
+}
+
 func (i ImageModelConfig) Validate() error {
-	if i.APIKey == "" {
-		return errors.New("replicate: APIKey is required")
+	if err := i.apiConfig().validate(); err != nil {
+		return err
 	}
 	if i.DefaultOptions.Model == "" {
 		return errors.New("replicate: DefaultOptions.Model is required")
@@ -47,13 +59,7 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.InputSchema.Validate(); err != nil {
 		return err
 	}
-	if i.PollInterval < 0 {
-		return errors.New("replicate: PollInterval must not be negative")
-	}
-	if i.PollTimeout < 0 {
-		return errors.New("replicate: PollTimeout must not be negative")
-	}
-	return nil
+	return i.pollingPolicy().validate()
 }
 
 // FileOutputKind identifies the exact file-output schema declared by a
@@ -232,16 +238,16 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}
 	return &ImageModel{
-		predictions:    newPredictionRunner(api, config.PollInterval, config.PollTimeout, DefaultImagePollTimeout, image.ErrInvalidResponse),
+		predictions: predictionRunner{
+			api:             api,
+			polling:         config.pollingPolicy().resolve(DefaultImagePollTimeout),
+			invalidResponse: image.ErrInvalidResponse,
+		},
 		inputSchema:    config.InputSchema.Clone(),
 		defaultOptions: config.DefaultOptions.Clone(),
 	}, nil

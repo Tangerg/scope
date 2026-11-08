@@ -15,10 +15,7 @@ import (
 
 func pagingTools(t *testing.T, files fstest.MapFS, config Config) map[string]toolcontract.Tool {
 	t.Helper()
-	source, err := skillsrc.NewRepository(files, skillsrc.RepositoryConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	source := directoryRepository(t, files)
 	return toolsForSource(t, source, config)
 }
 

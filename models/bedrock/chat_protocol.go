@@ -270,7 +270,7 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 	if err != nil {
 		return nil, err
 	}
-	return &preparedChatRequest{
+	prepared := &preparedChatRequest{
 		model:        options.Model,
 		system:       system,
 		messages:     messages,
@@ -278,5 +278,9 @@ func (c *Chat) prepareRequest(req *corechat.Request) (*preparedChatRequest, erro
 		tools:        tools,
 		outputFormat: options.OutputFormat,
 		native:       native,
-	}, nil
+	}
+	if err := prepared.validate(); err != nil {
+		return nil, err
+	}
+	return prepared, nil
 }

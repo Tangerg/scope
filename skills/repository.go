@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -18,22 +19,35 @@ const (
 	directoryReadBatchSize = 64
 )
 
-// Repository is a read-only Agent Skills repository backed by an [fs.FS].
+// ResourceFS supplies repository discovery and directory-confined resource
+// access. An ordinary fs.FS does not promise confinement: fs.Sub and os.DirFS
+// may follow symlinks outside their apparent roots.
+type ResourceFS interface {
+	fs.FS
+	// OpenInDir opens name relative to dir in this filesystem. Both paths use
+	// io/fs syntax. Resolution must remain within dir, including through symlinks
+	// and concurrent directory changes; lexical prefix checks are insufficient.
+	// The returned file is independently owned by the caller. Errors retain
+	// their filesystem causes, and a failed open closes any acquired handles.
+	OpenInDir(dir, name string) (fs.File, error)
+}
+
+// Repository is a read-only Agent Skills repository backed by a [ResourceFS].
 // Reads are lazy and per-call, so changes to the backing filesystem are
 // visible without a refresh operation.
 type Repository struct {
-	fsys   fs.FS
+	fsys   ResourceFS
 	limits repositoryLimits
 }
 
 var _ Source = (*Repository)(nil)
 var _ ResourceSource = (*Repository)(nil)
 
-// NewRepository takes an [fs.FS] rather than a path so a skill set can come
-// from an embedded bundle, an archive, or a test fixture without a temporary
-// directory. Limits are resolved here because an unbounded repository would let
-// a malformed skill exhaust memory during discovery, before any skill runs.
-func NewRepository(fsys fs.FS, config RepositoryConfig) (*Repository, error) {
+// NewRepository requires the backend to own directory confinement rather than
+// assuming an arbitrary fs.FS rejects symlink escape. Embedded and archive
+// backends must provide the same capability; real directories use
+// [NewDirectoryRepository]. Limits bound discovery before any skill runs.
+func NewRepository(fsys ResourceFS, config RepositoryConfig) (*Repository, error) {
 	if lo.IsNil(fsys) {
 		return nil, ErrNilFilesystem
 	}
@@ -47,10 +61,16 @@ func NewRepository(fsys fs.FS, config RepositoryConfig) (*Repository, error) {
 // NewDirectoryRepository borrows the Host's open directory. Renaming or
 // replacing its path cannot switch the repository to another tree. The Host
 // owns root: closing it prevents future opens but does not invalidate files
-// that callers have already acquired.
+// that callers have already acquired. It returns an error matching
+// [errors.ErrUnsupported] on js and plan9, where os.Root cannot preserve this
+// authority across filesystem changes.
 func NewDirectoryRepository(root *os.Root, config RepositoryConfig) (*Repository, error) {
 	if root == nil {
 		return nil, ErrNilFilesystem
+	}
+	switch runtime.GOOS {
+	case "js", "plan9":
+		return nil, fmt.Errorf("skills: directory confinement on %s: %w", runtime.GOOS, errors.ErrUnsupported)
 	}
 	if _, err := root.Stat("."); err != nil {
 		return nil, err
@@ -296,8 +316,9 @@ func (r *Repository) missingSkillFileError(ctx context.Context, name string, err
 	return invalidSkill(name, err)
 }
 
-// OpenResource rejects lexical traversal; repositories returned by
-// [NewDirectoryRepository] also reject symlink escapes from the skill directory.
+// OpenResource validates the skill and path before asking its ResourceFS to
+// open within that skill's directory. Repository owns regular-file validation;
+// the filesystem owns resolution confinement.
 func (r *Repository) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -316,13 +337,7 @@ func (r *Repository) OpenResource(ctx context.Context, name, resource string) (f
 		return nil, err
 	}
 
-	var file fs.File
-	var err error
-	if confined, ok := r.fsys.(confinedResourceFS); ok {
-		file, err = confined.openInDir(name, resource)
-	} else {
-		file, err = r.fsys.Open(name + "/" + resource)
-	}
+	file, err := r.fsys.OpenInDir(name, resource)
 	if err != nil {
 		err = fmt.Errorf("skills: open resource %q/%q: %w", name, resource, err)
 	}

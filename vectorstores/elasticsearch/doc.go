@@ -38,6 +38,10 @@
 // publishing NDJSON in independent MaxBulkBytes groups. A WriteError records
 // verified item acknowledgments, explicit rejections, groups not submitted and
 // uncertain IDs. Successful ingestion is not a guarantee of search visibility.
+// Upsert, DeleteIDs and DeleteMatching share the encoded MaxBulkBytes limit,
+// including action framing and conditional-delete tokens. Every action is
+// admitted before the first mutation, so an oversized later action cannot
+// partially publish an otherwise invalid batch.
 //
 // Query only sends native KNN; it never enumerates source records. The native
 // mapping deliberately preserves full metadata as opaque unindexed bytes, so

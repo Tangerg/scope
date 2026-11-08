@@ -51,9 +51,17 @@ type SpeechModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (s SpeechModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     s.APIKey,
+		BaseURL:    s.BaseURL,
+		HTTPClient: s.HTTPClient,
+	}
+}
+
 func (s SpeechModelConfig) Validate() error {
-	if s.APIKey == "" {
-		return errors.New("elevenlabs: APIKey is required")
+	if err := s.apiConfig().validate(); err != nil {
+		return err
 	}
 	if s.DefaultOptions.Model == "" {
 		return errors.New("elevenlabs: DefaultOptions.Model is required")
@@ -84,11 +92,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		return nil, err
 	}
 
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -228,21 +232,21 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			return
 		}
 
-		body_, hdr, err := s.api.textToSpeechStream(ctx, voiceID, outputFormat, body)
+		reader, headers, err := s.api.textToSpeechStream(ctx, voiceID, outputFormat, body)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer body_.Close()
+		defer reader.Close()
 
 		received := false
-		for chunk, err := range readAudioChunks(body_) {
+		for chunk, err := range speech.ReadChunks(reader) {
 			if err != nil {
 				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return
 			}
 
-			out, err := s.buildResponse(chunk, hdr)
+			out, err := s.buildResponse(chunk, headers)
 			if err != nil {
 				yield(nil, err)
 				return

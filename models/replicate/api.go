@@ -41,19 +41,8 @@ type api struct {
 
 type predictionRunner struct {
 	api             *api
-	pollInterval    time.Duration
-	pollTimeout     time.Duration
+	polling         pollingPolicy
 	invalidResponse error
-}
-
-func newPredictionRunner(api *api, pollInterval, pollTimeout, defaultTimeout time.Duration, invalidResponse error) predictionRunner {
-	if pollInterval == 0 {
-		pollInterval = DefaultPollInterval
-	}
-	if pollTimeout == 0 {
-		pollTimeout = defaultTimeout
-	}
-	return predictionRunner{api: api, pollInterval: pollInterval, pollTimeout: pollTimeout, invalidResponse: invalidResponse}
 }
 
 func (p predictionRunner) run(ctx context.Context, model modelReference, request *predictionRequest) (*predictionResponse, error) {
@@ -82,10 +71,10 @@ func (p predictionRunner) run(ctx context.Context, model modelReference, request
 }
 
 func (p predictionRunner) poll(ctx context.Context, submitted *predictionResponse) (*predictionResponse, error) {
-	deadline, cancel := context.WithTimeout(ctx, p.pollTimeout)
+	deadline, cancel := context.WithTimeout(ctx, p.polling.timeout)
 	defer cancel()
 
-	ticker := time.NewTicker(p.pollInterval)
+	ticker := time.NewTicker(p.polling.interval)
 	defer ticker.Stop()
 
 	response := submitted
@@ -315,7 +304,6 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 	return response.Body(), response.Header().Get(headerContentType), nil
 }
 
-// getPrediction polls a prediction's current state.
 func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse, error) {
 	if id == "" {
 		return nil, errors.New("replicate: prediction id must not be empty")

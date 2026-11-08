@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"encoding/base64"
 	"mime"
 	"strings"
 
@@ -73,11 +72,11 @@ func projectResponsesFile(value *media.Media) (responsesMedia, error) {
 		}
 		projected.fileURL = uri
 	case media.SourceBytes:
-		data, err := value.Bytes()
+		location, err := mediaLocation(value)
 		if err != nil {
 			return responsesMedia{}, err
 		}
-		projected.fileData = base64.StdEncoding.EncodeToString(data)
+		projected.fileData = location
 	default:
 		return responsesMedia{}, media.ErrInvalidSource
 	}

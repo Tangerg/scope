@@ -102,7 +102,7 @@ func (l *ListLiteral) numberValues() (any, error) {
 		return nil, err
 	}
 	if hasFloat {
-		return decimalListValues(values)
+		return l.decimalValues()
 	}
 	if hasUint {
 		return unsignedListValues(values)
@@ -130,24 +130,14 @@ func (l *ListLiteral) decodeNumberValues() ([]any, bool, bool, error) {
 	return values, hasFloat, hasUint, nil
 }
 
-func decimalListValues(values []any) ([]float64, error) {
-	const maxExactFloatInteger = int64(1 << 53)
-	out := make([]float64, 0, len(values))
-	for _, value := range values {
-		switch number := value.(type) {
-		case int64:
-			if number < -maxExactFloatInteger || number > maxExactFloatInteger {
-				return nil, fmt.Errorf("filter: integer %d loses precision in a decimal list", number)
-			}
-			out = append(out, float64(number))
-		case uint64:
-			if number > uint64(maxExactFloatInteger) {
-				return nil, fmt.Errorf("filter: integer %d loses precision in a decimal list", number)
-			}
-			out = append(out, float64(number))
-		case float64:
-			out = append(out, number)
+func (l *ListLiteral) decimalValues() ([]float64, error) {
+	out := make([]float64, len(l.values))
+	for index, literal := range l.values {
+		value, err := literal.AsFloat64()
+		if err != nil {
+			return nil, fmt.Errorf("filter: decimal list element %d: %w", index, err)
 		}
+		out[index] = value
 	}
 	return out, nil
 }

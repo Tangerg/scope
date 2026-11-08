@@ -27,31 +27,6 @@ const (
 	maximumCollectionKeyBytes = 246
 )
 
-type Similarity string
-
-const (
-	SimilarityCosine     Similarity = "COSINE"
-	SimilarityL2Norm     Similarity = "L2"
-	SimilarityDotProduct Similarity = "DOT"
-)
-
-func (s Similarity) Valid() bool {
-	return s == SimilarityCosine || s == SimilarityL2Norm || s == SimilarityDotProduct
-}
-
-func (s Similarity) String() string { return string(s) }
-
-func (s Similarity) score(distance float64) vectorstore.Score {
-	switch s {
-	case SimilarityCosine:
-		return vectorstore.ScoreFromCosineDistance(distance)
-	case SimilarityL2Norm:
-		return vectorstore.ScoreFromDistance(distance)
-	default:
-		return vectorstore.ScoreFromNegativeInnerProductDistance(distance)
-	}
-}
-
 // StoreConfig wires a host-owned SDK cluster and an exclusively managed document
 // collection. The host owns connecting and closing the cluster.
 type StoreConfig struct {
@@ -110,8 +85,7 @@ type Store struct {
 	collection *gocb.Collection
 	keyspace   string
 	space      vectorstore.SpaceID
-	dimensions int
-	similarity Similarity
+	vectors    vectorPolicy
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
@@ -126,7 +100,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	store := &Store{
 		scope: scope, collection: scope.Collection(config.CollectionName()),
 		keyspace: fmt.Sprintf("`%s`.`%s`.`%s`", config.BucketName, config.ScopeName, config.CollectionName()),
-		space:    config.Space, dimensions: config.Dimensions, similarity: config.Similarity,
+		space:    config.Space, vectors: vectorPolicy{dimensions: config.Dimensions, similarity: config.Similarity},
 	}
 	if config.InitializeSchema {
 		if err := store.collection.QueryIndexes().CreatePrimaryIndex(&gocb.CreatePrimaryQueryIndexOptions{Context: ctx, IgnoreIfExists: true}); err != nil {
@@ -172,10 +146,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err := validateKey(d.ID); err != nil {
 			return err
 		}
-		if len(r.Values) != s.dimensions {
-			return vectorstore.ErrInvalidRequest
-		}
-		payload, err := encodeStoredDocument(d, r.Values)
+		payload, err := encodeStoredDocument(d, r.Values, s.vectors)
 		if err != nil {
 			return err
 		}
@@ -203,8 +174,8 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.QueryByScan: %w", err)
 	}
-	if len(request.Values) != s.dimensions {
-		return nil, vectorstore.ErrInvalidRequest
+	if err := s.vectors.validate(request.Values); err != nil {
+		return nil, err
 	}
 	meter, err := budget.Begin(ctx)
 	if err != nil {
@@ -225,7 +196,7 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 				projections[i] = vectorProjection{Position: i, Embedding: candidate.embedding}
 			}
 			seen := make([]bool, len(batch))
-			err := s.runStatement(ctx, fmt.Sprintf("SELECT c.position, VECTOR_DISTANCE(c.embedding, $vector, %q) AS distance FROM $candidates AS c", s.similarity), map[string]any{"candidates": projections, "vector": vector}, func(raw json.RawMessage) error {
+			err := s.runStatement(ctx, fmt.Sprintf("SELECT c.position, VECTOR_DISTANCE(c.embedding, $vector, %q) AS distance FROM $candidates AS c", s.vectors.similarity), map[string]any{"candidates": projections, "vector": vector}, func(raw json.RawMessage) error {
 				var row distanceRow
 				if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
 					return fmt.Errorf("couchbase: decode distance: %w", err)
@@ -234,7 +205,7 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 					return errors.New("couchbase: invalid native distance result")
 				}
 				seen[*row.Position] = true
-				hit, err := vectorstore.NewSearchResult(batch[*row.Position].document, s.similarity.score(*row.Distance))
+				hit, err := vectorstore.NewSearchResult(batch[*row.Position].document, s.vectors.similarity.score(*row.Distance))
 				if err != nil {
 					return err
 				}
@@ -274,12 +245,9 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate,
 		if err := meter.Charge(int64(len(raw))); err != nil {
 			return err
 		}
-		candidate, err := decodeStoredRow(raw)
+		candidate, err := decodeStoredRow(raw, s.vectors)
 		if err != nil {
 			return err
-		}
-		if len(candidate.embedding) != s.dimensions {
-			return errors.New("couchbase: foreign coordinate width")
 		}
 		if predicate != nil {
 			values, err := candidate.document.Metadata.Values()

@@ -71,6 +71,8 @@
 // references remain valid without an inline payload. Responses rejects assistant
 // media history that its input projection cannot represent. Responses tools
 // use non-strict mode to preserve the caller's optional JSON Schema properties.
+// Inline file inputs and tool outputs retain their declared MIME in a data URL;
+// bare base64 cannot establish the file type expected by the Responses API.
 //
 // Strict output schemas keep the caller's accepted values: representable allOf
 // intersections are lowered once for Chat Completions and Responses. Optional

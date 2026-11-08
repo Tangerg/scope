@@ -162,8 +162,6 @@ func (t *transcriptionResult) failure() error {
 	return fmt.Errorf("gladia: transcription failed with error code %d", *t.ErrorCode)
 }
 
-// upload posts raw audio bytes to /upload, returning a Gladia-hosted
-// URL the caller passes to /pre-recorded.
 func (a *api) upload(ctx context.Context, audio []byte, mimeType string) (*uploadResponse, error) {
 	if len(audio) == 0 {
 		return nil, errors.New("gladia: upload audio must not be empty")

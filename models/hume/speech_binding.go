@@ -32,7 +32,7 @@ func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBin
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

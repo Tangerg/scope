@@ -73,3 +73,17 @@ func TestTranscriptionModel_Call_Mock(t *testing.T) {
 		t.Fatal("Call accepted a transcription response over the configured limit")
 	}
 }
+
+func TestTranscriptionModelConfigRejectsNegativeResponseLimit(t *testing.T) {
+	config := deepgram.TranscriptionModelConfig{
+		APIKey:           "test-key",
+		DefaultOptions:   transcription.Options{Model: "nova-3"},
+		MaxResponseBytes: -1,
+	}
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate accepted a negative response limit")
+	}
+	if model, err := deepgram.NewTranscriptionModel(t.Context(), config); model != nil || err == nil {
+		t.Fatalf("NewTranscriptionModel accepted a negative response limit: model=%v error=%v", model, err)
+	}
+}

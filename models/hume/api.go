@@ -206,7 +206,6 @@ func (t *ttsResponse) decodeAudio() ([]byte, error) {
 	return audio, nil
 }
 
-// ttsStream starts the official streamed JSON-lines endpoint.
 func (a *api) ttsStream(ctx context.Context, req *ttsRequest) (io.ReadCloser, error) {
 	if req == nil {
 		return nil, errors.New("hume: request must not be nil")

@@ -245,7 +245,8 @@ func newProtocolChatServer(t *testing.T) *httptest.Server {
 			t.Errorf("assistant parts = %#v", assistant)
 		}
 		toolResult := body.Contents[2].Parts[0].FunctionResponse
-		if toolResult.ID != "google/0/2" || toolResult.Name != "calculate" || toolResult.Response["value"] != float64(4) {
+		output, ok := toolResult.Response["output"].(map[string]any)
+		if toolResult.ID != "google/0/2" || toolResult.Name != "calculate" || !ok || output["value"] != float64(4) {
 			t.Errorf("tool result = %#v", toolResult)
 		}
 		if !strings.Contains(request.URL.Path, "streamGenerateContent") {

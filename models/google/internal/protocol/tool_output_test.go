@@ -19,7 +19,7 @@ func TestProtocolToolResultPreservesStructuredAndMediaContent(t *testing.T) {
 	if encodeErr != nil {
 		t.Fatal(encodeErr)
 	}
-	if string(encoded) != `{"value":4}` || len(parts) != 0 {
+	if string(encoded) != `{"output":{"value":4}}` || len(parts) != 0 {
 		t.Fatalf("structured result = %#v, %#v", response, parts)
 	}
 
@@ -53,5 +53,36 @@ func TestProtocolToolResultRejectsUnsupportedReferenceMedia(t *testing.T) {
 	_, _, err = protocolToolResult(toolcontract.Output{Content: []corecontent.Block{{Kind: corecontent.Media, Media: reference}}}, false)
 	if err == nil {
 		t.Fatal("protocolToolResult accepted provider reference media")
+	}
+}
+
+func TestProtocolToolResultPreservesJSONTypes(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  string
+	}{
+		{value: `[1,2]`, want: `[1,2]`},
+		{value: `9007199254740993`, want: `9007199254740993`},
+		{value: `true`, want: `true`},
+		{value: `null`, want: `null`},
+		{value: `"quoted"`, want: `"quoted"`},
+		{value: `plain text`, want: `"plain text"`},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			for _, isError := range []bool{false, true} {
+				key := "output"
+				if isError {
+					key = "error"
+				}
+				encoded, err := jsonv2.Marshal(protocolToolResultJSON([]byte(test.value), isError))
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := `{"` + key + `":` + test.want + `}`
+				if string(encoded) != want {
+					t.Fatalf("encoded result = %s, want %s", encoded, want)
+				}
+			}
+		})
 	}
 }

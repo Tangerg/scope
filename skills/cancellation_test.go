@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 func TestDiscoveryReturnsCancellationFromCompletedIO(t *testing.T) {
@@ -19,7 +20,7 @@ func TestDiscoveryReturnsCancellationFromCompletedIO(t *testing.T) {
 			cause := errors.New("discovery stopped")
 			ctx, cancel := context.WithCancelCause(t.Context())
 			defer cancel(nil)
-			files := fstest.MapFS{}
+			files := testfs.FS{}
 			wantCloses := 1
 			if phase == "read frontmatter" {
 				files["safe-skill/SKILL.md"] = &fstest.MapFile{Data: []byte("---\nname: safe-skill\ndescription: safe\n---")}
@@ -27,7 +28,7 @@ func TestDiscoveryReturnsCancellationFromCompletedIO(t *testing.T) {
 			}
 			closed := 0
 			repository, err := skills.NewRepository(discoveryFS{
-				FS: files, phase: phase, cancel: func() { cancel(cause) }, closed: &closed,
+				ResourceFS: files, phase: phase, cancel: func() { cancel(cause) }, closed: &closed,
 			}, skills.RepositoryConfig{})
 			if err != nil {
 				t.Fatal(err)
@@ -58,7 +59,7 @@ func TestSourceCancellationPreservesStandardAndCustomCauses(t *testing.T) {
 			defer stop()
 			want = context.DeadlineExceeded
 		}
-		repository, err := skills.NewRepository(fstest.MapFS{}, skills.RepositoryConfig{})
+		repository, err := skills.NewRepository(testfs.FS{}, skills.RepositoryConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +96,7 @@ func TestResourceCancellationClosesFileAndPreservesFailures(t *testing.T) {
 					defer cancel(nil)
 					closed := 0
 					files := cancellationFS{
-						FS: fstest.MapFS{
+						ResourceFS: testfs.FS{
 							"safe-skill/SKILL.md":           {Data: []byte("---\nname: safe-skill\ndescription: safe\n---")},
 							"safe-skill/references/note.md": {Data: []byte("resource")},
 						},
@@ -197,7 +198,7 @@ func TestRepositoryIOCancellationPreservesFailures(t *testing.T) {
 				}
 				closed := 0
 				repository, err := skills.NewRepository(cancellationFS{
-					FS: fstest.MapFS{
+					ResourceFS: testfs.FS{
 						"safe-skill/SKILL.md":           {Data: []byte("---\nname: safe-skill\ndescription: safe\n---")},
 						"safe-skill/references/note.md": resource,
 					},
@@ -235,7 +236,7 @@ func TestRepositoryIOCancellationPreservesFailures(t *testing.T) {
 }
 
 type cancellationFS struct {
-	fs.FS
+	skills.ResourceFS
 	path     string
 	phase    string
 	cancel   context.CancelFunc
@@ -245,8 +246,16 @@ type cancellationFS struct {
 }
 
 func (c cancellationFS) Open(name string) (fs.File, error) {
+	return c.open(name, func() (fs.File, error) { return c.ResourceFS.Open(name) })
+}
+
+func (c cancellationFS) OpenInDir(dir, name string) (fs.File, error) {
+	return c.open(dir+"/"+name, func() (fs.File, error) { return c.ResourceFS.OpenInDir(dir, name) })
+}
+
+func (c cancellationFS) open(name string, acquire func() (fs.File, error)) (fs.File, error) {
 	if name != c.path {
-		return c.FS.Open(name)
+		return acquire()
 	}
 	if c.phase == "open" {
 		c.cancel()
@@ -254,7 +263,7 @@ func (c cancellationFS) Open(name string) (fs.File, error) {
 			return nil, c.failure
 		}
 	}
-	file, err := c.FS.Open(name)
+	file, err := acquire()
 	if err != nil {
 		return nil, err
 	}
@@ -315,14 +324,14 @@ func (c canceledSource) OpenResource(context.Context, string, string) (fs.File, 
 }
 
 type discoveryFS struct {
-	fs.FS
+	skills.ResourceFS
 	phase  string
 	cancel context.CancelFunc
 	closed *int
 }
 
 func (d discoveryFS) Open(name string) (fs.File, error) {
-	file, err := d.FS.Open(name)
+	file, err := d.ResourceFS.Open(name)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +378,7 @@ func TestMetadataValidationClosesRejectedDescriptor(t *testing.T) {
 				closeFailure := errors.New("metadata close failed")
 				closed := 0
 				repository, err := skills.NewRepository(cancellationFS{
-					FS: fstest.MapFS{"demo/SKILL.md": {Mode: fs.ModeNamedPipe}}, path: "demo/SKILL.md", phase: phase,
+					ResourceFS: testfs.FS{"demo/SKILL.md": {Mode: fs.ModeNamedPipe}}, path: "demo/SKILL.md", phase: phase,
 					cancel: cancel, failure: failure, closeErr: closeFailure, closed: &closed,
 				}, skills.RepositoryConfig{})
 				if err != nil {

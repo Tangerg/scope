@@ -4,13 +4,13 @@ import (
 	"errors"
 	"io/fs"
 	"testing"
-	"testing/fstest"
 
 	"github.com/Tangerg/scope/skills"
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 func TestExactContentCannotFollowChangedOrMissingResource(t *testing.T) {
-	files := fstest.MapFS{"guide/SKILL.md": {Data: []byte("---\nname: guide\ndescription: Guide.\n---\nbody")}, "guide/ref.txt": {Data: []byte("first")}}
+	files := testfs.FS{"guide/SKILL.md": {Data: []byte("---\nname: guide\ndescription: Guide.\n---\nbody")}, "guide/ref.txt": {Data: []byte("first")}}
 	source, err := skills.NewRepository(files, skills.RepositoryConfig{})
 	if err != nil {
 		t.Fatal(err)

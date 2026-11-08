@@ -171,9 +171,16 @@ func (l *Literal) AsInt() (int, error) {
 	return converted, nil
 }
 
-// AsFloat64 converts a number for provider APIs that accept a double. Integral
-// values are rejected when conversion would change their exact value.
+// AsFloat64 preserves the float64 already selected for decimal and exponent
+// literals. Integer literals must be exactly representable in a double.
 func (l *Literal) AsFloat64() (float64, error) {
+	decoded, err := l.Value()
+	if err != nil {
+		return 0, err
+	}
+	if value, floating := decoded.(float64); floating {
+		return value, nil
+	}
 	number, err := l.numberRat()
 	if err != nil {
 		return 0, err
@@ -195,23 +202,15 @@ func (l *Literal) AsFloat64() (float64, error) {
 // AsFloat32 converts a number for provider APIs that accept a float. It rejects
 // overflow and integral values that would be rounded.
 func (l *Literal) AsFloat32() (float32, error) {
-	number, err := l.numberRat()
+	value, err := l.AsFloat64()
 	if err != nil {
-		return 0, err
-	}
-	numberValue, err := l.AsNumber()
-	if err != nil {
-		return 0, err
-	}
-	value, err := numberValue.Float64()
-	if err != nil {
-		return 0, fmt.Errorf("filter: convert literal to float32: number %q is not a float64: %w", l.text, err)
+		return 0, fmt.Errorf("filter: convert literal to float32: %w", err)
 	}
 	converted := float32(value)
 	if math.IsInf(float64(converted), 0) {
 		return 0, fmt.Errorf("filter: convert literal to float32: number %q exceeds float32", l.text)
 	}
-	if number.IsInt() && new(big.Rat).SetFloat64(float64(converted)).Cmp(number) != 0 {
+	if math.Trunc(value) == value && float64(converted) != value {
 		return 0, fmt.Errorf("filter: convert literal to float32: integer %q loses precision", l.text)
 	}
 	return converted, nil

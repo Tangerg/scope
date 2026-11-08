@@ -21,9 +21,17 @@ type ImageModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (i ImageModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     i.APIKey,
+		BaseURL:    i.BaseURL,
+		HTTPClient: i.HTTPClient,
+	}
+}
+
 func (i ImageModelConfig) Validate() error {
-	if i.APIKey == "" {
-		return errors.New("stability: APIKey is required")
+	if err := i.apiConfig().validate(); err != nil {
+		return err
 	}
 	if i.DefaultOptions.Model == "" {
 		return errors.New("stability: DefaultOptions.Model is required")
@@ -56,11 +64,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 		return nil, err
 	}
 
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

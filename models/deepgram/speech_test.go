@@ -62,11 +62,15 @@ func TestSpeechModel_Call_Mock(t *testing.T) {
 }
 
 func TestSpeechModelConfigRejectsNegativeResponseLimit(t *testing.T) {
-	opts := speech.Options{Model: "aura-asteria-en"}
-	_, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{
-		APIKey: "test-key", DefaultOptions: opts, MaxResponseBytes: -1,
-	})
-	if err == nil {
-		t.Fatal("NewSpeechModel accepted a negative response limit")
+	config := deepgram.SpeechModelConfig{
+		APIKey:           "test-key",
+		DefaultOptions:   speech.Options{Model: "aura-asteria-en"},
+		MaxResponseBytes: -1,
+	}
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate accepted a negative response limit")
+	}
+	if model, err := deepgram.NewSpeechModel(t.Context(), config); model != nil || err == nil {
+		t.Fatalf("NewSpeechModel accepted a negative response limit: model=%v error=%v", model, err)
 	}
 }

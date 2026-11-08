@@ -53,7 +53,7 @@ func TestCollectionIdentityCannotMixSpacesOrWidths(t *testing.T) {
 	if a.CollectionName() == b.CollectionName() || a.CollectionName() == c.CollectionName() {
 		t.Fatal("physical collection shared by incompatible bindings")
 	}
-	s := &Store{space: a.Space, dimensions: a.Dimensions}
+	s := &Store{space: a.Space, vectors: vectorPolicy{dimensions: a.Dimensions, similarity: SimilarityCosine}}
 	if _, ok := any(s).(vectorstore.Querier); ok {
 		t.Fatal("primary index advertised as vector index")
 	}

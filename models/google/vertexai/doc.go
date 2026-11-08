@@ -26,6 +26,8 @@
 // omissions preserve them, while conflicting values fail validation.
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
+// ToolResult.IsError alone selects the native error or output envelope. The
+// complete result stays inside it so business fields cannot change its status.
 // Core Citation owns validation of native citations with a URI. Invalid
 // citations fail Call and Stream rather than disappearing from a successful response.
 // Citation-only chunks reach Core's accumulator, which owns text attachment.

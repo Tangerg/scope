@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"io/fs"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -27,15 +28,34 @@ func (*panicSource) OpenResource(context.Context, string, string) (fs.File, erro
 	panic("typed-nil source was used")
 }
 
-func newToolFS() skillsrc.ResourceSource {
-	repository, err := skillsrc.NewRepository(fstest.MapFS{
+func newToolFS(t *testing.T) skillsrc.ResourceSource {
+	t.Helper()
+	return directoryRepository(t, fstest.MapFS{
 		"pdf-processing/SKILL.md":                {Data: []byte("---\nname: pdf-processing\ndescription: Handle PDFs.\n---\n# PDF\nDo the thing. See references/REFERENCE.md. This deliberately long instruction body verifies model-facing output limits.")},
 		"pdf-processing/references/REFERENCE.md": {Data: []byte("detailed reference")},
 		"pdf-processing/references/LONG.md":      {Data: []byte(strings.Repeat("reference ", 20))},
 		"data-analysis/SKILL.md":                 {Data: []byte("---\nname: data-analysis\ndescription: Analyze data.\n---\nanalysis body")},
-	}, skillsrc.RepositoryConfig{})
+	})
+}
+
+func directoryRepository(t testing.TB, files fs.FS) *skillsrc.Repository {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.CopyFS(directory, files); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(directory)
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := root.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
+	})
+	repository, err := skillsrc.NewDirectoryRepository(root, skillsrc.RepositoryConfig{})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return repository
 }
@@ -46,7 +66,7 @@ func newTools(t *testing.T) map[string]toolcontract.Tool {
 
 func newToolsWithConfig(t *testing.T, config Config) map[string]toolcontract.Tool {
 	t.Helper()
-	return toolsForSource(t, newToolFS(), config)
+	return toolsForSource(t, newToolFS(t), config)
 }
 
 func toolsForSource(t *testing.T, source Source, config Config) map[string]toolcontract.Tool {
@@ -112,12 +132,9 @@ func TestLoadSkill(t *testing.T) {
 
 func TestLoadSkillAcceptsFenceInsideYAMLBlockScalar(t *testing.T) {
 	const instructions = "\n    printf 'first'\n\tprintf 'second'\nline with hard break  \nnext line\n\n"
-	repository, err := skillsrc.NewRepository(fstest.MapFS{
+	repository := directoryRepository(t, fstest.MapFS{
 		"formatting/SKILL.md": {Data: []byte("---\nname: formatting\ndescription: |\n  Before\n  ---\n  After\n---\n" + instructions)},
-	}, skillsrc.RepositoryConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	})
 	built, err := NewTools(repository, Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +176,7 @@ func TestReadSkillResource(t *testing.T) {
 
 func TestNewToolsRejectsOutputLimitTooSmallForItsEnvelope(t *testing.T) {
 	for _, maxOutputBytes := range []int64{minimumMaxOutputBytes - 1, maximumMaxOutputBytes + 1} {
-		if _, err := NewTools(newToolFS(), Config{MaxOutputBytes: maxOutputBytes}); !errors.Is(err, skillsrc.ErrInvalidLimit) {
+		if _, err := NewTools(newToolFS(t), Config{MaxOutputBytes: maxOutputBytes}); !errors.Is(err, skillsrc.ErrInvalidLimit) {
 			t.Fatalf("NewTools(%d) error = %v, want ErrInvalidLimit", maxOutputBytes, err)
 		}
 	}
@@ -246,7 +263,7 @@ func TestLoadSkillRejectsInvalidSourceResults(t *testing.T) {
 		{"wrong bundle", &skillsrc.Skill{Frontmatter: skillsrc.Frontmatter{Name: "other", Description: "Other."}, Instructions: "private instruction"}, skillsrc.ErrNameMismatch},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tools := toolsForSource(t, returnedSkillSource{Source: newToolFS(), skill: tc.skill}, Config{})
+			tools := toolsForSource(t, returnedSkillSource{Source: newToolFS(t), skill: tc.skill}, Config{})
 			out, err := invokeTestTool(t.Context(), tools["load_skill"], `{"name":"guide"}`)
 			failure, definite := toolcontract.ClassifyFailure(err)
 			if !definite || !errors.Is(failure.Cause(), tc.want) || testOutputText(out) != "" {
@@ -263,7 +280,7 @@ func (i invalidListing) List(context.Context) ([]skillsrc.Summary, error) {
 }
 
 func TestListSkillsRejectsInvalidSourceBeforePagination(t *testing.T) {
-	tools := toolsForSource(t, invalidListing{newToolFS()}, Config{})
+	tools := toolsForSource(t, invalidListing{newToolFS(t)}, Config{})
 	out, err := invokeTestTool(t.Context(), tools["list_skills"], `{}`)
 	failure, definite := toolcontract.ClassifyFailure(err)
 	if !definite || !errors.Is(failure.Cause(), skillsrc.ErrNameInvalid) || testOutputText(out) != "" {

@@ -80,19 +80,9 @@ func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 		return Binding{}, fmt.Errorf("%w: tool is nil", ErrInvalidTool)
 	}
 	definition := executable.Definition()
-	if err := definition.Validate(); err != nil {
-		return Binding{}, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
-	}
-	input, err := corejsonschema.Parse(definition.InputSchema)
+	state, err := definition.compile()
 	if err != nil {
-		return Binding{}, fmt.Errorf("%w: input schema: %w", ErrInvalidTool, err)
-	}
-	var output corejsonschema.Schema
-	if len(definition.OutputSchema) != 0 {
-		output, err = corejsonschema.Parse(definition.OutputSchema)
-		if err != nil {
-			return Binding{}, fmt.Errorf("%w: output schema: %w", ErrInvalidTool, err)
-		}
+		return Binding{}, fmt.Errorf("%w: definition: %w", ErrInvalidTool, err)
 	}
 	for index, middleware := range middlewares {
 		if middleware == nil {
@@ -103,8 +93,9 @@ func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
 	}
+	state.validate = validator
 	return Binding{
-		contract:    Contract{state: &contractState{name: definition.Name, description: definition.Description, input: input, output: output, effect: definition.Effect, validate: validator}},
+		contract:    Contract{state: state},
 		executable:  executable,
 		middlewares: slices.Clone(middlewares),
 	}, nil

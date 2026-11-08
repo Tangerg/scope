@@ -24,6 +24,9 @@
 //
 // Call aggregates Stream through Core's ResponseAccumulator; both methods share
 // transport, parsing, cancellation, and terminal errors.
+// Converse requires enabled tool definitions even for tool calls and results
+// in history. It has no native tool choice "none"; disabling or omitting tools
+// with that history returns [errors.ErrUnsupported] before provider I/O.
 //
 // Stop reasons. Converse reports two truncations — max_tokens for the budget
 // the caller set and model_context_window_exceeded for the model's own window

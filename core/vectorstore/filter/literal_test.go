@@ -2,6 +2,7 @@ package filter_test
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -50,7 +51,7 @@ func TestListValuesRejectInvalidLists(t *testing.T) {
 		{name: "empty", list: filter.NewListLiteral([]int{})},
 		{name: "nil first", list: filter.NewListLiteral([]*filter.Literal{nil})},
 		{name: "mixed kinds", list: filter.NewListLiteral([]*filter.Literal{filter.NewLiteral("a"), filter.NewLiteral(1)})},
-		{name: "decimal precision loss", list: filter.NewListLiteral([]*filter.Literal{filter.NewLiteral(1.5), filter.NewLiteral(int64(1 << 54))})},
+		{name: "decimal precision loss", list: filter.NewListLiteral([]*filter.Literal{filter.NewLiteral(1.5), filter.NewLiteral(int64(1<<53 + 1))})},
 		{name: "signed unsigned span", list: filter.NewListLiteral([]*filter.Literal{filter.NewLiteral(uint64(math.MaxUint64)), filter.NewLiteral(-1)})},
 	}
 
@@ -58,6 +59,32 @@ func TestListValuesRejectInvalidLists(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := test.list.Values(); err == nil {
 				t.Fatal("Values returned nil error")
+			}
+		})
+	}
+}
+
+func TestListDecimalValuesPreserveExactIntegers(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []float64
+	}{
+		{input: "n in (18014398509481984, 0.5)", want: []float64{1 << 54, 0.5}},
+		{input: "n in (-18014398509481984, 0.5)", want: []float64{-(1 << 54), 0.5}},
+		{input: "n in (9223372036854775808, 0.5)", want: []float64{1 << 63, 0.5}},
+		{input: "n in (0.5, 18014398509481984)", want: []float64{0.5, 1 << 54}},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			predicate := mustParseBinary(t, test.input)
+			list := predicate.Right().(*filter.ListLiteral)
+			values, err := list.Values()
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual, ok := values.([]float64)
+			if !ok || !slices.Equal(actual, test.want) {
+				t.Fatalf("Values() = %v, want %v", values, test.want)
 			}
 		})
 	}
@@ -142,4 +169,33 @@ func TestExactNumberConversions(t *testing.T) {
 			t.Fatal("Int accepted an overflowing uint64")
 		}
 	})
+}
+
+func TestFloatingLiteralConversionsPreserveSelectedValue(t *testing.T) {
+	for _, value := range []float64{1 << 63, -(1 << 63), 1e23, -1e23, math.MaxFloat64} {
+		literal := filter.NewLiteral(value)
+		if actual, err := literal.AsFloat64(); err != nil || actual != value {
+			t.Fatalf("AsFloat64(%g) = %g, %v", value, actual, err)
+		}
+		list := filter.NewListLiteral([]float64{value, 0.5})
+		values, err := list.Values()
+		if err != nil {
+			t.Fatalf("Values(%g) error = %v", value, err)
+		}
+		actual, ok := values.([]float64)
+		if !ok || !slices.Equal(actual, []float64{value, 0.5}) {
+			t.Fatalf("Values(%g) = %v", value, values)
+		}
+	}
+	for _, value := range []float64{1 << 63, -(1 << 63), 0.1} {
+		actual, err := filter.NewLiteral(value).AsFloat32()
+		if err != nil || actual != float32(value) {
+			t.Fatalf("AsFloat32(%g) = %g, %v", value, actual, err)
+		}
+	}
+	for _, value := range []float64{1<<24 + 1, 1e100} {
+		if actual, err := filter.NewLiteral(value).AsFloat32(); err == nil {
+			t.Fatalf("AsFloat32(%g) = %g, want precision or overflow error", value, actual)
+		}
+	}
 }

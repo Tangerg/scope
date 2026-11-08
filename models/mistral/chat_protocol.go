@@ -2,7 +2,6 @@ package mistral
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"encoding/json/jsontext"
@@ -103,9 +102,17 @@ type ChatConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (c ChatConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:     c.APIKey,
+		BaseURL:    c.BaseURL,
+		HTTPClient: c.HTTPClient,
+	}
+}
+
 func (c ChatConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("mistral: API key is required")
+	if err := c.apiConfig().validate(); err != nil {
+		return err
 	}
 	if err := c.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("mistral: default options: %w", err)
@@ -129,11 +136,7 @@ func NewChat(ctx context.Context, config ChatConfig) (*Chat, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    cmp.Or(config.BaseURL, DefaultBaseURL),
-		HTTPClient: config.HTTPClient,
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

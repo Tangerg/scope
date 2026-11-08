@@ -37,9 +37,13 @@ type RerankModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (r RerankModelConfig) apiConfig() apiConfig {
+	return apiConfig{APIKey: r.APIKey, BaseURL: r.BaseURL, HTTPClient: r.HTTPClient}
+}
+
 func (r RerankModelConfig) Validate() error {
-	if r.APIKey == "" {
-		return errors.New("voyage: APIKey is required")
+	if err := r.apiConfig().validate(); err != nil {
+		return err
 	}
 	if r.DefaultOptions.Model == "" {
 		return errors.New("voyage: DefaultOptions.Model is required")
@@ -58,7 +62,7 @@ func NewRerankModel(ctx context.Context, config RerankModelConfig) (*RerankModel
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

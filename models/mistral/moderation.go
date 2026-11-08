@@ -17,9 +17,13 @@ type ModerationModelConfig struct {
 	HTTPClient     *http.Client
 }
 
+func (m ModerationModelConfig) apiConfig() apiConfig {
+	return apiConfig{APIKey: m.APIKey, BaseURL: m.BaseURL, HTTPClient: m.HTTPClient}
+}
+
 func (m ModerationModelConfig) Validate() error {
-	if m.APIKey == "" {
-		return errors.New("mistral: API key is required")
+	if err := m.apiConfig().validate(); err != nil {
+		return err
 	}
 	if m.DefaultOptions.Model == "" {
 		return errors.New("mistral: default model is required")
@@ -45,7 +49,7 @@ func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*Mod
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

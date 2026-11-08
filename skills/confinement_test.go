@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -16,6 +17,32 @@ func directoryRoot(t testing.TB, path string) *os.Root {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	return root
+}
+
+func TestDirectoryRepositoryRequiresPinnedDirectoryAuthority(t *testing.T) {
+	root, err := os.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	repository, err := NewDirectoryRepository(root, RepositoryConfig{})
+	switch runtime.GOOS {
+	case "js", "plan9":
+		if repository != nil || !errors.Is(err, errors.ErrUnsupported) {
+			t.Fatalf("directory repository on %s = %v, %v; want unsupported", runtime.GOOS, repository, err)
+		}
+	default:
+		if err != nil || repository == nil {
+			t.Fatalf("directory repository on %s = %v, %v", runtime.GOOS, repository, err)
+		}
+		summaries, listErr := repository.List(t.Context())
+		if listErr != nil || len(summaries) != 0 {
+			t.Fatalf("empty directory = %v, %v", summaries, listErr)
+		}
+	}
+	if _, statErr := root.Stat("."); statErr != nil {
+		t.Fatalf("construction closed the host's borrowed directory: %v", statErr)
+	}
 }
 
 func writeSkill(t *testing.T, root, name string) string {

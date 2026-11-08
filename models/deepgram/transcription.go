@@ -1,7 +1,6 @@
 package deepgram
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,18 +19,24 @@ type TranscriptionModelConfig struct {
 	MaxResponseBytes int64
 }
 
+func (t TranscriptionModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:           t.APIKey,
+		BaseURL:          t.BaseURL,
+		HTTPClient:       t.HTTPClient,
+		MaxResponseBytes: t.MaxResponseBytes,
+	}
+}
+
 func (t TranscriptionModelConfig) Validate() error {
-	if t.APIKey == "" {
-		return errors.New("deepgram: APIKey is required")
+	if err := t.apiConfig().validate(); err != nil {
+		return err
 	}
 	if t.DefaultOptions.Model == "" {
 		return errors.New("deepgram: DefaultOptions.Model is required")
 	}
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
-	}
-	if t.MaxResponseBytes < 0 {
-		return errors.New("deepgram: MaxResponseBytes must not be negative")
 	}
 	return nil
 }
@@ -58,12 +63,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 		return nil, err
 	}
 
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:           config.APIKey,
-		BaseURL:          config.BaseURL,
-		HTTPClient:       config.HTTPClient,
-		MaxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}

@@ -14,40 +14,26 @@ import (
 const (
 	mediaTypePlainText = "text/plain"
 	mediaTypeJSON      = "application/json"
-	schemaTypeString   = "string"
 )
 
 type contentPolicy struct {
 	inputs, outputs []string
 }
 
-func newContentPolicy(card sdk.AgentCard, outputSchema json.RawMessage) (contentPolicy, error) {
-	policy := contentPolicy{inputs: slices.Clone(card.DefaultInputModes)}
+func newContentPolicy(card sdk.AgentCard) (contentPolicy, error) {
+	policy := contentPolicy{inputs: slices.Clone(card.DefaultInputModes), outputs: slices.Clone(card.DefaultOutputModes)}
 	if len(policy.inputs) == 0 {
 		policy.inputs = []string{mediaTypePlainText, mediaTypeJSON}
 	}
-	for _, mode := range policy.inputs {
-		if mode != mediaTypePlainText && mode != mediaTypeJSON {
-			return contentPolicy{}, sdk.ErrUnsupportedContentType
-		}
-	}
-	var schema struct {
-		Type json.RawMessage `json:"type"`
-	}
-	if err := jsonv2.Unmarshal(outputSchema, &schema); err != nil {
-		return contentPolicy{}, err
-	}
-	// An unconstrained or union schema can produce either representation.
-	policy.outputs = []string{mediaTypePlainText, mediaTypeJSON}
-	var kind string
-	if err := jsonv2.Unmarshal(schema.Type, &kind); err == nil && kind != "" {
+	if len(policy.outputs) == 0 {
 		policy.outputs = []string{mediaTypeJSON}
-		if kind == schemaTypeString {
-			policy.outputs = []string{mediaTypePlainText}
-		}
 	}
-	if len(card.DefaultOutputModes) > 0 && !sameModes(policy.outputs, card.DefaultOutputModes) {
-		return contentPolicy{}, sdk.ErrUnsupportedContentType
+	for _, modes := range [][]string{policy.inputs, policy.outputs} {
+		for _, mode := range modes {
+			if mode != mediaTypePlainText && mode != mediaTypeJSON {
+				return contentPolicy{}, sdk.ErrUnsupportedContentType
+			}
+		}
 	}
 	for _, skill := range card.Skills {
 		if len(skill.InputModes) > 0 && !sameModes(skill.InputModes, policy.inputs) || len(skill.OutputModes) > 0 && !sameModes(skill.OutputModes, policy.outputs) {
@@ -156,9 +142,9 @@ func exactData(value any) bool {
 }
 
 func (c contentPolicy) part(raw json.RawMessage) *sdk.Part {
-	var text string
-	if slices.Contains(c.outputs, mediaTypePlainText) && string(raw) != "null" && jsonv2.Unmarshal(raw, &text) == nil {
-		part := sdk.NewTextPart(text)
+	var text *string
+	if slices.Contains(c.outputs, mediaTypePlainText) && jsonv2.Unmarshal(raw, &text) == nil && text != nil {
+		part := sdk.NewTextPart(*text)
 		part.MediaType = mediaTypePlainText
 		return part
 	}

@@ -12,17 +12,16 @@ import (
 // subroot confines relative resource symlinks to their selected skill.
 type rootedFS struct{ root *os.Root }
 
+var _ ResourceFS = rootedFS{}
+
 func (r rootedFS) Open(name string) (fs.File, error) {
-	return r.openInDir(".", name)
+	return r.OpenInDir(".", name)
 }
 
-// confinedResourceFS lets a filesystem anchor resource symlink resolution at
-// the selected skill rather than merely at the repository root.
-type confinedResourceFS interface {
-	openInDir(dir, name string) (fs.File, error)
-}
-
-func (r rootedFS) openInDir(dir, name string) (fs.File, error) {
+func (r rootedFS) OpenInDir(dir, name string) (fs.File, error) {
+	if !fs.ValidPath(dir) || !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
 	sub, err := r.root.OpenRoot(filepath.FromSlash(dir))
 	if err != nil {
 		return nil, err

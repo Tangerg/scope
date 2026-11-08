@@ -1,7 +1,6 @@
 package deepgram
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,11 +12,6 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-// Exported defaults keep constructor behavior visible and overridable.
-const (
-	DefaultMaxResponseBytes = int64(32 * 1024 * 1024)
-)
-
 type SpeechModelConfig struct {
 	APIKey           string
 	DefaultOptions   speech.Options
@@ -26,18 +20,24 @@ type SpeechModelConfig struct {
 	MaxResponseBytes int64
 }
 
+func (s SpeechModelConfig) apiConfig() apiConfig {
+	return apiConfig{
+		APIKey:           s.APIKey,
+		BaseURL:          s.BaseURL,
+		HTTPClient:       s.HTTPClient,
+		MaxResponseBytes: s.MaxResponseBytes,
+	}
+}
+
 func (s SpeechModelConfig) Validate() error {
-	if s.APIKey == "" {
-		return errors.New("deepgram: APIKey is required")
+	if err := s.apiConfig().validate(); err != nil {
+		return err
 	}
 	if s.DefaultOptions.Model == "" {
 		return errors.New("deepgram: DefaultOptions.Model is required")
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
-	}
-	if s.MaxResponseBytes < 0 {
-		return errors.New("deepgram: MaxResponseBytes must not be negative")
 	}
 	return nil
 }
@@ -60,12 +60,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		return nil, err
 	}
 
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:           config.APIKey,
-		BaseURL:          config.BaseURL,
-		HTTPClient:       config.HTTPClient,
-		MaxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
-	})
+	api, err := newAPI(ctx, config.apiConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +203,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		defer body.Close()
 
 		received := false
-		for chunk, err := range readAudioChunks(body) {
+		for chunk, err := range speech.ReadChunks(body) {
 			if err != nil {
 				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return

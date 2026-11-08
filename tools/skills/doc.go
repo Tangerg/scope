@@ -19,5 +19,8 @@
 // fail if one summary plus its cursor cannot fit Config.MaxOutputBytes.
 //
 // Bundled scripts are never executed here; the model runs them with its own
-// shell or file tools.
+// shell or file tools. ResourceOpener is the access boundary: a source must
+// confine every resource to its selected skill, including symlink resolution.
+// For disk bundles, the host supplies an os.Root to skills.NewDirectoryRepository
+// and keeps that root open while the tools are available.
 package skills

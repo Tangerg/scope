@@ -122,7 +122,7 @@ type principalKey struct{}
 func server(t *testing.T, r *run.Runtime, p run.Program[run.Payload, run.Payload]) *httptest.Server {
 	t.Helper()
 	s := httptest.NewUnstartedServer(nil)
-	handler, err := managed.NewHTTPHandler(managed.Config{Runtime: r, Program: p, Service: "test", Card: &sdk.AgentCard{Name: "test", SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("http://"+s.Listener.Addr().String()+"/rpc", sdk.TransportProtocolJSONRPC)}, Capabilities: sdk.AgentCapabilities{Streaming: true}},
+	handler, err := managed.NewHTTPHandler(managed.Config{Runtime: r, Program: p, Service: "test", Card: &sdk.AgentCard{Name: "test", DefaultOutputModes: []string{"text/plain"}, SupportedInterfaces: []*sdk.AgentInterface{sdk.NewAgentInterface("http://"+s.Listener.Addr().String()+"/rpc", sdk.TransportProtocolJSONRPC)}, Capabilities: sdk.AgentCapabilities{Streaming: true}},
 		Authority: func(ctx context.Context, _ string) (string, error) {
 			v, _ := ctx.Value(principalKey{}).(string)
 			return v, nil

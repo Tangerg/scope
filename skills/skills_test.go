@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"testing/fstest"
+
+	"github.com/Tangerg/scope/skills/internal/testfs"
 )
 
 type panicFS struct{}
@@ -33,6 +34,10 @@ func (*panicFS) Open(string) (fs.File, error) {
 	panic("typed-nil filesystem was used")
 }
 
+func (*panicFS) OpenInDir(string, string) (fs.File, error) {
+	panic("typed-nil filesystem was used")
+}
+
 type panicResourceSource struct{}
 
 func (*panicResourceSource) Lookup(context.Context, string) (Summary, error) {
@@ -52,12 +57,12 @@ func (*panicResourceSource) OpenResource(context.Context, string, string) (fs.Fi
 }
 
 type cancelingFS struct {
-	fs.FS
+	ResourceFS
 	cancel context.CancelFunc
 }
 
 func (c cancelingFS) Open(name string) (fs.File, error) {
-	file, err := c.FS.Open(name)
+	file, err := c.ResourceFS.Open(name)
 	c.cancel()
 	return file, err
 }
@@ -68,13 +73,13 @@ type cancelingResourceSource struct {
 }
 
 type failingOpenFS struct {
-	fs.FS
+	ResourceFS
 	path string
 	err  error
 }
 
 type countingFS struct {
-	fs.FS
+	ResourceFS
 	reads      int
 	skillOpens int
 }
@@ -83,7 +88,7 @@ func (c *countingFS) Open(name string) (fs.File, error) {
 	if strings.HasSuffix(name, "/"+SkillFile) {
 		c.skillOpens++
 	}
-	file, err := c.FS.Open(name)
+	file, err := c.ResourceFS.Open(name)
 	if err != nil || name == "." {
 		return file, err
 	}
@@ -105,7 +110,7 @@ func (f failingOpenFS) Open(name string) (fs.File, error) {
 	if name == f.path {
 		return nil, f.err
 	}
-	return f.FS.Open(name)
+	return f.ResourceFS.Open(name)
 }
 
 func (c cancelingResourceSource) OpenResource(ctx context.Context, name, resource string) (fs.File, error) {
@@ -137,7 +142,7 @@ See references/REFERENCE.md for details.
 `
 
 func newTestFS() ResourceSource {
-	return mustNewFS(fstest.MapFS{
+	return mustNewFS(testfs.FS{
 		"pdf-processing/SKILL.md":                {Data: []byte(pdfSkill)},
 		"pdf-processing/references/REFERENCE.md": {Data: []byte("# Reference\nDetailed notes.")},
 		"data-analysis/SKILL.md":                 {Data: []byte("---\nname: data-analysis\ndescription: Analyze data.\n---\nbody")},
@@ -147,7 +152,7 @@ func newTestFS() ResourceSource {
 	})
 }
 
-func mustNewFS(fsys fs.FS) *Repository {
+func mustNewFS(fsys ResourceFS) *Repository {
 	repository, err := NewRepository(fsys, RepositoryConfig{})
 	if err != nil {
 		panic(err)
@@ -211,7 +216,7 @@ func TestUnicodeNamesHaveOneSpelling(t *testing.T) {
 			if err := ValidateName(name); err != nil {
 				t.Fatal(err)
 			}
-			repository := mustNewFS(fstest.MapFS{name + "/SKILL.md": skillFile(name, "Unicode skill", "body")})
+			repository := mustNewFS(testfs.FS{name + "/SKILL.md": skillFile(name, "Unicode skill", "body")})
 			summaries, err := repository.List(t.Context())
 			if err != nil || len(summaries) != 1 || summaries[0].Name != name {
 				t.Fatalf("List = %#v, %v", summaries, err)
@@ -233,7 +238,7 @@ func TestUnicodeNamesHaveOneSpelling(t *testing.T) {
 	if err := ValidateName(strings.Repeat("界", 65)); !errors.Is(err, ErrNameTooLong) {
 		t.Fatalf("65 character name = %v", err)
 	}
-	repository := mustNewFS(fstest.MapFS{
+	repository := mustNewFS(testfs.FS{
 		"abc/SKILL.md": skillFile("abc", "ASCII spelling", "body"),
 		"ａｂｃ/SKILL.md": skillFile("abc", "Fullwidth spelling", "body"),
 	})
@@ -277,7 +282,7 @@ func TestParseFrontmatterBoundaries(t *testing.T) {
 }
 
 func TestRepositoryResourceRequiresValidOwningSkill(t *testing.T) {
-	repository := mustNewFS(fstest.MapFS{
+	repository := mustNewFS(testfs.FS{
 		"broken/SKILL.md":           {Data: []byte("not frontmatter")},
 		"broken/references/note.md": {Data: []byte("must not escape invalid bundle")},
 	})
@@ -287,7 +292,7 @@ func TestRepositoryResourceRequiresValidOwningSkill(t *testing.T) {
 }
 
 func TestRepositoryResourceMustBeRegularFile(t *testing.T) {
-	repository := mustNewFS(fstest.MapFS{
+	repository := mustNewFS(testfs.FS{
 		"safe-skill/SKILL.md":                skillFile("safe-skill", "safe skill", "body"),
 		"safe-skill/references/reference.md": {Data: []byte("reference")},
 	})
@@ -386,7 +391,7 @@ func TestList(t *testing.T) {
 
 func TestListReadsOnlyBoundedFrontmatter(t *testing.T) {
 	document := skillFile("large-skill", "large skill", strings.Repeat("body", 64*1024))
-	filesystem := &countingFS{FS: fstest.MapFS{"large-skill/SKILL.md": document}}
+	filesystem := &countingFS{ResourceFS: testfs.FS{"large-skill/SKILL.md": document}}
 	repository, err := NewRepository(filesystem, RepositoryConfig{MaxFrontmatterBytes: 1024, MaxSkillBytes: int64(len(document.Data))})
 	if err != nil {
 		t.Fatal(err)
@@ -404,7 +409,7 @@ func TestListReadsOnlyBoundedFrontmatter(t *testing.T) {
 }
 
 func TestListSkipsSkillWithOversizedFrontmatterLine(t *testing.T) {
-	filesystem := fstest.MapFS{
+	filesystem := testfs.FS{
 		"oversized/SKILL.md": {Data: []byte("---\nname: oversized\ndescription: " + strings.Repeat("x", 1024) + "\n---\nbody")},
 		"valid/SKILL.md":     skillFile("valid", "valid skill", "body"),
 	}
@@ -422,7 +427,7 @@ func TestListSkipsSkillWithOversizedFrontmatterLine(t *testing.T) {
 }
 
 func TestRepositoryEnforcesEntryAndSkillLimits(t *testing.T) {
-	filesystem := fstest.MapFS{
+	filesystem := testfs.FS{
 		"one/SKILL.md": skillFile("one", "one", "body"),
 		"two/SKILL.md": skillFile("two", "two", "body"),
 	}
@@ -460,7 +465,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestLoadClassifiesInvalidSkillAndPreservesCause(t *testing.T) {
-	source := mustNewFS(fstest.MapFS{
+	source := mustNewFS(testfs.FS{
 		"bad-description/SKILL.md": {Data: []byte("---\nname: bad-description\ndescription:\n---\nbody")},
 		"bad-document/SKILL.md":    {Data: []byte("missing frontmatter")},
 		"mismatch/SKILL.md":        skillFile("another-name", "mismatched name", "body"),
@@ -493,10 +498,10 @@ func TestLoadClassifiesInvalidSkillAndPreservesCause(t *testing.T) {
 
 func TestListReturnsRepositoryReadFailure(t *testing.T) {
 	readErr := errors.New("repository read failed")
-	base := fstest.MapFS{
+	base := testfs.FS{
 		"broken/SKILL.md": skillFile("broken", "broken skill", "body"),
 	}
-	source := mustNewFS(failingOpenFS{FS: base, path: "broken/SKILL.md", err: readErr})
+	source := mustNewFS(failingOpenFS{ResourceFS: base, path: "broken/SKILL.md", err: readErr})
 
 	_, err := source.List(t.Context())
 	if !errors.Is(err, readErr) {
@@ -597,7 +602,7 @@ func TestOperationsHonorCanceledContextBeforeAccess(t *testing.T) {
 }
 
 func TestOperationsHonorCancellationDuringAccess(t *testing.T) {
-	base := fstest.MapFS{
+	base := testfs.FS{
 		"safe-skill/SKILL.md":           skillFile("safe-skill", "safe skill", "body"),
 		"safe-skill/references/note.md": {Data: []byte("note")},
 	}
@@ -620,7 +625,7 @@ func TestOperationsHonorCancellationDuringAccess(t *testing.T) {
 	} {
 		t.Run(operation.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
-			source := mustNewFS(cancelingFS{FS: base, cancel: cancel})
+			source := mustNewFS(cancelingFS{ResourceFS: base, cancel: cancel})
 			if err := operation.call(ctx, source); !errors.Is(err, context.Canceled) {
 				t.Fatalf("error = %v, want context.Canceled", err)
 			}
@@ -722,7 +727,7 @@ func TestNewFSRejectsNilFilesystemWithoutPanicking(t *testing.T) {
 	var typedNil *panicFS
 	tests := []struct {
 		name       string
-		filesystem fs.FS
+		filesystem ResourceFS
 	}{
 		{name: "nil", filesystem: nil},
 		{name: "typed nil", filesystem: typedNil},

@@ -9,11 +9,16 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/core/jsonschema"
 )
+
+const inputSchemaType = "object"
 
 var ErrInvalidDefinition = errors.New("tool: invalid definition")
 
-// Definition describes a tool independently of any model naming or transport convention.
+// Definition is a detached wire snapshot. Validation and executable binding
+// compile the same schema contract, so advertising a tool cannot bypass it.
 type Definition struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description,omitempty"`
@@ -29,27 +34,38 @@ func (d Definition) Clone() Definition {
 }
 
 func (d Definition) Validate() error {
+	_, err := d.compile()
+	return err
+}
+
+func (d Definition) compile() (*contractState, error) {
 	if !d.Effect.Valid() {
-		return fmt.Errorf("%w: unknown effect %q", ErrInvalidDefinition, d.Effect)
+		return nil, fmt.Errorf("%w: unknown effect %q", ErrInvalidDefinition, d.Effect)
 	}
 	if d.Name == "" || !utf8.ValidString(d.Name) || strings.ContainsFunc(d.Name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
-		return fmt.Errorf("%w: tool name must be non-empty UTF-8 without whitespace or control characters", ErrInvalidDefinition)
+		return nil, fmt.Errorf("%w: tool name must be non-empty UTF-8 without whitespace or control characters", ErrInvalidDefinition)
 	}
 	if !utf8.ValidString(d.Description) {
-		return fmt.Errorf("%w: description must be valid UTF-8", ErrInvalidDefinition)
+		return nil, fmt.Errorf("%w: description must be valid UTF-8", ErrInvalidDefinition)
 	}
-	var schema map[string]json.RawMessage
-	if len(d.InputSchema) == 0 {
-		return fmt.Errorf("%w: missing input schema", ErrInvalidDefinition)
+	input, err := jsonschema.Parse(d.InputSchema)
+	if err != nil {
+		return nil, fmt.Errorf("%w: input schema: %w", ErrInvalidDefinition, err)
 	}
-	if err := jsonv2.Unmarshal(d.InputSchema, &schema); err != nil || schema == nil {
-		return fmt.Errorf("%w: input schema must be a JSON object", ErrInvalidDefinition)
+	var root struct {
+		Type string `json:"type"`
 	}
-	var schemaType string
-	if err := jsonv2.Unmarshal(schema["type"], &schemaType); err != nil || schemaType != "object" {
-		return fmt.Errorf("%w: input schema type must be %q", ErrInvalidDefinition, "object")
+	if decodeErr := jsonv2.Unmarshal(input.JSON(), &root); decodeErr != nil || root.Type != inputSchemaType {
+		return nil, fmt.Errorf("%w: input schema type must be %q", ErrInvalidDefinition, inputSchemaType)
 	}
-	return nil
+	var output jsonschema.Schema
+	if d.OutputSchema != nil {
+		output, err = jsonschema.Parse(d.OutputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinition, err)
+		}
+	}
+	return &contractState{name: d.Name, description: d.Description, input: input, output: output, effect: d.Effect}, nil
 }
 
 func (d Definition) MarshalJSON() ([]byte, error) {

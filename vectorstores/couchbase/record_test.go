@@ -16,7 +16,7 @@ import (
 
 func TestStoredRecordRoundTrip(t *testing.T) {
 	for _, facts := range []metadata.Map{nil, {}, {"integer": json.RawMessage(`9007199254740993`), "huge": json.RawMessage(`1e400`), "tiny": json.RawMessage(`1e-400`), "nested": json.RawMessage(`{"items":[1e400]}`), "escaped": json.RawMessage(`"\u0041lice"`)}} {
-		body, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: facts}, []float64{1, 0})
+		body, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: facts}, []float64{1, 0}, vectorPolicy{dimensions: 2, similarity: SimilarityCosine})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -43,7 +43,7 @@ func TestStoredRecordRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		candidate, err := decodeStoredRow(row)
+		candidate, err := decodeStoredRow(row, vectorPolicy{dimensions: 2, similarity: SimilarityCosine})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -70,14 +70,14 @@ func TestStoredRecordRejectsInvalidAndObsoleteFormats(t *testing.T) {
 		`{"id":"key","cas":1,"record":{"content":"text","metadata":"{}","embedding":[1e400,0]}}`,
 		`{"id":"key","cas":1,"record":{"content":"text","embedding":[1,0]}}`,
 	} {
-		if _, err := decodeStoredRow([]byte(raw)); err == nil {
+		if _, err := decodeStoredRow([]byte(raw), vectorPolicy{dimensions: 2, similarity: SimilarityCosine}); err == nil {
 			t.Fatalf("accepted invalid record %s", raw)
 		}
 	}
-	if _, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: metadata.Map{"broken": json.RawMessage(`{`)}}, []float64{1}); err == nil {
+	if _, err := encodeStoredDocument(&document.Document{Text: "text", Metadata: metadata.Map{"broken": json.RawMessage(`{`)}}, []float64{1}, vectorPolicy{dimensions: 1, similarity: SimilarityCosine}); err == nil {
 		t.Fatal("accepted broken metadata")
 	}
-	if _, err := encodeStoredDocument(&document.Document{Text: "text"}, []float64{math.Inf(1)}); err == nil {
+	if _, err := encodeStoredDocument(&document.Document{Text: "text"}, []float64{math.Inf(1)}, vectorPolicy{dimensions: 1, similarity: SimilarityCosine}); err == nil {
 		t.Fatal("accepted non-finite vector")
 	}
 }
@@ -144,7 +144,7 @@ func TestResultOrdering(t *testing.T) {
 }
 
 func TestInvalidStoreCallsDoNotReachDependencies(t *testing.T) {
-	s := &Store{space: "s", dimensions: 2}
+	s := &Store{space: "s", vectors: vectorPolicy{dimensions: 2, similarity: SimilarityCosine}}
 	if err := s.Upsert(t.Context(), &vectorstore.Batch{Space: "s", Records: []vectorstore.Record{{Document: &document.Document{ID: strings.Repeat("x", 251), Text: "text"}, Values: []float64{1, 0}}}}); err == nil {
 		t.Fatal("oversized ID accepted")
 	}
