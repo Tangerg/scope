@@ -12,8 +12,8 @@ github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183 h1:eZzgwNiEk
 github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
 github.com/Tangerg/scope/models/protocol/anthropic v0.60.0 h1:iC6P3jKxCQBH+elshHcmSJMjhz6P93dRYpe/8KTGzjQ=
 github.com/Tangerg/scope/models/protocol/anthropic v0.60.0/go.mod h1:qgiyjtyPyIsgZ5paMGXFw9jRwZaAJh4OWUZZgSHFhlA=
-github.com/Tangerg/scope/models/protocol/openai v0.60.0 h1:9/MGhZ4KlZPv/cV5zXVwGvtobbr57SbZ77foqOrMMkQ=
-github.com/Tangerg/scope/models/protocol/openai v0.60.0/go.mod h1:E+da7F8i88JXVB5XIr2TZF119HTXq7/73YIeutaGOWg=
+github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261106210727-79878fb386da h1:p6PyDGE4MdwGtIaarbcuG18bYbzakbnNuEDOJuHIDaU=
+github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261106210727-79878fb386da/go.mod h1:RdBk0nNgVNkya6tmF2FD6vcI1zSWpebW2Pj52MWhh00=
 github.com/anthropics/anthropic-sdk-go/v2 v2.4.0 h1:r7bwP/ZaCeEbn5zM5vUacHfyD1DUxXbbzWEeCtViBQI=
 github.com/anthropics/anthropic-sdk-go/v2 v2.4.0/go.mod h1:LAOInMKgn6reTIrPvKXa5weyqzxsJkxSBuzhnxzukpQ=
 github.com/aws/aws-sdk-go-v2 v1.47.5 h1:5yA+A+BiXbDq1ZLbYwPViwhEGDMdR0MEhL8Jh2LnLS4=

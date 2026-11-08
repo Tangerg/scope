@@ -186,7 +186,7 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 			err = errors.Join(err, rollbackErr)
 		}
 	}()
-	if _, lockErr := tx.Exec(op, "SELECT pg_advisory_xact_lock(hashtextextended($1,$2))", batch.Root.String(), rootLockSeed); lockErr != nil {
+	if _, lockErr := tx.Exec(op, "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", s.tables.heads, batch.Root.String(), rootLockSeed); lockErr != nil {
 		return lockErr
 	}
 	head, epoch, err := s.head(op, tx, batch.Root)

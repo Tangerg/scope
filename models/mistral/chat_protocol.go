@@ -20,6 +20,15 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+const (
+	reasoningEffortNone    = "none"
+	reasoningEffortMinimal = "minimal"
+	reasoningEffortLow     = "low"
+	reasoningEffortMedium  = "medium"
+	reasoningEffortHigh    = "high"
+	reasoningEffortXHigh   = "xhigh"
+)
+
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
@@ -144,7 +153,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 		}
 		body, err := c.api.chatCompletionStream(ctx, wireRequest)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer body.Close()
@@ -156,7 +165,7 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 		var terminal *corechat.ResponseDelta
 		for event, eventErr := range events.Messages() {
 			if eventErr != nil {
-				yield(nil, fmt.Errorf("mistral: read chat stream: %w", eventErr))
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("mistral: read chat stream: %w", eventErr)})
 				return
 			}
 			data := bytes.TrimSpace(event.Data)
@@ -242,7 +251,7 @@ func (c *Chat) buildRequest(request *corechat.Request, stream bool) (*chatComple
 		return nil, err
 	}
 	switch options.ReasoningEffort {
-	case "", "none", "minimal", "low", "medium", "high", "xhigh":
+	case "", reasoningEffortNone, reasoningEffortMinimal, reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh:
 	default:
 		return nil, fmt.Errorf("mistral: options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
 	}

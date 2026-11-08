@@ -207,7 +207,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 
 	apiResp, err := i.api.image(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return i.buildImageResponse(apiResp, apiReq.OutputFormat)

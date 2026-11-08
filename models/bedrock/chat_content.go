@@ -15,6 +15,25 @@ import (
 	"github.com/Tangerg/scope/core/media"
 )
 
+const (
+	mediaFamilyImage      = "image"
+	mediaFamilyAudio      = "audio"
+	mediaFamilyVideo      = "video"
+	mediaSubtypeJPG       = "jpg"
+	mediaSubtypeXM4A      = "x-m4a"
+	mediaSubtypeQuickTime = "quicktime"
+	mediaSubtype3GPP      = "3gpp"
+	documentMIMEPDF       = "application/pdf"
+	documentMIMECSV       = "text/csv"
+	documentMIMEWord      = "application/msword"
+	documentMIMEWordXML   = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	documentMIMEExcel     = "application/vnd.ms-excel"
+	documentMIMEExcelXML  = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	documentMIMEHTML      = "text/html"
+	documentMIMEText      = "text/plain"
+	documentMIMEMarkdown  = "text/markdown"
+)
+
 var bedrockDocumentNamePattern = regexp.MustCompile(`^[[:alnum:]()\[\]-]+(?: [[:alnum:]()\[\]-]+)*$`)
 
 func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
@@ -31,7 +50,7 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 	}
 
 	switch major {
-	case "image":
+	case mediaFamilyImage:
 		format, ok := bedrockImageFormat(subtype)
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock image MIME %q", value.MIME)
@@ -41,7 +60,7 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 			return nil, err
 		}
 		return &types.ContentBlockMemberImage{Value: types.ImageBlock{Format: format, Source: source}}, nil
-	case "audio":
+	case mediaFamilyAudio:
 		format, ok := bedrockAudioFormat(subtype)
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock audio MIME %q", value.MIME)
@@ -51,7 +70,7 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 			return nil, err
 		}
 		return &types.ContentBlockMemberAudio{Value: types.AudioBlock{Format: format, Source: source}}, nil
-	case "video":
+	case mediaFamilyVideo:
 		format, ok := bedrockVideoFormat(subtype)
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock video MIME %q", value.MIME)
@@ -182,54 +201,54 @@ func bedrockDocumentName(name string) (string, error) {
 }
 
 func bedrockImageFormat(subtype string) (types.ImageFormat, bool) {
-	switch subtype {
-	case "png":
-		return types.ImageFormatPng, true
-	case "jpeg", "jpg":
+	if subtype == mediaSubtypeJPG {
 		return types.ImageFormatJpeg, true
-	case "gif":
-		return types.ImageFormatGif, true
-	case "webp":
-		return types.ImageFormatWebp, true
-	default:
-		return "", false
 	}
+	format := types.ImageFormat(subtype)
+	return format, slices.Contains(format.Values(), format)
 }
 
 func bedrockAudioFormat(subtype string) (types.AudioFormat, bool) {
-	aliases := map[string]types.AudioFormat{
-		"mpeg":  types.AudioFormatMpeg,
-		"mp3":   types.AudioFormatMp3,
-		"x-m4a": types.AudioFormatM4a,
-	}
-	if value, ok := aliases[subtype]; ok {
-		return value, true
+	if subtype == mediaSubtypeXM4A {
+		return types.AudioFormatM4a, true
 	}
 	format := types.AudioFormat(subtype)
 	return format, slices.Contains(format.Values(), format)
 }
 
 func bedrockVideoFormat(subtype string) (types.VideoFormat, bool) {
-	aliases := map[string]types.VideoFormat{"quicktime": types.VideoFormatMov, "3gpp": types.VideoFormatThreeGp}
-	if value, ok := aliases[subtype]; ok {
-		return value, true
+	switch subtype {
+	case mediaSubtypeQuickTime:
+		return types.VideoFormatMov, true
+	case mediaSubtype3GPP:
+		return types.VideoFormatThreeGp, true
+	default:
+		format := types.VideoFormat(subtype)
+		return format, slices.Contains(format.Values(), format)
 	}
-	format := types.VideoFormat(subtype)
-	return format, slices.Contains(format.Values(), format)
 }
 
 func bedrockDocumentFormat(mediaType string) (types.DocumentFormat, bool) {
-	formats := map[string]types.DocumentFormat{
-		"application/pdf":    types.DocumentFormatPdf,
-		"text/csv":           types.DocumentFormatCsv,
-		"application/msword": types.DocumentFormatDoc,
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document": types.DocumentFormatDocx,
-		"application/vnd.ms-excel": types.DocumentFormatXls,
-		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": types.DocumentFormatXlsx,
-		"text/html":     types.DocumentFormatHtml,
-		"text/plain":    types.DocumentFormatTxt,
-		"text/markdown": types.DocumentFormatMd,
+	switch mediaType {
+	case documentMIMEPDF:
+		return types.DocumentFormatPdf, true
+	case documentMIMECSV:
+		return types.DocumentFormatCsv, true
+	case documentMIMEWord:
+		return types.DocumentFormatDoc, true
+	case documentMIMEWordXML:
+		return types.DocumentFormatDocx, true
+	case documentMIMEExcel:
+		return types.DocumentFormatXls, true
+	case documentMIMEExcelXML:
+		return types.DocumentFormatXlsx, true
+	case documentMIMEHTML:
+		return types.DocumentFormatHtml, true
+	case documentMIMEText:
+		return types.DocumentFormatTxt, true
+	case documentMIMEMarkdown:
+		return types.DocumentFormatMd, true
+	default:
+		return "", false
 	}
-	format, ok := formats[mediaType]
-	return format, ok
 }

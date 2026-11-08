@@ -36,7 +36,7 @@ func newDict() Value {
 
 // Embedded CMaps need dictionary lookup but not executable PostScript blocks.
 // Restricting interpretation to this subset keeps all work under the parse grant.
-func Interpret(strm Value, do func(stk *Stack, op string)) {
+func Interpret(strm Value, resources Value, do func(stk *Stack, op string)) {
 	stk := Stack{budget: strm.r.budget}
 	var dicts []dict
 	rd := &contentStream{source: strm}
@@ -55,6 +55,15 @@ Reading:
 		}
 		if kw, ok := tok.(keyword); ok {
 			switch kw {
+			case inlineImageBegin:
+				if stk.Len() != 0 {
+					panic("malformed PDF: inline image BI takes no operands")
+				}
+				image := inlineImage{input: b, resources: resources}
+				image.skip()
+				continue
+			case inlineImageData, inlineImageEnd:
+				panic("malformed PDF: inline image operator outside BI/EI")
 			case "null", "[", "]", "<<", ">>":
 				break
 			case "dict":

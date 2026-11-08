@@ -88,7 +88,7 @@ type conditionRule struct {
 
 var temperateConditionRules = []conditionRule{
 	{
-		func(s conditionSeason) bool { return s.temperature < 0 },
+		func(s conditionSeason) bool { return s.temperature < freezingPointCelsius },
 		[]Condition{ConditionSnowy, ConditionCloudy, ConditionClear, ConditionCold, ConditionFreezing},
 	},
 	{

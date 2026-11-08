@@ -21,15 +21,31 @@ import (
 )
 
 const (
-	DefaultSource       = "https://models.dev/api.json"
-	DefaultLadderSource = "https://catwalk.charm.sh/v2/providers"
-	maximumSourceBytes  = int64(32 * 1024 * 1024)
-	sourceTimeout       = 30 * time.Second
-	statusDeprecated    = "deprecated"
-	tierContext         = "context"
-	providerVertexAI    = "vertexai"
-	monthDateLayout     = "2006-01"
-	generatedFileMode   = 0o644
+	DefaultSource                 = "https://models.dev/api.json"
+	DefaultLadderSource           = "https://catwalk.charm.sh/v2/providers"
+	maximumSourceBytes            = int64(32 * 1024 * 1024)
+	sourceTimeout                 = 30 * time.Second
+	statusDeprecated              = "deprecated"
+	tierContext                   = "context"
+	providerVertexAI              = "vertexai"
+	providerAzureOpenAI           = "azureopenai"
+	providerGoogle                = "google"
+	providerOpenRouter            = "openrouter"
+	providerAlibaba               = "alibaba"
+	modelTypeChat                 = "chat"
+	modelTypeImage                = "image"
+	modelTypeTranscription        = "transcription"
+	azureOpenAILibrary            = "@ai-sdk/azure"
+	googleVertexLibrary           = "@ai-sdk/google-vertex"
+	openAICompatibleLibrary       = "@ai-sdk/openai-compatible"
+	vertexOpenMaaSAPI             = "https://${GOOGLE_VERTEX_ENDPOINT}/v1/projects/${GOOGLE_VERTEX_PROJECT}/locations/${GOOGLE_VERTEX_LOCATION}/endpoints/openapi"
+	vertexLlama4MaverickModelID   = "meta/llama-4-maverick-17b-128e-instruct-maas"
+	googleInteractionsAgentPrefix = "deep-research-"
+	geminiModelPrefix             = "gemini-"
+	qwenASRModelPrefix            = "qwen3-asr-"
+	qwenAudioASRModelPrefix       = "qwen-audio-asr"
+	monthDateLayout               = "2006-01"
+	generatedFileMode             = 0o644
 )
 
 // providerMap maps a models.dev provider id to our config/provider name
@@ -41,22 +57,22 @@ const (
 var providerMap = map[string]string{
 	"anthropic":      "anthropic",
 	"openai":         "openai",
-	"google":         "google",
-	"google-vertex":  "vertexai",
+	"google":         providerGoogle,
+	"google-vertex":  providerVertexAI,
 	"deepseek":       "deepseek",
 	"groq":           "groq",
 	"xai":            "xai",
 	"minimax":        "minimax",
 	"zhipuai":        "zhipu",
-	"alibaba":        "alibaba",
-	"azure":          "azureopenai",
+	"alibaba":        providerAlibaba,
+	"azure":          providerAzureOpenAI,
 	"amazon-bedrock": "bedrock",
 	"fireworks-ai":   "fireworks",
 	"huggingface":    "huggingface",
 	"mistral":        "mistral",
 	"moonshotai":     "moonshot",
 	"ollama-cloud":   "ollama",
-	"openrouter":     "openrouter",
+	"openrouter":     providerOpenRouter,
 	"togetherai":     "together",
 	"xiaomi":         "xiaomi",
 }
@@ -99,16 +115,17 @@ var officialModelIDs = map[string]map[string]string{
 }
 
 type apiModel struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Family           string `json:"family"`
-	Reasoning        bool   `json:"reasoning"`
-	ToolCall         bool   `json:"tool_call"`
-	StructuredOutput bool   `json:"structured_output"`
-	Knowledge        string `json:"knowledge"`
-	ReleaseDate      string `json:"release_date"`
-	LastUpdated      string `json:"last_updated"`
-	Status           string `json:"status"`
+	ID               string           `json:"id"`
+	Type             string           `json:"type"`
+	Name             string           `json:"name"`
+	Provider         apiModelProvider `json:"provider"`
+	Reasoning        bool             `json:"reasoning"`
+	ToolCall         bool             `json:"tool_call"`
+	StructuredOutput bool             `json:"structured_output"`
+	Knowledge        string           `json:"knowledge"`
+	ReleaseDate      string           `json:"release_date"`
+	LastUpdated      string           `json:"last_updated"`
+	Status           string           `json:"status"`
 	Modalities       struct {
 		Input  []string `json:"input"`
 		Output []string `json:"output"`
@@ -121,15 +138,66 @@ type apiModel struct {
 	} `json:"limit"`
 }
 
-func (a apiModel) isChat() bool {
-	lid, fam := strings.ToLower(a.ID), strings.ToLower(a.Family)
-	if strings.Contains(fam, "embed") || strings.Contains(lid, "embed") || strings.Contains(lid, "rerank") {
+func (a apiModel) supportsChat(provider string) bool {
+	if !a.conversationalType(provider) {
 		return false
 	}
 	if len(a.Modalities.Output) > 0 && !slices.Contains(a.Modalities.Output, string(modelcatalog.ModalityText)) {
 		return false
 	}
-	return true
+	if provider == providerGoogle && strings.HasPrefix(a.ID, googleInteractionsAgentPrefix) {
+		return false
+	}
+	// Retired chat identities remain useful for cost attribution. Active rows
+	// must use the protocol exposed by the named Scope adapter, not merely share
+	// a cloud account with it.
+	if a.Status == statusDeprecated {
+		return true
+	}
+	switch provider {
+	case providerAzureOpenAI:
+		switch a.Provider.NPM {
+		case azureOpenAILibrary, openAICompatibleLibrary:
+			return true
+		}
+		return false
+	case providerVertexAI:
+		switch a.Provider.NPM {
+		case googleVertexLibrary:
+			return a.Provider.API == ""
+		case openAICompatibleLibrary:
+			// An OpenAPI surface alone does not establish GenerateContent support.
+			// Google's use-maas guide documents this identity through the Gen AI SDK.
+			return a.Provider.API == vertexOpenMaaSAPI && a.ID == vertexLlama4MaverickModelID
+		default:
+			return false
+		}
+	default:
+		return true
+	}
+}
+
+func (a apiModel) conversationalType(provider string) bool {
+	switch a.Type {
+	case "", modelTypeChat:
+		return true
+	case modelTypeImage:
+		return provider == providerOpenRouter ||
+			(provider == providerGoogle || provider == providerVertexAI) && strings.HasPrefix(a.ID, geminiModelPrefix)
+	case modelTypeTranscription:
+		return provider == providerAlibaba && (strings.HasPrefix(a.ID, qwenASRModelPrefix) || strings.HasPrefix(a.ID, qwenAudioASRModelPrefix))
+	default:
+		return false
+	}
+}
+
+type apiModelProvider struct {
+	NPM string `json:"npm"`
+	API string `json:"api"`
+}
+
+func (a apiModelProvider) withDefaults(defaults apiModelProvider) apiModelProvider {
+	return apiModelProvider{NPM: cmp.Or(a.NPM, defaults.NPM), API: cmp.Or(a.API, defaults.API)}
 }
 
 func (a apiModel) modelInfo(ladder modelcatalog.Reasoning) (modelcatalog.Model, error) {
@@ -239,6 +307,7 @@ type apiTier struct {
 }
 
 type apiProvider struct {
+	apiModelProvider
 	Models map[string]apiModel `json:"models"`
 }
 
@@ -394,7 +463,8 @@ func Generate(ctx context.Context, config Config) error {
 		var models []modelcatalog.Model
 		seen := make(map[string]struct{}, len(sourceProvider.Models))
 		for id, sourceModel := range sourceProvider.Models {
-			if !sourceModel.isChat() {
+			sourceModel.Provider = sourceModel.Provider.withDefaults(sourceProvider.apiModelProvider)
+			if !sourceModel.supportsChat(provider) {
 				continue
 			}
 			if sourceModel.ID != id {

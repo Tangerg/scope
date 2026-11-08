@@ -12,6 +12,7 @@ import (
 // settlement in Trajectory.Log remain its only persisted representation.
 type ModelCall struct {
 	EffectID   run.EffectID                 `json:"effect_id"`
+	Sequence   uint64                       `json:"sequence"`
 	Request    *chat.Request                `json:"request"`
 	Settlement *interaction.ModelSettlement `json:"settlement,omitzero"`
 }
@@ -113,14 +114,14 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 func (c *callProjection) intent(record run.EffectIntent, role effectRole) error {
 	switch role {
 	case effectRoleModel:
-		request, recognized, err := interaction.ModelRequestFromEffect(record.Effect)
+		intent, recognized, err := interaction.ModelCallFromEffect(record.Effect)
 		if err != nil {
 			return fmt.Errorf("%w: model intent %s: %w", ErrInvalidTrajectory, record.ID, err)
 		}
 		if !recognized {
 			return fmt.Errorf("%w: model intent %s has a different protocol", ErrInvalidTrajectory, record.ID)
 		}
-		c.models[record.ID] = ModelCall{EffectID: record.ID, Request: request.Clone()}
+		c.models[record.ID] = ModelCall{EffectID: record.ID, Sequence: intent.Sequence, Request: intent.Request.Clone()}
 	case effectRoleTool:
 		intent, recognized, err := interaction.ToolCallFromEffect(record.Effect)
 		if err != nil {

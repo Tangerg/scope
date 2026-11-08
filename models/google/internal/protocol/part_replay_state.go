@@ -14,6 +14,7 @@ import (
 
 // partReplayState carries only fields without a Core content owner.
 type partReplayState struct {
+	Before             serverToolParts            `json:"before,omitempty"`
 	Thought            *bool                      `json:"thought,omitzero"`
 	PartIndex          *int                       `json:"partIndex,omitzero"`
 	ThoughtSignature   []byte                     `json:"thoughtSignature,omitempty"`
@@ -22,17 +23,19 @@ type partReplayState struct {
 	PartMetadata       map[string]any             `json:"partMetadata,omitempty"`
 	AudioTranscription *genai.Transcription       `json:"audioTranscription,omitzero"`
 	MediaProcessing    genai.MediaProcessing      `json:"mediaProcessing,omitempty"`
+	SpeechMetadata     *genai.SpeechMetadata      `json:"speechMetadata,omitzero"`
 }
 
-func newPartReplayState(part *genai.Part, kind corechat.PartKind, partIndex int) partReplayState {
+func newPartReplayState(part *genai.Part, kind corechat.PartKind, partIndex int, before serverToolParts) partReplayState {
 	state := partReplayState{MediaResolution: part.MediaResolution, VideoMetadata: part.VideoMetadata,
-		PartMetadata: part.PartMetadata, AudioTranscription: part.AudioTranscription, MediaProcessing: part.MediaProcessing}
+		PartMetadata: part.PartMetadata, AudioTranscription: part.AudioTranscription, MediaProcessing: part.MediaProcessing,
+		SpeechMetadata: part.SpeechMetadata, Before: before}
 	if kind == corechat.PartToolCall || kind == corechat.PartMedia || kind == corechat.PartReasoning && part.Text == "" {
 		state.Thought = new(part.Thought)
 	}
-	// Each signature belongs to its original Part. Distinct signed Parts must
-	// stay separate when Core aggregates adjacent text or reasoning chunks.
-	if len(part.ThoughtSignature) != 0 {
+	// Signature and server-tool boundaries must stay separate when Core
+	// aggregates adjacent text or reasoning chunks.
+	if len(part.ThoughtSignature) != 0 || len(before) != 0 {
 		state.PartIndex = new(partIndex)
 	}
 	if kind != corechat.PartReasoning {
@@ -42,9 +45,9 @@ func newPartReplayState(part *genai.Part, kind corechat.PartKind, partIndex int)
 }
 
 func (p partReplayState) hasFields() bool {
-	return p.Thought != nil || p.PartIndex != nil || len(p.ThoughtSignature) != 0 ||
+	return len(p.Before) != 0 || p.Thought != nil || p.PartIndex != nil || len(p.ThoughtSignature) != 0 ||
 		p.MediaResolution != nil || p.VideoMetadata != nil || len(p.PartMetadata) != 0 ||
-		p.AudioTranscription != nil || p.MediaProcessing != ""
+		p.AudioTranscription != nil || p.MediaProcessing != "" || p.SpeechMetadata != nil
 }
 
 func (p partReplayState) apply(part *genai.Part, kind corechat.PartKind) error {
@@ -67,13 +70,14 @@ func (p partReplayState) apply(part *genai.Part, kind corechat.PartKind) error {
 	part.PartMetadata = p.PartMetadata
 	part.AudioTranscription = p.AudioTranscription
 	part.MediaProcessing = p.MediaProcessing
+	part.SpeechMetadata = p.SpeechMetadata
 	return nil
 }
 
 func (p *partReplayState) UnmarshalJSON(data []byte) error {
 	type wirePartReplayState partReplayState
 	var decoded wirePartReplayState
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
+	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true), jsonv2.WithUnmarshalers(jsonv2.UnmarshalFromFunc(unmarshalGenerationNumber))); err != nil {
 		return err
 	}
 	var presence struct {

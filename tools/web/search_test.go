@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -189,15 +190,54 @@ func TestSearchTool_Call_SearcherError(t *testing.T) {
 	}
 }
 
-// Unlike the uncertain upstream error in TestSearchTool_Call_SearcherError, a
-// pre-request provider rejection must reach the model as a definite failure.
-func TestSearchTool_Call_UnsupportedFilterIsDefiniteFailure(t *testing.T) {
-	searcher := &fakeSearcher{err: fmt.Errorf("provider: %w: hourly recency", ErrUnsupportedFilter)}
+func TestSearchToolPreservesProviderFilterAdmission(t *testing.T) {
+	owned, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind: toolcontract.FailureKindFailed, Cause: fmt.Errorf("provider: %w: hourly recency", ErrUnsupportedFilter),
+		Output: toolcontract.NewTextOutput("Use day recency or omit recency."),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	searcher := &fakeSearcher{err: owned}
 	tool, _ := NewSearchTool(searcher)
-	_, err := invokeTestTool(t.Context(), tool, `{"query":"hello","recency":"hour"}`)
+	_, err = invokeTestTool(t.Context(), tool, `{"query":"hello","recency":"hour"}`)
 	failure, ok := toolcontract.ClassifyFailure(err)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFilter) {
-		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFilter", err)
+	if !ok || failure != owned {
+		t.Fatalf("provider-owned filter admission was replaced: %v", err)
+	}
+}
+
+func TestSearchToolPreservesProviderQueryAdmission(t *testing.T) {
+	owned, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind: toolcontract.FailureKindFailed, Cause: fmt.Errorf("provider: %w: final query exceeds native limit", ErrInvalidQuery),
+		Output: toolcontract.NewTextOutput("Shorten the query."),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	searcher := &fakeSearcher{err: owned}
+	search, err := NewSearchTool(searcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = invokeTestTool(t.Context(), search, `{"query":"query"}`)
+	failure, ok := toolcontract.ClassifyFailure(err)
+	if !ok || failure != owned {
+		t.Fatalf("provider-owned query admission was replaced: %v", err)
+	}
+}
+
+func TestSearchToolDoesNotInferOutcomeFromDiagnosticSentinels(t *testing.T) {
+	for _, sentinel := range []error{ErrInvalidQuery, ErrUnsupportedFilter} {
+		cause := errors.Join(sentinel, io.ErrUnexpectedEOF)
+		search, err := NewSearchTool(&fakeSearcher{err: cause})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = search.search(t.Context(), SearchRequest{Query: "scope"})
+		if _, definite := toolcontract.ClassifyFailure(err); definite || !errors.Is(err, cause) {
+			t.Fatalf("diagnostic sentinel established an outcome: %v", err)
+		}
 	}
 }
 

@@ -19,6 +19,13 @@
 // Token estimation: [NewTextCounter] wraps CountTokens for
 // model-specific tokenizer-based counts.
 //
+// Complete GenerateContent requests are prepared through the public SDK with a
+// local capture transport because the SDK has no supported request-only API.
+// Scope performs the real HTTP operation and strict response decoding separately;
+// unsupported backend fields fail before the borrowed transport is called.
+// Original opaque JSON payloads replace only their already-admitted SDK slots to
+// avoid the SDK's float64 intermediate representation losing numeric precision.
+//
 // Gemini's Context Caching API (cheaper repeated prompts) doesn't fit
 // core/chat's request model and is not exposed.
 //

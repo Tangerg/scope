@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -111,7 +112,8 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("perplexity: prepare search request: %w", err)
+		cause := fmt.Errorf("perplexity: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))

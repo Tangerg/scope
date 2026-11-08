@@ -115,6 +115,9 @@ func (e *EmbeddingModel) buildResponse(apiResp *embeddingResponse, req *embeddin
 		if item.Index == nil {
 			return nil, fmt.Errorf("%w: jina: embedding result %d requires index", embedding.ErrInvalidResponse, position)
 		}
+		if *item.Index < 0 || *item.Index >= int64(len(outputs)) {
+			return nil, fmt.Errorf("%w: jina: embedding index %d is outside the input batch", embedding.ErrInvalidResponse, *item.Index)
+		}
 		if err := embedding.PlaceOutput(outputs, int(*item.Index), item.Embedding, nil); err != nil {
 			return nil, fmt.Errorf("jina: embedding response: %w", err)
 		}
@@ -151,7 +154,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	apiResp, err := e.api.embedding(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return e.buildResponse(apiResp, req)

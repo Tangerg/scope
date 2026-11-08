@@ -13,9 +13,12 @@ import (
 	"github.com/Tangerg/scope/core/history"
 )
 
+const cleanupTimeout = 30 * time.Second
+
 // RunAtomic exercises a configured store's append identity and closure boundary.
 // Unlike Run, it performs real I/O. Every check uses a fresh conversation and
 // closes it afterward; the closure and receipt evidence must remain durable.
+
 func RunAtomic(t *testing.T, store history.Store) {
 	t.Helper()
 	t.Run("ConcurrentRetriesAppendExactlyOnce", func(t *testing.T) {
@@ -138,7 +141,7 @@ func atomicConversation(t *testing.T, store history.Clearer) history.Conversatio
 	t.Helper()
 	id := history.ConversationID("conformance-" + rand.Text())
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), cleanupTimeout)
 		defer cancel()
 		if err := store.Clear(ctx, id); err != nil {
 			t.Errorf("close test conversation: %v", err)

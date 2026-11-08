@@ -15,7 +15,12 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-const speechMediaTypePrefix = "audio/"
+const (
+	speechMediaTypePrefix         = "audio/"
+	speechResponseModalitiesField = "responseModalities"
+	speechConfigField             = "speechConfig"
+	speechVoiceConfigField        = "voiceConfig"
+)
 
 type speechBinding struct {
 	api            *api
@@ -53,16 +58,16 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 	if err != nil {
 		return "", nil, nil, err
 	}
-	if _, found := fields["responseModalities"]; found {
-		return "", nil, nil, errors.New("google: speech: responseModalities is owned by the audio capability")
+	if _, found := fields[speechResponseModalitiesField]; found {
+		return "", nil, nil, fmt.Errorf("google: speech: %s is owned by the audio capability", speechResponseModalitiesField)
 	}
-	if raw, found := fields["speechConfig"]; found {
+	if raw, found := fields[speechConfigField]; found {
 		var speechFields map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &speechFields); err != nil {
 			return "", nil, nil, err
 		}
-		if _, found := speechFields["voiceConfig"]; found {
-			return "", nil, nil, errors.New("google: speech: native voiceConfig is owned by Core Voice")
+		if _, found := speechFields[speechVoiceConfigField]; found {
+			return "", nil, nil, fmt.Errorf("google: speech: native %s is owned by Core Voice", speechVoiceConfigField)
 		}
 	}
 	config.ResponseModalities = []string{string(genai.ModalityAudio)}

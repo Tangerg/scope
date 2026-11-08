@@ -28,7 +28,6 @@ import (
 const (
 	Provider                 = "BedrockKnowledgeBase"
 	DefaultMaxResponseBytes  = int64(16 * 1024 * 1024)
-	maximumResults           = 100
 	nativeRequestIDHeader    = "X-Amzn-Requestid"
 	canonicalRequestIDHeader = "Request-Id"
 
@@ -66,7 +65,7 @@ func New(ctx context.Context, config Config) (*Retriever, error) {
 	}
 	store := &Retriever{
 		endpoint: strings.TrimRight(config.Endpoint, "/"), httpClient: ownedHTTP, knowledgeBaseID: config.KnowledgeBaseID, userID: config.UserID,
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes), configuration: configuration, pageLimit: cmp.Or(config.PageLimit, 8),
+		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes), configuration: configuration, pageLimit: cmp.Or(config.PageLimit, DefaultPageLimit),
 	}
 	return store, nil
 }

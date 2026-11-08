@@ -22,8 +22,10 @@ const (
 	nativeCosineMaximum = 1.0
 	cosineScoreOffset   = 2.0
 
-	minimumIndexNameLength = 2
-	maximumIndexNameLength = 128
+	minimumIndexNameLength   = 2
+	maximumIndexNameLength   = 128
+	maximumFieldNameLength   = 128
+	maximumDocumentKeyLength = 1024
 )
 
 func (n nativeMetric) valid() bool {
@@ -157,7 +159,7 @@ func validIndexName(name string) bool {
 }
 
 func validFieldName(name string) bool {
-	if len(name) == 0 || len(name) > 128 || strings.HasPrefix(name, "azureSearch") {
+	if len(name) == 0 || len(name) > maximumFieldNameLength || strings.HasPrefix(name, "azureSearch") {
 		return false
 	}
 	for i, character := range []byte(name) {
@@ -170,7 +172,7 @@ func validFieldName(name string) bool {
 }
 
 func validateID(id string) error {
-	if len(id) == 0 || len(id) > 1024 || id[0] == '_' {
+	if len(id) == 0 || len(id) > maximumDocumentKeyLength || id[0] == '_' {
 		return fmt.Errorf("azureaisearch: %w: unsupported native document key %q", vectorstore.ErrInvalidDocument, id)
 	}
 	for _, character := range []byte(id) {

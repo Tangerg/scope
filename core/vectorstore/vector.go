@@ -75,15 +75,13 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	if err := r.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
-	type wire Record
-	return jsonv2.Marshal(wire(r))
+	return jsonv2.Marshal(wireRecord(r))
 }
 func (r *Record) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return ErrInvalidRequest
 	}
-	type wire Record
-	var decoded wire
+	var decoded wireRecord
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
@@ -178,15 +176,13 @@ func (b Batch) MarshalJSON() ([]byte, error) {
 	if err := b.ValidateFor(b.Space); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
-	type wire Batch
-	return jsonv2.Marshal(wire(b))
+	return jsonv2.Marshal(wireBatch(b))
 }
 func (b *Batch) UnmarshalJSON(data []byte) error {
 	if b == nil {
 		return ErrInvalidRequest
 	}
-	type wire Batch
-	var decoded wire
+	var decoded wireBatch
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
@@ -202,15 +198,13 @@ func (q Query) MarshalJSON() ([]byte, error) {
 	if err := q.ValidateFor(q.Space); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
-	type wire Query
-	return jsonv2.Marshal(wire(q))
+	return jsonv2.Marshal(wireQuery(q))
 }
 func (q *Query) UnmarshalJSON(data []byte) error {
 	if q == nil {
 		return ErrInvalidRequest
 	}
-	type wire Query
-	var decoded wire
+	var decoded wireQuery
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidRequest, err)
 	}
@@ -221,3 +215,15 @@ func (q *Query) UnmarshalJSON(data []byte) error {
 	*q = candidate
 	return nil
 }
+
+type wireRecord Record
+
+func (Record) JSONSchemaModel() any { return wireRecord{} }
+
+type wireBatch Batch
+
+func (Batch) JSONSchemaModel() any { return wireBatch{} }
+
+type wireQuery Query
+
+func (Query) JSONSchemaModel() any { return wireQuery{} }

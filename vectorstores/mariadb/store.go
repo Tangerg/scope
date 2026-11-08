@@ -306,38 +306,43 @@ func (s *Store) createTableStatement() string {
 			%s TEXT,
 			%s JSON,
 			%s VECTOR(%d) NOT NULL
-		) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COMMENT='%s'`,
+		) ENGINE=InnoDB DEFAULT CHARACTER SET %s COMMENT='%s'`,
 		s.fullTable,
 		s.idColumn, documentIDBytes,
 		s.contentColumn,
 		s.metadataColumn,
-		s.embeddingColumn, s.dimensions, s.space.StorageKey(),
+		s.embeddingColumn, s.dimensions, nativeTextCharset, s.space.StorageKey(),
 	)
 }
 
 func (s *Store) binding(ctx context.Context) (nativeBinding, error) {
-	var marker, shape, contentType, contentCharset string
-	var contentBytes int64
-	const query = `SELECT t.TABLE_COMMENT, v.COLUMN_TYPE, c.DATA_TYPE, c.CHARACTER_SET_NAME, c.CHARACTER_OCTET_LENGTH
+	var marker, shape string
+	binding := nativeBinding{content: nativeTextColumn{name: s.contentColumn}, metadata: nativeTextColumn{name: s.metadataColumn}}
+	const query = `SELECT t.TABLE_COMMENT, v.COLUMN_TYPE,
+c.DATA_TYPE, c.CHARACTER_SET_NAME, c.CHARACTER_OCTET_LENGTH,
+m.DATA_TYPE, m.CHARACTER_SET_NAME, m.CHARACTER_OCTET_LENGTH
 FROM information_schema.TABLES t
 JOIN information_schema.COLUMNS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME
 JOIN information_schema.COLUMNS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
+JOIN information_schema.COLUMNS m ON m.TABLE_SCHEMA = t.TABLE_SCHEMA AND m.TABLE_NAME = t.TABLE_NAME
 WHERE t.TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND t.TABLE_NAME = ?
-AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ?`
-	err := s.db.QueryRowContext(ctx, query, s.schemaName, s.tableName, s.embeddingColumn, s.contentColumn).Scan(&marker, &shape, &contentType, &contentCharset, &contentBytes)
+AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ? AND m.COLUMN_NAME = ?`
+	err := s.db.QueryRowContext(ctx, query, s.schemaName, s.tableName, s.embeddingColumn, s.contentColumn, s.metadataColumn).Scan(
+		&marker, &shape,
+		&binding.content.dataType, &binding.content.charset, &binding.content.maxBytes,
+		&binding.metadata.dataType, &binding.metadata.charset, &binding.metadata.maxBytes,
+	)
 	if err != nil {
 		return nativeBinding{}, err
 	}
 	if marker != s.space.StorageKey() {
 		return nativeBinding{}, vectorstore.ErrIncompatibleSpace
 	}
-	switch contentType {
-	case "tinytext", "text", "mediumtext", "longtext":
-	default:
-		return nativeBinding{}, errors.New("mariadb: content column must use a native TEXT type")
+	if err = binding.content.validate(); err != nil {
+		return nativeBinding{}, err
 	}
-	if contentCharset != "utf8mb4" || contentBytes <= 0 {
-		return nativeBinding{}, errors.New("mariadb: content column requires utf8mb4 and a positive native byte capacity")
+	if err = binding.metadata.validate(); err != nil {
+		return nativeBinding{}, err
 	}
 	width, ok := strings.CutPrefix(strings.ToLower(shape), "vector(")
 	if !ok {
@@ -351,7 +356,8 @@ AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ?`
 	if err != nil || dim <= 0 {
 		return nativeBinding{}, errors.New("mariadb: invalid native vector width")
 	}
-	return nativeBinding{dimensions: dim, contentBytes: contentBytes}, nil
+	binding.dimensions = dim
+	return binding, nil
 }
 
 func (s *Store) checkDocument(d *document.Document) error {
@@ -377,7 +383,10 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 		return err
 	}
 	for _, d := range docs {
-		if err := binding.checkContent(d.Text); err != nil {
+		if err := binding.content.checkBytes(len(d.Text)); err != nil {
+			return err
+		}
+		if _, err := binding.encodeMetadata(d); err != nil {
 			return err
 		}
 	}
@@ -403,11 +412,11 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	ids := make([]string, len(args))
 	for i, r := range batch.Records {
 		doc := r.Document
-		if contentErr := binding.checkContent(doc.Text); contentErr != nil {
+		if contentErr := binding.content.checkBytes(len(doc.Text)); contentErr != nil {
 			return contentErr
 		}
 		ids[i] = doc.ID
-		metaJSON, encodeErr := doc.MarshalStoredMetadata()
+		metaJSON, encodeErr := binding.encodeMetadata(doc)
 		if encodeErr != nil {
 			return encodeErr
 		}

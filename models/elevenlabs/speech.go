@@ -14,6 +14,15 @@ import (
 )
 
 const (
+	speechFieldText          = "text"
+	speechFieldModelID       = "model_id"
+	speechFieldVoiceID       = "voice_id"
+	speechFieldOutputFormat  = "output_format"
+	speechFieldVoiceSettings = "voice_settings"
+	voiceSettingsFieldSpeed  = "speed"
+)
+
+const (
 	characterCostHeader                 = "character-cost"
 	contentTypeHeader                   = "Content-Type"
 	requestIDHeader                     = "request-id"
@@ -107,13 +116,13 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 	if err != nil {
 		return "", "", nil, err
 	}
-	for _, field := range []string{"text", "model_id", "voice_id", "output_format"} {
+	for _, field := range []string{speechFieldText, speechFieldModelID, speechFieldVoiceID, speechFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
 			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
 		}
 	}
-	if settings, ok := nativeFields["voice_settings"].(map[string]any); ok {
-		if _, exists := settings["speed"]; exists {
+	if settings, ok := nativeFields[speechFieldVoiceSettings].(map[string]any); ok {
+		if _, exists := settings[voiceSettingsFieldSpeed]; exists {
 			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed is owned by Core", SpeechRequestExtensionKey)
 		}
 	}
@@ -221,7 +230,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 
 		body_, hdr, err := s.api.textToSpeechStream(ctx, voiceID, outputFormat, body)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer body_.Close()
@@ -229,7 +238,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		received := false
 		for chunk, err := range readAudioChunks(body_) {
 			if err != nil {
-				yield(nil, err)
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return
 			}
 

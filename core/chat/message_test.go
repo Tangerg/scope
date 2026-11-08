@@ -97,6 +97,10 @@ func TestMessageValidateRejectsInvalidValues(t *testing.T) {
 	}{
 		{name: "unknown role", msg: chat.Message{Role: "future", Parts: []chat.Part{chat.NewTextPart("x")}}},
 		{name: "no parts", msg: chat.Message{Role: chat.RoleUser}},
+		{name: "empty assistant", msg: chat.Message{Role: chat.RoleAssistant}},
+		{name: "user metadata only", msg: chat.Message{Role: chat.RoleUser, Metadata: metadata.Map{"native": json.RawMessage(`{}`)}}},
+		{name: "system metadata only", msg: chat.Message{Role: chat.RoleSystem, Metadata: metadata.Map{"native": json.RawMessage(`{}`)}}},
+		{name: "tool metadata only", msg: chat.Message{Role: chat.RoleTool, Metadata: metadata.Map{"native": json.RawMessage(`{}`)}}},
 		{name: "system media", msg: chat.Message{Role: chat.RoleSystem, Parts: []chat.Part{chat.NewMediaPart(mustImage(t))}}},
 		{name: "user reasoning", msg: chat.Message{Role: chat.RoleUser, Parts: []chat.Part{chat.NewReasoningPart("why", nil)}}},
 		{name: "assistant tool result", msg: chat.Message{Role: chat.RoleAssistant, Parts: []chat.Part{chat.NewToolResultPart(validToolResult())}}},
@@ -118,6 +122,25 @@ func TestMessageValidateRecursesIntoMetadata(t *testing.T) {
 	msg.Metadata = metadata.Map{"bad": json.RawMessage(`{`)}
 	if err := msg.Validate(); !errors.Is(err, metadata.ErrInvalidValue) || !errors.Is(err, chat.ErrInvalidMessage) {
 		t.Fatalf("Validate error = %v, want metadata and message errors", err)
+	}
+}
+
+func TestMessagePreservesMetadataOnlyAssistant(t *testing.T) {
+	message := chat.Message{Role: chat.RoleAssistant, Metadata: metadata.Map{"native": json.RawMessage(`{"replay":[{"id":"server-call"}]}`)}}
+	encoded, err := jsonv2.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded chat.Message
+	if err := jsonv2.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Role != message.Role || len(decoded.Parts) != 0 || !reflect.DeepEqual(decoded.Metadata, message.Metadata) {
+		t.Fatalf("metadata-only assistant changed: %#v", decoded)
+	}
+	message.Metadata["native"] = json.RawMessage(`{`)
+	if err := message.Validate(); !errors.Is(err, metadata.ErrInvalidValue) {
+		t.Fatalf("invalid replay metadata accepted: %v", err)
 	}
 }
 

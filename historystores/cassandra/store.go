@@ -3,7 +3,6 @@ package cassandra
 import (
 	"cmp"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -319,12 +318,9 @@ func decodeRecords(records []appendRecord, through int64) ([]chat.Message, error
 		if record.sequence > through {
 			break
 		}
-		var batch []chat.Message
-		if err := jsonv2.Unmarshal([]byte(record.messages), &batch); err != nil {
+		batch, err := history.DecodeMessages([]byte(record.messages))
+		if err != nil {
 			return nil, fmt.Errorf("cassandra: decode append: %w", err)
-		}
-		if len(batch) == 0 {
-			return nil, errors.New("cassandra: stored append is empty")
 		}
 		messages = append(messages, batch...)
 	}

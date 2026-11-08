@@ -38,8 +38,8 @@ func (s StoreConfig) Validate() error {
 	if s.Container == nil {
 		return errors.New("azurecosmos: Container is required")
 	}
-	if s.PartitionKey == "" || !utf8.ValidString(s.PartitionKey) || len(s.PartitionKey) > 2048 {
-		return errors.New("azurecosmos: PartitionKey must contain 1 to 2048 valid UTF-8 bytes")
+	if s.PartitionKey == "" || !utf8.ValidString(s.PartitionKey) || len(s.PartitionKey) > partitionKeyV2MaxBytes {
+		return fmt.Errorf("azurecosmos: PartitionKey must contain 1 to %d valid UTF-8 bytes", partitionKeyV2MaxBytes)
 	}
 	return s.Space.Validate()
 }

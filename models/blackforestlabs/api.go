@@ -11,19 +11,22 @@ import (
 	"net/url"
 
 	"github.com/go-resty/resty/v2"
-	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const maximumDownloadRedirects = 10
-
-const defaultMaxOutputBytes = 32 << 20
+const (
+	defaultMaxOutputBytes = 32 << 20
+	headerAPIKey          = "x-key"
+	headerContentType     = "Content-Type"
+	mediaTypeJSON         = "application/json"
+)
 
 type apiConfig struct {
-	APIKey     string
-	BaseURL    string
-	HTTPClient *http.Client
+	APIKey        string
+	BaseURL       string
+	HTTPClient    *http.Client
+	OutputOrigins []string
 }
 
 func (a apiConfig) validate() error {
@@ -36,7 +39,8 @@ func (a apiConfig) validate() error {
 type api struct {
 	http     *resty.Client
 	download *resty.Client
-	urls     providerURLPolicy
+	polling  pollingURLPolicy
+	outputs  outputURLPolicy
 	client   http.Client
 	apiKey   string
 }
@@ -54,7 +58,11 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL: %w", err)
 	}
-	adapter := &api{urls: providerURLPolicy{configuredOrigin: origin}, apiKey: config.APIKey}
+	outputs, err := newOutputURLPolicy(ctx, config.OutputOrigins)
+	if err != nil {
+		return nil, err
+	}
+	adapter := &api{polling: pollingURLPolicy{configuredOrigin: origin}, outputs: outputs, apiKey: config.APIKey}
 	if config.HTTPClient != nil {
 		adapter.client = *config.HTTPClient
 	}
@@ -62,7 +70,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	adapter.download = resty.NewWithClient(adapter.downloadHTTPClient()).SetResponseBodyLimit(defaultMaxOutputBytes)
+	adapter.download = resty.NewWithClient(outputs.client(&adapter.client)).SetResponseBodyLimit(defaultMaxOutputBytes)
 	return adapter, nil
 }
 
@@ -78,35 +86,8 @@ func (a *api) credentialedClient(ctx context.Context, endpoint string) (*resty.C
 		SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
 		SetBaseURL(endpoint).
-		SetHeader("x-key", a.apiKey).
-		SetHeader("Content-Type", "application/json"), nil
-}
-
-func (a *api) downloadHTTPClient() *http.Client {
-	client := a.client
-	transport := client.Transport
-	if lo.IsNil(transport) {
-		transport = http.DefaultTransport
-	}
-	client.Transport = &downloadTransport{next: transport, urls: a.urls}
-	previous := client.CheckRedirect
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if previous != nil {
-			if err := previous(request, via); err != nil {
-				return err
-			}
-		} else if len(via) >= maximumDownloadRedirects {
-			return fmt.Errorf("blackforestlabs: stopped after %d redirects", maximumDownloadRedirects)
-		}
-		if err := a.urls.validateRequest(request); err != nil {
-			return err
-		}
-		if len(via) > 0 && via[len(via)-1].URL.Scheme == providerSchemeHTTPS && request.URL.Scheme != providerSchemeHTTPS {
-			return errors.New("blackforestlabs: HTTPS redirect downgrade is forbidden")
-		}
-		return nil
-	}
-	return &client
+		SetHeader(headerAPIKey, a.apiKey).
+		SetHeader(headerContentType, mediaTypeJSON), nil
 }
 
 // GenerateRequest is the union of fields the various Flux endpoints
@@ -180,10 +161,10 @@ type pollResult struct {
 	Details  map[string]json.RawMessage `json:"details,omitempty"`
 	Preview  map[string]json.RawMessage `json:"preview,omitempty"`
 	Result   struct {
-		Sample   string `json:"sample"`
-		Prompt   string `json:"prompt"`
-		Seed     *int64 `json:"seed,omitzero"`
-		Duration *int64 `json:"duration,omitzero"`
+		Sample   string              `json:"sample"`
+		Prompt   string              `json:"prompt"`
+		Seed     *int64              `json:"seed,omitzero"`
+		Duration *generationDuration `json:"duration,omitzero"`
 	} `json:"result"`
 }
 
@@ -206,7 +187,7 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 // getResult fetches the current task state through the exact polling URL
 // returned by the generation endpoint.
 func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, error) {
-	endpoint, err := a.urls.parse(ctx, pollingURL)
+	endpoint, err := a.polling.parse(ctx, pollingURL)
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid polling URL: %w", err)
 	}
@@ -228,7 +209,7 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 // downloadOutput retrieves a short-lived BFL delivery URL without forwarding
 // the x-key credential to the delivery host.
 func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, string, error) {
-	endpoint, err := a.urls.parse(ctx, outputURL)
+	endpoint, err := a.outputs.parse(ctx, outputURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("blackforestlabs: invalid output URL: %w", err)
 	}
@@ -242,5 +223,5 @@ func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, str
 	if len(response.Body()) == 0 {
 		return nil, "", errors.New("blackforestlabs: download output returned an empty body")
 	}
-	return response.Body(), response.Header().Get("Content-Type"), nil
+	return response.Body(), response.Header().Get(headerContentType), nil
 }

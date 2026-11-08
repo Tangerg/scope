@@ -1,31 +1,17 @@
 package neo4j
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 
 	"github.com/neo4j/neo4j-go-driver/v6/neo4j"
-
-	"github.com/Tangerg/scope/core/chat"
 )
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validIdentifier(value string) bool { return identifierPattern.MatchString(value) }
-
-func decodeMessages(raw []byte) ([]chat.Message, error) {
-	var messages []chat.Message
-	if err := jsonv2.Unmarshal(raw, &messages); err != nil {
-		return nil, err
-	}
-	if len(messages) == 0 {
-		return nil, errors.New("stored append has no messages")
-	}
-	return messages, nil
-}
 
 func recordStrings(record *neo4j.Record, key string) ([]string, error) {
 	value, found := record.Get(key)

@@ -54,7 +54,8 @@ func (m Model) Validate() error {
 	return m.Limits.Validate()
 }
 
-// Reasoning describes extended-thinking support.
+// An absent ladder cannot reject effort controls: the native adapter owns
+// request admission, while these fields only project known source metadata.
 type Reasoning struct {
 	Supported    bool     `json:"supported,omitzero"`
 	Levels       []string `json:"levels,omitempty"`

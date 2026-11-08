@@ -126,7 +126,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 		}
 		stream, err := r.api.responseNewStream(ctx, params)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer stream.Close()
@@ -167,7 +167,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 			}
 		}
 		if streamErr := stream.Err(); streamErr != nil {
-			yield(nil, r.api.wrapError(streamErr))
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: r.api.wrapError(streamErr)})
 			return
 		}
 		if terminal == nil {

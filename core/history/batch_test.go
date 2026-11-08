@@ -11,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/history"
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -86,6 +87,48 @@ func TestBatchPreservesToolArgumentText(t *testing.T) {
 	malformed := mustBatch(t, "conversation", "malformed", message)
 	if got := malformed.Messages()[0].Parts[0].ToolCall.Arguments; got != message.Parts[0].ToolCall.Arguments {
 		t.Fatalf("untrusted proposal changed: %q", got)
+	}
+}
+
+func TestDecodeMessagesAdmitsOnlyCompletePayloads(t *testing.T) {
+	batch := mustBatch(t, "conversation", "append", chat.NewUserMessage(chat.NewTextPart("question")))
+	messages, err := history.DecodeMessages(batch.EncodedMessages())
+	if err != nil || !reflect.DeepEqual(messages, batch.Messages()) {
+		t.Fatalf("decoded messages = %#v, error = %v", messages, err)
+	}
+	for _, malformed := range []string{
+		``, `null`, `[]`, `{}`, `[{}]`, `[{"role":"unknown","parts":[]}]`,
+		`[{"role":"user","parts":[{"kind":"text","text":"question"}],"unknown":true}]`,
+		string(batch.EncodedMessages()) + ` []`,
+		string(batch.EncodedMessages()[:len(batch.EncodedMessages())-1]),
+	} {
+		if decoded, err := history.DecodeMessages([]byte(malformed)); !errors.Is(err, history.ErrInvalidBatch) || decoded != nil {
+			t.Fatalf("DecodeMessages(%q) = %#v, %v", malformed, decoded, err)
+		}
+	}
+}
+
+func TestBatchSchemaDescribesItsTypedWire(t *testing.T) {
+	schema, err := jsonschema.For[history.Batch]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := mustBatch(t, "conversation", "append", chat.NewUserMessage(chat.NewTextPart("question")))
+	encoded, err := jsonv2.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(encoded); err != nil {
+		t.Fatalf("schema rejected encoded batch %s: %v", encoded, err)
+	}
+	for _, malformed := range []string{
+		`{"conversation_id":"conversation","id":"append","messages":"encoded"}`,
+		`{"conversation_id":"conversation","id":"append","messages":[{"role":"user","parts":"encoded"}]}`,
+		`{"conversation_id":"conversation","id":"append","messages":[{"role":"user","parts":[],"unexpected":true}]}`,
+	} {
+		if err := schema.Validate([]byte(malformed)); !errors.Is(err, jsonschema.ErrValidation) {
+			t.Fatalf("schema accepted malformed message shape %s: %v", malformed, err)
+		}
 	}
 }
 

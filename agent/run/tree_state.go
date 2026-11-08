@@ -49,7 +49,7 @@ func (t *treeState) apply(entry Entry) error {
 // countUsage returns the owner a record charges and its usage after the charge.
 // Transitions read the usage before the record, so the charge lands after them.
 func (t *treeState) countUsage(record Record) (*processState, Usage, error) {
-	owner, increment := recordUsage(record)
+	owner, increment := UsageFromRecord(record)
 	if !owner.Valid() {
 		return nil, Usage{}, nil
 	}

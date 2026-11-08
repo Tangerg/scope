@@ -49,7 +49,6 @@ func (o Output) MarshalJSON() ([]byte, error) {
 	if err := (&o).Validate(); err != nil {
 		return nil, err
 	}
-	type wireOutput Output
 	return jsonv2.Marshal(wireOutput(o))
 }
 
@@ -57,7 +56,6 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	if o == nil {
 		return fmt.Errorf("%w: output receiver is nil", ErrInvalidResponse)
 	}
-	type wireOutput Output
 	var decoded wireOutput
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode output: %w", ErrInvalidResponse, err)
@@ -93,7 +91,6 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 	if err := (&r).validate(); err != nil {
 		return nil, err
 	}
-	type wireResponseMetadata ResponseMetadata
 	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
@@ -101,7 +98,6 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: response metadata receiver is nil", ErrInvalidResponse)
 	}
-	type wireResponseMetadata ResponseMetadata
 	var decoded wireResponseMetadata
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response metadata: %w", ErrInvalidResponse, err)
@@ -158,7 +154,6 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireResponse Response
 	return jsonv2.Marshal(wireResponse(r))
 }
 
@@ -166,7 +161,6 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: response receiver is nil", ErrInvalidResponse)
 	}
-	type wireResponse Response
 	var decoded wireResponse
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response: %w", ErrInvalidResponse, err)
@@ -178,3 +172,15 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	*r = candidate
 	return nil
 }
+
+type wireOutput Output
+
+func (Output) JSONSchemaModel() any { return wireOutput{} }
+
+type wireResponseMetadata ResponseMetadata
+
+func (ResponseMetadata) JSONSchemaModel() any { return wireResponseMetadata{} }
+
+type wireResponse Response
+
+func (Response) JSONSchemaModel() any { return wireResponse{} }

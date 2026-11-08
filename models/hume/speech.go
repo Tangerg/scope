@@ -79,7 +79,7 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 	}
 	apiResp, err := s.binding.api.tts(ctx, body)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	return s.buildResponse(apiResp, body.Version)
 }

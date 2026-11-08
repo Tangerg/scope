@@ -13,7 +13,10 @@ import (
 	"go.yaml.in/yaml/v4"
 )
 
-const frontmatterFence = "---"
+const (
+	frontmatterFence           = "---"
+	frontmatterReadBufferBytes = 4096
+)
 
 // Skill contains metadata and instructions. ResourceSource opens bundled files
 // on demand; loading a skill does not read its resources.
@@ -52,7 +55,7 @@ func parseSkill(header, body []byte) (*Skill, error) {
 func readFrontmatter(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, int64, error) {
 	limited := io.LimitReader(contextReader{ctx: ctx, reader: reader}, maxBytes+1)
 	input := &frontmatterReader{reader: limited}
-	buffered := bufio.NewReaderSize(input, int(min(maxBytes+1, 4096)))
+	buffered := bufio.NewReaderSize(input, int(min(maxBytes+1, frontmatterReadBufferBytes)))
 
 	var metadata bytes.Buffer
 	var bytesRead int64

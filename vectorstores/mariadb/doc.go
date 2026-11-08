@@ -3,9 +3,10 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
-// Content requires a utf8mb4 TEXT-family column. CheckDocuments and Upsert read
-// its actual byte capacity and reject the complete batch before writes; the
-// default TEXT schema permits at most 65,535 UTF-8 bytes per document.
+// Content and metadata require utf8mb4 TEXT-family columns; MariaDB's JSON alias
+// is LONGTEXT. CheckDocuments and Upsert read both native byte capacities and
+// reject the complete batch before writes, including JSON encoding expansion
+// and stored provenance. The default content TEXT permits 65,535 UTF-8 bytes.
 // Write and query coordinates must have a finite squared norm accumulated in
 // float32, as required by MariaDB's native VECTOR type. Cosine additionally
 // requires a positive norm because zero and squared-norm underflow make its

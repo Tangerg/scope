@@ -214,7 +214,7 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 		if err != nil {
 			return nil, fmt.Errorf("neo4j: read: append %d has no messages: %w", index, err)
 		}
-		batchMessages, err := decodeMessages([]byte(raw))
+		batchMessages, err := history.DecodeMessages([]byte(raw))
 		if err != nil {
 			return nil, fmt.Errorf("neo4j: read: append %d: %w", index, err)
 		}

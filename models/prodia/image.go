@@ -118,7 +118,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	}
 	body, hdr, err := i.api.job(ctx, apiReq, accept)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	mimeType := hdr.Get(headerContentType)

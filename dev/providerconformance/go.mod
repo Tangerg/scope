@@ -22,6 +22,7 @@ require (
 	github.com/Tangerg/scope/models/openai v0.60.0
 	github.com/Tangerg/scope/models/openrouter v0.60.0
 	github.com/Tangerg/scope/models/prodia v0.60.0
+	github.com/Tangerg/scope/models/protocol/openai v0.60.0
 	github.com/Tangerg/scope/models/replicate v0.60.0
 	github.com/Tangerg/scope/models/revai v0.60.0
 	github.com/Tangerg/scope/models/stability v0.60.0
@@ -36,7 +37,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
 	github.com/Tangerg/scope/models/protocol/anthropic v0.60.0 // indirect
-	github.com/Tangerg/scope/models/protocol/openai v0.60.0 // indirect
 	github.com/Tangerg/sse v0.0.6 // indirect
 	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.5 // indirect

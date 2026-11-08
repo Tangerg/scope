@@ -62,29 +62,34 @@ func NewBatch(conversationID ConversationID, id AppendID, messages ...chat.Messa
 	if err := id.Validate(); err != nil {
 		return Batch{}, fmt.Errorf("%w: %w", ErrInvalidBatch, err)
 	}
-	if len(messages) == 0 {
-		return Batch{}, fmt.Errorf("%w: messages must not be empty", ErrInvalidBatch)
-	}
-	for index := range messages {
-		if err := messages[index].Validate(); err != nil {
-			return Batch{}, fmt.Errorf("%w: messages[%d]: %w", ErrInvalidBatch, index, err)
-		}
-	}
 	encoded, err := jsonv2.Marshal(messages, jsonv2.Deterministic(true))
 	if err != nil {
 		return Batch{}, fmt.Errorf("%w: encode messages: %w", ErrInvalidBatch, err)
 	}
 	canonical := jsontext.Value(encoded)
-	if err := canonical.Format(jsontext.ReorderRawObjects(true)); err != nil {
+	if err = canonical.Format(jsontext.ReorderRawObjects(true)); err != nil {
 		return Batch{}, fmt.Errorf("%w: canonical messages: %w", ErrInvalidBatch, err)
 	}
 	encoded = canonical
-	var snapshot historyMessages
-	if err := jsonv2.Unmarshal(encoded, &snapshot); err != nil {
-		return Batch{}, fmt.Errorf("%w: decode frozen messages: %w", ErrInvalidBatch, err)
+	snapshot, err := DecodeMessages(encoded)
+	if err != nil {
+		return Batch{}, err
 	}
 	digest := sha256.Sum256(encoded)
 	return Batch{conversationID: conversationID, id: id, messages: snapshot, encoded: encoded, digest: hex.EncodeToString(digest[:])}, nil
+}
+
+// DecodeMessages admits complete stored append payloads through the same message
+// codecs as Batch. Storage adapters own their envelopes, not message validity.
+func DecodeMessages(data []byte) ([]chat.Message, error) {
+	var messages []chat.Message
+	if err := jsonv2.Unmarshal(data, &messages, jsonv2.RejectUnknownMembers(true)); err != nil {
+		return nil, fmt.Errorf("%w: decode messages: %w", ErrInvalidBatch, err)
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("%w: messages must not be empty", ErrInvalidBatch)
+	}
+	return messages, nil
 }
 
 func (b Batch) ConversationID() ConversationID   { return b.conversationID }
@@ -105,7 +110,7 @@ func (b Batch) MarshalJSON() ([]byte, error) {
 	if err := b.Validate(); err != nil {
 		return nil, err
 	}
-	return jsonv2.Marshal(batchWire{ConversationID: b.conversationID, ID: b.id, Messages: b.encoded}, jsonv2.Deterministic(true))
+	return jsonv2.Marshal(batchWire{ConversationID: b.conversationID, ID: b.id, Messages: b.messages}, jsonv2.Deterministic(true))
 }
 
 func (b *Batch) UnmarshalJSON(data []byte) error {
@@ -116,11 +121,7 @@ func (b *Batch) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &wire, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode batch: %w", ErrInvalidBatch, err)
 	}
-	var messages []chat.Message
-	if err := jsonv2.Unmarshal(wire.Messages, &messages, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return fmt.Errorf("%w: decode messages: %w", ErrInvalidBatch, err)
-	}
-	batch, err := NewBatch(wire.ConversationID, wire.ID, messages...)
+	batch, err := NewBatch(wire.ConversationID, wire.ID, wire.Messages...)
 	if err != nil {
 		return err
 	}
@@ -129,10 +130,12 @@ func (b *Batch) UnmarshalJSON(data []byte) error {
 }
 
 type batchWire struct {
-	ConversationID ConversationID  `json:"conversation_id"`
-	ID             AppendID        `json:"id"`
-	Messages       json.RawMessage `json:"messages"`
+	ConversationID ConversationID `json:"conversation_id"`
+	ID             AppendID       `json:"id"`
+	Messages       []chat.Message `json:"messages"`
 }
+
+func (Batch) JSONSchemaModel() any { return batchWire{} }
 
 // Receipt acknowledges the entire named batch. A zero receipt proves nothing
 // about a failed attempt; submitting the same Batch safely resolves that doubt.

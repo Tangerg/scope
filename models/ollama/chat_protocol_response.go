@@ -9,6 +9,11 @@ import (
 )
 
 const (
+	nativeDoneReasonStop   = "stop"
+	nativeDoneReasonLength = "length"
+)
+
+const (
 	// ResponseExtensionKey preserves the complete official Ollama response (or
 	// the current official stream chunk), including log probabilities and image
 	// output that Core does not normalize.
@@ -132,12 +137,12 @@ func (p *protocolResponseMapper) mapParts(message nativeMessage) ([]corechat.Par
 
 func normalizeProtocolDoneReason(reason string, hasToolCalls bool) corechat.FinishReason {
 	switch reason {
-	case "", "stop":
+	case "", nativeDoneReasonStop:
 		if hasToolCalls {
 			return corechat.FinishReasonToolCalls
 		}
 		return corechat.FinishReasonStop
-	case "length":
+	case nativeDoneReasonLength:
 		return corechat.FinishReasonLength
 	default:
 		return corechat.FinishReasonOther

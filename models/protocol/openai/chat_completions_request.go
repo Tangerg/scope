@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/base64"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"mime"
 	"strings"
@@ -185,6 +186,9 @@ func mediaLocation(value *media.Media) (string, error) {
 }
 
 func mapAssistantMessage(message corechat.Message) (openaisdk.ChatCompletionMessageParamUnion, error) {
+	if len(message.Parts) == 0 {
+		return openaisdk.ChatCompletionMessageParamUnion{}, errors.New("assistant metadata has no replayable Chat Completions content")
+	}
 	mapped := openaisdk.AssistantMessage(message.Text())
 	assistant := mapped.OfAssistant
 	var audioID string

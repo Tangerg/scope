@@ -73,7 +73,7 @@ type textInterpreter struct {
 func (t *textInterpreter) interpret(content Value, state *textState) {
 	t.budget.enter()
 	defer t.budget.leave()
-	Interpret(content, func(stack *Stack, operation string) {
+	Interpret(content, state.resources, func(stack *Stack, operation string) {
 		t.apply(state, stack, contentOperator(operation))
 	})
 	if len(state.saved) != 0 {

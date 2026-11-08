@@ -157,7 +157,11 @@ func execute(
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
-	report, err := decodeCompleted[patternReport](result)
+	output, err := result.Output()
+	if err != nil {
+		return patternReport{}, executionEvidence{}, err
+	}
+	report, err := output.Decode[patternReport]()
 	if err != nil {
 		return patternReport{}, executionEvidence{}, err
 	}
@@ -454,16 +458,4 @@ func transformProgram[I, O any](
 	return workflow.Compile[agentrun.Payload, agentrun.Payload](compiler, workflow.Config{
 		Name: name, Description: description, Revision: name, Stages: []workflow.Stage{stage}, Configuration: configuration,
 	})
-}
-
-func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
-	var zero T
-	if result.Termination().Status() != agentrun.StatusCompleted {
-		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
-	}
-	output, present := result.Termination().Output()
-	if !present {
-		return zero, errors.New("completed Process has no Output")
-	}
-	return output.Decode[T]()
 }

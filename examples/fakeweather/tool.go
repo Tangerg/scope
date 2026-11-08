@@ -16,7 +16,7 @@ type Request struct {
 
 	Date string `json:"date,omitempty" jsonschema:"pattern=^\\d{4}-\\d{2}-\\d{2}$" jsonschema_description:"Forecast date in YYYY-MM-DD format. Omit to use the current UTC date."`
 
-	IncludeHourly bool `json:"include_hourly,omitzero" jsonschema_description:"Include a 24-hour forecast. Defaults to false."`
+	IncludeHourly bool `json:"include_hourly,omitzero" jsonschema_description:"Include a full daily hourly forecast. Defaults to false."`
 
 	IncludeAirQuality bool `json:"include_air_quality,omitzero" jsonschema_description:"Include AQI and pollutant concentrations. Defaults to false."`
 }
@@ -77,9 +77,11 @@ func newTemperature(hourly [hoursPerDay]HourlyForecast, humidity int, windSpeed 
 	}
 }
 
+const windSpeedUnit = "km/h"
+
 type Wind struct {
 	Speed     float64 `json:"speed"`
-	Unit      string  `json:"unit"` // always "km/h"
+	Unit      string  `json:"unit"`
 	Direction string  `json:"direction"`
 	Degree    int     `json:"degree"`
 	Gust      float64 `json:"gust"`
@@ -97,7 +99,7 @@ func (p *Precipitation) amountSentence(kind string) string {
 	if p == nil {
 		return ""
 	}
-	return fmt.Sprintf(" %s amount: %.1f mm. %s intensity.", kind, p.Amount, p.Intensity)
+	return fmt.Sprintf(" %s amount: %.*f mm. %s intensity.", kind, measurementDecimalPlaces, p.Amount, p.Intensity)
 }
 
 type AirQuality struct {

@@ -10,6 +10,15 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+const (
+	reasoningEffortLow    = "low"
+	reasoningEffortHigh   = "high"
+	reasoningEffortMax    = "max"
+	thinkingField         = "thinking"
+	promptCacheKeyField   = "prompt_cache_key"
+	safetyIdentifierField = "safety_identifier"
+)
+
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const RequestExtensionKey = Provider + "/request"
@@ -69,7 +78,7 @@ func (c ChatRequestOptions) ValidateFor(options corechat.Options) error {
 		}
 	}
 	switch options.ReasoningEffort {
-	case "", "low", "high", "max":
+	case "", reasoningEffortLow, reasoningEffortHigh, reasoningEffortMax:
 	default:
 		return fmt.Errorf("options.reasoning_effort has unsupported value %q", options.ReasoningEffort)
 	}
@@ -103,17 +112,17 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 		return fmt.Errorf("moonshot: extension %q: %w", RequestExtensionKey, err)
 	}
 	if options.Thinking != nil {
-		if err := target.SetExtraField("thinking", options.Thinking); err != nil {
+		if err := target.SetExtraField(thinkingField, options.Thinking); err != nil {
 			return err
 		}
 	}
 	if options.PromptCacheKey != "" {
-		if err := target.SetExtraField("prompt_cache_key", options.PromptCacheKey); err != nil {
+		if err := target.SetExtraField(promptCacheKeyField, options.PromptCacheKey); err != nil {
 			return err
 		}
 	}
 	if options.SafetyIdentifier != "" {
-		if err := target.SetExtraField("safety_identifier", options.SafetyIdentifier); err != nil {
+		if err := target.SetExtraField(safetyIdentifierField, options.SafetyIdentifier); err != nil {
 			return err
 		}
 	}

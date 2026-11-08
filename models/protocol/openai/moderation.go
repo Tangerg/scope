@@ -157,7 +157,7 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*m
 
 	apiResp, err := m.api.moderation(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return m.buildModerationResponse(apiResp, req)

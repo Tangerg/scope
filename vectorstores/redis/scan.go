@@ -14,6 +14,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
+const measureHashBytes = "measure"
+
 type scanGrant struct {
 	meter *vectorstore.ScanMeter
 	grant vectorstore.ScanBudget
@@ -39,7 +41,7 @@ if count==0 then return 0 end
 if count~=#ARGV-1 then return -1 end
 local bytes=#KEYS[1]
 for i=2,#ARGV do bytes=bytes+#ARGV[i]+redis.call('HSTRLEN',KEYS[1],ARGV[i]) end
-if ARGV[1]=='measure' then return bytes end
+if ARGV[1]=='` + measureHashBytes + `' then return bytes end
 if bytes~=tonumber(ARGV[1]) then return -1 end
 return redis.call('HMGET',KEYS[1],unpack(ARGV,2,#ARGV))
 `
@@ -90,7 +92,7 @@ func (s *scanGrant) selectRecords(ctx context.Context, store *Store, p filter.Pr
 				if duplicate {
 					continue
 				}
-				size, err := c.Eval(ctx, readHash, []string{key}, "measure", contentField, embeddingField, metadataField, termsField).Int64()
+				size, err := c.Eval(ctx, readHash, []string{key}, measureHashBytes, contentField, embeddingField, metadataField, termsField).Int64()
 				if err != nil {
 					return err
 				}

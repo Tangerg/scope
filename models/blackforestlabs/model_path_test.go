@@ -56,7 +56,7 @@ func TestGenerationModelOwnsOnlyOnePathSegment(t *testing.T) {
 				} else {
 					request.Options.Model = test.model
 				}
-				model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{APIKey: "test", BaseURL: server.URL + "/v1", DefaultOptions: options})
+				model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{APIKey: "test", BaseURL: server.URL + "/v1", OutputOrigins: []string{server.URL}, DefaultOptions: options})
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -236,6 +236,9 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	}
 	apiResp, err := i.client.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {
+		if errors.Is(err, protocol.ErrInvalidGenerationResponse) {
+			return nil, fmt.Errorf("%w: %w", image.ErrInvalidResponse, err)
+		}
 		return nil, fmt.Errorf("vertexai: image: GenerateContent: %w", err)
 	}
 	return i.buildResponse(apiResp)

@@ -20,7 +20,7 @@ type GlobRequest struct {
 	Pattern    string `json:"pattern" jsonschema_description:"Doublestar path pattern, such as **/*.go or src/**/*.ts."`
 	Path       string `json:"path,omitempty" jsonschema_description:"Directory to search under. Defaults to the workspace root."`
 	IgnoreCase bool   `json:"ignore_case,omitzero" jsonschema_description:"Match path components case-insensitively. Default false."`
-	MaxResults int    `json:"max_results,omitzero" jsonschema_description:"Maximum paths to return. Defaults to 100."`
+	MaxResults int    `json:"max_results,omitzero" jsonschema_description:"Maximum paths to return. Omit to use the executor default."`
 }
 
 func (g GlobRequest) Validate() error {
@@ -71,8 +71,8 @@ func NewGlobTool(executor Globber) (*GlobTool, error) {
 		toolcontract.FuncConfig{
 			Effect: toolcontract.EffectSafe,
 			Name:   globToolName,
-			Description: "List file paths matching a doublestar pattern. Use patterns such as **/*.go or src/**/*.ts. " +
-				"Use grep to search file contents.",
+			Description: fmt.Sprintf("List file paths matching a doublestar pattern. Use patterns such as **/*.go or src/**/*.ts. "+
+				"Use grep to search file contents. Omit max_results to use the default limit of %d paths.", defaultGlobMaxResults),
 		},
 		t.glob,
 	)

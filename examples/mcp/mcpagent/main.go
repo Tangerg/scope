@@ -216,9 +216,6 @@ func runBriefing(
 	if err != nil {
 		return briefOutput{}, err
 	}
-	if _, err = handle.Await(ctx); err != nil {
-		return briefOutput{}, err
-	}
 	result, err := handle.Await(ctx)
 	if err != nil {
 		return briefOutput{}, fmt.Errorf("run MCP briefing interaction: %w", err)

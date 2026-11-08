@@ -82,7 +82,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		})
 		if err != nil {
 			if !consumerStopped {
-				yield(nil, err)
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			}
 			return
 		}

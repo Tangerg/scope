@@ -1,6 +1,9 @@
 package httpreq
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrNilClient               = errors.New("httpreq: client must not be nil")
@@ -11,7 +14,7 @@ var (
 	ErrEmptyURL                = errors.New("httpreq: url must not be empty")
 	ErrInvalidURL              = errors.New("httpreq: url must be an absolute http(s) URL")
 	ErrInvalidMethod           = errors.New("httpreq: method must be GET, HEAD, POST, PUT, PATCH, or DELETE")
-	ErrInvalidRequestTimeout   = errors.New("httpreq: timeout_ms must be between 1 and 120000 when set")
+	ErrInvalidRequestTimeout   = fmt.Errorf("httpreq: timeout_ms must be between 1 and %d when set", MaxRequestTimeout.Milliseconds())
 	ErrHostNotAllowed          = errors.New("httpreq: host is not allowed by client policy")
 	ErrAddressNotAllowed       = errors.New("httpreq: connection address is not allowed by client policy")
 	ErrHostHeaderOverride      = errors.New("httpreq: model-supplied Host header overrides are prohibited")

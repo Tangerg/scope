@@ -67,6 +67,9 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 
 	apiResp, err := s.binding.api.chatCompletion(ctx, modelName, contents, config)
 	if err != nil {
+		if errors.Is(err, ErrInvalidGenerationResponse) {
+			return nil, fmt.Errorf("%w: %w", speech.ErrInvalidResponse, err)
+		}
 		return nil, err
 	}
 	if err := validateProtocolCompletion(apiResp); err != nil {

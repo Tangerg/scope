@@ -153,7 +153,7 @@ func constructorConfig(parameters *ast.FieldList) (string, int) {
 	for _, field := range parameters.List {
 		fieldCount := max(1, len(field.Names))
 		count += fieldCount
-		if name := namedType(field.Type); strings.HasSuffix(name, "Config") {
+		if name := namedType(field.Type); configType == "" && strings.HasSuffix(name, "Config") {
 			configType = name
 		}
 	}
@@ -219,6 +219,23 @@ func TestConstructorContextIsMandatory(t *testing.T) {
 		function := parsed.Decls[0].(*ast.FuncDecl)
 		if got := startsWithContext(function.Type.Params); got != test.valid {
 			t.Errorf("context check = %t for %s", got, test.signature)
+		}
+	}
+}
+
+func TestConstructorConfigPrecedesDialectConfiguration(t *testing.T) {
+	for _, signature := range []string{
+		"func New(ctx context.Context, config ChatCompletionsConfig, dialect DialectConfig) (*Client, error) { return nil,nil }",
+		"func New(ctx context.Context, config *ChatCompletionsConfig, dialect *DialectConfig) (*Client, error) { return nil,nil }",
+	} {
+		parsed, err := parser.ParseFile(token.NewFileSet(), "constructor.go", "package provider\n"+signature, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		function := parsed.Decls[0].(*ast.FuncDecl)
+		owner, count := constructorConfig(function.Type.Params)
+		if owner != "ChatCompletionsConfig" || count != 3 {
+			t.Fatalf("primary configuration lost: owner=%s parameters=%d", owner, count)
 		}
 	}
 }

@@ -28,7 +28,7 @@ func TestContentAdmissionUsesNativeByteCapacity(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			statement := &writeStmt{}
-			db := sql.OpenDB(resultConnector{stmt: statement, binding: []driver.Value{fixtureSpace.StorageKey(), "vector(2)", test.dataType, "utf8mb4", test.capacity}})
+			db := sql.OpenDB(resultConnector{stmt: statement, binding: []driver.Value{fixtureSpace.StorageKey(), "vector(2)", test.dataType, "utf8mb4", test.capacity, "longtext", "utf8mb4", int64(4294967295)}})
 			t.Cleanup(func() {
 				if err := db.Close(); err != nil {
 					t.Error(err)
@@ -63,7 +63,7 @@ func TestContentBindingRejectsUnboundedOrLossySchemas(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			statement := &writeStmt{}
-			db := sql.OpenDB(resultConnector{stmt: statement, binding: []driver.Value{fixtureSpace.StorageKey(), "vector(2)", test.dataType, test.charset, test.capacity}})
+			db := sql.OpenDB(resultConnector{stmt: statement, binding: []driver.Value{fixtureSpace.StorageKey(), "vector(2)", test.dataType, test.charset, test.capacity, "longtext", "utf8mb4", int64(4294967295)}})
 			t.Cleanup(func() {
 				if err := db.Close(); err != nil {
 					t.Error(err)
@@ -82,7 +82,7 @@ func TestContentBindingRejectsUnboundedOrLossySchemas(t *testing.T) {
 }
 
 func TestContentAdmissionRechecksNativeCapacity(t *testing.T) {
-	binding := []driver.Value{fixtureSpace.StorageKey(), "vector(2)", "text", "utf8mb4", int64(65535)}
+	binding := []driver.Value{fixtureSpace.StorageKey(), "vector(2)", "text", "utf8mb4", int64(65535), "longtext", "utf8mb4", int64(4294967295)}
 	statement := &writeStmt{}
 	db := sql.OpenDB(resultConnector{stmt: statement, binding: binding})
 	t.Cleanup(func() {

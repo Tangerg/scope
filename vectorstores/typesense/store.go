@@ -320,6 +320,10 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err = s.checkOptions(request.Options, budget != nil); err != nil {
 		return nil, err
 	}
+	query, err := s.schema.narrow(request.Values)
+	if err != nil {
+		return nil, err
+	}
 	defer func() {
 		if err == nil {
 			err = request.ValidateResponse(response)
@@ -344,10 +348,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		if len(keys) == 0 {
 			return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
 		}
-	}
-	query, err := s.schema.narrow(request.Values)
-	if err != nil {
-		return nil, err
 	}
 	session := newSearchSession(s.schema, request.Options, *s.searchParameters(request, query), keys)
 	for {

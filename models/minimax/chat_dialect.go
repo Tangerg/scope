@@ -17,6 +17,14 @@ const (
 	serviceTierField    = "service_tier"
 )
 
+const (
+	reasoningEffortLow    corechat.ReasoningEffort = "low"
+	reasoningEffortMedium corechat.ReasoningEffort = "medium"
+	reasoningEffortHigh   corechat.ReasoningEffort = "high"
+	reasoningEffortXHigh  corechat.ReasoningEffort = "xhigh"
+	reasoningEffortMax    corechat.ReasoningEffort = "max"
+)
+
 // ThinkingType controls MiniMax-M3 thinking. M2.x models ignore disabled and
 // always think according to the official protocol.
 type ThinkingType string
@@ -63,6 +71,9 @@ func (c ChatRequestOptions) Validate() error {
 
 // MiniMax otherwise embeds thinking in answer content inside <think> tags.
 func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
+	if err := validateReasoningEffort(target.Model(), source.Options.ReasoningEffort); err != nil {
+		return err
+	}
 	extension, found, err := source.Options.Extensions.Decode[ChatRequestOptions](RequestExtensionKey)
 	if err != nil {
 		return fmt.Errorf("minimax: extension %q: %w", RequestExtensionKey, err)
@@ -70,6 +81,9 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 	if found {
 		if err := extension.Validate(); err != nil {
 			return fmt.Errorf("minimax: extension %q: %w", RequestExtensionKey, err)
+		}
+		if err := extension.validateFor(target.Model()); err != nil {
+			return err
 		}
 	}
 	reasoningSplit := true
@@ -92,7 +106,31 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 	return nil
 }
 
-func prepareAnthropicRequest(source *corechat.Request, _ map[string]any) error {
+func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) error {
+	if err := validateReasoningEffort(source.Options.Model, source.Options.ReasoningEffort); err != nil {
+		return err
+	}
+	encoded, err := jsonv2.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	var native struct {
+		Thinking    *thinkingConfig `json:"thinking"`
+		ServiceTier ServiceTier     `json:"service_tier"`
+	}
+	if err := jsonv2.Unmarshal(encoded, &native); err != nil {
+		return fmt.Errorf("minimax: model controls: %w", err)
+	}
+	controls := ChatRequestOptions{ServiceTier: native.ServiceTier}
+	if native.Thinking != nil {
+		controls.Thinking = native.Thinking.Type
+	}
+	if err := controls.Validate(); err != nil {
+		return err
+	}
+	if err := controls.validateFor(source.Options.Model); err != nil {
+		return err
+	}
 	switch {
 	case source.Options.Temperature != nil:
 		return errors.New("minimax: Messages ignores options.temperature")
@@ -102,6 +140,37 @@ func prepareAnthropicRequest(source *corechat.Request, _ map[string]any) error {
 		return errors.New("minimax: Messages ignores options.top_k")
 	case len(source.Options.Stop) != 0:
 		return errors.New("minimax: Messages ignores options.stop")
+	default:
+		return nil
+	}
+}
+
+func validateReasoningEffort(model string, effort corechat.ReasoningEffort) error {
+	if effort == "" {
+		return nil
+	}
+	if model != ModelM31Flash {
+		return fmt.Errorf("minimax: model %q does not support options.reasoning_effort", model)
+	}
+	switch effort {
+	case reasoningEffortLow, reasoningEffortMedium, reasoningEffortHigh, reasoningEffortXHigh, reasoningEffortMax:
+		return nil
+	default:
+		return fmt.Errorf("minimax: model %q does not support reasoning effort %q", model, effort)
+	}
+}
+
+func (c ChatRequestOptions) validateFor(model string) error {
+	if model != ModelM31Flash {
+		return nil
+	}
+	switch {
+	case c.Thinking == ThinkingDisabled:
+		return fmt.Errorf("minimax: model %q requires adaptive thinking", model)
+	case c.ReasoningSplit != nil && !*c.ReasoningSplit:
+		return fmt.Errorf("minimax: model %q requires reasoning_split", model)
+	case c.ServiceTier != "":
+		return fmt.Errorf("minimax: model %q does not support service_tier", model)
 	default:
 		return nil
 	}

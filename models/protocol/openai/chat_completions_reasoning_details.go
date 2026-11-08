@@ -16,10 +16,25 @@ import (
 )
 
 const (
-	reasoningDetailFrameHeaderSize = 10
-	reasoningDetailIdentityKey     = "openai/reasoning_detail_identity"
-	reasoningDetailText            = "reasoning.text"
-	reasoningDetailSummary         = "reasoning.summary"
+	reasoningDetailFieldType      = "type"
+	reasoningDetailFieldID        = "id"
+	reasoningDetailFieldFormat    = "format"
+	reasoningDetailFieldIndex     = "index"
+	reasoningDetailFieldText      = "text"
+	reasoningDetailFieldSummary   = "summary"
+	reasoningDetailFieldData      = "data"
+	reasoningDetailFieldSignature = "signature"
+)
+
+const (
+	reasoningDetailProviderLengthSize   = 2
+	reasoningDetailPayloadLengthSize    = 4
+	reasoningDetailProviderLengthOffset = len(reasoningDetailFrameMagic)
+	reasoningDetailPayloadLengthOffset  = reasoningDetailProviderLengthOffset + reasoningDetailProviderLengthSize
+	reasoningDetailFrameHeaderSize      = reasoningDetailPayloadLengthOffset + reasoningDetailPayloadLengthSize
+	reasoningDetailIdentityKey          = "openai/reasoning_detail_identity"
+	reasoningDetailText                 = "reasoning.text"
+	reasoningDetailSummary              = "reasoning.summary"
 )
 
 var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
@@ -46,7 +61,7 @@ func (r ReasoningDetailsConfig) Validate() error {
 		return errors.New("openai: reasoning details field must be distinct and have no surrounding whitespace")
 	}
 	switch r.DetailsField {
-	case "role", "content", "name", "tool_calls", "function_call", "refusal", "audio":
+	case assistantFieldRole, assistantFieldContent, assistantFieldName, assistantFieldToolCalls, assistantFieldFunctionCall, assistantFieldRefusal, assistantFieldAudio:
 		return fmt.Errorf("openai: reasoning details field %q is owned by Core", r.DetailsField)
 	}
 	return nil
@@ -177,7 +192,7 @@ func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequ
 		Format   json.RawMessage `json:"format,omitzero"`
 		Index    json.RawMessage `json:"index,omitzero"`
 		Chunk    uint64          `json:"chunk,omitzero"`
-	}{Provider: r.provider, Type: fields["type"], ID: fields["id"], Format: fields["format"], Index: fields["index"]}
+	}{Provider: r.provider, Type: fields[reasoningDetailFieldType], ID: fields[reasoningDetailFieldID], Format: fields[reasoningDetailFieldFormat], Index: fields[reasoningDetailFieldIndex]}
 	if !hasReasoningDetailIdentity(fields) {
 		// Anonymous blocks have no cross-chunk identity to justify merging them.
 		identity.Chunk = sequence
@@ -199,8 +214,8 @@ func (r reasoningDetailsCodec) encodeFrame(raw json.RawMessage) ([]byte, error) 
 	providerLength := len(r.provider)
 	frame := make([]byte, reasoningDetailFrameHeaderSize+providerLength+len(raw))
 	copy(frame, reasoningDetailFrameMagic[:])
-	binary.BigEndian.PutUint16(frame[4:6], uint16(providerLength))
-	binary.BigEndian.PutUint32(frame[6:reasoningDetailFrameHeaderSize], uint32(len(raw)))
+	binary.BigEndian.PutUint16(frame[reasoningDetailProviderLengthOffset:reasoningDetailPayloadLengthOffset], uint16(providerLength))
+	binary.BigEndian.PutUint32(frame[reasoningDetailPayloadLengthOffset:reasoningDetailFrameHeaderSize], uint32(len(raw)))
 	copy(frame[reasoningDetailFrameHeaderSize:], r.provider)
 	copy(frame[reasoningDetailFrameHeaderSize+providerLength:], raw)
 	return frame, nil
@@ -290,21 +305,21 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 		if len(signature)-offset < reasoningDetailFrameHeaderSize {
 			return nil, true, false, errors.New("truncated frame header")
 		}
-		if !bytes.Equal(signature[offset:offset+4], reasoningDetailFrameMagic[:]) {
+		if !bytes.Equal(signature[offset:offset+len(reasoningDetailFrameMagic)], reasoningDetailFrameMagic[:]) {
 			return nil, true, false, fmt.Errorf("invalid frame magic at byte %d", offset)
 		}
-		providerLength := int(binary.BigEndian.Uint16(signature[offset+4 : offset+6]))
-		payloadLength := int(binary.BigEndian.Uint32(signature[offset+6 : offset+reasoningDetailFrameHeaderSize]))
+		providerLength := int(binary.BigEndian.Uint16(signature[offset+reasoningDetailProviderLengthOffset : offset+reasoningDetailPayloadLengthOffset]))
+		payloadLength := binary.BigEndian.Uint32(signature[offset+reasoningDetailPayloadLengthOffset : offset+reasoningDetailFrameHeaderSize])
 		offset += reasoningDetailFrameHeaderSize
 		if providerLength > len(signature)-offset {
 			return nil, true, false, fmt.Errorf("provider length %d exceeds remaining %d bytes", providerLength, len(signature)-offset)
 		}
 		provider := string(signature[offset : offset+providerLength])
 		offset += providerLength
-		if payloadLength > len(signature)-offset {
+		if uint64(payloadLength) > uint64(len(signature)-offset) {
 			return nil, true, false, fmt.Errorf("frame length %d exceeds remaining %d bytes", payloadLength, len(signature)-offset)
 		}
-		raw := json.RawMessage(bytes.Clone(signature[offset : offset+payloadLength]))
+		raw := json.RawMessage(bytes.Clone(signature[offset : offset+int(payloadLength)]))
 		var details []json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &details); err != nil {
 			return nil, true, false, fmt.Errorf("frame must contain a native detail array: %w", err)
@@ -330,23 +345,23 @@ func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage
 		} else {
 			frames = append(frames, details...)
 		}
-		offset += payloadLength
+		offset += int(payloadLength)
 	}
 	return frames, true, ownProvider, nil
 }
 
 func reasoningDetailTextField(fields map[string]json.RawMessage) (string, error) {
 	var kind string
-	if err := jsonv2.Unmarshal(fields["type"], &kind); err != nil {
+	if err := jsonv2.Unmarshal(fields[reasoningDetailFieldType], &kind); err != nil {
 		return "", fmt.Errorf("detail type: %w", err)
 	}
 	switch kind {
 	case "":
 		return "", errors.New("detail type is required")
 	case reasoningDetailText:
-		return "text", nil
+		return reasoningDetailFieldText, nil
 	case reasoningDetailSummary:
-		return "summary", nil
+		return reasoningDetailFieldSummary, nil
 	default:
 		return "", nil
 	}
@@ -386,7 +401,7 @@ func mergeReasoningDetail(leftRaw, rightRaw json.RawMessage) (json.RawMessage, b
 	if !sameReasoningDetailIdentity(left, right) {
 		return nil, false, nil
 	}
-	for _, field := range []string{"text", "summary", "data", "signature"} {
+	for _, field := range []string{reasoningDetailFieldText, reasoningDetailFieldSummary, reasoningDetailFieldData, reasoningDetailFieldSignature} {
 		leftValue, _, err := decodeOptionalString(left[field])
 		if err != nil {
 			return nil, false, fmt.Errorf("%s: %w", field, err)
@@ -409,7 +424,7 @@ func mergeReasoningDetail(leftRaw, rightRaw json.RawMessage) (json.RawMessage, b
 }
 
 func sameReasoningDetailIdentity(left, right map[string]json.RawMessage) bool {
-	for _, field := range []string{"type", "id", "format", "index"} {
+	for _, field := range []string{reasoningDetailFieldType, reasoningDetailFieldID, reasoningDetailFieldFormat, reasoningDetailFieldIndex} {
 		if !bytes.Equal(left[field], right[field]) {
 			return false
 		}
@@ -418,7 +433,7 @@ func sameReasoningDetailIdentity(left, right map[string]json.RawMessage) bool {
 }
 
 func hasReasoningDetailIdentity(fields map[string]json.RawMessage) bool {
-	id, index := fields["id"], fields["index"]
+	id, index := fields[reasoningDetailFieldID], fields[reasoningDetailFieldIndex]
 	return len(id) != 0 && !bytes.Equal(id, []byte("null")) && !bytes.Equal(id, []byte(`""`)) ||
 		len(index) != 0 && !bytes.Equal(index, []byte("null"))
 }

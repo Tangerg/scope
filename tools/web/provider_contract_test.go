@@ -125,7 +125,7 @@ func TestProviderOriginGuardComposesWithHostRedirectPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = client.Search(t.Context(), &web.SearchRequest{Query: "scope"})
-			if err == nil || calls != 1 || policyCalls != 1 || !rewrite && !errors.Is(err, denied) {
+			if err == nil || calls != 1 || policyCalls != 1 || !rewrite && !errors.Is(providerDiagnostic(t, err), denied) {
 				t.Fatalf("host policy: error=%v transport=%d policy=%d", err, calls, policyCalls)
 			}
 		})

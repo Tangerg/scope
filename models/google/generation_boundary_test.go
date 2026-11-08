@@ -1,6 +1,7 @@
 package google_test
 
 import (
+	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"google.golang.org/genai"
 
@@ -17,6 +19,65 @@ import (
 	"github.com/Tangerg/scope/models/google"
 	"github.com/Tangerg/scope/models/google/vertexai"
 )
+
+func TestGenerationHTTPTimeoutExtensionUsesSDKDuration(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		for _, timeout := range []string{"", `,"timeout":0`, `,"timeout":1000000000`} {
+			t.Run(provider+"/"+timeout, func(t *testing.T) {
+				calls := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls++
+					if r.Header.Get("X-Request") != "scoped" {
+						t.Error("native request header was lost")
+					}
+					wantTimeout := ""
+					if timeout == `,"timeout":1000000000` {
+						wantTimeout = "1"
+					}
+					if got := r.Header.Get("X-Server-Timeout"); got != wantTimeout {
+						t.Errorf("timeout header=%q, want %q", got, wantTimeout)
+					}
+					w.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(w, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"done\"}]},\"finishReason\":\"STOP\"}]}\n\n")
+				}))
+				defer server.Close()
+				model := newGenerationChat(t, provider, server)
+				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}}
+				raw := `{"httpOptions":{"headers":{"X-Request":["scoped"]}` + timeout + `}}`
+				if err := request.Options.Extensions.Set(provider+"/request", json.RawMessage(raw)); err != nil {
+					t.Fatal(err)
+				}
+				if response, err := model.Call(t.Context(), request); err != nil || response.Text() != "done" || calls != 1 {
+					t.Fatalf("response=%v error=%v calls=%d", response, err, calls)
+				}
+			})
+		}
+	}
+}
+
+func TestGenerationRequestTimeoutCancelsRealBodyRead(t *testing.T) {
+	for _, provider := range []string{"google", "vertexai"} {
+		t.Run(provider, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				w.(http.Flusher).Flush()
+				<-r.Context().Done()
+			}))
+			defer server.Close()
+			model := newGenerationChat(t, provider, server)
+			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}}
+			if err := request.Options.Extensions.Set(provider+"/request", json.RawMessage(`{"httpOptions":{"timeout":10000000}}`)); err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now()
+			response, err := model.Call(t.Context(), request)
+			if response != nil || invocation.ClassifyFailure(err) != invocation.FailureUnknown || time.Since(started) > time.Second {
+				t.Fatalf("response=%v error=%v elapsed=%v", response, err, time.Since(started))
+			}
+		})
+	}
+}
 
 func TestStreamingSpeechPreflightEvidence(t *testing.T) {
 	for _, provider := range []string{"google", "vertexai"} {

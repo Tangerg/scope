@@ -62,10 +62,4 @@ func TestStoredDocumentRequiresPermanentIdentity(t *testing.T) {
 			t.Fatalf("invalid document accepted: %+v", copy)
 		}
 	}
-	if _, err := decodeMessages([]byte(`[{}]`)); err == nil {
-		t.Fatal("invalid message accepted")
-	}
-	if _, err := decodeMessages([]byte(`[]`)); err == nil {
-		t.Fatal("empty append accepted")
-	}
 }

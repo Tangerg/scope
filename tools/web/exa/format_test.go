@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/web"
 )
 
@@ -19,7 +20,8 @@ func TestFetchRejectsUnsupportedPlainTextBeforeIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com", Format: web.FormatText})
-	if response != nil || !errors.Is(err, web.ErrUnsupportedFormat) {
+	failure, definite := toolcontract.ClassifyFailure(err)
+	if response != nil || !definite || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), web.ErrUnsupportedFormat) {
 		t.Fatalf("response = %#v, error = %v", response, err)
 	}
 }

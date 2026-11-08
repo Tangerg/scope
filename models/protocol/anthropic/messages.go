@@ -147,7 +147,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 			}
 		}
 		if streamErr := stream.Err(); streamErr != nil {
-			yield(nil, m.api.wrapError(streamErr))
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: m.api.wrapError(streamErr)})
 			return
 		}
 		terminal, err = state.complete(terminal)

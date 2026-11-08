@@ -218,7 +218,7 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 		if err := rows.Scan(&raw); err != nil {
 			return nil, fmt.Errorf("postgres: read: scan batch: %w", err)
 		}
-		messages, err := decodeMessages(raw)
+		messages, err := history.DecodeMessages(raw)
 		if err != nil {
 			return nil, fmt.Errorf("postgres: read: decode batch: %w", err)
 		}

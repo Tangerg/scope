@@ -788,20 +788,6 @@
       }
     },
     {
-      "id": "voxtral-mini-latest",
-      "display_name": "Voxtral Mini (latest)",
-      "release_date": "2026-02-01T00:00:00Z",
-      "last_updated": "2026-02-01T00:00:00Z",
-      "modalities": {
-        "input": [
-          "audio"
-        ],
-        "output": [
-          "text"
-        ]
-      }
-    },
-    {
       "id": "voxtral-small-latest",
       "display_name": "Voxtral Small (latest)",
       "release_date": "2025-07-15T00:00:00Z",

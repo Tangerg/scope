@@ -24,6 +24,7 @@ const (
 	jsonFieldTag         = "json"
 	jsonSchemaFieldTag   = "jsonschema"
 	stringTagOption      = "string"
+	formatTagOption      = "format"
 	ignoredFieldTag      = "-"
 )
 
@@ -108,6 +109,21 @@ func (d *derivation) mapType(typeOf reflect.Type) *reflection.Schema {
 	requireValueReceiver(typeOf, reflect.TypeFor[Constrained](), "JSONSchemaConstraints")
 	if typeOf.Implements(reflect.TypeFor[Modeler]()) {
 		return d.model(typeOf)
+	}
+	if typeOf == reflect.TypeFor[url.URL]() {
+		// URL has no JSON codec. Userinfo has no exported fields, so JSON v2
+		// can encode User only as null; the remaining fields retain their owner.
+		fields := slices.Collect(typeOf.Fields())
+		for index := range fields {
+			switch {
+			case fields[index].Type == reflect.TypeFor[*url.Userinfo]():
+				fields[index].Type = reflect.TypeFor[any]()
+				fields[index].Tag += reflect.StructTag(` jsonschema:"type=` + schemaTypeNull + `"`)
+			case fields[index].Type.Kind() == reflect.Pointer:
+				fields[index].Tag += ` jsonschema:"nullable"`
+			}
+		}
+		return d.reflect(reflect.StructOf(fields))
 	}
 	return reflectWireType(typeOf)
 }
@@ -224,10 +240,12 @@ func constraintObjectShape(shape *reflection.Schema, definitions reflection.Defi
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
-	requireSupportedStringTags(typeOf)
+	requireSupportedFieldTags(typeOf, nil)
 	switch typeOf {
-	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP](), reflect.TypeFor[url.URL]():
+	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP]():
 		return nil
+	case reflect.TypeFor[time.Duration]():
+		panic("time.Duration has no default encoding/json/v2 representation; use an explicit wire model and codec")
 	case reflect.TypeFor[json.Number]():
 		return &reflection.Schema{Type: schemaTypeNumber}
 	case reflect.TypeFor[Schema]():
@@ -240,7 +258,10 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 	if !stringModel && hasCustomEncoding(typeOf) {
 		panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaModel", typeOf))
 	}
-	if typeOf == reflect.TypeFor[[]byte]() {
+	if typeOf.Kind() == reflect.Array && typeOf.Elem() == reflect.TypeFor[byte]() {
+		return &reflection.Schema{Type: schemaTypeString, ContentEncoding: base64ContentEncoding}
+	}
+	if typeOf.Kind() == reflect.Slice && typeOf.Elem() == reflect.TypeFor[byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
 			{Type: schemaTypeNull},
 			{Type: schemaTypeString, ContentEncoding: base64ContentEncoding},
@@ -291,21 +312,41 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 	return definition
 }
 
-func requireSupportedStringTags(typeOf reflect.Type) {
+func requireSupportedFieldTags(typeOf reflect.Type, visited map[reflect.Type]struct{}) {
 	if typeOf.Kind() != reflect.Struct {
 		return
 	}
+	if _, seen := visited[typeOf]; seen {
+		return
+	}
+	if visited == nil {
+		visited = make(map[reflect.Type]struct{})
+	}
+	visited[typeOf] = struct{}{}
 	for field := range typeOf.Fields() {
-		if !field.IsExported() && !field.Anonymous {
+		tag := field.Tag.Get(jsonFieldTag)
+		if tag == ignoredFieldTag {
 			continue
 		}
-		tags := strings.Split(field.Tag.Get(jsonFieldTag), ",")
-		if tags[0] == ignoredFieldTag || field.Tag.Get(jsonSchemaFieldTag) == ignoredFieldTag || !slices.Contains(tags[1:], stringTagOption) {
+		tags := strings.Split(tag, ",")
+		for _, option := range tags[1:] {
+			name, _, _ := strings.Cut(option, ":")
+			if name == formatTagOption {
+				panic(fmt.Errorf("%w: field %v.%s", ErrUnsupportedFormatTag, typeOf, field.Name))
+			}
+		}
+		if !field.IsExported() && !field.Anonymous {
 			continue
 		}
 		member := field.Type
 		for member.Kind() == reflect.Pointer {
 			member = member.Elem()
+		}
+		if field.Anonymous && tags[0] == "" {
+			requireSupportedFieldTags(member, visited)
+		}
+		if field.Tag.Get(jsonSchemaFieldTag) == ignoredFieldTag || !slices.Contains(tags[1:], stringTagOption) {
+			continue
 		}
 		if member.Implements(reflect.TypeFor[Modeler]()) && hasCustomEncoding(member) {
 			continue

@@ -23,14 +23,14 @@ var (
 	ErrNoFrontmatter = errors.New("skills: SKILL.md must open with a YAML frontmatter block delimited by ---")
 
 	ErrNameEmpty    = errors.New("skills: name must not be empty")
-	ErrNameTooLong  = errors.New("skills: name exceeds 64 characters")
+	ErrNameTooLong  = fmt.Errorf("skills: name exceeds %d characters", maxNameLen)
 	ErrNameInvalid  = errors.New("skills: name must be lowercase alphanumerics joined by single hyphens (no leading, trailing, or consecutive hyphens)")
 	ErrNameMismatch = errors.New("skills: frontmatter name must match the skill directory name")
 
 	ErrDescriptionEmpty   = errors.New("skills: description must not be empty")
-	ErrDescriptionTooLong = errors.New("skills: description exceeds 1024 characters")
+	ErrDescriptionTooLong = fmt.Errorf("skills: description exceeds %d characters", maxDescriptionLen)
 
-	ErrCompatibilityTooLong = errors.New("skills: compatibility exceeds 500 characters")
+	ErrCompatibilityTooLong = fmt.Errorf("skills: compatibility exceeds %d characters", maxCompatibilityLen)
 
 	ErrResourcePath = errors.New("skills: resource path escapes the skill directory")
 )

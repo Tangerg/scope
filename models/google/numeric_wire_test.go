@@ -28,7 +28,7 @@ func TestNativeChatRetainsExactToolAndSchemaNumbers(t *testing.T) {
 			}))
 			defer server.Close()
 			model := newNativeChat(t, provider, server)
-			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("lookup")), chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993}`})), chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.Output{Details: json.RawMessage(`{"id":9007199254740993}`)}}))
+			request, err := chat.NewRequest(chat.NewUserMessage(chat.NewTextPart("lookup")), chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: "lookup", Arguments: `{"id":9007199254740993,"huge":1e400}`})), chat.NewToolMessage(chat.ToolResult{ID: "call", Name: "lookup", Output: toolcontract.Output{Details: json.RawMessage(`{"id":9007199254740993,"huge":1e400}`)}}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -44,7 +44,7 @@ func TestNativeChatRetainsExactToolAndSchemaNumbers(t *testing.T) {
 				t.Fatal(err)
 			}
 			wire := string(body)
-			if strings.Count(wire, `"const":9007199254740993`) != 2 || strings.Count(wire, `"id":9007199254740993`) != 2 {
+			if strings.Count(wire, `"const":9007199254740993`) != 2 || strings.Count(wire, `"id":9007199254740993`) != 2 || strings.Count(wire, `"huge":1e400`) != 2 {
 				t.Fatalf("lossy request: %s", wire)
 			}
 			var arguments string

@@ -191,11 +191,35 @@ func TestStorageDeadlineInterruptsRootLockWait(t *testing.T) {
 			t.Error(rollbackErr)
 		}
 	}()
-	if _, lockErr := tx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtextextended($1,$2))", batch.Root.String(), rootLockSeed); lockErr != nil {
+	if _, lockErr := tx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", store.tables.heads, batch.Root.String(), rootLockSeed); lockErr != nil {
 		t.Fatal(lockErr)
 	}
 	if err := store.Append(t.Context(), batch); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("blocked append: %v", err)
+	}
+}
+
+func TestRootLocksAreConfinedToTheStoreNamespace(t *testing.T) {
+	first := newPostgresFixture(t)
+	firstStore := first.store(t, nil)
+	second := newPostgresFixture(t)
+	secondStore := second.store(t, nil)
+	secondStore.timeout = time.Second
+	batch := postgresInitialBatch(t)
+	tx, err := first.pool.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := tx.Rollback(context.WithoutCancel(t.Context())); err != nil {
+			t.Error(err)
+		}
+	}()
+	if _, err := tx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", firstStore.tables.heads, batch.Root.String(), rootLockSeed); err != nil {
+		t.Fatal(err)
+	}
+	if err := secondStore.Append(t.Context(), batch); err != nil {
+		t.Fatalf("another namespace blocked an unrelated root: %v", err)
 	}
 }
 

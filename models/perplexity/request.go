@@ -11,6 +11,18 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+const (
+	agentEffortFast                     = "fast"
+	agentEffortLow                      = "low"
+	agentEffortMedium                   = "medium"
+	agentEffortHigh                     = "high"
+	agentEffortXHigh                    = "xhigh"
+	agentEffortVersionSeparator         = "@"
+	agentEffortInvalidVersionCharacters = "@ \t\r\n"
+	agentEffortField                    = "effort"
+	agentMaxStepsField                  = "max_steps"
+)
+
 // RequestOptions binds Agent API fields without a neutral Core equivalent.
 // Effort configures Perplexity's agent loop (fast, low, medium, high, xhigh,
 // optionally @latest or @version); Options.ReasoningEffort independently
@@ -39,13 +51,13 @@ func (r *RequestOptions) UnmarshalJSON(data []byte) error {
 }
 func (r RequestOptions) Validate() error {
 	if r.Effort != "" {
-		name, version, versioned := strings.Cut(r.Effort, "@")
+		name, version, versioned := strings.Cut(r.Effort, agentEffortVersionSeparator)
 		switch name {
-		case "fast", "low", "medium", "high", "xhigh":
+		case agentEffortFast, agentEffortLow, agentEffortMedium, agentEffortHigh, agentEffortXHigh:
 		default:
 			return fmt.Errorf("perplexity: unsupported agent effort %q", r.Effort)
 		}
-		if versioned && (version == "" || strings.ContainsAny(version, "@ \t\r\n")) {
+		if versioned && (version == "" || strings.ContainsAny(version, agentEffortInvalidVersionCharacters)) {
 			return fmt.Errorf("perplexity: invalid agent effort version %q", r.Effort)
 		}
 	}
@@ -66,12 +78,12 @@ func prepareRequest(source *corechat.Request, target *openai.CompatibleResponses
 	// Agent API request requirement. Perplexity returns its native output items.
 	target.Include = nil
 	if options.Effort != "" {
-		if err := target.SetExtraField("effort", options.Effort); err != nil {
+		if err := target.SetExtraField(agentEffortField, options.Effort); err != nil {
 			return err
 		}
 	}
 	if options.MaxSteps != nil {
-		if err := target.SetExtraField("max_steps", *options.MaxSteps); err != nil {
+		if err := target.SetExtraField(agentMaxStepsField, *options.MaxSteps); err != nil {
 			return err
 		}
 	}

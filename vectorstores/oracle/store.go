@@ -19,7 +19,11 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-const documentIDBytes = 2000
+const (
+	documentIDBytes     = 2000
+	contentCharacterSet = "AL32UTF8"
+	contentColumnType   = "CLOB"
+)
 
 const Provider = "Oracle"
 
@@ -203,6 +207,9 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		distanceMetric:  config.DistanceMetric,
 	}
 
+	if err = store.requireContentCharacterSet(ctx); err != nil {
+		return nil, err
+	}
 	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
 		return nil, fmt.Errorf("oracle: initialize store: %w", err)
 	}
@@ -225,11 +232,11 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 func (s *Store) createTableStatement() string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		%s RAW(%d) NOT NULL PRIMARY KEY,
-		%s CLOB NOT NULL,
+		%s %s NOT NULL,
 		%s BLOB NOT NULL,
 		%s VECTOR(%d, FLOAT32) NOT NULL,
 CONSTRAINT %s CHECK (1=1)
-	)`, s.fullTable, s.idColumn, documentIDBytes, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.dimensions, s.space.StorageKey())
+	)`, s.fullTable, s.idColumn, documentIDBytes, s.contentColumn, contentColumnType, s.metadataColumn, s.embeddingColumn, s.dimensions, s.space.StorageKey())
 }
 
 func (s *Store) validateSchema(ctx context.Context) (err error) {
@@ -247,6 +254,12 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	}
 	if dataType != "BLOB" || nullable != "N" {
 		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
+	}
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.contentColumn).Scan(&dataType, &length, &nullable); err != nil {
+		return fmt.Errorf("read content schema: %w", err)
+	}
+	if dataType != contentColumnType || nullable != "N" {
+		return fmt.Errorf("content column must be %s NOT NULL; rebuild the table", contentColumnType)
 	}
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT c.CONSTRAINT_TYPE, c.STATUS, c.VALIDATED, cc.COLUMN_NAME, cc.POSITION FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS cc ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.OWNER = UPPER(:1) AND c.TABLE_NAME = UPPER(:2) AND c.CONSTRAINT_TYPE IN ('P', 'U')", s.schemaName, s.tableName)
@@ -306,6 +319,9 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 }
 
 func (s *Store) binding(ctx context.Context) (int, error) {
+	if err := s.requireContentCharacterSet(ctx); err != nil {
+		return 0, err
+	}
 	var shape string
 	err := s.db.QueryRowContext(ctx, `SELECT VECTOR_INFO FROM ALL_TAB_COLS WHERE OWNER=UPPER(:1) AND TABLE_NAME=UPPER(:2) AND COLUMN_NAME=UPPER(:3)`, s.schemaName, s.tableName, s.embeddingColumn).Scan(&shape)
 	if err != nil {
@@ -337,6 +353,19 @@ func (s *Store) binding(ctx context.Context) (int, error) {
 		return 0, errors.New("oracle: invalid native vector width")
 	}
 	return dim, nil
+}
+
+func (s *Store) requireContentCharacterSet(ctx context.Context) error {
+	var characterSet string
+	if err := s.db.QueryRowContext(ctx, `SELECT VALUE FROM NLS_DATABASE_PARAMETERS WHERE PARAMETER = 'NLS_CHARACTERSET'`).Scan(&characterSet); err != nil {
+		return fmt.Errorf("oracle: read content character set: %w", err)
+	}
+	// CLOB uses the database character set. The driver can replace unsupported
+	// runes without an error, so the native binding must guarantee lossless UTF-8.
+	if characterSet != contentCharacterSet {
+		return fmt.Errorf("oracle: CLOB content requires database character set %s; found %q", contentCharacterSet, characterSet)
+	}
+	return nil
 }
 func (s *Store) checkDocument(d *document.Document) error {
 	if len(d.ID) > documentIDBytes || d.Media != nil {

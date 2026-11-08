@@ -31,7 +31,6 @@ func (s Score) MarshalJSON() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	type wireScore Score
 	return jsonv2.Marshal(wireScore(s))
 }
 
@@ -39,7 +38,6 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: score receiver is nil", ErrInvalidScore)
 	}
-	type wireScore Score
 	var decoded *wireScore
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode score: %w", ErrInvalidScore, err)
@@ -117,3 +115,7 @@ func ScoreFromNegativeInnerProductDistance(distance float64) Score {
 func ScoreFromOneMinusInnerProductDistance(distance float64) Score {
 	return ScoreFromInnerProduct(1 - distance)
 }
+
+type wireScore Score
+
+func (Score) JSONSchemaModel() any { return wireScore(0) }

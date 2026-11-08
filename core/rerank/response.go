@@ -29,7 +29,6 @@ func (s Score) MarshalJSON() ([]byte, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
-	type wireScore Score
 	return jsonv2.Marshal(wireScore(s))
 }
 
@@ -37,7 +36,6 @@ func (s *Score) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: score receiver is nil", ErrInvalidResponse)
 	}
-	type wireScore Score
 	var decoded *wireScore
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode score: %w", ErrInvalidResponse, err)
@@ -85,7 +83,6 @@ func (r Result) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireResult Result
 	return jsonv2.Marshal(wireResult(r))
 }
 
@@ -128,7 +125,6 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 	if err := u.validate(); err != nil {
 		return nil, err
 	}
-	type wireUsage Usage
 	return jsonv2.Marshal(wireUsage(u))
 }
 
@@ -181,7 +177,6 @@ func (r ResponseMetadata) MarshalJSON() ([]byte, error) {
 	if err := (&r).validate(); err != nil {
 		return nil, err
 	}
-	type wireResponseMetadata ResponseMetadata
 	return jsonv2.Marshal(wireResponseMetadata(r))
 }
 
@@ -189,7 +184,6 @@ func (r *ResponseMetadata) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: response metadata receiver is nil", ErrInvalidResponse)
 	}
-	type wireResponseMetadata ResponseMetadata
 	var decoded wireResponseMetadata
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response metadata: %w", ErrInvalidResponse, err)
@@ -272,7 +266,6 @@ func (r Response) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireResponse Response
 	return jsonv2.Marshal(wireResponse(r))
 }
 
@@ -280,7 +273,6 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: response receiver is nil", ErrInvalidResponse)
 	}
-	type wireResponse Response
 	var decoded wireResponse
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode response: %w", ErrInvalidResponse, err)
@@ -292,3 +284,23 @@ func (r *Response) UnmarshalJSON(data []byte) error {
 	*r = candidate
 	return nil
 }
+
+type wireScore Score
+
+func (Score) JSONSchemaModel() any { return wireScore(0) }
+
+type wireResult Result
+
+func (Result) JSONSchemaModel() any { return wireResult{} }
+
+type wireUsage Usage
+
+func (Usage) JSONSchemaModel() any { return wireUsage{} }
+
+type wireResponseMetadata ResponseMetadata
+
+func (ResponseMetadata) JSONSchemaModel() any { return wireResponseMetadata{} }
+
+type wireResponse Response
+
+func (Response) JSONSchemaModel() any { return wireResponse{} }

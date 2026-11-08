@@ -241,7 +241,7 @@ func semanticProcessPaths(log run.Log, models []ModelCall) (map[run.ProcessID]st
 		process := model.EffectID.Process
 		ordinals[process]++
 		for index, decision := range model.toolDecisions() {
-			key, err := interaction.DelegateChildKey(ordinals[process], decision)
+			key, err := interaction.DelegateChildKey(model.Sequence, decision)
 			if err != nil {
 				return nil, err
 			}

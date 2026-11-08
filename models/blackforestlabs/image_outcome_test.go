@@ -63,6 +63,7 @@ func TestImageOutcomeEvidence(t *testing.T) {
 			})}
 			model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{
 				APIKey: "test", BaseURL: "https://blackforestlabs.test", HTTPClient: client,
+				OutputOrigins: []string{"https://blackforestlabs.test"},
 
 				DefaultOptions: image.Options{Model: blackforestlabs.ModelFlux11Pro},
 				PollInterval:   time.Millisecond, PollTimeout: time.Second,

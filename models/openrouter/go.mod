@@ -5,13 +5,13 @@ go 1.27.3
 require (
 	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
 	github.com/Tangerg/scope/models/protocol/anthropic v0.60.0
-	github.com/Tangerg/scope/models/protocol/openai v0.60.0
+	github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261106210727-79878fb386da
 )
 
 require (
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.5 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25 // indirect
@@ -42,7 +42,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

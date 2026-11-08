@@ -15,6 +15,12 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+const (
+	partitionKeyV1MaxBytes = 101
+	partitionKeyV2MaxBytes = 2048
+	nativeMaxDimensions    = 4096
+)
+
 type containerSchema struct {
 	dimensions int
 	function   azcosmos.VectorDistanceFunction
@@ -24,11 +30,11 @@ func newContainerSchema(properties *azcosmos.ContainerProperties, name, partitio
 	if properties == nil || properties.ID != name || properties.PartitionKeyDefinition.Kind != azcosmos.PartitionKeyKindHash || len(properties.PartitionKeyDefinition.Paths) != 1 || properties.PartitionKeyDefinition.Paths[0] != "/partition_key" || properties.VectorEmbeddingPolicy == nil {
 		return containerSchema{}, fmt.Errorf("%w: native identity, Hash partition path /partition_key or vector policy is invalid", ErrIncompatibleContainer)
 	}
-	limit := 101
+	limit := partitionKeyV1MaxBytes
 	switch properties.PartitionKeyDefinition.Version {
 	case 0, 1:
 	case 2:
-		limit = 2048
+		limit = partitionKeyV2MaxBytes
 	default:
 		return containerSchema{}, fmt.Errorf("%w: unsupported native Hash partition version", ErrIncompatibleContainer)
 	}
@@ -45,8 +51,8 @@ func newContainerSchema(properties *azcosmos.ContainerProperties, name, partitio
 		}
 		found = &policy
 	}
-	if found == nil || found.DataType != azcosmos.VectorDataTypeFloat32 || found.Dimensions < 1 || found.Dimensions > 4096 {
-		return containerSchema{}, fmt.Errorf("%w: /embedding must declare float32 dimensions in [1,4096]", ErrIncompatibleContainer)
+	if found == nil || found.DataType != azcosmos.VectorDataTypeFloat32 || found.Dimensions < 1 || found.Dimensions > nativeMaxDimensions {
+		return containerSchema{}, fmt.Errorf("%w: /embedding must declare float32 dimensions in [1,%d]", ErrIncompatibleContainer, nativeMaxDimensions)
 	}
 	switch found.DistanceFunction {
 	case azcosmos.VectorDistanceFunctionCosine, azcosmos.VectorDistanceFunctionDotProduct, azcosmos.VectorDistanceFunctionEuclidean:

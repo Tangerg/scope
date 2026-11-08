@@ -26,6 +26,8 @@ func TestIgnoredOptionsAreRejectedBeforeProviderIO(t *testing.T) {
 		{name: "messages top_p", options: corechat.Options{TopP: &value}, messages: true},
 		{name: "messages top_k", options: corechat.Options{TopK: &topK}, messages: true},
 		{name: "messages stop", options: corechat.Options{Stop: []string{"stop"}}, messages: true},
+		{name: "chat reasoning effort on M3", options: corechat.Options{ReasoningEffort: "high"}},
+		{name: "messages reasoning effort on M3", options: corechat.Options{ReasoningEffort: "high"}, messages: true},
 	}
 	for _, test := range tests {
 		for _, scope := range []struct {

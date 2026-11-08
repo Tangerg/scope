@@ -26,6 +26,22 @@ func TestGeneratorPreservesKnownFreePricing(t *testing.T) {
 	}
 }
 
+func TestGeneratePreservesReasoningSupportWithoutInventingALadder(t *testing.T) {
+	fixture := newGeneratorFixture(t)
+	for index := range fixture.ladders {
+		if fixture.ladders[index].ID == "minimax" {
+			fixture.ladders[index].Models = nil
+		}
+	}
+	if err := Generate(t.Context(), fixture.write(t)); err != nil {
+		t.Fatal(err)
+	}
+	models := fixture.provider(t, "minimax").Models
+	if len(models) != 1 || !models[0].Reasoning.Supported || len(models[0].Reasoning.Levels) != 0 || models[0].Reasoning.DefaultLevel != "" {
+		t.Fatalf("missing ladder changed source reasoning support: %+v", models)
+	}
+}
+
 type generatorFixture struct {
 	directory     string
 	api           map[string]apiProvider
@@ -39,8 +55,15 @@ func newGeneratorFixture(t *testing.T) *generatorFixture {
 		directory: t.TempDir(), api: make(map[string]apiProvider),
 		augmentations: map[string]map[string]augEntry{"openai": {"model": {Levels: []string{"low", "high"}, DefaultLevel: "low"}}},
 	}
-	for upstream := range providerMap {
-		fixture.api[upstream] = apiProvider{Models: map[string]apiModel{"model": {
+	for upstream, provider := range providerMap {
+		var binding apiModelProvider
+		switch provider {
+		case providerAzureOpenAI:
+			binding.NPM = azureOpenAILibrary
+		case providerVertexAI:
+			binding.NPM = googleVertexLibrary
+		}
+		fixture.api[upstream] = apiProvider{apiModelProvider: binding, Models: map[string]apiModel{"model": {
 			ID: "model", Name: "Model", Reasoning: true,
 			Cost: &apiCost{Input: new(1.0), Output: new(2.0)},
 		}}}
@@ -91,14 +114,14 @@ func TestGenerateOwnsEachProvidersFactsAndPreservesPricingPresence(t *testing.T)
 	fixture := newGeneratorFixture(t)
 	fixture.api["openai"].Models["free"] = apiModel{ID: "free", Cost: &apiCost{Input: new(0.0), Output: new(0.0), CacheRead: new(0.0)}}
 	fixture.api["openai"].Models["unknown"] = apiModel{ID: "unknown"}
-	fixture.api["openai"].Models["embedding-model"] = apiModel{ID: "embedding-model"}
-	fixture.api["openai"].Models["family-filtered"] = apiModel{ID: "family-filtered", Family: "embed"}
-	fixture.api["openai"].Models["rerank-model"] = apiModel{ID: "rerank-model"}
+	fixture.api["openai"].Models["embedding-model"] = apiModel{ID: "embedding-model", Type: "embedding"}
+	fixture.api["openai"].Models["family-filtered"] = apiModel{ID: "family-filtered", Type: "embedding"}
+	fixture.api["openai"].Models["rerank-model"] = apiModel{ID: "rerank-model", Type: "reranking"}
 	audio := apiModel{ID: "speech"}
 	audio.Modalities.Output = []string{"audio"}
 	fixture.api["openai"].Models[audio.ID] = audio
 	vertex := apiModel{ID: "model@default", Reasoning: true, Cost: &apiCost{Input: new(3.0), Output: new(4.0)}}
-	fixture.api["google-vertex"] = apiProvider{Models: map[string]apiModel{vertex.ID: vertex}}
+	fixture.api["google-vertex"] = apiProvider{apiModelProvider: apiModelProvider{NPM: googleVertexLibrary}, Models: map[string]apiModel{vertex.ID: vertex}}
 	for index := range fixture.ladders {
 		if fixture.ladders[index].ID == "vertexai" {
 			fixture.ladders[index].Models[0].DefaultEffort = "medium"

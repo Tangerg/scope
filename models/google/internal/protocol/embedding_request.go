@@ -24,6 +24,7 @@ type embeddingRequest struct {
 	config        *genai.EmbedContentConfig
 	autoTruncate  *bool
 	projectionErr error
+	dispatched    bool
 }
 
 func (e *embeddingRequest) configure(backend genai.Backend) error {

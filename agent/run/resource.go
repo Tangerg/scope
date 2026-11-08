@@ -58,9 +58,10 @@ func (u Usage) add(other Usage) (Usage, error) {
 	}, nil
 }
 
-// Live folding and historical totals share the same contribution rule, even
-// after a process has been reaped from the active tree.
-func recordUsage(record Record) (ProcessID, Usage) {
+// UsageFromRecord projects the contribution owned by one committed record.
+// Live folding, historical totals, and observers use this same rule, including
+// child exits that contribute to their parent after the child is reaped.
+func UsageFromRecord(record Record) (ProcessID, Usage) {
 	switch value := record.(type) {
 	case Stepped:
 		return value.Process, Usage{CommittedSteps: 1}

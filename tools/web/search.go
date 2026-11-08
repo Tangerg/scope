@@ -110,7 +110,7 @@ func (s *SearchRequest) validate() error {
 
 func (s *SearchRequest) validateQuery() error {
 	if !utf8.ValidString(s.Query) {
-		return ErrInvalidQuery
+		return fmt.Errorf("%w: query must be valid UTF-8", ErrInvalidQuery)
 	}
 	if strings.TrimSpace(s.Query) == "" {
 		return ErrEmptyQuery
@@ -293,6 +293,9 @@ type Searcher interface {
 	// transfers ownership of the response to the caller. Implementations must
 	// honor ctx, preserve provider error causes, and reject unsupported
 	// explicit fields instead of ignoring them.
+	// A model-correctable local rejection owns an explicit core/tool.Failure;
+	// diagnostic sentinels alone never establish an outcome. External errors
+	// must not supply another invocation's outcome or model feedback.
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 }
 

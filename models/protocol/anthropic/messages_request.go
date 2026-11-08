@@ -24,6 +24,27 @@ import (
 )
 
 const (
+	requestFieldModel         = "model"
+	requestFieldMessages      = "messages"
+	requestFieldSystem        = "system"
+	requestFieldTools         = "tools"
+	requestFieldStream        = "stream"
+	requestFieldMaxTokens     = "max_tokens"
+	requestFieldTemperature   = "temperature"
+	requestFieldToolChoice    = "tool_choice"
+	requestFieldTopK          = "top_k"
+	requestFieldTopP          = "top_p"
+	requestFieldStopSequences = "stop_sequences"
+	requestFieldOutputConfig  = "output_config"
+	outputConfigFieldFormat   = "format"
+	outputConfigFieldEffort   = "effort"
+	mediaTypeImageJPEG        = "image/jpeg"
+	mediaTypeImagePNG         = "image/png"
+	mediaTypeImageGIF         = "image/gif"
+	mediaTypeImageWebP        = "image/webp"
+)
+
+const (
 	// RequestExtensionKey stores provider-owned top-level Messages API fields in
 	// a Core request for fields without a provider-neutral equivalent.
 	RequestExtensionKey          = ProviderID + "/request"
@@ -66,7 +87,7 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		}
 		options = req.Options
 	}
-	for _, name := range []string{"model", "messages", "system", "tools", "stream", "max_tokens", "temperature", "tool_choice", "top_k", "top_p", "stop_sequences"} {
+	for _, name := range []string{requestFieldModel, requestFieldMessages, requestFieldSystem, requestFieldTools, requestFieldStream, requestFieldMaxTokens, requestFieldTemperature, requestFieldToolChoice, requestFieldTopK, requestFieldTopP, requestFieldStopSequences} {
 		if _, exists := fields[name]; exists {
 			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
 		}
@@ -78,9 +99,9 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		value any
 		set   bool
 	}{
-		{"temperature", options.Temperature, options.Temperature != nil},
-		{"top_k", options.TopK, options.TopK != nil},
-		{"top_p", options.TopP, options.TopP != nil},
+		{requestFieldTemperature, options.Temperature, options.Temperature != nil},
+		{requestFieldTopK, options.TopK, options.TopK != nil},
+		{requestFieldTopP, options.TopP, options.TopP != nil},
 	} {
 		if !sampling.set {
 			continue
@@ -190,27 +211,27 @@ func projectMessageInputTokenCount(params *anthropicsdk.MessageNewParams) (*anth
 }
 
 func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsdk.OutputConfigParam, error) {
-	value, exists := fields["output_config"]
+	value, exists := fields[requestFieldOutputConfig]
 	if !exists {
 		return anthropicsdk.OutputConfigParam{}, nil
 	}
 	var extraFields map[string]any
 	if object, ok := value.(map[string]any); ok {
-		if _, exists := object["format"]; exists {
-			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.format is owned by options.output_format", extensionKey, "output_config")
+		if _, exists := object[outputConfigFieldFormat]; exists {
+			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.format is owned by options.output_format", extensionKey, requestFieldOutputConfig)
 		}
-		if _, exists := object["effort"]; exists {
-			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, "output_config")
+		if _, exists := object[outputConfigFieldEffort]; exists {
+			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, requestFieldOutputConfig)
 		}
 		extraFields = maps.Clone(object)
 	}
 	encoded, err := jsonv2.Marshal(value)
 	if err != nil {
-		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, "output_config", err)
+		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, requestFieldOutputConfig, err)
 	}
 	var config anthropicsdk.OutputConfigParam
 	if err := jsonv2.Unmarshal(encoded, &config); err != nil {
-		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, "output_config", err)
+		return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, requestFieldOutputConfig, err)
 	}
 	if len(extraFields) > 0 {
 		nativeFields, err := nativeJSONFields(extraFields)
@@ -219,7 +240,7 @@ func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsd
 		}
 		config.SetExtraFields(nativeFields)
 	}
-	delete(fields, "output_config")
+	delete(fields, requestFieldOutputConfig)
 	return config, nil
 }
 
@@ -437,7 +458,7 @@ func (p *protocolMessageMapper) bindDocument(value *media.Media) {
 
 func protocolImageMIME(mediaType string) bool {
 	switch mediaType {
-	case "image/jpeg", "image/png", "image/gif", "image/webp":
+	case mediaTypeImageJPEG, mediaTypeImagePNG, mediaTypeImageGIF, mediaTypeImageWebP:
 		return true
 	default:
 		return false
@@ -445,6 +466,9 @@ func protocolImageMIME(mediaType string) bool {
 }
 
 func mapProtocolAssistant(message corechat.Message, provider string) ([]anthropicsdk.ContentBlockParamUnion, error) {
+	if len(message.Parts) == 0 {
+		return nil, errors.New("assistant metadata has no replayable Messages content")
+	}
 	blocks := make([]anthropicsdk.ContentBlockParamUnion, 0, len(message.Parts))
 	for i := range message.Parts {
 		block, include, err := mapProtocolAssistantPart(i, message.Parts[i], provider)

@@ -117,7 +117,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	apiResp, err := t.api.listen(ctx, audio, contentType, params)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	if len(apiResp.Results.Channels) == 0 || len(apiResp.Results.Channels[0].Alternatives) == 0 {

@@ -25,6 +25,8 @@ const (
 
 const outputName = "eval_report"
 
+const defaultSamples = 1
+
 type aggregation string
 
 const aggregationMedian aggregation = "median"
@@ -123,7 +125,7 @@ func NewEvaluator[T any](config Config[T]) (*Evaluator[T], error) {
 	if config.Threshold != nil {
 		threshold = new(*config.Threshold)
 	}
-	samples := cmp.Or(config.Samples, 1)
+	samples := cmp.Or(config.Samples, defaultSamples)
 	metric, err := (metricConfiguration{
 		ModelID: config.ModelID, RubricID: config.RubricID, Options: config.Options.Clone(),
 		Aggregation: aggregationMedian, Samples: samples,

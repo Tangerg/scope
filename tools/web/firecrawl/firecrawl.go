@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -111,7 +112,8 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("firecrawl: prepare search request: %w", err)
+		cause := fmt.Errorf("firecrawl: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
@@ -128,11 +130,13 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("firecrawl: prepare fetch request: %w", err)
+		cause := fmt.Errorf("firecrawl: prepare fetch request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	format := prepared.Format
 	if format == web.FormatText {
-		return nil, fmt.Errorf("firecrawl: %w: %s", web.ErrUnsupportedFormat, format)
+		cause := fmt.Errorf("firecrawl: %w: %s", web.ErrUnsupportedFormat, format)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{

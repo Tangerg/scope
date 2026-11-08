@@ -280,6 +280,9 @@ func mapProtocolImage(value *media.Media) (nativeImageData, error) {
 }
 
 func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error) {
+	if len(message.Parts) == 0 {
+		return nativeMessage{}, errors.New("assistant metadata has no replayable Ollama content")
+	}
 	mapped := nativeMessage{Role: "assistant"}
 	var text, reasoning strings.Builder
 	for i := range message.Parts {

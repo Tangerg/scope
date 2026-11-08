@@ -55,7 +55,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
 	if i == nil || i.transport == nil {
-		return nil, errors.New("google: nil ImageModel")
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("google: nil ImageModel")}
 	}
 	if err := req.Validate(); err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
@@ -66,7 +66,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	}
 	response, err := i.transport.create(ctx, request)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	return response.response()
 }

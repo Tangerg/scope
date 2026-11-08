@@ -14,6 +14,12 @@
 // safety, grounding, modalities, and thinking-budget fields remain available.
 // Thinking budget and Core reasoning effort are mutually exclusive after
 // resolving defaults.
+// The full SDK request converter owns backend-specific admission and wire
+// projection, including image controls, model selection, and cached-content names.
+// One locally prepared request reaches the host HTTP client; strict native response
+// decoding preserves JSON numbers and rejects conflicting Part data payloads.
+// HTTP extensions admit headers and integer-nanosecond timeouts only. Omission
+// and zero add no per-request timeout; host HTTP policy still applies.
 // Code execution is rejected before I/O because Core cannot represent its
 // output and replay losslessly. Execution parts in responses fail validation.
 // Each stream binds the first reported response ID and model version; later

@@ -26,7 +26,7 @@ const (
 
 	outputURLMetadataKey      = Provider + "/output_url"
 	seedMetadataKey           = Provider + "/seed"
-	durationMetadataKey       = Provider + "/duration_ms"
+	durationMetadataKey       = Provider + "/duration"
 	taskIDMetadataKey         = Provider + "/task_id"
 	submitResponseMetadataKey = Provider + "/submit_response"
 	resultResponseMetadataKey = Provider + "/result_response"
@@ -37,6 +37,7 @@ type ImageModelConfig struct {
 	DefaultOptions image.Options
 	BaseURL        string
 	HTTPClient     *http.Client
+	OutputOrigins  []string
 
 	// PollInterval / PollTimeout configure the synchronous wrapper
 	// around BFL's async generation. Zero values fall back to the
@@ -82,9 +83,10 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 		return nil, err
 	}
 	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
+		APIKey:        config.APIKey,
+		BaseURL:       config.BaseURL,
+		HTTPClient:    config.HTTPClient,
+		OutputOrigins: config.OutputOrigins,
 	})
 	if err != nil {
 		return nil, err

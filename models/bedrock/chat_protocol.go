@@ -141,7 +141,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		}
 		stream, err := c.api.converseStream(ctx, input)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer stream.Close()
@@ -177,7 +177,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			}
 		}
 		if streamErr := stream.Err(); streamErr != nil {
-			yield(nil, streamErr)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: streamErr})
 			return
 		}
 		terminal, err = state.complete(terminal)

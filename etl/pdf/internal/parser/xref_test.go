@@ -205,3 +205,64 @@ func TestObjectStreamsRejectInvalidOffsetsAndMissingObject(t *testing.T) {
 		}
 	}
 }
+
+func TestHybridReferencesApplyCurrentTableThenStreamThenPreviousRevision(t *testing.T) {
+	for _, owner := range []string{"stream", "table", "free"} {
+		t.Run(owner, func(t *testing.T) {
+			base := xrefDocument(t, false)
+			var previous int
+			if _, err := fmt.Sscanf(string(base[bytes.LastIndex(base, []byte("startxref")):]), "startxref\n%d", &previous); err != nil {
+				t.Fatal(err)
+			}
+			var source bytes.Buffer
+			source.Write(base)
+			streamValueOffset := source.Len()
+			source.WriteString("7 0 obj (stream) endobj\n")
+			tableValueOffset := source.Len()
+			source.WriteString("7 0 obj (table) endobj\n")
+			streamOffset := source.Len()
+			entry := make([]byte, 7)
+			entry[0] = 1
+			binary.BigEndian.PutUint32(entry[1:], uint32(streamValueOffset))
+			fmt.Fprintf(&source, "9 0 obj\n<< /Type /XRef /Size 10 /Index [7 1] /W [1 4 2] /Length 7 /Prev %d >>\nstream\n", streamOffset)
+			source.Write(entry)
+			source.WriteString("\nendstream\nendobj\n")
+			tableOffset := source.Len()
+			source.WriteString("xref\n")
+			switch owner {
+			case "table":
+				fmt.Fprintf(&source, "7 1\n%010d 00000 n \n", tableValueOffset)
+			case "free":
+				source.WriteString("7 1\n0000000000 00001 f \n")
+			}
+			fmt.Fprintf(&source, "9 1\n%010d 00000 n \ntrailer\n<< /Size 10 /Root 1 0 R /Prev %d /XRefStm %d >>\nstartxref\n%d\n%%%%EOF\n", streamOffset, previous, streamOffset, tableOffset)
+			reader, err := NewReader(t.Context(), bytes.NewReader(source.Bytes()), int64(source.Len()), parserBudget(t).limits, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			value := reader.resolve(objptr{}, objptr{7, 0})
+			if owner == "free" {
+				if !value.IsNull() {
+					t.Fatalf("free current table entry resurrected %v", value)
+				}
+			} else if value.RawString() != owner {
+				t.Fatalf("resolved=%q; want %q", value.RawString(), owner)
+			}
+			if text, err := reader.Page(1).PlainText(); err != nil || strings.TrimSpace(text) != "stream page" {
+				t.Fatalf("mixed table/stream Prev lost page: %q, %v", text, err)
+			}
+		})
+	}
+}
+
+func TestHybridReferencesRejectInvalidOffsetsAndCycles(t *testing.T) {
+	for _, links := range []string{
+		"/XRefStm -1", "/XRefStm 999999", "/XRefStm /invalid", "/XRefStm 9", "/Prev 9", "/Prev /invalid",
+	} {
+		source := fmt.Sprintf("%%PDF-1.5\nxref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 %s >>\nstartxref\n9\n%%%%EOF\n", links)
+		reader, err := NewReader(t.Context(), strings.NewReader(source), int64(len(source)), parserBudget(t).limits, nil)
+		if reader != nil || err == nil {
+			t.Fatalf("invalid xref links admitted: %s: %v", links, err)
+		}
+	}
+}

@@ -82,6 +82,8 @@ func TestCompositeIsInvariantToWeightScale(t *testing.T) {
 				score eval.Score
 			}{
 				{name: "half", score: 0.5},
+				{name: "smallest_positive", score: eval.Score(math.SmallestNonzeroFloat64)},
+				{name: "smallest_normal", score: eval.Score(math.Float64frombits(1 << 52))},
 				{name: "perfect", score: 1},
 			} {
 				t.Run(scoreCase.name, func(t *testing.T) {

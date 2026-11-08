@@ -3,8 +3,9 @@
 // Anthropic-compatible endpoint.
 //
 // Set chat.Options.ReasoningEffort for the chat reasoning effort. The raw
-// OpenAI request extension cannot also set reasoning.effort; other native
-// reasoning settings remain available through that extension.
+// OpenAI request extension cannot set reasoning.effort or reasoning.enabled.
+// Native reasoning.max_tokens can select a token budget only when Core effort
+// is absent; reasoning.exclude remains independently available.
 // Core Options.TopK exclusively owns top-k sampling for Chat Completions;
 // the raw request extension cannot set top_k even when Core leaves it unset.
 // Structured reasoning keeps each native detail as a separate Core Part:

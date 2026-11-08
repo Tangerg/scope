@@ -32,6 +32,7 @@ var (
 	ErrInvalid              = errors.New("jsonschema: invalid schema")
 	ErrValidation           = errors.New("jsonschema: instance validation failed")
 	ErrUnsupportedStringTag = errors.New("jsonschema: string tag requires a custom encoding and JSONSchemaModel")
+	ErrUnsupportedFormatTag = errors.New("jsonschema: format tag requires a custom encoding and JSONSchemaModel")
 )
 
 // Modeler is implemented by values whose encoding/json/v2 representation is
@@ -129,6 +130,8 @@ type Schema struct {
 // documents still pass through Parse for semantic validation and compilation.
 // A string tag requires a custom encoding and Modeler: numeric constraints do
 // not constrain JSON strings, and other ordinary types reject this tag in JSON v2.
+// Field-specific format tags are not inferred. An enclosing custom codec must
+// own that representation and project its format-free wire model.
 func For[T any]() (Schema, error) {
 	typeOf := reflect.TypeFor[T]()
 	definition, err := reflectType(typeOf)

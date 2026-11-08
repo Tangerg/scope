@@ -43,7 +43,11 @@ func TestNativeFailuresAreBoundedAndCannotEchoSecrets(t *testing.T) {
 				t.Fatal(buildErr)
 			}
 			err := Execute(c.R().SetContext(t.Context()), http.MethodGet, "/search", new(struct{}))
-			if err == nil || strings.Contains(err.Error(), sensitive) || tc.want != nil && !errors.Is(err, tc.want) {
+			cause := err
+			if diagnostic, ok := errors.AsType[*exchangeError](err); ok {
+				cause = diagnostic.Cause()
+			}
+			if err == nil || strings.Contains(err.Error(), sensitive) || tc.want != nil && !errors.Is(cause, tc.want) {
 				t.Fatalf("native failure = %v", err)
 			}
 		})

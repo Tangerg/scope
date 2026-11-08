@@ -45,7 +45,7 @@ func TestUnknownMIMEAdheresToNativeMediaContract(t *testing.T) {
 				if value.Source.Kind == media.SourceURI {
 					part = &genai.Part{FileData: &genai.FileData{FileURI: value.Source.URI}}
 				}
-				_, _, _, err := mapProtocolCandidatePartDelta(provider, 0, part)
+				_, _, _, err := mapProtocolCandidatePartDelta(provider, 0, part, nil)
 				if (err != nil) != wantError {
 					t.Errorf("response: error=%v, want error=%t", err, wantError)
 				}

@@ -24,7 +24,10 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const defaultHTTPTimeout = 30 * time.Second
+const (
+	defaultHTTPTimeout = 30 * time.Second
+	restAPIVersion     = "v1"
+)
 
 // Client binds all REST operations to one origin and gRPC calls to one configured server.
 // Multiple stores can borrow the connection. The Host closes it after use.
@@ -65,7 +68,7 @@ func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 	var meta struct {
 		MaxBytes int `json:"grpcMaxMessageSize"`
 	}
-	if err = client.readJSON(ctx, u.JoinPath("v1", "meta"), &meta); err != nil {
+	if err = client.readJSON(ctx, u.JoinPath(restAPIVersion, "meta"), &meta); err != nil {
 		return nil, fmt.Errorf("weaviate: read server metadata: %w", err)
 	}
 	secure := insecure.NewCredentials()
@@ -108,7 +111,7 @@ const maxSchemaBytes = 4 << 20
 // contract once from the native schema, which distinguishes false from true.
 func (c *Client) schema(ctx context.Context, name string) (collectionWire, error) {
 	var raw collectionWire
-	err := c.readJSON(ctx, c.base.JoinPath("v1", "schema", name), &raw)
+	err := c.readJSON(ctx, c.base.JoinPath(restAPIVersion, "schema", name), &raw)
 	return raw, err
 }
 
@@ -146,7 +149,7 @@ func (c *Client) readJSON(ctx context.Context, u *url.URL, target any) error {
 }
 
 func (c *Client) delete(ctx context.Context, collection, id string) error {
-	resp, err := c.request(ctx, http.MethodDelete, c.base.JoinPath("v1", "objects", collection, id))
+	resp, err := c.request(ctx, http.MethodDelete, c.base.JoinPath(restAPIVersion, "objects", collection, id))
 	if err != nil {
 		return err
 	}

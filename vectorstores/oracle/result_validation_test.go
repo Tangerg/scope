@@ -45,6 +45,9 @@ func (r *resultConnection) Begin() (driver.Tx, error) {
 	return nil, errors.New("unexpected transaction")
 }
 func (r *resultConnection) QueryContext(_ context.Context, stmt string, _ []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(stmt, "NLS_DATABASE_PARAMETERS") {
+		return &resultRows{cols: []string{"VALUE"}, values: [][]driver.Value{{"AL32UTF8"}}}, nil
+	}
 	if strings.Contains(stmt, "SELECT VECTOR_INFO") {
 		return &resultRows{cols: []string{"VECTOR_INFO"}, values: [][]driver.Value{{"VECTOR(2,FLOAT32)"}}}, nil
 	}

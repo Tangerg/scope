@@ -14,7 +14,6 @@ import (
 var _ speech.Streamer = (*StreamingSpeechModel)(nil)
 var _ speech.Model = (*StreamingSpeechModel)(nil)
 
-// StreamingSpeechModel exposes the native incremental audio protocol.
 type StreamingSpeechModel struct{ binding *speechBinding }
 
 func NewStreamingSpeechModel(ctx context.Context, config SpeechModelConfig) (*StreamingSpeechModel, error) {
@@ -68,6 +67,9 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		var generation generationStream
 		for chunk, err := range s.binding.api.chatCompletionStream(ctx, modelName, contents, config) {
 			if err != nil {
+				if errors.Is(err, ErrInvalidGenerationResponse) {
+					err = fmt.Errorf("%w: %w", speech.ErrInvalidResponse, err)
+				}
 				yield(nil, err)
 				return
 			}

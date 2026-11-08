@@ -7,7 +7,7 @@ import (
 
 type downloadTransport struct {
 	next http.RoundTripper
-	urls providerURLPolicy
+	urls outputURLPolicy
 }
 
 func (d *downloadTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -17,6 +17,11 @@ func (d *downloadTransport) RoundTrip(request *http.Request) (*http.Response, er
 		}
 		return nil, err
 	}
+	request = request.Clone(request.Context())
+	request.Header.Del(headerAPIKey)
+	request.Header.Del(headerAuthorization)
+	request.Header.Del(headerProxyAuthorization)
+	request.Header.Del(headerCookie)
 	return d.next.RoundTrip(request)
 }
 

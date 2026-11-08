@@ -22,7 +22,7 @@ func TestImageMetadataPreservesReportedZero(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, key := range []string{"blackforestlabs/seed", "blackforestlabs/duration_ms"} {
+			for _, key := range []string{"blackforestlabs/seed", "blackforestlabs/duration"} {
 				raw, exists := response.Outputs[0].Metadata[key]
 				if exists != (fields != "") || exists && string(raw) != "0" {
 					t.Fatalf("%s=%s present=%t", key, raw, exists)

@@ -53,3 +53,5 @@ func (c *Coordinates[T]) UnmarshalJSON(data []byte) error {
 	*c = candidate
 	return nil
 }
+
+func (Coordinates[T]) JSONSchemaModel() any { return []T{} }

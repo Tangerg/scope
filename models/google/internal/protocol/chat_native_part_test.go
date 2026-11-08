@@ -59,7 +59,7 @@ func TestProtocolReplayUsesCurrentCoreTextKind(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if len(wire) != 1 || wire[0].Thought == thought || wire[0].Text != "text" || !reflect.DeepEqual(wire[0].PartMetadata, map[string]any{"native": float64(7)}) {
+				if len(wire) != 1 || wire[0].Thought == thought || wire[0].Text != "text" || !reflect.DeepEqual(wire[0].PartMetadata, map[string]any{"native": json.Number("7")}) {
 					t.Fatalf("native text classification ignored the current Core kind: %#v", wire)
 				}
 			})

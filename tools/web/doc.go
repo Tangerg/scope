@@ -9,4 +9,12 @@
 // Provider clients validate their own result projections: malformed records and
 // missing required result payloads fail, while an explicit empty search result
 // remains valid. Requested fetched content must be present even when it is empty.
+//
+// Provider clients establish model-correctable input failures before I/O with
+// core/tool.Failure. Its Cause retains the validation diagnostic. Transport and
+// response-reading errors expose their original cause through Cause() error,
+// without unwrapping it into a Tool outcome. The current request's cancellation
+// remains observable through errors.Is; received HTTP status and request ID
+// retain their structured interfaces. SearchTool and FetchTool consume explicit
+// provider outcomes without inferring them from diagnostic sentinels.
 package web

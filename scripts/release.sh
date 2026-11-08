@@ -215,7 +215,11 @@ remote_tag_commit() {
 }
 
 release_env() {
+  # Empty GOFLAGS alone reactivates defaults saved with go env -w. Release
+  # gates own their complete build/test scope, including the Go environment file.
   env -u MODULE -u FAST \
+    GOENV=off \
+    GOFLAGS= \
     GOWORK="$release_root/go.work" \
     GOMODCACHE="$release_staged_modcache" \
     GONOPROXY=github.com/Tangerg/scope \

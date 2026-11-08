@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	slashpath "path"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -27,6 +26,8 @@ const (
 // LocalExecutor is the reference local filesystem backend. Its constructor
 // grants one immutable directory-tree authority; operation inputs may narrow
 // that authority but cannot replace or escape it.
+// Paths are literal. The Host owns shell expansion, including home-directory
+// interpretation, so process environment changes cannot retarget a tool input.
 //
 //   - Glob uses the doublestar matcher and never follows directory symlinks.
 //   - Grep streams files opened through os.Root to ripgrep. It skips hidden
@@ -83,7 +84,6 @@ func (l *LocalExecutor) authorize(path string, allowRoot bool) (string, error) {
 		}
 		return "", ErrEmptyPath
 	}
-	path = expandHome(path)
 	if filepath.IsAbs(path) {
 		relative, err := filepath.Rel(l.rootPath, filepath.Clean(path))
 		if err != nil {
@@ -107,21 +107,6 @@ func (l *LocalExecutor) openRoot() (*os.Root, error) {
 		return nil, fmt.Errorf("fs: open executor root %q: %w", l.rootPath, err)
 	}
 	return root, nil
-}
-
-// Only ~ and ~/ expand. If home lookup fails, preserve the original path.
-func expandHome(path string) string {
-	if path != "~" && !strings.HasPrefix(path, "~/") {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == "~" {
-		return home
-	}
-	return filepath.Join(home, path[len("~/"):])
 }
 
 // Read does not serialize with mutations: atomic replacement means it observes

@@ -31,7 +31,7 @@ type GrepRequest struct {
 
 	OutputMode GrepOutputMode `json:"output_mode,omitempty" jsonschema_description:"Result projection: content (default), files_with_matches, or count."`
 
-	MaxResults int `json:"max_results,omitzero" jsonschema_description:"Maximum result entries. Defaults to 250."`
+	MaxResults int `json:"max_results,omitzero" jsonschema_description:"Maximum result entries. Omit to use the executor default."`
 }
 
 func (g GrepRequest) Validate() error {
@@ -114,9 +114,9 @@ func NewGrepTool(executor Grepper) (*GrepTool, error) {
 		toolcontract.FuncConfig{
 			Effect: toolcontract.EffectSafe,
 			Name:   grepToolName,
-			Description: "Search file contents with a ripgrep regular expression. Use this instead of running grep or rg through shell. " +
-				"Set output_mode=files_with_matches when only file paths are needed; use count for per-file match counts. " +
-				"Set multiline=true only for patterns that span line breaks.",
+			Description: fmt.Sprintf("Search file contents with a ripgrep regular expression. Use this instead of running grep or rg through shell. "+
+				"Set output_mode=files_with_matches when only file paths are needed; use count for per-file match counts. "+
+				"Set multiline=true only for patterns that span line breaks. Omit max_results to use the default limit of %d entries.", defaultGrepMaxResults),
 		},
 		t.grep,
 	)

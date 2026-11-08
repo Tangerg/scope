@@ -63,7 +63,7 @@ func TestCMapDefinitionsRequireAnOpenDictionaryAndName(t *testing.T) {
 		var err error
 		func() {
 			defer recoverTo(&err, func() {})
-			Interpret(testStream(t, []byte(source), nil), func(*Stack, string) {})
+			Interpret(testStream(t, []byte(source), nil), Value{}, func(*Stack, string) {})
 		}()
 		if err == nil {
 			t.Fatalf("malformed dictionary definition accepted: %s", source)

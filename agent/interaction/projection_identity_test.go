@@ -275,7 +275,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		if intent, ok := entry.Record.(run.EffectIntent); ok {
 			if _, isTool, _ := ToolCallFromEffect(intent.Effect); isTool {
 				invocation = intent
-			} else if _, isModel, _ := ModelRequestFromEffect(intent.Effect); isModel {
+			} else if _, isModel, _ := ModelCallFromEffect(intent.Effect); isModel {
 				model = intent
 			}
 		}

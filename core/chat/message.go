@@ -54,6 +54,8 @@ func (r Role) allowsPart(kind PartKind) bool {
 // so interleaved assistant text, reasoning, and tool calls round-trip. Clone
 // recursively owns every mutable protocol value. Text projection concatenates
 // only text parts and deliberately ignores reasoning, media, and tool payloads.
+// An assistant entry may contain only native replay metadata when a provider
+// completed a server-side action without producing a portable content part.
 type Message struct {
 	Role     Role         `json:"role"`
 	Parts    []Part       `json:"parts"`
@@ -126,7 +128,7 @@ func (m Message) Validate() error {
 	if !m.Role.Valid() {
 		return fmt.Errorf("%w: unknown role %q", ErrInvalidMessage, m.Role)
 	}
-	if len(m.Parts) == 0 {
+	if len(m.Parts) == 0 && (m.Role != RoleAssistant || len(m.Metadata) == 0) {
 		return fmt.Errorf("%w: role %q requires at least one part", ErrInvalidMessage, m.Role)
 	}
 	if err := m.Metadata.Validate(); err != nil {

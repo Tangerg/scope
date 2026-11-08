@@ -170,7 +170,7 @@ func TestLiveNativeEnvelope(t *testing.T) {
 	if err := refreshNative(t.Context(), client, store.indexName); err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.Search(client.Search.WithContext(t.Context()), client.Search.WithIndex(store.indexName), client.Search.WithBody(strings.NewReader(`{"size":1,"_source":true,"seq_no_primary_term":true,"stored_fields":["_routing"],"track_total_hits":true,"knn":{"field":"embedding","query_vector":[1,0],"k":1}}`)))
+	response, err := client.Search(client.Search.WithContext(t.Context()), client.Search.WithIndex(store.indexName), client.Search.WithBody(strings.NewReader(`{"size":1,"_source":{"exclude_vectors":false},"seq_no_primary_term":true,"stored_fields":["_routing"],"track_total_hits":true,"knn":{"field":"embedding","query_vector":[1,0],"k":1}}`)))
 	if err != nil {
 		t.Fatal(err)
 	}

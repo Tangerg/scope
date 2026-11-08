@@ -15,7 +15,6 @@ import (
 
 var _ speech.Streamer = (*StreamingSpeechModel)(nil)
 
-// StreamingSpeechModel exposes the native incremental audio protocol.
 type StreamingSpeechModel struct{ binding *speechBinding }
 
 func NewStreamingSpeechModel(ctx context.Context, config SpeechModelConfig) (*StreamingSpeechModel, error) {
@@ -47,7 +46,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		}
 		body, err := s.binding.api.ttsStream(ctx, request)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer body.Close()
@@ -69,7 +68,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 					yield(nil, contextErr)
 					return
 				}
-				yield(nil, fmt.Errorf("hume: decode streamed JSON response: %w", err))
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("hume: decode streamed JSON response: %w", err)})
 				return
 			}
 			if event.Type != streamEventAudio {

@@ -191,7 +191,6 @@ func (s SearchResult) MarshalJSON() ([]byte, error) {
 	if err := (&s).Validate(); err != nil {
 		return nil, err
 	}
-	type wireSearchResult SearchResult
 	return jsonv2.Marshal(wireSearchResult(s))
 }
 
@@ -217,8 +216,8 @@ func (s *SearchResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// SearchResponse reports a completed search. JSON requires a results array;
-// an explicit empty array reports no matches.
+// SearchResponse reports each document identity at most once, in descending
+// score order. JSON requires a results array; an empty array reports no matches.
 type SearchResponse struct {
 	Results []*SearchResult `json:"results"`
 }
@@ -235,10 +234,15 @@ func (s *SearchResponse) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: response is nil", ErrInvalidResponse)
 	}
+	identities := make(map[string]struct{}, len(s.Results))
 	for index, result := range s.Results {
 		if err := result.Validate(); err != nil {
 			return fmt.Errorf("%w: results[%d]: %w", ErrInvalidResponse, index, err)
 		}
+		if _, repeated := identities[result.Document.ID]; repeated {
+			return fmt.Errorf("%w: results[%d]: duplicate document ID %q", ErrInvalidResponse, index, result.Document.ID)
+		}
+		identities[result.Document.ID] = struct{}{}
 		if index > 0 && s.Results[index-1].Score < result.Score {
 			return fmt.Errorf("%w: results are not sorted by descending score at index %d", ErrInvalidResponse, index)
 		}
@@ -250,7 +254,6 @@ func (s SearchResponse) MarshalJSON() ([]byte, error) {
 	if err := (&s).Validate(); err != nil {
 		return nil, err
 	}
-	type wireSearchResponse SearchResponse
 	return jsonv2.Marshal(wireSearchResponse(s))
 }
 
@@ -258,7 +261,6 @@ func (s *SearchResponse) UnmarshalJSON(data []byte) error {
 	if s == nil {
 		return fmt.Errorf("%w: search response receiver is nil", ErrInvalidResponse)
 	}
-	type wireSearchResponse SearchResponse
 	var decoded wireSearchResponse
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode search response: %w", ErrInvalidResponse, err)
@@ -313,3 +315,13 @@ func (s *SearchResponse) Documents() []*document.Document {
 	}
 	return documents
 }
+
+func (SearchOptions) JSONSchemaModel() any { return searchOptionsWire{} }
+
+type wireSearchResult SearchResult
+
+func (SearchResult) JSONSchemaModel() any { return wireSearchResult{} }
+
+type wireSearchResponse SearchResponse
+
+func (SearchResponse) JSONSchemaModel() any { return wireSearchResponse{} }

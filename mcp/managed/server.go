@@ -174,13 +174,20 @@ func (b *binding[I, O]) start(ctx context.Context, call admittedCall[I]) (*sdk.C
 }
 
 func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params *sdk.CallToolParamsRaw) (*sdk.CallToolResult, error) {
-	destination, err := b.issuer.open(params.RequestState, call.authority)
-	if err != nil || destination.Owner.Root() != call.start.Root() {
+	continuation, err := b.issuer.open(params.RequestState, call.authority)
+	if err != nil {
 		return nil, errContinuation
 	}
 	head, err := b.cfg.Runtime.Inspect(ctx, call.start.Root())
 	if err != nil {
 		return nil, errUnavailable
+	}
+	destination, err := continuation.resolve(ctx, b.cfg.Runtime, head)
+	if err != nil {
+		return nil, err
+	}
+	if destination.Owner.Root() != call.start.Root() {
+		return nil, errContinuation
 	}
 	reply, err := parseFormReply(params.InputResponses)
 	if err != nil {

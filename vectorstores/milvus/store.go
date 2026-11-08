@@ -236,6 +236,10 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 	if err != nil {
 		return nil, err
 	}
+	query, err := policy.vector(request.Values)
+	if err != nil {
+		return nil, err
+	}
 	response := &vectorstore.SearchResponse{}
 	groups := [][]nativeRecord{nil}
 	if request.Options.Filter != nil {
@@ -248,10 +252,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 			return response, request.ValidateResponse(response)
 		}
 		groups = slices.Collect(slices.Chunk(candidates, identityGroupSize))
-	}
-	query, err := policy.vector(request.Values)
-	if err != nil {
-		return nil, err
 	}
 	var ranked []rankedDocument
 	for _, group := range groups {

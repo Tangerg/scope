@@ -9,7 +9,9 @@
 // The index must declare exactly content (text), embedding (indexed FLOAT32
 // dense_vector with explicit dimensions), and metadata_json (keyword with
 // index:false and doc_values:false), under dynamic:strict. Complete stored
-// _source is required. Aliases, required or per-document custom routing, runtime
+// _source is required. Reads explicitly include vectors, including when
+// Elasticsearch 9.2+ excludes them from the default source projection.
+// Aliases, required or per-document custom routing, runtime
 // fields, dynamic templates and ingest pipelines are incompatible. The host must
 // preserve these namespace and storage guarantees while Store is in use.
 //

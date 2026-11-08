@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	responsesReasoningFrameSize   = 8
+	responsesReasoningLengthSize  = 4
+	responsesReasoningFrameSize   = len(responsesReasoningFrameMagic) + responsesReasoningLengthSize
 	responsesReasoningIdentityKey = "openai/responses_reasoning_identity"
 	responsesReasoningSummary     = "summary"
 	responsesReasoningContent     = "content"
@@ -166,7 +167,7 @@ func encodeResponsesReasoningFrame(state responsesReasoningState) ([]byte, error
 	}
 	frame := make([]byte, responsesReasoningFrameSize+len(raw))
 	copy(frame, responsesReasoningFrameMagic[:])
-	binary.BigEndian.PutUint32(frame[4:responsesReasoningFrameSize], uint32(len(raw)))
+	binary.BigEndian.PutUint32(frame[len(responsesReasoningFrameMagic):responsesReasoningFrameSize], uint32(len(raw)))
 	copy(frame[responsesReasoningFrameSize:], raw)
 	return frame, nil
 }
@@ -180,16 +181,16 @@ func decodeResponsesReasoningFrames(encoded []byte) ([]responsesReasoningState, 
 		if len(encoded)-offset < responsesReasoningFrameSize {
 			return nil, true, errors.New("truncated frame header")
 		}
-		if !bytes.Equal(encoded[offset:offset+4], responsesReasoningFrameMagic[:]) {
+		if !bytes.Equal(encoded[offset:offset+len(responsesReasoningFrameMagic)], responsesReasoningFrameMagic[:]) {
 			return nil, true, fmt.Errorf("invalid frame magic at byte %d", offset)
 		}
-		length := int(binary.BigEndian.Uint32(encoded[offset+4 : offset+responsesReasoningFrameSize]))
+		length := binary.BigEndian.Uint32(encoded[offset+len(responsesReasoningFrameMagic) : offset+responsesReasoningFrameSize])
 		offset += responsesReasoningFrameSize
-		if length > len(encoded)-offset {
+		if uint64(length) > uint64(len(encoded)-offset) {
 			return nil, true, fmt.Errorf("frame length %d exceeds remaining %d bytes", length, len(encoded)-offset)
 		}
 		var state *responsesReasoningState
-		if err := jsonv2.Unmarshal(encoded[offset:offset+length], &state, jsonv2.RejectUnknownMembers(true)); err != nil {
+		if err := jsonv2.Unmarshal(encoded[offset:offset+int(length)], &state, jsonv2.RejectUnknownMembers(true)); err != nil {
 			return nil, true, fmt.Errorf("decode reasoning state: %w", err)
 		}
 		if state == nil {
@@ -199,7 +200,7 @@ func decodeResponsesReasoningFrames(encoded []byte) ([]responsesReasoningState, 
 			return nil, true, err
 		}
 		states = append(states, *state)
-		offset += length
+		offset += int(length)
 	}
 	return states, true, nil
 }

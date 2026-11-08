@@ -164,6 +164,9 @@ func mistralMediaURI(value *media.Media) (string, error) {
 }
 
 func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
+	if len(parts) == 0 {
+		return chatMessage{}, errors.New("assistant metadata has no replayable Mistral content")
+	}
 	message := chatMessage{Role: chatRoleAssistant}
 	content := make([]any, 0, len(parts))
 	var thinking *thinkingReplay

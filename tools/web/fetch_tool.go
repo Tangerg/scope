@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -47,10 +46,6 @@ func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResp
 	}
 	response, err := f.fetcher.Fetch(ctx, prepared)
 	if err != nil {
-		// An unsupported format is rejected before any backend call: definite, not uncertain.
-		if errors.Is(err, ErrUnsupportedFormat) {
-			return nil, toolresult.Correctable(err.Error(), err)
-		}
 		return nil, fmt.Errorf("web.fetch: %w", err)
 	}
 	if validationErr := response.ValidateFor(prepared); validationErr != nil {

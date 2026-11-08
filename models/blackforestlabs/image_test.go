@@ -61,6 +61,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
+		OutputOrigins:  []string{srv.URL},
 		PollInterval:   10 * time.Millisecond,
 		PollTimeout:    5 * time.Second,
 	})
@@ -117,7 +118,7 @@ func TestNativeSamplingFieldsSurviveDefaultsAndRequestProjection(t *testing.T) {
 			if err := target.Extensions.Set(blackforestlabs.ImageRequestExtensionKey, map[string]any{"steps": 17, "guidance": 4}); err != nil {
 				t.Fatal(err)
 			}
-			model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: options, PollInterval: time.Millisecond})
+			model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: options, PollInterval: time.Millisecond})
 			if err != nil {
 				t.Fatal(err)
 			}

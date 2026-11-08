@@ -70,7 +70,6 @@ func (c *CompatibleRequest) TopP() (float64, bool) {
 	return *c.topP, true
 }
 
-// Stream reports whether the request will use the streaming endpoint.
 func (c *CompatibleRequest) Stream() bool { return c.stream }
 
 // SetExtraField adds or replaces one provider-owned top-level JSON field.

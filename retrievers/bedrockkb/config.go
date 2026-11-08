@@ -20,6 +20,13 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+const (
+	DefaultLimit                      = 5
+	DefaultPageLimit                  = 8
+	maximumResults                    = 100
+	maximumKnowledgeBaseIdentityBytes = 2048
+)
+
 var knowledgeBaseIdentity = regexp.MustCompile(`^(?:[0-9a-zA-Z]{10}|arn:aws(?:-[a-z0-9-]+)?:bedrock:[a-z0-9-]{1,20}:[0-9]{12}:knowledge-base/[0-9a-zA-Z]{10})$`)
 
 // MetadataScope requires a single exact native string value on every returned source.
@@ -31,7 +38,7 @@ type MetadataScope struct {
 // Config binds the native Retrieve REST boundary. The host owns HTTP
 // authentication, retries, timeouts and lifecycle; ingestion stays in Bedrock.
 type Config struct {
-	// Limit defaults to 5. PageLimit bounds service calls; zero uses 8.
+	// Zero limits use DefaultLimit and DefaultPageLimit; PageLimit bounds service calls.
 	Limit     int
 	PageLimit int
 	// Mode defaults to SEMANTIC.
@@ -70,7 +77,7 @@ func (c Config) Validate() error {
 	if c.Scope != nil && (strings.TrimSpace(c.Scope.Key) == "" || c.Scope.Value == "") {
 		return errors.New("bedrockkb: exact metadata scope requires a key and value")
 	}
-	if !knowledgeBaseIdentity.MatchString(c.KnowledgeBaseID) || len(c.KnowledgeBaseID) > 2048 {
+	if !knowledgeBaseIdentity.MatchString(c.KnowledgeBaseID) || len(c.KnowledgeBaseID) > maximumKnowledgeBaseIdentityBytes {
 		return errors.New("bedrockkb: invalid knowledge base ID or ARN")
 	}
 	if c.UserID != "" && (!utf8.ValidString(c.UserID) || strings.TrimSpace(c.UserID) == "") {
@@ -86,7 +93,7 @@ func (c Config) Validate() error {
 }
 
 func (c Config) nativePolicy() (nativeConfiguration, error) {
-	configuration := nativeConfiguration{Count: cmp.Or(c.Limit, 5), Mode: cmp.Or(c.Mode, types.SearchTypeSemantic)}
+	configuration := nativeConfiguration{Count: cmp.Or(c.Limit, DefaultLimit), Mode: cmp.Or(c.Mode, types.SearchTypeSemantic)}
 	if c.Scope != nil {
 		configuration.Filter = &nativeFilter{Equals: *c.Scope}
 	}

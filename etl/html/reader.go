@@ -9,6 +9,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
 	htmlnode "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 
 	"github.com/Tangerg/scope/core/document"
 	coremetadata "github.com/Tangerg/scope/core/metadata"
@@ -22,6 +23,7 @@ const (
 	MetadataDescription = "html.description"
 	MetadataCanonical   = "html.canonical"
 	MetadataSelector    = "html.selector"
+	hiddenAttribute     = "hidden"
 )
 
 // ReaderConfig controls HTML extraction. By default whitespace runs are collapsed;
@@ -136,6 +138,11 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 }
 
 func (r *Reader) extractText(node *htmlnode.Node) string {
+	for ancestor := node.Parent; ancestor != nil; ancestor = ancestor.Parent {
+		if excludesText(ancestor) {
+			return ""
+		}
+	}
 	var content strings.Builder
 	appendNodeText(&content, node)
 	text := content.String()
@@ -150,13 +157,10 @@ func appendNodeText(content *strings.Builder, node *htmlnode.Node) {
 		content.WriteString(node.Data)
 		return
 	}
-	if node.Type == htmlnode.ElementNode {
-		switch node.Data {
-		case "script", "style", "noscript", "template", "head":
-			return
-		}
+	if excludesText(node) {
+		return
 	}
-	boundary := node.Type == htmlnode.ElementNode && textBoundaryElement(node.Data)
+	boundary := node.Type == htmlnode.ElementNode && textBoundaryElement(node.DataAtom)
 	if boundary {
 		content.WriteByte('\n')
 	}
@@ -168,14 +172,30 @@ func appendNodeText(content *strings.Builder, node *htmlnode.Node) {
 	}
 }
 
+func excludesText(node *htmlnode.Node) bool {
+	if node.Type != htmlnode.ElementNode {
+		return false
+	}
+	switch node.DataAtom {
+	case atom.Script, atom.Style, atom.Noscript, atom.Template, atom.Head:
+		return true
+	}
+	for _, attribute := range node.Attr {
+		if attribute.Namespace == "" && attribute.Key == hiddenAttribute {
+			return true
+		}
+	}
+	return false
+}
+
 // Inline markup must not insert spaces inside words; structural boundaries must.
-func textBoundaryElement(name string) bool {
+func textBoundaryElement(name atom.Atom) bool {
 	switch name {
-	case "address", "article", "aside", "blockquote", "br", "caption", "dd", "details",
-		"dialog", "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form",
-		"h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "li", "main",
-		"nav", "ol", "p", "pre", "section", "summary", "table", "tbody", "td", "tfoot",
-		"th", "thead", "tr", "ul":
+	case atom.Address, atom.Article, atom.Aside, atom.Blockquote, atom.Br, atom.Caption, atom.Dd, atom.Details,
+		atom.Dialog, atom.Div, atom.Dl, atom.Dt, atom.Fieldset, atom.Figcaption, atom.Figure, atom.Footer, atom.Form,
+		atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6, atom.Header, atom.Hgroup, atom.Hr, atom.Li, atom.Main,
+		atom.Nav, atom.Ol, atom.P, atom.Pre, atom.Section, atom.Summary, atom.Table, atom.Tbody, atom.Td, atom.Tfoot,
+		atom.Th, atom.Thead, atom.Tr, atom.Ul:
 		return true
 	default:
 		return false

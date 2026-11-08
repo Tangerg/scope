@@ -13,6 +13,13 @@ import (
 	corevector "github.com/Tangerg/scope/core/vector"
 )
 
+const (
+	nativeThinkingHigh   = "high"
+	nativeThinkingMedium = "medium"
+	nativeThinkingLow    = "low"
+	nativeThinkingMax    = "max"
+)
+
 type nativeThinkValue struct {
 	value any
 }
@@ -28,7 +35,7 @@ func (n *nativeThinkValue) UnmarshalJSON(data []byte) error {
 		return errors.New("ollama: think must be a boolean or one of high, medium, low, max")
 	}
 	switch level {
-	case "high", "medium", "low", "max":
+	case nativeThinkingHigh, nativeThinkingMedium, nativeThinkingLow, nativeThinkingMax:
 		n.value = level
 		return nil
 	default:

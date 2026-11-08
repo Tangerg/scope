@@ -117,7 +117,11 @@ func assertPlanningDelegateResult(
 	taskState *planningTaskState,
 ) {
 	t.Helper()
-	output, err := decodeCompleted[interaction.Output](result)
+	payload, err := result.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := payload.Decode[interaction.Output]()
 	if err != nil {
 		t.Fatal(err)
 	}

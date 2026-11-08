@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/big"
 	"strings"
 
 	"github.com/samber/lo"
@@ -22,7 +23,10 @@ const (
 	PassAtLeast PassPolicy = "at_least"
 )
 
-const compositePolicyName = "composite"
+const (
+	compositePolicyName    = "composite"
+	defaultComponentWeight = 1
+)
 
 func (p PassPolicy) normalize() (PassPolicy, error) {
 	switch p {
@@ -82,7 +86,7 @@ func (c Component[T]) normalize(index int, policy PassPolicy) (Component[T], err
 		return Component[T]{}, fmt.Errorf("%w: required components need an explicit pass policy", ErrInvalidEvaluatorConfig)
 	}
 	if c.Weight == 0 {
-		c.Weight = 1
+		c.Weight = defaultComponentWeight
 	}
 	return c, nil
 }
@@ -165,14 +169,10 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 	combined := Report{Metric: metric, Details: reports}
 	verdict := VerdictPass
 	feedback := make([]string, 0, len(reports))
-	weightScale := 0.0
-	for _, component := range c.components {
-		weightScale = max(weightScale, component.Weight)
-	}
-	_, weightExponent := math.Frexp(weightScale)
 	passed := 0
-	totalWeight := 0.0
-	weightedScore := 0.0
+	// Rounding only the final quotient preserves subnormal scores and avoids
+	// overflow for finite weights whose sum is not representable as float64.
+	var totalWeight, weightedScore, weight, contribution big.Rat
 	for index, report := range reports {
 		component := c.components[index]
 		if report.Verdict() == VerdictPass {
@@ -180,10 +180,11 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 		} else if component.Required {
 			verdict = VerdictFail
 		}
-		// Binary scaling bounds the sum without rounding ordinary weights.
-		weight := math.Ldexp(component.Weight, -weightExponent)
-		weightedScore += report.Score.Float64() * weight
-		totalWeight += weight
+		weight.SetFloat64(component.Weight)
+		contribution.SetFloat64(report.Score.Float64())
+		contribution.Mul(&contribution, &weight)
+		weightedScore.Add(&weightedScore, &contribution)
+		totalWeight.Add(&totalWeight, &weight)
 		if report.Feedback != "" {
 			feedback = append(feedback, report.Feedback)
 		}
@@ -198,7 +199,9 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 		}
 		combined.Decision = &decision
 	}
-	score := Score(weightedScore / totalWeight)
+	weightedScore.Quo(&weightedScore, &totalWeight)
+	mean, _ := weightedScore.Float64()
+	score := Score(mean)
 	combined.Score = &score
 	combined.Feedback = strings.Join(feedback, "\n\n")
 	if err := combined.Validate(); err != nil {

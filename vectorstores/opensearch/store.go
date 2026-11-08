@@ -21,6 +21,11 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
+const (
+	scrollKeepAlive      = "1m"
+	scrollCleanupTimeout = 5 * time.Second
+)
+
 var (
 	_ vectorstore.Upserter  = (*Store)(nil)
 	_ vectorstore.Querier   = (*Store)(nil)
@@ -295,6 +300,10 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if request.Options.ResultLimit() > s.schema.resultWindow {
 		return nil, fmt.Errorf("%w: TopK exceeds native result window %d", vectorstore.ErrInvalidOptions, s.schema.resultWindow)
 	}
+	query, err := s.schema.vector(request.Values)
+	if err != nil {
+		return nil, err
+	}
 	if verifyErr := s.verify(ctx); verifyErr != nil {
 		return nil, verifyErr
 	}
@@ -315,10 +324,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		if len(matches) == 0 {
 			return &vectorstore.SearchResponse{}, nil
 		}
-	}
-	query, err := s.schema.vector(request.Values)
-	if err != nil {
-		return nil, err
 	}
 	groups := [][]string{nil}
 	if request.Options.Filter != nil {
@@ -411,13 +416,13 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, b
 		return nil, err
 	}
 	bytesLeft := budget.MaxBytes
-	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {"1m"}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
+	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
 	scrollID := ""
 	defer func() {
 		if scrollID == "" {
 			return
 		}
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), scrollCleanupTimeout)
 		defer cancel()
 		payload, encodeErr := jsonv2.Marshal(struct {
 			IDs []string `json:"scroll_id"`
@@ -506,7 +511,7 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, b
 		payload, encodeErr := jsonv2.Marshal(struct {
 			ID       string `json:"scroll_id"`
 			Lifetime string `json:"scroll"`
-		}{ID: scrollID, Lifetime: "1m"})
+		}{ID: scrollID, Lifetime: scrollKeepAlive})
 		if encodeErr != nil {
 			return nil, encodeErr
 		}

@@ -1,6 +1,11 @@
 // Package minimax exposes MiniMax chat adapters. [NewChatCompletions] targets its
 // OpenAI-compatible endpoint; [NewMessages] targets its
 // Anthropic-compatible endpoint.
+// Core Options.ReasoningEffort is admitted only for MiniMax-M3.1-Flash,
+// whose native levels are low, medium, high, xhigh, and max. The resolved
+// model owns this admission for both protocols; missing catalog effort metadata
+// cannot disable controls supported by this adapter. M3.1-Flash cannot disable
+// thinking, merge reasoning into answer content, or select a service tier.
 // Structured reasoning keeps text in Part.Text and only native replay fields
 // in ReasoningState. An explicit empty reasoning_details array retains an opaque
 // reasoning Part so [] survives message storage and replay; absent or null arrays

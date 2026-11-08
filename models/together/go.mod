@@ -4,11 +4,11 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
-	github.com/Tangerg/scope/models/protocol/openai v0.60.0
+	github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261106210727-79878fb386da
 )
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
@@ -22,6 +22,5 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.2 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
-	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

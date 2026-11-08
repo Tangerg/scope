@@ -131,5 +131,8 @@ type Fetcher interface {
 	// mutating or retaining request, and transfers ownership of the response to
 	// the caller. Implementations must honor ctx and preserve network error
 	// causes.
+	// A model-correctable local rejection owns an explicit core/tool.Failure;
+	// diagnostic sentinels alone never establish an outcome. External errors
+	// must not supply another invocation's outcome or model feedback.
 	Fetch(ctx context.Context, request *FetchRequest) (*FetchResponse, error)
 }

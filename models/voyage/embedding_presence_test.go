@@ -17,6 +17,10 @@ func TestEmbeddingPreservesNativeResultFacts(t *testing.T) {
 	}{
 		{"missing index", `{"data":[{"embedding":[0,1]}]}`, true, false},
 		{"null index", `{"data":[{"index":null,"embedding":[0,1]}]}`, true, false},
+		{"negative index", `{"data":[{"index":-1,"embedding":[0,1]}]}`, true, false},
+		{"outside batch", `{"data":[{"index":1,"embedding":[0,1]}]}`, true, false},
+		{"index exceeds 32 bits", `{"data":[{"index":4294967296,"embedding":[0,1]}]}`, true, false},
+		{"maximum index", `{"data":[{"index":9223372036854775807,"embedding":[0,1]}]}`, true, false},
 		{"null coordinate", `{"data":[{"index":0,"embedding":[null,1]}]}`, true, false},
 		{"explicit zero", `{"data":[{"index":0,"embedding":[0,1]}]}`, false, false},
 		{"zero usage", `{"data":[{"index":0,"embedding":[0,1]}],"usage":{"prompt_tokens":0,"total_tokens":0}}`, false, true},

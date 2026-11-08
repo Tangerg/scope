@@ -568,8 +568,8 @@ func TestCompileOwnsConfigurationIdentityAndExactModelRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, found, err := ModelRequestFromEffect(transition.Effects()[0])
-	if err != nil || !found || !reflect.DeepEqual(request.Messages, testInput().Messages) {
+	request, found, err := ModelCallFromEffect(transition.Effects()[0])
+	if err != nil || !found || request.Sequence != 1 || !reflect.DeepEqual(request.Request.Messages, testInput().Messages) {
 		t.Fatalf("request=%+v found=%v err=%v", request, found, err)
 	}
 }

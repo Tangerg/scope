@@ -61,7 +61,11 @@ func run(ctx context.Context, output io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
-	report, err := decodeCompleted[orchestrationReport](result)
+	payload, err := result.Output()
+	if err != nil {
+		return err
+	}
+	report, err := payload.Decode[orchestrationReport]()
 	if err != nil {
 		return err
 	}
@@ -258,18 +262,6 @@ func decodeModelJSON[T any](_ context.Context, output interaction.Output) (T, er
 		return zero, errors.New("interaction did not return a model response")
 	}
 	return chatclient.JSON[T]().Decode(output.ModelResponse)
-}
-
-func decodeCompleted[T any](result agentrun.Result[agentrun.Payload]) (T, error) {
-	var zero T
-	if result.Termination().Status() != agentrun.StatusCompleted {
-		return zero, fmt.Errorf("process ended with %s: %#v", result.Termination().Status(), result.Termination())
-	}
-	output, present := result.Termination().Output()
-	if !present {
-		return zero, errors.New("completed Process has no Output")
-	}
-	return output.Decode[T]()
 }
 
 type decompositionModel struct{}

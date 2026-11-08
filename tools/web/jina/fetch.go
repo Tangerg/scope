@@ -35,7 +35,7 @@ func (f *fetchResponse) toFetchResponse(request *web.FetchRequest) (*web.FetchRe
 	case web.FormatText:
 		content = f.Data.Text
 	default:
-		return nil, fmt.Errorf("jina: %w: %q", web.ErrUnsupportedFormat, format)
+		return nil, fmt.Errorf("jina: %w: unknown requested format %q", web.ErrInvalidFetchResponse, format)
 	}
 	if content == nil {
 		return nil, fmt.Errorf("jina: %w: response is missing the %s payload", web.ErrInvalidFetchResponse, format)

@@ -134,7 +134,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 
 		stream, err := c.api.chatCompletionStream(ctx, params)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer stream.Close()
@@ -164,7 +164,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 			}
 		}
 		if streamErr := stream.Err(); streamErr != nil {
-			yield(nil, c.api.wrapError(streamErr))
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: c.api.wrapError(streamErr)})
 			return
 		}
 		terminal, err = state.complete(terminal)

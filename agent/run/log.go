@@ -175,7 +175,7 @@ func (l Log) Usage() (Usage, error) {
 	}
 	var usage Usage
 	for _, entry := range l.Entries {
-		_, increment := recordUsage(entry.Record)
+		_, increment := UsageFromRecord(entry.Record)
 		var err error
 		usage, err = usage.add(increment)
 		if err != nil {

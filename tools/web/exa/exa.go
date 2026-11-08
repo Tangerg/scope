@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -135,7 +136,8 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("exa: prepare search request: %w", err)
+		cause := fmt.Errorf("exa: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw searchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared, time.Now()))
@@ -148,11 +150,13 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("exa: prepare fetch request: %w", err)
+		cause := fmt.Errorf("exa: prepare fetch request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	format := prepared.Format
 	if format == web.FormatText {
-		return nil, fmt.Errorf("exa: %w: plain text is not available; use markdown or html", web.ErrUnsupportedFormat)
+		cause := fmt.Errorf("exa: %w: plain text is not available; use markdown or html", web.ErrUnsupportedFormat)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{

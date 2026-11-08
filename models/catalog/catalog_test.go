@@ -52,3 +52,13 @@ func TestCatalogDoesNotAdvertiseRetiredPerplexitySonar(t *testing.T) {
 		}
 	}
 }
+
+func TestMiniMaxReasoningMetadataDoesNotDuplicateNativeAdmission(t *testing.T) {
+	model, found := catalog.LookupModel("minimax", "MiniMax-M3.1-Flash")
+	if !found || !model.Reasoning.Supported {
+		t.Fatal("source-backed reasoning support is missing")
+	}
+	if len(model.Reasoning.Levels) != 0 || model.Reasoning.DefaultLevel != "" {
+		t.Fatal("catalog invented a second MiniMax effort policy without a ladder source")
+	}
+}

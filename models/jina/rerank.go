@@ -98,7 +98,7 @@ func (r *RerankModel) Call(ctx context.Context, request *rerank.Request) (*reran
 	}
 	apiResponse, err := r.api.rerank(ctx, apiRequest)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	response, err := r.buildResponse(apiResponse)
 	if err != nil {

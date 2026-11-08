@@ -218,7 +218,7 @@ func captureContext(ctx context.Context, root *agentrun.Handle[interaction.Outpu
 		if !ok || intent.Effect.Target() != agentrun.EffectTargetDispatcher {
 			continue
 		}
-		_, isModel, err := interaction.ModelRequestFromEffect(intent.Effect)
+		_, isModel, err := interaction.ModelCallFromEffect(intent.Effect)
 		if err != nil {
 			return trajectory.Trajectory{}, err
 		}

@@ -304,34 +304,6 @@
         "context_window": 131042,
         "max_output_tokens": 16384
       }
-    },
-    {
-      "id": "whisper-large-v3",
-      "display_name": "Whisper",
-      "release_date": "2023-09-01T00:00:00Z",
-      "last_updated": "2025-09-05T00:00:00Z",
-      "modalities": {
-        "input": [
-          "audio"
-        ],
-        "output": [
-          "text"
-        ]
-      }
-    },
-    {
-      "id": "whisper-large-v3-turbo",
-      "display_name": "Whisper Large V3 Turbo",
-      "release_date": "2024-10-01T00:00:00Z",
-      "last_updated": "2024-10-01T00:00:00Z",
-      "modalities": {
-        "input": [
-          "audio"
-        ],
-        "output": [
-          "text"
-        ]
-      }
     }
   ]
 }

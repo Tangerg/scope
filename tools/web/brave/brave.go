@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -18,6 +21,8 @@ const (
 	baseURL                  = "https://api.search.brave.com/res/v1"
 	searchPath               = "/web/search"
 	defaultSearchResultCount = 10
+	maximumQueryCharacters   = 600
+	maximumQueryWords        = 75
 	queryParameterQuery      = "q"
 	queryParameterCount      = "count"
 	queryParameterFreshness  = "freshness"
@@ -62,12 +67,16 @@ type searchRequest struct {
 	Freshness string
 }
 
-func newSearchRequest(request *web.SearchRequest) *searchRequest {
+func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
+	query := request.QueryWithSiteOperators()
+	if utf8.RuneCountInString(query) > maximumQueryCharacters || len(strings.Fields(query)) > maximumQueryWords {
+		return nil, fmt.Errorf("brave: %w: final query must contain at most %d characters and %d words", web.ErrInvalidQuery, maximumQueryCharacters, maximumQueryWords)
+	}
 	return &searchRequest{
-		Q:         request.QueryWithSiteOperators(),
+		Q:         query,
 		Count:     cmp.Or(request.MaxResults, defaultSearchResultCount),
 		Freshness: recencyToFreshness(request.Recency),
-	}
+	}, nil
 }
 
 func (s *searchRequest) params() map[string]string {
@@ -98,13 +107,19 @@ type searchResponse struct {
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("brave: prepare search request: %w", err)
+		cause := fmt.Errorf("brave: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	if prepared.Recency == web.RecencyHour {
-		return nil, fmt.Errorf("brave: %w: hourly recency", web.ErrUnsupportedFilter)
+		cause := fmt.Errorf("brave: %w: hourly recency", web.ErrUnsupportedFilter)
+		return nil, toolresult.Correctable(cause.Error(), cause)
+	}
+	native, err := newSearchRequest(prepared)
+	if err != nil {
+		return nil, toolresult.Correctable(err.Error(), err)
 	}
 	var raw searchResponse
-	httpRequest := c.http.R().SetContext(ctx).SetQueryParams(newSearchRequest(prepared).params())
+	httpRequest := c.http.R().SetContext(ctx).SetQueryParams(native.params())
 	if err := providerhttp.Execute(httpRequest, http.MethodGet, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("brave: search request: %w", err)
 	}

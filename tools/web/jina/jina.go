@@ -13,6 +13,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -151,13 +152,16 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("jina: prepare search request: %w", err)
+		cause := fmt.Errorf("jina: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	if len(prepared.BlockedDomains) > 0 {
-		return nil, fmt.Errorf("jina: %w: blocked_domains", web.ErrUnsupportedFilter)
+		cause := fmt.Errorf("jina: %w: blocked_domains", web.ErrUnsupportedFilter)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	if prepared.Recency != "" {
-		return nil, fmt.Errorf("jina: %w: recency", web.ErrUnsupportedFilter)
+		cause := fmt.Errorf("jina: %w: recency", web.ErrUnsupportedFilter)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	search := newSearchRequest(prepared)
 	var raw searchResponse
@@ -171,7 +175,8 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("jina: prepare fetch request: %w", err)
+		cause := fmt.Errorf("jina: prepare fetch request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.fetchHTTP.R().SetContext(ctx).

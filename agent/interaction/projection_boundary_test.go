@@ -17,19 +17,19 @@ import (
 )
 
 func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
-	model := mustValue(newModelEffect(new(testInput()), 1, []tool.Definition{scriptTool{name: "echo"}.Definition()}, nil))
+	model := mustValue(newModelEffect(new(testInput()), 41, []tool.Definition{scriptTool{name: "echo"}.Definition()}, nil))
 	modelEffect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(model))))
-	request, recognized, err := ModelRequestFromEffect(modelEffect)
-	if err != nil || !recognized || len(request.Tools) != 1 || request.Tools[0].Name != "echo" {
+	request, recognized, err := ModelCallFromEffect(modelEffect)
+	if err != nil || !recognized || request.Sequence != 41 || len(request.Request.Tools) != 1 || request.Request.Tools[0].Name != "echo" {
 		t.Fatalf("model intent=%+v recognized=%t error=%v", request, recognized, err)
 	}
-	request.Messages[0].Parts[0].Text = "mutated"
-	request.Tools[0].InputSchema[0] = '['
-	retained, _, decodeErr := ModelRequestFromEffect(modelEffect)
-	if decodeErr != nil || retained.Messages[0].Parts[0].Text != "work" {
+	request.Request.Messages[0].Parts[0].Text = "mutated"
+	request.Request.Tools[0].InputSchema[0] = '['
+	retained, _, decodeErr := ModelCallFromEffect(modelEffect)
+	if decodeErr != nil || retained.Request.Messages[0].Parts[0].Text != "work" {
 		t.Fatal("model projection changed the persisted request", decodeErr)
 	}
-	retainedSchema := mustValue(jsonschema.Parse(retained.Tools[0].InputSchema))
+	retainedSchema := mustValue(jsonschema.Parse(retained.Request.Tools[0].InputSchema))
 	if !retainedSchema.Equal(mustValue(jsonschema.Parse(scriptTool{name: "echo"}.Definition().InputSchema))) {
 		t.Fatal("model projection changed the persisted tool contract")
 	}
@@ -47,14 +47,14 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {
 			t.Fatal("tool intent lost its exact call or continuation", observed, decodeErr)
 		}
-		if _, isModel, decodeErr := ModelRequestFromEffect(effect); decodeErr != nil || isModel {
+		if _, isModel, decodeErr := ModelCallFromEffect(effect); decodeErr != nil || isModel {
 			t.Fatal("tool intent became a model request", decodeErr)
 		}
 	}
 	child := mustValue(testTurn(1).Process.Child(mustValue(run.ParseChildKey("child"))))
 	preparation := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(effectEnvelope{Preparation: model.ModelCall}))))
 	for _, effect := range []run.Effect{{}, mustValue(run.NewChildCancelEffect(child, "finished")), preparation} {
-		if value, found, decodeErr := ModelRequestFromEffect(effect); decodeErr != nil || found || value != nil {
+		if value, found, decodeErr := ModelCallFromEffect(effect); decodeErr != nil || found || value.Request != nil || value.Sequence != 0 {
 			t.Fatal("kernel effect acquired model semantics", decodeErr)
 		}
 		if _, found, decodeErr := ToolCallFromEffect(effect); decodeErr != nil || found {
@@ -63,7 +63,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	}
 	for _, raw := range []string{`null`, `{}`, `{"model_call":{}}`, `{"tool_call":{}}`, `{"model_call":{},"tool_call":{}}`} {
 		effect := mustValue(run.NewDispatcherEffect([]byte(raw)))
-		if _, _, decodeErr := ModelRequestFromEffect(effect); decodeErr == nil {
+		if _, _, decodeErr := ModelCallFromEffect(effect); decodeErr == nil {
 			t.Fatal("malformed model protocol admitted", raw)
 		}
 		if _, _, decodeErr := ToolCallFromEffect(effect); decodeErr == nil {

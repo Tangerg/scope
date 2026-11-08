@@ -145,10 +145,14 @@ func (a *api) embedding(ctx context.Context, request *embeddingRequest) (*native
 	}
 	client, err := genai.NewClient(ctx, &clientConfig)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	if _, err := client.Models.EmbedContent(ctx, request.model, request.contents, request.config); err != nil {
-		return nil, a.wrapError(err)
+		kind := invocation.FailureNotExecuted
+		if request.dispatched {
+			kind = invocation.FailureUnknown
+		}
+		return nil, &invocation.Failure{Kind: kind, Cause: a.wrapError(err)}
 	}
 	return response, nil
 }

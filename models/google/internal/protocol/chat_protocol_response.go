@@ -22,10 +22,11 @@ const (
 )
 
 type protocolResponseMapper struct {
-	partOffset   int
-	provider     string
-	generation   generationStream
-	hasToolCalls bool
+	partOffset         int
+	provider           string
+	generation         generationStream
+	hasToolCalls       bool
+	pendingServerParts serverToolParts
 }
 
 func newProtocolResponseMapper(provider string) *protocolResponseMapper {
@@ -67,6 +68,11 @@ func (p *protocolResponseMapper) complete(delta *corechat.ResponseDelta) (*corec
 		return nil, fmt.Errorf("google: stream: %w: missing terminal response", corechat.ErrInvalidResponse)
 	}
 	delta.FinishReason = normalizeProtocolFinishReason(p.generation.finishReason, p.hasToolCalls)
+	if len(p.pendingServerParts) != 0 {
+		if err := delta.MessageMetadata.Set(protocolKey(p.provider, serverToolPartsMetadataSuffix), p.pendingServerParts); err != nil {
+			return nil, fmt.Errorf("google: preserve terminal server tool replay: %w", err)
+		}
+	}
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("google: terminal stream response: %w", err)
 	}
@@ -133,11 +139,19 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 	}
 	offset := p.partOffset
 	for partIndex, part := range parts {
-		delta, kind, include, err := mapProtocolCandidatePartDelta(p.provider, offset+partIndex, part)
+		if part != nil && (part.ToolCall != nil || part.ToolResponse != nil) {
+			if err := validateGenerationPart(part); err != nil {
+				return fmt.Errorf("%w: content.parts[%d]: %w", corechat.ErrInvalidResponse, partIndex, err)
+			}
+			p.pendingServerParts = append(p.pendingServerParts, part)
+			continue
+		}
+		delta, kind, include, err := mapProtocolCandidatePartDelta(p.provider, offset+partIndex, part, p.pendingServerParts)
 		if err != nil {
 			return fmt.Errorf("content.parts[%d]: %w", partIndex, err)
 		}
 		if include {
+			p.pendingServerParts = nil
 			response.Parts = append(response.Parts, delta)
 			p.hasToolCalls = p.hasToolCalls || kind == corechat.PartToolCall
 		}
@@ -149,13 +163,15 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 	return nil
 }
 
-func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.Part) (corechat.PartDelta, corechat.PartKind, bool, error) {
+func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.Part, before serverToolParts) (corechat.PartDelta, corechat.PartKind, bool, error) {
 	if err := validateGenerationPart(part); err != nil {
 		return corechat.PartDelta{}, "", false, fmt.Errorf("%w: %w", corechat.ErrInvalidResponse, err)
 	}
 	var mapped corechat.PartDelta
 	var kind corechat.PartKind
 	switch {
+	case part.FunctionResponse != nil:
+		return corechat.PartDelta{}, "", false, fmt.Errorf("%w: function response is not assistant output", corechat.ErrInvalidResponse)
 	case part.FunctionCall != nil:
 		if part.FunctionCall.Name == "" {
 			return corechat.PartDelta{}, "", false, errors.New("function call has no name")
@@ -207,7 +223,7 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 	default:
 		return corechat.PartDelta{}, "", false, nil
 	}
-	state := newPartReplayState(part, kind, partIndex)
+	state := newPartReplayState(part, kind, partIndex, before)
 	if state.hasFields() {
 		if err := mapped.Metadata.Set(protocolKey(provider, partReplayStateMetadataSuffix), state); err != nil {
 			return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)

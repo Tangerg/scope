@@ -157,7 +157,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 
 		apiResp, err := s.api.speech(ctx, apiReq)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer apiResp.Body.Close()
@@ -165,7 +165,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		received := false
 		for chunk, err := range readAudioChunks(apiResp.Body) {
 			if err != nil {
-				yield(nil, err)
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return
 			}
 

@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -135,15 +136,32 @@ func TestFetchTool_Call_FetcherError(t *testing.T) {
 	}
 }
 
-// Unlike the uncertain upstream error in TestFetchTool_Call_FetcherError, a
-// pre-request provider rejection must reach the model as a definite failure.
-func TestFetchTool_Call_UnsupportedFormatIsDefiniteFailure(t *testing.T) {
-	fetcher := &fakeFetcher{err: fmt.Errorf("provider: %w: plain text", ErrUnsupportedFormat)}
+func TestFetchToolPreservesProviderFormatAdmission(t *testing.T) {
+	owned, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+		Kind: toolcontract.FailureKindFailed, Cause: fmt.Errorf("provider: %w: plain text", ErrUnsupportedFormat),
+		Output: toolcontract.NewTextOutput("Use markdown or html."),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{err: owned}
 	tool, _ := NewFetchTool(fetcher)
-	_, err := invokeTestTool(t.Context(), tool, `{"url":"https://example.com","format":"text"}`)
+	_, err = invokeTestTool(t.Context(), tool, `{"url":"https://example.com","format":"text"}`)
 	failure, ok := toolcontract.ClassifyFailure(err)
-	if !ok || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), ErrUnsupportedFormat) {
-		t.Fatalf("err = %v, want FailureKindFailed wrapping ErrUnsupportedFormat", err)
+	if !ok || failure != owned {
+		t.Fatalf("provider-owned format admission was replaced: %v", err)
+	}
+}
+
+func TestFetchToolDoesNotInferOutcomeFromDiagnosticSentinels(t *testing.T) {
+	cause := errors.Join(ErrUnsupportedFormat, io.ErrUnexpectedEOF)
+	fetch, err := NewFetchTool(&fakeFetcher{err: cause})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fetch.fetch(t.Context(), FetchRequest{URL: "https://example.com"})
+	if _, definite := toolcontract.ClassifyFailure(err); definite || !errors.Is(err, cause) {
+		t.Fatalf("diagnostic sentinel established an outcome: %v", err)
 	}
 }
 

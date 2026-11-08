@@ -104,7 +104,7 @@ func readCmap(toUnicode Value) *cmap {
 	n := -1
 	m := cmap{budget: toUnicode.r.budget}
 	ok := true
-	Interpret(toUnicode, func(stk *Stack, op string) {
+	Interpret(toUnicode, Value{}, func(stk *Stack, op string) {
 		if !ok {
 			return
 		}

@@ -121,7 +121,7 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 
 	apiResp, err := a.api.translation(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	if apiResp == nil || !apiResp.JSON.Text.Valid() {

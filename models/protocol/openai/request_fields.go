@@ -8,6 +8,20 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+const (
+	chatFieldModel             = "model"
+	chatFieldMessages          = "messages"
+	chatFieldTools             = "tools"
+	chatFieldFunctions         = "functions"
+	chatFieldFunctionCall      = "function_call"
+	chatFieldParallelToolCalls = "parallel_tool_calls"
+	chatFieldResponseFormat    = "response_format"
+	chatFieldStop              = "stop"
+	chatFieldStream            = "stream"
+	chatFieldToolChoice        = "tool_choice"
+	chatFieldOutputCount       = "n"
+)
+
 const chatFieldTopK = "top_k"
 
 // RequestFields contains provider-owned top-level JSON fields that are not
@@ -22,9 +36,9 @@ func validateChatExtraField(name string) error {
 		return errors.New("openai: extra field name is required and must not have surrounding whitespace")
 	}
 	switch name {
-	case "model", "messages", "tools", "functions", "function_call", "frequency_penalty", "max_tokens", "max_completion_tokens", "parallel_tool_calls", "presence_penalty", "reasoning_effort", "response_format", "stop", "stream", "temperature", "tool_choice", chatFieldTopK, "top_p":
+	case chatFieldModel, chatFieldMessages, chatFieldTools, chatFieldFunctions, chatFieldFunctionCall, string(ChatOptionFrequencyPenalty), string(TokenLimitMaxTokens), string(TokenLimitMaxCompletionTokens), chatFieldParallelToolCalls, string(ChatOptionPresencePenalty), string(ChatOptionReasoningEffort), chatFieldResponseFormat, chatFieldStop, chatFieldStream, string(ChatOptionTemperature), chatFieldToolChoice, chatFieldTopK, string(ChatOptionTopP):
 		return fmt.Errorf("openai: extra field %q is owned by Core", name)
-	case "n":
+	case chatFieldOutputCount:
 		return fmt.Errorf("openai: extra field %q is unsupported; Core Chat produces one output", name)
 	default:
 		return nil

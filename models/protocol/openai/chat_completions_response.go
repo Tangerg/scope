@@ -4,9 +4,17 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 
+	openaisdk "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared/constant"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+)
+
+const (
+	audioMIMEOpus   = "audio/opus"
+	audioMIMEAAC    = "audio/aac"
+	audioMIMEL16    = "audio/L16"
+	audioMIMEBinary = "audio/octet-stream"
 )
 
 const (
@@ -17,20 +25,20 @@ const (
 
 func audioMIME(format string) string {
 	switch format {
-	case "wav":
-		return "audio/wav"
-	case "mp3":
-		return "audio/mpeg"
-	case "flac":
-		return "audio/flac"
-	case "opus":
-		return "audio/opus"
-	case "aac":
-		return "audio/aac"
-	case "pcm16":
-		return "audio/L16"
+	case string(openaisdk.ChatCompletionAudioParamFormatWAV):
+		return audioMIMEWAV
+	case string(openaisdk.ChatCompletionAudioParamFormatMP3):
+		return audioMIMEMPEG
+	case string(openaisdk.ChatCompletionAudioParamFormatFLAC):
+		return audioMIMEFLAC
+	case string(openaisdk.ChatCompletionAudioParamFormatOpus):
+		return audioMIMEOpus
+	case string(openaisdk.ChatCompletionAudioParamFormatAAC):
+		return audioMIMEAAC
+	case string(openaisdk.ChatCompletionAudioParamFormatPcm16):
+		return audioMIMEL16
 	default:
-		return "audio/octet-stream"
+		return audioMIMEBinary
 	}
 }
 

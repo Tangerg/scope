@@ -21,8 +21,10 @@
 // numbers into float64, which cannot preserve arbitrary JSON integers or
 // decimals. Projection never removes an unsupported constraint.
 //
-// The caller receives an encrypted authenticated token holding the owner
-// process, local wait key and expiry. It is bound to the authorized start, session, exact
+// The caller receives an encrypted authenticated token holding a digest of the
+// owner process, local wait key and expiry. Its size is independent of tree depth;
+// committed run state resolves the process address, including reaped children
+// recovered from history. It is bound to the authorized start, session, exact
 // Program, tool and request arguments. Answers go through Handle.Answer; the
 // Program alone owns decision semantics. Decline/cancel do not synthesize
 // an answer or cancel the tree. Mismatched, expired and malformed tokens fail

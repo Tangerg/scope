@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/go-resty/resty/v2"
 
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -20,6 +22,7 @@ const (
 	depthBasic               = "basic"
 	topicGeneral             = "general"
 	defaultSearchResultCount = 5
+	maximumQueryCharacters   = 400
 	timeRangeDay             = "day"
 	timeRangeWeek            = "week"
 	timeRangeMonth           = "month"
@@ -65,7 +68,10 @@ type searchRequest struct {
 	IncludeFavicon bool     `json:"include_favicon,omitzero"`
 }
 
-func newSearchRequest(request *web.SearchRequest) *searchRequest {
+func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
+	if utf8.RuneCountInString(request.Query) > maximumQueryCharacters {
+		return nil, fmt.Errorf("tavily: %w: query must contain at most %d characters", web.ErrInvalidQuery, maximumQueryCharacters)
+	}
 	return &searchRequest{
 		Query:          request.Query,
 		SearchDepth:    depthBasic,
@@ -75,7 +81,7 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 		IncludeDomains: request.AllowedDomains,
 		ExcludeDomains: request.BlockedDomains,
 		IncludeFavicon: true,
-	}
+	}, nil
 }
 
 type searchResult struct {
@@ -115,13 +121,19 @@ func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.Sear
 func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.SearchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("tavily: prepare search request: %w", err)
+		cause := fmt.Errorf("tavily: prepare search request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	if prepared.Recency == web.RecencyHour {
-		return nil, fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
+		cause := fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
+		return nil, toolresult.Correctable(cause.Error(), cause)
+	}
+	native, err := newSearchRequest(prepared)
+	if err != nil {
+		return nil, toolresult.Correctable(err.Error(), err)
 	}
 	var raw searchResponse
-	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	httpRequest := c.http.R().SetContext(ctx).SetBody(native)
 	if err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: search request: %w", err)
 	}
@@ -131,11 +143,13 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.FetchResponse, error) {
 	prepared, err := request.Prepare()
 	if err != nil {
-		return nil, fmt.Errorf("tavily: prepare fetch request: %w", err)
+		cause := fmt.Errorf("tavily: prepare fetch request: %w", err)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	format := prepared.Format
 	if format == web.FormatHTML {
-		return nil, fmt.Errorf("tavily: %w: %s", web.ErrUnsupportedFormat, format)
+		cause := fmt.Errorf("tavily: %w: %s", web.ErrUnsupportedFormat, format)
+		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{

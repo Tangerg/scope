@@ -115,7 +115,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	apiResp, err := t.api.transcription(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return t.buildTranscriptionResponse(apiResp)

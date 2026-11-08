@@ -73,6 +73,9 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		var terminal *corechat.ResponseDelta
 		for response, streamErr := range c.api.chatCompletionStream(ctx, modelName, contents, config) {
 			if streamErr != nil {
+				if errors.Is(streamErr, ErrInvalidGenerationResponse) {
+					streamErr = fmt.Errorf("%w: %w", corechat.ErrInvalidResponse, streamErr)
+				}
 				yield(nil, streamErr)
 				return
 			}

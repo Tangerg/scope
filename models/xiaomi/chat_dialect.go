@@ -14,6 +14,8 @@ import (
 const (
 	RequestExtensionKey = Provider + "/request"
 	thinkingField       = "thinking"
+	maximumTemperature  = 1.5
+	minimumTopP         = 0.01
 )
 
 // ThinkingType controls MiMo deep thinking.
@@ -49,11 +51,11 @@ func (c ChatRequestOptions) validateRequest(source *corechat.Request) error {
 	if choice := source.ToolChoice; choice != nil && choice.Mode != "" && choice.Mode != corechat.ToolChoiceAuto {
 		return fmt.Errorf("xiaomi: tool_choice %q is discarded by MiMo, which serves every request as %q", choice.Mode, corechat.ToolChoiceAuto)
 	}
-	if source.Options.Temperature != nil && *source.Options.Temperature > 1.5 {
-		return errors.New("xiaomi: temperature must be between 0 and 1.5")
+	if source.Options.Temperature != nil && *source.Options.Temperature > maximumTemperature {
+		return fmt.Errorf("xiaomi: temperature must be between 0 and %g", maximumTemperature)
 	}
-	if source.Options.TopP != nil && *source.Options.TopP < 0.01 {
-		return errors.New("xiaomi: top_p must be between 0.01 and 1")
+	if source.Options.TopP != nil && *source.Options.TopP < minimumTopP {
+		return fmt.Errorf("xiaomi: top_p must be between %g and 1", minimumTopP)
 	}
 	if c.Thinking == ThinkingDisabled {
 		return nil

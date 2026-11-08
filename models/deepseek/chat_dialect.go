@@ -13,6 +13,19 @@ import (
 )
 
 const (
+	thinkingField          = "thinking"
+	reasoningEffortField   = "reasoning_effort"
+	responseFormatField    = "response_format"
+	toolChoiceField        = "tool_choice"
+	parallelToolCallsField = "parallel_tool_calls"
+	logProbsField          = "logprobs"
+	topLogProbsField       = "top_logprobs"
+	streamOptionsField     = "stream_options"
+	includeUsageField      = "include_usage"
+	userIDField            = "user_id"
+)
+
+const (
 	maximumStopSequences     = 16
 	maximumTools             = 128
 	maximumTopLogProbs       = 20
@@ -51,15 +64,15 @@ func (r *RequestOptions) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	for _, field := range []string{"thinking", "reasoning_effort"} {
+	for _, field := range []string{thinkingField, reasoningEffortField} {
 		if _, exists := fields[field]; exists {
 			return fmt.Errorf("field %q is owned by options.reasoning_effort", field)
 		}
 	}
-	if _, exists := fields["response_format"]; exists {
+	if _, exists := fields[responseFormatField]; exists {
 		return errors.New("field \"response_format\" is owned by options.output_format")
 	}
-	for _, field := range []string{"tool_choice", "parallel_tool_calls"} {
+	for _, field := range []string{toolChoiceField, parallelToolCallsField} {
 		if _, exists := fields[field]; exists {
 			return fmt.Errorf("field %q is owned by options.tool_choice", field)
 		}
@@ -85,24 +98,24 @@ func prepareRequest(request *corechat.Request, target *openai.CompatibleRequest)
 		return errors.New("options.tool_choice required and named modes are not supported while DeepSeek thinking is enabled")
 	}
 	if options.LogProbs != nil {
-		if err := target.SetExtraField("logprobs", *options.LogProbs); err != nil {
+		if err := target.SetExtraField(logProbsField, *options.LogProbs); err != nil {
 			return err
 		}
 	}
 	if options.TopLogProbs != nil {
-		if err := target.SetExtraField("top_logprobs", *options.TopLogProbs); err != nil {
+		if err := target.SetExtraField(topLogProbsField, *options.TopLogProbs); err != nil {
 			return err
 		}
 	}
 	if options.IncludeUsage != nil {
-		if err := target.SetExtraField("stream_options", map[string]bool{
-			"include_usage": *options.IncludeUsage,
+		if err := target.SetExtraField(streamOptionsField, map[string]bool{
+			includeUsageField: *options.IncludeUsage,
 		}); err != nil {
 			return err
 		}
 	}
 	if options.UserID != "" {
-		if err := target.SetExtraField("user_id", options.UserID); err != nil {
+		if err := target.SetExtraField(userIDField, options.UserID); err != nil {
 			return err
 		}
 	}

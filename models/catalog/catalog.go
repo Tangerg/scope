@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Provider is one provider's catalog entry.
 type Provider struct {
 	ID     string  `json:"id"`
 	Models []Model `json:"models"`

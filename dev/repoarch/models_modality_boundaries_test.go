@@ -209,7 +209,6 @@ func (e extensionKeyConstants) evaluate(directory string, imports map[string]str
 	case *ast.SelectorExpr:
 		qualifier, ok := value.X.(*ast.Ident)
 		if ok {
-			const modelsImportPrefix = "github.com/Tangerg/scope/models/"
 			if path, found := strings.CutPrefix(imports[qualifier.Name], modelsImportPrefix); found {
 				return e.resolve(filepath.FromSlash(path), value.Sel.Name, active)
 			}

@@ -100,7 +100,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, request *embedding.Request) (
 		EncodingFormat: embeddingFloatEncoding, OutputDType: embeddingFloatEncoding, Metadata: native.Metadata,
 	})
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	return response.project(&effective)
 }

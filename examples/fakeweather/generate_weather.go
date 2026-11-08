@@ -4,27 +4,39 @@ import (
 	"math"
 )
 
+const (
+	degreesPerTurn       = 360
+	freezingPointCelsius = 0
+)
+
 func directionFromDegree(deg int) string {
-	directions := []string{
+	directions := [...]string{
 		"North", "North-North-East", "North-East", "East-North-East",
 		"East", "East-South-East", "South-East", "South-South-East",
 		"South", "South-South-West", "South-West", "West-South-West",
 		"West", "West-North-West", "North-West", "North-North-West",
 	}
-	return directions[int(math.Round(float64(deg)/22.5))%16]
+	sectorDegrees := float64(degreesPerTurn) / float64(len(directions))
+	return directions[int(math.Round(float64(deg)/sectorDegrees))%len(directions)]
 }
 
-// Uses wind-chill and heat-index formulas in Celsius and km/h.
+// Wind chill and heat index apply only inside their empirical Celsius/km/h ranges.
 func calculateFeelsLike(temp, humidity int, windSpeed float64) int {
+	const (
+		windChillMaximumCelsius  = 10
+		windChillMinimumSpeedKPH = 4.8
+		heatIndexMinimumCelsius  = 27
+		heatIndexMinimumHumidity = 40
+	)
 	t := float64(temp)
 	feels := t
 
-	if temp < 10 && windSpeed > 4.8 {
+	if temp < windChillMaximumCelsius && windSpeed > windChillMinimumSpeedKPH {
 		feels = 13.12 + 0.6215*t - 11.37*math.Pow(windSpeed, 0.16) +
 			0.3965*t*math.Pow(windSpeed, 0.16)
 	}
 
-	if temp > 27 && humidity > 40 {
+	if temp > heatIndexMinimumCelsius && humidity > heatIndexMinimumHumidity {
 		rh := float64(humidity)
 		feels = -8.78469475556 + 1.61139411*t + 2.33854883889*rh -
 			0.14611605*t*rh - 0.012308094*t*t - 0.0164248277778*rh*rh +
@@ -47,7 +59,7 @@ func calculateDewPoint(temp, humidity int) int {
 	return int(math.Round((b * alpha) / (a - alpha)))
 }
 
-var moonPhases = []string{
+var moonPhases = [...]string{
 	"New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
 	"Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent",
 }

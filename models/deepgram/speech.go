@@ -202,7 +202,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		}
 		body, hdr, err := s.api.speakStream(ctx, text, params)
 		if err != nil {
-			yield(nil, err)
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
 		defer body.Close()
@@ -210,7 +210,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		received := false
 		for chunk, err := range readAudioChunks(body) {
 			if err != nil {
-				yield(nil, err)
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 				return
 			}
 			out, err := s.buildResponse(chunk, hdr)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/web"
 )
 
@@ -49,7 +50,9 @@ func TestFetch(t *testing.T) {
 	if response.Format != web.FormatMarkdown || response.Content != "example" {
 		t.Fatalf("response = %#v", response)
 	}
-	if _, err := client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com", Format: web.FormatHTML}); !errors.Is(err, web.ErrUnsupportedFormat) {
+	_, err = client.Fetch(t.Context(), &web.FetchRequest{URL: "https://example.com", Format: web.FormatHTML})
+	failure, definite := toolcontract.ClassifyFailure(err)
+	if !definite || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), web.ErrUnsupportedFormat) {
 		t.Fatalf("HTML fetch error = %v, want ErrUnsupportedFormat", err)
 	}
 }

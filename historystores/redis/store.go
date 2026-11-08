@@ -3,7 +3,6 @@ package redis
 import (
 	"context"
 	_ "embed"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -155,12 +154,9 @@ func (s *Store) Read(ctx context.Context, conversationID history.ConversationID)
 	}
 	messages := []chat.Message{}
 	for index, raw := range encoded {
-		var batch []chat.Message
-		if err := jsonv2.Unmarshal([]byte(raw), &batch); err != nil {
+		batch, err := history.DecodeMessages([]byte(raw))
+		if err != nil {
 			return nil, fmt.Errorf("redis: decode batch %d: %w", index, err)
-		}
-		if len(batch) == 0 {
-			return nil, errors.New("redis: stored batch is empty")
 		}
 		messages = append(messages, batch...)
 	}

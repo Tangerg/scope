@@ -56,9 +56,9 @@ func (r *resultConnection) QueryContext(_ context.Context, stmt string, _ []driv
 	if strings.Contains(stmt, "TABLE_COMMENT") {
 		binding := r.binding
 		if binding == nil {
-			binding = []driver.Value{fixtureSpace.StorageKey(), "vector(2)", "text", "utf8mb4", int64(65535)}
+			binding = []driver.Value{fixtureSpace.StorageKey(), "vector(2)", "text", "utf8mb4", int64(65535), "longtext", "utf8mb4", int64(4294967295)}
 		}
-		return &resultRows{cols: []string{"TABLE_COMMENT", "COLUMN_TYPE", "DATA_TYPE", "CHARACTER_SET_NAME", "CHARACTER_OCTET_LENGTH"}, values: [][]driver.Value{binding}}, nil
+		return &resultRows{cols: []string{"TABLE_COMMENT", "COLUMN_TYPE", "DATA_TYPE", "CHARACTER_SET_NAME", "CHARACTER_OCTET_LENGTH", "DATA_TYPE", "CHARACTER_SET_NAME", "CHARACTER_OCTET_LENGTH"}, values: [][]driver.Value{binding}}, nil
 	}
 
 	return r.rows, nil

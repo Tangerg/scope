@@ -7,6 +7,13 @@ import (
 	"time"
 )
 
+const (
+	fullPercentage         = 100
+	minimumBaselineWindKPH = 5.0
+	maximumBaselineWindKPH = 20.0
+	syntheticReportSource  = "fakeweather (synthesized; not real weather data)"
+)
+
 type reportGenerator struct {
 	location string
 	target   time.Time
@@ -54,6 +61,8 @@ func newReportGenerator(req *Request) (*reportGenerator, error) {
 }
 
 func (r *reportGenerator) report() *Response {
+	const dailyTemperatureJitterCelsius = 2
+
 	// Date-only reports use the daily mean so midnight does not bias the result.
 	mean := r.profile.mean[r.month-1]
 
@@ -61,7 +70,7 @@ func (r *reportGenerator) report() *Response {
 	elevDrop := int(float64(r.coords.Elevation) * 0.006)
 	mean -= elevDrop
 
-	jitter := r.rng.IntN(5) - 2
+	jitter := r.rng.IntN(2*dailyTemperatureJitterCelsius+1) - dailyTemperatureJitterCelsius
 	current := clamp(mean+jitter, r.profile.floor, r.profile.ceiling)
 
 	candidates := r.zone.candidateConditions(current, r.month)
@@ -112,33 +121,44 @@ func (r *reportGenerator) report() *Response {
 		Astronomy:      astronomy,
 		HourlyForecast: hourlyForecast[:],
 		Alerts:         alerts,
-		Source:         "fakeweather (synthesized; not real weather data)",
+		Source:         syntheticReportSource,
 		LastUpdated:    startOfDay.Unix(),
 	}
 }
 
 func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) [hoursPerDay]HourlyForecast {
+	const (
+		temperatureJitterCelsius     = 1
+		conditionChangeProbability   = 0.2
+		maximumPrecipitationMM       = 5.0
+		minimumHumidityPercent       = 50
+		maximumHumidityPercent       = 80
+		nightStartHour               = 22
+		nightEndHour                 = 6
+		nightHumidityIncreasePercent = 10
+	)
+
 	var out [hoursPerDay]HourlyForecast
 	for i := range out {
 		hour := time.Date(r.target.Year(), r.target.Month(), r.target.Day(), i, 0, 0, 0, time.UTC)
 
 		variation := r.profile.dailyVariation(i)
-		hourTemp := clamp(dailyMean+variation+r.rng.IntN(3)-1, r.profile.floor, r.profile.ceiling)
+		hourTemp := clamp(dailyMean+variation+r.rng.IntN(2*temperatureJitterCelsius+1)-temperatureJitterCelsius, r.profile.floor, r.profile.ceiling)
 
 		hourCondition := condition
-		if r.rng.Float64() < 0.2 {
+		if r.rng.Float64() < conditionChangeProbability {
 			alt := r.zone.candidateConditions(hourTemp, r.month)
 			hourCondition = alt[r.rng.IntN(len(alt))]
 		}
 
 		precip := 0.0
 		if hourCondition.hasPrecipitation() {
-			precip = math.Round(r.rng.Float64()*5.0*10) / 10
+			precip = roundMeasurement(r.rng.Float64() * maximumPrecipitationMM)
 		}
 
-		humidity := 50 + r.rng.IntN(30)
-		if i >= 22 || i <= 6 {
-			humidity = min(humidity+10, 100)
+		humidity := minimumHumidityPercent + r.rng.IntN(maximumHumidityPercent-minimumHumidityPercent)
+		if i >= nightStartHour || i <= nightEndHour {
+			humidity = min(humidity+nightHumidityIncreasePercent, fullPercentage)
 		}
 
 		out[i] = HourlyForecast{
@@ -147,19 +167,33 @@ func (r *reportGenerator) hourlyForecast(dailyMean int, condition Condition) [ho
 			Condition:     hourCondition,
 			Precipitation: precip,
 			Humidity:      humidity,
-			WindSpeed:     math.Round((5.0+r.rng.Float64()*15.0)*10) / 10,
+			WindSpeed:     roundMeasurement(minimumBaselineWindKPH + r.rng.Float64()*(maximumBaselineWindKPH-minimumBaselineWindKPH)),
 		}
 	}
 	return out
 }
 
 func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float64) []Alert {
+	const (
+		moderateHeatCelsius     = 35
+		severeHeatCelsius       = 40
+		moderateColdCelsius     = -10
+		severeColdCelsius       = -20
+		moderateWindKPH         = 50
+		severeWindKPH           = 70
+		windAlertDuration       = 12 * time.Hour
+		stormAlertDuration      = 6 * time.Hour
+		blizzardAlertDuration   = 12 * time.Hour
+		typhoonAlertDuration    = 48 * time.Hour
+		typhoonAlertProbability = 0.05
+	)
+
 	var alerts []Alert
 	day := r.target.Add(hoursPerDay * time.Hour)
 
-	if temp >= 35 {
+	if temp >= moderateHeatCelsius {
 		severity := AlertSeverityModerate
-		if temp >= 40 {
+		if temp >= severeHeatCelsius {
 			severity = AlertSeveritySevere
 		}
 		alerts = append(alerts, Alert{
@@ -171,9 +205,9 @@ func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float6
 			EndTime:     day.Unix(),
 		})
 	}
-	if temp <= -10 {
+	if temp <= moderateColdCelsius {
 		severity := AlertSeverityModerate
-		if temp <= -20 {
+		if temp <= severeColdCelsius {
 			severity = AlertSeveritySevere
 		}
 		alerts = append(alerts, Alert{
@@ -185,18 +219,18 @@ func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float6
 			EndTime:     day.Unix(),
 		})
 	}
-	if windSpeed >= 50 {
+	if windSpeed >= moderateWindKPH {
 		severity := AlertSeverityModerate
-		if windSpeed >= 70 {
+		if windSpeed >= severeWindKPH {
 			severity = AlertSeveritySevere
 		}
 		alerts = append(alerts, Alert{
 			Type:        AlertWind,
 			Severity:    severity,
 			Title:       "High Wind Warning",
-			Description: fmt.Sprintf("Wind speeds may reach %.1f km/h. Secure loose objects and avoid outdoor activities.", windSpeed),
+			Description: fmt.Sprintf("Wind speeds may reach %.*f %s. Secure loose objects and avoid outdoor activities.", measurementDecimalPlaces, windSpeed, windSpeedUnit),
 			StartTime:   r.target.Unix(),
-			EndTime:     r.target.Add(12 * time.Hour).Unix(),
+			EndTime:     r.target.Add(windAlertDuration).Unix(),
 		})
 	}
 	if condition == ConditionStormy {
@@ -206,7 +240,7 @@ func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float6
 			Title:       "Severe Storm Warning",
 			Description: "Severe thunderstorms expected. Stay indoors and avoid travel if possible.",
 			StartTime:   r.target.Unix(),
-			EndTime:     r.target.Add(6 * time.Hour).Unix(),
+			EndTime:     r.target.Add(stormAlertDuration).Unix(),
 		})
 	}
 	if condition == ConditionBlizzard {
@@ -216,136 +250,205 @@ func (r *reportGenerator) alerts(condition Condition, temp int, windSpeed float6
 			Title:       "Blizzard Warning",
 			Description: "Blizzard conditions expected with heavy snow and strong winds. Travel is strongly discouraged.",
 			StartTime:   r.target.Unix(),
-			EndTime:     r.target.Add(12 * time.Hour).Unix(),
+			EndTime:     r.target.Add(blizzardAlertDuration).Unix(),
 		})
 	}
-	if r.zone.typhoonSeason(r.month) && r.rng.Float64() < 0.05 {
+	if r.zone.typhoonSeason(r.month) && r.rng.Float64() < typhoonAlertProbability {
 		alerts = append(alerts, Alert{
 			Type:        AlertTyphoon,
 			Severity:    AlertSeverityExtreme,
 			Title:       "Typhoon Warning",
 			Description: "A typhoon is approaching. Evacuate if instructed by authorities and prepare for extreme weather.",
 			StartTime:   r.target.Unix(),
-			EndTime:     r.target.Add(48 * time.Hour).Unix(),
+			EndTime:     r.target.Add(typhoonAlertDuration).Unix(),
 		})
 	}
 	return alerts
 }
 
 func (r *reportGenerator) wind(condition Condition) Wind {
-	speed := 5.0 + r.rng.Float64()*15.0
+	const (
+		severeWeatherMaximumIncreaseKPH = 30.0
+		wetWeatherMaximumIncreaseKPH    = 15.0
+		clearWeatherSpeedFactor         = 0.6
+		desertMaximumIncreaseKPH        = 10.0
+		oceanicMaximumIncreaseKPH       = 8.0
+		alpineMaximumIncreaseKPH        = 12.0
+		minimumGustFactor               = 1.2
+		maximumGustFactor               = 1.5
+	)
+
+	speed := minimumBaselineWindKPH + r.rng.Float64()*(maximumBaselineWindKPH-minimumBaselineWindKPH)
 	switch condition {
 	case ConditionStormy, ConditionBlizzard:
-		speed += r.rng.Float64() * 30.0
+		speed += r.rng.Float64() * severeWeatherMaximumIncreaseKPH
 	case ConditionRainy, ConditionSnowy:
-		speed += r.rng.Float64() * 15.0
+		speed += r.rng.Float64() * wetWeatherMaximumIncreaseKPH
 	case ConditionSunny, ConditionClear:
-		speed *= 0.6
+		speed *= clearWeatherSpeedFactor
 	}
 	switch r.zone {
 	case zoneDesert:
-		speed += r.rng.Float64() * 10.0
+		speed += r.rng.Float64() * desertMaximumIncreaseKPH
 	case zoneOceanic:
-		speed += r.rng.Float64() * 8.0
+		speed += r.rng.Float64() * oceanicMaximumIncreaseKPH
 	case zoneAlpine:
-		speed += r.rng.Float64() * 12.0
+		speed += r.rng.Float64() * alpineMaximumIncreaseKPH
 	}
 	speed += float64(r.coords.Elevation) * 0.01
 
-	degree := r.rng.IntN(360)
-	gust := speed * (1.2 + r.rng.Float64()*0.3)
+	degree := r.rng.IntN(degreesPerTurn)
+	gust := speed * (minimumGustFactor + r.rng.Float64()*(maximumGustFactor-minimumGustFactor))
 	return Wind{
-		Speed:     math.Round(speed*10) / 10,
-		Unit:      "km/h",
+		Speed:     roundMeasurement(speed),
+		Unit:      windSpeedUnit,
 		Direction: directionFromDegree(degree),
 		Degree:    degree,
-		Gust:      math.Round(gust*10) / 10,
+		Gust:      roundMeasurement(gust),
 	}
 }
 
 func (r *reportGenerator) humidity(condition Condition) int {
+	const (
+		wetMinimumIncrease      = 20
+		wetMaximumIncrease      = 40
+		snowMinimumIncrease     = 15
+		snowMaximumIncrease     = 30
+		snowMaximumHumidity     = 95
+		cloudyMaximumIncrease   = 15
+		clearMinimumAdjustment  = -20
+		clearMaximumAdjustment  = 0
+		clearMinimumHumidity    = 10
+		dustyMinimumAdjustment  = -30
+		dustyMaximumAdjustment  = -15
+		dustyMinimumHumidity    = 5
+		defaultAdjustmentRadius = 10
+	)
+
 	base := r.zone.baseHumidity(r.month)
 	switch condition {
 	case ConditionRainy, ConditionStormy, ConditionFoggy, ConditionHumid, ConditionDrizzle:
-		return min(base+20+r.rng.IntN(20), 100)
+		return min(base+wetMinimumIncrease+r.rng.IntN(wetMaximumIncrease-wetMinimumIncrease), fullPercentage)
 	case ConditionSnowy, ConditionBlizzard:
-		return min(base+15+r.rng.IntN(15), 95)
+		return min(base+snowMinimumIncrease+r.rng.IntN(snowMaximumIncrease-snowMinimumIncrease), snowMaximumHumidity)
 	case ConditionCloudy, ConditionPartlyCloudy, ConditionOvercast:
-		return base + r.rng.IntN(15)
+		return base + r.rng.IntN(cloudyMaximumIncrease)
 	case ConditionSunny, ConditionClear, ConditionHot:
-		return max(base-20+r.rng.IntN(20), 10)
+		return max(base+clearMinimumAdjustment+r.rng.IntN(clearMaximumAdjustment-clearMinimumAdjustment), clearMinimumHumidity)
 	case ConditionDusty, ConditionHazy:
-		return max(base-30+r.rng.IntN(15), 5)
+		return max(base+dustyMinimumAdjustment+r.rng.IntN(dustyMaximumAdjustment-dustyMinimumAdjustment), dustyMinimumHumidity)
 	}
-	return base + r.rng.IntN(20) - 10
+	return base + r.rng.IntN(2*defaultAdjustmentRadius) - defaultAdjustmentRadius
 }
 
 func (r *reportGenerator) pressure(condition Condition) int {
-	base := 1013 - r.coords.Elevation/8
+	const (
+		seaLevelPressureHPa       = 1013
+		wetMinimumDropHPa         = 10
+		wetMaximumDropHPa         = 25
+		clearMinimumIncreaseHPa   = 5
+		clearMaximumIncreaseHPa   = 15
+		cloudyAdjustmentRadiusHPa = 5
+	)
+
+	base := seaLevelPressureHPa - r.coords.Elevation/8
 	switch condition {
 	case ConditionStormy, ConditionRainy:
-		base += -10 - r.rng.IntN(15)
+		base += -wetMinimumDropHPa - r.rng.IntN(wetMaximumDropHPa-wetMinimumDropHPa)
 	case ConditionSunny, ConditionClear:
-		base += 5 + r.rng.IntN(10)
+		base += clearMinimumIncreaseHPa + r.rng.IntN(clearMaximumIncreaseHPa-clearMinimumIncreaseHPa)
 	case ConditionCloudy, ConditionPartlyCloudy:
-		base += r.rng.IntN(10) - 5
+		base += r.rng.IntN(2*cloudyAdjustmentRadiusHPa) - cloudyAdjustmentRadiusHPa
 	}
 	return base
 }
 
 func (r *reportGenerator) visibility(condition Condition, humidity int) int {
+	const (
+		minimumVisibilityKM          = 1
+		fogMaximumKM                 = 3
+		wetMinimumKM                 = 3
+		wetMaximumKM                 = 8
+		severeMaximumKM              = 4
+		dustyMinimumKM               = 2
+		dustyMaximumKM               = 8
+		cloudyMinimumKM              = 8
+		cloudyMaximumKM              = 15
+		clearMinimumKM               = 15
+		clearMaximumKM               = 50
+		defaultMinimumKM             = 10
+		defaultMaximumKM             = 20
+		humidityAttenuationThreshold = 85
+		humidityAttenuationFactor    = 0.7
+	)
+
 	var base int
 	switch condition {
 	case ConditionFoggy:
-		base = r.rng.IntN(2) + 1
+		base = r.rng.IntN(fogMaximumKM-minimumVisibilityKM) + minimumVisibilityKM
 	case ConditionRainy, ConditionSnowy:
-		base = 3 + r.rng.IntN(5)
+		base = wetMinimumKM + r.rng.IntN(wetMaximumKM-wetMinimumKM)
 	case ConditionStormy, ConditionBlizzard:
-		base = 1 + r.rng.IntN(3)
+		base = minimumVisibilityKM + r.rng.IntN(severeMaximumKM-minimumVisibilityKM)
 	case ConditionDusty, ConditionHazy:
-		base = 2 + r.rng.IntN(6)
+		base = dustyMinimumKM + r.rng.IntN(dustyMaximumKM-dustyMinimumKM)
 	case ConditionCloudy:
-		base = 8 + r.rng.IntN(7)
+		base = cloudyMinimumKM + r.rng.IntN(cloudyMaximumKM-cloudyMinimumKM)
 	case ConditionSunny, ConditionClear:
-		base = 15 + r.rng.IntN(35)
+		base = clearMinimumKM + r.rng.IntN(clearMaximumKM-clearMinimumKM)
 	default:
-		base = 10 + r.rng.IntN(10)
+		base = defaultMinimumKM + r.rng.IntN(defaultMaximumKM-defaultMinimumKM)
 	}
-	if humidity > 85 {
-		base = int(float64(base) * 0.7)
+	if humidity > humidityAttenuationThreshold {
+		base = int(float64(base) * humidityAttenuationFactor)
 	}
-	return max(1, base)
+	return max(minimumVisibilityKM, base)
 }
 
 func (r *reportGenerator) cloudCover(condition Condition) int {
+	const (
+		clearMaximumPercent        = 15
+		partlyCloudyMinimumPercent = 25
+		partlyCloudyMaximumPercent = 60
+		cloudyMinimumPercent       = 75
+		wetMinimumPercent          = 90
+		defaultMinimumPercent      = 40
+		defaultMaximumPercent      = 80
+	)
+
 	switch condition {
 	case ConditionSunny, ConditionClear:
-		return r.rng.IntN(15)
+		return r.rng.IntN(clearMaximumPercent)
 	case ConditionPartlyCloudy:
-		return 25 + r.rng.IntN(35)
+		return partlyCloudyMinimumPercent + r.rng.IntN(partlyCloudyMaximumPercent-partlyCloudyMinimumPercent)
 	case ConditionCloudy, ConditionOvercast:
-		return 75 + r.rng.IntN(25)
+		return cloudyMinimumPercent + r.rng.IntN(fullPercentage-cloudyMinimumPercent)
 	case ConditionRainy, ConditionSnowy, ConditionStormy:
-		return 90 + r.rng.IntN(10)
+		return wetMinimumPercent + r.rng.IntN(fullPercentage-wetMinimumPercent)
 	case ConditionFoggy:
-		return 100
+		return fullPercentage
 	}
-	return 40 + r.rng.IntN(40)
+	return defaultMinimumPercent + r.rng.IntN(defaultMaximumPercent-defaultMinimumPercent)
 }
 
 func (r *reportGenerator) precipitation(condition Condition, temp int) *Precipitation {
 	p := &Precipitation{Type: r.precipitationType(temp), Probability: r.precipitationProbability(condition)}
 	p.Amount, p.Intensity = r.precipitationAmount(condition)
-	p.Amount = math.Round(p.Amount*10) / 10
+	p.Amount = roundMeasurement(p.Amount)
 	return p
 }
 
 func (r *reportGenerator) precipitationType(temp int) PrecipitationType {
+	const (
+		mixedPrecipitationMaximumCelsius = 3
+		sleetProbability                 = 0.3
+	)
+
 	switch {
-	case temp < 0:
+	case temp < freezingPointCelsius:
 		return PrecipitationSnow
-	case temp < 3:
-		if r.rng.Float64() < 0.3 {
+	case temp < mixedPrecipitationMaximumCelsius:
+		if r.rng.Float64() < sleetProbability {
 			return PrecipitationSleet
 		}
 		return PrecipitationSnow
@@ -354,78 +457,126 @@ func (r *reportGenerator) precipitationType(temp int) PrecipitationType {
 }
 
 func (r *reportGenerator) precipitationProbability(condition Condition) int {
+	const (
+		severeMinimumPercent   = 85
+		wetMinimumPercent      = 60
+		wetMaximumPercent      = 90
+		drizzleMinimumPercent  = 40
+		drizzleMaximumPercent  = 70
+		defaultMinimumPercent  = 30
+		defaultMaximumPercent  = 70
+		monsoonIncreasePercent = 15
+	)
+
 	var probability int
 	switch condition {
 	case ConditionStormy, ConditionBlizzard:
-		probability = 85 + r.rng.IntN(15)
+		probability = severeMinimumPercent + r.rng.IntN(fullPercentage-severeMinimumPercent)
 	case ConditionRainy, ConditionSnowy:
-		probability = 60 + r.rng.IntN(30)
+		probability = wetMinimumPercent + r.rng.IntN(wetMaximumPercent-wetMinimumPercent)
 	case ConditionDrizzle:
-		probability = 40 + r.rng.IntN(30)
+		probability = drizzleMinimumPercent + r.rng.IntN(drizzleMaximumPercent-drizzleMinimumPercent)
 	default:
-		probability = 30 + r.rng.IntN(40)
+		probability = defaultMinimumPercent + r.rng.IntN(defaultMaximumPercent-defaultMinimumPercent)
 	}
 	if r.zone.monsoon().covers(r.month) {
-		probability = min(100, probability+15)
+		probability = min(fullPercentage, probability+monsoonIncreasePercent)
 	}
 	return probability
 }
 
 func (r *reportGenerator) precipitationAmount(condition Condition) (float64, PrecipitationIntensity) {
+	const (
+		stormMinimumMM          = 20.0
+		stormMaximumMM          = 60.0
+		rainMinimumMM           = 5.0
+		rainMaximumMM           = 25.0
+		moderateRainThresholdMM = 15
+		drizzleMinimumMM        = 0.5
+		drizzleMaximumMM        = 3.5
+		snowMinimumMM           = 1.0
+		snowMaximumMM           = 11.0
+		defaultMaximumMM        = 5.0
+	)
+
 	switch condition {
 	case ConditionStormy:
-		return 20.0 + r.rng.Float64()*40.0, PrecipitationHeavy
+		return stormMinimumMM + r.rng.Float64()*(stormMaximumMM-stormMinimumMM), PrecipitationHeavy
 	case ConditionRainy:
-		amount := 5.0 + r.rng.Float64()*20.0
-		if amount > 15 {
+		amount := rainMinimumMM + r.rng.Float64()*(rainMaximumMM-rainMinimumMM)
+		if amount > moderateRainThresholdMM {
 			return amount, PrecipitationModerate
 		}
 		return amount, PrecipitationLight
 	case ConditionDrizzle:
-		return 0.5 + r.rng.Float64()*3.0, PrecipitationLight
+		return drizzleMinimumMM + r.rng.Float64()*(drizzleMaximumMM-drizzleMinimumMM), PrecipitationLight
 	case ConditionSnowy:
-		return 1.0 + r.rng.Float64()*10.0, PrecipitationModerate
+		return snowMinimumMM + r.rng.Float64()*(snowMaximumMM-snowMinimumMM), PrecipitationModerate
 	case ConditionBlizzard:
-		return 1.0 + r.rng.Float64()*10.0, PrecipitationHeavy
+		return snowMinimumMM + r.rng.Float64()*(snowMaximumMM-snowMinimumMM), PrecipitationHeavy
 	}
-	return r.rng.Float64() * 5.0, PrecipitationLight
+	return r.rng.Float64() * defaultMaximumMM, PrecipitationLight
 }
 
 func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
+	const (
+		baselineAQI             = 50
+		pollutedMinimumAQI      = 80
+		pollutedMaximumAQI      = 120
+		fogMinimumIncrease      = 40
+		fogMaximumIncrease      = 70
+		rainMinimumReduction    = 20
+		rainMaximumReduction    = 40
+		windMinimumReduction    = 10
+		windMaximumReduction    = 25
+		desertMinimumIncrease   = 10
+		desertMaximumIncrease   = 30
+		maximumAQI              = 500
+		goodMaximumAQI          = 50
+		moderateMaximumAQI      = 100
+		sensitiveMaximumAQI     = 150
+		unhealthyMaximumAQI     = 200
+		veryUnhealthyMaximumAQI = 300
+		ozoneMinimum            = 20
+		ozoneMaximum            = 100
+		pm25RelativeJitter      = 0.4
+		pm10RelativeJitter      = 0.3
+	)
+
 	aq := &AirQuality{}
-	aqi := 50
+	aqi := baselineAQI
 
 	if profile, ok := knownCities.lookup(r.location); ok && profile.Polluted {
-		aqi = 80 + r.rng.IntN(40)
+		aqi = pollutedMinimumAQI + r.rng.IntN(pollutedMaximumAQI-pollutedMinimumAQI)
 	}
 
 	switch condition {
 	case ConditionFoggy, ConditionHazy:
-		aqi += 40 + r.rng.IntN(30)
+		aqi += fogMinimumIncrease + r.rng.IntN(fogMaximumIncrease-fogMinimumIncrease)
 	case ConditionRainy, ConditionStormy:
-		aqi -= 20 + r.rng.IntN(20)
+		aqi -= rainMinimumReduction + r.rng.IntN(rainMaximumReduction-rainMinimumReduction)
 	case ConditionWindy:
-		aqi -= 10 + r.rng.IntN(15)
+		aqi -= windMinimumReduction + r.rng.IntN(windMaximumReduction-windMinimumReduction)
 	}
 	if r.zone == zoneDesert {
-		aqi += 10 + r.rng.IntN(20)
+		aqi += desertMinimumIncrease + r.rng.IntN(desertMaximumIncrease-desertMinimumIncrease)
 	}
 
-	aq.AQI = clamp(aqi, 0, 500)
+	aq.AQI = clamp(aqi, 0, maximumAQI)
 	switch {
-	case aq.AQI <= 50:
+	case aq.AQI <= goodMaximumAQI:
 		aq.Level = AirQualityGood
 		aq.Description = "Air quality is satisfactory, and air pollution poses little or no risk."
-	case aq.AQI <= 100:
+	case aq.AQI <= moderateMaximumAQI:
 		aq.Level = AirQualityModerate
 		aq.Description = "Air quality is acceptable. There may be a risk for some people sensitive to air pollution."
-	case aq.AQI <= 150:
+	case aq.AQI <= sensitiveMaximumAQI:
 		aq.Level = AirQualityUnhealthyForSensitiveGroups
 		aq.Description = "Members of sensitive groups may experience health effects."
-	case aq.AQI <= 200:
+	case aq.AQI <= unhealthyMaximumAQI:
 		aq.Level = AirQualityUnhealthy
 		aq.Description = "Some members of the general public may experience health effects."
-	case aq.AQI <= 300:
+	case aq.AQI <= veryUnhealthyMaximumAQI:
 		aq.Level = AirQualityVeryUnhealthy
 		aq.Description = "Health alert: the risk of health effects is increased for everyone."
 	default:
@@ -433,49 +584,71 @@ func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
 		aq.Description = "Health warning of emergency conditions: everyone is more likely to be affected."
 	}
 
-	aq.PM25 = int(float64(aq.AQI) * 0.5 * (1 + r.rng.Float64()*0.4))
-	aq.PM10 = int(float64(aq.PM25) * 1.5 * (1 + r.rng.Float64()*0.3))
-	aq.Ozone = 20 + r.rng.IntN(80)
+	aq.PM25 = int(float64(aq.AQI) * 0.5 * (1 + r.rng.Float64()*pm25RelativeJitter))
+	aq.PM10 = int(float64(aq.PM25) * 1.5 * (1 + r.rng.Float64()*pm10RelativeJitter))
+	aq.Ozone = ozoneMinimum + r.rng.IntN(ozoneMaximum-ozoneMinimum)
 	return aq
 }
 
 func (r *reportGenerator) uvIndex(condition Condition, cloudCover int) UVIndex {
+	const (
+		summerFirstMonth       = int(time.May)
+		summerLastMonth        = int(time.August)
+		winterFirstMonth       = int(time.November)
+		winterLastMonth        = int(time.February)
+		summerFactor           = 1.2
+		winterFactor           = 0.6
+		shoulderSeasonFactor   = 0.9
+		equatorialIndex        = 11.0
+		maximumGeneratedIndex  = 11
+		clearMinimumIncrease   = 1
+		clearMaximumIncrease   = 3
+		cloudyMinimumReduction = 2
+		cloudyMaximumReduction = 4
+		wetMinimumReduction    = 4
+		wetMaximumReduction    = 7
+		lowMaximumIndex        = 2
+		moderateMaximumIndex   = 5
+		highMaximumIndex       = 7
+		veryHighMaximumIndex   = 10
+	)
+
 	absLat := math.Abs(r.coords.Latitude)
 	latitudeFactor := 1.0 - absLat/90.0
 	var seasonFactor float64
 	switch {
-	case r.month >= 5 && r.month <= 8:
-		seasonFactor = 1.2
-	case r.month >= 11 || r.month <= 2:
-		seasonFactor = 0.6
+	case r.month >= summerFirstMonth && r.month <= summerLastMonth:
+		seasonFactor = summerFactor
+	case r.month >= winterFirstMonth || r.month <= winterLastMonth:
+		seasonFactor = winterFactor
 	default:
-		seasonFactor = 0.9
+		seasonFactor = shoulderSeasonFactor
 	}
 
-	value := int(11.0 * latitudeFactor * seasonFactor)
+	value := int(equatorialIndex * latitudeFactor * seasonFactor)
 	value -= int(float64(cloudCover) * 0.08)
 	switch condition {
 	case ConditionSunny, ConditionClear:
-		value += 1 + r.rng.IntN(2)
+		value += clearMinimumIncrease + r.rng.IntN(clearMaximumIncrease-clearMinimumIncrease)
 	case ConditionCloudy, ConditionOvercast:
-		value -= 2 + r.rng.IntN(2)
+		value -= cloudyMinimumReduction + r.rng.IntN(cloudyMaximumReduction-cloudyMinimumReduction)
 	case ConditionRainy, ConditionStormy:
-		value -= 4 + r.rng.IntN(3)
+		value -= wetMinimumReduction + r.rng.IntN(wetMaximumReduction-wetMinimumReduction)
 	}
-	value = clamp(value, 0, 11)
+	value = clamp(value, 0, maximumGeneratedIndex)
 
 	uv := UVIndex{Value: value}
 	switch {
-	case value <= 2:
+	case value <= lowMaximumIndex:
 		uv.Level = UVLow
 		uv.Description = "No protection required. You can safely stay outside."
-	case value <= 5:
+	case value <= moderateMaximumIndex:
 		uv.Level = UVModerate
 		uv.Description = "Seek shade during midday hours. Wear sunscreen and a hat."
-	case value <= 7:
+	case value <= highMaximumIndex:
 		uv.Level = UVHigh
 		uv.Description = "Protection essential. Seek shade during midday hours."
-	case value <= 10:
+	case value <= veryHighMaximumIndex:
 		uv.Level = UVVeryHigh
 		uv.Description = "Extra protection needed. Avoid sun exposure during midday."
 	default:
@@ -487,6 +660,11 @@ func (r *reportGenerator) uvIndex(condition Condition, cloudCover int) UVIndex {
 
 // Sun times use approximate solar declination; moon illumination uses a 29.5-day cycle.
 func (r *reportGenerator) astronomy() Astronomy {
+	const (
+		solarNoonHour          = hoursPerDay / 2
+		moonEventJitterMinutes = 60
+	)
+
 	dayOfYear := r.target.YearDay()
 
 	declination := 23.45 * math.Sin(2*math.Pi*float64(dayOfYear-81)/365)
@@ -495,18 +673,18 @@ func (r *reportGenerator) astronomy() Astronomy {
 	cosH := -math.Tan(latRad) * math.Tan(declRad)
 	cosH = math.Max(-1, math.Min(1, cosH)) // polar day/night clamp
 	hourAngle := math.Acos(cosH)
-	daylight := 2 * hourAngle * 12 / math.Pi
+	daylight := 2 * hourAngle * solarNoonHour / math.Pi
 
-	sunrise := formatHM(12 - daylight/2)
-	sunset := formatHM(12 + daylight/2)
+	sunrise := formatHM(solarNoonHour - daylight/2)
+	sunset := formatHM(solarNoonHour + daylight/2)
 
-	phaseIndex := (dayOfYear * 8 / 30) % 8
-	moonIllum := int(math.Abs(math.Sin(float64(dayOfYear)*2*math.Pi/29.5)) * 100)
+	phaseIndex := (dayOfYear * len(moonPhases) / 30) % len(moonPhases)
+	moonIllum := int(math.Abs(math.Sin(float64(dayOfYear)*2*math.Pi/29.5)) * fullPercentage)
 
-	moonriseOffset := r.rng.IntN(120) - 60
-	moonsetOffset := r.rng.IntN(120) - 60
-	moonrise := formatHM(12 - daylight/2 + float64(moonriseOffset)/60.0)
-	moonset := formatHM(12 + daylight/2 + float64(moonsetOffset)/60.0)
+	moonriseOffset := r.rng.IntN(2*moonEventJitterMinutes) - moonEventJitterMinutes
+	moonsetOffset := r.rng.IntN(2*moonEventJitterMinutes) - moonEventJitterMinutes
+	moonrise := formatHM(solarNoonHour - daylight/2 + float64(moonriseOffset)/float64(minutesPerHour))
+	moonset := formatHM(solarNoonHour + daylight/2 + float64(moonsetOffset)/float64(minutesPerHour))
 
 	return Astronomy{
 		Sunrise:          sunrise,
@@ -548,6 +726,12 @@ func monthForLookup(date time.Time, latitude float64, knownCity bool) int {
 
 // Unknown locations use northern latitudes to keep the input calendar season.
 func coordinatesFor(location string, rng *rand.Rand) (Coordinates, bool) {
+	const (
+		minimumGeneratedLatitude        = 10
+		maximumGeneratedLatitude        = 60
+		maximumGeneratedElevationMeters = 500
+		coordinateDecimalScale          = 10000
+	)
 	if profile, ok := knownCities.lookup(location); ok {
 		return Coordinates{
 			Latitude:  profile.Latitude,
@@ -561,12 +745,12 @@ func coordinatesFor(location string, rng *rand.Rand) (Coordinates, bool) {
 		latSeed += float64(c)
 		lonSeed += float64(c) * 1.5
 	}
-	lat := 10 + math.Mod(latSeed, 50)
-	lon := math.Mod(lonSeed, 360) - 180
-	elevation := rng.IntN(500)
+	lat := minimumGeneratedLatitude + math.Mod(latSeed, maximumGeneratedLatitude-minimumGeneratedLatitude)
+	lon := math.Mod(lonSeed, degreesPerTurn) - degreesPerTurn/2
+	elevation := rng.IntN(maximumGeneratedElevationMeters)
 	return Coordinates{
-		Latitude:  math.Round(lat*10000) / 10000,
-		Longitude: math.Round(lon*10000) / 10000,
+		Latitude:  math.Round(lat*coordinateDecimalScale) / coordinateDecimalScale,
+		Longitude: math.Round(lon*coordinateDecimalScale) / coordinateDecimalScale,
 		Elevation: elevation,
 	}, false
 }

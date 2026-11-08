@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/web"
 )
 
@@ -62,7 +63,9 @@ func TestSearch(t *testing.T) {
 		{Query: "scope", BlockedDomains: []string{"example.com"}},
 		{Query: "scope", Recency: web.RecencyDay},
 	} {
-		if _, err := client.Search(t.Context(), request); !errors.Is(err, web.ErrUnsupportedFilter) {
+		_, err := client.Search(t.Context(), request)
+		failure, definite := toolcontract.ClassifyFailure(err)
+		if !definite || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), web.ErrUnsupportedFilter) {
 			t.Fatalf("Search(%+v) error = %v, want ErrUnsupportedFilter", request, err)
 		}
 	}

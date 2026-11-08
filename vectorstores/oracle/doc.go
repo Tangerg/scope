@@ -3,6 +3,10 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Content requires a non-null CLOB in an AL32UTF8 database. Construction checks
+// the character set before optional schema creation, and native bindings recheck
+// it before admission and writes because driver conversion can silently replace
+// unsupported Unicode characters. Metadata retains exact encoded bytes in BLOB.
 //
 // Query performs native nearest-neighbor ranking without enumerating metadata.
 // The stored metadata representation cannot implement exact Core predicates

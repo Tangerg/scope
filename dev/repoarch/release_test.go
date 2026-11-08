@@ -335,11 +335,15 @@ exec "$SCRIPT_REAL_GIT" "$@"
 func TestReleaseClearsDevelopmentGateSelectors(t *testing.T) {
 	t.Parallel()
 	fixture := newReleasePublicationFixture(t, "new", "")
-	fixture.env = append(fixture.env, "MODULE=core", "FAST=1")
+	fixture.env = append(fixture.env, "MODULE=core", "FAST=1", "GOFLAGS=-run=^$ -skip=.")
 	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
 echo repository-gates >> "$SCRIPT_CALLS"
 if [[ -n "${MODULE+x}${FAST+x}" ]]; then
   printf 'release-gates-inherited-selectors MODULE=%s FAST=%s\n' "${MODULE-}" "${FAST-}" >&2
+  exit 23
+fi
+if [[ "${GOFLAGS-unset}" != "" ]]; then
+  echo release-gates-inherited-go-flags >&2
   exit 23
 fi
 echo complete-gate-environment >> "$SCRIPT_CALLS"
@@ -347,6 +351,42 @@ echo complete-gate-environment >> "$SCRIPT_CALLS"
 	output, err := fixture.run(t, "release.sh", "v0.0.2")
 	if err != nil || strings.Count(fixture.calls(t), "complete-gate-environment\n") != 1 {
 		t.Fatalf("release must always invoke the complete gate scope: %v\n%s\ncalls:\n%s", err, output, fixture.calls(t))
+	}
+}
+
+func TestReleaseRunsTestsDespitePersistedGoFlags(t *testing.T) {
+	t.Parallel()
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := newReleasePublicationFixture(t, "new", "")
+	fixture.write(t, "go.env", "GOFLAGS=-run=^$ -skip=.\n")
+	fixture.env = append(fixture.env,
+		"GOENV="+filepath.Join(fixture.root, "go.env"),
+		"GOFLAGS=",
+		"SCRIPT_REAL_GO="+realGo,
+	)
+	fixture.write(t, "gate-fixture/go.mod", "module example.com/release-gate\n\ngo 1.24.0\n")
+	fixture.write(t, "gate-fixture/sentinel_test.go", `package releasegate
+
+import "testing"
+
+func TestReleaseSentinel(t *testing.T) {
+	t.Fatal("release-sentinel-failure")
+}
+`)
+	fixture.write(t, "scripts/check.sh", `#!/usr/bin/env bash
+set -euo pipefail
+env GOWORK=off "$SCRIPT_REAL_GO" -C "$SCRIPT_ROOT/gate-fixture" test -count=1 ./...
+`)
+	output, err := fixture.run(t, "release.sh", "v0.0.2")
+	if err == nil || !strings.Contains(output, "release-sentinel-failure") {
+		t.Fatalf("persisted flags suppressed a failing release test: %v\n%s", err, output)
+	}
+	calls := fixture.calls(t)
+	if strings.Contains(calls, "git push") || strings.Contains(calls, "gh release create") {
+		t.Fatalf("release published after a failing test:\n%s", calls)
 	}
 }
 

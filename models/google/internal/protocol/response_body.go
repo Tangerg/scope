@@ -32,9 +32,15 @@ func (n *nativeResponseTransport) RoundTrip(request *http.Request) (*http.Respon
 		}
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
+	if n.embeddingRequest != nil {
+		n.embeddingRequest.dispatched = true
+	}
 	response, err := n.next.RoundTrip(request)
-	if err != nil || response == nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return response, err
+	if err != nil {
+		return response, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	}
+	if response == nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return response, nil
 	}
 	path := request.URL.Path
 	if strings.HasSuffix(path, ":batchEmbedContents") || strings.HasSuffix(path, ":embedContent") || strings.HasSuffix(path, ":predict") || strings.HasSuffix(path, ":countTokens") {
@@ -69,7 +75,7 @@ func (n *nativeResponseBody) Read(buffer []byte) (int, error) {
 		n.reader = bytes.NewReader(raw)
 	}
 	if n.err != nil {
-		return 0, n.err
+		return 0, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: n.err}
 	}
 	return n.reader.Read(buffer)
 }

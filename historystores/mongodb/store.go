@@ -3,7 +3,6 @@ package mongodb
 import (
 	"context"
 	"encoding/base64"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -222,12 +221,9 @@ func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Mes
 			if record.Sequence <= 0 || record.Messages == "" {
 				return errors.New("mongodb: invalid stored append record")
 			}
-			var batch []chat.Message
-			if err := jsonv2.Unmarshal([]byte(record.Messages), &batch); err != nil {
+			batch, err := history.DecodeMessages([]byte(record.Messages))
+			if err != nil {
 				return err
-			}
-			if len(batch) == 0 {
-				return errors.New("mongodb: stored append is empty")
 			}
 			messages = append(messages, batch...)
 		}

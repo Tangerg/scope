@@ -25,7 +25,27 @@ const (
 	// fields using the SDK's JSON names. Fields owned by Core are rejected, as is
 	// codeExecution because its output and replay cannot be represented losslessly.
 	RequestExtensionKey = GoogleProviderID + RequestExtensionSuffix
+
+	chatOutputFormatOwner = "options.output_format"
+	chatToolsOwner        = "tools"
 )
+
+var chatCoreFieldOwners = [...]struct{ name, member, owner string }{
+	{"temperature", "", "options.temperature"},
+	{"topP", "", "options.top_p"},
+	{"topK", "", "options.top_k"},
+	{"maxOutputTokens", "", "options.max_output_tokens"},
+	{"stopSequences", "", "options.stop"},
+	{"presencePenalty", "", "options.presence_penalty"},
+	{"frequencyPenalty", "", "options.frequency_penalty"},
+	{"responseMimeType", "", chatOutputFormatOwner},
+	{"responseSchema", "", chatOutputFormatOwner},
+	{generationResponseSchemaField, "", chatOutputFormatOwner},
+	{generationSystemField, "", "messages"},
+
+	{"thinkingConfig", "thinkingLevel", "options.reasoning_effort"},
+	{"toolConfig", "functionCallingConfig", "tool_choice"},
+}
 
 func mapProtocolRequest(provider string, defaults corechat.Options, req *corechat.Request) (string, []*genai.Content, *genai.GenerateContentConfig, error) {
 	options, err := defaults.Resolve(req.Options)
@@ -135,47 +155,32 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 	if err != nil {
 		return nil, err
 	}
-	for _, field := range []struct{ name, owner string }{
-		{"temperature", "options.temperature"},
-		{"topP", "options.top_p"},
-		{"topK", "options.top_k"},
-		{"maxOutputTokens", "options.max_output_tokens"},
-		{"stopSequences", "options.stop"},
-		{"presencePenalty", "options.presence_penalty"},
-		{"frequencyPenalty", "options.frequency_penalty"},
-		{"responseMimeType", "options.output_format"},
-		{"responseSchema", "options.output_format"},
-		{"responseJsonSchema", "options.output_format"},
-		{"systemInstruction", "messages"},
-	} {
-		if _, exists := fields[field.name]; exists {
-			return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, field.name, field.owner)
-		}
-	}
-	for _, field := range []struct{ name, member, owner string }{
-		{"thinkingConfig", "thinkingLevel", "options.reasoning_effort"},
-		{"toolConfig", "functionCallingConfig", "tool_choice"},
-	} {
+	for _, field := range chatCoreFieldOwners {
 		value, exists := fields[field.name]
 		if !exists {
 			continue
 		}
-		var members map[string]json.RawMessage
-		if err := jsonv2.Unmarshal(value, &members); err != nil {
-			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, field.name, err)
+		name := field.name
+		if field.member != "" {
+			var members map[string]json.RawMessage
+			if err := jsonv2.Unmarshal(value, &members); err != nil {
+				return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, field.name, err)
+			}
+			if _, exists := members[field.member]; !exists {
+				continue
+			}
+			name += "." + field.member
 		}
-		if _, exists := members[field.member]; exists {
-			return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, field.name+"."+field.member, field.owner)
-		}
+		return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, name, field.owner)
 	}
-	if value, exists := fields["tools"]; exists {
+	if value, exists := fields[generationToolsField]; exists {
 		var tools []map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(value, &tools); err != nil {
-			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, "tools", err)
+			return nil, fmt.Errorf("google: extension %q field %q: %w", extensionKey, generationToolsField, err)
 		}
 		for index, tool := range tools {
-			if _, exists := tool["functionDeclarations"]; exists {
-				return nil, fmt.Errorf("google: extension %q field tools[%d].functionDeclarations is owned by tools", extensionKey, index)
+			if _, exists := tool[generationDeclarationsField]; exists {
+				return nil, fmt.Errorf("google: extension %q field %s[%d].%s is owned by %s", extensionKey, generationToolsField, index, generationDeclarationsField, chatToolsOwner)
 			}
 		}
 	}
@@ -215,6 +220,14 @@ func mapProtocolMessages(provider string, messages []corechat.Message) (*genai.C
 			parts, err := mapProtocolAssistantParts(provider, message.Parts)
 			if err != nil {
 				return nil, nil, fmt.Errorf("google: messages[%d]: %w", i, err)
+			}
+			trailing, _, err := message.Metadata.Decode[serverToolParts](protocolKey(provider, serverToolPartsMetadataSuffix))
+			if err != nil {
+				return nil, nil, fmt.Errorf("google: messages[%d]: trailing server tools: %w", i, err)
+			}
+			parts = append(parts, trailing...)
+			if len(parts) == 0 {
+				return nil, nil, fmt.Errorf("google: messages[%d]: assistant message has no replayable content", i)
 			}
 			contents = append(contents, genai.NewContentFromParts(parts, genai.RoleModel))
 		case corechat.RoleTool:
@@ -272,6 +285,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		if err != nil {
 			return nil, fmt.Errorf("parts[%d].metadata[%q]: %w", i, stateKey, err)
 		}
+		mapped = append(mapped, state.Before...)
 		switch part.Kind {
 		case corechat.PartText:
 			mapped = append(mapped, genai.NewPartFromText(part.Text))

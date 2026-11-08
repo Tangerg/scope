@@ -111,18 +111,25 @@ func (f failedModelDetails) validate() error {
 	return f.Response.Validate()
 }
 
-func ModelRequestFromEffect(effect run.Effect) (*chat.Request, bool, error) {
+// Sequence comes from the committed intent; observers must not reconstruct it
+// from a filtered history or use a presentation ordinal as a child identity.
+type ModelCallIntent struct {
+	Sequence uint64
+	Request  *chat.Request
+}
+
+func ModelCallFromEffect(effect run.Effect) (ModelCallIntent, bool, error) {
 	if effect.Target() != run.EffectTargetDispatcher {
-		return nil, false, nil
+		return ModelCallIntent{}, false, nil
 	}
 	envelope, err := decodeEffect(effect.Payload().JSON())
 	if err != nil {
-		return nil, false, err
+		return ModelCallIntent{}, false, err
 	}
 	if envelope.operation() != operationModelCall {
-		return nil, false, nil
+		return ModelCallIntent{}, false, nil
 	}
-	return envelope.ModelCall.request(), true, nil
+	return ModelCallIntent{Sequence: envelope.ModelCall.ModelCallSequence, Request: envelope.ModelCall.request()}, true, nil
 }
 
 // ToolCallIntent is the call a committed tool Effect dispatches.

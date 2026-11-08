@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	corecontent "github.com/Tangerg/scope/core/content"
@@ -137,6 +138,9 @@ func mapResponsesMessage(messageIndex int, message corechat.Message) ([]response
 			Content: responses.EasyInputMessageContentUnionParam{OfInputItemContentList: content},
 		}}}, nil
 	case corechat.RoleAssistant:
+		if len(message.Parts) == 0 {
+			return nil, errors.New("assistant metadata has no replayable Responses content")
+		}
 		return mapResponsesAssistantItems(message.Parts)
 	case corechat.RoleTool:
 		return mapResponsesToolResults(message.Parts)

@@ -37,16 +37,25 @@
 //     Cache rates are optional: nil uses the ordinary input rate, while a
 //     present zero rate is free. InputTokens includes cache reads and writes.
 //   - reasoning.supported is the authoritative "can reason" bit. levels and
-//     default_level apply only where effort is level-controlled; a
-//     token-budget reasoner is just supported.
+//     default_level are source-backed observations, not request admission rules.
+//     Their absence means the catalog has no ladder, including for models whose
+//     adapter accepts effort controls. Native adapters own request admission.
 //   - modalities list what the model accepts and emits. Only chat models are
 //     included: an embedding, speech, or image model is filtered out.
 //   - deprecated marks a retired model, which stays in the catalog so cost
 //     still attributes for callers on the old id. A consumer hides or flags it.
 //
 // Rows are generated from two community model databases with disjoint
-// responsibilities: models.dev decides which models exist and supplies every
-// field except the reasoning effort ladder, and catwalk supplies that ladder.
+// responsibilities: models.dev supplies model identities, native API types,
+// protocol overrides and every field except the reasoning effort ladder;
+// catwalk supplies that ladder. The generator admits only model types and
+// protocols supported by the named chat binding. Text output alone does not
+// establish chat support. Gemini/OpenRouter image conversations and Alibaba
+// ASR conversations retain their documented native chat protocols; Google
+// Interactions agents require their separate binding and are omitted here.
+// Vertex rows must resolve to the Google Gen AI protocol or an independently
+// documented GenerateContent model on the Vertex OpenMaaS surface. An OpenAPI
+// endpoint or publisher-qualified ID alone cannot establish that contract.
 // Regeneration is a repository change, which is why a lookup performs no I/O;
 // scripts/update-model-catalog.sh performs it. Providers without a matching
 // current upstream catalog are omitted. In particular, Perplexity Agent API

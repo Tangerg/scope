@@ -10,6 +10,19 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
+const (
+	requestFieldVersion    = "version"
+	requestFieldFormat     = "format"
+	formatFieldType        = "type"
+	requestFieldUtterances = "utterances"
+	utteranceFieldText     = "text"
+	utteranceFieldSpeed    = "speed"
+	utteranceFieldVoice    = "voice"
+	voiceFieldID           = "id"
+	voiceFieldName         = "name"
+	voiceProviderHume      = "HUME_AI"
+)
+
 type speechBinding struct {
 	api            *api
 	defaultOptions speech.Options
@@ -36,18 +49,18 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := nativeFields["version"]; exists {
+	if _, exists := nativeFields[requestFieldVersion]; exists {
 		return nil, fmt.Errorf("hume: extension %q version is owned by Core", SpeechRequestExtensionKey)
 	}
-	if format, ok := nativeFields["format"].(map[string]any); ok {
-		if _, exists := format["type"]; exists {
+	if format, ok := nativeFields[requestFieldFormat].(map[string]any); ok {
+		if _, exists := format[formatFieldType]; exists {
 			return nil, fmt.Errorf("hume: extension %q format.type is owned by Core", SpeechRequestExtensionKey)
 		}
 		if len(format) > 0 && effectiveOptions.OutputFormat == "" {
 			return nil, errors.New("hume: native format options require Options.OutputFormat")
 		}
 	}
-	if utterances, ok := nativeFields["utterances"].([]any); ok {
+	if utterances, ok := nativeFields[requestFieldUtterances].([]any); ok {
 		if len(utterances) > 1 {
 			return nil, errors.New("hume: multiple utterances cannot be represented by Core's single-text request")
 		}
@@ -56,13 +69,13 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 			if !ok {
 				return nil, errors.New("hume: utterance must be an object")
 			}
-			for _, field := range []string{"text", "speed"} {
+			for _, field := range []string{utteranceFieldText, utteranceFieldSpeed} {
 				if _, exists := utterance[field]; exists {
 					return nil, fmt.Errorf("hume: extension utterance %s is owned by Core", field)
 				}
 			}
-			if voice, ok := utterance["voice"].(map[string]any); ok {
-				for _, field := range []string{"id", "name"} {
+			if voice, ok := utterance[utteranceFieldVoice].(map[string]any); ok {
+				for _, field := range []string{voiceFieldID, voiceFieldName} {
 					if _, exists := voice[field]; exists {
 						return nil, fmt.Errorf("hume: extension utterance voice.%s is owned by Core", field)
 					}
@@ -96,7 +109,7 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 		}
 		body.Utterances[0].Voice.ID = effectiveOptions.Voice
 		if body.Utterances[0].Voice.Provider == "" {
-			body.Utterances[0].Voice.Provider = "HUME_AI"
+			body.Utterances[0].Voice.Provider = voiceProviderHume
 		}
 	}
 	if effectiveOptions.Speed != 0 {
@@ -119,7 +132,7 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 		if err != nil {
 			return nil, fmt.Errorf("hume: speech: encode output_format: %w", err)
 		}
-		body.Format["type"] = encodedFormat
+		body.Format[formatFieldType] = encodedFormat
 	}
 	if body.Version == ModelOctave2 && body.Utterances[0].Voice == nil {
 		return nil, errors.New("hume: speech: Octave 2 requires Options.Voice")

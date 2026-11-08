@@ -12,6 +12,11 @@ import (
 	"github.com/Tangerg/scope/core/invocation"
 )
 
+const (
+	embeddingFieldInput      = "input"
+	embeddingFieldDimensions = "dimensions"
+)
+
 type EmbeddingModelConfig struct {
 	DefaultOptions embedding.Options
 	BaseURL        string
@@ -73,7 +78,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 		if fields == nil {
 			return nil, errors.New("ollama: embedding extension must be an object")
 		}
-		for _, name := range []string{"model", "input", "dimensions"} {
+		for _, name := range []string{nativeFieldModel, embeddingFieldInput, embeddingFieldDimensions} {
 			if _, exists := fields[name]; exists {
 				return nil, fmt.Errorf("ollama: embedding extension field %q is owned by Core", name)
 			}
@@ -159,7 +164,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 
 	apiResp, err := e.api.embed(ctx, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	return e.buildResponse(apiResp, req)

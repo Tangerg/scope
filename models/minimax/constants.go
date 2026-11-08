@@ -28,6 +28,7 @@ const (
 // Current Chat model ids. See
 // https://platform.minimaxi.com/docs/guides/models-intro.
 const (
+	ModelM31Flash     = "MiniMax-M3.1-Flash"
 	ModelM3           = "MiniMax-M3"
 	ModelM27          = "MiniMax-M2.7"
 	ModelM27HighSpeed = "MiniMax-M2.7-highspeed"

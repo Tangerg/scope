@@ -21,6 +21,15 @@ import (
 )
 
 const (
+	titanTextV1ModelIdentifier          = "amazon.titan-embed-text-v1"
+	titanTextV2ModelIdentifier          = "amazon.titan-embed-text-v2"
+	cohereV4ModelIdentifier             = "cohere.embed-v4"
+	cohereEnglishV3ModelIdentifier      = "cohere.embed-english-v3"
+	cohereMultilingualV3ModelIdentifier = "cohere.embed-multilingual-v3"
+	embeddingMediaTypeJSON              = "application/json"
+)
+
+const (
 	// EmbeddingRequestExtensionKey stores [EmbeddingRequestOptions] in Core
 	// embedding options.
 	EmbeddingRequestExtensionKey = Provider + "/embedding_request"
@@ -139,14 +148,22 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 	var batch *embeddingBatch
 	switch family {
 	case embeddingFamilyTitanV1, embeddingFamilyTitanV2:
-		batch, err = e.embedTitan(ctx, family, effectiveOptions.Model, req.Texts, effectiveOptions.Dimensions, native)
+		bodies, preparationErr := family.encodeTitanRequests(req.Texts, effectiveOptions.Dimensions, native)
+		if preparationErr != nil {
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: preparationErr}
+		}
+		batch, err = e.embedTitan(ctx, effectiveOptions.Model, bodies)
 	case embeddingFamilyCohereV3, embeddingFamilyCohereV4:
-		batch, err = e.embedCohere(ctx, family, effectiveOptions.Model, req.Texts, effectiveOptions.Dimensions, native)
+		body, preparationErr := family.encodeCohereRequest(req.Texts, effectiveOptions.Dimensions, native)
+		if preparationErr != nil {
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: preparationErr}
+		}
+		batch, err = e.embedCohere(ctx, effectiveOptions.Model, len(req.Texts), body)
 	default:
-		return nil, fmt.Errorf("bedrock: unsupported internal embedding family %d", family)
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("bedrock: unsupported internal embedding family %d", family)}
 	}
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	outputs := make([]*embedding.Output, len(batch.vectors))
@@ -189,13 +206,13 @@ const (
 
 func classifyEmbeddingModel(modelID string) (embeddingFamily, error) {
 	switch {
-	case strings.Contains(modelID, "amazon.titan-embed-text-v1"):
+	case strings.Contains(modelID, titanTextV1ModelIdentifier):
 		return embeddingFamilyTitanV1, nil
-	case strings.Contains(modelID, "amazon.titan-embed-text-v2"):
+	case strings.Contains(modelID, titanTextV2ModelIdentifier):
 		return embeddingFamilyTitanV2, nil
-	case strings.Contains(modelID, "cohere.embed-v4"):
+	case strings.Contains(modelID, cohereV4ModelIdentifier):
 		return embeddingFamilyCohereV4, nil
-	case strings.Contains(modelID, "cohere.embed-english-v3"), strings.Contains(modelID, "cohere.embed-multilingual-v3"):
+	case strings.Contains(modelID, cohereEnglishV3ModelIdentifier), strings.Contains(modelID, cohereMultilingualV3ModelIdentifier):
 		return embeddingFamilyCohereV3, nil
 	default:
 		return 0, fmt.Errorf("bedrock: unsupported embedding model %q", modelID)
@@ -239,21 +256,15 @@ type titanEmbeddingResponse struct {
 	InputTextTokenCount *int64                          `json:"inputTextTokenCount"`
 }
 
-func (e *EmbeddingModel) embedTitan(
-	ctx context.Context,
-	family embeddingFamily,
-	modelID string,
-	texts []string,
-	dimensions *int64,
-	native *EmbeddingRequestOptions,
-) (*embeddingBatch, error) {
+// The complete batch must pass local admission before any input can execute.
+func (e embeddingFamily) encodeTitanRequests(texts []string, dimensions *int64, native *EmbeddingRequestOptions) ([][]byte, error) {
 	if native.InputType != "" {
 		return nil, fmt.Errorf("bedrock: embedding extension %q input_type is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
 	}
 	if native.Truncate != "" {
 		return nil, fmt.Errorf("bedrock: embedding extension %q truncate is unsupported by Amazon Titan", EmbeddingRequestExtensionKey)
 	}
-	if family == embeddingFamilyTitanV1 {
+	if e == embeddingFamilyTitanV1 {
 		if dimensions != nil {
 			return nil, errors.New("bedrock: embedding: dimensions are unsupported by Amazon Titan Text Embeddings V1")
 		}
@@ -261,7 +272,7 @@ func (e *EmbeddingModel) embedTitan(
 			return nil, fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Amazon Titan Text Embeddings V1", EmbeddingRequestExtensionKey)
 		}
 	}
-	if family == embeddingFamilyTitanV2 {
+	if e == embeddingFamilyTitanV2 {
 		if err := validateDimensions(
 			"Amazon Titan Text Embeddings V2",
 			dimensions,
@@ -273,14 +284,10 @@ func (e *EmbeddingModel) embedTitan(
 		}
 	}
 
-	batch := &embeddingBatch{
-		vectors:        make([]corevector.Coordinates[float64], 0, len(texts)),
-		hasUsage:       true,
-		responseBodies: make([]json.RawMessage, 0, len(texts)),
-	}
+	bodies := make([][]byte, len(texts))
 	for index, text := range texts {
 		request := titanEmbeddingRequest{InputText: text}
-		if family == embeddingFamilyTitanV2 {
+		if e == embeddingFamilyTitanV2 {
 			request.Dimensions = dimensions
 			request.Normalize = native.Normalize
 		}
@@ -288,6 +295,18 @@ func (e *EmbeddingModel) embedTitan(
 		if err != nil {
 			return nil, fmt.Errorf("bedrock: encode Titan embedding request %d: %w", index, err)
 		}
+		bodies[index] = body
+	}
+	return bodies, nil
+}
+
+func (e *EmbeddingModel) embedTitan(ctx context.Context, modelID string, bodies [][]byte) (*embeddingBatch, error) {
+	batch := &embeddingBatch{
+		vectors:        make([]corevector.Coordinates[float64], 0, len(bodies)),
+		hasUsage:       true,
+		responseBodies: make([]json.RawMessage, 0, len(bodies)),
+	}
+	for index, body := range bodies {
 		responseBody, err := e.invokeEmbedding(ctx, modelID, body)
 		if err != nil {
 			return nil, fmt.Errorf("bedrock: invoke Titan embedding request %d: %w", index, err)
@@ -324,30 +343,23 @@ type cohereEmbeddingResponse struct {
 	Embeddings json.RawMessage `json:"embeddings"`
 }
 
-func (e *EmbeddingModel) embedCohere(
-	ctx context.Context,
-	family embeddingFamily,
-	modelID string,
-	texts []string,
-	dimensions *int64,
-	native *EmbeddingRequestOptions,
-) (*embeddingBatch, error) {
+func (e embeddingFamily) encodeCohereRequest(texts []string, dimensions *int64, native *EmbeddingRequestOptions) ([]byte, error) {
 	if len(texts) > maximumCohereBatchTexts {
 		return nil, fmt.Errorf("bedrock: Cohere Embed accepts at most %d texts per request; got %d", maximumCohereBatchTexts, len(texts))
 	}
 	if err := validateCohereInputType(native.InputType); err != nil {
 		return nil, err
 	}
-	if err := family.validateTruncate(native.Truncate); err != nil {
+	if err := e.validateTruncate(native.Truncate); err != nil {
 		return nil, err
 	}
 	if native.Normalize != nil {
 		return nil, fmt.Errorf("bedrock: embedding extension %q normalize is unsupported by Cohere Embed", EmbeddingRequestExtensionKey)
 	}
-	if family == embeddingFamilyCohereV3 && dimensions != nil {
+	if e == embeddingFamilyCohereV3 && dimensions != nil {
 		return nil, errors.New("bedrock: embedding: dimensions are unsupported by Cohere Embed V3")
 	}
-	if family == embeddingFamilyCohereV4 {
+	if e == embeddingFamilyCohereV4 {
 		if err := validateDimensions(
 			"Cohere Embed V4",
 			dimensions,
@@ -365,13 +377,17 @@ func (e *EmbeddingModel) embedCohere(
 		InputType: native.InputType,
 		Truncate:  native.Truncate,
 	}
-	if family == embeddingFamilyCohereV4 {
+	if e == embeddingFamilyCohereV4 {
 		request.OutputDimension = dimensions
 	}
 	body, err := jsonv2.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: encode Cohere embedding request: %w", err)
 	}
+	return body, nil
+}
+
+func (e *EmbeddingModel) embedCohere(ctx context.Context, modelID string, inputCount int, body []byte) (*embeddingBatch, error) {
 	responseBody, err := e.invokeEmbedding(ctx, modelID, body)
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: invoke Cohere embedding request: %w", err)
@@ -385,8 +401,8 @@ func (e *EmbeddingModel) embedCohere(
 	if err != nil {
 		return nil, err
 	}
-	if len(vectors) != len(texts) {
-		return nil, fmt.Errorf("bedrock: Cohere embedding response returned %d outputs for %d inputs", len(vectors), len(texts))
+	if len(vectors) != inputCount {
+		return nil, fmt.Errorf("bedrock: Cohere embedding response returned %d outputs for %d inputs", len(vectors), inputCount)
 	}
 	return &embeddingBatch{
 		vectors:        vectors,
@@ -443,8 +459,8 @@ func decodeCohereFloatEmbeddings(raw json.RawMessage) ([]corevector.Coordinates[
 func (e *EmbeddingModel) invokeEmbedding(ctx context.Context, modelID string, body []byte) ([]byte, error) {
 	output, err := e.api.invokeModel(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(modelID),
-		ContentType: aws.String("application/json"),
-		Accept:      aws.String("application/json"),
+		ContentType: aws.String(embeddingMediaTypeJSON),
+		Accept:      aws.String(embeddingMediaTypeJSON),
 		Body:        body,
 	})
 	if err != nil {

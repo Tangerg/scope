@@ -67,7 +67,7 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*m
 		Input: req.Texts,
 	})
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	outputs := make([]*moderation.Output, 0, len(apiResp.Results))

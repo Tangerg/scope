@@ -23,6 +23,13 @@ const (
 	AnthropicStreamEventExtensionKey = Provider + anthropic.CompatibleStreamExtensionSuffix
 )
 
+const (
+	reasoningField          = "reasoning"
+	reasoningEffortField    = "effort"
+	reasoningEnabledField   = "enabled"
+	reasoningMaxTokensField = "max_tokens"
+)
+
 type ChatCompletionsConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
@@ -119,13 +126,19 @@ func prepareOpenAIRequest(source *corechat.Request, _ *openai.CompatibleRequest)
 	if err != nil {
 		return fmt.Errorf("openrouter: request extension: %w", err)
 	}
-	if raw, found := fields["reasoning"]; found {
+	if raw, found := fields[reasoningField]; found {
 		var reasoning map[string]json.RawMessage
 		if err := jsonv2.Unmarshal(raw, &reasoning); err != nil {
 			return fmt.Errorf("openrouter: reasoning: %w", err)
 		}
-		if _, found := reasoning["effort"]; found {
+		if _, found := reasoning[reasoningEffortField]; found {
 			return errors.New("openrouter: reasoning.effort is owned by options.reasoning_effort")
+		}
+		if _, found := reasoning[reasoningEnabledField]; found {
+			return errors.New("openrouter: reasoning.enabled is owned by options.reasoning_effort")
+		}
+		if _, found := reasoning[reasoningMaxTokensField]; found && source.Options.ReasoningEffort != "" {
+			return errors.New("openrouter: reasoning.max_tokens cannot be combined with options.reasoning_effort")
 		}
 	}
 	return nil

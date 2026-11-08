@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/web"
 )
 
@@ -35,7 +36,8 @@ func TestSearchRejectsUnsupportedHourBeforeIO(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = client.Search(t.Context(), &web.SearchRequest{Query: "scope", Recency: web.RecencyHour})
-	if !errors.Is(err, web.ErrUnsupportedFilter) {
+	failure, definite := toolcontract.ClassifyFailure(err)
+	if !definite || failure.Kind() != toolcontract.FailureKindFailed || !errors.Is(failure.Cause(), web.ErrUnsupportedFilter) {
 		t.Fatalf("Search error=%v", err)
 	}
 }

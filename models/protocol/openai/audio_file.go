@@ -11,6 +11,29 @@ import (
 	"github.com/Tangerg/scope/core/media"
 )
 
+const (
+	audioMIMEMPEG            = "audio/mpeg"
+	audioMIMEMP3             = "audio/mp3"
+	audioMIMEMP4             = "audio/mp4"
+	videoMIMEMP4             = "video/mp4"
+	audioMIMEXM4A            = "audio/x-m4a"
+	audioMIMEWAV             = "audio/wav"
+	audioMIMEXWAV            = "audio/x-wav"
+	audioMIMEWave            = "audio/wave"
+	audioMIMEWebM            = "audio/webm"
+	videoMIMEWebM            = "video/webm"
+	audioMIMEOgg             = "audio/ogg"
+	audioMIMEFLAC            = "audio/flac"
+	audioMIMEXFLAC           = "audio/x-flac"
+	audioExtensionMP3        = ".mp3"
+	audioExtensionMP4        = ".mp4"
+	audioExtensionWAV        = ".wav"
+	audioExtensionWebM       = ".webm"
+	audioExtensionOgg        = ".ogg"
+	audioExtensionFLAC       = ".flac"
+	defaultAudioFilenameStem = "audio"
+)
+
 func audioFile(value *media.Media) (io.Reader, error) {
 	data, err := value.Bytes()
 	if err != nil {
@@ -24,22 +47,22 @@ func audioFile(value *media.Media) (io.Reader, error) {
 		}
 		var extension string
 		switch mediaType {
-		case "audio/mpeg", "audio/mp3":
-			extension = ".mp3"
-		case "audio/mp4", "video/mp4", "audio/x-m4a":
-			extension = ".mp4"
-		case "audio/wav", "audio/x-wav", "audio/wave":
-			extension = ".wav"
-		case "audio/webm", "video/webm":
-			extension = ".webm"
-		case "audio/ogg":
-			extension = ".ogg"
-		case "audio/flac", "audio/x-flac":
-			extension = ".flac"
+		case audioMIMEMPEG, audioMIMEMP3:
+			extension = audioExtensionMP3
+		case audioMIMEMP4, videoMIMEMP4, audioMIMEXM4A:
+			extension = audioExtensionMP4
+		case audioMIMEWAV, audioMIMEXWAV, audioMIMEWave:
+			extension = audioExtensionWAV
+		case audioMIMEWebM, videoMIMEWebM:
+			extension = audioExtensionWebM
+		case audioMIMEOgg:
+			extension = audioExtensionOgg
+		case audioMIMEFLAC, audioMIMEXFLAC:
+			extension = audioExtensionFLAC
 		default:
 			return nil, fmt.Errorf("openai: audio filename is required for MIME type %q", value.MIME)
 		}
-		name = "audio" + extension
+		name = defaultAudioFilenameStem + extension
 	}
 	return openaisdk.File(bytes.NewReader(data), name, value.MIME), nil
 }

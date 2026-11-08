@@ -254,7 +254,7 @@ func interactionCoverage(t *testing.T, log run.Log) *trajectory.Coverage {
 		if !ok || intent.Effect.Target() != run.EffectTargetDispatcher {
 			continue
 		}
-		_, model, err := interaction.ModelRequestFromEffect(intent.Effect)
+		_, model, err := interaction.ModelCallFromEffect(intent.Effect)
 		if err != nil {
 			t.Fatal(err)
 		}

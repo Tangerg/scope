@@ -276,7 +276,7 @@ func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Mes
 		if document.Sequence != formatSequence(int64(index)+1) {
 			return nil, errors.New("cosmosdb: stored append sequence has a gap or duplicate")
 		}
-		decoded, err := decodeMessages([]byte(document.Messages))
+		decoded, err := history.DecodeMessages([]byte(document.Messages))
 		if err != nil {
 			return nil, fmt.Errorf("cosmosdb: decode messages: %w", err)
 		}

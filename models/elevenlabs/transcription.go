@@ -11,6 +11,15 @@ import (
 	"github.com/Tangerg/scope/core/transcription"
 )
 
+const (
+	transcriptionFieldModelID      = "model_id"
+	transcriptionFieldLanguageCode = "language_code"
+	metadataLanguageCode           = "elevenlabs/language_code"
+	metadataLanguageProbability    = "elevenlabs/language_probability"
+	metadataWords                  = "elevenlabs/words"
+	metadataEntities               = "elevenlabs/entities"
+)
+
 type TranscriptionModelConfig struct {
 	APIKey         string
 	DefaultOptions transcription.Options
@@ -74,7 +83,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if decodeErr != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
 	}
-	for _, field := range []string{"model_id", "language_code"} {
+	for _, field := range []string{transcriptionFieldModelID, transcriptionFieldLanguageCode} {
 		if _, exists := nativeFields[field]; exists {
 			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)}
 		}
@@ -98,27 +107,27 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	apiResp, err := t.api.transcription(ctx, audio, req.Audio.MIME, apiReq)
 	if err != nil {
-		return nil, err
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
 	var outputMetadata metadata.Map
 	if apiResp.LanguageCode != "" {
-		if setErr := outputMetadata.Set("elevenlabs/language_code", apiResp.LanguageCode); setErr != nil {
+		if setErr := outputMetadata.Set(metadataLanguageCode, apiResp.LanguageCode); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if apiResp.LanguageProbability != nil {
-		if setErr := outputMetadata.Set("elevenlabs/language_probability", *apiResp.LanguageProbability); setErr != nil {
+		if setErr := outputMetadata.Set(metadataLanguageProbability, *apiResp.LanguageProbability); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if len(apiResp.Words) > 0 {
-		if setErr := outputMetadata.Set("elevenlabs/words", apiResp.Words); setErr != nil {
+		if setErr := outputMetadata.Set(metadataWords, apiResp.Words); setErr != nil {
 			return nil, setErr
 		}
 	}
 	if len(apiResp.Entities) > 0 {
-		if setErr := outputMetadata.Set("elevenlabs/entities", apiResp.Entities); setErr != nil {
+		if setErr := outputMetadata.Set(metadataEntities, apiResp.Entities); setErr != nil {
 			return nil, setErr
 		}
 	}

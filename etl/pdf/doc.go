@@ -6,6 +6,11 @@
 // whose digest identifies their original revision. Extraction follows content
 // stream order, including nested Form XObjects; table and column layout is not
 // reconstructed, and scanned PDFs need OCR upstream.
+// Inline image samples never enter text interpretation. Unfiltered pixels and
+// ASCIIHex, ASCII85, Flate, RunLength and DCT payloads use their exact data
+// boundaries. Unsupported image filters fail the affected page explicitly.
+// Hybrid cross-reference tables include their supplemental streams before
+// older revisions, so obsolete object definitions cannot replace current ones.
 //
 // Font codes use ToUnicode when supplied. Otherwise StandardEncoding, WinAnsi,
 // MacRoman and UniGB-UCS2-H are supported; unembedded standard Latin Type 1 fonts

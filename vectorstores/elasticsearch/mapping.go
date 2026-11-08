@@ -134,11 +134,17 @@ type searchTotal struct {
 type searchRequest struct {
 	Size             int                   `json:"size"`
 	KNN              *nearestNeighborQuery `json:"knn,omitzero"`
-	Source           bool                  `json:"_source"`
+	Source           sourceProjection      `json:"_source"`
 	TrackTotalHits   bool                  `json:"track_total_hits"`
 	SeqNoPrimaryTerm bool                  `json:"seq_no_primary_term"`
 	StoredFields     []string              `json:"stored_fields"`
 	Sort             []string              `json:"sort,omitzero"`
+}
+
+// A boolean _source request can omit vectors even from a complete stored source.
+// The zero projection explicitly includes the vector required by record decoding.
+type sourceProjection struct {
+	ExcludeVectors bool `json:"exclude_vectors"`
 }
 
 type nearestNeighborQuery struct {

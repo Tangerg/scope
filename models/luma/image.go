@@ -128,6 +128,9 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)}
 	}
+	if err = options.Validate(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	params := lumaagents.GenerationNewParams{
 		Prompt: lumaagents.F(request.Prompt),
 		Model:  lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
@@ -135,9 +138,6 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 	}
 	if options.Type != "" {
 		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(options.Type))
-	}
-	if params.Type.Value != lumaagents.GenerationNewParamsTypeImage && params.Type.Value != lumaagents.GenerationNewParamsTypeImageEdit {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: extension %q type %q is not an image operation", ImageRequestExtensionKey, params.Type.Value)}
 	}
 	if options.AspectRatio != "" {
 		params.AspectRatio = lumaagents.F(lumaagents.GenerationNewParamsAspectRatio(options.AspectRatio))

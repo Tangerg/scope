@@ -21,6 +21,11 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
+const (
+	scrollKeepAlive      = "1m"
+	scrollCleanupTimeout = 5 * time.Second
+)
+
 var (
 	_ vectorstore.Upserter  = (*Store)(nil)
 	_ vectorstore.Querier   = (*Store)(nil)
@@ -292,6 +297,10 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if request.Options.ResultLimit() > s.schema.resultWindow {
 		return nil, fmt.Errorf("%w: TopK exceeds native result window %d", vectorstore.ErrInvalidOptions, s.schema.resultWindow)
 	}
+	query, err := s.schema.vector(request.Values)
+	if err != nil {
+		return nil, err
+	}
 	if verifyErr := s.verify(ctx); verifyErr != nil {
 		return nil, verifyErr
 	}
@@ -313,10 +322,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 			return &vectorstore.SearchResponse{}, nil
 		}
 	}
-	query, err := s.schema.vector(request.Values)
-	if err != nil {
-		return nil, err
-	}
 	groups := [][]string{nil}
 	if request.Options.Filter != nil {
 		groups = slices.Collect(slices.Chunk(slices.Sorted(maps.Keys(matches)), filterBatchSize))
@@ -328,7 +333,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		if ids != nil {
 			knn.Filter = &idsQueryClause{IDs: idsQuery{Values: ids}}
 		}
-		body, err := jsonv2.Marshal(searchRequest{Size: request.Options.ResultLimit(), KNN: knn, Source: true, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}})
+		body, err := jsonv2.Marshal(searchRequest{Size: request.Options.ResultLimit(), KNN: knn, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}})
 		if err != nil {
 			return nil, err
 		}
@@ -403,18 +408,18 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 }
 
 func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (selected map[string]searchHit, err error) {
-	body, err := jsonv2.Marshal(searchRequest{Size: min(filterBatchSize, budget.MaxRecords), Source: true, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}})
+	body, err := jsonv2.Marshal(searchRequest{Size: min(filterBatchSize, budget.MaxRecords), TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}})
 	if err != nil {
 		return nil, err
 	}
 	bytesLeft := budget.MaxBytes
-	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {"1m"}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
+	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
 	scrollID := ""
 	defer func() {
 		if scrollID == "" {
 			return
 		}
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), scrollCleanupTimeout)
 		defer cancel()
 		payload, encodeErr := jsonv2.Marshal(struct {
 			IDs []string `json:"scroll_id"`
@@ -503,7 +508,7 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, b
 		payload, encodeErr := jsonv2.Marshal(struct {
 			ID       string `json:"scroll_id"`
 			Lifetime string `json:"scroll"`
-		}{ID: scrollID, Lifetime: "1m"})
+		}{ID: scrollID, Lifetime: scrollKeepAlive})
 		if encodeErr != nil {
 			return nil, encodeErr
 		}

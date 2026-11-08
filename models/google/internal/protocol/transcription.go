@@ -177,6 +177,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 
 	apiResp, err := t.api.chatCompletion(ctx, modelName, contents, config)
 	if err != nil {
+		if errors.Is(err, ErrInvalidGenerationResponse) {
+			return nil, fmt.Errorf("%w: %w", transcription.ErrInvalidResponse, err)
+		}
 		return nil, err
 	}
 

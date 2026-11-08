@@ -47,7 +47,7 @@ func NewClient(ctx context.Context, config Config) (*resty.Client, error) {
 func Execute(request *resty.Request, method string, path string, result any) error {
 	response, err := request.ForceContentType(mediaTypeJSON).SetResult(result).Execute(method, path)
 	if err != nil {
-		return err
+		return errors.Join(request.Context().Err(), &exchangeError{cause: err})
 	}
 	if !response.IsSuccess() {
 		return httpclient.NewResponseError(response.StatusCode(), response.Header())

@@ -2,22 +2,6 @@
   "provider": "openai",
   "models": [
     {
-      "id": "chatgpt-image-latest",
-      "display_name": "chatgpt-image-latest",
-      "release_date": "2025-12-16T00:00:00Z",
-      "last_updated": "2025-12-16T00:00:00Z",
-      "modalities": {
-        "input": [
-          "text",
-          "image"
-        ],
-        "output": [
-          "text",
-          "image"
-        ]
-      }
-    },
-    {
       "id": "gpt-3.5-turbo",
       "display_name": "GPT-3.5-turbo",
       "knowledge_cutoff": "2021-09-01T00:00:00Z",
@@ -1349,38 +1333,6 @@
         "context_window": 1050000,
         "max_input_tokens": 922000,
         "max_output_tokens": 128000
-      }
-    },
-    {
-      "id": "gpt-image-1-mini",
-      "display_name": "gpt-image-1-mini",
-      "release_date": "2025-09-26T00:00:00Z",
-      "last_updated": "2025-09-26T00:00:00Z",
-      "modalities": {
-        "input": [
-          "text",
-          "image"
-        ],
-        "output": [
-          "text",
-          "image"
-        ]
-      }
-    },
-    {
-      "id": "gpt-image-1.5",
-      "display_name": "gpt-image-1.5",
-      "release_date": "2025-11-25T00:00:00Z",
-      "last_updated": "2025-11-25T00:00:00Z",
-      "modalities": {
-        "input": [
-          "text",
-          "image"
-        ],
-        "output": [
-          "text",
-          "image"
-        ]
       }
     },
     {

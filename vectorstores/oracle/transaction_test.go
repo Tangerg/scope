@@ -48,7 +48,7 @@ func (t *transactionConnection) QueryContext(ctx context.Context, statement stri
 		}
 		return &resultRows{cols: []string{"allowed"}, values: [][]driver.Value{{int64(1)}}}, nil
 	}
-	if strings.Contains(statement, "TABLE_COMMENT") || strings.Contains(statement, "SELECT VECTOR_INFO") || strings.Contains(statement, "SELECT COUNT(*) FROM ALL_CONSTRAINTS") {
+	if strings.Contains(statement, "TABLE_COMMENT") || strings.Contains(statement, "SELECT VECTOR_INFO") || strings.Contains(statement, "SELECT COUNT(*) FROM ALL_CONSTRAINTS") || strings.Contains(statement, "NLS_DATABASE_PARAMETERS") {
 		return (&resultConnection{}).QueryContext(ctx, statement, args)
 	}
 	return &resultRows{cols: []string{"id", "facts"}, values: [][]driver.Value{{[]byte("victim"), []byte(`{"tenant":"alpha"}`)}}}, nil

@@ -67,7 +67,6 @@ func (r Request) MarshalJSON() ([]byte, error) {
 	if err := (&r).Validate(); err != nil {
 		return nil, err
 	}
-	type wireRequest Request
 	return jsonv2.Marshal(wireRequest(r))
 }
 
@@ -75,7 +74,6 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return fmt.Errorf("%w: request receiver is nil", ErrInvalidRequest)
 	}
-	type wireRequest Request
 	var decoded wireRequest
 	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("%w: decode request: %w", ErrInvalidRequest, err)
@@ -87,3 +85,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	*r = candidate
 	return nil
 }
+
+type wireRequest Request
+
+func (Request) JSONSchemaModel() any { return wireRequest{} }
