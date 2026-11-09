@@ -52,15 +52,23 @@ func equalExpr(left, right Expr) bool {
 	return left.Equal(right)
 }
 
+// maxPredicateDepth bounds how deeply predicates nest, counting both
+// parentheses and the left-deep chains that AND and OR build. Formatting,
+// comparison, optimization, matching and backend compilers recurse over the
+// tree, and a stack overflow is a fatal error no caller can recover from, so
+// a tree from untrusted input must be rejected before any of them walks it.
+const maxPredicateDepth = 1024
+
 func validatePredicate(root Predicate) error {
 	type frame struct {
 		node   Predicate
+		depth  int
 		finish bool
 	}
 	// Reusing a predicate in two branches is valid. Only an edge back into
 	// the current path is a cycle.
 	finished := make(map[Predicate]bool)
-	stack := []frame{{node: root}}
+	stack := []frame{{node: root, depth: 1}}
 	for len(stack) > 0 {
 		last := len(stack) - 1
 		current := stack[last]
@@ -69,6 +77,9 @@ func validatePredicate(root Predicate) error {
 		case *BinaryExpr, *UnaryExpr:
 		default:
 			return fmt.Errorf("filter: unsupported predicate %T", current.node)
+		}
+		if current.depth > maxPredicateDepth {
+			return fmt.Errorf("filter: predicate nests deeper than %d levels", maxPredicateDepth)
 		}
 		if current.finish {
 			finished[current.node] = true
@@ -88,13 +99,14 @@ func validatePredicate(root Predicate) error {
 				return err
 			}
 			if node.operator.IsLogicalOperator() {
-				stack = append(stack, frame{node: node.right.(Predicate)}, frame{node: node.left.(Predicate)})
+				child := current.depth + 1
+				stack = append(stack, frame{node: node.right.(Predicate), depth: child}, frame{node: node.left.(Predicate), depth: child})
 			}
 		case *UnaryExpr:
 			if err := node.validate(); err != nil {
 				return err
 			}
-			stack = append(stack, frame{node: node.right})
+			stack = append(stack, frame{node: node.right, depth: current.depth + 1})
 		}
 	}
 	return nil

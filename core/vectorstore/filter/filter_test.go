@@ -225,3 +225,34 @@ func TestMatchRejectsNilPredicates(t *testing.T) {
 		}()
 	}
 }
+
+// Formatting, matching and backend compilers recurse over the tree, so input
+// nested beyond the bound must fail as an error rather than overflow the stack.
+func TestParse_RejectsNestingBeyondTheDepthBound(t *testing.T) {
+	const levels = 200_000
+	for name, input := range map[string]string{
+		"parentheses": strings.Repeat("(", levels) + "a == 1" + strings.Repeat(")", levels),
+		"negations":   strings.Repeat("not ", levels) + "a == 1",
+		"chain":       "a == 1" + strings.Repeat(" and a == 1", levels),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := filter.Parse(input); err == nil || !strings.Contains(err.Error(), "nests deeper than 1024 levels") {
+				t.Fatalf("Parse() error = %v, want depth bound", err)
+			}
+		})
+	}
+	within := strings.Repeat("(", 1000) + "a == 1" + strings.Repeat(")", 1000)
+	if _, err := filter.Parse(within); err != nil {
+		t.Fatalf("Parse() within the bound = %v", err)
+	}
+}
+
+func TestValidate_RejectsProgrammaticTreesBeyondTheDepthBound(t *testing.T) {
+	var predicate filter.Predicate = filter.EQ("a", 1)
+	for range 1024 {
+		predicate = filter.Not(predicate)
+	}
+	if err := predicate.Validate(); err == nil || !strings.Contains(err.Error(), "nests deeper than 1024 levels") {
+		t.Fatalf("Validate() error = %v, want depth bound", err)
+	}
+}

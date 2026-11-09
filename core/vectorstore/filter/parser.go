@@ -9,6 +9,10 @@ import (
 type parser struct {
 	scanner *scanner
 	current lexeme
+	// nesting counts the open parentheses and NOT operators parseNot is
+	// recursing through, so hostile input cannot exhaust the stack before
+	// validatePredicate sees the tree.
+	nesting int
 }
 
 func newParser(input string) (*parser, error) {
@@ -79,6 +83,13 @@ func (p *parser) parseAnd() (Predicate, error) {
 }
 
 func (p *parser) parseNot() (Predicate, error) {
+	if p.current.kind == tokenNot || p.current.kind == tokenLeftParen {
+		if p.nesting == maxPredicateDepth {
+			return nil, newSyntaxError(p.current.start, p.current.literal, fmt.Sprintf("expression nests deeper than %d levels", maxPredicateDepth))
+		}
+		p.nesting++
+		defer func() { p.nesting-- }()
+	}
 	if p.current.kind == tokenNot {
 		op := p.current
 		if err := p.advance(); err != nil {
