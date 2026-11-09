@@ -2,9 +2,12 @@ package text
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,10 +21,15 @@ import (
 // remaining permissions for the caller's environment.
 const createdTextFileMode os.FileMode = 0o666
 
+// temporaryNameEntropyBytes makes a sibling replacement file name collide with
+// neither another writer's nor an existing file.
+const temporaryNameEntropyBytes = 16
+
 type FileWriterConfig struct {
 	// Path is required. Existing files are replaced unless Append is true.
 	Path string
-	// DocumentMarkers adds an index header before each document.
+	// DocumentMarkers adds a header naming each document's index within its
+	// Write call, so appended batches each number from zero.
 	DocumentMarkers bool
 	Append          bool
 	// Formatter renders each document. Nil uses [document.TextFormatter],
@@ -54,11 +62,13 @@ func NewFileWriter(config FileWriterConfig) (*FileWriter, error) {
 	}, nil
 }
 
-// Write validates and renders every document before opening the destination,
-// so document or formatting failures leave an existing file untouched. Once
-// the destination is opened, the prepared payload is committed even if ctx is
-// subsequently canceled. Close errors are joined with earlier I/O failures.
-func (f *FileWriter) Write(ctx context.Context, docs []*document.Document) (err error) {
+// Write validates and renders every document before touching the
+// destination, so document or formatting failures leave an existing file
+// untouched. A replacing Write also leaves it intact when writing fails: the
+// payload is committed to a sibling file and renamed over the destination.
+// Once writing starts, the payload is committed even if ctx is subsequently
+// canceled. Close errors are joined with earlier I/O failures.
+func (f *FileWriter) Write(ctx context.Context, docs []*document.Document) error {
 	payload, err := f.render(ctx, docs)
 	if err != nil {
 		return err
@@ -66,27 +76,64 @@ func (f *FileWriter) Write(ctx context.Context, docs []*document.Document) (err 
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	file, err := os.OpenFile(f.path, f.openFlags(), createdTextFileMode)
-	if err != nil {
-		return fmt.Errorf("etl: open output %q: %w", f.path, err)
+	if f.append {
+		err = f.appendPayload(payload)
+	} else {
+		err = f.replace(payload)
 	}
-	defer func() {
-		if closeErr := file.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("etl: close output %q: %w", f.path, closeErr))
-		}
-	}()
-
-	if writeErr := f.write(payload, file); writeErr != nil {
-		return fmt.Errorf("etl: write output %q: %w", f.path, writeErr)
+	if err != nil {
+		return fmt.Errorf("etl: write output %q: %w", f.path, err)
 	}
 	return nil
 }
 
-func (f *FileWriter) openFlags() int {
-	if f.append {
-		return os.O_CREATE | os.O_WRONLY | os.O_APPEND
+func (f *FileWriter) appendPayload(payload string) (err error) {
+	file, err := os.OpenFile(f.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, createdTextFileMode)
+	if err != nil {
+		return err
 	}
-	return os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	defer func() { err = errors.Join(err, file.Close()) }()
+	return f.write(payload, file)
+}
+
+// replace keeps POSIX rename atomic by writing a sibling file in the
+// destination's directory. An existing destination keeps its permissions; a
+// new one is created with createdTextFileMode subject to umask.
+func (f *FileWriter) replace(payload string) (err error) {
+	var preserved *os.FileMode
+	if info, statErr := os.Stat(f.path); statErr == nil {
+		preserved = new(info.Mode().Perm())
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	var entropy [temporaryNameEntropyBytes]byte
+	if _, err = rand.Read(entropy[:]); err != nil {
+		return err
+	}
+	temporary := filepath.Join(filepath.Dir(f.path), "."+filepath.Base(f.path)+"."+hex.EncodeToString(entropy[:]))
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, createdTextFileMode)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			if removeErr := os.Remove(temporary); !errors.Is(removeErr, os.ErrNotExist) {
+				err = errors.Join(err, removeErr)
+			}
+		}
+	}()
+	if err = f.write(payload, file); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	if err = file.Close(); err != nil {
+		return err
+	}
+	if preserved != nil {
+		if err = os.Chmod(temporary, *preserved); err != nil {
+			return err
+		}
+	}
+	return os.Rename(temporary, f.path)
 }
 
 func (f *FileWriter) render(ctx context.Context, docs []*document.Document) (string, error) {

@@ -180,3 +180,33 @@ func TestFileWriterReportsDestinationOpenFailure(t *testing.T) {
 		t.Fatal("directory destination accepted")
 	}
 }
+
+// Replacement commits through a sibling file renamed over the destination, so
+// it must keep the destination's permissions and leave no sibling behind.
+func TestFileWriterReplacesAtomicallyAndKeepsPermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "documents.txt")
+	if err := os.WriteFile(path, []byte("previous\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _ := document.NewDocument("replacement", nil)
+	if err = writer.Write(t.Context(), []*document.Document{doc}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "replacement\n\n" {
+		t.Fatalf("contents = %q, %v", data, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v, %v", info.Mode().Perm(), err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("directory holds %d entries, want only the destination: %v", len(entries), err)
+	}
+}
