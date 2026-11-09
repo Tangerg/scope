@@ -100,22 +100,27 @@ func assertRuntimeRootRouting(t *testing.T, fset *token.FileSet, declaration *as
 		t.Errorf("%s: Runtime must own root routing", fset.Position(declaration.Pos()))
 		return
 	}
-	var processMaps []string
+	// Routing means resolving a tree's owner. A map keyed by root for another
+	// purpose, such as claiming a startup, routes nothing.
+	var routers []string
 	for _, field := range structure.Fields.List {
 		mapping, ok := field.Type.(*ast.MapType)
 		if !ok {
 			continue
 		}
-		key, ok := mapping.Key.(*ast.Ident)
-		if !ok || key.Name != "ProcessID" {
+		value, ok := mapping.Value.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		if owner, ok := value.X.(*ast.Ident); !ok || owner.Name != "treeRuntime" {
 			continue
 		}
 		for _, name := range field.Names {
-			processMaps = append(processMaps, name.Name)
+			routers = append(routers, name.Name)
 		}
 	}
-	if !slices.Equal(processMaps, []string{"roots"}) {
-		t.Errorf("%s: Runtime ProcessID maps = %v; only roots may route trees", fset.Position(declaration.Pos()), processMaps)
+	if !slices.Equal(routers, []string{"roots"}) {
+		t.Errorf("%s: Runtime tree routes = %v; only roots may route trees", fset.Position(declaration.Pos()), routers)
 	}
 }
 
