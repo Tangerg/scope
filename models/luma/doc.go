@@ -11,4 +11,7 @@
 // prompt, model, and output format. Video generation is outside core/image.
 //
 // See https://docs.agents.lumalabs.ai/ for the official reference.
+// Submission and polling metadata, including error envelopes, use Core's
+// httpclient.DefaultMaxJSONResponseBytes. Asset downloads retain their separate
+// MaxOutputBytes budget because binary output has a different lifetime.
 package luma

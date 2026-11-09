@@ -1,6 +1,10 @@
 package deepgram
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Tangerg/scope/core/httpclient"
+)
 
 func TestAPIResponseLimit(t *testing.T) {
 	for _, test := range []struct {
@@ -8,7 +12,7 @@ func TestAPIResponseLimit(t *testing.T) {
 		configured int64
 		want       int64
 	}{
-		{name: "default", want: DefaultMaxResponseBytes},
+		{name: "default", want: httpclient.DefaultMaxJSONResponseBytes},
 		{name: "explicit", configured: 64, want: 64},
 		{name: "negative", configured: -1},
 	} {

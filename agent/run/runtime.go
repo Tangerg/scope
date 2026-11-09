@@ -348,22 +348,38 @@ func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 	if r == nil {
 		return ErrInvalidConfig
 	}
-	if err := RequireContext(ctx).Err(); err != nil {
+	ctx = RequireContext(ctx)
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
 	tree := r.roots[root]
+	r.mu.RUnlock()
 	if tree == nil {
 		return ErrTreeNotFound
 	}
 	select {
 	case <-tree.done:
-		delete(r.roots, root)
-		return nil
 	default:
-		return ErrActiveProcesses
+		tree.mu.RLock()
+		exited := tree.state.processes[root].exited != nil
+		tree.mu.RUnlock()
+		if !exited {
+			return ErrActiveProcesses
+		}
 	}
+	select {
+	case <-tree.done:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.roots[root] != tree {
+		return ErrTreeNotFound
+	}
+	delete(r.roots, root)
+	return nil
 }
 
 func (r *Runtime) claim(ctx context.Context, root ProcessID) (context.Context, func(), error) {

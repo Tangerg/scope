@@ -55,13 +55,12 @@ func (i importEvidence) outcome(ids []string) vectorstore.WriteOutcome {
 	return outcome
 }
 
-func validateImport(raw []byte, ids []string) error {
+func validateImport(raw []byte, ids []string, cause error) error {
 	evidence := make(importEvidence, len(ids))
 	for _, id := range ids {
 		evidence[id] = importUnseen
 	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
-	var cause error
 	for {
 		var ack struct {
 			ID      string `json:"id"`
@@ -72,11 +71,11 @@ func validateImport(raw []byte, ids []string) error {
 			break
 		}
 		if err != nil {
-			cause = err
+			cause = errors.Join(cause, err)
 			break
 		}
 		if err := evidence.observe(ack.ID, ack.Success); err != nil {
-			cause = err
+			cause = errors.Join(cause, err)
 		}
 	}
 	outcome := evidence.outcome(ids)

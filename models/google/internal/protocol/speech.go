@@ -13,6 +13,9 @@ type SpeechModelConfig struct {
 	Provider       string
 	Client         ClientConfig
 	DefaultOptions speech.Options
+	// Call must fit in memory; Stream retains incremental delivery. Zero uses
+	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
+	MaxResponseBytes int64
 }
 
 func (s SpeechModelConfig) Validate() error {
@@ -27,6 +30,9 @@ func (s SpeechModelConfig) Validate() error {
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
+	}
+	if s.MaxResponseBytes < 0 {
+		return errors.New("google: MaxResponseBytes must not be negative")
 	}
 	return nil
 }
@@ -76,7 +82,7 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 		return nil, fmt.Errorf("google: speech: %w: %w", speech.ErrInvalidResponse, err)
 	}
 	var format speechAudioFormat
-	return s.binding.buildTTSResponse(apiResp, &format)
+	return s.binding.buildTTSResponse(apiResp, &format, s.binding.maxResponseBytes)
 }
 
 func validateUnarySpeechModel(model string) error {

@@ -161,6 +161,8 @@ func splitRemoteContent(content sdkmcp.Content) (corecontent.Block, contentEnvel
 	case *sdkmcp.AudioContent:
 		part, err := remoteBytesMedia(value.MIMEType, value.Data)
 		return part, contentEnvelope{Kind: contentAudio, Annotations: value.Annotations}, value.Meta, err
+	case *resourceLinkContent:
+		return splitRemoteContent(&value.ResourceLink)
 	case *sdkmcp.ResourceLink:
 		part, err := remoteURIMedia(value.MIMEType, value.URI)
 		if err == nil {
@@ -320,8 +322,8 @@ func (c contentEnvelope) content(part corecontent.Block) (sdkmcp.Content, error)
 		if err != nil {
 			return nil, err
 		}
-		link := &sdkmcp.ResourceLink{URI: uri, Name: part.Media.Name, MIMEType: part.Media.MIME,
-			Title: c.Title, Description: c.Description, Size: c.Size, Icons: c.Icons, Meta: meta, Annotations: c.Annotations}
+		link := &resourceLinkContent{ResourceLink: sdkmcp.ResourceLink{URI: uri, Name: part.Media.Name, MIMEType: part.Media.MIME,
+			Title: c.Title, Description: c.Description, Size: c.Size, Icons: c.Icons, Meta: meta, Annotations: c.Annotations}}
 		return link, nil
 	default:
 		resource, err := c.Resource.contents(part)

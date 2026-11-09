@@ -3,8 +3,10 @@ package anthropic
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"net/url"
 	"regexp/syntax"
 	"slices"
 	"strconv"
@@ -157,32 +159,35 @@ func (o *outputSchema) validateConstraints() error {
 }
 
 func resolveOutputSchemaReference(document json.RawMessage, reference string) (*outputSchema, error) {
-	path, local := strings.CutPrefix(reference, "#")
-	if !local || path != "" && !strings.HasPrefix(path, "/") {
+	fragment, local := strings.CutPrefix(reference, "#")
+	path, err := url.PathUnescape(fragment)
+	pointer := jsontext.Pointer(path)
+	if !local || err != nil || !pointer.IsValid() {
 		return nil, fmt.Errorf("$ref %q must be an internal JSON pointer", reference)
 	}
 	current := document
-	if path != "" {
-		for _, part := range strings.Split(path[1:], "/") {
-			part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
-			current = bytes.TrimSpace(current)
-			if len(current) == 0 {
+	for part := range pointer.Tokens() {
+		current = bytes.TrimSpace(current)
+		if len(current) == 0 {
+			return nil, fmt.Errorf("unresolved $ref %q", reference)
+		}
+		if current[0] == '[' {
+			var values []json.RawMessage
+			index, err := strconv.Atoi(part)
+			if err != nil || index < 0 || strconv.Itoa(index) != part || jsonv2.Unmarshal(current, &values) != nil || index >= len(values) {
 				return nil, fmt.Errorf("unresolved $ref %q", reference)
 			}
-			if current[0] == '[' {
-				var values []json.RawMessage
-				index, err := strconv.Atoi(part)
-				if err != nil || jsonv2.Unmarshal(current, &values) != nil || index < 0 || index >= len(values) {
-					return nil, fmt.Errorf("unresolved $ref %q", reference)
-				}
-				current = values[index]
-				continue
-			}
-			var fields map[string]json.RawMessage
-			if err := jsonv2.Unmarshal(current, &fields); err != nil {
-				return nil, fmt.Errorf("$ref %q: %w", reference, err)
-			}
-			current = fields[part]
+			current = values[index]
+			continue
+		}
+		var fields map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(current, &fields); err != nil {
+			return nil, fmt.Errorf("$ref %q: %w", reference, err)
+		}
+		var exists bool
+		current, exists = fields[part]
+		if !exists {
+			return nil, fmt.Errorf("unresolved $ref %q", reference)
 		}
 	}
 	var resolved outputSchema

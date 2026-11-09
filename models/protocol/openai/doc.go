@@ -12,6 +12,12 @@
 // response identity and tool or embedding indexes never default to another
 // response or input. Core embeddings use numeric float vectors.
 //
+// Unary JSON responses and HTTP error envelopes are admitted within Core's
+// httpclient.DefaultMaxJSONResponseBytes before SDK decoding. Successful SSE
+// uses that budget per wire event, including its framing, and has no aggregate
+// ceiling. SpeechModelConfig.MaxResponseBytes bounds Call's aggregate audio;
+// Stream remains incremental. An oversized result never becomes partial success.
+//
 // Modalities exposed:
 //
 //   - chat (Chat Completions) via [NewChatCompletions] — tool calling, streaming,

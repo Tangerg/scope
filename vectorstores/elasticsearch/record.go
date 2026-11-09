@@ -1,11 +1,12 @@
 package elasticsearch
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
 
 	"github.com/Tangerg/scope/core/document"
 	corevector "github.com/Tangerg/scope/core/vector"
@@ -89,15 +90,9 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 	return vectorstore.ScoreFromValue(raw), nil
 }
 
-func (n nativeSchema) decode(hit searchHit) (*document.Document, error) {
-	if hit.Index == "" || hit.Routing != "" || len(hit.Fields["_routing"]) != 0 {
-		return nil, errors.New("elasticsearch: native hit has no concrete index or uses custom routing")
-	}
-	if hit.SeqNo == nil || *hit.SeqNo < 0 || hit.PrimaryTerm == nil || *hit.PrimaryTerm <= 0 {
-		return nil, errors.New("elasticsearch: native hit is missing concurrency tokens")
-	}
-	if len(hit.Source) == 0 {
-		return nil, errors.New("elasticsearch: native hit is missing stored _source")
+func (n nativeSchema) decode(hit elastic.Hit) (*document.Document, error) {
+	if err := hit.Validate(); err != nil {
+		return nil, err
 	}
 	var record storedDocument
 	if err := jsonv2.Unmarshal(hit.Source, &record, jsonv2.RejectUnknownMembers(true)); err != nil {
@@ -114,9 +109,7 @@ func (n nativeSchema) decode(hit searchHit) (*document.Document, error) {
 	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
-	if len(doc.ID) > nativeMaximumIDBytes {
-		return nil, errors.New("elasticsearch: document ID exceeds native 512-byte limit")
-	}
+
 	return doc, nil
 }
 
@@ -124,17 +117,6 @@ type storedDocument struct {
 	Content      string                          `json:"content"`
 	Embedding    corevector.Coordinates[float32] `json:"embedding"`
 	MetadataJSON string                          `json:"metadata_json"`
-}
-
-type searchHit struct {
-	Index       string                       `json:"_index"`
-	ID          string                       `json:"_id"`
-	Routing     string                       `json:"_routing"`
-	Fields      map[string][]json.RawMessage `json:"fields"`
-	SeqNo       *int64                       `json:"_seq_no"`
-	PrimaryTerm *int64                       `json:"_primary_term"`
-	Score       *float64                     `json:"_score"`
-	Source      json.RawMessage              `json:"_source"`
 }
 
 type scoredDocument struct {

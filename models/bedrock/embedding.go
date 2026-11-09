@@ -8,6 +8,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -245,6 +246,18 @@ type embeddingBatch struct {
 	responseBodies []json.RawMessage
 }
 
+func (e *embeddingBatch) addInputTokens(count *int64) error {
+	if count == nil {
+		e.hasUsage = false
+		return nil
+	}
+	if *count < 0 || *count > math.MaxInt64-e.inputTokens {
+		return fmt.Errorf("%w: input token count is negative or overflows the batch", embedding.ErrInvalidResponse)
+	}
+	e.inputTokens += *count
+	return nil
+}
+
 type titanEmbeddingRequest struct {
 	InputText  string `json:"inputText"`
 	Dimensions *int64 `json:"dimensions,omitzero"`
@@ -318,13 +331,8 @@ func (e *EmbeddingModel) embedTitan(ctx context.Context, modelID string, bodies 
 		if len(response.Embedding) == 0 {
 			return nil, fmt.Errorf("bedrock: Titan embedding response %d has no float embedding", index)
 		}
-		if response.InputTextTokenCount == nil {
-			batch.hasUsage = false
-		} else {
-			if *response.InputTextTokenCount < 0 {
-				return nil, fmt.Errorf("bedrock: Titan embedding response %d has negative inputTextTokenCount", index)
-			}
-			batch.inputTokens += *response.InputTextTokenCount
+		if err := batch.addInputTokens(response.InputTextTokenCount); err != nil {
+			return nil, fmt.Errorf("bedrock: Titan embedding response %d: %w", index, err)
 		}
 		batch.vectors = append(batch.vectors, response.Embedding)
 		batch.responseBodies = append(batch.responseBodies, bytes.Clone(responseBody))

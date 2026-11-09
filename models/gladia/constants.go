@@ -15,7 +15,6 @@ const (
 	DefaultPollTimeout   = 30 * time.Minute
 )
 
-// These are the provider values this adapter recognizes.
 const (
 	ModelSolaria3 = "solaria-3"
 	ModelSolaria1 = "solaria-1"

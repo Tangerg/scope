@@ -1,14 +1,16 @@
 package hume
 
 import (
+	"bufio"
+	"bytes"
 	"context"
-	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"iter"
+	"sync"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
@@ -49,26 +51,24 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer body.Close()
+		closeBody := sync.OnceValue(body.Close)
+		defer func() { _ = closeBody() }()
 
-		decoder := jsontext.NewDecoder(body)
+		lines := bufio.NewScanner(body)
+		lines.Buffer(nil, httpclient.DefaultMaxJSONResponseBytes+len("\r\n"))
 		lifecycle := generationStream{snippets: make(map[string]snippetProgress)}
-		for {
+		for lines.Scan() {
+			raw := lines.Bytes()
+			if len(raw) > httpclient.DefaultMaxJSONResponseBytes {
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.New("hume: stream event exceeds JSON byte limit")})
+				return
+			}
+			if len(bytes.TrimSpace(raw)) == 0 {
+				continue
+			}
 			var event ttsStreamEvent
-			if err := jsonv2.UnmarshalDecode(decoder, &event); err != nil {
-				if err == io.EOF { //nolint:errorlint // Wrapped or joined EOF can carry a read failure; only bare EOF completes the stream.
-					if contextErr := ctx.Err(); contextErr != nil {
-						yield(nil, contextErr)
-					} else if completionErr := lifecycle.complete(); completionErr != nil {
-						yield(nil, completionErr)
-					}
-					return
-				}
-				if contextErr := ctx.Err(); contextErr != nil {
-					yield(nil, contextErr)
-					return
-				}
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("hume: decode streamed JSON response: %w", err)})
+			if err := jsonv2.Unmarshal(raw, &event); err != nil {
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("hume: decode streamed JSON response: %w", errors.Join(ctx.Err(), err, lines.Err(), closeBody()))})
 				return
 			}
 			if event.Type != streamEventAudio {
@@ -87,6 +87,13 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			if !yield(response, nil) {
 				return
 			}
+		}
+		if err := errors.Join(ctx.Err(), lines.Err(), closeBody()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+			return
+		}
+		if err := lifecycle.complete(); err != nil {
+			yield(nil, err)
 		}
 	}
 }

@@ -29,7 +29,6 @@ const (
 	finishReasonContentFiltered = "CONTENT_FILTERED"
 )
 
-// These are the provider values this adapter recognizes.
 const (
 	ModelCore                = "stable-image-core"
 	ModelUltra               = "stable-image-ultra"

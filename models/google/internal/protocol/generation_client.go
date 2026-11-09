@@ -11,6 +11,7 @@ import (
 	"iter"
 	"net/http"
 	"reflect"
+	"sync"
 
 	"github.com/Tangerg/sse"
 	"google.golang.org/genai"
@@ -49,10 +50,11 @@ func (g *GenerationClient) GenerateContent(ctx context.Context, model string, co
 		return nil, err
 	}
 	defer cancel()
-	defer response.Body.Close()
+	closeBody := sync.OnceValue(response.Body.Close)
+	defer func() { _ = closeBody() }()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, maxGenerationEventBytes+1))
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+	if completionErr := errors.Join(ctx.Err(), err, closeBody()); completionErr != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: completionErr}
 	}
 	if len(raw) > maxGenerationEventBytes {
 		return nil, fmt.Errorf("%w: response exceeds byte limit", ErrInvalidGenerationResponse)
@@ -68,7 +70,8 @@ func (g *GenerationClient) GenerateContentStream(ctx context.Context, model stri
 			return
 		}
 		defer cancel()
-		defer response.Body.Close()
+		closeBody := sync.OnceValue(response.Body.Close)
+		defer func() { _ = closeBody() }()
 		events := sse.NewReader(&generationStreamBody{
 			reader: response.Body, client: g, headers: response.Header, lineStart: true,
 		})
@@ -76,17 +79,20 @@ func (g *GenerationClient) GenerateContentStream(ctx context.Context, model stri
 		events.MaxEventBytes = maxGenerationEventBytes
 		for event, eventErr := range events.Messages() {
 			if eventErr != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: eventErr})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(ctx.Err(), eventErr, closeBody())})
 				return
 			}
 			chunk, decodeErr := g.decode(event.Data, response.Header)
 			if decodeErr != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: decodeErr})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(ctx.Err(), decodeErr, closeBody())})
 				return
 			}
 			if !yield(chunk, nil) {
 				return
 			}
+		}
+		if err := errors.Join(ctx.Err(), closeBody()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 		}
 	}
 }

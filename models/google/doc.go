@@ -80,6 +80,10 @@
 // without presenting partial content as a completed response.
 // Gemini 3.1 uses [NewStreamingSpeechModel]: Call aggregates Stream, and both
 // require successful stream completion. Call discards partial audio on error.
+// SpeechModelConfig.MaxResponseBytes bounds decoded audio returned by either
+// Call capability; Stream retains the native per-event budget and incremental
+// delivery. Token-count and embedding JSON responses use Core's
+// httpclient.DefaultMaxJSONResponseBytes before native validation or SDK decoding.
 // Native speech_response metadata describes the latest stream event, not a
 // fabricated unary response. Request model overrides must stay in that capability.
 package google

@@ -142,7 +142,7 @@ func (a *api) buildAudioRequest(ctx context.Context, outputFormat string, body *
 		SetHeader("Content-Type", "application/json").
 		SetBody(&body.Body)
 	if outputFormat != "" {
-		req = req.SetQueryParam("output_format", outputFormat)
+		req = req.SetQueryParam(speechFieldOutputFormat, outputFormat)
 	}
 	if body.EnableLogging != nil {
 		req.SetQueryParam("enable_logging", strconv.FormatBool(*body.EnableLogging))
@@ -187,10 +187,10 @@ func (t *transcriptionRequest) UnmarshalJSON(data []byte) error {
 func (t *transcriptionRequest) form() url.Values {
 	form := make(url.Values)
 	if t.ModelID != "" {
-		form.Set("model_id", t.ModelID)
+		form.Set(transcriptionFieldModelID, t.ModelID)
 	}
 	if t.LanguageCode != "" {
-		form.Set("language_code", t.LanguageCode)
+		form.Set(transcriptionFieldLanguageCode, t.LanguageCode)
 	}
 	if t.Diarize != nil {
 		form.Set("diarize", strconv.FormatBool(*t.Diarize))

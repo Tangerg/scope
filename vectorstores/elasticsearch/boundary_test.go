@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"io"
-	"net/http"
-	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -24,7 +23,7 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 				t.Fatal(err)
 			}
 			hit := fixture.hit("one")
-			page := fixture.page([]searchHit{hit}, 1, "")
+			page := fixture.page([]elastic.Hit{hit}, 1, "")
 			source := map[string]json.RawMessage{}
 			if err := jsonv2.Unmarshal(hit.Source, &source); err != nil {
 				t.Fatal(err)
@@ -71,7 +70,7 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 				}
 			}
 			if page.Hits.Hits != nil {
-				*page.Hits.Hits = []searchHit{hit}
+				*page.Hits.Hits = []elastic.Hit{hit}
 			}
 			if fault == "repeated ID" {
 				*page.Hits.Hits = append(*page.Hits.Hits, hit)
@@ -96,63 +95,6 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 	}
 }
 
-func TestBulkAcknowledgmentsCannotInventSuccess(t *testing.T) {
-	for _, raw := range []string{
-		`{"items":[]}`,
-		`{"errors":false,"items":[]}`,
-		`{"errors":false,"items":[{"index":{"_index":"documents","_id":"other","status":201}}]}`,
-		`{"errors":false,"items":[{"index":{"_index":"other","_id":"one","status":201}}]}`,
-		`{"errors":false,"items":[{"index":{"_index":"documents","_id":"one","status":400,"error":{"reason":"mapping"}}}]}`,
-		`{"errors":true,"items":[{"index":{"_index":"documents","_id":"one","status":201}}]}`,
-	} {
-		var response bulkResponse
-		if err := jsonv2.Unmarshal([]byte(raw), &response); err != nil {
-			t.Fatal(err)
-		}
-		if err := response.validate(bulkOperationIndex, "documents", []string{"one"}, false); err == nil {
-			t.Fatalf("invalid acknowledgment accepted: %s", raw)
-		}
-	}
-	var missing bulkResponse
-	if err := jsonv2.Unmarshal([]byte(`{"errors":false,"items":[{"delete":{"_index":"documents","_id":"one","status":404}}]}`), &missing); err != nil {
-		t.Fatal(err)
-	}
-	if err := missing.validate(bulkOperationDelete, "documents", []string{"one"}, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := missing.validate(bulkOperationDelete, "documents", []string{"one"}, false); err == nil {
-		t.Fatal("conditional deletion accepted a vanished snapshot member")
-	}
-}
-
-type failingBody struct {
-	io.Reader
-	cause  error
-	closed bool
-}
-
-func (f *failingBody) Close() error { f.closed = true; return f.cause }
-
-type bodyClient struct{ body *failingBody }
-
-func (b bodyClient) Perform(*http.Request) (*http.Response, error) {
-	return &http.Response{StatusCode: http.StatusOK, Body: b.body}, nil
-}
-
-func TestNativeBodyOwnershipAndBounds(t *testing.T) {
-	cause := errors.New("close failed")
-	body := &failingBody{Reader: strings.NewReader(`{}`), cause: cause}
-	store := &Store{client: bodyClient{body: body}, maxResponseBytes: 16}
-	if _, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); !errors.Is(err, cause) || !body.closed {
-		t.Fatalf("close failure disappeared: %v", err)
-	}
-	body = &failingBody{Reader: strings.NewReader(strings.Repeat("x", 17))}
-	store.client = bodyClient{body: body}
-	if raw, err := store.request(t.Context(), http.MethodGet, "/documents/_mapping", nil, nil); err == nil || len(raw) != 17 || !body.closed {
-		t.Fatalf("response bound failed: %s, %v", raw, err)
-	}
-}
-
 func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	fixture := newProtocolFixture(t)
 	fixture.settings.Settings["index.max_result_window"] = "1"
@@ -171,23 +113,5 @@ func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
 	}
 	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {
 		t.Fatal("invalid explicit deletion partially published")
-	}
-}
-
-func TestWriteFailureRetainsOnlyAttributableItemAcknowledgments(t *testing.T) {
-	ids := []string{"accepted", "denied", "unknown"}
-	resp := bulkResponse{Errors: new(true), Items: []map[bulkOperation]bulkItemResult{
-		{bulkOperationIndex: {ID: "accepted", Index: "docs", Status: new(201)}},
-		{bulkOperationIndex: {ID: "denied", Index: "docs", Status: new(409), Error: []byte(`{"type":"conflict"}`)}},
-	}}
-	cause := errors.New("partial bulk response")
-	w := resp.writeFailure("docs", ids, cause)
-	if !errors.Is(w, cause) || !slices.Equal(w.Outcome().Acknowledged, ids[:1]) || !slices.Equal(w.Outcome().Rejected, ids[1:2]) || !slices.Equal(w.Outcome().Unconfirmed, ids[2:]) {
-		t.Fatalf("incorrect write evidence: %+v", *w)
-	}
-	resp.Errors = new(false)
-	w = resp.writeFailure("docs", ids, cause)
-	if len(w.Outcome().Acknowledged) != 0 || len(w.Outcome().Rejected) != 0 || !slices.Equal(w.Outcome().Unconfirmed, ids) {
-		t.Fatalf("contradictory bulk reply invented success: %+v", *w)
 	}
 }

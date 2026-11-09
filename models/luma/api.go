@@ -60,6 +60,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		lumaoption.WithAuthToken(config.APIKey),
 		lumaoption.WithBaseURL(baseURL),
 		lumaoption.WithHTTPClient(boundClient),
+		lumaoption.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply),
 	}
 	return &api{client: lumaagents.NewClient(requestOptions...)}, nil
 }

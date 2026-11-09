@@ -78,7 +78,7 @@ func TestChatBuildConverseStreamInput(t *testing.T) {
 }
 
 func TestProtocolChunkAccumulatorRetainsToolIdentity(t *testing.T) {
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	index := int32(2)
 	start := &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
 		ContentBlockIndex: &index,
@@ -128,7 +128,7 @@ func TestProtocolChunkAccumulatorRejectsCompetingToolIdentities(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newStartedProtocolChunkAccumulator(t, "model")
+			accumulator := newStartedConverseStream(t, "model")
 			start := &types.ConverseStreamOutputMemberContentBlockStart{Value: types.ContentBlockStartEvent{
 				ContentBlockIndex: aws.Int32(0),
 				Start: &types.ContentBlockStartMemberToolUse{Value: types.ToolUseBlockStart{
@@ -185,7 +185,7 @@ func TestProtocolChunkAccumulatorRejectsAnUnidentifiedToolBlockStart(t *testing.
 
 	for name, event := range tests {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newStartedProtocolChunkAccumulator(t, "model")
+			accumulator := newStartedConverseStream(t, "model")
 			_, _, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{Value: event})
 			if err == nil {
 				t.Fatal("add() = nil error, want the unidentified toolUse block reported")
@@ -195,7 +195,7 @@ func TestProtocolChunkAccumulatorRejectsAnUnidentifiedToolBlockStart(t *testing.
 }
 
 func TestProtocolChunkAccumulatorRejectsMissingBlockStartPayload(t *testing.T) {
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	delta, include, err := accumulator.add(&types.ConverseStreamOutputMemberContentBlockStart{
 		Value: types.ContentBlockStartEvent{ContentBlockIndex: aws.Int32(0)},
 	})
@@ -205,7 +205,7 @@ func TestProtocolChunkAccumulatorRejectsMissingBlockStartPayload(t *testing.T) {
 }
 
 func TestProtocolChunkAccumulatorPreservesReasoningKind(t *testing.T) {
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	index := int32(0)
 	event := &types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
 		ContentBlockIndex: &index,
@@ -321,7 +321,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 		StopReason:                    types.StopReasonEndTurn,
 		AdditionalModelResponseFields: document.NewLazyDocument(map[string]any{"provider_count": int64(9007199254740993)}),
 	}}
-	mapper := newStartedProtocolChunkAccumulator(t, "model")
+	mapper := newStartedConverseStream(t, "model")
 	delta, include, err := mapper.add(event)
 	if err != nil || !include {
 		t.Fatalf("add = %v, %v", include, err)
@@ -344,7 +344,7 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 		t.Fatalf("usage = %#v", usage)
 	}
 	event.Value.AdditionalModelResponseFields = document.NewLazyDocument(make(chan int))
-	if delta, _, err := newStartedProtocolChunkAccumulator(t, "model").add(event); err == nil || delta != nil {
+	if delta, _, err := newStartedConverseStream(t, "model").add(event); err == nil || delta != nil {
 		t.Fatalf("invalid native document = %v, %v", delta, err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -67,6 +68,45 @@ func TestUnsupportedNativeSchemaFailsBeforeEveryEndpoint(t *testing.T) {
 			_, countErr := model.CountInputTokens(t.Context(), request)
 			if !errors.Is(countErr, chat.ErrUnsupportedOutputFormat) || boundary.calls != 0 {
 				t.Fatalf("CountInputTokens = %v, calls = %d", countErr, boundary.calls)
+			}
+		})
+	}
+}
+
+func TestNativeSchemaResolvesURIFragmentPointersAtEveryEndpoint(t *testing.T) {
+	for _, sample := range []struct{ name, key, reference string }{
+		{"space", "a b", "#/$defs/a%20b"},
+		{"percent", "a%b", "#/$defs/a%25b"},
+		{"unicode", "中文", "#/$defs/%E4%B8%AD%E6%96%87"},
+		{"literal plus", "a+b", "#/$defs/a+b"},
+		{"encoded plus", "a+b", "#/$defs/a%2Bb"},
+		{"slash", "a/b", "#/$defs/a~1b"},
+		{"tilde", "a~b", "#/$defs/a~0b"},
+		{"single unescape", "a~1b", "#/$defs/a~01b"},
+		{"encoded delimiters", "a b", "#%2F$defs%2Fa%20b"},
+		{"single percent decoding", "a%20b", "#/$defs/a%2520b"},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			boundary := new(numericTransport)
+			model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: "https://provider.example.test", HTTPClient: &http.Client{Transport: boundary}, DefaultOptions: chat.Options{Model: "test"}}, testMessagesDialect())
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := fmt.Sprintf(`{"type":"object","properties":{"value":{"$ref":%q}},"additionalProperties":false,"$defs":{%q:{"type":"string"}}}`, sample.reference, sample.key)
+			format, err := chat.NewJSONSchemaOutputFormat(chat.JSONSchemaConfig{Name: "result", Schema: json.RawMessage(raw)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("answer"))}, Options: chat.Options{OutputFormat: &format}}
+			_, callErr := model.Call(t.Context(), request)
+			for _, err := range model.Stream(t.Context(), request) {
+				if errors.Is(err, chat.ErrUnsupportedOutputFormat) {
+					t.Fatal(err)
+				}
+			}
+			_, countErr := model.CountInputTokens(t.Context(), request)
+			if errors.Is(callErr, chat.ErrUnsupportedOutputFormat) || errors.Is(countErr, chat.ErrUnsupportedOutputFormat) || boundary.calls != 3 {
+				t.Fatalf("calls=%d call=%v count=%v", boundary.calls, callErr, countErr)
 			}
 		})
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/rerank"
 	corevector "github.com/Tangerg/scope/core/vector"
 )
@@ -26,8 +27,8 @@ const (
 )
 
 func (a *apiHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	response, err := a.client.Do(request)
-	if err != nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+	response, err := httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply(request, a.client.Do)
+	if err != nil || response == nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return response, err
 	}
 	if strings.HasSuffix(request.URL.Path, embedPath) || strings.HasSuffix(request.URL.Path, rerankPath) {

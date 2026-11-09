@@ -17,7 +17,7 @@ func TestReasoningBlocksRetainIdentityThroughHistory(t *testing.T) {
 			name = "redacted"
 		}
 		t.Run(name, func(t *testing.T) {
-			mapper := newStartedProtocolChunkAccumulator(t, "anthropic.claude-test")
+			mapper := newStartedConverseStream(t, "anthropic.claude-test")
 			var accumulator corechat.ResponseAccumulator
 			for index, text := range []string{"first", "second"} {
 				values := []types.ReasoningContentBlockDelta{
@@ -98,7 +98,7 @@ func TestReasoningBlocksRetainIdentityThroughHistory(t *testing.T) {
 }
 
 func TestUnsignedReasoningRemainsVisibleAndDoesNotBlockContinuation(t *testing.T) {
-	mapper := newStartedProtocolChunkAccumulator(t, "us.deepseek.r1-v1:0")
+	mapper := newStartedConverseStream(t, "us.deepseek.r1-v1:0")
 	delta, include, err := mapper.add(&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
 		ContentBlockIndex: aws.Int32(0),
 		Delta: &types.ContentBlockDeltaMemberReasoningContent{Value: &types.ReasoningContentBlockDeltaMemberText{

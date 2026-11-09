@@ -144,24 +144,19 @@ func readNativeResponse(response *http.Response, callErr error, limit int64) (ra
 	}
 	defer func() {
 		err = errors.Join(err, response.Body.Close())
-		if err != nil {
-			raw = nil
-		}
 	}()
-	if callErr != nil {
-		return nil, callErr
-	}
 	raw, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
+	err = errors.Join(callErr, err)
+	if response.StatusCode == 0 && callErr != nil {
 		return nil, err
 	}
 	if int64(len(raw)) > limit {
-		return nil, errResponseLimit
+		err = errors.Join(err, errResponseLimit)
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, &nativesense.HTTPError{Status: response.StatusCode, Body: raw}
+		return nil, errors.Join(err, &nativesense.HTTPError{Status: response.StatusCode, Body: raw})
 	}
-	return raw, nil
+	return raw, err
 }
 
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
@@ -214,10 +209,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	res, sendErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert), ReturnId: new(true)}, mediaTypeJSONL, &payload)
 	raw, err := s.readResponse(res, sendErr)
-	if err != nil {
-		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})
-	}
-	return validateImport(raw, ids)
+	return validateImport(raw, ids, err)
 }
 
 func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) ([]string, error) {

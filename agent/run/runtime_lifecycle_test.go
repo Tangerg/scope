@@ -252,11 +252,6 @@ func TestReleaseTreeDropsOnlyStoppedLocalOwnership(t *testing.T) {
 	if output, err := result.Output(); err != nil || output != 42 {
 		t.Fatalf("released work did not recover: %d %v", output, err)
 	}
-	select {
-	case <-recovered.tree.done:
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	}
 	if err := replacement.ReleaseTree(ctx, handle.ID()); err != nil {
 		t.Fatal(err)
 	}

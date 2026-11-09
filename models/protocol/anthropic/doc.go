@@ -61,4 +61,11 @@
 // ([anthropicsdk.ModelClaudeOpus5], [anthropicsdk.ModelClaudeSonnet5],
 // [anthropicsdk.ModelClaudeFable5], etc.). Import the SDK directly
 // when you need them.
+// Token counts and HTTP error envelopes are bounded by Core's
+// httpclient.DefaultMaxJSONResponseBytes before SDK decoding. Successful SSE
+// receives the same budget per wire event, including framing and comments,
+// without limiting the lifetime of the stream. Model discovery keeps its
+// caller-supplied aggregate budget across pages.
+// Local output-schema references use URI-fragment JSON Pointer semantics;
+// escaping cannot change the provider's unsupported-recursion constraint.
 package anthropic

@@ -52,7 +52,7 @@ func TestLiveConditionalDeleteRetainsConcurrentVersion(t *testing.T) {
 	if err = refreshNative(t.Context(), client, store.indexName); err != nil {
 		t.Fatal(err)
 	}
-	store.client = &concurrentWriter{client: client, index: store.indexName}
+	store.client = fixtureProtocol(t, &concurrentWriter{client: client, index: store.indexName}, 0)
 	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "x"), fixtureBudget()); err == nil {
 		t.Fatal("stale native CAS reported success")
 	}

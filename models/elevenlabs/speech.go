@@ -1,12 +1,14 @@
 package elevenlabs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
@@ -49,6 +51,9 @@ type SpeechModelConfig struct {
 	DefaultOptions speech.Options
 	BaseURL        string
 	HTTPClient     *http.Client
+	// Call must fit in memory; Stream retains incremental delivery. Zero uses
+	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
+	MaxResponseBytes int64
 }
 
 func (s SpeechModelConfig) apiConfig() apiConfig {
@@ -69,6 +74,9 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
+	if s.MaxResponseBytes < 0 {
+		return errors.New("elevenlabs: MaxResponseBytes must not be negative")
+	}
 	return nil
 }
 
@@ -83,8 +91,9 @@ var _ speech.Streamer = (*SpeechModel)(nil)
 // "eleven_v3", "eleven_multilingual_v2") which selects the synthesis
 // engine.
 type SpeechModel struct {
-	api            *api
-	defaultOptions speech.Options
+	api              *api
+	defaultOptions   speech.Options
+	maxResponseBytes int64
 }
 
 func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel, error) {
@@ -98,8 +107,9 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 	}
 
 	return &SpeechModel{
-		api:            api,
-		defaultOptions: config.DefaultOptions.Clone(),
+		api:              api,
+		defaultOptions:   config.DefaultOptions.Clone(),
+		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
 	}, nil
 }
 
@@ -206,18 +216,7 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 }
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
-	var audio []byte
-	var response *speech.Response
-	for chunk, err := range s.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-
-		audio = append(audio, chunk.Output.Audio...)
-		response = chunk
-	}
-	response.Output.Audio = audio
-	return response, nil
+	return speech.Collect(s.Stream(ctx, req), s.maxResponseBytes)
 }
 
 func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
@@ -237,12 +236,13 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer reader.Close()
+		closeBody := sync.OnceValue(reader.Close)
+		defer func() { _ = closeBody() }()
 
 		received := false
 		for chunk, err := range speech.ReadChunks(reader) {
 			if err != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(err, closeBody())})
 				return
 			}
 
@@ -255,6 +255,10 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			if !yield(out, nil) {
 				return
 			}
+		}
+		if err := errors.Join(ctx.Err(), closeBody()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+			return
 		}
 		if !received {
 			yield(nil, fmt.Errorf("elevenlabs: %w: speech stream returned no audio", speech.ErrInvalidResponse))

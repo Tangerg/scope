@@ -43,6 +43,10 @@
 // an old index. The Host must coordinate physical index replacement; HTTP
 // configuration checks and data requests are distinct operations.
 //
+// Shared framing, receipt attribution, document identity and scroll lifetimes
+// belong to vectorstores/protocol/elastic. Its defaults are the canonical bulk,
+// response and index defaults; this adapter owns the native schema and query DSL.
+//
 // Upsert prepares all records and checks their float32 representations before
 // publishing NDJSON in independent MaxBulkBytes groups. A WriteError records
 // verified item acknowledgments, explicit rejections, groups not submitted and

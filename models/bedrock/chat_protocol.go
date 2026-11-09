@@ -150,7 +150,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		// it. ConverseStream sends its usage-carrying metadata event after
 		// messageStop, so reporting the end at messageStop put a delta after a
 		// finished stream — which a [corechat.ResponseAccumulator] rejects.
-		state := newProtocolChunkAccumulator(model)
+		state := newConverseStream(model)
 		var terminal *corechat.ResponseDelta
 		for event := range stream.Events() {
 			response, include, mapErr := state.add(event)

@@ -18,7 +18,6 @@ const (
 	DefaultPollTimeout  = 30 * time.Minute
 )
 
-// These are the provider values this adapter recognizes.
 const (
 	ModelUniversal3Point5Pro = "universal-3-5-pro"
 	ModelUniversal2          = "universal-2"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -60,10 +61,14 @@ func TestEmbeddedVocabulariesHaveExactTokenIDs(t *testing.T) {
 			if err != nil || decoded != test.reservedText {
 				t.Fatalf("Decode reserved = %q, %v; want %q", decoded, err, test.reservedText)
 			}
-			for _, text := range []string{"你好，世界", "café\n\tdata", "<|endoftext|>"} {
+			for _, text := range []string{"", "你好，世界", "café\n\tdata", "<|endoftext|>", "\xff\xfe"} {
 				tokens, err := codec.Encode(t.Context(), text)
 				if err != nil {
 					t.Fatal(err)
+				}
+				count, err := codec.CountText(t.Context(), text)
+				if err != nil || count != len(tokens) {
+					t.Fatalf("CountText(%q) = %d, %v; want %d", text, count, err, len(tokens))
 				}
 				decoded, err := codec.Decode(t.Context(), tokens)
 				if err != nil || decoded != text {
@@ -167,8 +172,26 @@ func TestNewRejectsUnknownEncoding(t *testing.T) {
 
 func TestZeroValueTokenizerReturnsError(t *testing.T) {
 	var tk tiktoken.Tokenizer
+	if count, err := tk.CountText(t.Context(), ""); count != 0 || !errors.Is(err, tiktoken.ErrUninitialized) {
+		t.Fatalf("zero-value Tokenizer.CountText = %d, %v", count, err)
+	}
 	if _, err := tk.Encode(t.Context(), "hello"); !errors.Is(err, tiktoken.ErrUninitialized) {
 		t.Fatalf("zero-value Tokenizer.Encode error = %v", err)
+	}
+}
+
+func BenchmarkCountText(b *testing.B) {
+	tk, err := tiktoken.New(b.Context(), tiktoken.CL100KBase)
+	if err != nil {
+		b.Fatal(err)
+	}
+	text := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 4096)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(text)))
+	for b.Loop() {
+		if _, err := tk.CountText(b.Context(), text); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

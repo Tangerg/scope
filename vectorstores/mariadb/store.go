@@ -139,16 +139,28 @@ func (s StoreConfig) validateIdentifiers() error {
 	if err := identifier(s.TableName).validate("TableName"); err != nil {
 		return err
 	}
-	if err := identifier(s.IDColumn).validate("IDColumn"); err != nil {
-		return err
+	columns := [...]struct {
+		role string
+		name string
+	}{
+		{role: "IDColumn", name: s.IDColumn},
+		{role: "ContentColumn", name: s.ContentColumn},
+		{role: "MetadataColumn", name: s.MetadataColumn},
+		{role: "EmbeddingColumn", name: s.EmbeddingColumn},
 	}
-	if err := identifier(s.ContentColumn).validate("ContentColumn"); err != nil {
-		return err
+	owners := make(map[string]string, len(columns))
+	for _, column := range columns {
+		if err := identifier(column.name).validate(column.role); err != nil {
+			return err
+		}
+		// MariaDB column identity is case insensitive, even when quoted.
+		identity := strings.ToLower(column.name)
+		if owner, exists := owners[identity]; exists {
+			return fmt.Errorf("mariadb: %s and %s must name distinct columns", owner, column.role)
+		}
+		owners[identity] = column.role
 	}
-	if err := identifier(s.MetadataColumn).validate("MetadataColumn"); err != nil {
-		return err
-	}
-	return identifier(s.EmbeddingColumn).validate("EmbeddingColumn")
+	return nil
 }
 
 func (s *StoreConfig) applyDefaults() {

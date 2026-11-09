@@ -10,9 +10,9 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
-func newStartedProtocolChunkAccumulator(t *testing.T, model string) *protocolChunkAccumulator {
+func newStartedConverseStream(t *testing.T, model string) *converseStream {
 	t.Helper()
-	accumulator := newProtocolChunkAccumulator(model)
+	accumulator := newConverseStream(model)
 	if _, _, err := accumulator.add(messageStartEvent()); err != nil {
 		t.Fatal(err)
 	}

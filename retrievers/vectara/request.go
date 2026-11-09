@@ -20,3 +20,7 @@ type querySearch struct {
 type queryReranker struct {
 	Type string `json:"type"`
 }
+
+type documentPart struct {
+	Text string `json:"text"`
+}

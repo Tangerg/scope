@@ -397,7 +397,9 @@ func TestProviderFamiliesUseLeafModules(t *testing.T) {
 	assertImmediateProviderModules(t, root, "etl", map[string]struct{}{
 		"internal": {}, "json": {}, "markdown": {}, "text": {},
 	}, false)
-	assertImmediateProviderModules(t, root, "models/protocol", map[string]struct{}{"internal": {}}, true)
+	for _, family := range []string{"models/protocol", "vectorstores/protocol"} {
+		assertImmediateProviderModules(t, root, family, map[string]struct{}{"internal": {}}, true)
+	}
 }
 
 func TestWebProvidersShareToolsModule(t *testing.T) {
@@ -568,7 +570,7 @@ func moduleLayer(dir string) int {
 	case "dev/providerconformance", "dev/repoarch":
 		return 4
 	}
-	if strings.HasPrefix(dir, "models/protocol/") {
+	if providerProtocolFamily(dir) != "" {
 		return 1
 	}
 	for _, prefix := range []string{
@@ -602,8 +604,8 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	if target.dir == "core" {
 		return true
 	}
-	if strings.HasPrefix(source.dir, "models/") && !strings.HasPrefix(source.dir, "models/protocol/") {
-		return strings.HasPrefix(target.dir, "models/protocol/")
+	if family, _, _ := strings.Cut(source.dir, "/"); family == "models" || family == "vectorstores" {
+		return providerProtocolFamily(source.dir) == "" && providerProtocolFamily(target.dir) == family
 	}
 	if source.dir == "mcp/managed" {
 		return target.dir == "mcp" || target.dir == "agent" || target.dir == "otel"
@@ -646,6 +648,14 @@ func allowedRepositoryDependency(source, target repositoryModule) bool {
 	return false
 }
 
+func providerProtocolFamily(dir string) string {
+	family, relative, _ := strings.Cut(dir, "/")
+	if (family == "models" || family == "vectorstores") && strings.HasPrefix(relative, "protocol/") {
+		return family
+	}
+	return ""
+}
+
 func assertImmediateProviderModules(t *testing.T, root, family string, shared map[string]struct{}, all bool) {
 	t.Helper()
 	familyDir := filepath.Join(root, filepath.FromSlash(family))
@@ -682,7 +692,7 @@ func discoverVectorProviders(t *testing.T, root string) []providerPackage {
 	}
 	var providers []providerPackage
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "internal" {
+		if !entry.IsDir() || entry.Name() == "internal" || entry.Name() == "protocol" {
 			continue
 		}
 		if entry.Name() != "postgres" {
@@ -777,6 +787,9 @@ func assertNoProviderSiblingImport(t *testing.T, provider providerPackage, path,
 	}
 	target := strings.TrimPrefix(importPath, prefix)
 	if target == provider.relative || strings.HasPrefix(target, provider.relative+"/") {
+		return
+	}
+	if providerProtocolFamily(provider.family+"/"+target) == provider.family {
 		return
 	}
 	if provider.family == "vectorstores" && strings.HasPrefix(provider.relative, "postgres/") && (target == "postgres" || strings.HasPrefix(target, "postgres/internal/")) {

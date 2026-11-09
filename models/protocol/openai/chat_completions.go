@@ -163,7 +163,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 				return
 			}
 		}
-		if streamErr := stream.Err(); streamErr != nil {
+		if streamErr := errors.Join(ctx.Err(), stream.Err(), stream.Close()); streamErr != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: c.api.wrapError(streamErr)})
 			return
 		}

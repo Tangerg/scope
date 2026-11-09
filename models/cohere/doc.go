@@ -37,4 +37,7 @@
 // values without passing through the SDK's float64 representation.
 //
 // See https://docs.cohere.com/ for the full API reference.
+// Embedding and rerank response bodies, including error envelopes, are bounded
+// by Core's httpclient.DefaultMaxJSONResponseBytes before either native presence
+// validation or SDK decoding can buffer them.
 package cohere

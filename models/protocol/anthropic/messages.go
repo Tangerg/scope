@@ -7,6 +7,7 @@ import (
 	"iter"
 	"net/http"
 	"strings"
+	"sync"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
@@ -120,7 +121,8 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 			yield(nil, errors.New("anthropic: nil stream"))
 			return
 		}
-		defer stream.Close()
+		closeStream := sync.OnceValue(stream.Close)
+		defer func() { _ = closeStream() }()
 
 		state := newProtocolStreamState(m.dialect.Provider, request.documents)
 		var terminal *corechat.ResponseDelta
@@ -146,7 +148,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 				return
 			}
 		}
-		if streamErr := stream.Err(); streamErr != nil {
+		if streamErr := errors.Join(ctx.Err(), stream.Err(), closeStream()); streamErr != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: m.api.wrapError(streamErr)})
 			return
 		}

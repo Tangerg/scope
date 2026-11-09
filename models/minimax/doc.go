@@ -14,4 +14,8 @@
 // Plain reasoning_content also survives storage and tool-result continuations.
 // Its issuer and wire field remain attached to the Core text; foreign reasoning
 // state is never reissued as MiniMax reasoning_content.
+// Messages admits only automatic tool choice; unsupported required, named,
+// and disabled choices fail before provider I/O. Chat Completions requests
+// stream_options.include_usage through the shared protocol policy so terminal
+// accounting survives Call and Stream; absent usage remains unknown.
 package minimax

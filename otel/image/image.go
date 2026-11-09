@@ -24,7 +24,6 @@ import (
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/image"
-	operationName       = "generate_content"
 	errorInvalidRequest = "image.invalid_request"
 	errorInvalidOutput  = "image.invalid_response"
 )
@@ -110,14 +109,14 @@ func (m Middleware) Call(next coreimage.Model) coreimage.Model {
 
 func (m Middleware) spanName(request *coreimage.Request) string {
 	if request == nil || request.Options.Model == "" {
-		return operationName
+		return string(genaiconv.OperationNameGenerateContent)
 	}
-	return operationName + " " + request.Options.Model
+	return string(genaiconv.OperationNameGenerateContent) + " " + request.Options.Model
 }
 
 func (m Middleware) requestAttributes(request *coreimage.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameGenerateContent,
+		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameGenerateContent)),
 		semconv.GenAIOutputTypeImage,
 		semconv.GenAIProviderNameKey.String(m.provider),
 	}

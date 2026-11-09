@@ -170,6 +170,9 @@ type SpeechModelConfig struct {
 	DefaultOptions speech.Options
 	BaseURL        string
 	HTTPClient     *http.Client
+	// Call must fit in memory; Stream retains incremental delivery. Zero uses
+	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
+	MaxResponseBytes int64
 }
 
 func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
@@ -177,6 +180,7 @@ func (s SpeechModelConfig) Validate() error { return s.protocol().Validate() }
 func (s SpeechModelConfig) protocol() protocol.SpeechModelConfig {
 	return protocol.SpeechModelConfig{
 		Provider: Provider, Client: protocolClient(s.APIKey, s.BaseURL, s.HTTPClient), DefaultOptions: s.DefaultOptions,
+		MaxResponseBytes: s.MaxResponseBytes,
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/invocation"
 	corevector "github.com/Tangerg/scope/core/vector"
 )
@@ -35,15 +36,22 @@ func (n *nativeResponseTransport) RoundTrip(request *http.Request) (*http.Respon
 	if n.embeddingRequest != nil {
 		n.embeddingRequest.dispatched = true
 	}
-	response, err := n.next.RoundTrip(request)
+	path := request.URL.Path
+	boundedJSON := strings.HasSuffix(path, ":batchEmbedContents") || strings.HasSuffix(path, ":embedContent") || strings.HasSuffix(path, ":predict") || strings.HasSuffix(path, ":countTokens")
+	next := n.next.RoundTrip
+	if boundedJSON {
+		next = func(request *http.Request) (*http.Response, error) {
+			return httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply(request, n.next.RoundTrip)
+		}
+	}
+	response, err := next(request)
 	if err != nil {
 		return response, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	if response == nil || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return response, nil
 	}
-	path := request.URL.Path
-	if strings.HasSuffix(path, ":batchEmbedContents") || strings.HasSuffix(path, ":embedContent") || strings.HasSuffix(path, ":predict") || strings.HasSuffix(path, ":countTokens") {
+	if boundedJSON {
 		if response.Body == nil {
 			if response.ContentLength > 0 && request.Method != http.MethodHead {
 				return response, nil

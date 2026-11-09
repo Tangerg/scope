@@ -2,8 +2,6 @@ package elasticsearch
 
 import (
 	"cmp"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,9 +10,6 @@ import (
 	"github.com/elastic/go-elasticsearch/v9/typedapi/types/enums/dynamicmapping"
 	"github.com/elastic/go-elasticsearch/v9/typedapi/types/enums/fieldtype"
 	"github.com/elastic/go-elasticsearch/v9/typedapi/types/enums/sourcemode"
-	"github.com/elastic/go-elasticsearch/v9/typedapi/types/enums/totalhitsrelation"
-
-	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 type mappedIndex struct {
@@ -100,44 +95,6 @@ type nativeSettings struct {
 
 func (n nativeSettings) value(name string) string { return cmp.Or(n.Settings[name], n.Defaults[name]) }
 
-type searchResponse struct {
-	ScrollID string        `json:"_scroll_id"`
-	TimedOut *bool         `json:"timed_out"`
-	Shards   *searchShards `json:"_shards"`
-	Hits     *searchHits   `json:"hits"`
-}
-
-func (s searchResponse) validate(index string) error {
-	if s.TimedOut == nil || *s.TimedOut || s.Shards == nil || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Total <= 0 || *s.Shards.Failed != 0 || *s.Shards.Successful != *s.Shards.Total {
-		return errors.New("elasticsearch: native search is incomplete or lacks shard acknowledgments")
-	}
-	if s.Hits == nil || s.Hits.Hits == nil || s.Hits.Total == nil || s.Hits.Total.Value == nil || *s.Hits.Total.Value < 0 || s.Hits.Total.Relation != totalhitsrelation.Eq.String() {
-		return errors.New("elasticsearch: native search lacks complete hits or an exact total")
-	}
-	for _, hit := range *s.Hits.Hits {
-		if hit.Index != index {
-			return errors.New("elasticsearch: native hit is outside the concrete index")
-		}
-	}
-	return nil
-}
-
-type searchShards struct {
-	Total      *int `json:"total"`
-	Successful *int `json:"successful"`
-	Failed     *int `json:"failed"`
-}
-
-type searchHits struct {
-	Total *searchTotal `json:"total"`
-	Hits  *[]searchHit `json:"hits"`
-}
-
-type searchTotal struct {
-	Value    *int64 `json:"value"`
-	Relation string `json:"relation"`
-}
-
 type searchRequest struct {
 	Size             int                   `json:"size"`
 	KNN              *nearestNeighborQuery `json:"knn,omitzero"`
@@ -166,93 +123,4 @@ type idsQueryClause struct {
 }
 type idsQuery struct {
 	Values []string `json:"values"`
-}
-
-type bulkOperation string
-
-const (
-	bulkOperationIndex  bulkOperation = "index"
-	bulkOperationDelete bulkOperation = "delete"
-)
-
-type bulkAction struct {
-	Index  *bulkActionTarget `json:"index,omitzero"`
-	Delete *bulkActionTarget `json:"delete,omitzero"`
-}
-
-type bulkActionTarget struct {
-	Index       string `json:"_index"`
-	ID          string `json:"_id"`
-	SeqNo       *int64 `json:"if_seq_no,omitzero"`
-	PrimaryTerm *int64 `json:"if_primary_term,omitzero"`
-}
-
-type bulkResponse struct {
-	Errors *bool                              `json:"errors"`
-	Items  []map[bulkOperation]bulkItemResult `json:"items"`
-}
-
-func (b bulkResponse) validate(operation bulkOperation, index string, ids []string, allowMissing bool) error {
-	if b.Errors == nil || len(b.Items) != len(ids) {
-		return errors.New("elasticsearch: native bulk did not acknowledge every document")
-	}
-	for i, item := range b.Items {
-		result, present := item[operation]
-		if !present || len(item) != 1 || result.ID != ids[i] || result.Index != index || result.Status == nil {
-			return errors.New("elasticsearch: native bulk acknowledgment differs from the requested operation or identity")
-		}
-		success := *result.Status >= 200 && *result.Status < 300 && result.Error == nil
-		missing := allowMissing && *result.Status == 404 && result.Error == nil
-		if !success && !missing {
-			return fmt.Errorf("elasticsearch: native bulk %s failed for %q: status=%d, error=%s", operation, ids[i], *result.Status, result.Error)
-		}
-	}
-	if *b.Errors {
-		return errors.New("elasticsearch: native bulk reported an unexplained failure")
-	}
-	return nil
-}
-
-// Only individually attributable item acknowledgments can advance per-ID
-// knowledge. A contradictory complete summary is not an alternative authority.
-func (b bulkResponse) writeFailure(index string, ids []string, cause error) *vectorstore.WriteError {
-	var w vectorstore.WriteOutcome
-	if b.Errors == nil || len(b.Items) > len(ids) {
-		w.Unconfirmed = ids
-		return vectorstore.NewWriteError(cause, w)
-	}
-	bad := false
-	for i, id := range ids {
-		if i >= len(b.Items) {
-			w.Unconfirmed = append(w.Unconfirmed, id)
-			continue
-		}
-		item := b.Items[i]
-		r, ok := item[bulkOperationIndex]
-		if !ok || len(item) != 1 || r.ID != id || r.Index != index || r.Status == nil {
-			w.Unconfirmed = append(w.Unconfirmed, id)
-			continue
-		}
-		switch {
-		case *r.Status >= 200 && *r.Status < 300 && r.Error == nil:
-			w.Acknowledged = append(w.Acknowledged, id)
-		case *r.Status >= 400 && *r.Status < 500 && r.Error != nil:
-			w.Rejected = append(w.Rejected, id)
-			bad = true
-		default:
-			w.Unconfirmed = append(w.Unconfirmed, id)
-			bad = true
-		}
-	}
-	if !*b.Errors && bad || *b.Errors && len(w.Acknowledged) == len(ids) {
-		return vectorstore.NewWriteError(cause, vectorstore.WriteOutcome{Unconfirmed: ids})
-	}
-	return vectorstore.NewWriteError(cause, w)
-}
-
-type bulkItemResult struct {
-	Index  string          `json:"_index"`
-	ID     string          `json:"_id"`
-	Status *int            `json:"status"`
-	Error  json.RawMessage `json:"error,omitzero"`
 }

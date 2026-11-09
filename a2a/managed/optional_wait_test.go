@@ -192,7 +192,7 @@ func TestNativeUnconstrainedWaitSurvivesRecovery(t *testing.T) {
 		}
 		if checkpoint, ok := entry.Record.(run.Checkpoint); ok {
 			for _, process := range checkpoint.Processes {
-				checkpointed = checkpointed || len(process.Waits) == 1 && !process.Waits[0].AnswerSchema.Valid()
+				checkpointed = checkpointed || len(process.Waits) == 1 && process.Waits[0].Pending && !process.Waits[0].Wait.AnswerSchema.Valid()
 			}
 		}
 		if checkpointed {

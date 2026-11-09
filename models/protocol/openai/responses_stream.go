@@ -21,7 +21,7 @@ type responsesStreamState struct {
 
 func newResponsesStreamState(provider string) *responsesStreamState {
 	return &responsesStreamState{
-		responseExtensionKey: provider + "/responses_response",
+		responseExtensionKey: provider + ResponsesResponseExtensionSuffix,
 		tools:                make(responsesStreamTools),
 		reasoning: responsesStreamReasoning{
 			codec: responsesReasoningCodec{provider: provider},

@@ -104,10 +104,10 @@ func TestRecoveryAdmitsSignalsThroughTheirOwnContract(t *testing.T) {
 					root := controlValue(ParseProcessID("signal-recovery-contract"))
 					started := Started{Process: root, Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: DefaultTreeLimits(), At: time.Unix(1, 0).UTC()}
 					signal := Signal{ID: controlValue(ParseSignalID("accepted")), Payload: controlValue(EncodePayload("continue"))}
-					waits := []Wait{kernelWait()}
+					waits := []WaitCheckpoint{{Wait: kernelWait(), Pending: true}}
 					if addressed {
 						signal.Wait, signal.Payload = kernelWait().Key, controlValue(EncodePayload(42))
-						waits = nil
+						waits[0].Pending = false
 					}
 					records := []Record{started, Activated{Epoch: 1}, Stepped{Process: root, Step: 1, Transition: waiting}, SignalAdmitted{Process: root, Signal: signal, At: started.At}}
 					if checkpointed {

@@ -15,7 +15,6 @@ const (
 	DefaultPollTimeout   = 30 * time.Minute
 )
 
-// These are the provider values this adapter recognizes.
 const (
 	ModelMachine = "machine"
 	ModelHuman   = "human"

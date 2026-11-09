@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
+	"sync"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -15,17 +16,14 @@ import (
 	"github.com/Tangerg/scope/core/speech"
 )
 
-// DefaultMaxResponseBytes bounds how much synthesized audio is read into
-// memory. A provider that returns an unexpectedly large asset would otherwise
-// be able to exhaust the process before the response is ever validated.
-const DefaultMaxResponseBytes = int64(32 * 1024 * 1024)
-
 type SpeechModelConfig struct {
-	Provider         string
-	APIKey           string
-	DefaultOptions   speech.Options
-	BaseURL          string
-	HTTPClient       *http.Client
+	Provider       string
+	APIKey         string
+	DefaultOptions speech.Options
+	BaseURL        string
+	HTTPClient     *http.Client
+	// Call must fit in memory; Stream retains incremental delivery. Zero uses
+	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
 	MaxResponseBytes int64
 }
 
@@ -79,7 +77,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		api:              api,
 		provider:         config.Provider,
 		defaultOptions:   config.DefaultOptions.Clone(),
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes),
+		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
 	}, nil
 }
 
@@ -126,20 +124,7 @@ func (s *SpeechModel) buildTTSResponse(data []byte) (*speech.Response, error) {
 }
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
-	var audio []byte
-	var response *speech.Response
-	for chunk, err := range s.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if int64(len(chunk.Output.Audio)) > s.maxResponseBytes-int64(len(audio)) {
-			return nil, fmt.Errorf("openai: speech response exceeds %d-byte limit", s.maxResponseBytes)
-		}
-		audio = append(audio, chunk.Output.Audio...)
-		response = chunk
-	}
-	response.Output.Audio = audio
-	return response, nil
+	return speech.Collect(s.Stream(ctx, req), s.maxResponseBytes)
 }
 
 func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
@@ -159,12 +144,13 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer apiResp.Body.Close()
+		closeBody := sync.OnceValue(apiResp.Body.Close)
+		defer func() { _ = closeBody() }()
 
 		received := false
 		for chunk, err := range speech.ReadChunks(apiResp.Body) {
 			if err != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(err, closeBody())})
 				return
 			}
 
@@ -178,6 +164,10 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			if !yield(resp, nil) {
 				return
 			}
+		}
+		if err := errors.Join(ctx.Err(), closeBody()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+			return
 		}
 		if !received {
 			yield(nil, fmt.Errorf("openai: %w: speech stream returned no audio", speech.ErrInvalidResponse))

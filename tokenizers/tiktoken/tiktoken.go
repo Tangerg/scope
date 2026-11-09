@@ -20,7 +20,6 @@ var (
 // token counts are vocabulary-specific; there is no model-independent default.
 type Encoding string
 
-// Supported encodings.
 const (
 	O200KBase  = Encoding(tiktokenlib.O200kBase)
 	CL100KBase = Encoding(tiktokenlib.Cl100kBase)
@@ -61,6 +60,7 @@ var (
 )
 
 type codec interface {
+	Count(string) (int, error)
 	Encode(string) ([]uint, []string, error)
 	Decode([]uint) (string, error)
 }
@@ -95,11 +95,20 @@ func New(ctx context.Context, encoding Encoding) (Tokenizer, error) {
 }
 
 func (t Tokenizer) CountText(ctx context.Context, text string) (int, error) {
-	tokens, err := t.Encode(ctx, text)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	return len(tokens), nil
+	if err := t.validate(); err != nil {
+		return 0, err
+	}
+	count, err := t.encoding.Count(text)
+	if err != nil {
+		return 0, fmt.Errorf("tiktoken: count: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (t Tokenizer) Encode(ctx context.Context, text string) ([]int, error) {

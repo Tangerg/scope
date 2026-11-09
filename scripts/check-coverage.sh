@@ -89,6 +89,7 @@ module_budget=(
   "vectorstores/oracle 34.0"
   "vectorstores/pinecone 67.1"
   "vectorstores/postgres 37.4"
+  "vectorstores/protocol/elastic 90"
   "vectorstores/qdrant 57.1"
   "vectorstores/redis 43.3"
   "vectorstores/s3vectors 23.4"

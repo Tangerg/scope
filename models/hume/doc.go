@@ -18,4 +18,7 @@
 // speech and transcription interfaces.
 //
 // See https://dev.hume.ai/docs for the full reference.
+// Each /tts/stream/json NDJSON event must fit within Core's
+// httpclient.DefaultMaxJSONResponseBytes before JSON or base64 decoding. This
+// frame budget does not impose a total byte limit on a healthy audio stream.
 package hume

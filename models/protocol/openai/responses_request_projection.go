@@ -30,7 +30,7 @@ func newResponsesRequestProjection(request *corechat.Request, defaults corechat.
 	}
 	resolved := request.Clone()
 	resolved.Options = options
-	extensionKey := dialect.Provider + "/responses_request"
+	extensionKey := dialect.Provider + ResponsesRequestExtensionSuffix
 	if ownershipErr := rejectCoreOwnedResponsesExtension(options.Extensions, extensionKey); ownershipErr != nil {
 		return nil, ownershipErr
 	}

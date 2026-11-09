@@ -24,7 +24,6 @@ const (
 	ModelGLM47FlashX = "glm-4.7-flashx"
 )
 
-// Embedding model ids.
 const (
 	// ModelEmbedding3 produces 2048-dim vectors by default; the
 	// dimensions parameter (passed through embedding.Options.Dimensions)

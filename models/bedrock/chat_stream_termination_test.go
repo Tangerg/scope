@@ -31,7 +31,7 @@ func messageStopEvent(reason types.StopReason) types.ConverseStreamOutput {
 func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	if _, _, err := accumulator.add(textDeltaEvent("half")); err != nil {
 		t.Fatalf("add(text) = %v, want nil", err)
 	}
@@ -73,7 +73,7 @@ func TestChunkAccumulatorTracksTerminalEvent(t *testing.T) {
 func TestCompleteRefusesAStreamThatNeverFinished(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	delta, _, err := accumulator.add(textDeltaEvent("half"))
 	if err != nil {
 		t.Fatalf("add(text) = %v, want nil", err)
@@ -90,7 +90,7 @@ func TestCompleteRefusesAStreamThatNeverFinished(t *testing.T) {
 func TestChunkAccumulatorRejectsSecondTerminalEvent(t *testing.T) {
 	t.Parallel()
 
-	accumulator := newStartedProtocolChunkAccumulator(t, "model")
+	accumulator := newStartedConverseStream(t, "model")
 	if _, _, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn)); err != nil {
 		t.Fatalf("add(messageStop) = %v, want nil", err)
 	}
@@ -106,7 +106,7 @@ func TestChunkAccumulatorRejectsContentAfterMessageStop(t *testing.T) {
 		"delta": textDeltaEvent("late content"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			accumulator := newStartedProtocolChunkAccumulator(t, "model")
+			accumulator := newStartedConverseStream(t, "model")
 			if _, _, err := accumulator.add(messageStopEvent(types.StopReasonEndTurn)); err != nil {
 				t.Fatal(err)
 			}

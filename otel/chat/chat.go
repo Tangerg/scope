@@ -26,7 +26,6 @@ import (
 
 const (
 	instrumentationName            = "github.com/Tangerg/scope/otel/chat"
-	chatOperationName              = "chat"
 	errorTypeInvalidRequest        = "chat.invalid_request"
 	errorTypeInvalidResponse       = "chat.invalid_response"
 	errorTypeInvalidMessage        = "chat.invalid_message"
@@ -227,16 +226,16 @@ func (m Middleware) start(
 	streaming bool,
 ) (context.Context, trace.Span) {
 	model := requestModel(request)
-	name := chatOperationName
+	name := string(genaiconv.OperationNameChat)
 	if model != "" {
-		name = chatOperationName + " " + model
+		name = string(genaiconv.OperationNameChat) + " " + model
 	}
 	attrs := requestAttributes(request)
 	if streaming {
 		attrs = append(attrs, semconv.GenAIRequestStream(true))
 	}
 	attrs = append(attrs,
-		semconv.GenAIOperationNameChat,
+		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameChat)),
 		semconv.GenAIProviderNameKey.String(m.provider),
 	)
 	return m.tracer.Start(ctx, name,

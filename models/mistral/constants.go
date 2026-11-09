@@ -31,7 +31,6 @@ const (
 	ModelPixtralLarge = "pixtral-large-latest"
 )
 
-// Embedding model ids.
 const (
 	// ModelEmbed (mistral-embed) is the general-purpose embedding
 	// model. 1024-dim by default; pass [embedding.Options.Dimensions]
@@ -43,7 +42,6 @@ const (
 	ModelCodestralEmbed = "codestral-embed-2505"
 )
 
-// Moderation model ids.
 const (
 	// ModelModeration is the current moderation
 	// classifier reachable via [NewModerationModel].

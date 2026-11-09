@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/samber/lo"
+
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -91,10 +93,26 @@ func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 // Close revokes future requests and closes the gRPC connection. HTTP requests
 // admitted before Close remain governed by the calling context.
 func (c *Client) Close() error {
+	if err := c.validate(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
 	if c.closed.Swap(true) {
 		return nil
 	}
 	return c.conn.Close()
+}
+
+func (c *Client) validate() error {
+	if c == nil {
+		return ErrMissingClient
+	}
+	if c.closed.Load() {
+		return net.ErrClosed
+	}
+	if c.conn == nil || c.http == nil || c.base == nil || lo.IsNil(c.rpc) {
+		return ErrUninitializedClient
+	}
+	return nil
 }
 
 func (c *Client) callContext(ctx context.Context) context.Context {

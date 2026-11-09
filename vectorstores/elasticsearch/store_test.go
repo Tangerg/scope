@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
@@ -54,7 +56,7 @@ type protocolFixture struct {
 	mapping       nativeMapping
 	settings      nativeSettings
 	rows          map[string]storedDocument
-	snapshot      []searchHit
+	snapshot      []elastic.Hit
 	position      int
 	pageSize      int
 	writes        int
@@ -98,7 +100,7 @@ func (p *protocolFixture) store() *Store {
 	return store
 }
 
-func (p *protocolFixture) hit(id string) searchHit {
+func (p *protocolFixture) hit(id string) elastic.Hit {
 	source, err := jsonv2.Marshal(p.rows[id])
 	if err != nil {
 		p.t.Error(err)
@@ -107,14 +109,14 @@ func (p *protocolFixture) hit(id string) searchHit {
 	if score == 0 {
 		score = 0.8
 	}
-	return searchHit{Index: "documents", ID: id, SeqNo: new(int64(3)), PrimaryTerm: new(int64(1)), Score: &score, Source: source}
+	return elastic.Hit{Index: "documents", ID: id, SeqNo: new(int64(3)), PrimaryTerm: new(int64(1)), Score: &score, Source: source}
 }
 
-func (p *protocolFixture) page(hits []searchHit, total int, cursor string) searchResponse {
+func (p *protocolFixture) page(hits []elastic.Hit, total int, cursor string) elastic.SearchResponse {
 	if hits == nil {
-		hits = []searchHit{}
+		hits = []elastic.Hit{}
 	}
-	return searchResponse{ScrollID: cursor, TimedOut: new(false), Shards: &searchShards{Total: new(1), Successful: new(1), Failed: new(0)}, Hits: &searchHits{Hits: &hits, Total: &searchTotal{Value: new(int64(total)), Relation: "eq"}}}
+	return elastic.SearchResponse{ScrollID: cursor, TimedOut: new(false), Shards: &elastic.SearchShards{Total: new(1), Successful: new(1), Failed: new(0)}, Hits: &elastic.SearchHits{Hits: &hits, Total: &elastic.SearchTotal{Value: new(int64(total)), Relation: "eq"}}}
 }
 
 func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +214,7 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				response = p.reply
 				break
 			}
-			var hits []searchHit
+			var hits []elastic.Hit
 			var ids []string
 			if request.KNN.Filter != nil {
 				ids = request.KNN.Filter.IDs.Values
@@ -223,7 +225,7 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					hits = append(hits, p.hit(id))
 				}
 			}
-			slices.SortFunc(hits, func(left, right searchHit) int {
+			slices.SortFunc(hits, func(left, right elastic.Hit) int {
 				if *left.Score > *right.Score {
 					return -1
 				}
@@ -446,4 +448,13 @@ func TestNativeInnerProductScoreAndRawRanking(t *testing.T) {
 	if len(response.Results) != 1 || response.Results[0].Document.ID != "0512" || !slices.Equal(fixture.groups, []int{512, 1}) {
 		t.Fatalf("raw native rank changed: %#v, groups=%v", response, fixture.groups)
 	}
+}
+
+func fixtureProtocol(t *testing.T, client APIClient, limit int64) *elastic.Client {
+	t.Helper()
+	protocol, err := elastic.NewClient(elastic.ClientConfig{Perform: client.Perform, MaxResponseBytes: limit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return protocol
 }

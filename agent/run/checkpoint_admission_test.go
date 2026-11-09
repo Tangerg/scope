@@ -10,7 +10,9 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		name   string
 		change func(*ProcessCheckpoint)
 	}{
-		{"duplicate wait", func(p *ProcessCheckpoint) { p.Waits = []Wait{kernelWait(), kernelWait()} }},
+		{"duplicate wait", func(p *ProcessCheckpoint) {
+			p.Waits = []WaitCheckpoint{{Wait: kernelWait(), Pending: true}, {Wait: kernelWait(), Pending: true}}
+		}},
 		{"duplicate receipt", func(p *ProcessCheckpoint) {
 			signal := Signal{ID: controlValue(ParseSignalID("receipt")), Payload: p.Started.Input}
 			p.Receipts = []SignalReceipt{signal.receipt(), signal.receipt()}
@@ -18,15 +20,33 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		}},
 		{"answered wait", func(p *ProcessCheckpoint) {
 			wait := kernelWait()
-			p.Waits = []Wait{wait}
+			p.Waits = []WaitCheckpoint{{Wait: wait, Pending: true}}
 			p.Receipts = []SignalReceipt{(Signal{ID: controlValue(ParseSignalID("receipt")), Wait: wait.Key, Payload: p.Started.Input}).receipt()}
 			p.Usage.AcceptedMessages = 1
 		}},
 		{"two answers for one wait", func(p *ProcessCheckpoint) {
+			p.Waits = []WaitCheckpoint{{Wait: kernelWait()}}
 			for _, id := range []string{"first", "second"} {
 				p.Receipts = append(p.Receipts, (Signal{ID: controlValue(ParseSignalID(id)), Wait: kernelWait().Key, Payload: p.Started.Input}).receipt())
 			}
 			p.Usage.AcceptedMessages = 2
+		}},
+		{"answer without its original contract", func(p *ProcessCheckpoint) {
+			signal := answerSignal(kernelWait().Key, controlValue(EncodePayload(42)))
+			p.Receipts, p.Usage.AcceptedMessages = []SignalReceipt{signal.receipt()}, 1
+		}},
+		{"answer outside its original schema", func(p *ProcessCheckpoint) {
+			wait := kernelWait()
+			signal := answerSignal(wait.Key, controlValue(EncodePayload("not an integer")))
+			p.Waits = []WaitCheckpoint{{Wait: wait}}
+			p.Receipts, p.Inbox, p.Usage.AcceptedMessages = []SignalReceipt{signal.receipt()}, Inbox{signal}, 1
+		}},
+		{"answer outside its original size bound", func(p *ProcessCheckpoint) {
+			wait := kernelWait()
+			wait.MaxAnswerBytes = 1
+			signal := answerSignal(wait.Key, controlValue(EncodePayload(42)))
+			p.Waits = []WaitCheckpoint{{Wait: wait}}
+			p.Receipts, p.Inbox, p.Usage.AcceptedMessages = []SignalReceipt{signal.receipt()}, Inbox{signal}, 1
 		}},
 		{"signal without receipt", func(p *ProcessCheckpoint) {
 			p.Inbox = Inbox{Signal{ID: controlValue(ParseSignalID("receipt")), Payload: p.Started.Input}}
@@ -107,7 +127,7 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		}},
 		{"terminal wait", func(p *ProcessCheckpoint) {
 			p.Terminal = &Termination{cause: TerminationCauseHostCancellation, reason: "canceled"}
-			p.State, p.Waits = ExecutionState{}, []Wait{kernelWait()}
+			p.State, p.Waits = ExecutionState{}, []WaitCheckpoint{{Wait: kernelWait(), Pending: true}}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

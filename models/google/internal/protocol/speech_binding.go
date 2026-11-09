@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -23,9 +24,10 @@ const (
 )
 
 type speechBinding struct {
-	api            *api
-	provider       string
-	defaultOptions speech.Options
+	api              *api
+	provider         string
+	defaultOptions   speech.Options
+	maxResponseBytes int64
 }
 
 func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBinding, error) {
@@ -39,9 +41,10 @@ func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBin
 	}
 
 	return &speechBinding{
-		api:            api,
-		provider:       config.Provider,
-		defaultOptions: config.DefaultOptions.Clone(),
+		api:              api,
+		provider:         config.Provider,
+		defaultOptions:   config.DefaultOptions.Clone(),
+		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
 	}, nil
 }
 
@@ -104,7 +107,7 @@ func (*speechBinding) validateOptions(options speech.Options) error {
 // terminating the whole stream.
 var errNoAudio = errors.New("google: tts chunk has no audio inline-data parts")
 
-func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse, format *speechAudioFormat) (*speech.Response, error) {
+func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse, format *speechAudioFormat, maxAudioBytes int64) (*speech.Response, error) {
 	if apiResp == nil || len(apiResp.Candidates) == 0 {
 		return nil, errNoAudio
 	}
@@ -116,21 +119,31 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 		return nil, errNoAudio
 	}
 
-	var audio []byte
-	for index, part := range apiResp.Candidates[0].Content.Parts {
-		if err := validateGenerationPart(part); err != nil {
-			return nil, fmt.Errorf("google: speech: %w: content.parts[%d]: %w", speech.ErrInvalidResponse, index, err)
+	response, err := speech.Collect(func(yield func(*speech.Response, error) bool) {
+		received := false
+		for index, part := range apiResp.Candidates[0].Content.Parts {
+			if err := validateGenerationPart(part); err != nil {
+				yield(nil, fmt.Errorf("google: speech: %w: content.parts[%d]: %w", speech.ErrInvalidResponse, index, err))
+				return
+			}
+			if part.InlineData == nil || len(part.InlineData.Data) == 0 {
+				continue
+			}
+			if err := format.accept(part.InlineData.MIMEType); err != nil {
+				yield(nil, err)
+				return
+			}
+			received = true
+			if !yield(&speech.Response{Output: &speech.Output{Audio: part.InlineData.Data}}, nil) {
+				return
+			}
 		}
-		if part.InlineData == nil || len(part.InlineData.Data) == 0 {
-			continue
+		if !received {
+			yield(nil, errNoAudio)
 		}
-		if err := format.accept(part.InlineData.MIMEType); err != nil {
-			return nil, err
-		}
-		audio = append(audio, part.InlineData.Data...)
-	}
-	if len(audio) == 0 {
-		return nil, errNoAudio
+	}, maxAudioBytes)
+	if err != nil {
+		return nil, err
 	}
 
 	var outputMetadata metadata.Map
@@ -138,17 +151,14 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 		return nil, err
 	}
 
-	output, err := speech.NewOutput(audio, outputMetadata)
-	if err != nil {
-		return nil, err
-	}
+	response.Output.Metadata = outputMetadata
 
 	meta := &speech.ResponseMetadata{Model: apiResp.ModelVersion}
 	if err := meta.Extra.Set(protocolKey(s.provider, SpeechResponseExtensionSuffix), apiResp); err != nil {
 		return nil, err
 	}
 
-	return speech.NewResponse(output, meta)
+	return speech.NewResponse(response.Output, meta)
 }
 
 // Concatenated audio must retain one encoding and sample rate across all parts

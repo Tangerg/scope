@@ -1,29 +1,23 @@
 package opensearch
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
-	"time"
+
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
-)
-
-const (
-	scrollKeepAlive      = "1m"
-	scrollCleanupTimeout = 5 * time.Second
 )
 
 var (
@@ -33,20 +27,22 @@ var (
 )
 
 type Store struct {
-	client           APIClient
-	indexName        string
-	schema           nativeSchema
-	space            vectorstore.SpaceID
-	maxBulkBytes     int
-	maxResponseBytes int64
+	client       *elastic.Client
+	indexName    string
+	schema       nativeSchema
+	space        vectorstore.SpaceID
+	maxBulkBytes int
 }
 
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	store := &Store{client: config.Client, indexName: cmp.Or(config.IndexName, DefaultIndexName), space: config.Space, maxBulkBytes: cmp.Or(config.MaxBulkBytes, DefaultMaxBulkBytes), maxResponseBytes: cmp.Or(config.MaxResponseBytes, DefaultMaxResponseBytes)}
-	var err error
+	client, err := elastic.NewClient(elastic.ClientConfig{Perform: config.Client.Stream, MaxResponseBytes: config.MaxResponseBytes})
+	if err != nil {
+		return nil, err
+	}
+	store := &Store{client: client, indexName: cmp.Or(config.IndexName, elastic.DefaultIndexName), space: config.Space, maxBulkBytes: config.MaxBulkBytes}
 	store.schema, err = store.readSchema(ctx)
 	if err != nil {
 		return nil, err
@@ -55,7 +51,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 }
 
 func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
-	raw, err := s.request(ctx, http.MethodGet, "/"+s.indexName+"/_mapping", nil, nil)
+	raw, err := s.client.Read(ctx, http.MethodGet, "/"+s.indexName+"/_mapping", nil, nil, 0)
 	if err != nil {
 		if failure, ok := errors.AsType[*httpclient.ResponseError](err); ok && failure.HTTPStatus() == http.StatusNotFound {
 			return nativeSchema{}, fmt.Errorf("%w: %w", ErrIndexMissing, err)
@@ -70,7 +66,7 @@ func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
 	if !exists || len(mappings) != 1 {
 		return nativeSchema{}, fmt.Errorf("%w: requires one concrete index without aliases", ErrIncompatibleIndex)
 	}
-	raw, err = s.request(ctx, http.MethodGet, "/"+s.indexName+"/_settings", url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {"index.knn,index.derived_source.enabled,index.knn.derived_source.enabled,index.default_pipeline,index.final_pipeline,index.search.default_pipeline,index.max_result_window"}}, nil)
+	raw, err = s.client.Read(ctx, http.MethodGet, "/"+s.indexName+"/_settings", url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {"index.knn,index.derived_source.enabled,index.knn.derived_source.enabled,index.default_pipeline,index.final_pipeline,index.search.default_pipeline,index.max_result_window"}}, nil, 0)
 	if err != nil {
 		return nativeSchema{}, err
 	}
@@ -98,56 +94,11 @@ func (s *Store) verify(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) request(ctx context.Context, method, path string, query url.Values, body []byte) ([]byte, error) {
-	return s.read(ctx, method, path, query, body, s.maxResponseBytes)
-}
-func (s *Store) read(ctx context.Context, method, path string, query url.Values, body []byte, limit int64) (raw []byte, err error) {
-	endpoint := (&url.URL{Path: path, RawQuery: query.Encode()}).String()
-	request, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json")
-	contentType := "application/json"
-	if path == "/_bulk" {
-		contentType = "application/x-ndjson"
-	}
-	request.Header.Set("Content-Type", contentType)
-	response, err := s.client.Stream(request)
-	if err != nil {
-		if response != nil && response.Body != nil {
-			err = errors.Join(err, response.Body.Close())
-		}
-		return nil, err
-	}
-	if response == nil || response.Body == nil {
-		return nil, errors.New("opensearch: native client returned no response body")
-	}
-	defer func() { err = errors.Join(err, response.Body.Close()) }()
-	raw, err = io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return raw, err
-	}
-	if int64(len(raw)) > limit {
-		if limit < s.maxResponseBytes {
-			return raw, vectorstore.ErrScanBudget
-		}
-		return raw, errors.New("opensearch: native response exceeds MaxResponseBytes")
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return raw, fmt.Errorf("opensearch: %s: %w", method, httpclient.NewResponseError(response.StatusCode, response.Header))
-	}
-	return raw, nil
-}
-
 func (s *Store) checkDocument(d *document.Document) error {
 	if d.Media != nil {
 		return vectorstore.ErrInvalidDocument
 	}
-	if len(d.ID) > nativeMaximumIDBytes {
-		return errors.New("opensearch: document ID exceeds native 512-byte limit")
-	}
-	return nil
+	return elastic.DocumentID(d.ID).Validate()
 }
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := ctx.Err(); err != nil {
@@ -173,7 +124,10 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	plan := bulkPlan{maxBytes: s.maxBulkBytes}
+	plan, err := elastic.NewBulkPlan(elastic.BulkConfig{Index: s.indexName, Operation: elastic.Index, MaxBytes: s.maxBulkBytes})
+	if err != nil {
+		return err
+	}
 	for _, r := range batch.Records {
 		doc := r.Document
 		if err := s.checkDocument(doc); err != nil {
@@ -187,45 +141,14 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		if err := plan.addIndex(bulkActionTarget{Index: s.indexName, ID: doc.ID}, storedDocument{Content: doc.Text, MetadataJSON: string(facts), Embedding: coords}); err != nil {
+		if err := plan.Index(doc.ID, storedDocument{Content: doc.Text, MetadataJSON: string(facts), Embedding: coords}); err != nil {
 			return err
 		}
 	}
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	groups := plan.publications
-	for i, g := range groups {
-		if err := s.publish(ctx, g, bulkOperationIndex, false); err != nil {
-			outcome, cause := vectorstore.WriteOutcome{Unconfirmed: g.ids}, err
-			if w, ok := errors.AsType[*vectorstore.WriteError](err); ok {
-				outcome, cause = w.Outcome(), w.Unwrap()
-			}
-			for _, prior := range groups[:i] {
-				outcome.Acknowledged = append(outcome.Acknowledged, prior.ids...)
-			}
-			for _, later := range groups[i+1:] {
-				outcome.Unattempted = append(outcome.Unattempted, later.ids...)
-			}
-			return vectorstore.NewWriteError(cause, outcome)
-		}
-	}
-	return nil
-}
-func (s *Store) publish(ctx context.Context, publication bulkPublication, operation bulkOperation, allowMissing bool) error {
-	raw, err := s.request(ctx, http.MethodPost, "/_bulk", nil, publication.body)
-	if err != nil {
-		return err
-	}
-	var response bulkResponse
-	if decodeErr := jsonv2.Unmarshal(raw, &response); decodeErr != nil {
-		return decodeErr
-	}
-	err = response.validate(operation, s.indexName, publication.ids, allowMissing)
-	if err == nil || operation != bulkOperationIndex {
-		return err
-	}
-	return response.writeFailure(s.indexName, publication.ids, err)
+	return plan.Publish(ctx, s.client)
 }
 
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
@@ -300,7 +223,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 			response = nil
 		}
 	}()
-	var matches map[string]searchHit
+	var matches map[string]elastic.Version
 	if request.Options.Filter != nil {
 		matches, err = s.selectMatches(ctx, request.Options.Filter, *budget)
 		if err != nil {
@@ -325,15 +248,15 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		if err != nil {
 			return nil, err
 		}
-		raw, err := s.request(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"allow_partial_search_results": {"false"}}, body)
+		raw, err := s.client.Read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"allow_partial_search_results": {"false"}}, body, 0)
 		if err != nil {
 			return nil, err
 		}
-		var page searchResponse
+		var page elastic.SearchResponse
 		if err := jsonv2.Unmarshal(raw, &page); err != nil {
 			return nil, err
 		}
-		if err := page.validate(s.indexName); err != nil {
+		if err := page.Validate(s.indexName); err != nil {
 			return nil, err
 		}
 		hits := *page.Hits.Hits
@@ -395,127 +318,24 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
 
-func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (selected map[string]searchHit, err error) {
-	body, err := jsonv2.Marshal(searchRequest{Size: min(filterBatchSize, budget.MaxRecords), Source: true, TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}})
+func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (map[string]elastic.Version, error) {
+	body, err := jsonv2.Marshal(searchRequest{Size: min(filterBatchSize, budget.MaxRecords), TrackTotalHits: true, SeqNoPrimaryTerm: true, StoredFields: []string{"_routing"}, Sort: []string{"_doc"}, Source: true})
 	if err != nil {
 		return nil, err
 	}
-	bytesLeft := budget.MaxBytes
-	raw, callErr := s.read(ctx, http.MethodPost, "/"+s.indexName+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, body, min(bytesLeft, s.maxResponseBytes))
-	scrollID := ""
-	defer func() {
-		if scrollID == "" {
-			return
-		}
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), scrollCleanupTimeout)
-		defer cancel()
-		payload, encodeErr := jsonv2.Marshal(struct {
-			IDs []string `json:"scroll_id"`
-		}{IDs: []string{scrollID}})
-		if encodeErr != nil {
-			err = errors.Join(err, encodeErr)
-			selected = nil
-			return
-		}
-		cleanupRaw, cleanupErr := s.request(cleanup, http.MethodDelete, "/_search/scroll", nil, payload)
-		if cleanupErr == nil {
-			var outcome struct {
-				Succeeded *bool `json:"succeeded"`
-				Freed     *int  `json:"num_freed"`
-			}
-			cleanupErr = jsonv2.Unmarshal(cleanupRaw, &outcome)
-			if cleanupErr == nil && (outcome.Succeeded == nil || !*outcome.Succeeded || outcome.Freed == nil || *outcome.Freed < 0) {
-				cleanupErr = errors.New("opensearch: native scroll cleanup was not acknowledged")
-			}
-		}
-		err = errors.Join(err, cleanupErr)
-		if err != nil {
-			selected = nil
-		}
-	}()
-	selected = make(map[string]searchHit)
-	seen := make(map[string]struct{})
-	var total int64 = -1
-	for {
-		var page searchResponse
-		bytesLeft -= int64(len(raw))
-		decodeErr := jsonv2.Unmarshal(raw, &page)
-		if page.ScrollID != "" {
-			scrollID = page.ScrollID
-		}
-		if err = errors.Join(callErr, decodeErr); err != nil {
-			return nil, err
-		}
-		if err = page.validate(s.indexName); err != nil {
-			return nil, err
-		}
-		if total < 0 {
-			total = *page.Hits.Total.Value
-			if total > int64(budget.MaxRecords) {
-				return nil, vectorstore.ErrScanBudget
-			}
-		}
-		if total != *page.Hits.Total.Value || page.ScrollID == "" {
-			return nil, errors.New("opensearch: native scroll lost its total or cursor")
-		}
-		hits := *page.Hits.Hits
-		if len(hits) == 0 {
-			if int64(len(seen)) != total {
-				return nil, errors.New("opensearch: native scroll ended before every document")
-			}
-			return selected, nil
-		}
-		for _, hit := range hits {
-			if _, duplicate := seen[hit.ID]; duplicate {
-				return nil, errors.New("opensearch: native scroll repeated a document ID")
-			}
-			seen[hit.ID] = struct{}{}
-			doc, decodeErr := s.schema.decode(hit)
-			if decodeErr != nil {
-				return nil, decodeErr
-			}
-			matched := true
-			if predicate != nil {
-				values, valuesErr := doc.Metadata.Values()
-				if valuesErr != nil {
-					return nil, valuesErr
-				}
-				matched, err = filter.Match(predicate, values)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if matched {
-				hit.Source = nil
-				selected[hit.ID] = hit
-			}
-		}
-		if int64(len(seen)) > total {
-			return nil, errors.New("opensearch: native scroll exceeded its declared total")
-		}
-		payload, encodeErr := jsonv2.Marshal(struct {
-			ID       string `json:"scroll_id"`
-			Lifetime string `json:"scroll"`
-		}{ID: scrollID, Lifetime: scrollKeepAlive})
-		if encodeErr != nil {
-			return nil, encodeErr
-		}
-		if bytesLeft <= 0 {
-			return nil, vectorstore.ErrScanBudget
-		}
-		raw, callErr = s.read(ctx, http.MethodPost, "/_search/scroll", nil, payload, min(bytesLeft, s.maxResponseBytes))
+	scroll, err := elastic.NewScroll(elastic.ScrollConfig{Client: s.client, Index: s.indexName, Request: body, Budget: budget, Decode: s.schema.decode})
+	if err != nil {
+		return nil, err
 	}
+	return scroll.Select(ctx, predicate)
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	seen := make(map[string]struct{})
 	var unique []string
 	for _, id := range ids {
-		if id == "" {
-			return vectorstore.ErrMissingDocumentID
-		}
-		if len(id) > nativeMaximumIDBytes {
-			return errors.New("opensearch: document ID exceeds native 512-byte limit")
+		if err := elastic.DocumentID(id).Validate(); err != nil {
+			return err
 		}
 		if _, duplicate := seen[id]; !duplicate {
 			seen[id] = struct{}{}
@@ -525,21 +345,19 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(unique) == 0 {
 		return nil
 	}
-	plan := bulkPlan{maxBytes: s.maxBulkBytes}
+	plan, err := elastic.NewBulkPlan(elastic.BulkConfig{Index: s.indexName, Operation: elastic.Delete, MaxBytes: s.maxBulkBytes, AllowMissing: true})
+	if err != nil {
+		return err
+	}
 	for _, id := range unique {
-		if err := plan.addDelete(bulkActionTarget{Index: s.indexName, ID: id}); err != nil {
+		if err := plan.Delete(id, nil); err != nil {
 			return err
 		}
 	}
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	for _, publication := range plan.publications {
-		if err := s.publish(ctx, publication, bulkOperationDelete, true); err != nil {
-			return err
-		}
-	}
-	return nil
+	return plan.Publish(ctx, s.client)
 }
 
 func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
@@ -561,17 +379,15 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 	if err != nil {
 		return err
 	}
-	plan := bulkPlan{maxBytes: s.maxBulkBytes}
+	plan, err := elastic.NewBulkPlan(elastic.BulkConfig{Index: s.indexName, Operation: elastic.Delete, MaxBytes: s.maxBulkBytes})
+	if err != nil {
+		return err
+	}
 	for _, id := range slices.Sorted(maps.Keys(matches)) {
-		hit := matches[id]
-		if err := plan.addDelete(bulkActionTarget{Index: s.indexName, ID: id, SeqNo: hit.SeqNo, PrimaryTerm: hit.PrimaryTerm}); err != nil {
+		version := matches[id]
+		if err := plan.Delete(id, &version); err != nil {
 			return err
 		}
 	}
-	for _, publication := range plan.publications {
-		if err := s.publish(ctx, publication, bulkOperationDelete, false); err != nil {
-			return err
-		}
-	}
-	return nil
+	return plan.Publish(ctx, s.client)
 }

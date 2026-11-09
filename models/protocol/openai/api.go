@@ -182,6 +182,7 @@ func (a *api) chatCompletionStream(ctx context.Context, req *openai.ChatCompleti
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 	return a.chat.NewStreaming(ctx, *req, opts...), nil
 }
 
@@ -189,6 +190,7 @@ func (a *api) responseNewStream(ctx context.Context, req *responses.ResponseNewP
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 	return a.responses.NewStreaming(ctx, *req, opts...), nil
 }
 
@@ -196,6 +198,7 @@ func (a *api) responseInputTokensCount(ctx context.Context, req *responses.Input
 	if req == nil {
 		return 0, errors.New("openai: input token count request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	response, err := a.wrapResult(a.responses.InputTokens.Count(ctx, *req, opts...))
 	if err != nil {
 		return 0, err
@@ -214,6 +217,7 @@ func (a *api) embedding(ctx context.Context, req *openai.EmbeddingNewParams, opt
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	return a.wrapResult(a.embeddings.New(ctx, *req, opts...))
 }
 
@@ -221,6 +225,7 @@ func (a *api) image(ctx context.Context, req *openai.ImageGenerateParams, opts .
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	return a.wrapResult(a.images.Generate(ctx, *req, opts...))
 }
 
@@ -228,6 +233,7 @@ func (a *api) moderation(ctx context.Context, req *openai.ModerationNewParams, o
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	return a.wrapResult(a.moderations.New(ctx, *req, opts...))
 }
 
@@ -235,6 +241,7 @@ func (a *api) speech(ctx context.Context, req *openai.AudioSpeechNewParams, opts
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyErrors))
 	return a.wrapResult(a.audio.Speech.New(ctx, *req, opts...))
 }
 
@@ -242,6 +249,7 @@ func (a *api) transcription(ctx context.Context, req *openai.AudioTranscriptionN
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	return a.wrapResult(a.audio.Transcriptions.New(ctx, *req, opts...))
 }
 
@@ -249,6 +257,7 @@ func (a *api) translation(ctx context.Context, req *openai.AudioTranslationNewPa
 	if req == nil {
 		return nil, errors.New("openai: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	// Compatible endpoints still expose synchronous multipart translation.
 	// Realtime translation has a different transport and request lifecycle.
 	client := openai.Client{Options: a.audio.Options}

@@ -29,7 +29,6 @@ const (
 	ModelQwen3CoderPlus = "qwen3-coder-plus"
 )
 
-// Embedding model ids.
 const (
 	// ModelEmbeddingV4 (text-embedding-v4) is the current general-purpose
 	// embedding model.

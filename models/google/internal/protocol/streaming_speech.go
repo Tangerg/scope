@@ -30,20 +30,7 @@ func NewStreamingSpeechModel(ctx context.Context, config SpeechModelConfig) (*St
 // Call consumes the same stream to completion. Failed or interrupted synthesis
 // never returns partial audio as a complete response.
 func (s *StreamingSpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
-	var audio []byte
-	var response *speech.Response
-	for chunk, err := range s.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		audio = append(audio, chunk.Output.Audio...)
-		response = chunk
-	}
-	if response == nil {
-		return nil, fmt.Errorf("google: %w: speech stream returned no audio", speech.ErrInvalidResponse)
-	}
-	response.Output.Audio = audio
-	return response, nil
+	return speech.Collect(s.Stream(ctx, req), s.binding.maxResponseBytes)
 }
 
 func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
@@ -79,7 +66,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 				yield(nil, fmt.Errorf("google: speech: %w: %w", speech.ErrInvalidResponse, err))
 				return
 			}
-			resp, err := s.binding.buildTTSResponse(chunk, &format)
+			resp, err := s.binding.buildTTSResponse(chunk, &format, maxGenerationEventBytes)
 			if err != nil {
 				if !errors.Is(err, errNoAudio) {
 					yield(nil, err)

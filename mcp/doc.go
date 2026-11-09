@@ -37,6 +37,8 @@
 // server declares no media type for a resource link or embedded resource,
 // Core retains that absence; the current Core MIME field owns any later
 // declaration. Image and audio content require a declared media type.
+// Resource links preserve the Core media name exactly, including an empty
+// string; MCP requires the name member even when the resource is unnamed.
 // Empty text without metadata is omitted. Embedded
 // resources require a URI and inline content; their URI records provenance,
 // never a link fallback. Empty inline resources return [ErrEmptyEmbeddedResource]

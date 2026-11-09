@@ -2,7 +2,8 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-workspace_module_dirs=$(cd "$root" && go list -m -f '{{if .Main}}{{.Dir}}{{end}}' all)
+# Inventory must work before unpublished peer versions can be resolved.
+workspace_module_dirs=$(cd "$root" && go list -m -f '{{if .Main}}{{.Dir}}{{end}}')
 
 while IFS= read -r module_dir; do
   [[ -z "$module_dir" ]] && continue

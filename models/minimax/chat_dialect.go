@@ -29,7 +29,6 @@ const (
 // always think according to the official protocol.
 type ThinkingType string
 
-// These are the provider values this adapter recognizes.
 const (
 	ThinkingAdaptive ThinkingType = "adaptive"
 	ThinkingDisabled ThinkingType = "disabled"
@@ -41,7 +40,6 @@ type thinkingConfig struct {
 
 type ServiceTier string
 
-// These are the provider values this adapter recognizes.
 const (
 	ServiceTierStandard ServiceTier = "standard"
 	ServiceTierPriority ServiceTier = "priority"
@@ -71,6 +69,9 @@ func (c ChatRequestOptions) Validate() error {
 
 // MiniMax otherwise embeds thinking in answer content inside <think> tags.
 func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleRequest) error {
+	if err := openai.RequestStreamUsage(source, target); err != nil {
+		return err
+	}
 	if err := validateReasoningEffort(target.Model(), source.Options.ReasoningEffort); err != nil {
 		return err
 	}
@@ -107,6 +108,9 @@ func prepareOpenAIRequest(source *corechat.Request, target *openai.CompatibleReq
 }
 
 func prepareAnthropicRequest(source *corechat.Request, fields map[string]any) error {
+	if choice := source.ToolChoice; choice != nil && choice.Mode != corechat.ToolChoiceAuto {
+		return fmt.Errorf("minimax: Messages tool choice %q: %w", choice.Mode, errors.ErrUnsupported)
+	}
 	if err := validateReasoningEffort(source.Options.Model, source.Options.ReasoningEffort); err != nil {
 		return err
 	}

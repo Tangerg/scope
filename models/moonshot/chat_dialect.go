@@ -28,7 +28,6 @@ const partialMessageField = "partial"
 // ThinkingType controls thinking for Kimi K2.x models.
 type ThinkingType string
 
-// These are the provider values this adapter recognizes.
 const (
 	ThinkingEnabled  ThinkingType = "enabled"
 	ThinkingDisabled ThinkingType = "disabled"

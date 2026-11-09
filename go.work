@@ -86,6 +86,7 @@ use (
 	./vectorstores/oracle
 	./vectorstores/pinecone
 	./vectorstores/postgres
+	./vectorstores/protocol/elastic
 	./vectorstores/qdrant
 	./vectorstores/redis
 	./vectorstores/s3vectors

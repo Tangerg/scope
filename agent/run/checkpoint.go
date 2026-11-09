@@ -76,7 +76,7 @@ type ProcessCheckpoint struct {
 	Inbox     Inbox               `json:"inbox"`
 	Receipts  []SignalReceipt     `json:"receipts"`
 	Children  []StartedChild      `json:"children"`
-	Waits     []Wait              `json:"waits"`
+	Waits     []WaitCheckpoint    `json:"waits"`
 	Pending   []PendingCheckpoint `json:"pending"`
 	Usage     Usage               `json:"usage"`
 	Allocated resourceAmounts     `json:"allocated"`
@@ -92,31 +92,34 @@ func (p ProcessCheckpoint) valid() bool {
 	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) || !p.childrenValid() || !p.waitsAndReceiptsValid() || !p.pendingValid() || !p.inboxValid() || !p.resourcesValid() {
 		return false
 	}
-	if p.Terminal != nil && (!p.Terminal.Valid() || len(p.Waits) != 0 || p.Paused || p.Yielded) {
+	if p.Terminal != nil && (!p.Terminal.Valid() || p.Paused || p.Yielded) {
 		return false
 	}
 	return p.Exited == nil || p.Terminal != nil && p.Exited.valid() && p.Exited.Process == p.Started.Process && p.Terminal.equal(p.Exited.Termination)
 }
 
 func (p ProcessCheckpoint) waitsAndReceiptsValid() bool {
+	waits := make(map[WaitKey]WaitCheckpoint, len(p.Waits))
+	for index, wait := range p.Waits {
+		if !wait.Wait.Valid() || index > 0 && p.Waits[index-1].Wait.Key.String() >= wait.Wait.Key.String() || p.Terminal != nil && wait.Pending {
+			return false
+		}
+		waits[wait.Wait.Key] = wait
+	}
 	answered := make(map[WaitKey]struct{})
 	for index, receipt := range p.Receipts {
 		if !receipt.ID.Valid() || !receipt.Digest.Valid() || index > 0 && p.Receipts[index-1].ID.String() >= receipt.ID.String() {
 			return false
 		}
 		if receipt.Wait.Valid() {
+			wait, exists := waits[receipt.Wait]
+			if !exists || wait.Pending {
+				return false
+			}
 			if _, duplicate := answered[receipt.Wait]; duplicate {
 				return false
 			}
 			answered[receipt.Wait] = struct{}{}
-		}
-	}
-	for index, wait := range p.Waits {
-		if !wait.Valid() || index > 0 && p.Waits[index-1].Key.String() >= wait.Key.String() {
-			return false
-		}
-		if _, exists := answered[wait.Key]; exists {
-			return false
 		}
 	}
 	return true
@@ -142,6 +145,14 @@ func (p ProcessCheckpoint) inboxValid() bool {
 			index, found := slices.BinarySearchFunc(p.Receipts, value.ID, func(receipt SignalReceipt, id SignalID) int { return strings.Compare(receipt.ID.String(), id.String()) })
 			if !value.Valid() || !found || p.Receipts[index] != value.receipt() {
 				return false
+			}
+			if value.Wait.Valid() {
+				index, found := slices.BinarySearchFunc(p.Waits, value.Wait, func(wait WaitCheckpoint, key WaitKey) int {
+					return strings.Compare(wait.Wait.Key.String(), key.String())
+				})
+				if !found || p.Waits[index].Wait.admits(value.Payload) != nil {
+					return false
+				}
 			}
 			if _, duplicate := signals[value.ID]; duplicate {
 				return false
@@ -205,7 +216,7 @@ func (p ProcessCheckpoint) process() *processState {
 		process.children[child.Key] = child.Started
 	}
 	for _, wait := range p.Waits {
-		process.waits[wait.Key] = wait
+		process.waits[wait.Wait.Key] = wait
 	}
 	for _, pending := range p.Pending {
 		process.pending[pending.Intent.ID] = pending.clone()
@@ -242,6 +253,13 @@ type SignalReceipt struct {
 	ID     SignalID `json:"id"`
 	Wait   WaitKey  `json:"wait,omitzero"`
 	Digest Digest   `json:"digest"`
+}
+
+// Retaining the first contract after withdrawal keeps a WaitKey immutable even
+// when recovery starts after its original declaration.
+type WaitCheckpoint struct {
+	Wait    Wait `json:"wait"`
+	Pending bool `json:"pending"`
 }
 
 type PendingCheckpoint struct {

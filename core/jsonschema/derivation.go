@@ -533,5 +533,8 @@ func qualifiedTypeName(typeOf reflect.Type) string {
 		return ""
 	}
 	packageName := base64.RawURLEncoding.EncodeToString([]byte(typeOf.PkgPath()))
-	return typeDefinitionPrefix + packageName + "_" + typeOf.Name()
+	// Instantiated generic names include import paths, so both identity parts
+	// must remain single JSON Pointer tokens. A dot cannot occur in either encoding.
+	typeName := base64.RawURLEncoding.EncodeToString([]byte(typeOf.Name()))
+	return typeDefinitionPrefix + packageName + "." + typeName
 }

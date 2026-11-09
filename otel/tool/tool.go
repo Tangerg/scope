@@ -22,7 +22,6 @@ import (
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/tool"
-	operationName       = "execute_tool"
 	toolTypeFunction    = "function"
 	durationMetricName  = "gen_ai.execute_tool.duration"
 	durationUnit        = "s"
@@ -81,15 +80,16 @@ func (i *instrumentedCaller) Call(ctx context.Context, invocation coretool.Invoc
 		return coretool.Result{}, ErrInvalidTool
 	}
 	name := invocation.Definition().Name
+	operation := semconv.GenAIOperationNameExecuteTool
 	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameExecuteTool,
+		operation,
 		semconv.GenAIToolName(name),
 		semconv.GenAIToolType(toolTypeFunction),
 	}
 	startedAt := time.Now()
 	ctx, span := i.middleware.tracer.Start(
 		ctx,
-		strings.Join([]string{operationName, name}, " "),
+		strings.Join([]string{operation.Value.AsString(), name}, " "),
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),

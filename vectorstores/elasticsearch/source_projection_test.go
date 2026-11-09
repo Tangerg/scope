@@ -53,8 +53,8 @@ func TestReadsExplicitlyIncludeSourceVectors(t *testing.T) {
 			fixture.settings.Defaults["index.mapping.exclude_source_vectors"] = "true"
 			fixture.rows["one"] = storedDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
 			store := fixture.store()
-			client := &sourceProjectionClient{client: store.client}
-			store.client = client
+			client := &sourceProjectionClient{client: fixture.client}
+			store.client = fixtureProtocol(t, client, 0)
 			query := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}}
 			var response *vectorstore.SearchResponse
 			var err error

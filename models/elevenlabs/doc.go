@@ -17,4 +17,7 @@
 //
 // See https://elevenlabs.io/docs/api-reference for the full
 // reference.
+// Speech Call aggregates the same stream under SpeechModelConfig.MaxResponseBytes
+// and discards partial audio if reading, closing, or byte admission fails. Stream
+// remains incremental and releases its HTTP body when the consumer stops.
 package elevenlabs

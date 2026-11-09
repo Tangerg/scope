@@ -9,6 +9,14 @@ import (
 	"testing"
 )
 
+func TestCandidateCheckAdmitsAnUnpublishedWorkspacePeer(t *testing.T) {
+	fixture := newCandidateFixture(t)
+	writeCandidateFile(t, fixture.root, "consumer/go.mod", "module github.com/Tangerg/scope/consumer\n\ngo 1.27.0\n\nrequire github.com/Tangerg/scope/core v0.0.0\n")
+	if output, err := fixture.run(t, "", "bash", "scripts/check.sh", "candidate"); err != nil || !strings.Contains(output, "all green (1 checks)") {
+		t.Fatalf("workspace inventory must not resolve unpublished dependencies before staging the candidate: %v\n%s", err, output)
+	}
+}
+
 func TestCandidateConsumesCurrentWorktreeWithoutChangingGitOrPins(t *testing.T) {
 	fixture := newCandidateFixture(t)
 	writeCandidateFile(t, fixture.root, "core/value.go", "package core\nconst Value = 99\n")

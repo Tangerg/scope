@@ -35,12 +35,11 @@ func (r ResponsesConfig) Validate() error {
 }
 
 const (
-	// ResponsesRequestExtensionKey stores official Responses API parameters in
-	// a Core request for fields without a provider-neutral equivalent.
-	ResponsesRequestExtensionKey = ProviderID + "/responses_request"
-	// ResponsesResponseExtensionKey preserves the complete official Responses
-	// API response, including output item types Core does not normalize.
-	ResponsesResponseExtensionKey = ProviderID + "/responses_response"
+	ResponsesRequestExtensionSuffix  = "/responses_request"
+	ResponsesResponseExtensionSuffix = "/responses_response"
+	// Native fields without a Core equivalent retain the binding's namespace.
+	ResponsesRequestExtensionKey  = ProviderID + ResponsesRequestExtensionSuffix
+	ResponsesResponseExtensionKey = ProviderID + ResponsesResponseExtensionSuffix
 	responsesItemTypeMessage      = "message"
 	responsesItemTypeReasoning    = "reasoning"
 	responsesItemTypeFunctionCall = "function_call"
@@ -166,7 +165,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 				return
 			}
 		}
-		if streamErr := stream.Err(); streamErr != nil {
+		if streamErr := errors.Join(ctx.Err(), stream.Err(), stream.Close()); streamErr != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: r.api.wrapError(streamErr)})
 			return
 		}

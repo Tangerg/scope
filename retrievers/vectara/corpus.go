@@ -92,11 +92,11 @@ func (c *Corpus) CreateDocument(ctx context.Context, doc *document.Document) err
 		stored = raw
 	}
 	payload := struct {
-		ID       string              `json:"id"`
-		Type     string              `json:"type"`
-		Metadata jsontext.Value      `json:"metadata,omitzero"`
-		Parts    []map[string]string `json:"document_parts"`
-	}{doc.ID, nativeDocumentType, stored, []map[string]string{{"text": doc.Text}}}
+		ID       string         `json:"id"`
+		Type     string         `json:"type"`
+		Metadata jsontext.Value `json:"metadata,omitzero"`
+		Parts    []documentPart `json:"document_parts"`
+	}{ID: doc.ID, Type: nativeDocumentType, Metadata: stored, Parts: []documentPart{{Text: doc.Text}}}
 	raw, err := c.sendJSON(ctx, http.MethodPost, c.documentsPath()+"?wait_for=searchable", payload, http.StatusCreated)
 	if err != nil {
 		return err

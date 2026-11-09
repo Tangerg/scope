@@ -532,7 +532,7 @@ func (t *treeState) inspect() TreeInspection {
 			inspected.Termination = p.exited.Termination
 			inspected.FinishedAt = p.exited.At
 		}
-		inspected.Waits = p.orderedWaits()
+		inspected.Waits = p.pendingWaits()
 		for _, pending := range p.orderedPending() {
 			inspected.PendingEffects = append(inspected.PendingEffects, pending.inspect(t.epoch, p.started.Program))
 		}

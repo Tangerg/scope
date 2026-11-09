@@ -10,7 +10,6 @@ const (
 	DefaultBaseURL            = "https://api.hume.ai/v0"
 )
 
-// These are the provider values this adapter recognizes.
 const (
 	ModelOctave1 = "1"
 	ModelOctave2 = "2"

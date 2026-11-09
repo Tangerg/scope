@@ -24,7 +24,6 @@ import (
 
 const (
 	instrumentationName = "github.com/Tangerg/scope/otel/embedding"
-	operationName       = "embeddings"
 	errorInvalidRequest = "embedding.invalid_request"
 	errorInvalidOutput  = "embedding.invalid_response"
 )
@@ -105,14 +104,14 @@ func (m Middleware) Call(next coreembedding.Model) coreembedding.Model {
 
 func (m Middleware) spanName(request *coreembedding.Request) string {
 	if request == nil || request.Options.Model == "" {
-		return operationName
+		return string(genaiconv.OperationNameEmbeddings)
 	}
-	return operationName + " " + request.Options.Model
+	return string(genaiconv.OperationNameEmbeddings) + " " + request.Options.Model
 }
 
 func (m Middleware) requestAttributes(request *coreembedding.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
-		semconv.GenAIOperationNameEmbeddings,
+		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameEmbeddings)),
 		semconv.GenAIProviderNameKey.String(m.provider),
 	}
 	if request == nil {

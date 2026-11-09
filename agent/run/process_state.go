@@ -18,7 +18,7 @@ type processState struct {
 	// a key never names a second child. The LSN of each child's Started record
 	// bounds the history read that answers for the subtree once it is reaped.
 	children         map[ChildKey]LSN
-	waits            map[WaitKey]Wait
+	waits            map[WaitKey]WaitCheckpoint
 	pending          map[EffectID]PendingCheckpoint
 	usage            Usage
 	allocated        resourceAmounts
@@ -34,7 +34,7 @@ type processState struct {
 }
 
 func newProcessState(started Started) *processState {
-	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), children: make(map[ChildKey]LSN), waits: make(map[WaitKey]Wait), pending: make(map[EffectID]PendingCheckpoint)}
+	return &processState{done: make(chan struct{}), started: started, receipts: make(map[SignalID]SignalReceipt), children: make(map[ChildKey]LSN), waits: make(map[WaitKey]WaitCheckpoint), pending: make(map[EffectID]PendingCheckpoint)}
 }
 
 func (p *processState) status() Status {
@@ -89,13 +89,14 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 	}
 	if signal.Wait.Valid() {
 		wait, ok := p.waits[signal.Wait]
-		if !ok {
+		if !ok || !wait.Pending {
 			return ErrSignalRejected
 		}
-		if err := wait.admits(signal.Payload); err != nil {
+		if err := wait.Wait.admits(signal.Payload); err != nil {
 			return err
 		}
-		delete(p.waits, signal.Wait)
+		wait.Pending = false
+		p.waits[signal.Wait] = wait
 	} else if p.program.Valid() {
 		if err := p.program.descriptor.ValidateSignal(signal.Payload); err != nil {
 			return err
@@ -120,11 +121,14 @@ func (p *processState) advance(stepped Stepped, limits TreeLimits) error {
 	}
 	p.yielded = transition.kind == TransitionKindYield && int(stepped.Delivered) == len(p.inbox)
 	p.inbox = slices.Clone(p.inbox[transition.consumed:])
-	p.waits = make(map[WaitKey]Wait, len(transition.waits))
+	p.withdrawWaits()
 	for _, wait := range transition.waits {
-		if !p.answered(wait.Key) {
-			p.waits[wait.Key] = wait
+		captured, exists := p.waits[wait.Key]
+		if !exists {
+			captured.Wait = wait
 		}
+		captured.Pending = !p.answered(wait.Key)
+		p.waits[wait.Key] = captured
 	}
 	p.stepEffects = transition.Effects()
 	switch transition.kind {
@@ -149,8 +153,15 @@ func (p *processState) failExecution(failure Failure) error {
 
 func (p *processState) terminate(termination Termination) {
 	p.terminal = termination
-	clear(p.waits)
+	p.withdrawWaits()
 	p.paused, p.yielded = false, false
+}
+
+func (p *processState) withdrawWaits() {
+	for key, wait := range p.waits {
+		wait.Pending = false
+		p.waits[key] = wait
+	}
 }
 
 func (p *processState) prepare(intent EffectIntent) error {
@@ -274,8 +285,18 @@ func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
 // The orderings below are the one canonical order of each set, shared by
 // checkpoints, inspection and recovery so their output never depends on map
 // iteration.
-func (p *processState) orderedWaits() []Wait {
-	return slices.SortedFunc(maps.Values(p.waits), func(a, b Wait) int { return strings.Compare(a.Key.String(), b.Key.String()) })
+func (p *processState) orderedWaits() []WaitCheckpoint {
+	return slices.SortedFunc(maps.Values(p.waits), func(a, b WaitCheckpoint) int { return strings.Compare(a.Wait.Key.String(), b.Wait.Key.String()) })
+}
+
+func (p *processState) pendingWaits() []Wait {
+	var waits []Wait
+	for _, wait := range p.orderedWaits() {
+		if wait.Pending {
+			waits = append(waits, wait.Wait)
+		}
+	}
+	return waits
 }
 
 func (p *processState) orderedPending() []PendingCheckpoint {
@@ -302,6 +323,9 @@ func (p *processState) admitTransition(transition Transition, limits TreeLimits,
 		return fmt.Errorf("%w: yield has no input or work to await", ErrInvalidTransition)
 	}
 	for _, wait := range transition.waits {
+		if captured, exists := p.waits[wait.Key]; exists && !captured.Wait.equal(wait) {
+			return fmt.Errorf("%w: wait key cannot change its contract", ErrInvalidTransition)
+		}
 		if p.answered(wait.Key) && !p.answerAfter(wait.Key, delivered) {
 			return fmt.Errorf("%w: answered wait key cannot be reused", ErrInvalidTransition)
 		}

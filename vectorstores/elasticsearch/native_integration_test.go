@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
@@ -174,13 +176,13 @@ func TestLiveNativeEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var page searchResponse
+	var page elastic.SearchResponse
 	decodeErr := jsonv2.UnmarshalRead(response.Body, &page)
 	closeErr := response.Body.Close()
 	if response.IsError() || decodeErr != nil || closeErr != nil {
 		t.Fatalf("native envelope: HTTP %d, decode=%v, close=%v", response.StatusCode, decodeErr, closeErr)
 	}
-	if err = page.validate(store.indexName); err != nil {
+	if err = page.Validate(store.indexName); err != nil {
 		t.Fatal(err)
 	}
 	if len(*page.Hits.Hits) != 1 {

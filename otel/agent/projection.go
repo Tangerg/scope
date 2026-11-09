@@ -91,7 +91,8 @@ func (l *logProjection) recordUsage(ctx context.Context, record run.Record) {
 }
 
 func (l *logProjection) startProcess(ctx context.Context, entry run.Entry, fact run.Started) {
-	attributes := []attribute.KeyValue{semconv.GenAIOperationNameInvokeAgent, semconv.GenAIAgentName(fact.Program.Name())}
+	operation := semconv.GenAIOperationNameInvokeAgent
+	attributes := []attribute.KeyValue{operation, semconv.GenAIAgentName(fact.Program.Name())}
 	parentID, hasParent := fact.Process.Parent()
 	if parent, ok := l.processes[parentID]; ok {
 		ctx = trace.ContextWithSpan(ctx, parent.span)
@@ -101,7 +102,7 @@ func (l *logProjection) startProcess(ctx context.Context, entry run.Entry, fact 
 	if hasParent {
 		spanAttributes = append(spanAttributes, processParentIDAttribute.String(parentID.String()))
 	}
-	_, span := l.observer.tracer.Start(ctx, "invoke_agent "+fact.Program.Name(), trace.WithTimestamp(fact.At), trace.WithAttributes(spanAttributes...))
+	_, span := l.observer.tracer.Start(ctx, operation.Value.AsString()+" "+fact.Program.Name(), trace.WithTimestamp(fact.At), trace.WithAttributes(spanAttributes...))
 	l.processes[fact.Process] = observedSpan{span: span, at: fact.At, attributes: attributes}
 	l.observer.instruments.processStarts.Add(ctx, 1, metric.WithAttributes(attributes...))
 }

@@ -6,5 +6,8 @@
 // arbitrary parameter bag. Streamer is separate from Model so consumers only
 // require streaming from implementations that actually support it.
 // [ReadChunks] preserves byte ownership and read-error ordering for adapters
-// that stream raw audio; transport lifetime and response limits stay with them.
+// that stream raw audio; transport lifetime stays with the adapter.
+// [Collect] bounds aggregate audio before appending each chunk and discards
+// partial output on any stream failure. A provider's Stream remains incremental;
+// the aggregate byte budget applies to its synchronous Call.
 package speech

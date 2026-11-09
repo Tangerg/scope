@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/tools/web/internal/googletbs"
 
@@ -21,6 +22,7 @@ const (
 	searchPath               = "/search"
 	scrapePath               = "/scrape"
 	defaultSearchResultCount = 10
+	maxQueryCharacters       = 500
 )
 
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
@@ -62,14 +64,17 @@ type searchRequest struct {
 	ExcludeDomains []string `json:"excludeDomains,omitempty"`
 }
 
-func newSearchRequest(request *web.SearchRequest) *searchRequest {
+func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
+	if utf8.RuneCountInString(request.Query) > maxQueryCharacters {
+		return nil, fmt.Errorf("firecrawl: %w: query exceeds %d characters", web.ErrInvalidQuery, maxQueryCharacters)
+	}
 	return &searchRequest{
 		Query:          request.Query,
 		Limit:          cmp.Or(request.MaxResults, defaultSearchResultCount),
 		Tbs:            googletbs.FromRecency(request.Recency),
 		IncludeDomains: request.AllowedDomains,
 		ExcludeDomains: request.BlockedDomains,
-	}
+	}, nil
 }
 
 type searchResult struct {
@@ -115,8 +120,12 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 		cause := fmt.Errorf("firecrawl: prepare search request: %w", err)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
+	body, err := newSearchRequest(prepared)
+	if err != nil {
+		return nil, toolresult.Correctable(err.Error(), err)
+	}
 	var raw searchResponse
-	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	httpRequest := c.http.R().SetContext(ctx).SetBody(body)
 	err = providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw)
 	if err != nil {
 		return nil, fmt.Errorf("firecrawl: search request: %w", err)

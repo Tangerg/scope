@@ -190,6 +190,7 @@ func (a *api) chatCompletionStream(ctx context.Context, req *anthropicsdk.Messag
 	if req == nil {
 		return nil
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 	return a.client.Messages.NewStreaming(ctx, *req, opts...)
 }
 
@@ -197,6 +198,7 @@ func (a *api) countTokens(ctx context.Context, req *anthropicsdk.MessageCountTok
 	if req == nil {
 		return 0, errors.New("anthropic: request must not be nil")
 	}
+	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	response, err := a.wrapResult(a.client.Messages.CountTokens(ctx, *req, opts...))
 	if err != nil {
 		return 0, err

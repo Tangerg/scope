@@ -28,6 +28,8 @@
 // observation can still read the committed outcome.
 // Close cancels and joins local work without declaring an uncertain
 // external operation stopped; unresolved Effects remain in the durable log.
+// ReleaseTree joins an exited root's local writer before relinquishing it;
+// a writer already stopped by Close can be released even without a root Exit.
 //
 // Process paths own ancestry. A child key cannot be reused within its parent's
 // lifetime because that would also reuse Effect identities, so each parent
@@ -42,6 +44,11 @@
 // and Result are published only after all descendants and uncertain operations
 // have drained, including after cancellation or failure. Yield declares local
 // Wait values directly; the inbox never contains a wait-opening handshake.
+// A WaitKey permanently identifies its first question, answer schema and byte
+// limit. Withdrawal stops answer admission but retains that contract in the
+// process and its Checkpoints; reintroduction must repeat it exactly. An
+// answered key cannot reopen, so a new question requires a new key.
+// Retained contracts grow with the process's distinct WaitKeys until reaping.
 //
 // Store.Load serves recovery and Store.Read serves history, so the cost of
 // each is bounded by what it returns rather than by the age of the tree.

@@ -1,11 +1,13 @@
 package deepgram
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"iter"
 	"net/http"
+	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
@@ -13,10 +15,12 @@ import (
 )
 
 type SpeechModelConfig struct {
-	APIKey           string
-	DefaultOptions   speech.Options
-	BaseURL          string
-	HTTPClient       *http.Client
+	APIKey         string
+	DefaultOptions speech.Options
+	BaseURL        string
+	HTTPClient     *http.Client
+	// Call must fit in memory; Stream retains incremental delivery. Zero uses
+	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
 	MaxResponseBytes int64
 }
 
@@ -25,7 +29,7 @@ func (s SpeechModelConfig) apiConfig() apiConfig {
 		APIKey:           s.APIKey,
 		BaseURL:          s.BaseURL,
 		HTTPClient:       s.HTTPClient,
-		MaxResponseBytes: s.MaxResponseBytes,
+		MaxResponseBytes: cmp.Or(s.MaxResponseBytes, speech.DefaultMaxAudioBytes),
 	}
 }
 
@@ -168,20 +172,7 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 }
 
 func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Response, error) {
-	var audio []byte
-	var response *speech.Response
-	for chunk, err := range s.Stream(ctx, req) {
-		if err != nil {
-			return nil, err
-		}
-		if int64(len(chunk.Output.Audio)) > s.api.maxResponseBytes-int64(len(audio)) {
-			return nil, fmt.Errorf("deepgram: speech response exceeds %d-byte limit", s.api.maxResponseBytes)
-		}
-		audio = append(audio, chunk.Output.Audio...)
-		response = chunk
-	}
-	response.Output.Audio = audio
-	return response, nil
+	return speech.Collect(s.Stream(ctx, req), s.api.maxResponseBytes)
 }
 
 func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2[*speech.Response, error] {
@@ -200,12 +191,13 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer body.Close()
+		closeBody := sync.OnceValue(body.Close)
+		defer func() { _ = closeBody() }()
 
 		received := false
 		for chunk, err := range speech.ReadChunks(body) {
 			if err != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(err, closeBody())})
 				return
 			}
 			out, err := s.buildResponse(chunk, hdr)
@@ -217,6 +209,10 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			if !yield(out, nil) {
 				return
 			}
+		}
+		if err := errors.Join(ctx.Err(), closeBody()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+			return
 		}
 		if !received {
 			yield(nil, fmt.Errorf("deepgram: %w: speech stream returned no audio", speech.ErrInvalidResponse))

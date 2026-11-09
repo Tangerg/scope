@@ -327,7 +327,7 @@ func TestMapServerContentOmitsUnknownMIME(t *testing.T) {
 		envelope string
 		want     string
 	}{
-		{media: linked, envelope: `{"type":"resource_link"}`, want: `{"type":"resource_link","uri":"https://example.com/a.png"}`},
+		{media: linked, envelope: `{"type":"resource_link"}`, want: `{"type":"resource_link","uri":"https://example.com/a.png","name":""}`},
 		{media: blob, envelope: `{"type":"resource","resource":{"uri":"file:///a.png"}}`, want: `{"type":"resource","resource":{"uri":"file:///a.png","blob":"iVBORw=="}}`},
 	} {
 		part := corecontent.Block{Kind: corecontent.Media, Media: test.media}

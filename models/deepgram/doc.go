@@ -18,4 +18,8 @@
 // Both callback and callback_method are rejected before submission.
 //
 // See https://developers.deepgram.com/docs for the full reference.
+// Speech Call aggregates under SpeechModelConfig.MaxResponseBytes; zero uses
+// speech.DefaultMaxAudioBytes. Transcription uses
+// httpclient.DefaultMaxJSONResponseBytes when its response budget is omitted.
+// Both defaults belong to Core. Stream has no aggregate audio ceiling.
 package deepgram

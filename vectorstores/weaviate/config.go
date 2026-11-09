@@ -29,9 +29,6 @@ type StoreConfig struct {
 }
 
 func (s StoreConfig) Validate() error {
-	if s.Client == nil {
-		return ErrMissingClient
-	}
 	if !validCollectionName(s.Collection) {
 		return ErrMissingCollection
 	}
@@ -41,5 +38,5 @@ func (s StoreConfig) Validate() error {
 	if s.HybridAlpha != nil && (math.IsNaN(float64(*s.HybridAlpha)) || *s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
 		return fmt.Errorf("weaviate: HybridAlpha must be finite and in [0,1]")
 	}
-	return nil
+	return s.Client.validate()
 }

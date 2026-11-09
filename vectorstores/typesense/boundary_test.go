@@ -291,8 +291,23 @@ func TestResponseBoundaryOwnsBudgetClosureAndErrors(t *testing.T) {
 				}
 				return
 			}
-			if err == nil || raw != nil {
+			if err == nil {
 				t.Fatalf("unexpected success=%q, %v", raw, err)
+			}
+			if fault == "close" {
+				if string(raw) != "body" {
+					t.Fatalf("close erased received evidence: %q", raw)
+				}
+			} else if fault == "oversize" {
+				if string(raw) != "too b" {
+					t.Fatalf("bounded prefix erased: %q", raw)
+				}
+			} else if fault == "call" {
+				if string(raw) != "body" {
+					t.Fatalf("received evidence erased: %q", raw)
+				}
+			} else if len(raw) != 0 {
+				t.Fatalf("unexpected body=%q, %v", raw, err)
 			}
 			if fault == "call" || fault == "read" || fault == "close" {
 				if !errors.Is(err, cause) {

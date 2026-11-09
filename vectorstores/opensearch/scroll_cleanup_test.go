@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -57,19 +59,20 @@ func TestOversizedScrollClearsLatestObservedCursor(t *testing.T) {
 				client := &scrollCleanupClient{}
 				budget := vectorstore.ScanBudget{MaxRecords: 10, MaxBytes: 256, Timeout: time.Second}
 				if later {
-					raw, err := jsonv2.Marshal(fixture.page([]searchHit{fixture.hit("one")}, 2, "previous"))
+					raw, err := jsonv2.Marshal(fixture.page([]elastic.Hit{fixture.hit("one")}, 2, "previous"))
 					if err != nil {
 						t.Fatal(err)
 					}
 					client.pages = append(client.pages, string(raw))
 					budget.MaxBytes += int64(len(raw))
 				}
+				var responseLimit int64
 				if nativeLimit {
-					store.maxResponseBytes = budget.MaxBytes
+					responseLimit = budget.MaxBytes
 					budget.MaxBytes *= 2
 				}
 				client.pages = append(client.pages, oversized+strings.Repeat("x", 8192)+`"}}`)
-				store.client = client
+				store.client = fixtureProtocol(t, client, responseLimit)
 				result, err := store.selectMatches(context.Background(), filter.IsNull("absent"), budget)
 				if err == nil || result != nil {
 					t.Fatalf("oversized scroll succeeded: %v, %v", result, err)
@@ -99,7 +102,7 @@ func fmtCase(later, nativeLimit bool) string {
 func TestOversizedScrollPreservesCleanupFailure(t *testing.T) {
 	cause := errors.New("clear failed")
 	client := &scrollCleanupClient{pages: []string{`{"_scroll_id":"known","padding":"` + strings.Repeat("x", 512) + `"}`}, cleanupError: cause}
-	store := &Store{client: client, indexName: "documents", maxResponseBytes: 1024}
+	store := &Store{client: fixtureProtocol(t, client, 1024), indexName: "documents"}
 	result, err := store.selectMatches(t.Context(), filter.IsNull("absent"), vectorstore.ScanBudget{MaxRecords: 1, MaxBytes: 64, Timeout: time.Second})
 	if result != nil || !errors.Is(err, vectorstore.ErrScanBudget) || !errors.Is(err, cause) {
 		t.Fatalf("result=%v error=%v", result, err)
