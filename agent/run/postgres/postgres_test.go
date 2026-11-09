@@ -129,7 +129,7 @@ func TestHostMutationCommitsExactlyOnceWithItsAppend(t *testing.T) {
 	}
 }
 
-func TestFailedHostMutationRollsBackLogAndHead(t *testing.T) {
+func TestFailedHostMutationRollsBackLog(t *testing.T) {
 	fixture := newPostgresFixture(t)
 	cause := errors.New("host write rejected")
 	store := fixture.store(t, func(batch run.Batch) (Mutation, error) {
@@ -156,8 +156,8 @@ func TestCorruptDatabaseRecordsCannotBecomeAcceptedHistory(t *testing.T) {
 	for _, corruption := range []struct{ name, sql string }{
 		{"kind", "UPDATE log SET kind='unknown' WHERE lsn=1"},
 		{"body", "UPDATE log SET body='{}'::bytea WHERE lsn=1"},
-		{"head", "UPDATE heads SET lsn=lsn+1"},
-		{"epoch", "UPDATE heads SET epoch=epoch+1"},
+		{"position", "UPDATE log SET lsn=lsn+1 WHERE lsn=2"},
+		{"epoch", "UPDATE log SET epoch=epoch+1 WHERE lsn=2"},
 	} {
 		t.Run(corruption.name, func(t *testing.T) {
 			fixture := newPostgresFixture(t)
@@ -191,7 +191,7 @@ func TestStorageDeadlineInterruptsRootLockWait(t *testing.T) {
 			t.Error(rollbackErr)
 		}
 	}()
-	if _, lockErr := tx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", store.tables.heads, batch.Root.String(), rootLockSeed); lockErr != nil {
+	if _, lockErr := tx.Exec(t.Context(), rootLockSQL, store.log, batch.Root.String(), rootLockSeed); lockErr != nil {
 		t.Fatal(lockErr)
 	}
 	if err := store.Append(t.Context(), batch); !errors.Is(err, context.DeadlineExceeded) {
@@ -215,7 +215,7 @@ func TestRootLocksAreConfinedToTheStoreNamespace(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	if _, err := tx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", firstStore.tables.heads, batch.Root.String(), rootLockSeed); err != nil {
+	if _, err := tx.Exec(t.Context(), rootLockSQL, firstStore.log, batch.Root.String(), rootLockSeed); err != nil {
 		t.Fatal(err)
 	}
 	if err := secondStore.Append(t.Context(), batch); err != nil {

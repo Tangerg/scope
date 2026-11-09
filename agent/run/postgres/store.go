@@ -17,6 +17,11 @@ import (
 
 const rootLockSeed int64 = 0
 
+// rootLockSQL takes the transaction-scoped lock that serializes appends to one
+// root. The relation name scopes the key, so stores in different namespaces
+// never block each other.
+const rootLockSQL = "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))"
+
 // Writer confines Host writes to the transaction whose append owns their commit.
 type Writer interface {
 	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
@@ -45,7 +50,7 @@ type Config struct {
 
 type Store struct {
 	pool     *pgxpool.Pool
-	tables   relations
+	log      string
 	timeout  time.Duration
 	prepare  func(run.Batch) (Mutation, error)
 	shutdown context.Context
@@ -60,10 +65,10 @@ func New(ctx context.Context, config Config) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	tables := newRelations(schema)
+	log := logRelation(schema)
 	probe, cancel := context.WithTimeout(ctx, config.Timeout)
 	defer cancel()
-	rows, err := config.Pool.Query(probe, "SELECT h.root,h.lsn,h.epoch,l.root,l.lsn,l.epoch,l.kind,l.body FROM "+tables.heads+" h,"+tables.log+" l LIMIT 0")
+	rows, err := config.Pool.Query(probe, "SELECT root,lsn,epoch,kind,body FROM "+log+" LIMIT 0")
 	if err != nil {
 		return nil, fmt.Errorf("postgres: validate store relations: %w", err)
 	}
@@ -72,7 +77,7 @@ func New(ctx context.Context, config Config) (*Store, error) {
 		return nil, fmt.Errorf("postgres: validate store relations: %w", err)
 	}
 	lifetime, stop := context.WithCancel(context.WithoutCancel(ctx))
-	return &Store{pool: config.Pool, tables: tables, timeout: config.Timeout, prepare: config.Prepare, shutdown: lifetime, stop: stop}, nil
+	return &Store{pool: config.Pool, log: log, timeout: config.Timeout, prepare: config.Prepare, shutdown: lifetime, stop: stop}, nil
 }
 
 // Close cancels storage operations without deleting the durable log. The Host
@@ -94,51 +99,25 @@ func (s *Store) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, er
 	}
 	op, done := s.operation(ctx)
 	defer done()
-	// One statement reads the head and the recovery cut from one MVCC snapshot,
-	// even while another writer activates the tree or appends a checkpoint.
-	rows, err := s.pool.Query(op, "SELECT h.lsn::text,h.epoch::text,l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.tables.heads+" h LEFT JOIN "+s.tables.log+" l ON l.root=h.root AND l.lsn>=COALESCE((SELECT max(c.lsn) FROM "+s.tables.log+" c WHERE c.root=h.root AND c.kind=$2),1) WHERE h.root=$1 ORDER BY l.lsn", root.String(), string(run.RecordKindCheckpoint))
+	// One statement locates the newest checkpoint and reads from it in one MVCC
+	// snapshot, even while another writer activates the tree or appends one.
+	rows, err := s.pool.Query(op, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>=COALESCE((SELECT max(c.lsn) FROM "+s.log+" c WHERE c.root=$1 AND c.kind="+checkpointKind+"),1) ORDER BY l.lsn", root.String())
 	if err != nil {
 		return run.Log{}, false, fmt.Errorf("postgres: load log %s: %w", root, err)
 	}
 	defer rows.Close()
 	log := run.Log{Root: root}
-	var head run.LSN
-	var epoch run.Epoch
-	found := false
-	for rows.Next() {
-		var headText, epochText string
-		var position, writerEpoch, kind *string
-		var body []byte
-		if scanErr := rows.Scan(&headText, &epochText, &position, &writerEpoch, &kind, &body); scanErr != nil {
-			return run.Log{}, false, scanErr
-		}
-		if !found {
-			head, epoch, err = parseHead(headText, epochText)
-			if err != nil {
-				return run.Log{}, false, err
-			}
-			found = true
-		}
-		if position == nil || writerEpoch == nil || kind == nil {
-			return run.Log{}, false, errors.New("postgres: log head has no records")
-		}
-		entry, err := decodeEntry(*position, *writerEpoch, *kind, body)
+	for entry, err := range scanEntries(rows) {
 		if err != nil {
 			return run.Log{}, false, err
 		}
 		log.Entries = append(log.Entries, entry)
 	}
-	if err := rows.Err(); err != nil {
-		return run.Log{}, false, err
-	}
-	if !found {
+	if len(log.Entries) == 0 {
 		return run.Log{}, false, nil
 	}
 	if err := log.Validate(); err != nil {
 		return run.Log{}, false, fmt.Errorf("postgres: invalid log %s: %w", root, err)
-	}
-	if log.Head() != head || log.Epoch() != epoch {
-		return run.Log{}, false, errors.New("postgres: log head does not address its last record")
 	}
 	return log, true, nil
 }
@@ -151,7 +130,7 @@ func (s *Store) Read(ctx context.Context, root run.ProcessID, after run.LSN) ite
 		}
 		op, done := s.operation(ctx)
 		defer done()
-		rows, err := s.pool.Query(op, "SELECT lsn::text,epoch::text,kind,body FROM "+s.tables.log+" WHERE root=$1 AND lsn>$2::text::numeric ORDER BY lsn", root.String(), strconv.FormatUint(uint64(after), 10))
+		rows, err := s.pool.Query(op, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric ORDER BY l.lsn", root.String(), strconv.FormatUint(uint64(after), 10))
 		if err != nil {
 			yield(run.Entry{}, fmt.Errorf("postgres: read log %s: %w", root, err))
 			return
@@ -173,8 +152,8 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 	batch = owned
 	op, done := s.operation(ctx)
 	defer done()
-	// A fresh READ COMMITTED statement sees a creator that won an absent-head
-	// race. The root lock serializes both creation and later CAS appends.
+	// The root lock serializes creation and every later CAS append; a fresh
+	// READ COMMITTED statement after it sees the head the previous holder wrote.
 	tx, err := s.pool.BeginTx(op, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
@@ -186,7 +165,7 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 			err = errors.Join(err, rollbackErr)
 		}
 	}()
-	if _, lockErr := tx.Exec(op, "SELECT pg_advisory_xact_lock(hashtextextended(jsonb_build_array($1::text,$2::text)::text,$3))", s.tables.heads, batch.Root.String(), rootLockSeed); lockErr != nil {
+	if _, lockErr := tx.Exec(op, rootLockSQL, s.log, batch.Root.String(), rootLockSeed); lockErr != nil {
 		return lockErr
 	}
 	head, epoch, err := s.head(op, tx, batch.Root)
@@ -200,7 +179,7 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 			return err
 		}
 	}
-	nextEpoch, duplicate, err := batch.Admit(epoch, head, existing)
+	_, duplicate, err := batch.Admit(epoch, head, existing)
 	if err != nil {
 		return err
 	}
@@ -221,12 +200,7 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 			return errors.New("postgres: host mutation has no Apply function")
 		}
 	}
-	entries := batch.Entries()
-	last := entries[len(entries)-1].LSN
-	if _, err := tx.Exec(op, "INSERT INTO "+s.tables.heads+"(root,lsn,epoch) VALUES($1,$2::text::numeric,$3::text::numeric) ON CONFLICT(root) DO UPDATE SET lsn=excluded.lsn,epoch=excluded.epoch", batch.Root.String(), strconv.FormatUint(uint64(last), 10), strconv.FormatUint(uint64(nextEpoch), 10)); err != nil {
-		return err
-	}
-	if err := s.writeEntries(op, tx, batch.Root, entries); err != nil {
+	if err := s.writeEntries(op, tx, batch.Root, batch.Entries()); err != nil {
 		return err
 	}
 	if mutation.Apply != nil {
@@ -237,9 +211,11 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 	return tx.Commit(op)
 }
 
+// head reads the coordinates of the last committed entry, which is the only
+// record of where the tree's log ends and which writer Epoch holds it.
 func (s *Store) head(ctx context.Context, tx pgx.Tx, root run.ProcessID) (run.LSN, run.Epoch, error) {
 	var positionText, epochText string
-	err := tx.QueryRow(ctx, "SELECT lsn::text,epoch::text FROM "+s.tables.heads+" WHERE root=$1", root.String()).Scan(&positionText, &epochText)
+	err := tx.QueryRow(ctx, "SELECT l.lsn::text,l.epoch::text FROM "+s.log+" l WHERE l.root=$1 ORDER BY l.lsn DESC LIMIT 1", root.String()).Scan(&positionText, &epochText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, 0, nil
 	}
@@ -251,7 +227,7 @@ func (s *Store) head(ctx context.Context, tx pgx.Tx, root run.ProcessID) (run.LS
 
 func (s *Store) rangeEntries(ctx context.Context, tx pgx.Tx, batch run.Batch) ([]run.Entry, error) {
 	end := batch.After + run.LSN(len(batch.Records))
-	rows, err := tx.Query(ctx, "SELECT lsn::text,epoch::text,kind,body FROM "+s.tables.log+" WHERE root=$1 AND lsn>$2::text::numeric AND lsn<=$3::text::numeric ORDER BY lsn", batch.Root.String(), strconv.FormatUint(uint64(batch.After), 10), strconv.FormatUint(uint64(end), 10))
+	rows, err := tx.Query(ctx, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric AND l.lsn<=$3::text::numeric ORDER BY l.lsn", batch.Root.String(), strconv.FormatUint(uint64(batch.After), 10), strconv.FormatUint(uint64(end), 10))
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +242,9 @@ func (s *Store) rangeEntries(ctx context.Context, tx pgx.Tx, batch run.Batch) ([
 	return entries, nil
 }
 
+// scanEntries reads coordinates as text because numeric(20,0) holds the whole
+// uint64 range. Every query orders by the qualified numeric column: a bare
+// ORDER BY lsn binds to the text output column and sorts "10" before "9".
 func scanEntries(rows pgx.Rows) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		for rows.Next() {
@@ -300,7 +279,7 @@ func (s *Store) writeEntries(ctx context.Context, tx pgx.Tx, root run.ProcessID,
 		epochs[i] = strconv.FormatUint(uint64(entry.Epoch), 10)
 		kinds[i], bodies[i] = string(kind), body
 	}
-	_, err := tx.Exec(ctx, "INSERT INTO "+s.tables.log+"(root,lsn,epoch,kind,body) SELECT $1,r.lsn::numeric,r.epoch::numeric,r.kind,r.body FROM unnest($2::text[],$3::text[],$4::text[],$5::bytea[]) r(lsn,epoch,kind,body)", root.String(), positions, epochs, kinds, bodies)
+	_, err := tx.Exec(ctx, "INSERT INTO "+s.log+"(root,lsn,epoch,kind,body) SELECT $1,r.lsn::numeric,r.epoch::numeric,r.kind,r.body FROM unnest($2::text[],$3::text[],$4::text[],$5::bytea[]) r(lsn,epoch,kind,body)", root.String(), positions, epochs, kinds, bodies)
 	return err
 }
 
@@ -309,8 +288,8 @@ func parseHead(position, epoch string) (run.LSN, run.Epoch, error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	writer, err := parsePosition[run.Epoch](epoch)
-	return head, writer, err
+	current, err := parsePosition[run.Epoch](epoch)
+	return head, current, err
 }
 
 func parsePosition[T ~uint64](text string) (T, error) {

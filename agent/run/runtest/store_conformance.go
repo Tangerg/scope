@@ -36,6 +36,7 @@ func RunStoreConformance(t *testing.T, factory func(*testing.T) run.Store) {
 		{"caller mutation cannot rewrite history", checkStoreOwnership},
 		{"load starts at the newest checkpoint", checkStoreRecoveryCut},
 		{"read yields history after a position", checkStoreHistoryRead},
+		{"positions order numerically past single digits", checkStoreNumericOrder},
 	} {
 		t.Run(check.name, func(t *testing.T) {
 			if err := check.run(t, factory(t), storeInitialBatch(t)); err != nil {
@@ -342,6 +343,53 @@ func checkStoreHistoryRead(t *testing.T, store run.Store, batch run.Batch) error
 		return errors.Join(fmt.Errorf("absent tree yielded %d entries", len(absent)), err)
 	}
 	return nil
+}
+
+// checkStoreNumericOrder crosses the 9→10 boundary inside one batch, where a
+// store that orders positions as text would read, retry, and find its head
+// out of order.
+func checkStoreNumericOrder(t *testing.T, store run.Store, batch run.Batch) error {
+	history := batch.Entries()
+	if err := store.Append(t.Context(), batch); err != nil {
+		return fmt.Errorf("append initial records: %w", err)
+	}
+	for after := run.LSN(2); after < 8; after++ {
+		single := storeSignalBatch(t, batch.Root, 1, after, fmt.Sprintf("single-%d", after), "accepted")
+		if err := store.Append(t.Context(), single); err != nil {
+			return fmt.Errorf("append at %d: %w", after, err)
+		}
+		history = append(history, single.Entries()...)
+	}
+	crossing := run.Batch{Root: batch.Root, Epoch: 1, After: 8}
+	for index := range 4 {
+		signal := storeSignalBatch(t, batch.Root, 1, 8, fmt.Sprintf("crossing-%d", index), "accepted")
+		crossing.Records = append(crossing.Records, signal.Records...)
+	}
+	for range 2 {
+		if err := store.Append(t.Context(), crossing); err != nil {
+			return fmt.Errorf("append batch crossing position 10: %w", err)
+		}
+	}
+	history = append(history, crossing.Entries()...)
+	last := storeSignalBatch(t, batch.Root, 1, 12, "after-crossing", "accepted")
+	if err := store.Append(t.Context(), last); err != nil {
+		return fmt.Errorf("append after the crossing batch: %w", err)
+	}
+	history = append(history, last.Entries()...)
+	for _, after := range []run.LSN{0, 9} {
+		got, err := readStoreHistory(t.Context(), store, batch.Root, after)
+		if err != nil {
+			return err
+		}
+		if err := compareStoreEntries(got, history[after:]); err != nil {
+			return fmt.Errorf("read after %d: %w", after, err)
+		}
+	}
+	log, err := readStoreLog(t.Context(), store, batch.Root)
+	if err != nil {
+		return err
+	}
+	return compareStoreEntries(log.Entries, history)
 }
 
 func readStoreHistory(ctx context.Context, store run.Store, root run.ProcessID, after run.LSN) ([]run.Entry, error) {

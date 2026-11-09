@@ -1,6 +1,7 @@
 // Package postgres atomically appends run records and optional Host writes in
-// one PostgreSQL transaction. The append-only log is the durable authority;
-// the head is a transactional CAS address and contains no execution state.
+// one PostgreSQL transaction. The append-only log is the only durable fact:
+// its last entry is the head an append compares against, under a per-root
+// advisory lock that serializes creation and every later append.
 //
 // Install SchemaSQL in a dedicated Host-owned namespace before calling New.
 // The Host owns pool lifetime, authorizes namespace creation, and joins its

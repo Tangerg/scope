@@ -43,7 +43,7 @@ func TestSchemaNamesAreOneQuotedIdentifier(t *testing.T) {
 		}
 	}
 	ddl, err := SchemaSQL(`t";DROP SCHEMA other;--`)
-	if err != nil || !strings.Contains(ddl, `"t"";DROP SCHEMA other;--".heads`) || !strings.Contains(ddl, `"t"";DROP SCHEMA other;--".log`) {
+	if err != nil || !strings.Contains(ddl, `"t"";DROP SCHEMA other;--".log`) {
 		t.Fatalf("unsafe DDL: %s (%v)", ddl, err)
 	}
 }

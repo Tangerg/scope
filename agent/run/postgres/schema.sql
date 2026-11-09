@@ -1,10 +1,5 @@
-CREATE TABLE $schema.heads (
-    root text PRIMARY KEY,
-    lsn numeric(20,0) NOT NULL CHECK (lsn BETWEEN 0 AND 18446744073709551615),
-    epoch numeric(20,0) NOT NULL CHECK (epoch BETWEEN 0 AND 18446744073709551615)
-);
 CREATE TABLE $schema.log (
-    root text NOT NULL REFERENCES $schema.heads(root),
+    root text NOT NULL,
     lsn numeric(20,0) NOT NULL CHECK (lsn BETWEEN 1 AND 18446744073709551615),
     epoch numeric(20,0) NOT NULL CHECK (epoch BETWEEN 0 AND 18446744073709551615),
     kind text NOT NULL,
