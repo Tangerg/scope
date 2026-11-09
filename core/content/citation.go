@@ -3,10 +3,10 @@ package content
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
-	"unicode"
 	"unicode/utf8"
+
+	"github.com/Tangerg/scope/core/internal/absuri"
 )
 
 var ErrInvalidCitation = errors.New("content: invalid citation")
@@ -45,11 +45,8 @@ func (c CitationSource) Validate() error {
 	if strings.TrimSpace(c.Value) == "" || strings.TrimSpace(c.Value) != c.Value {
 		return fmt.Errorf("%w: source value must be non-empty without surrounding whitespace", ErrInvalidCitation)
 	}
-	if c.Kind == CitationSourceURI {
-		parsed, err := url.Parse(c.Value)
-		if err != nil || !parsed.IsAbs() || (parsed.Opaque == "" && parsed.Host == "" && parsed.Path == "") || strings.ContainsFunc(c.Value, unicode.IsSpace) {
-			return fmt.Errorf("%w: source URI %q must be absolute with a non-empty target and no whitespace", ErrInvalidCitation, c.Value)
-		}
+	if c.Kind == CitationSourceURI && !absuri.Valid(c.Value) {
+		return fmt.Errorf("%w: source URI %q must be absolute with a non-empty target and no whitespace", ErrInvalidCitation, c.Value)
 	}
 	return nil
 }

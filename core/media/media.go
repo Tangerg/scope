@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	"net/url"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Tangerg/scope/core/internal/absuri"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -67,8 +67,7 @@ func (s Source) carriesOnly(kind SourceKind) bool {
 }
 
 func (s Source) validateURI() error {
-	parsed, err := url.Parse(s.URI)
-	if err != nil || parsed.Scheme == "" || (parsed.Opaque == "" && parsed.Host == "" && parsed.Path == "") {
+	if !absuri.Valid(s.URI) {
 		return fmt.Errorf("%w: %q is not an absolute URI", ErrInvalidSource, s.URI)
 	}
 	return nil
