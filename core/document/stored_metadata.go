@@ -13,7 +13,7 @@ const StoredProvenanceKey = "_scope_document_provenance"
 type storedOrigin struct {
 	Provenance *Provenance `json:"provenance"`
 	// An origin requires an object on the wire even when business metadata is null.
-	NullMetadata bool `json:"null_metadata,omitempty"`
+	NullMetadata bool `json:"null_metadata,omitzero"`
 }
 
 // ValidateStoredMetadata rejects business fields that would collide with

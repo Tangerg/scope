@@ -21,7 +21,7 @@ type Provenance struct {
 	Revision string     `json:"revision,omitempty"`
 	Chunks   []Chunk    `json:"chunks,omitempty"`
 	Bytes    *ByteRange `json:"bytes,omitzero"`
-	Page     int        `json:"page,omitempty"` // one-based; zero means unknown
+	Page     int        `json:"page,omitzero"` // one-based; zero means unknown
 }
 
 // Chunk identifies an emitted part within its parent, after empty parts have
