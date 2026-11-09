@@ -389,7 +389,10 @@ func (v Value) Reader() (result io.ReadCloser) {
 		}
 	}
 
-	return &filteredReader{Reader: &budgetReader{source: rd, budget: v.r.budget}, closers: closers}
+	if filter.IsNull() || filter.Kind() == Array && filter.Len() == 0 {
+		rd = &budgetReader{source: rd, budget: v.r.budget}
+	}
+	return &filteredReader{Reader: rd, closers: closers}
 }
 
 var passwordPad = []byte{

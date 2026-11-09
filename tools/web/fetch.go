@@ -11,6 +11,11 @@ import (
 	"github.com/Tangerg/scope/tools/internal/toolinput"
 )
 
+const (
+	httpScheme  = "http"
+	httpsScheme = "https"
+)
+
 type ContentFormat string
 
 const (
@@ -93,7 +98,7 @@ func isHTTPURL(raw string) bool {
 		return false
 	}
 	parsed, err := url.Parse(strings.TrimSpace(raw))
-	return err == nil && parsed.Hostname() != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
+	return err == nil && parsed.Hostname() != "" && (parsed.Scheme == httpScheme || parsed.Scheme == httpsScheme)
 }
 
 type FetchResponse struct {

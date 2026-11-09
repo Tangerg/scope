@@ -19,6 +19,9 @@
 // must accept every declared output mode.
 //
 // An input-required status lists every pending question, its owner and schema.
+// An absent question projects as JSON null, and an absent answer schema as the
+// unrestricted schema true. Question IDs derive from the committed wait address
+// and runtime root, so reads and writer recovery preserve the same identity.
 // Reply to the task/context with the chosen scope.wait address (process and
 // local key) in message metadata.
 // Repeating a consumed answer reconciles through the committed SignalAdmitted record,

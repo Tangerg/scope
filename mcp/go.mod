@@ -4,8 +4,8 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.5
-	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
-	github.com/Tangerg/scope/otel v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/otel v0.60.1-0.20261108171018-f61011de7e02
 	github.com/samber/lo v1.53.0
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/otel v1.47.0

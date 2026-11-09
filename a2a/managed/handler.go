@@ -228,6 +228,11 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrEpochConflict) {
 			return nil, sdk.ErrTaskNotCancelable
 		}
+		if errors.Is(err, run.ErrClosed) || errors.Is(err, run.ErrInvalidProcessControl) {
+			if current, readErr := h.load(ctx, k); readErr == nil && rootProcess(current).Status.Terminal() {
+				return nil, sdk.ErrTaskNotCancelable
+			}
+		}
 		return nil, sdk.NewError(sdk.ErrInternalError, "cancellation was not acknowledged; read the task status")
 	}
 	head, err = h.load(ctx, k)
@@ -283,10 +288,13 @@ func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, err
 				return
 			}
 			if local, ok := h.runtime.Process(head.Root); ok {
-				for _, err := range local.Observe(ctx, after) {
+				for entry, err := range local.Observe(ctx, after) {
 					if err != nil {
 						yield(nil, err)
 						return
+					}
+					if entry.LSN <= after {
+						continue
 					}
 					view, err := h.load(ctx, k)
 					if err != nil {

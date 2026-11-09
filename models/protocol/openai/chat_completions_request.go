@@ -16,6 +16,13 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
+const (
+	mediaTypeMajorImage     = "image"
+	mediaTypeMajorAudio     = "audio"
+	chatInputAudioFormatMP3 = "mp3"
+	chatInputAudioFormatWAV = "wav"
+)
+
 func mapToolDefinitions(definitions []toolcontract.Definition) ([]openaisdk.ChatCompletionToolUnionParam, error) {
 	tools := make([]openaisdk.ChatCompletionToolUnionParam, 0, len(definitions))
 	for i := range definitions {
@@ -112,7 +119,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 	major, subtype, _ := strings.Cut(mediaType, "/")
 
 	switch major {
-	case "image":
+	case mediaTypeMajorImage:
 		location, locationErr := mediaLocation(value)
 		if locationErr != nil {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("image source: %w", locationErr)
@@ -122,14 +129,17 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 				ImageURL: openaisdk.ChatCompletionContentPartImageImageURLParam{URL: location},
 			},
 		}, nil
-	case "audio":
+	case mediaTypeMajorAudio:
 		if value.Source.Kind != media.SourceBytes {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio requires bytes, got %q", value.Source.Kind)
 		}
-		if subtype == "mpeg" {
-			subtype = "mp3"
-		}
-		if subtype != "wav" && subtype != "mp3" {
+		var format string
+		switch mediaType {
+		case audioMIMEMPEG, audioMIMEMP3:
+			format = chatInputAudioFormatMP3
+		case audioMIMEWAV:
+			format = chatInputAudioFormatWAV
+		default:
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio MIME subtype %q is unsupported", subtype)
 		}
 		data, bytesErr := value.Bytes()
@@ -140,7 +150,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 			OfInputAudio: &openaisdk.ChatCompletionContentPartInputAudioParam{
 				InputAudio: openaisdk.ChatCompletionContentPartInputAudioInputAudioParam{
 					Data:   base64.StdEncoding.EncodeToString(data),
-					Format: subtype,
+					Format: format,
 				},
 			},
 		}, nil

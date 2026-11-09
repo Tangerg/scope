@@ -6,6 +6,8 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
+const nativeTextCharset = "utf8mb4"
+
 type nativeTextType string
 
 const (

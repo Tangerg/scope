@@ -32,6 +32,9 @@ func TestFontEncodingsRespectTheirDeclaredCharacterMaps(t *testing.T) {
 	}{
 		{name("WinAnsiEncoding"), "\x80A", "€A"},
 		{name("MacRomanEncoding"), "\x80A", "ÄA"},
+		{name("WinAnsiEncoding"), "\x00\x1f\xa0\xad", "\x00\x1f\u00a0\u00ad"},
+		{name("MacRomanEncoding"), "\x00\x1f\xca\xf0", "\x00\x1f\u00a0\uf8ff"},
+		{name("StandardEncoding"), "\x00\x1f\x7f\x80\xff", "�����"},
 		{name("UniGB-UCS2-H"), "\x00A\x00B", "AB"},
 		{nil, "\x80A", "�A"},
 		{dict{"Differences": array{int64(65), name("Euro"), name("B"), int64(67), name("A")}}, "ABC", "€BA"},
@@ -43,6 +46,34 @@ func TestFontEncodingsRespectTheirDeclaredCharacterMaps(t *testing.T) {
 		}
 		if font.Decoder() != decoder {
 			t.Fatal("font did not reuse its frozen decoder")
+		}
+	}
+}
+
+func TestGlyphSequencesConsumeTheirExpandedByteBudget(t *testing.T) {
+	const glyphText = "\u0631\ufef3\ufe8e\u0644"
+	const repetitions = 8
+	want := strings.Repeat(glyphText, repetitions)
+	for _, limit := range []int{len(want) - 1, len(want)} {
+		value := literalValue(t, dict{"Subtype": name("Type1"), "BaseFont": name("Helvetica"), "Encoding": dict{
+			"BaseEncoding": name("WinAnsiEncoding"), "Differences": array{int64('A'), name("rehyehaleflamarabic")},
+		}})
+		value.r.budget = newBudget(t.Context(), Limits{MaxWork: 10_000, MaxDecodedBytes: int64(limit), MaxObjects: 100})
+		font := Font{V: value}
+		var got string
+		var err error
+		func() {
+			defer recoverTo(&err, func() { got = "" })
+			got = font.Decoder().Decode(strings.Repeat("A", repetitions))
+		}()
+		if limit < len(want) {
+			if got != "" || !errors.Is(err, ErrBudget) {
+				t.Fatalf("undersized expanded budget: text=%q error=%v", got, err)
+			}
+			continue
+		}
+		if got != want || err != nil {
+			t.Fatalf("exact expanded budget: text=%q error=%v; want %q", got, err, want)
 		}
 	}
 }

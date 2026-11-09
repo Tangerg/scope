@@ -10,8 +10,8 @@ func TestReasoningFrameLengthCannotNarrowBeforeAdmission(t *testing.T) {
 		responsesFrame := make([]byte, responsesReasoningFrameSize)
 		copy(responsesFrame, responsesReasoningFrameMagic[:])
 		binary.BigEndian.PutUint32(responsesFrame[len(responsesReasoningFrameMagic):], length)
-		if _, framed, err := decodeResponsesReasoningFrames(responsesFrame); !framed || err == nil {
-			t.Fatalf("responses length %d: framed=%t error=%v", length, framed, err)
+		if _, err := (responsesReasoningCodec{provider: ProviderID}).decodeFrames(responsesFrame); err == nil {
+			t.Fatalf("responses length %d was admitted", length)
 		}
 		detailFrame := make([]byte, reasoningDetailFrameHeaderSize)
 		copy(detailFrame, reasoningDetailFrameMagic[:])

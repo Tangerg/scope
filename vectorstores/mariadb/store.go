@@ -20,7 +20,10 @@ import (
 
 const Provider = "MariaDB"
 
-const documentIDBytes = 3072
+const (
+	documentIDBytes       = 3072
+	requiredStorageEngine = "InnoDB"
+)
 
 const (
 	DefaultTableName       = "vector_store"
@@ -239,6 +242,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 
 func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
 	const database = "COALESCE(NULLIF(?, ''), DATABASE())"
+	const columnNotNullable = "NO"
 	var dataType, nullable, engine string
 	var length sql.NullInt64
 	err = s.db.QueryRowContext(ctx,
@@ -247,10 +251,10 @@ func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != "NO" {
+	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != columnNotNullable {
 		return fmt.Errorf("document ID column must be VARBINARY(%d) NOT NULL; rebuild the table", documentIDBytes)
 	}
-	if engine != "InnoDB" {
+	if engine != requiredStorageEngine {
 		return errors.New("filter transactions require an InnoDB table; rebuild the table")
 	}
 	rows, err := s.db.QueryContext(ctx,
@@ -306,12 +310,12 @@ func (s *Store) createTableStatement() string {
 			%s TEXT,
 			%s JSON,
 			%s VECTOR(%d) NOT NULL
-		) ENGINE=InnoDB DEFAULT CHARACTER SET %s COMMENT='%s'`,
+		) ENGINE=%s DEFAULT CHARACTER SET %s COMMENT='%s'`,
 		s.fullTable,
 		s.idColumn, documentIDBytes,
 		s.contentColumn,
 		s.metadataColumn,
-		s.embeddingColumn, s.dimensions, nativeTextCharset, s.space.StorageKey(),
+		s.embeddingColumn, s.dimensions, requiredStorageEngine, nativeTextCharset, s.space.StorageKey(),
 	)
 }
 

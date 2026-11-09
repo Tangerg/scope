@@ -16,7 +16,7 @@ type collectionSchema struct{ dimensions int }
 
 // SpaceField binds a provisioned collection to its immutable encoder space.
 func SpaceField(space vectorstore.SpaceID) api.Field {
-	return api.Field{Name: space.StorageKey(), Type: "string", Optional: new(true), Index: new(false)}
+	return api.Field{Name: space.StorageKey(), Type: fieldTypeString, Optional: new(true), Index: new(false)}
 }
 
 func newCollectionSchema(schema *api.CollectionResponse, name string, space vectorstore.SpaceID) (collectionSchema, error) {
@@ -29,7 +29,7 @@ func newCollectionSchema(schema *api.CollectionResponse, name string, space vect
 			return collectionSchema{}, fmt.Errorf("%w: duplicate field %s", ErrIncompatibleCollection, field.Name)
 		}
 		if field.Name == space.StorageKey() {
-			if field.Type != "string" || field.Optional == nil || !*field.Optional || field.Index == nil || *field.Index || field.Embed != nil {
+			if field.Type != fieldTypeString || field.Optional == nil || !*field.Optional || field.Index == nil || *field.Index || field.Embed != nil {
 				return collectionSchema{}, ErrIncompatibleCollection
 			}
 			fields[field.Name] = field

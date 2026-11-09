@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/milvus
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
+	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
 	github.com/milvus-io/milvus-proto/go-api/v3 v3.0.5
 	github.com/milvus-io/milvus/client/v3 v3.0.0
 	github.com/samber/lo v1.53.0
@@ -39,7 +39,6 @@ require (
 	github.com/tidwall/pretty v1.2.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect

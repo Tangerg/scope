@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/tools/skills
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
-	github.com/Tangerg/scope/skills v0.60.0
+	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/skills v0.60.1-0.20261108171018-f61011de7e02
 	github.com/samber/lo v1.53.0
 )
 
@@ -15,7 +15,6 @@ require (
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
-	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.7 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

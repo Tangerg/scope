@@ -21,9 +21,11 @@
 // replacement Task. Agent.Run receives the current message; retained protocol
 // history is not an implicit conversational context for the Agent.
 // An input-required remote task becomes a tool.InputRequest bound to the
-// original task, context, and tool binding. A validated text answer reuses
-// the reply identity and continues the same task. Authentication requests
-// require explicit Host handling.
+// original task, context, and tool binding. Ordinary continuations require a
+// non-empty text answer. External waits bind a [WaitAddress] and an exact JSON
+// Schema, so answers follow the remote contract without losing numeric precision.
+// Validated answers reuse the reply identity and continue the same task.
+// Authentication requests require explicit Host handling.
 // Durable Hosts set Endpoint.ContinuationIdentity from their stable principal
 // and execution revision, and use that same revision in the interaction's ToolSet
 // declaration. The adapter also binds discovery, remote interfaces and tool name.
@@ -31,7 +33,8 @@
 // changing its authority rejects the continuation before RPC dispatch. With an
 // empty identity, continuations belong only to the opened ToolSet's lifetime.
 //
-// The text boundary rejects structured, binary and URI parts explicitly.
+// Ordinary task output rejects structured, binary and URI parts. External waits
+// can carry JSON in text parts to avoid the SDK's numeric Data conversion.
 // Independently encoded JSON-RPC and HTTP+JSON peers check result semantics;
 // raw JSON-RPC callers exercise stored-task continuation and cancellation.
 // Raw peers must offer the interface's advertised protocol version using

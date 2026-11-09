@@ -50,6 +50,11 @@ func (n nativeMetric) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 	return vectorstore.ScoreFromValue(raw), nil
 }
 
+const (
+	fieldTypeString           = "Edm.String"
+	fieldTypeSingleCollection = "Collection(Edm.Single)"
+)
+
 type indexField struct {
 	Name                string `json:"name"`
 	Type                string `json:"type"`
@@ -91,19 +96,19 @@ func (i indexSchema) bind(idField, contentField, embeddingField, metadataField s
 		fields[field.Name] = field
 	}
 	id, exists := fields[idField]
-	if !exists || id.Type != "Edm.String" || !id.Key || !id.Filterable || !id.Sortable || id.Normalizer != "" {
+	if !exists || id.Type != fieldTypeString || !id.Key || !id.Filterable || !id.Sortable || id.Normalizer != "" {
 		return "", 0, fmt.Errorf("%w: ID must be a retrievable, filterable, sortable string key without a normalizer", ErrIncompatibleIndex)
 	}
 	content, exists := fields[contentField]
-	if !exists || content.Type != "Edm.String" || content.Key || !content.Searchable {
+	if !exists || content.Type != fieldTypeString || content.Key || !content.Searchable {
 		return "", 0, fmt.Errorf("%w: content must be a searchable string", ErrIncompatibleIndex)
 	}
 	facts, exists := fields[metadataField]
-	if !exists || facts.Type != "Edm.String" || facts.Key || facts.Searchable || facts.Filterable || facts.Sortable || facts.Facetable {
+	if !exists || facts.Type != fieldTypeString || facts.Key || facts.Searchable || facts.Filterable || facts.Sortable || facts.Facetable {
 		return "", 0, fmt.Errorf("%w: metadata must be an unindexed string containing Core JSON", ErrIncompatibleIndex)
 	}
 	vector, exists := fields[embeddingField]
-	if !exists || vector.Type != "Collection(Edm.Single)" || vector.Key || !vector.Searchable || vector.Dimensions <= 0 || vector.VectorSearchProfile == "" || (vector.Stored != nil && !*vector.Stored) {
+	if !exists || vector.Type != fieldTypeSingleCollection || vector.Key || !vector.Searchable || vector.Dimensions <= 0 || vector.VectorSearchProfile == "" || (vector.Stored != nil && !*vector.Stored) {
 		return "", 0, fmt.Errorf("%w: vector must have a searchable, stored single-precision profile and positive dimensions", ErrIncompatibleIndex)
 	}
 	algorithmName := ""

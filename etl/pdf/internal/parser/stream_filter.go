@@ -25,7 +25,7 @@ const (
 	filterDCT       streamFilter = "DCTDecode"
 )
 
-func (s streamFilter) decode(rd io.Reader, param Value, grant *budget, closers *[]io.Closer) io.Reader {
+func (s streamFilter) decode(rd io.Reader, param Value, grant *budget, closers *[]io.Closer) *budgetReader {
 	if !param.IsNull() && param.Kind() != Dict {
 		panic("malformed PDF: DecodeParms must be a dictionary")
 	}
@@ -41,7 +41,8 @@ func (s streamFilter) decode(rd io.Reader, param Value, grant *budget, closers *
 		case predictorNone:
 			return decoded
 		case predictorPNGUp:
-			return newPNGUpReader(decoded, param, grant)
+			// Prediction transforms the expanded bytes into a separate output stage.
+			return &budgetReader{source: newPNGUpReader(decoded, param, grant), budget: grant}
 		default:
 			panic(fmt.Errorf("unsupported PDF predictor %d", predictor))
 		}

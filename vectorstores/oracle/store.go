@@ -240,25 +240,30 @@ CONSTRAINT %s CHECK (1=1)
 }
 
 func (s *Store) validateSchema(ctx context.Context) (err error) {
+	const (
+		columnNotNullable       = "N"
+		constraintStatusEnabled = "ENABLED"
+		constraintValidated     = "VALIDATED"
+	)
 	var dataType, nullable string
 	var length int
 	const columns = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = UPPER(:1) AND TABLE_NAME = UPPER(:2) AND COLUMN_NAME = UPPER(:3)"
 	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if dataType != "RAW" || length != documentIDBytes || nullable != "N" {
+	if dataType != "RAW" || length != documentIDBytes || nullable != columnNotNullable {
 		return fmt.Errorf("document ID column must be RAW(%d) NOT NULL; rebuild the table", documentIDBytes)
 	}
 	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.metadataColumn).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
-	if dataType != "BLOB" || nullable != "N" {
+	if dataType != "BLOB" || nullable != columnNotNullable {
 		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
 	}
 	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.contentColumn).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read content schema: %w", err)
 	}
-	if dataType != contentColumnType || nullable != "N" {
+	if dataType != contentColumnType || nullable != columnNotNullable {
 		return fmt.Errorf("content column must be %s NOT NULL; rebuild the table", contentColumnType)
 	}
 	rows, err := s.db.QueryContext(ctx,
@@ -278,7 +283,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		if err = rows.Scan(&kind, &status, &validated, &column, &position); err != nil {
 			return fmt.Errorf("read document identity constraint: %w", err)
 		}
-		if !strings.EqualFold(column, s.idColumn) || position != 1 || status != "ENABLED" || validated != "VALIDATED" {
+		if !strings.EqualFold(column, s.idColumn) || position != 1 || status != constraintStatusEnabled || validated != constraintValidated {
 			return errors.New("uniqueness constraints must identify a document solely by its full ID; rebuild the table")
 		}
 		primary = primary || kind == "P"

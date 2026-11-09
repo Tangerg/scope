@@ -69,8 +69,8 @@ func (a apiConfig) endpoint() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
-	if (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Hostname() == "" || endpoint.User != nil {
-		return "", fmt.Errorf("openai: %s must be an absolute HTTP or HTTPS URL with a host", source)
+	if _, err := httpclient.NewOrigin(context.Background(), endpoint); err != nil {
+		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
 
 	return baseURL, nil

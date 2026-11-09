@@ -187,9 +187,8 @@ func (c *ChatCompletions) buildRequest(req *corechat.Request) (*openaisdk.ChatCo
 	if err != nil {
 		return nil, fmt.Errorf("openai: options: %w", err)
 	}
-	resolvedRequest := *req
-	resolvedRequest.Options = options
-	req = &resolvedRequest
+	req = req.Clone()
+	req.Options = options
 	params := openaisdk.ChatCompletionNewParams{}
 	if extensionErr := c.applyRequestExtension(req, &params); extensionErr != nil {
 		return nil, extensionErr

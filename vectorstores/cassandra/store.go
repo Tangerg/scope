@@ -231,11 +231,12 @@ func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 func (s *Store) verifyPrimaryKey(ctx context.Context, keyspace, table string) (err error) {
 	iter := s.session.Query("SELECT column_name,kind FROM system_schema.columns WHERE keyspace_name=? AND table_name=?", keyspace, table).IterContext(ctx)
 	defer func() { err = errors.Join(err, iter.Close()) }()
-	var name, kind string
+	var name string
+	var kind gocql.ColumnKind
 	primaryKeys := 0
 	for iter.Scan(&name, &kind) {
-		if kind == "partition_key" || kind == "clustering" {
-			if name != s.idColumn || kind != "partition_key" {
+		if kind == gocql.ColumnPartitionKey || kind == gocql.ColumnClusteringKey {
+			if name != s.idColumn || kind != gocql.ColumnPartitionKey {
 				return errors.New("cassandra: document ID must be the sole primary key")
 			}
 			primaryKeys++

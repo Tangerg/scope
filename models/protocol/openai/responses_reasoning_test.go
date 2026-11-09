@@ -116,23 +116,27 @@ func TestResponsesRejectInvalidReasoningHistoryBeforeIO(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		text   string
-		states []string
+		frames []string
 	}{
-		{"old full item", "current", []string{`{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text","text":"old copy"}]}`}},
-		{"stored text copy", "current", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text","text":"second owner"}]}}`}},
-		{"missing completed item", "current", []string{`{"segment":{"item_id":"rs-1","kind":"summary","index":0}}`}},
-		{"missing Core segment", "", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text"}]}}`}},
-		{"text on opaque item", "unexpected", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[]}}`}},
-		{"mixed segment identities", "current", []string{`{"segment":{"item_id":"rs-1","kind":"summary","index":0}}`, `{"segment":{"item_id":"rs-1","kind":"content","index":0}}`}},
-		{"mixed item identities", "current", []string{`{"segment":{"item_id":"rs-1","kind":"summary","index":0}}`, `{"item":{"id":"rs-2","type":"reasoning","summary":[]}}`}},
-		{"duplicate completed states", "", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[]}}`, `{"item":{"id":"rs-1","type":"reasoning","summary":[]}}`}},
-		{"invalid segment index", "current", []string{`{"segment":{"item_id":"rs-1","kind":"summary","index":-1}}`}},
-		{"unknown state field", "", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[]},"unknown":true}`}},
-		{"null state", "", []string{`null`}},
+		{"unscoped state", "", []string{`{"item":{"id":"rs-1","type":"reasoning","summary":[]}}`}},
+		{"missing issuer", "", []string{`{"state":{"item":{"id":"rs-1","type":"reasoning","summary":[]}}}`}},
+		{"invalid issuer", "", []string{`{"issuer":"invalid/namespace","state":{"item":{"id":"rs-1","type":"reasoning","summary":[]}}}`}},
+		{"null frame", "", []string{`null`}},
+		{"old full item", "current", []string{`{"issuer":"openai","state":{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text","text":"old copy"}]}}`}},
+		{"stored text copy", "current", []string{`{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text","text":"second owner"}]}}}`}},
+		{"missing completed item", "current", []string{`{"issuer":"openai","state":{"segment":{"item_id":"rs-1","kind":"summary","index":0}}}`}},
+		{"missing Core segment", "", []string{`{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text"}]}}}`}},
+		{"text on opaque item", "unexpected", []string{`{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[]}}}`}},
+		{"mixed segment identities", "current", []string{`{"issuer":"openai","state":{"segment":{"item_id":"rs-1","kind":"summary","index":0}}}`, `{"issuer":"openai","state":{"segment":{"item_id":"rs-1","kind":"content","index":0}}}`}},
+		{"mixed item identities", "current", []string{`{"issuer":"openai","state":{"segment":{"item_id":"rs-1","kind":"summary","index":0}}}`, `{"issuer":"openai","state":{"item":{"id":"rs-2","type":"reasoning","summary":[]}}}`}},
+		{"duplicate completed states", "", []string{`{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[]}}}`, `{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[]}}}`}},
+		{"invalid segment index", "current", []string{`{"issuer":"openai","state":{"segment":{"item_id":"rs-1","kind":"summary","index":-1}}}`}},
+		{"unknown state field", "", []string{`{"issuer":"openai","state":{"item":{"id":"rs-1","type":"reasoning","summary":[]},"unknown":true}}`}},
+		{"null state", "", []string{`{"issuer":"openai","state":null}`}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var state []byte
-			for _, payload := range test.states {
+			for _, payload := range test.frames {
 				frame := make([]byte, 8+len(payload))
 				copy(frame, "OARI")
 				binary.BigEndian.PutUint32(frame[4:8], uint32(len(payload)))

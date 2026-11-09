@@ -2,10 +2,10 @@ github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3 h1:qgnWTiWs1G7AqcKZegFvkJD1
 github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3/go.mod h1:XtxD48QPInqoj+GMlcRlXHEYsoOxFnP6w2JgIZ9rDS4=
 github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 h1:Terj1CMW4+NY5CpWjSRkqLoxh2DkYDdv/FH2z0897Uc=
 github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0/go.mod h1:7Ut2Qw9vcwpLW5Q4MBy43uSxXS7tK2yjs94OJ6j5thE=
-github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183 h1:eZzgwNiEkNqG3snnddjfsBm6fY+f3X659vCtc5J7W3o=
-github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/models/protocol/openai v0.60.0 h1:9/MGhZ4KlZPv/cV5zXVwGvtobbr57SbZ77foqOrMMkQ=
-github.com/Tangerg/scope/models/protocol/openai v0.60.0/go.mod h1:E+da7F8i88JXVB5XIr2TZF119HTXq7/73YIeutaGOWg=
+github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02 h1:GBj0heTEowlo9W65HECZNaS1iyl9wNUuQ/khgHS+mOs=
+github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02/go.mod h1:nfLAh+FmtWTfPqvkIRibKkSegZ4RJvKR4MI+E4cjZYo=
+github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261108171018-f61011de7e02 h1:MBMkM+cPKci06ngaeJlVMPezf5otlgmE5+EnxLWdmgw=
+github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261108171018-f61011de7e02/go.mod h1:RdBk0nNgVNkya6tmF2FD6vcI1zSWpebW2Pj52MWhh00=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

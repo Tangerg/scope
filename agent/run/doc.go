@@ -23,6 +23,9 @@
 // over another writer. Run instead attaches the foreground operation to its
 // context and joins and releases its anonymous local writer before returning.
 // An interrupted Run returns RuntimeError with the durable recovery identity.
+// Await checks its observation context before reading and before returning a
+// result, so concurrent completion cannot conceal caller cancellation. A later
+// observation can still read the committed outcome.
 // Close cancels and joins local work without declaring an uncertain
 // external operation stopped; unresolved Effects remain in the durable log.
 //

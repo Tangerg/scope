@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/cassandra
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
+	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/samber/lo v1.53.0
 )
@@ -19,7 +19,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect

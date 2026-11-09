@@ -248,6 +248,7 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 }
 
 func (s *Store) validateSchema(ctx context.Context) (err error) {
+	const columnNotNullable = "NO"
 	const database = "COALESCE(NULLIF(?, ''), DATABASE())"
 	var dataType, nullable string
 	var length sql.NullInt64
@@ -257,7 +258,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != "NO" {
+	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != columnNotNullable {
 		return fmt.Errorf("document ID column must be VARBINARY(%d) NOT NULL; rebuild the table", documentIDBytes)
 	}
 	err = s.db.QueryRowContext(ctx,
@@ -266,7 +267,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
-	if dataType != "longblob" || nullable != "NO" {
+	if dataType != "longblob" || nullable != columnNotNullable {
 		return errors.New("metadata column must be LONGBLOB NOT NULL to retain encoded JSON; rebuild the table")
 	}
 	rows, err := s.db.QueryContext(ctx,
@@ -321,12 +322,12 @@ func (s *Store) createTableStatement() string {
 			%s TEXT,
 			%s LONGBLOB NOT NULL,
 			%s VECTOR(%d) NOT NULL
-		) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COMMENT='%s'`,
+		) ENGINE=InnoDB DEFAULT CHARACTER SET %s COMMENT='%s'`,
 		s.fullTable,
 		s.idColumn, documentIDBytes,
 		s.contentColumn,
 		s.metadataColumn,
-		s.embeddingColumn, s.dimensions, s.space.StorageKey(),
+		s.embeddingColumn, s.dimensions, nativeTextCharset, s.space.StorageKey(),
 	)
 }
 
@@ -350,7 +351,7 @@ AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ?`
 	if err != nil {
 		return nativeBinding{}, err
 	}
-	if contentCharset != "utf8mb4" {
+	if contentCharset != nativeTextCharset {
 		return nativeBinding{}, errors.New("tidb: content column requires utf8mb4")
 	}
 	width, ok := strings.CutPrefix(strings.ToLower(shape), "vector(")

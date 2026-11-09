@@ -21,6 +21,7 @@ const (
 	metadataField                 = "metadata_json"
 	nativeMaximumK                = 10000
 	nativeMaximumIDBytes          = 512
+	nativeMaximumDimensions       = 16000
 	filterBatchSize               = 512
 )
 

@@ -122,7 +122,7 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 	client, err := a2aclient.NewFromCard(ctx, card,
 		// The selected AgentInterface owns the remote tenant. A host context's
 		// tenant belongs to another boundary and must not retarget this binding.
-		a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true, AcceptedOutputModes: []string{plainTextMediaType}}),
+		a2aclient.WithConfig(a2aclient.Config{DisableTenantPropagation: true, AcceptedOutputModes: []string{MediaTypePlainText}}),
 		a2aclient.WithJSONRPCTransport(rpcClient),
 		a2aclient.WithRESTTransport(rpcClient),
 	)

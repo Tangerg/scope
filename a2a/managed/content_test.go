@@ -82,7 +82,7 @@ func TestContentPolicyRequiresEveryPossibleOutputMode(t *testing.T) {
 		Message: sdk.NewMessage(sdk.MessageRoleUser, sdk.NewDataPart(map[string]any{"enabled": true})),
 		Config:  &sdk.SendMessageConfig{AcceptedOutputModes: []string{"text/plain", "application/json"}},
 	})
-	if err != nil || policy.part([]byte(`"frozen"`)).MediaType != mediaTypePlainText {
+	if err != nil || policy.part([]byte(`"frozen"`)).MediaType != a2a.MediaTypePlainText {
 		t.Fatalf("mutating the host card changed the bound output policy: %v", err)
 	}
 }
@@ -116,17 +116,17 @@ func TestProjectedPartsPreserveExactJSONAndStringMeaning(t *testing.T) {
 		{raw: `{"amount":9007199254740993}`, text: `{"amount":9007199254740993}`},
 		{raw: `18446744073709551615`, text: `18446744073709551615`},
 	} {
-		for _, modes := range [][]string{nil, {mediaTypePlainText}, {mediaTypeJSON}, {mediaTypePlainText, mediaTypeJSON}} {
+		for _, modes := range [][]string{nil, {a2a.MediaTypePlainText}, {a2a.MediaTypeJSON}, {a2a.MediaTypePlainText, a2a.MediaTypeJSON}} {
 			policy, err := newContentPolicy(sdk.AgentCard{DefaultOutputModes: modes})
 			if err != nil {
 				t.Fatal(err)
 			}
 			part := policy.part([]byte(sample.raw))
-			wantMode, wantText := mediaTypeJSON, sample.raw
-			if len(modes) != 0 && modes[0] == mediaTypePlainText {
+			wantMode, wantText := a2a.MediaTypeJSON, sample.raw
+			if len(modes) != 0 && modes[0] == a2a.MediaTypePlainText {
 				wantText = sample.text
 				if len(modes) == 1 || sample.raw == `"hello"` {
-					wantMode = mediaTypePlainText
+					wantMode = a2a.MediaTypePlainText
 				}
 			}
 			if part.MediaType != wantMode || part.Text() != wantText {
@@ -152,8 +152,8 @@ func TestQuestionsUseTheSameDeclaredOutputPolicyAsFinalArtifacts(t *testing.T) {
 	for _, test := range []struct {
 		name, accepted, question, text string
 	}{
-		{"structured question in text", mediaTypePlainText, `{"confirm":"Proceed?","amount":9007199254740993}`, `{"amount":9007199254740993,"confirm":"Proceed?"}`},
-		{"string question in JSON", mediaTypeJSON, `"Proceed?"`, `"Proceed?"`},
+		{"structured question in text", a2a.MediaTypePlainText, `{"confirm":"Proceed?","amount":9007199254740993}`, `{"amount":9007199254740993,"confirm":"Proceed?"}`},
+		{"string question in JSON", a2a.MediaTypeJSON, `"Proceed?"`, `"Proceed?"`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			policy, err := newContentPolicy(sdk.AgentCard{DefaultOutputModes: []string{test.accepted}})

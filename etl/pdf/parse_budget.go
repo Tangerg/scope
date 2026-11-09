@@ -16,9 +16,11 @@ var ErrParseBudget = parser.ErrBudget
 
 // ParseBudget bounds a complete Read, independently of compressed source size
 // and declared page count. Work includes lexer bytes, source reads and object
-// traversal. Decoded bytes include intermediate filter output and extracted
-// text; objects include xref entries and parsed object values. Zero fields use
-// their corresponding defaults. Exhaustion discards all documents.
+// traversal. Decoded bytes count each stream decoding stage, conservative
+// reservations for predictor and font buffers, and final extracted text;
+// objects include xref entries and parsed object values. Zero fields use their
+// corresponding defaults.
+// Exhaustion discards all documents.
 type ParseBudget struct {
 	MaxWork         int64
 	MaxDecodedBytes int64

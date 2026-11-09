@@ -26,13 +26,16 @@ const (
 	schemaTypeBoolean     = "boolean"
 	schemaTypeObject      = "object"
 	base64ContentEncoding = "base64"
+	ipv4Format            = "ipv4"
+	ipv6Format            = "ipv6"
 )
 
 var (
-	ErrInvalid              = errors.New("jsonschema: invalid schema")
-	ErrValidation           = errors.New("jsonschema: instance validation failed")
-	ErrUnsupportedStringTag = errors.New("jsonschema: string tag requires a custom encoding and JSONSchemaModel")
-	ErrUnsupportedFormatTag = errors.New("jsonschema: format tag requires a custom encoding and JSONSchemaModel")
+	ErrInvalid                = errors.New("jsonschema: invalid schema")
+	ErrValidation             = errors.New("jsonschema: instance validation failed")
+	ErrUnsupportedStringTag   = errors.New("jsonschema: string tag requires a custom encoding and JSONSchemaModel")
+	ErrUnsupportedFormatTag   = errors.New("jsonschema: format tag requires a custom encoding and JSONSchemaModel")
+	ErrUnsupportedFieldLayout = errors.New("jsonschema: unsupported JSON field layout")
 )
 
 // Modeler is implemented by values whose encoding/json/v2 representation is
@@ -125,6 +128,8 @@ type Schema struct {
 // Go representation even when field tags specify a wider semantic range.
 // Named definitions include their Go package; moving a type changes its canonical
 // schema and any deployment identities derived from it.
+// The root exposes its complete wire shape; Modeler reference chains retain
+// each domain constraint as an intersection.
 // Custom encodings require Modeler, except standard-library types with known
 // wire contracts and Schema's owned boolean-or-object document shape. Schema
 // documents still pass through Parse for semantic validation and compilation.
@@ -132,6 +137,11 @@ type Schema struct {
 // not constrain JSON strings, and other ordinary types reject this tag in JSON v2.
 // Field-specific format tags are not inferred. An enclosing custom codec must
 // own that representation and project its format-free wire model.
+// Embedded ordinary structs follow JSON v2 field precedence. A schema-owning
+// type must keep a named JSON property or use an explicit enclosing wire model;
+// embedding cannot silently discard its Modeler or constraint contract. Embedded
+// map fallbacks and a literal hyphen member name require an explicit schema.
+// Unsupported layouts fail before publishing a contract.
 func For[T any]() (Schema, error) {
 	typeOf := reflect.TypeFor[T]()
 	definition, err := reflectType(typeOf)

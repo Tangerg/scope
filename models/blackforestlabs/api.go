@@ -110,7 +110,7 @@ type generateRequest struct {
 	Width            int      `json:"width,omitzero"`
 	Height           int      `json:"height,omitzero"`
 	AspectRatio      string   `json:"aspect_ratio,omitempty"`
-	PromptUpsampling bool     `json:"prompt_upsampling,omitzero"`
+	PromptUpsampling *bool    `json:"prompt_upsampling,omitzero"`
 	DisablePUP       bool     `json:"disable_pup,omitzero"`
 	Seed             *int64   `json:"seed,omitzero"`
 	SafetyTolerance  *int     `json:"safety_tolerance,omitzero"`

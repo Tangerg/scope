@@ -15,6 +15,8 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
+const authorityHeader = "Host"
+
 type Request struct {
 	URL       string            `json:"url" jsonschema:"minLength=1" jsonschema_description:"Absolute http(s) URL. Host must match the configured allowlist."`
 	Method    Method            `json:"method,omitempty" jsonschema_description:"HTTP method: GET (default), HEAD, POST, PUT, PATCH, or DELETE. Must be in the configured method allowlist."`
@@ -63,7 +65,10 @@ func (r *Request) validate() error {
 		return ErrEmptyURL
 	}
 	parsed, err := url.Parse(trimmedURL)
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil {
+		return ErrInvalidURL
+	}
+	if _, supported := schemeDefaultPort(parsed.Scheme); !supported {
 		return ErrInvalidURL
 	}
 	method, err := r.Method.Normalize()
@@ -74,7 +79,7 @@ func (r *Request) validate() error {
 		return fmt.Errorf("%w: %s", ErrBodyNotAllowed, method)
 	}
 	for name := range r.Headers {
-		if http.CanonicalHeaderKey(name) == "Host" {
+		if http.CanonicalHeaderKey(name) == authorityHeader {
 			return ErrHostHeaderOverride
 		}
 	}

@@ -19,22 +19,16 @@ import (
 	"github.com/samber/lo"
 )
 
-const (
-	typeDefinitionPrefix = "go_"
-	jsonFieldTag         = "json"
-	jsonSchemaFieldTag   = "jsonschema"
-	stringTagOption      = "string"
-	formatTagOption      = "format"
-	ignoredFieldTag      = "-"
-)
+const typeDefinitionPrefix = "go_"
 
 // derivation owns the definition set across nested wire projections. A model's
 // placeholder exists before reflecting its wire type so recursive references
-// retain the domain identity instead of re-entering its model method.
+// retain the domain identity instead of re-entering its model method. Inline
+// wire projections retain their constraint sources when a domain copies them.
 type derivation struct {
-	definitions reflection.Definitions
-	types       map[string]reflect.Type
-	models      map[reflect.Type]*reflection.Schema
+	definitions       reflection.Definitions
+	projections       map[reflect.Type]*reflection.Schema
+	constraintSources map[*reflection.Schema][]reflect.Type
 }
 
 func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error) {
@@ -48,39 +42,86 @@ func reflectType(typeOf reflect.Type) (definition *reflection.Schema, err error)
 		}
 	}()
 	derivation := &derivation{
-		definitions: make(reflection.Definitions),
-		types:       make(map[string]reflect.Type),
-		models:      make(map[reflect.Type]*reflection.Schema),
+		definitions:       make(reflection.Definitions),
+		projections:       make(map[reflect.Type]*reflection.Schema),
+		constraintSources: make(map[*reflection.Schema][]reflect.Type),
 	}
 	return derivation.derive(typeOf)
 }
 
 func (d *derivation) derive(typeOf reflect.Type) (*reflection.Schema, error) {
 	root := d.reflect(typeOf)
-	for model, definition := range d.models {
+	path, err := wireShapePath(root, d.definitions)
+	if err != nil {
+		return nil, err
+	}
+	if len(path) == 0 {
+		return nil, errors.New("root model has no wire shape")
+	}
+	for definition, sources := range d.constraintSources {
 		if _, err := referencedShape(definition, d.definitions); err != nil {
-			return nil, fmt.Errorf("model %v: %w", model, err)
+			return nil, fmt.Errorf("types %v: %w", sources, err)
 		}
 	}
 	if err := d.applyConstraints(); err != nil {
 		return nil, err
 	}
-	if name, referenced := strings.CutPrefix(root.Ref, definitionPrefix); referenced {
-		definition := d.definitions[name]
-		if definition == nil {
-			return nil, fmt.Errorf("root definition %q is missing", name)
+	return d.rootSchema(path), nil
+}
+
+func (d *derivation) rootSchema(path []*reflection.Schema) *reflection.Schema {
+	var refinements []*reflection.Schema
+	for _, shape := range path[:len(path)-1] {
+		siblings := *shape
+		if shape.Ref != "" {
+			siblings.Ref = ""
+		} else {
+			siblings.AllOf = nil
+			if len(shape.AllOf) > 1 {
+				siblings.AllOf = slices.Clone(shape.AllOf[1:])
+			}
 		}
-		expanded := *definition
-		root = &expanded
+		if !reflect.ValueOf(siblings).IsZero() {
+			refinements = append(refinements, &siblings)
+		}
 	}
+	// Tool and provider boundaries require the complete root wire shape.
+	// Keep every intermediate owner's refinement without mutating its
+	// definition or expanding recursive references in child properties.
+	root := *path[len(path)-1]
+	root.AllOf = append(slices.Clone(root.AllOf), refinements...)
 	root.Version = reflection.Version
 	root.Definitions = d.definitions
-	return root, nil
+	return &root
 }
 
 func (d *derivation) reflect(typeOf reflect.Type) *reflection.Schema {
-	reflector := reflection.Reflector{Anonymous: true, Mapper: d.mapType, Namer: d.typeName}
-	shape := reflector.ReflectFromType(typeOf)
+	rootType := typeOf
+	for rootType.Kind() == reflect.Pointer {
+		rootType = rootType.Elem()
+	}
+	var owned *reflection.Schema
+	reflector := reflection.Reflector{
+		Anonymous: true,
+		Namer:     d.typeName,
+		Mapper: func(candidate reflect.Type) *reflection.Schema {
+			shape := d.mapType(candidate)
+			if candidate == rootType {
+				owned = shape
+			}
+			return shape
+		},
+	}
+	shape := d.collect(reflector.ReflectFromType(typeOf))
+	// ReflectFromType copies Mapper's result. Deferred refinements must still
+	// reach the owned root; only final publication may copy that representation.
+	if owned != nil {
+		return owned
+	}
+	return shape
+}
+
+func (d *derivation) collect(shape *reflection.Schema) *reflection.Schema {
 	for name, definition := range shape.Definitions {
 		d.definitions[name] = definition
 	}
@@ -95,11 +136,7 @@ func (d *derivation) typeName(typeOf reflect.Type) string {
 	if typeOf.Implements(reflect.TypeFor[interface{ JSONSchemaAlias() any }]()) {
 		panic(fmt.Sprintf("%v: JSONSchemaAlias is unsupported; use JSONSchemaModel", typeOf))
 	}
-	name := qualifiedTypeName(typeOf)
-	if name != "" {
-		d.types[name] = typeOf
-	}
-	return name
+	return qualifiedTypeName(typeOf)
 }
 
 func (d *derivation) mapType(typeOf reflect.Type) *reflection.Schema {
@@ -125,53 +162,91 @@ func (d *derivation) mapType(typeOf reflect.Type) *reflection.Schema {
 		}
 		return d.reflect(reflect.StructOf(fields))
 	}
-	return reflectWireType(typeOf)
+	if shape := reflectWireType(typeOf); shape != nil {
+		return shape
+	}
+	if typeOf.Kind() == reflect.Struct && typeOf != reflect.TypeFor[time.Time]() {
+		return d.object(typeOf)
+	}
+	return nil
 }
 
 func (d *derivation) model(typeOf reflect.Type) *reflection.Schema {
-	definition, exists := d.models[typeOf]
-	name := qualifiedTypeName(typeOf)
-	if !exists {
-		definition = &reflection.Schema{}
-		d.models[typeOf] = definition
-		if name != "" {
-			d.definitions[name] = definition
-		}
+	return d.project(typeOf, func() *reflection.Schema {
 		model := reflect.Zero(typeOf).Interface().(Modeler).JSONSchemaModel()
 		if lo.IsNil(model) {
 			panic(fmt.Sprintf("%v.JSONSchemaModel returned nil", typeOf))
 		}
-		*definition = *d.reflect(reflect.TypeOf(model))
+		return d.reflect(reflect.TypeOf(model))
+	})
+}
+
+func (d *derivation) object(typeOf reflect.Type) *reflection.Schema {
+	return d.project(typeOf, func() *reflection.Schema {
+		projection, err := projectStructFields(typeOf)
+		if err != nil {
+			panic(err)
+		}
+		reflector := reflection.Reflector{
+			Anonymous: true,
+			Namer:     d.typeName,
+			Mapper: func(candidate reflect.Type) *reflection.Schema {
+				if candidate == projection {
+					return nil
+				}
+				return d.mapType(candidate)
+			},
+		}
+		return d.collect(reflector.ReflectFromType(projection))
+	})
+}
+
+func (d *derivation) project(typeOf reflect.Type, derive func() *reflection.Schema) *reflection.Schema {
+	definition, exists := d.projections[typeOf]
+	name := qualifiedTypeName(typeOf)
+	shared := name != "" || typeOf.Implements(reflect.TypeFor[Modeler]())
+	if !shared || !exists {
+		definition = &reflection.Schema{}
+		d.constraintSources[definition] = []reflect.Type{typeOf}
+		if shared {
+			d.projections[typeOf] = definition
+		}
+		if name != "" {
+			d.definitions[name] = definition
+		}
+		wire := derive()
+		*definition = *wire
+		d.constraintSources[definition] = append(d.constraintSources[definition], d.constraintSources[wire]...)
 	}
 	if name != "" {
 		return &reflection.Schema{Ref: definitionPrefix + name}
 	}
-	return &reflection.Schema{AllOf: []*reflection.Schema{definition}}
+	if shared {
+		return &reflection.Schema{AllOf: []*reflection.Schema{definition}}
+	}
+	// Anonymous objects have no reference boundary. Each occurrence must own
+	// the schema that the reflector will refine with that field's tags.
+	return definition
 }
 
 func (d *derivation) applyConstraints() error {
-	projections := make(map[*reflection.Schema]*reflection.Schema)
-	for name, definition := range d.definitions {
-		if err := d.projectConstraints(d.types[name], definition, projections); err != nil {
-			return err
-		}
-	}
-	for owner, definition := range d.models {
-		if qualifiedTypeName(owner) == "" {
-			if err := d.projectConstraints(owner, definition, projections); err != nil {
+	projections := make(map[*reflection.Schema][]*reflection.Schema)
+	for definition, sources := range d.constraintSources {
+		for _, source := range sources {
+			if err := d.projectConstraints(source, definition, projections); err != nil {
 				return err
 			}
 		}
 	}
 	// Shape lookup observes only wire definitions, regardless of map order.
 	// Refinements become intersections after every property path is validated.
-	for definition, projection := range projections {
-		definition.AllOf = append(definition.AllOf, projection)
+	for definition, refinements := range projections {
+		definition.AllOf = append(definition.AllOf, refinements...)
 	}
 	return nil
 }
 
-func (d *derivation) projectConstraints(owner reflect.Type, definition *reflection.Schema, projections map[*reflection.Schema]*reflection.Schema) error {
+func (d *derivation) projectConstraints(owner reflect.Type, definition *reflection.Schema, projections map[*reflection.Schema][]*reflection.Schema) error {
 	if owner == nil {
 		return nil
 	}
@@ -184,7 +259,7 @@ func (d *derivation) projectConstraints(owner reflect.Type, definition *reflecti
 			return fmt.Errorf("constraints for %v: %w", owner, err)
 		}
 	}
-	if _, modeled := d.models[owner]; modeled {
+	if owner.Implements(reflect.TypeFor[Modeler]()) {
 		if stringSchema := stringConstraint(value); stringSchema != nil {
 			if projection == nil {
 				projection = &reflection.Schema{}
@@ -193,18 +268,31 @@ func (d *derivation) projectConstraints(owner reflect.Type, definition *reflecti
 		}
 	}
 	if projection != nil {
-		projections[definition] = projection
+		projections[definition] = append(projections[definition], projection)
 	}
 	return nil
 }
 
 func referencedShape(shape *reflection.Schema, definitions reflection.Definitions) (*reflection.Schema, error) {
+	path, err := wireShapePath(shape, definitions)
+	if err != nil || len(path) == 0 {
+		return nil, err
+	}
+	return path[len(path)-1], nil
+}
+
+// A lone allOf wraps an unnamed Modeler. Capture that path before owned
+// refinements are appended, so root publication cannot mistake a constraint
+// intersection for the model's wire shape.
+func wireShapePath(shape *reflection.Schema, definitions reflection.Definitions) ([]*reflection.Schema, error) {
+	var path []*reflection.Schema
 	visited := make(map[*reflection.Schema]struct{})
 	for shape != nil {
 		if _, repeated := visited[shape]; repeated {
 			return nil, errors.New("model references a cycle without a wire shape")
 		}
 		visited[shape] = struct{}{}
+		path = append(path, shape)
 		if shape.Ref != "" {
 			name, local := strings.CutPrefix(shape.Ref, definitionPrefix)
 			if !local || definitions[name] == nil {
@@ -217,9 +305,9 @@ func referencedShape(shape *reflection.Schema, definitions reflection.Definition
 			shape = shape.AllOf[0]
 			continue
 		}
-		return shape, nil
+		return path, nil
 	}
-	return nil, nil
+	return path, nil
 }
 
 func constraintObjectShape(shape *reflection.Schema, definitions reflection.Definitions) (*reflection.Schema, error) {
@@ -240,10 +328,15 @@ func constraintObjectShape(shape *reflection.Schema, definitions reflection.Defi
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
-	requireSupportedFieldTags(typeOf, nil)
 	switch typeOf {
-	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time](), reflect.TypeFor[net.IP]():
+	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time]():
 		return nil
+	case reflect.TypeFor[net.IP]():
+		return &reflection.Schema{Type: schemaTypeString, OneOf: []*reflection.Schema{
+			{Format: ipv4Format},
+			{Format: ipv6Format},
+			{Enum: []any{""}},
+		}}
 	case reflect.TypeFor[time.Duration]():
 		panic("time.Duration has no default encoding/json/v2 representation; use an explicit wire model and codec")
 	case reflect.TypeFor[json.Number]():
@@ -310,49 +403,6 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		definition.AllOf = append(definition.AllOf, constraint)
 	}
 	return definition
-}
-
-func requireSupportedFieldTags(typeOf reflect.Type, visited map[reflect.Type]struct{}) {
-	if typeOf.Kind() != reflect.Struct {
-		return
-	}
-	if _, seen := visited[typeOf]; seen {
-		return
-	}
-	if visited == nil {
-		visited = make(map[reflect.Type]struct{})
-	}
-	visited[typeOf] = struct{}{}
-	for field := range typeOf.Fields() {
-		tag := field.Tag.Get(jsonFieldTag)
-		if tag == ignoredFieldTag {
-			continue
-		}
-		tags := strings.Split(tag, ",")
-		for _, option := range tags[1:] {
-			name, _, _ := strings.Cut(option, ":")
-			if name == formatTagOption {
-				panic(fmt.Errorf("%w: field %v.%s", ErrUnsupportedFormatTag, typeOf, field.Name))
-			}
-		}
-		if !field.IsExported() && !field.Anonymous {
-			continue
-		}
-		member := field.Type
-		for member.Kind() == reflect.Pointer {
-			member = member.Elem()
-		}
-		if field.Anonymous && tags[0] == "" {
-			requireSupportedFieldTags(member, visited)
-		}
-		if field.Tag.Get(jsonSchemaFieldTag) == ignoredFieldTag || !slices.Contains(tags[1:], stringTagOption) {
-			continue
-		}
-		if member.Implements(reflect.TypeFor[Modeler]()) && hasCustomEncoding(member) {
-			continue
-		}
-		panic(fmt.Errorf("%w: field %v.%s", ErrUnsupportedStringTag, typeOf, field.Name))
-	}
 }
 
 func hasCustomEncoding(typeOf reflect.Type) bool {

@@ -8,6 +8,11 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
+const (
+	nativeHashKeyType        = "HASH"
+	vectorElementTypeFloat32 = "FLOAT32"
+)
+
 type indexInfo struct {
 	name       string
 	keyType    string
@@ -70,7 +75,7 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 		name, _ := attribute["attribute"].(string)
 		identifier, _ := attribute["identifier"].(string)
 		kind, _ := attribute["type"].(string)
-		if name == termsField && kind == "TAG" {
+		if name == termsField && kind == goredis.SearchFieldTypeTag.String() {
 			sep, ok := attribute["SEPARATOR"].(string)
 			if !ok {
 				sep, ok = attribute["separator"].(string)
@@ -86,7 +91,7 @@ func parseIndexInfo(raw any) (indexInfo, error) {
 				}
 			}
 		}
-		if kind != "VECTOR" {
+		if kind != goredis.SearchFieldTypeVector.String() {
 			info.attributes = append(info.attributes, goredis.FTAttribute{Identifier: identifier, Attribute: name, Type: kind})
 			continue
 		}

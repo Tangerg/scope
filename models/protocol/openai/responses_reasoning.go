@@ -154,11 +154,30 @@ func completedResponsesReasoningState(item responses.ResponseReasoningItem) (res
 	return responsesReasoningState{Item: fields}, nil
 }
 
-func encodeResponsesReasoningFrame(state responsesReasoningState) ([]byte, error) {
-	if err := state.validate(); err != nil {
+type responsesReasoningFrame struct {
+	Issuer string                  `json:"issuer"`
+	State  responsesReasoningState `json:"state"`
+}
+
+func (r responsesReasoningFrame) validate() error {
+	if err := validateProvider(r.Issuer); err != nil {
+		return fmt.Errorf("reasoning issuer: %w", err)
+	}
+	return r.State.validate()
+}
+
+// The binding supplies the issuer. A frame carries that immutable origin with
+// the native state, so shared wire syntax cannot authorize cross-provider replay.
+type responsesReasoningCodec struct {
+	provider string
+}
+
+func (r responsesReasoningCodec) encodeFrame(state responsesReasoningState) ([]byte, error) {
+	payload := responsesReasoningFrame{Issuer: r.provider, State: state}
+	if err := payload.validate(); err != nil {
 		return nil, err
 	}
-	raw, err := jsonv2.Marshal(state)
+	raw, err := jsonv2.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -172,37 +191,44 @@ func encodeResponsesReasoningFrame(state responsesReasoningState) ([]byte, error
 	return frame, nil
 }
 
-func decodeResponsesReasoningFrames(encoded []byte) ([]responsesReasoningState, bool, error) {
+func (r responsesReasoningCodec) decodeFrames(encoded []byte) ([]responsesReasoningState, error) {
 	if len(encoded) < len(responsesReasoningFrameMagic) || !bytes.Equal(encoded[:len(responsesReasoningFrameMagic)], responsesReasoningFrameMagic[:]) {
-		return nil, false, nil
+		return nil, nil
 	}
 	var states []responsesReasoningState
+	ownIssuer := true
 	for offset := 0; offset < len(encoded); {
 		if len(encoded)-offset < responsesReasoningFrameSize {
-			return nil, true, errors.New("truncated frame header")
+			return nil, errors.New("truncated frame header")
 		}
 		if !bytes.Equal(encoded[offset:offset+len(responsesReasoningFrameMagic)], responsesReasoningFrameMagic[:]) {
-			return nil, true, fmt.Errorf("invalid frame magic at byte %d", offset)
+			return nil, fmt.Errorf("invalid frame magic at byte %d", offset)
 		}
 		length := binary.BigEndian.Uint32(encoded[offset+len(responsesReasoningFrameMagic) : offset+responsesReasoningFrameSize])
 		offset += responsesReasoningFrameSize
 		if uint64(length) > uint64(len(encoded)-offset) {
-			return nil, true, fmt.Errorf("frame length %d exceeds remaining %d bytes", length, len(encoded)-offset)
+			return nil, fmt.Errorf("frame length %d exceeds remaining %d bytes", length, len(encoded)-offset)
 		}
-		var state *responsesReasoningState
-		if err := jsonv2.Unmarshal(encoded[offset:offset+int(length)], &state, jsonv2.RejectUnknownMembers(true)); err != nil {
-			return nil, true, fmt.Errorf("decode reasoning state: %w", err)
+		var frame *responsesReasoningFrame
+		if err := jsonv2.Unmarshal(encoded[offset:offset+int(length)], &frame, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return nil, fmt.Errorf("decode reasoning frame: %w", err)
 		}
-		if state == nil {
-			return nil, true, errors.New("reasoning state must be an object")
+		if frame == nil {
+			return nil, errors.New("reasoning frame must be an object")
 		}
-		if err := state.validate(); err != nil {
-			return nil, true, err
+		if err := frame.validate(); err != nil {
+			return nil, err
 		}
-		states = append(states, *state)
+		if frame.Issuer != r.provider {
+			ownIssuer = false
+		}
+		states = append(states, frame.State)
 		offset += int(length)
 	}
-	return states, true, nil
+	if !ownIssuer {
+		return nil, nil
+	}
+	return states, nil
 }
 
 type responsesReasoningReplay struct {

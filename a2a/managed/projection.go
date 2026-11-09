@@ -10,12 +10,15 @@ import (
 )
 
 const (
-	PendingKey             = "scope.pending"
-	ProgramKey             = "scope.program"
-	RootKey                = "scope.root_id"
-	rootStatusMetadataKey  = "scope.root_status"
-	terminationMetadataKey = "scope.termination"
-	resultArtifactID       = "result"
+	PendingKey                    = "scope.pending"
+	ProgramKey                    = "scope.program"
+	RootKey                       = "scope.root_id"
+	rootStatusMetadataKey         = "scope.root_status"
+	terminationMetadataKey        = "scope.termination"
+	resultArtifactID              = "result"
+	questionMessageIdentityDomain = "a2a.wait.question"
+	absentQuestionJSON            = "null"
+	unrestrictedAnswerSchemaJSON  = "true"
 )
 
 type pendingQuestion struct {
@@ -23,6 +26,36 @@ type pendingQuestion struct {
 	Question       json.RawMessage `json:"question"`
 	AnswerSchema   json.RawMessage `json:"answer_schema"`
 	MaxAnswerBytes int             `json:"max_answer_bytes"`
+}
+
+func newPendingQuestion(owner run.ProcessID, wait run.Wait) pendingQuestion {
+	question := pendingQuestion{
+		Address:  a2a.WaitAddress{Process: owner.String(), Key: wait.Key.String()},
+		Question: wait.Question.JSON(), AnswerSchema: wait.AnswerSchema.JSON(), MaxAnswerBytes: wait.MaxAnswerBytes,
+	}
+	if !wait.Question.Valid() {
+		question.Question = json.RawMessage(absentQuestionJSON)
+	}
+	if !wait.AnswerSchema.Valid() {
+		question.AnswerSchema = json.RawMessage(unrestrictedAnswerSchemaJSON)
+	}
+	return question
+}
+
+func (p pendingQuestion) message(root run.ProcessID, task *sdk.Task, content contentPolicy) (*sdk.Message, error) {
+	address, err := p.Address.Metadata()
+	if err != nil {
+		return nil, err
+	}
+	id, err := identityDigest(questionMessageIdentityDomain, root.String(), p.Address.Process, p.Address.Key)
+	if err != nil {
+		return nil, err
+	}
+	return &sdk.Message{
+		ID: id, Role: sdk.MessageRoleAgent, TaskID: task.ID, ContextID: task.ContextID,
+		Parts:    []*sdk.Part{content.part(p.Question)},
+		Metadata: map[string]any{a2a.WaitMetadataKey: address, a2a.AnswerSchemaMetadataKey: string(p.AnswerSchema)},
+	}, nil
 }
 
 func rootProcess(head run.TreeInspection) run.ProcessInspection {
@@ -56,21 +89,17 @@ func projectTask(k taskKey, head run.TreeInspection, content contentPolicy) (*sd
 	var questions []pendingQuestion
 	for _, process := range head.Processes {
 		for _, wait := range process.Waits {
-			questions = append(questions, pendingQuestion{
-				Address:  a2a.WaitAddress{Process: process.ID.String(), Key: wait.Key.String()},
-				Question: wait.Question.JSON(), AnswerSchema: wait.AnswerSchema.JSON(), MaxAnswerBytes: wait.MaxAnswerBytes,
-			})
+			questions = append(questions, newPendingQuestion(process.ID, wait))
 		}
 	}
 	if len(questions) > 0 {
-		address, err := questions[0].Address.Metadata()
+		message, err := questions[0].message(head.Root, task, content)
 		if err != nil {
 			return nil, err
 		}
 		task.Metadata[PendingKey] = questions
 		task.Status.State = sdk.TaskStateInputRequired
-		task.Status.Message = sdk.NewMessageForTask(sdk.MessageRoleAgent, task, content.part(questions[0].Question))
-		task.Status.Message.Metadata = map[string]any{a2a.WaitMetadataKey: address, a2a.AnswerSchemaMetadataKey: string(questions[0].AnswerSchema)}
+		task.Status.Message = message
 	}
 	return task, nil
 }

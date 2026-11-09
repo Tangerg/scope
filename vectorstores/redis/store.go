@@ -62,7 +62,7 @@ func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error)
 	if err != nil {
 		return schema, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
 	}
-	if info.name != s.indexName || info.keyType != "HASH" || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
+	if info.name != s.indexName || info.keyType != nativeHashKeyType || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
 		return schema, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
 	}
 	if !strings.HasSuffix(info.prefixes[0], s.space.StorageKey()+":") {
@@ -73,14 +73,14 @@ func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error)
 		if attribute.Identifier != attribute.Attribute {
 			return schema, fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
 		}
-		if attribute.Attribute == termsField && attribute.Type == "TAG" {
+		if attribute.Attribute == termsField && attribute.Type == goredis.SearchFieldTypeTag.String() {
 			schema.indexedTerms = true
 			continue
 		}
-		if attribute.Attribute == contentField && attribute.Type == "TEXT" {
+		if attribute.Attribute == contentField && attribute.Type == goredis.SearchFieldTypeText.String() {
 			continue
 		}
-		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != "VECTOR" || attribute.DataType != "FLOAT32" || attribute.Dim <= 0 {
+		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != goredis.SearchFieldTypeVector.String() || attribute.DataType != vectorElementTypeFloat32 || attribute.Dim <= 0 {
 			return schema, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
 		}
 		switch nativeMetric(attribute.DistanceMetric) {

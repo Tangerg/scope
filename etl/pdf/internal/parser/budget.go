@@ -13,7 +13,8 @@ const maxNestingDepth = 1000
 var ErrBudget = errors.New("pdf: parser resource budget exhausted")
 
 // Limits applies to one complete parse, including all pages and repeated object
-// resolution. Expanded bytes count every decoded filter stage and text output.
+// resolution. Decoded bytes count each stream decoding stage, conservative
+// reservations for predictor and font buffers, and final text output.
 type Limits struct {
 	MaxWork         int64
 	MaxDecodedBytes int64

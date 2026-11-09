@@ -13,6 +13,11 @@ import (
 	"github.com/Tangerg/scope/core/timestamp"
 )
 
+const (
+	imageMediaTypePrefix = "image/"
+	binaryMediaType      = "application/octet-stream"
+)
+
 type Output struct {
 	Media *media.Media `json:"media,omitzero"`
 
@@ -36,7 +41,7 @@ func (o *Output) Validate() error {
 		return fmt.Errorf("%w: media: %w", ErrInvalidResponse, err)
 	}
 	mediaType, _, _ := mime.ParseMediaType(o.Media.MIME)
-	if !strings.HasPrefix(mediaType, "image/") && mediaType != "application/octet-stream" {
+	if !strings.HasPrefix(mediaType, imageMediaTypePrefix) && mediaType != binaryMediaType {
 		return fmt.Errorf("%w: media MIME type %q is not an image", ErrInvalidResponse, o.Media.MIME)
 	}
 	if err := o.Metadata.Validate(); err != nil {

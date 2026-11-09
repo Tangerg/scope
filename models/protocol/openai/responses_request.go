@@ -112,10 +112,10 @@ func mapResponsesTools(definitions []toolcontract.Definition) ([]responses.ToolU
 	return tools, nil
 }
 
-func mapResponsesInput(messages []corechat.Message) (responses.ResponseInputParam, error) {
+func mapResponsesInput(messages []corechat.Message, reasoning responsesReasoningCodec) (responses.ResponseInputParam, error) {
 	items := make(responses.ResponseInputParam, 0, len(messages))
 	for messageIndex := range messages {
-		mapped, err := mapResponsesMessage(messageIndex, messages[messageIndex])
+		mapped, err := mapResponsesMessage(messages[messageIndex], reasoning)
 		if err != nil {
 			return nil, fmt.Errorf("openai responses: messages[%d]: %w", messageIndex, err)
 		}
@@ -124,7 +124,7 @@ func mapResponsesInput(messages []corechat.Message) (responses.ResponseInputPara
 	return items, nil
 }
 
-func mapResponsesMessage(messageIndex int, message corechat.Message) ([]responses.ResponseInputItemUnionParam, error) {
+func mapResponsesMessage(message corechat.Message, reasoning responsesReasoningCodec) ([]responses.ResponseInputItemUnionParam, error) {
 	switch message.Role {
 	case corechat.RoleSystem:
 		return []responses.ResponseInputItemUnionParam{responsesEasyMessage(responses.EasyInputMessageRoleSystem, message.Text())}, nil
@@ -141,7 +141,7 @@ func mapResponsesMessage(messageIndex int, message corechat.Message) ([]response
 		if len(message.Parts) == 0 {
 			return nil, errors.New("assistant metadata has no replayable Responses content")
 		}
-		return mapResponsesAssistantItems(message.Parts)
+		return mapResponsesAssistantItems(message.Parts, reasoning)
 	case corechat.RoleTool:
 		return mapResponsesToolResults(message.Parts)
 	default:
@@ -175,7 +175,7 @@ func mapResponsesUserContent(parts []corechat.Part) (responses.ResponseInputMess
 	return content, nil
 }
 
-func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInputItemUnionParam, error) {
+func mapResponsesAssistantItems(parts []corechat.Part, reasoning responsesReasoningCodec) ([]responses.ResponseInputItemUnionParam, error) {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(parts))
 	replays := make(map[string]*responsesReasoningReplay)
 	for partIndex := range parts {
@@ -195,14 +195,13 @@ func mapResponsesAssistantItems(parts []corechat.Part) ([]responses.ResponseInpu
 			if len(part.ReasoningState) == 0 {
 				continue
 			}
-			states, framed, err := decodeResponsesReasoningFrames(part.ReasoningState)
+			states, err := reasoning.decodeFrames(part.ReasoningState)
 			if err != nil {
 				return nil, fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
 			}
-			if !framed {
-				// Replay state from another provider is not valid OpenAI Responses
-				// replay state. The visible text remains portable but is not sent as
-				// a reasoning item without the provider-issued identity.
+			if len(states) == 0 {
+				// Visible text remains portable; native reasoning requires an
+				// identity issued by this binding's provider.
 				continue
 			}
 			id, err := states[0].itemID()

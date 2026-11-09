@@ -12,7 +12,10 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
-const maxItemBytes = 2 * 1024 * 1024
+const (
+	maxItemBytes         = 2 * 1024 * 1024
+	nativeMaximumIDBytes = 1023
+)
 
 type itemRecord struct {
 	ID           *string                          `json:"id"`
@@ -39,7 +42,7 @@ func (i itemRecord) marshal() ([]byte, error) {
 }
 
 func validateID(id string) error {
-	if !utf8.ValidString(id) || id == "" || len(id) > 1023 || strings.ContainsAny(id, "/\\?#") {
+	if !utf8.ValidString(id) || id == "" || len(id) > nativeMaximumIDBytes || strings.ContainsAny(id, "/\\?#") {
 		return errors.New("azurecosmos: item ID is invalid for the native SDK")
 	}
 	return nil

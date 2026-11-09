@@ -13,6 +13,8 @@
 // Set the output encoding through image.Options.OutputFormat. FLUX-specific
 // knobs (steps, guidance, raw, safety_tolerance, prompt_upsampling, and
 // image_prompt for editing) use Options.Extensions under ImageRequestExtensionKey.
+// An explicit prompt_upsampling=false is preserved because endpoint defaults
+// differ; omission leaves that choice to the selected model.
 //
 // See https://docs.bfl.ai/ for the full reference.
 package blackforestlabs

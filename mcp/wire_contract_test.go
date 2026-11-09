@@ -223,7 +223,10 @@ func TestWireRegistrationPreservesArgumentsSchemaAndResults(t *testing.T) {
 			received := make(chan string, 1)
 			executable := testTool{definition: tool.Definition{Name: "probe", InputSchema: json.RawMessage(schema)}, call: func(ctx context.Context, invocation tool.Invocation) (tool.Output, error) {
 				received <- string(invocation.Arguments())
-				return tool.Output{Details: json.RawMessage(payload)}, nil
+				if payload == "" {
+					return tool.Output{}, nil
+				}
+				return tool.NewJSONOutput(json.RawMessage(payload))
 			}}
 			server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "scope-server", Version: "1"}, nil)
 			if err := registerTestTools(server, executable); err != nil {

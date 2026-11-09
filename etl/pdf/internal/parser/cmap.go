@@ -41,11 +41,13 @@ func (c *cmap) Decode(raw string) string {
 		code, width := c.nextCode(raw)
 		raw = raw[width:]
 		if code == "" {
+			c.budget.expand(utf8.UTFMax)
 			runes = append(runes, noRune)
 			continue
 		}
 		mapped, found := c.lookup(code)
 		if !found {
+			c.budget.expand(utf8.UTFMax)
 			runes = append(runes, noRune)
 			continue
 		}

@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 type contentOperator string
@@ -124,7 +123,6 @@ func (t *textInterpreter) showEncodedText(state *textState, raw string) {
 	if state.font == nil {
 		panic("text has no selected font")
 	}
-	t.budget.expand(int64(len(raw)) * utf8.UTFMax)
 	t.showText(state.font.Decoder().Decode(raw))
 }
 

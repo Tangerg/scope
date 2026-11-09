@@ -59,34 +59,51 @@ func (r *responsesReasoningEvidence) validateText(item responses.ResponseReasoni
 	return nil
 }
 
-type responsesStreamReasoning map[int64]*responsesReasoningEvidence
+type responsesStreamReasoning struct {
+	codec responsesReasoningCodec
+	items map[int64]*responsesReasoningEvidence
+}
 
 func (r responsesStreamReasoning) bind(index int64, itemID string) (*responsesReasoningEvidence, error) {
 	if index < 0 || itemID == "" {
 		return nil, fmt.Errorf("%w: openai responses: reasoning requires a nonnegative output index and item ID", corechat.ErrInvalidResponse)
 	}
-	if evidence, exists := r[index]; exists {
+	if evidence, exists := r.items[index]; exists {
 		if evidence.itemID != itemID {
 			return nil, fmt.Errorf("%w: openai responses: reasoning item identity changed at output %d", corechat.ErrInvalidResponse, index)
 		}
 		return evidence, nil
 	}
-	for _, other := range r {
+	for _, other := range r.items {
 		if other.itemID == itemID {
 			return nil, fmt.Errorf("%w: openai responses: reasoning item identity reused", corechat.ErrInvalidResponse)
 		}
 	}
 	evidence := &responsesReasoningEvidence{itemID: itemID}
-	r[index] = evidence
+	r.items[index] = evidence
 	return evidence, nil
 }
 
-func (r responsesStreamReasoning) append(index int64, text string, segment responsesReasoningSegment) error {
+func (r responsesStreamReasoning) delta(index int64, indexPresent bool, text string, segment responsesReasoningSegment) (*corechat.PartDelta, error) {
+	if !indexPresent {
+		return nil, fmt.Errorf("%w: openai responses: reasoning delta requires its output and segment indices", corechat.ErrInvalidResponse)
+	}
 	evidence, err := r.bind(index, segment.ItemID)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return evidence.append(text, segment)
+	if appendErr := evidence.append(text, segment); appendErr != nil {
+		return nil, appendErr
+	}
+	frame, err := r.codec.encodeFrame(responsesReasoningState{Segment: &segment})
+	if err != nil {
+		return nil, err
+	}
+	part := corechat.NewReasoningDelta(text, frame)
+	if err := part.Metadata.Set(responsesReasoningIdentityKey, segment); err != nil {
+		return nil, err
+	}
+	return &part, nil
 }
 
 func (r responsesStreamReasoning) finish(event responses.ResponseOutputItemDoneEvent) (*corechat.PartDelta, error) {
@@ -108,7 +125,7 @@ func (r responsesStreamReasoning) finish(event responses.ResponseOutputItemDoneE
 	if validationErr := evidence.validateText(item); validationErr != nil {
 		return nil, validationErr
 	}
-	frame, err := encodeResponsesReasoningFrame(state)
+	frame, err := r.codec.encodeFrame(state)
 	if err != nil {
 		return nil, fmt.Errorf("%w: openai responses: reasoning completion: %w", corechat.ErrInvalidResponse, err)
 	}
@@ -130,7 +147,7 @@ func (r responsesStreamReasoning) finish(event responses.ResponseOutputItemDoneE
 }
 
 func (r responsesStreamReasoning) validateTerminal(response responses.Response) error {
-	for index, evidence := range r {
+	for index, evidence := range r.items {
 		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeReasoning || response.Output[index].ID != evidence.itemID {
 			return fmt.Errorf("%w: openai responses: terminal response omitted or changed reasoning at output %d", corechat.ErrInvalidResponse, index)
 		}
@@ -156,7 +173,7 @@ func (r responsesStreamReasoning) validateTerminal(response responses.Response) 
 		return nil
 	}
 	for index, item := range response.Output {
-		if item.Type == responsesItemTypeReasoning && r[int64(index)] == nil {
+		if item.Type == responsesItemTypeReasoning && r.items[int64(index)] == nil {
 			return fmt.Errorf("%w: openai responses: completed response introduced reasoning at output %d", corechat.ErrInvalidResponse, index)
 		}
 	}

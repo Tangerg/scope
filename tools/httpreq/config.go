@@ -75,7 +75,7 @@ func (c clientPolicy) checkRedirect(request *http.Request, via []*http.Request) 
 	if request == nil || request.URL == nil || request.URL.User != nil {
 		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
 	}
-	if request.URL.Scheme != "http" && request.URL.Scheme != "https" {
+	if _, supported := schemeDefaultPort(request.URL.Scheme); !supported {
 		return fmt.Errorf("httpreq: validate redirect target: %w", ErrInvalidURL)
 	}
 	if !c.allowedHosts.Allows(request.URL) {

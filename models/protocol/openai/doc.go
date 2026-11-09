@@ -85,8 +85,10 @@
 // Each Responses reasoning segment keeps a distinct Core Part. Part.Text owns
 // visible summary or content text; ReasoningState retains segment identities and
 // one completed native item without text copies. Replay requires that complete
-// state and its Core text parts. Previously stored full native reasoning items
-// are rejected. Preserve signed content and native fields when replaying.
+// state and its Core text parts from the same provider. Frames carry the issuing
+// binding's provider namespace; foreign state is omitted from native replay.
+// Unscoped frames and full native items are rejected. Preserve signed content
+// and native fields when replaying.
 // Completed reasoning must agree with streamed text and its item completion;
 // contradictory or unfinished items cannot produce a successful terminal delta.
 // Assistant message identity and phase remain separate from visible text so

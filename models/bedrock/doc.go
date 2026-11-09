@@ -15,8 +15,9 @@
 // "us.anthropic.claude-sonnet-4-20250514-v1:0"). Bedrock supports
 // regional and cross-region inference-profile IDs.
 //
-// AWS auth is handled by the standard aws-sdk-go-v2 chain (env vars,
-// shared config, IRSA, instance role); no custom APIKey is required.
+// Without explicit Credentials, AWS auth follows the SDK's ambient credential
+// and Bedrock bearer configuration. Explicit Credentials binds SigV4 to that
+// identity and excludes ambient bearer tokens.
 // The SDK owns regional endpoint resolution. Explicit endpoints, including
 // AWS environment configuration, also bind the HTTP origin. Redirects are
 // refused because they can change the destination or signed operation; the

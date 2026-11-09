@@ -20,11 +20,14 @@ type responsesStreamState struct {
 	reasoning            responsesStreamReasoning
 }
 
-func newResponsesStreamState(extensionKey string) *responsesStreamState {
+func newResponsesStreamState(provider string) *responsesStreamState {
 	return &responsesStreamState{
-		responseExtensionKey: extensionKey,
+		responseExtensionKey: provider + "/responses_response",
 		tools:                make(responsesStreamTools),
-		reasoning:            make(responsesStreamReasoning),
+		reasoning: responsesStreamReasoning{
+			codec: responsesReasoningCodec{provider: provider},
+			items: make(map[int64]*responsesReasoningEvidence),
+		},
 	}
 }
 
@@ -83,15 +86,15 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
 		return nil, r.tools.finishArguments(typed)
 	case responses.ResponseReasoningTextDeltaEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseReasoningSummaryPartAddedEvent:
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseContentPartAddedEvent:
@@ -101,7 +104,7 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		if typed.Part.Type != responsesReasoningContentText {
 			return nil, nil
 		}
-		return r.reasoningDelta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
@@ -163,24 +166,6 @@ func (r *responsesStreamState) terminalDelta(response responses.Response, status
 		}
 	}
 	return responsesTerminalDelta(&response, r.responseExtensionKey, r.identity)
-}
-
-func (r *responsesStreamState) reasoningDelta(index int64, indexPresent bool, text string, segment responsesReasoningSegment) (*corechat.ResponseDelta, error) {
-	if !indexPresent {
-		return nil, fmt.Errorf("%w: openai responses: reasoning delta requires its output and segment indices", corechat.ErrInvalidResponse)
-	}
-	if err := r.reasoning.append(index, text, segment); err != nil {
-		return nil, err
-	}
-	frame, err := encodeResponsesReasoningFrame(responsesReasoningState{Segment: &segment})
-	if err != nil {
-		return nil, err
-	}
-	part := corechat.NewReasoningDelta(text, frame)
-	if err := part.Metadata.Set(responsesReasoningIdentityKey, segment); err != nil {
-		return nil, err
-	}
-	return r.deltaResponse(part)
 }
 
 func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, error) {

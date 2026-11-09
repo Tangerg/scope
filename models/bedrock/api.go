@@ -16,8 +16,9 @@ import (
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-// Credentials bypasses the ambient AWS credential chain when a caller needs
-// an explicit identity, such as a tenant-scoped integration.
+// Credentials binds SigV4 authentication to an explicit identity, such as a
+// tenant-scoped integration. Ambient credentials and Bedrock bearer tokens
+// cannot replace that identity.
 type Credentials struct {
 	AccessKeyID     string
 	SecretAccessKey string
@@ -73,6 +74,13 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 
 	var bindingErr error
 	client := bedrockruntime.NewFromConfig(awsCfg, func(options *bedrockruntime.Options) {
+		if config.Credentials != nil {
+			// The service client loads its ambient bearer after the AWS config.
+			// Explicit credentials own this binding's identity, so retain the
+			// default SigV4 ordering without an ambient bearer alternative.
+			options.BearerAuthTokenProvider = nil
+			options.AuthSchemePreference = nil
+		}
 		if config.BaseURL != "" {
 			options.BaseEndpoint = aws.String(config.BaseURL)
 		}

@@ -8,6 +8,8 @@ import (
 	"math"
 	"slices"
 
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/collections/vectorindex"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -69,9 +71,9 @@ func (n *nativeSchema) read(c *collectionWire, name string, space vectorstore.Sp
 	if idx.Skip || idx.Multi.Enabled {
 		return fmt.Errorf("%w: disabled or multivector index", ErrIncompatibleCollection)
 	}
-	switch v.IndexType {
-	case "flat", "hnsw":
-	case "dynamic":
+	switch vectorindex.Type(v.IndexType) {
+	case (vectorindex.Flat{}).Name(), (vectorindex.HNSW{}).Name():
+	case (vectorindex.Dynamic{}).Name():
 		for _, sub := range []indexWire{idx.HNSW, idx.Flat} {
 			if sub.Skip || sub.Multi.Enabled || sub.Distance != "" && sub.Distance != idx.Distance {
 				return fmt.Errorf("%w: inconsistent dynamic index", ErrIncompatibleCollection)
@@ -96,15 +98,15 @@ func (n *nativeSchema) read(c *collectionWire, name string, space vectorstore.Sp
 		seen[p.Name] = true
 		switch p.Name {
 		case fieldContent:
-			if p.DataType[0] != "text" || p.Tokenization != "word" || p.IndexSearchable != nil && !*p.IndexSearchable {
+			if p.DataType[0] != string(collections.DataTypeText) || p.Tokenization != string(collections.TokenizationWord) || p.IndexSearchable != nil && !*p.IndexSearchable {
 				return fmt.Errorf("%w: content must be searchable word text", ErrIncompatibleCollection)
 			}
 		case fieldMetadata, fieldTerms:
-			want := "text"
+			want := string(collections.DataTypeText)
 			if p.Name == fieldTerms {
-				want = "text[]"
+				want = string(collections.DataTypeTextArray)
 			}
-			if p.DataType[0] != want || p.Tokenization != "field" || p.IndexFilterable != nil && !*p.IndexFilterable {
+			if p.DataType[0] != want || p.Tokenization != string(collections.TokenizationField) || p.IndexFilterable != nil && !*p.IndexFilterable {
 				return fmt.Errorf("%w: property %q must be filterable field %s", ErrIncompatibleCollection, p.Name, want)
 			}
 		default:

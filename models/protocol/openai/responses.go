@@ -131,7 +131,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 		}
 		defer stream.Close()
 
-		state := newResponsesStreamState(r.dialect.Provider + "/responses_response")
+		state := newResponsesStreamState(r.dialect.Provider)
 		var terminal *corechat.ResponseDelta
 		for stream.Next() {
 			if terminal != nil {

@@ -231,12 +231,18 @@ func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 	if _, owns := reader.Process(root); owns || same.ID != initial.ID || same.ContextID != initial.ContextID || same.Status.State != sdk.TaskStateInputRequired {
 		t.Fatal("GET claimed an existing task")
 	}
+	if same.Status.Message == nil || same.Status.Message.ID != initial.Status.Message.ID {
+		t.Fatal("reading a committed wait on another host changed the question identity")
+	}
 	if e := rpc(t, replica, "bob", "GetTask", map[string]any{"id": initial.ID}); len(e.Error) == 0 {
 		t.Fatal("authority scope widened")
 	}
 	duplicate := send(t, replica, message("first", "ask"), false)
 	if duplicate.ID != initial.ID {
 		t.Fatal("duplicate submission created another task")
+	}
+	if duplicate.Status.Message == nil || duplicate.Status.Message.ID != initial.Status.Message.ID {
+		t.Fatal("duplicate submission created another question identity")
 	}
 	reply := message("follow", "Ada")
 	reply["taskId"] = initial.ID

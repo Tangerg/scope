@@ -15,6 +15,9 @@ import (
 // ResponsesDialect binds one provider's Responses-compatible endpoint. The
 // callback runs after Core projection and before transport. Raw request fields
 // are provider-namespaced; adapters with a typed extension can disable them.
+// PrepareRequest receives an independently owned request with resolved options.
+// Only target changes affect the wire request; source edits never change the
+// caller's history.
 type ResponsesDialect struct {
 	Provider                   string
 	PrepareRequest             func(*corechat.Request, *CompatibleResponsesRequest) error

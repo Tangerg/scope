@@ -12,7 +12,10 @@ import (
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
-const plainTextMediaType = "text/plain"
+const (
+	MediaTypePlainText = "text/plain"
+	MediaTypeJSON      = "application/json"
+)
 
 type textProjection struct{}
 
@@ -73,7 +76,7 @@ func (t textProjection) validateModes(groups ...[]string) error {
 
 func (textProjection) supportsMediaType(value string) bool {
 	mediaType, _, err := mime.ParseMediaType(value)
-	return err == nil && mediaType == plainTextMediaType
+	return err == nil && mediaType == MediaTypePlainText
 }
 
 func (textProjection) userMessage(text string) *sdka2a.Message {

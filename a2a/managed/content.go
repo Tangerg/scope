@@ -8,12 +8,8 @@ import (
 
 	sdk "github.com/a2aproject/a2a-go/v2/a2a"
 
+	"github.com/Tangerg/scope/a2a"
 	"github.com/Tangerg/scope/agent/run"
-)
-
-const (
-	mediaTypePlainText = "text/plain"
-	mediaTypeJSON      = "application/json"
 )
 
 type contentPolicy struct {
@@ -23,14 +19,14 @@ type contentPolicy struct {
 func newContentPolicy(card sdk.AgentCard) (contentPolicy, error) {
 	policy := contentPolicy{inputs: slices.Clone(card.DefaultInputModes), outputs: slices.Clone(card.DefaultOutputModes)}
 	if len(policy.inputs) == 0 {
-		policy.inputs = []string{mediaTypePlainText, mediaTypeJSON}
+		policy.inputs = []string{a2a.MediaTypePlainText, a2a.MediaTypeJSON}
 	}
 	if len(policy.outputs) == 0 {
-		policy.outputs = []string{mediaTypeJSON}
+		policy.outputs = []string{a2a.MediaTypeJSON}
 	}
 	for _, modes := range [][]string{policy.inputs, policy.outputs} {
 		for _, mode := range modes {
-			if mode != mediaTypePlainText && mode != mediaTypeJSON {
+			if mode != a2a.MediaTypePlainText && mode != a2a.MediaTypeJSON {
 				return contentPolicy{}, sdk.ErrUnsupportedContentType
 			}
 		}
@@ -89,25 +85,25 @@ func parseMessageContent(message *sdk.Message) (messageContent, error) {
 	switch value := part.Content.(type) {
 	case sdk.Text:
 		switch part.MediaType {
-		case "", mediaTypePlainText:
+		case "", a2a.MediaTypePlainText:
 			payload, err := run.EncodePayload(string(value))
-			return messageContent{payload: payload, mediaType: mediaTypePlainText}, err
-		case mediaTypeJSON:
+			return messageContent{payload: payload, mediaType: a2a.MediaTypePlainText}, err
+		case a2a.MediaTypeJSON:
 			raw = []byte(value)
 		default:
 			return messageContent{}, sdk.ErrUnsupportedContentType
 		}
 	case sdk.Raw:
-		if part.MediaType != mediaTypeJSON {
+		if part.MediaType != a2a.MediaTypeJSON {
 			return messageContent{}, sdk.ErrUnsupportedContentType
 		}
 		raw = []byte(value)
 	case sdk.Data:
-		if part.MediaType != "" && part.MediaType != mediaTypeJSON || !exactData(value.Value) {
+		if part.MediaType != "" && part.MediaType != a2a.MediaTypeJSON || !exactData(value.Value) {
 			return messageContent{}, sdk.ErrUnsupportedContentType
 		}
 		payload, err := run.EncodePayload(value.Value)
-		return messageContent{payload: payload, mediaType: mediaTypeJSON}, err
+		return messageContent{payload: payload, mediaType: a2a.MediaTypeJSON}, err
 	default:
 		return messageContent{}, sdk.ErrUnsupportedContentType
 	}
@@ -115,7 +111,7 @@ func parseMessageContent(message *sdk.Message) (messageContent, error) {
 	if err != nil {
 		return messageContent{}, fmt.Errorf("%w: malformed JSON part", sdk.ErrInvalidParams)
 	}
-	return messageContent{payload: payload, mediaType: mediaTypeJSON}, nil
+	return messageContent{payload: payload, mediaType: a2a.MediaTypeJSON}, nil
 }
 
 func exactData(value any) bool {
@@ -143,15 +139,15 @@ func exactData(value any) bool {
 
 func (c contentPolicy) part(raw json.RawMessage) *sdk.Part {
 	var text *string
-	if slices.Contains(c.outputs, mediaTypePlainText) && jsonv2.Unmarshal(raw, &text) == nil && text != nil {
+	if slices.Contains(c.outputs, a2a.MediaTypePlainText) && jsonv2.Unmarshal(raw, &text) == nil && text != nil {
 		part := sdk.NewTextPart(*text)
-		part.MediaType = mediaTypePlainText
+		part.MediaType = a2a.MediaTypePlainText
 		return part
 	}
 	part := sdk.NewTextPart(string(raw))
-	part.MediaType = mediaTypePlainText
-	if slices.Contains(c.outputs, mediaTypeJSON) {
-		part.MediaType = mediaTypeJSON
+	part.MediaType = a2a.MediaTypePlainText
+	if slices.Contains(c.outputs, a2a.MediaTypeJSON) {
+		part.MediaType = a2a.MediaTypeJSON
 	}
 	return part
 }

@@ -1,9 +1,9 @@
 github.com/Tangerg/go-sdk v1.8.1-scope.5 h1:pB2OimDljbusbZIeTXA19SnEwxi635AStK9u5Wpn/1U=
 github.com/Tangerg/go-sdk v1.8.1-scope.5/go.mod h1:9ZBcxdycY3/8/I1dCH3Uo5rCY3Run9Y4ZmEmiQIulUw=
-github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183 h1:eZzgwNiEkNqG3snnddjfsBm6fY+f3X659vCtc5J7W3o=
-github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183/go.mod h1:YVjrbA/nQ63xvHX5QX3Y/19c6JH1VsOfaa800Ni0v3o=
-github.com/Tangerg/scope/otel v0.60.0 h1:pj1Ua4WIstOZlPRS+gsr3ESxQ2HCc0TwSMYg9thILfM=
-github.com/Tangerg/scope/otel v0.60.0/go.mod h1:i9uiQmDXgkJjphiM15Kx5POXNF63TFORUSZnXVIWY7I=
+github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02 h1:GBj0heTEowlo9W65HECZNaS1iyl9wNUuQ/khgHS+mOs=
+github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02/go.mod h1:nfLAh+FmtWTfPqvkIRibKkSegZ4RJvKR4MI+E4cjZYo=
+github.com/Tangerg/scope/otel v0.60.1-0.20261108171018-f61011de7e02 h1:Dx3sc/GDV1/7WW2+vYYCHy7COiif141+ckleDUcpsfQ=
+github.com/Tangerg/scope/otel v0.60.1-0.20261108171018-f61011de7e02/go.mod h1:ZDmDdFas88QgfBO9c1Q+4F8GZMGWknkXedZU82UQIPE=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=
 github.com/bahlo/generic-list-go v0.2.0/go.mod h1:2KvAjgMlE5NNynlg/5iLrrCCZ2+5xWbdbCW3pNTGyYg=
 github.com/buger/jsonparser v1.6.1 h1:I0phFv0PlbLHnM7TZAVjZ2MJ2/eWRTDyuO7GLR98IEs=

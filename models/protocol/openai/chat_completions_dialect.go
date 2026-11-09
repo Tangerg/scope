@@ -113,7 +113,9 @@ func (c *CompatibleRequest) SetFinalAssistantExtraField(name string, value any) 
 // DialectConfig groups the independently typed request and response protocol facets
 // selected by a provider adapter. One Chat Completions adapter has exactly one
 // dialect. Construction snapshots its mutable policy values; callback captures
-// remain owned by the caller.
+// remain owned by the caller. PrepareRequest receives an independently owned
+// request with resolved options after Core projection. Only target changes
+// affect the wire request; source edits never change the caller's history.
 type DialectConfig struct {
 	// Provider scopes provider-owned response and replay state.
 	Provider        string

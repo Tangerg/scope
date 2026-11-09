@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 )
 
@@ -30,21 +32,35 @@ type nativeMapping struct {
 }
 
 func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
+	const (
+		dynamicMappingStrict      = "strict"
+		sourceModeStored          = "stored"
+		fieldTypeText             = "text"
+		fieldTypeKeyword          = "keyword"
+		fieldTypeKNNVector        = "knn_vector"
+		vectorElementFloat        = "float"
+		pipelineNone              = "_none"
+		compression2x             = "2x"
+		encoderScalarQuantization = "sq"
+		scalarEncodingFP16        = "fp16"
+		methodHNSW                = "hnsw"
+		methodIVF                 = "ivf"
+	)
 	var schema nativeSchema
-	if n.Dynamic != "strict" || len(n.Properties) != 3 || n.Routing.Required || len(n.Runtime) > 0 || len(n.DynamicTemplates) > 0 || len(n.Derived) > 0 {
+	if n.Dynamic != dynamicMappingStrict || len(n.Properties) != 3 || n.Routing.Required || len(n.Runtime) > 0 || len(n.DynamicTemplates) > 0 || len(n.Derived) > 0 {
 		return schema, fmt.Errorf("%w: requires exactly the current strict properties without routing or dynamic rules", ErrIncompatibleIndex)
 	}
-	if n.Source.Enabled != nil && !*n.Source.Enabled || len(n.Source.Includes) > 0 || len(n.Source.Excludes) > 0 || n.Source.Mode != "" && n.Source.Mode != "stored" {
+	if n.Source.Enabled != nil && !*n.Source.Enabled || len(n.Source.Includes) > 0 || len(n.Source.Excludes) > 0 || n.Source.Mode != "" && n.Source.Mode != sourceModeStored {
 		return schema, fmt.Errorf("%w: requires complete stored _source", ErrIncompatibleIndex)
 	}
-	if field := n.Properties[contentField]; field.Type != "text" {
+	if field := n.Properties[contentField]; field.Type != fieldTypeText {
 		return schema, fmt.Errorf("%w: content must be TEXT", ErrIncompatibleIndex)
 	}
-	if field := n.Properties[metadataField]; field.Type != "keyword" || field.Index == nil || *field.Index || field.DocValues == nil || *field.DocValues {
+	if field := n.Properties[metadataField]; field.Type != fieldTypeKeyword || field.Index == nil || *field.Index || field.DocValues == nil || *field.DocValues {
 		return schema, fmt.Errorf("%w: metadata_json must be an unindexed KEYWORD without doc values", ErrIncompatibleIndex)
 	}
 	vector := n.Properties[embeddingField]
-	if vector.Type != "knn_vector" || vector.Dimensions <= 0 || vector.Dimensions > 16000 || vector.DataType != "" && vector.DataType != "float" || vector.ModelID != "" || vector.Method == nil || vector.Method.Engine == "" {
+	if vector.Type != fieldTypeKNNVector || vector.Dimensions <= 0 || vector.Dimensions > nativeMaximumDimensions || vector.DataType != "" && vector.DataType != vectorElementFloat || vector.ModelID != "" || vector.Method == nil || vector.Method.Engine == "" {
 		return schema, fmt.Errorf("%w: requires FLOAT32 knn_vector with declared dimensions and native method engine", ErrIncompatibleIndex)
 	}
 	if vector.SpaceType != "" && vector.Method.SpaceType != "" && vector.SpaceType != vector.Method.SpaceType {
@@ -54,7 +70,7 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 	schema.similarity = cmp.Or(nativeSimilarity(vector.SpaceType), nativeSimilarity(vector.Method.SpaceType), simL2)
 	schema.engine = vector.Method.Engine
 	encoder := vector.Method.Parameters.Encoder
-	schema.requireFP16Range = schema.engine == engineFaiss && (vector.CompressionLevel == "2x" || encoder != nil && encoder.Name == "sq" && cmp.Or(encoder.Parameters.Type, "fp16") == "fp16")
+	schema.requireFP16Range = schema.engine == engineFaiss && (vector.CompressionLevel == compression2x || encoder != nil && encoder.Name == encoderScalarQuantization && cmp.Or(encoder.Parameters.Type, scalarEncodingFP16) == scalarEncodingFP16)
 	if schema.requireFP16Range && encoder != nil {
 		schema.requireFP16Range = !encoder.Parameters.Clip
 	}
@@ -72,7 +88,7 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 	default:
 		return schema, fmt.Errorf("%w: unsupported native engine %q", ErrIncompatibleIndex, schema.engine)
 	}
-	if vector.Method.Name != "hnsw" && (vector.Method.Name != "ivf" || schema.engine != engineFaiss) {
+	if vector.Method.Name != methodHNSW && (vector.Method.Name != methodIVF || schema.engine != engineFaiss) {
 		return schema, fmt.Errorf("%w: unsupported native ANN method", ErrIncompatibleIndex)
 	}
 	if settings.value("index.knn") != "true" {
@@ -84,7 +100,7 @@ func (n nativeMapping) schema(settings nativeSettings) (nativeSchema, error) {
 		}
 	}
 	for _, name := range []string{"index.default_pipeline", "index.final_pipeline", "index.search.default_pipeline"} {
-		if settings.value(name) != "_none" {
+		if settings.value(name) != pipelineNone {
 			return schema, fmt.Errorf("%w: native pipeline can change document facts or results", ErrIncompatibleIndex)
 		}
 	}
@@ -151,7 +167,7 @@ func (s searchResponse) validate(index string) error {
 	if s.TerminatedEarly != nil && *s.TerminatedEarly || s.TimedOut == nil || *s.TimedOut || s.Shards == nil || s.Shards.Total == nil || s.Shards.Successful == nil || s.Shards.Failed == nil || *s.Shards.Total <= 0 || *s.Shards.Failed != 0 || *s.Shards.Successful != *s.Shards.Total {
 		return errors.New("opensearch: native search is incomplete or lacks shard acknowledgments")
 	}
-	if s.Hits == nil || s.Hits.Hits == nil || s.Hits.Total == nil || s.Hits.Total.Value == nil || *s.Hits.Total.Value < 0 || s.Hits.Total.Relation != "eq" {
+	if s.Hits == nil || s.Hits.Hits == nil || s.Hits.Total == nil || s.Hits.Total.Value == nil || *s.Hits.Total.Value < 0 || s.Hits.Total.Relation != string(opensearchapi.SearchTotalHitsRelationEq) {
 		return errors.New("opensearch: native search lacks complete hits or an exact total")
 	}
 	for _, hit := range *s.Hits.Hits {

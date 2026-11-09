@@ -34,6 +34,12 @@ type nativeSchema struct {
 }
 
 func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID) error {
+	const (
+		indexTypeVectorSearch = "vectorSearch"
+		indexStatusReady      = "READY"
+		indexFieldFilter      = "filter"
+		indexFieldVector      = "vector"
+	)
 	var index struct {
 		Name       string `bson:"name"`
 		Type       string `bson:"type"`
@@ -51,20 +57,20 @@ func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID
 	if err := bson.Unmarshal(raw, &index); err != nil {
 		return err
 	}
-	if index.Name != name || index.Type != "vectorSearch" || index.Status != "READY" || !index.Queryable {
+	if index.Name != name || index.Type != indexTypeVectorSearch || index.Status != indexStatusReady || !index.Queryable {
 		return errors.New("mongodb: requires the named READY vectorSearch index")
 	}
 	vectors, identity := 0, false
 	for _, field := range index.Definition.Fields {
 		switch field.Type {
-		case "filter":
+		case indexFieldFilter:
 			if field.Path == termsField {
 				n.indexedTerms = true
 			}
 			if field.Path == idField {
 				identity = true
 			}
-		case "vector":
+		case indexFieldVector:
 			if field.Path != space.StorageKey() {
 				return vectorstore.ErrIncompatibleSpace
 			}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"encoding/ascii85"
 	"errors"
 	"fmt"
 	"strings"
@@ -154,4 +155,91 @@ func TestPageTreeCyclesAndCMapExpansionConsumeTheSameBudget(t *testing.T) {
 		fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", len(cmap), cmap),
 	})
 	assertParseBudget(t, payload, pdf.ParseBudget{})
+}
+
+func TestGlyphSequenceExpansionDiscardsAllDocumentsWhenBudgetIsExhausted(t *testing.T) {
+	const repetitions = 1024
+	content := "BT /F1 12 Tf (" + strings.Repeat("A", repetitions) + ") Tj ET"
+	payload := encodePDFObjects([]string{
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Count 2 /Kids [3 0 R 5 0 R] >>",
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R >>",
+		pdfStream("BT /F1 12 Tf (first page) Tj ET", ""),
+		"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 8 0 R >> >> /Contents 6 0 R >>",
+		pdfStream(content, ""),
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /rehyehaleflamarabic] >> >>",
+	})
+	assertParseBudget(t, payload, pdf.ParseBudget{MaxDecodedBytes: 8 * repetitions})
+}
+
+func TestDecodedStreamBudgetCountsEachStageOnce(t *testing.T) {
+	compress := func(content string) string {
+		t.Helper()
+		var compressed bytes.Buffer
+		writer := zlib.NewWriter(&compressed)
+		if _, err := writer.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return compressed.String()
+	}
+	encodeASCII85 := func(content string) string {
+		encoded := make([]byte, ascii85.MaxEncodedLen(len(content)))
+		length := ascii85.Encode(encoded, []byte(content))
+		return string(encoded[:length]) + "~>"
+	}
+	const text = "budgeted"
+	const predictorRowBuffers = 2
+	content := "BT /F1 12 Tf (" + text + ") Tj ET"
+	compressed := compress(content)
+	encoded := encodeASCII85(content)
+	predictedContent := "\x02" + content
+	predictedEncoded := "\x02" + encoded
+	for _, sample := range []struct {
+		name         string
+		wire         string
+		entries      string
+		decodedBytes int
+		bufferBytes  int
+	}{
+		{"unfiltered", content, "", len(content), 0},
+		{"empty filter array", content, "/Filter []", len(content), 0},
+		{"Flate", compressed, "/Filter /FlateDecode", len(content), 0},
+		{"Flate array", compressed, "/Filter [/FlateDecode]", len(content), 0},
+		{"Flate without predictor", compressed, "/Filter /FlateDecode /DecodeParms << /Predictor 1 >>", len(content), 0},
+		{"ASCII85", encoded, "/Filter /ASCII85Decode", len(content), 0},
+		{"ASCII85 then Flate", encodeASCII85(compressed), "/Filter [/ASCII85Decode /FlateDecode]", len(compressed) + len(content), 0},
+		{"Flate then PNG-Up", compress(predictedContent), fmt.Sprintf("/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns %d >>", len(content)), len(predictedContent) + len(content), predictorRowBuffers * len(predictedContent)},
+		{"PNG-Up then ASCII85", compress(predictedEncoded), fmt.Sprintf("/Filter [/FlateDecode /ASCII85Decode] /DecodeParms [<< /Predictor 12 /Columns %d >> null]", len(encoded)), len(predictedEncoded) + len(encoded) + len(content), predictorRowBuffers * len(predictedEncoded)},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			payload := encodePDFObjects([]string{
+				"<< /Type /Catalog /Pages 2 0 R >>",
+				"<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+				"<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+				pdfStream(sample.wire, sample.entries),
+				"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+			})
+			limit := int64(sample.decodedBytes + sample.bufferBytes + len(text) + len("\n"+text))
+			for _, perPage := range []bool{false, true} {
+				reader, err := pdf.NewReader(bytes.NewReader(payload), int64(len(payload)), pdf.ReaderConfig{
+					PerPage:     perPage,
+					ParseBudget: pdf.ParseBudget{MaxDecodedBytes: limit},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for range 2 {
+					docs, err := reader.Read(t.Context())
+					if err != nil || len(docs) != 1 || docs[0].Text != text {
+						t.Fatalf("perPage=%t limit=%d Read = %v, %v; want %q", perPage, limit, docs, err, text)
+					}
+				}
+			}
+			assertParseBudget(t, payload, pdf.ParseBudget{MaxDecodedBytes: limit - 1})
+		})
+	}
 }

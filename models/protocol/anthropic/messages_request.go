@@ -16,6 +16,7 @@ import (
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
+	"github.com/anthropics/anthropic-sdk-go/v2/shared/constant"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -413,7 +414,7 @@ func (p *protocolMessageMapper) mapMedia(value *media.Media) (anthropicsdk.Conte
 			return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("image source %q is unsupported", value.Source.Kind)
 		}
 	}
-	if mediaType == "application/pdf" {
+	if mediaType == string(constant.ValueOf[constant.ApplicationPDF]()) {
 		var block anthropicsdk.ContentBlockParamUnion
 		switch value.Source.Kind {
 		case media.SourceBytes:

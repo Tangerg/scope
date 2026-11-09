@@ -16,6 +16,8 @@ import (
 const defaultRedirectLimit = 10
 
 const (
+	httpScheme       = "http"
+	httpsScheme      = "https"
 	httpDefaultPort  = 80
 	httpsDefaultPort = 443
 )
@@ -84,9 +86,9 @@ func newDestination(target *url.URL) (destination, bool) {
 
 func schemeDefaultPort(scheme string) (uint16, bool) {
 	switch scheme {
-	case "http":
+	case httpScheme:
 		return httpDefaultPort, true
-	case "https":
+	case httpsScheme:
 		return httpsDefaultPort, true
 	default:
 		return 0, false

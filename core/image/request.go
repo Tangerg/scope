@@ -65,7 +65,7 @@ func (o Options) validateOutputFormat() error {
 		return fmt.Errorf("invalid output format %q: %w", o.OutputFormat, err)
 	}
 	canonical := strings.ToLower(mediaType)
-	if !strings.HasPrefix(canonical, "image/") || len(strings.TrimPrefix(canonical, "image/")) == 0 {
+	if !strings.HasPrefix(canonical, imageMediaTypePrefix) || len(strings.TrimPrefix(canonical, imageMediaTypePrefix)) == 0 {
 		return fmt.Errorf("output format %q is not an image MIME type", o.OutputFormat)
 	}
 	if len(parameters) != 0 {

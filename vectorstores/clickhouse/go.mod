@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/Tangerg/scope/core v0.60.1-0.20261105130039-c06bdd878183
+	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
 )
 
 require (
@@ -28,7 +28,6 @@ require (
 	github.com/shopspring/decimal v1.6.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

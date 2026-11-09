@@ -10,12 +10,13 @@ import (
 // RESP2 has no warning channel. Reading the complete RESP3 envelope also avoids
 // the SDK's permissive decoder dropping malformed warnings or result members.
 func parseSearchResult(raw any) (goredis.FTSearchResult, error) {
+	const searchResultFormatString = "STRING"
 	var result goredis.FTSearchResult
 	fields, err := responseFields(raw)
 	if err != nil {
 		return result, err
 	}
-	if fields["format"] != "STRING" {
+	if fields["format"] != searchResultFormatString {
 		return result, errors.New("redis: FT.SEARCH requires the RESP3 STRING format")
 	}
 	total, ok := fields["total_results"].(int64)

@@ -243,11 +243,14 @@ func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H
 	if out, err := b.project(head, auth, answered); out != nil || err != nil {
 		return out, err
 	}
-	for _, err := range h.Observe(ctx, head.Head) {
+	for entry, err := range h.Observe(ctx, head.Head) {
 		if err != nil {
 			return nil, errUnavailable
 		}
-		head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
+		if entry.LSN <= head.Head {
+			continue
+		}
+		head, err = b.cfg.Runtime.Inspect(ctx, id.Root())
 		if err != nil {
 			return nil, errUnavailable
 		}

@@ -28,7 +28,7 @@ func newResponsesRequestProjection(request *corechat.Request, defaults corechat.
 	if err != nil {
 		return nil, fmt.Errorf("openai responses: options: %w", err)
 	}
-	resolved := *request
+	resolved := request.Clone()
 	resolved.Options = options
 	extensionKey := dialect.Provider + "/responses_request"
 	if ownershipErr := rejectCoreOwnedResponsesExtension(options.Extensions, extensionKey); ownershipErr != nil {
@@ -41,7 +41,7 @@ func newResponsesRequestProjection(request *corechat.Request, defaults corechat.
 	if found && dialect.DisableRawRequestExtension {
 		return nil, fmt.Errorf("%s: raw Responses request extension is not supported", dialect.Provider)
 	}
-	return &responsesRequestProjection{request: &resolved, dialect: dialect, native: native}, nil
+	return &responsesRequestProjection{request: resolved, dialect: dialect, native: native}, nil
 }
 
 func (r *responsesRequestProjection) project() (*responses.ResponseNewParams, error) {
@@ -49,7 +49,7 @@ func (r *responsesRequestProjection) project() (*responses.ResponseNewParams, er
 		return nil, err
 	}
 	r.projectToolChoice()
-	items, err := mapResponsesInput(r.request.Messages)
+	items, err := mapResponsesInput(r.request.Messages, responsesReasoningCodec{provider: r.dialect.Provider})
 	if err != nil {
 		return nil, err
 	}

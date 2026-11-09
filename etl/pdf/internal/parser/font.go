@@ -2,11 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:generate go run glyph_generate.go
+
 package parser
 
 import (
 	"errors"
 	"fmt"
+	"strings"
+	"unicode/utf8"
 )
 
 var ErrUnsupportedFontEncoding = errors.New("pdf: unsupported font encoding")
@@ -79,21 +83,21 @@ func (f *Font) readDecoder() TextDecoder {
 	switch encoding.Kind() {
 	case Name:
 		if fontEncoding(encoding.Name()) == encodingUCS2 {
-			return &utf16Decoder{}
+			return &utf16Decoder{budget: f.V.r.budget}
 		}
-		return &byteDecoder{table: f.encodingTable(encoding)}
+		return &byteDecoder{table: f.encodingTable(encoding), budget: f.V.r.budget}
 	case Dict:
-		decoder := &byteDecoder{table: f.encodingTable(encoding.Key(fontBaseEncodingKey))}
+		decoder := &byteDecoder{table: f.encodingTable(encoding.Key(fontBaseEncodingKey)), budget: f.V.r.budget}
 		decoder.applyDifferences(encoding.Key(fontDifferencesKey))
 		return decoder
 	case Null:
-		return &byteDecoder{table: f.builtInEncoding()}
+		return &byteDecoder{table: f.builtInEncoding(), budget: f.V.r.budget}
 	default:
 		panic("invalid font Encoding")
 	}
 }
 
-func (f *Font) encodingTable(encoding Value) [256]rune {
+func (f *Font) encodingTable(encoding Value) [256]string {
 	if encoding.IsNull() {
 		return f.builtInEncoding()
 	}
@@ -112,7 +116,7 @@ func (f *Font) encodingTable(encoding Value) [256]rune {
 	}
 }
 
-func (f *Font) builtInEncoding() [256]rune {
+func (f *Font) builtInEncoding() [256]string {
 	// An embedded font program may replace the standard font's built-in mapping.
 	descriptor := f.V.Key(fontDescriptorKey)
 	for _, key := range [...]string{fontType1ProgramKey, fontTrueTypeProgramKey, fontSubtypeProgramKey} {
@@ -139,25 +143,31 @@ type TextDecoder interface {
 	Decode(raw string) string
 }
 
-type utf16Decoder struct{}
+type utf16Decoder struct {
+	budget *budget
+}
 
 func (u *utf16Decoder) Decode(raw string) string {
 	if len(raw)%2 != 0 {
 		panic("invalid UTF-16BE character code")
 	}
+	u.budget.expand(int64(len(raw)) * utf8.UTFMax)
 	return utf16Decode(raw)
 }
 
 type byteDecoder struct {
-	table [256]rune
+	table  [256]string
+	budget *budget
 }
 
 func (b *byteDecoder) Decode(raw string) string {
-	runes := make([]rune, len(raw))
+	var text strings.Builder
 	for index := range len(raw) {
-		runes[index] = b.table[raw[index]]
+		sequence := b.table[raw[index]]
+		b.budget.expand(int64(len(sequence)))
+		text.WriteString(sequence)
 	}
-	return string(runes)
+	return text.String()
 }
 
 func (b *byteDecoder) applyDifferences(differences Value) {
@@ -181,11 +191,11 @@ func (b *byteDecoder) applyDifferences(differences Value) {
 			if code < 0 || code >= len(b.table) {
 				panic("font Differences glyph has no byte code")
 			}
-			character, known := nameToRune[value.Name()]
+			sequence, known := glyphUnicode[value.Name()]
 			if !known {
 				panic(fmt.Errorf("%w: Differences glyph %q", ErrUnsupportedFontEncoding, value.Name()))
 			}
-			b.table[code] = character
+			b.table[code] = sequence
 			code++
 		default:
 			panic("invalid font Differences entry")

@@ -86,7 +86,7 @@ func (o Output) Validate() error {
 			return fmt.Errorf("%w: content[%d]: %w", ErrInvalidOutput, index, err)
 		}
 	}
-	if len(o.Details) != 0 && !jsontext.Value(o.Details).IsValid() {
+	if o.Details != nil && !jsontext.Value(o.Details).IsValid() {
 		return fmt.Errorf("%w: details must be one valid RFC 7493 JSON document", ErrInvalidOutput)
 	}
 	return nil

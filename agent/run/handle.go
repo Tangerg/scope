@@ -146,10 +146,23 @@ func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error 
 
 func (h *Handle[O]) Await(ctx context.Context) (Result[O], error) {
 	ctx = RequireContext(ctx)
-	if h.tree != nil {
-		return h.awaitLocal(ctx)
+	if err := ctx.Err(); err != nil {
+		return Result[O]{}, err
 	}
-	return h.awaitCommitted(ctx)
+	var result Result[O]
+	var err error
+	if h.tree != nil {
+		result, err = h.awaitLocal(ctx)
+	} else {
+		result, err = h.awaitCommitted(ctx)
+	}
+	if err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return Result[O]{}, err
+	}
+	return result, nil
 }
 
 func (h *Handle[O]) awaitLocal(ctx context.Context) (Result[O], error) {

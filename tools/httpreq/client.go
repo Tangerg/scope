@@ -113,9 +113,9 @@ func (c *Client) Do(ctx context.Context, request *Request) (*Response, error) {
 	for name, value := range prepared.Headers {
 		wire.Header.Set(name, value)
 	}
-	if authority := wire.Header.Get("Host"); authority != "" {
+	if authority := wire.Header.Get(authorityHeader); authority != "" {
 		wire.Host = authority
-		wire.Header.Del("Host")
+		wire.Header.Del(authorityHeader)
 	}
 	startedAt := time.Now()
 	response, err := c.transport.Do(wire)
