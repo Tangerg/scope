@@ -108,6 +108,17 @@ func TestDecodeMessagesAdmitsOnlyCompletePayloads(t *testing.T) {
 	}
 }
 
+func TestHistoryAdmitsNoSystemMessages(t *testing.T) {
+	_, err := history.NewBatch("conversation", "append", chat.NewSystemMessage("instruction"), chat.NewUserMessage(chat.NewTextPart("question")))
+	if !errors.Is(err, history.ErrInvalidBatch) || !errors.Is(err, history.ErrSystemMessage) {
+		t.Fatalf("NewBatch error = %v, want ErrInvalidBatch and ErrSystemMessage", err)
+	}
+	stored := `[{"role":"system","parts":[{"kind":"text","text":"instruction"}]}]`
+	if _, err := history.DecodeMessages([]byte(stored)); !errors.Is(err, history.ErrSystemMessage) {
+		t.Fatalf("DecodeMessages error = %v, want ErrSystemMessage", err)
+	}
+}
+
 func TestBatchSchemaDescribesItsTypedWire(t *testing.T) {
 	schema, err := jsonschema.For[history.Batch]()
 	if err != nil {

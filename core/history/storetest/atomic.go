@@ -18,7 +18,6 @@ const cleanupTimeout = 30 * time.Second
 // RunAtomic exercises a configured store's append identity and closure boundary.
 // Unlike Run, it performs real I/O. Every check uses a fresh conversation and
 // closes it afterward; the closure and receipt evidence must remain durable.
-
 func RunAtomic(t *testing.T, store history.Store) {
 	t.Helper()
 	t.Run("ConcurrentRetriesAppendExactlyOnce", func(t *testing.T) {

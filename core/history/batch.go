@@ -19,6 +19,9 @@ var (
 	ErrInvalidReceipt     = errors.New("history: invalid append receipt")
 	ErrAppendConflict     = errors.New("history: append ID already names different messages")
 	ErrConversationClosed = errors.New("history: conversation is permanently closed")
+	// ErrSystemMessage rejects a system message as history: the request owns
+	// its current system prefix, so a stored one could only compete with it.
+	ErrSystemMessage = errors.New("history: system messages belong to the request, not history")
 )
 
 // AppendID names one immutable append within a conversation. A retry must use
@@ -88,6 +91,9 @@ func DecodeMessages(data []byte) ([]chat.Message, error) {
 	}
 	if len(messages) == 0 {
 		return nil, fmt.Errorf("%w: messages must not be empty", ErrInvalidBatch)
+	}
+	if err := historyMessages(messages).rejectSystemMessages(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidBatch, err)
 	}
 	return messages, nil
 }

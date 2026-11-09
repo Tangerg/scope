@@ -14,9 +14,12 @@
 //
 // Middleware binds one ConversationID to explicit Reader and Writer
 // capabilities. Requests supply a current system prefix and one user-led open
-// turn. Tool follow-ups resubmit that turn's user message, assistant tool calls,
-// and tool results. The stored history supplies prior completed turns; a
-// completed invocation appends its final assistant and open turn in one Batch.
+// turn. History never holds system messages: Batch and DecodeMessages reject
+// them with ErrSystemMessage, so a stored prompt cannot compete with the
+// request's. Tool follow-ups resubmit that turn's user message, assistant tool
+// calls, and tool results. The stored history supplies prior completed turns;
+// a completed invocation appends its final assistant and open turn in one
+// Batch.
 // Callers supplying a complete transcript use the undecorated model.
 //
 // CommitError preserves the Batch and any confirmed Receipt after generation

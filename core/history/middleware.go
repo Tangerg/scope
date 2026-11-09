@@ -144,10 +144,10 @@ func (m Middleware) prepare(
 	ctx context.Context,
 	request *chat.Request,
 ) (*chat.Request, historyMessages, error) {
-	prepared, err := m.snapshotRequest(request)
-	if err != nil {
+	if err := request.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: prepare request: %w", err)
 	}
+	prepared := request.Clone()
 	systems, fresh, err := historyMessages(prepared.Messages).openTurn()
 	if err != nil {
 		return nil, nil, err
@@ -161,15 +161,14 @@ func (m Middleware) prepare(
 			return nil, nil, fmt.Errorf("history: middleware: stored message %d: %w", index, err)
 		}
 	}
+	if err := historyMessages(stored).rejectSystemMessages(); err != nil {
+		return nil, nil, fmt.Errorf("history: middleware: stored %w", err)
+	}
 
 	freshSnapshot := fresh.clone()
 	prepared.Messages = make([]chat.Message, 0, len(systems)+len(stored)+len(fresh))
 	prepared.Messages = append(prepared.Messages, systems...)
-	for _, message := range stored {
-		if message.Role != chat.RoleSystem {
-			prepared.Messages = append(prepared.Messages, message)
-		}
-	}
+	prepared.Messages = append(prepared.Messages, stored...)
 	prepared.Messages = append(prepared.Messages, fresh...)
 	if err := prepared.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("history: middleware: assemble request history: %w", err)
@@ -207,16 +206,6 @@ func (m Middleware) persist(
 	return nil
 }
 
-func (m Middleware) snapshotRequest(request *chat.Request) (*chat.Request, error) {
-	if request == nil {
-		return nil, fmt.Errorf("%w: nil request", chat.ErrInvalidRequest)
-	}
-	if err := request.Validate(); err != nil {
-		return nil, err
-	}
-	return request.Clone(), nil
-}
-
 // A tool-calling assistant leaves the turn open. The caller supplies its tool
 // exchange until a final assistant closes the turn and the store owns it.
 func completesTurn(message *chat.Message) bool {
@@ -231,6 +220,15 @@ func (h historyMessages) clone() historyMessages {
 		messages[i] = h[i].Clone()
 	}
 	return messages
+}
+
+func (h historyMessages) rejectSystemMessages() error {
+	for index, message := range h {
+		if message.Role == chat.RoleSystem {
+			return fmt.Errorf("messages[%d]: %w", index, ErrSystemMessage)
+		}
+	}
+	return nil
 }
 
 func (h historyMessages) openTurn() (systems, fresh historyMessages, err error) {

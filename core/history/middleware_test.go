@@ -34,7 +34,6 @@ func TestNewRejectsNilHistoryCapabilities(t *testing.T) {
 
 func TestCallReplaysInStableOrderAndPersistsOnlyFreshExchange(t *testing.T) {
 	store := &recordingStore{read: []chat.Message{
-		chat.NewSystemMessage("stale stored system"),
 		chat.NewUserMessage(chat.NewTextPart("stored user")),
 	}}
 	middleware := mustMiddleware(t, store)
@@ -68,6 +67,21 @@ func TestCallReplaysInStableOrderAndPersistsOnlyFreshExchange(t *testing.T) {
 		messageKey{chat.RoleUser, "fresh user"},
 		messageKey{chat.RoleAssistant, "answer"},
 	)
+}
+
+// The request owns its system prefix; a stored system message would compete
+// with it, so a Reader that returns one fails before the model runs.
+func TestCallRejectsStoredSystemMessagesBeforeModel(t *testing.T) {
+	store := &recordingStore{read: []chat.Message{chat.NewSystemMessage("stale stored system")}}
+	middleware := mustMiddleware(t, store)
+	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		t.Fatal("model received a stored system message")
+		return nil, nil
+	})
+	request := mustRequest(t, chat.NewUserMessage(chat.NewTextPart("question")))
+	if _, err := middleware.Call(model).Call(t.Context(), request); !errors.Is(err, history.ErrSystemMessage) {
+		t.Fatalf("stored system message error = %v, want ErrSystemMessage", err)
+	}
 }
 
 func TestCallValidatesCompleteResponseBeforePersisting(t *testing.T) {
