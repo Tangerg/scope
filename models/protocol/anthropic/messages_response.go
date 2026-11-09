@@ -243,10 +243,21 @@ func newProtocolStreamState(provider string, documents protocolDocumentSources) 
 }
 
 func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnion) (*corechat.ResponseDelta, error) {
+	value := event.AsAny()
+	var wireErr error
+	if value == nil {
+		wireErr = validateResponseWire[struct {
+			Type responseWireString `json:"type"`
+		}](event.RawJSON())
+	} else {
+		wireErr = validateResponseWire[responseEventWire](event.RawJSON())
+	}
+	if wireErr != nil {
+		return nil, fmt.Errorf("%w: anthropic: stream event: %w", corechat.ErrInvalidResponse, wireErr)
+	}
 	if p.phase == protocolStreamStopped {
 		return nil, fmt.Errorf("anthropic: stream: %w: event after message_stop", corechat.ErrInvalidResponse)
 	}
-	value := event.AsAny()
 	switch value.(type) {
 	case anthropicsdk.ContentBlockStartEvent, anthropicsdk.ContentBlockDeltaEvent, anthropicsdk.ContentBlockStopEvent:
 		// The SDK coerces missing, fractional and boolean positions to zero.

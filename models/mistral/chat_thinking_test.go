@@ -138,11 +138,17 @@ func TestChatRejectsInvalidThinkingStateBeforeIO(t *testing.T) {
 	t.Cleanup(server.Close)
 	model := newThinkingModel(t, server.URL)
 	for _, state := range []string{
-		`{"type":"thinking","thinking":[{"type":"text","text":"old copy"}],"closed":true}`,
-		`{"block":1,"content":{"type":"text","text":"second owner"}}`,
-		`{"block":1,"fields":{"thinking":[]}}`,
+		`{"block":1,"content":{"type":"text","extra":{"text":"second owner"}}}`,
+		`{"block":1,"content":{"type":"text","extra":{"type":"reference"}}}`,
+		`{"block":1,"content":{}}`,
+		`{"block":1,"envelope":{"extra":{"thinking":[]}}}`,
+		`{"block":1,"envelope":{"extra":{"type":"thinking"}}}`,
+		`{"block":1,"envelope":{"extra":{"closed":true}}}`,
 		`{"block":0}`,
-		`{"block":1,"fields":{"closed":null}}`,
+		`{"block":1,"envelope":{"closed":null}}`,
+		`{"block":1,"envelope":{"closed":42}}`,
+		`{"block":1,"envelope":{"closed":"true"}}`,
+		`{"block":1,"envelope":{"closed":{}}}`,
 		`{"block":1,"unknown":true}`,
 		`null`,
 	} {
@@ -160,6 +166,29 @@ func TestChatRejectsInvalidThinkingStateBeforeIO(t *testing.T) {
 	}
 	if hits.Load() != 0 {
 		t.Fatalf("invalid state reached provider %d time(s)", hits.Load())
+	}
+}
+
+func TestChatRejectsMalformedNativeThinkingEnvelope(t *testing.T) {
+	for _, chunk := range []string{
+		`{"type":"thinking"}`,
+		`{"type":"thinking","thinking":null}`,
+		`{"type":"thinking","thinking":[],"closed":null}`,
+		`{"type":"thinking","thinking":[],"closed":42}`,
+		`{"type":"thinking","thinking":[],"closed":"true"}`,
+		`{"type":"thinking","thinking":[],"closed":{}}`,
+	} {
+		t.Run(chunk, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprintf(writer, "data: %s\n\ndata: [DONE]\n\n", `{"id":"chat-1","model":"model","choices":[{"index":0,"finish_reason":"stop","delta":{"content":[`+chunk+`]}}]}`)
+			}))
+			t.Cleanup(server.Close)
+			request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))}}
+			if response, err := newThinkingModel(t, server.URL).Call(t.Context(), request); err == nil {
+				t.Fatalf("malformed thinking envelope produced %#v", response)
+			}
+		})
 	}
 }
 

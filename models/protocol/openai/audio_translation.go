@@ -124,10 +124,14 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
-	if apiResp == nil || !apiResp.JSON.Text.Valid() {
+	if apiResp == nil {
 		return nil, fmt.Errorf("%w: openai: translation requires text", transcription.ErrInvalidResponse)
 	}
-	output, err := transcription.NewOutput(apiResp.Text, nil)
+	text, err := transcriptionWireText(apiResp.RawJSON())
+	if err != nil {
+		return nil, fmt.Errorf("%w: openai: translation: %w", transcription.ErrInvalidResponse, err)
+	}
+	output, err := transcription.NewOutput(text, nil)
 	if err != nil {
 		return nil, err
 	}

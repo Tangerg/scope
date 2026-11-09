@@ -63,9 +63,9 @@ func TestMetricsRetainCanonicalNamesAndScoreDirection(t *testing.T) {
 }
 
 func TestDDLKeepsExactIdentityAndLosslessMetadata(t *testing.T) {
-	store := &Store{fullTable: "APP.DOCUMENTS", idColumn: "ID", contentColumn: "CONTENT", metadataColumn: "FACTS", embeddingColumn: "EMBEDDING", dimensions: 3}
+	store := &Store{schemaName: "APP", tableName: "DOCUMENTS", idColumn: "ID", contentColumn: "CONTENT", metadataColumn: "FACTS", embeddingColumn: "EMBEDDING", dimensions: 3}
 	ddl := store.createTableStatement()
-	for _, want := range []string{"CREATE TABLE IF NOT EXISTS APP.DOCUMENTS", "ID RAW(2000) NOT NULL PRIMARY KEY", "FACTS BLOB NOT NULL", "EMBEDDING VECTOR(3, FLOAT32) NOT NULL"} {
+	for _, want := range []string{`CREATE TABLE IF NOT EXISTS "APP"."DOCUMENTS"`, `"ID" RAW(2000) NOT NULL PRIMARY KEY`, `"FACTS" BLOB NOT NULL`, `"EMBEDDING" VECTOR(3, FLOAT32) NOT NULL`} {
 		if !strings.Contains(ddl, want) {
 			t.Fatalf("DDL = %s, want %s", ddl, want)
 		}

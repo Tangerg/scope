@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 )
+
+const grepBarrierAddressEnv = "SCOPE_GREP_BARRIER_ADDRESS"
 
 func TestGrepPreservesCancellationDuringAnIncompleteEvent(t *testing.T) {
 	directory := t.TempDir()
@@ -20,10 +22,7 @@ func TestGrepPreservesCancellationDuringAnIncompleteEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := t.TempDir()
-	readyPath := filepath.Join(bin, "ready")
-	holdPath := filepath.Join(bin, "hold")
-	ready := openGrepBarrier(t, readyPath)
-	_ = openGrepBarrier(t, holdPath)
+	ready, barrierCommand := newGrepBarrier(t)
 	marker := filepath.Join(bin, "validated")
 	script := fmt.Sprintf(`#!/bin/sh
 if [ ! -f %q ]; then
@@ -31,9 +30,8 @@ if [ ! -f %q ]; then
   exit 0
 fi
 printf '%%s' '{"type":"match","data":'
-printf '1' > %q
-read -r ignored < %q
-`, marker, marker, readyPath, holdPath)
+%s
+`, marker, marker, barrierCommand)
 	if err := os.WriteFile(filepath.Join(bin, "rg"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +49,11 @@ read -r ignored < %q
 		_, err := executor.Grep(ctx, GrepRequest{Path: "source.txt", Pattern: "needle"})
 		finished <- err
 	}()
-	var signal [1]byte
-	if _, err := io.ReadFull(ready, signal[:]); err != nil {
+	connection, err := ready.Accept()
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer connection.Close()
 	cancel(cause)
 	select {
 	case err := <-finished:
@@ -68,9 +67,8 @@ read -r ignored < %q
 
 func TestRunRipgrepPreservesCancellationAtOutputBudget(t *testing.T) {
 	bin := t.TempDir()
-	holdPath := filepath.Join(bin, "hold")
-	_ = openGrepBarrier(t, holdPath)
-	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' '{\"type\":\"summary\"}'\nread -r ignored < %q\n", holdPath)
+	_, barrierCommand := newGrepBarrier(t)
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s' '{\"type\":\"summary\"}'\n%s\n", barrierCommand)
 	executable := filepath.Join(bin, "rg")
 	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
@@ -116,15 +114,36 @@ func (c *cancelOnClosedGrepInput) WriteTo(writer io.Writer) (int64, error) {
 	}
 }
 
-func openGrepBarrier(t *testing.T, path string) *os.File {
+func newGrepBarrier(t *testing.T) (net.Listener, string) {
 	t.Helper()
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.OpenFile(path, os.O_RDWR|syscall.O_NONBLOCK, 0)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = file.Close() })
-	return file
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv(grepBarrierAddressEnv, listener.Addr().String())
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return listener, fmt.Sprintf("exec %q -test.run=^TestGrepBarrierProcess$", executable)
+}
+
+// The child connects only after writing its partial event. Socket closure
+// releases its wait on every supported Unix platform, including Darwin where
+// nonblocking FIFOs do not participate in Go's file poller.
+func TestGrepBarrierProcess(t *testing.T) {
+	address := os.Getenv(grepBarrierAddressEnv)
+	if address == "" {
+		return
+	}
+	connection, err := net.Dial("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	if _, err = io.Copy(io.Discard, connection); err != nil {
+		t.Fatal(err)
+	}
+	os.Exit(0)
 }

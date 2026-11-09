@@ -13,6 +13,8 @@
 //
 // The data is embedded, so a lookup performs no I/O and cannot fail on a
 // network. Updating it is a repository change rather than a runtime fetch.
+// The first lookup validates the embedded catalog and panics if it is invalid;
+// importing its types alone does not load the data needed by queries.
 //
 // This module holds no provider SDK and implements no Core Model contract, and
 // it never becomes a routing layer: choosing a model is the caller's decision

@@ -208,7 +208,7 @@ func mapProtocolMessages(messages []corechat.Message) ([]nativeMessage, error) {
 		message := messages[i]
 		switch message.Role {
 		case corechat.RoleSystem:
-			mapped = append(mapped, nativeMessage{Role: "system", Content: message.Text()})
+			mapped = append(mapped, nativeMessage{Role: nativeRoleSystem, Content: message.Text()})
 		case corechat.RoleUser:
 			user, err := mapProtocolUserMessage(message)
 			if err != nil {
@@ -229,7 +229,7 @@ func mapProtocolMessages(messages []corechat.Message) ([]nativeMessage, error) {
 					return nil, fmt.Errorf("ollama: messages[%d].parts[%d]: media Tool output is unsupported", i, j)
 				}
 				mapped = append(mapped, nativeMessage{
-					Role:       "tool",
+					Role:       nativeRoleTool,
 					Content:    content,
 					ToolName:   result.Name,
 					ToolCallID: result.ID,
@@ -243,7 +243,7 @@ func mapProtocolMessages(messages []corechat.Message) ([]nativeMessage, error) {
 }
 
 func mapProtocolUserMessage(message corechat.Message) (nativeMessage, error) {
-	mapped := nativeMessage{Role: "user"}
+	mapped := nativeMessage{Role: nativeRoleUser}
 	var text strings.Builder
 	for i := range message.Parts {
 		part := message.Parts[i]
@@ -283,7 +283,7 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 	if len(message.Parts) == 0 {
 		return nativeMessage{}, errors.New("assistant metadata has no replayable Ollama content")
 	}
-	mapped := nativeMessage{Role: "assistant"}
+	mapped := nativeMessage{Role: nativeRoleAssistant}
 	var text, reasoning strings.Builder
 	for i := range message.Parts {
 		part := message.Parts[i]

@@ -1,6 +1,9 @@
 package filter
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 type Operator string
 
@@ -34,18 +37,14 @@ var operatorNames = map[Operator]string{
 	OpLessEqual:    "LE",
 	OpGreater:      "GT",
 	OpGreaterEqual: "GE",
-	OpAnd:          "AND",
-	OpOr:           "OR",
-	OpNot:          "NOT",
-	OpIn:           "IN",
-	OpHas:          "HAS",
-	OpLike:         "LIKE",
-	OpIs:           "IS",
 }
 
 func (o Operator) Name() string {
 	if name, ok := operatorNames[o]; ok {
 		return name
+	}
+	if o.IsBinaryOperator() || o.IsUnaryOperator() {
+		return strings.ToUpper(string(o))
 	}
 	return "INVALID"
 }

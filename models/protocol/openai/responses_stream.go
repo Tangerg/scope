@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -32,34 +31,41 @@ func newResponsesStreamState(provider string) *responsesStreamState {
 }
 
 func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion) (*corechat.ResponseDelta, error) {
-	for _, pos := range []struct {
-		name  string
-		field respjson.Field
-	}{
-		{"output_index", event.JSON.OutputIndex}, {"content_index", event.JSON.ContentIndex}, {"summary_index", event.JSON.SummaryIndex}, {"annotation_index", event.JSON.AnnotationIndex},
-	} {
-		if pos.field.Raw() != "" {
-			if _, valid := responseIndex(pos.field); !valid {
-				return nil, fmt.Errorf("%w: openai responses: %s must be a nonnegative integer", corechat.ErrInvalidResponse, pos.name)
-			}
-		}
+	if err := validateResponseWire[struct {
+		Type responseWireString `json:"type"`
+	}](event.RawJSON()); err != nil {
+		return nil, fmt.Errorf("%w: openai responses: event: %w", corechat.ErrInvalidResponse, err)
 	}
 	var part *corechat.PartDelta
 	var err error
+	// SDK union fields erase variant-specific types. Only a consumed variant
+	// selects an admission shape; unrelated native events remain opaque.
 	switch typed := event.AsAny().(type) {
 	case responses.ResponseCreatedEvent:
+		if wireErr := validateResponsesEvent[responsesSnapshotEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return nil, r.bindResponseIdentity(typed.Response)
 	case responses.ResponseOutputItemAddedEvent:
+		if wireErr := validateResponsesEvent[responsesItemEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		if typed.Item.Type == responsesItemTypeMessage {
 			return nil, r.content.startMessage(typed)
 		}
 		part, err = r.tools.add(typed)
 	case responses.ResponseTextDeltaEvent:
+		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.content.addText(typed)
 		if err == nil && part != nil {
 			r.lastText = &responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
 		}
 	case responses.ResponseOutputTextAnnotationAddedEvent:
+		if wireErr := validateResponsesEvent[responsesAnnotationEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		citation, include, citationErr := responsesStreamCitation(typed.Annotation)
 		if citationErr != nil || !include {
 			return nil, citationErr
@@ -80,24 +86,45 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		}
 		return r.deltaResponse(corechat.NewCitationDelta(citation))
 	case responses.ResponseRefusalDeltaEvent:
+		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.content.addRefusal(typed)
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
+		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.tools.appendArguments(typed)
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
+		if wireErr := validateResponsesEvent[responsesArgumentsDoneEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return nil, r.tools.finishArguments(typed)
 	case responses.ResponseReasoningTextDeltaEvent:
+		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
+		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseReasoningSummaryPartAddedEvent:
+		if wireErr := validateResponsesEvent[responsesContentEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseContentPartAddedEvent:
+		if wireErr := validateResponsesEvent[responsesContentEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		if stateErr := r.content.messages[typed.OutputIndex].requireOpen(); stateErr != nil {
 			return nil, stateErr
 		}
@@ -108,16 +135,34 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
+		if wireErr := validateResponsesEvent[responsesContentEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return nil, r.content.messages[event.OutputIndex].requireOpen()
 	case responses.ResponseOutputItemDoneEvent:
+		if wireErr := validateResponsesEvent[responsesItemEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return r.finishItem(typed)
 	case responses.ResponseCompletedEvent:
+		if wireErr := validateResponsesEvent[responsesSnapshotEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return r.terminalDelta(typed.Response, responses.ResponseStatusCompleted)
 	case responses.ResponseIncompleteEvent:
+		if wireErr := validateResponsesEvent[responsesSnapshotEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return r.terminalDelta(typed.Response, responses.ResponseStatusIncomplete)
 	case responses.ResponseFailedEvent:
+		if wireErr := validateResponsesEvent[responsesSnapshotEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return r.terminalDelta(typed.Response, responses.ResponseStatusFailed)
 	case responses.ResponseErrorEvent:
+		if wireErr := validateResponsesEvent[responsesErrorEventWire](event); wireErr != nil {
+			return nil, wireErr
+		}
 		return nil, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
 	}
 	if err != nil || part == nil {

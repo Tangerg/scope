@@ -1,13 +1,14 @@
 package mistral
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
+
+	corechat "github.com/Tangerg/scope/core/chat"
 )
 
 const (
@@ -15,14 +16,148 @@ const (
 	thinkingFrameLengthSize = 4
 	thinkingFrameHeaderSize = len(thinkingFrameMagic) + thinkingFrameLengthSize
 	thinkingPartIdentityKey = "mistral/thinking_part_identity"
+	thinkingFieldType       = "type"
+	thinkingFieldText       = "text"
+	thinkingFieldChildren   = "thinking"
+	thinkingFieldClosed     = "closed"
 )
 
-// A part owns one native child; envelope fields appear only on the last child
-// of the wire chunk. Core owns text, while replay state owns native-only values.
+type thinkingClosure uint8
+
+const (
+	thinkingClosureAbsent thinkingClosure = iota
+	thinkingClosureOpen
+	thinkingClosureClosed
+)
+
+func (t thinkingClosure) MarshalJSON() ([]byte, error) {
+	switch t {
+	case thinkingClosureOpen:
+		return jsonv2.Marshal(false)
+	case thinkingClosureClosed:
+		return jsonv2.Marshal(true)
+	default:
+		return nil, errors.New("thinking closure has no boolean value")
+	}
+}
+
+func (t *thinkingClosure) UnmarshalJSON(data []byte) error {
+	var value *bool
+	if err := jsonv2.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	if value == nil {
+		return errors.New("thinking closed must be a boolean")
+	}
+	*t = thinkingClosureOpen
+	if *value {
+		*t = thinkingClosureClosed
+	}
+	return nil
+}
+
+type thinkingEnvelope struct {
+	Closed thinkingClosure            `json:"closed,omitzero"`
+	Extra  map[string]json.RawMessage `json:"extra,omitzero"`
+}
+
+func (t thinkingEnvelope) validate() error {
+	if t.Closed > thinkingClosureClosed {
+		return errors.New("invalid thinking closure")
+	}
+	for _, field := range []string{thinkingFieldType, thinkingFieldChildren, thinkingFieldClosed} {
+		if _, exists := t.Extra[field]; exists {
+			return fmt.Errorf("thinking extension %q has a typed owner", field)
+		}
+	}
+	return nil
+}
+
+func (t *thinkingEnvelope) apply(delta thinkingEnvelope) {
+	if delta.Closed != thinkingClosureAbsent {
+		t.Closed = delta.Closed
+	}
+	if len(delta.Extra) == 0 {
+		return
+	}
+	if t.Extra == nil {
+		t.Extra = make(map[string]json.RawMessage, len(delta.Extra))
+	}
+	maps.Copy(t.Extra, delta.Extra)
+}
+
+type thinkingContentState struct {
+	Type  contentType                `json:"type"`
+	Extra map[string]json.RawMessage `json:"extra,omitzero"`
+}
+
+func (t thinkingContentState) validate() error {
+	if t.Type == "" {
+		return errors.New("thinking content type is required")
+	}
+	if _, exists := t.Extra[thinkingFieldType]; exists {
+		return errors.New("thinking content type has a typed owner")
+	}
+	if _, exists := t.Extra[thinkingFieldText]; exists && t.Type == contentTypeText {
+		return errors.New("thinking state must not contain Core-owned text")
+	}
+	return nil
+}
+
+func (t thinkingContentState) replay(text string) (json.RawMessage, error) {
+	fields := maps.Clone(t.Extra)
+	if fields == nil {
+		fields = make(map[string]json.RawMessage)
+	}
+	var err error
+	fields[thinkingFieldType], err = jsonv2.Marshal(t.Type)
+	if err != nil {
+		return nil, err
+	}
+	if t.Type == contentTypeText {
+		fields[thinkingFieldText], err = jsonv2.Marshal(text)
+		if err != nil {
+			return nil, err
+		}
+	} else if text != "" {
+		return nil, errors.New("thinking content has no text field")
+	}
+	return jsonv2.Marshal(fields)
+}
+
+func parseThinkingContent(raw json.RawMessage) (thinkingContentState, string, error) {
+	var wire struct {
+		Type  contentType                `json:"type"`
+		Extra map[string]json.RawMessage `json:",embed"`
+	}
+	if err := jsonv2.Unmarshal(raw, &wire); err != nil {
+		return thinkingContentState{}, "", err
+	}
+	state := thinkingContentState{Type: wire.Type, Extra: wire.Extra}
+	text := ""
+	if state.Type == contentTypeText {
+		var value *string
+		if err := jsonv2.Unmarshal(state.Extra[thinkingFieldText], &value); err != nil {
+			return thinkingContentState{}, "", fmt.Errorf("thinking text: %w", err)
+		}
+		if value == nil {
+			return thinkingContentState{}, "", errors.New("thinking text is required")
+		}
+		text = *value
+		delete(state.Extra, thinkingFieldText)
+	}
+	if err := state.validate(); err != nil {
+		return thinkingContentState{}, "", err
+	}
+	return state, text, nil
+}
+
+// Core owns text. The replay frame contains only a child's native state and,
+// on the last child, the envelope delta that advances its block boundary.
 type thinkingPartState struct {
-	Block   uint64                     `json:"block"`
-	Content map[string]json.RawMessage `json:"content,omitzero"`
-	Fields  map[string]json.RawMessage `json:"fields,omitzero"`
+	Block    uint64                `json:"block"`
+	Content  *thinkingContentState `json:"content,omitzero"`
+	Envelope thinkingEnvelope      `json:"envelope,omitzero"`
 }
 
 func (t thinkingPartState) validate() error {
@@ -30,44 +165,50 @@ func (t thinkingPartState) validate() error {
 		return errors.New("thinking block identity is required")
 	}
 	if t.Content != nil {
-		kind, err := t.contentType()
-		if err != nil {
+		if err := t.Content.validate(); err != nil {
 			return err
 		}
-		if _, exists := t.Content["text"]; kind == contentTypeText && exists {
-			return errors.New("thinking state must not contain Core-owned text")
-		}
 	}
-	for _, field := range []string{"type", "thinking"} {
-		if _, exists := t.Fields[field]; exists {
-			return fmt.Errorf("thinking envelope field %q is owned by the content mapping", field)
-		}
-	}
-	if closed, exists := t.Fields["closed"]; exists {
-		var value bool
-		if bytes.Equal(bytes.TrimSpace(closed), []byte("null")) {
-			return errors.New("thinking closed must be a boolean")
-		}
-		if err := jsonv2.Unmarshal(closed, &value); err != nil {
-			return fmt.Errorf("thinking closed: %w", err)
-		}
-	}
-	return nil
-}
-
-func (t thinkingPartState) contentType() (contentType, error) {
-	var kind contentType
-	if err := jsonv2.Unmarshal(t.Content["type"], &kind); err != nil {
-		return "", fmt.Errorf("thinking content type: %w", err)
-	}
-	if kind == "" {
-		return "", errors.New("thinking content type is required")
-	}
-	return kind, nil
+	return t.Envelope.validate()
 }
 
 func (t thinkingPartState) closed() bool {
-	return bytes.Equal(bytes.TrimSpace(t.Fields["closed"]), []byte("true"))
+	return t.Envelope.Closed == thinkingClosureClosed
+}
+
+type thinkingWireChunk struct {
+	Type     contentType                `json:"type"`
+	Thinking []json.RawMessage          `json:"thinking"`
+	Closed   thinkingClosure            `json:"closed,omitzero"`
+	Extra    map[string]json.RawMessage `json:",embed"`
+}
+
+func (t thinkingWireChunk) deltas(block uint64) ([]corechat.PartDelta, error) {
+	if t.Type != contentTypeThinking || t.Thinking == nil {
+		return nil, errors.New("thinking chunk requires a thinking array")
+	}
+	parts := make([]corechat.PartDelta, 0, max(1, len(t.Thinking)))
+	for index := range max(1, len(t.Thinking)) {
+		state := thinkingPartState{Block: block}
+		text := ""
+		if len(t.Thinking) > 0 {
+			content, value, err := parseThinkingContent(t.Thinking[index])
+			if err != nil {
+				return nil, fmt.Errorf("thinking[%d]: %w", index, err)
+			}
+			state.Content = &content
+			text = value
+		}
+		if index == max(1, len(t.Thinking))-1 {
+			state.Envelope = thinkingEnvelope{Closed: t.Closed, Extra: t.Extra}
+		}
+		frame, err := encodeThinkingFrame(state)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, corechat.NewReasoningDelta(text, frame))
+	}
+	return parts, nil
 }
 
 func encodeThinkingFrame(state thinkingPartState) ([]byte, error) {
@@ -113,9 +254,9 @@ func decodeThinkingFrame(signature []byte) (thinkingPartState, bool, error) {
 }
 
 type thinkingReplay struct {
-	block   uint64
-	content []json.RawMessage
-	fields  map[string]json.RawMessage
+	block    uint64
+	content  []json.RawMessage
+	envelope thinkingEnvelope
 }
 
 func (t *thinkingReplay) add(state thinkingPartState, text string) error {
@@ -124,44 +265,23 @@ func (t *thinkingReplay) add(state thinkingPartState, text string) error {
 			return errors.New("thinking envelope has no text field")
 		}
 	} else {
-		kind, err := state.contentType()
-		if err != nil {
-			return err
-		}
-		content := maps.Clone(state.Content)
-		if kind == contentTypeText {
-			content["text"], err = jsonv2.Marshal(text)
-			if err != nil {
-				return err
-			}
-		} else if text != "" {
-			return errors.New("thinking content has no text field")
-		}
-		raw, err := jsonv2.Marshal(content)
+		raw, err := state.Content.replay(text)
 		if err != nil {
 			return err
 		}
 		t.content = append(t.content, raw)
 	}
-	if t.fields == nil {
-		t.fields = make(map[string]json.RawMessage)
-	}
-	// These are chronological native envelope deltas, never text copies.
-	maps.Copy(t.fields, state.Fields)
+	t.envelope.apply(state.Envelope)
 	return nil
 }
 
 func (t *thinkingReplay) chunk() (json.RawMessage, error) {
-	fields := maps.Clone(t.fields)
-	fields["type"] = json.RawMessage(`"thinking"`)
 	content := t.content
 	if content == nil {
 		content = []json.RawMessage{}
 	}
-	encoded, err := jsonv2.Marshal(content)
-	if err != nil {
-		return nil, err
-	}
-	fields["thinking"] = encoded
-	return jsonv2.Marshal(fields)
+	return jsonv2.Marshal(thinkingWireChunk{
+		Type: contentTypeThinking, Thinking: content,
+		Closed: t.envelope.Closed, Extra: t.envelope.Extra,
+	})
 }

@@ -193,19 +193,19 @@ func keywordKind(literal string) tokenKind {
 		return tokenTrue
 	case "false":
 		return tokenFalse
-	case "and":
+	case string(OpAnd):
 		return tokenAnd
-	case "or":
+	case string(OpOr):
 		return tokenOr
-	case "not":
+	case string(OpNot):
 		return tokenNot
-	case "in":
+	case string(OpIn):
 		return tokenIn
-	case "has":
+	case string(OpHas):
 		return tokenHas
-	case "like":
+	case string(OpLike):
 		return tokenLike
-	case "is":
+	case string(OpIs):
 		return tokenIs
 	case string(LiteralNull):
 		return tokenNull

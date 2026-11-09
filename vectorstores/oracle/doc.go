@@ -3,6 +3,8 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Configured schema, table and column names use Oracle's uppercase identity;
+// SQL quotes that canonical name so reserved words remain valid identifiers.
 // Content requires a non-null CLOB in an AL32UTF8 database. Construction checks
 // the character set before optional schema creation, and native bindings recheck
 // it before admission and writes because driver conversion can silently replace

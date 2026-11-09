@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -245,64 +244,29 @@ func (c *chatStreamState) mapContentDeltas(raw json.RawMessage) ([]corechat.Part
 }
 
 func (c *chatStreamState) mapThinkingDeltas(raw json.RawMessage) ([]corechat.PartDelta, error) {
-	var fields map[string]json.RawMessage
-	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
+	var chunk thinkingWireChunk
+	if err := jsonv2.Unmarshal(raw, &chunk); err != nil {
 		return nil, err
 	}
-	var children []map[string]json.RawMessage
-	if len(fields["thinking"]) == 0 || bytes.Equal(bytes.TrimSpace(fields["thinking"]), []byte("null")) {
-		return nil, errors.New("thinking content must be an array")
-	}
-	if err := jsonv2.Unmarshal(fields["thinking"], &children); err != nil {
-		return nil, err
-	}
-	delete(fields, "type")
-	delete(fields, "thinking")
 	if c.thinkingBlock == 0 {
 		c.thinkingBlock = 1
 	}
-	parts := make([]corechat.PartDelta, 0, max(1, len(children)))
-	for index := range max(1, len(children)) {
-		state := thinkingPartState{Block: c.thinkingBlock}
-		text := ""
-		if len(children) > 0 {
-			state.Content = children[index]
-			kind, err := state.contentType()
-			if err != nil {
-				return nil, fmt.Errorf("thinking[%d]: %w", index, err)
-			}
-			if kind == contentTypeText {
-				var value *string
-				if err := jsonv2.Unmarshal(state.Content["text"], &value); err != nil {
-					return nil, fmt.Errorf("thinking[%d].text: %w", index, err)
-				}
-				if value == nil {
-					return nil, fmt.Errorf("thinking[%d].text is required", index)
-				}
-				text = *value
-				delete(state.Content, "text")
-			}
-		}
-		if index == max(1, len(children))-1 {
-			state.Fields = fields
-		}
-		frame, err := encodeThinkingFrame(state)
-		if err != nil {
-			return nil, err
-		}
-		part := corechat.NewReasoningDelta(text, frame)
+	parts, err := chunk.deltas(c.thinkingBlock)
+	if err != nil {
+		return nil, err
+	}
+	for index := range parts {
 		identity := struct {
 			Block    uint64 `json:"block"`
 			Position uint64 `json:"position"`
 		}{Block: c.thinkingBlock, Position: c.thinkingPosition}
-		if err := part.Metadata.Set(thinkingPartIdentityKey, identity); err != nil {
+		if err := parts[index].Metadata.Set(thinkingPartIdentityKey, identity); err != nil {
 			return nil, err
 		}
-		parts = append(parts, part)
 		c.thinkingPosition++
-		if state.closed() {
-			c.thinkingBlock++
-		}
+	}
+	if chunk.Closed == thinkingClosureClosed {
+		c.thinkingBlock++
 	}
 	return parts, nil
 }

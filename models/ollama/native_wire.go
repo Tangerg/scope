@@ -76,25 +76,38 @@ func (n nativeJSONObject) MarshalJSON() ([]byte, error) {
 
 type nativeImageData []byte
 
+type nativeRole string
+
+const (
+	nativeRoleSystem    nativeRole = "system"
+	nativeRoleUser      nativeRole = "user"
+	nativeRoleAssistant nativeRole = "assistant"
+	nativeRoleTool      nativeRole = "tool"
+)
+
+func (n *nativeRole) UnmarshalJSON(data []byte) error {
+	var value string
+	if err := jsonv2.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	role := nativeRole(strings.ToLower(value))
+	switch role {
+	case nativeRoleSystem, nativeRoleUser, nativeRoleAssistant, nativeRoleTool:
+		*n = role
+		return nil
+	default:
+		return fmt.Errorf("%w: ollama: unsupported message role %q", corechat.ErrInvalidResponse, value)
+	}
+}
+
 type nativeMessage struct {
-	Role       string            `json:"role"`
+	Role       nativeRole        `json:"role"`
 	Content    string            `json:"content"`
 	Thinking   string            `json:"thinking,omitempty"`
 	Images     []nativeImageData `json:"images,omitempty"`
 	ToolCalls  []nativeToolCall  `json:"tool_calls,omitempty"`
 	ToolName   string            `json:"tool_name,omitempty"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
-}
-
-func (n *nativeMessage) UnmarshalJSON(data []byte) error {
-	type alias nativeMessage
-	var decoded alias
-	if err := jsonv2.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*n = nativeMessage(decoded)
-	n.Role = strings.ToLower(n.Role)
-	return nil
 }
 
 type nativeToolCall struct {

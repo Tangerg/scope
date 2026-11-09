@@ -24,6 +24,12 @@ const (
 	omitZeroTagOption             = "omitzero"
 	jsonSchemaDescriptionFieldTag = "jsonschema_description"
 	jsonSchemaExtrasFieldTag      = "jsonschema_extras"
+	nullableSchemaTag             = "nullable"
+	typeSchemaTag                 = "type"
+	oneOfTypeSchemaTag            = "oneof_type"
+	anyOfTypeSchemaTag            = "anyof_type"
+	oneOfReferenceSchemaTag       = "oneof_ref"
+	anyOfReferenceSchemaTag       = "anyof_ref"
 )
 
 type wireField struct {
@@ -35,6 +41,8 @@ type wireField struct {
 	optional    bool
 	hidden      bool
 	stringified bool
+	schemaTag   string
+	nullable    bool
 }
 
 func parseWireField(field reflect.StructField, index []int, optional, hidden bool) (wireField, error) {
@@ -48,6 +56,7 @@ func parseWireField(field reflect.StructField, index []int, optional, hidden boo
 	member := wireField{
 		field: field, name: name, index: index, explicit: name != "",
 		optional: optional, hidden: hidden || field.Tag.Get(jsonSchemaFieldTag) == ignoredFieldTag,
+		schemaTag: field.Tag.Get(jsonSchemaFieldTag),
 	}
 	if member.name == "" {
 		member.name = field.Name
@@ -63,6 +72,9 @@ func parseWireField(field reflect.StructField, index []int, optional, hidden boo
 			member.stringified = true
 		}
 	}
+	if err := member.readSchemaTag(); err != nil {
+		return wireField{}, err
+	}
 	if err := member.validateTag(tags); err != nil {
 		return wireField{}, err
 	}
@@ -70,6 +82,36 @@ func parseWireField(field reflect.StructField, index []int, optional, hidden boo
 		return wireField{}, errors.New("a literal hyphen member name requires an explicit schema")
 	}
 	return member, nil
+}
+
+func (w *wireField) readSchemaTag() error {
+	if w.hidden {
+		return nil
+	}
+	parts := strings.Split(w.schemaTag, ",")
+	var refinements []string
+	start := 0
+	for index, part := range parts {
+		// The reflector permits escaped commas inside patterns and descriptions.
+		// Preserve those fragments so a value cannot become a separate option here.
+		if index+1 < len(parts) && strings.HasSuffix(part, `\`) {
+			continue
+		}
+		option := strings.Join(parts[start:index+1], ",")
+		start = index + 1
+		name, _, _ := strings.Cut(option, "=")
+		switch name {
+		case typeSchemaTag, oneOfTypeSchemaTag, anyOfTypeSchemaTag, oneOfReferenceSchemaTag, anyOfReferenceSchemaTag:
+			return fmt.Errorf("schema tag %q changes the wire shape; use the Go type or JSONSchemaModel", name)
+		}
+		if option == nullableSchemaTag {
+			w.nullable = true
+			continue
+		}
+		refinements = append(refinements, option)
+	}
+	w.schemaTag = strings.Join(refinements, ",")
+	return nil
 }
 
 func (w wireField) validateTag(tags []string) error {
@@ -125,8 +167,11 @@ func (w wireField) projection(position int) reflect.StructField {
 	tag.WriteString(jsonFieldTag + ":" + strconv.Quote(jsonTag))
 	for _, key := range []string{jsonSchemaFieldTag, jsonSchemaDescriptionFieldTag, jsonSchemaExtrasFieldTag} {
 		value, present := w.field.Tag.Lookup(key)
-		if key == jsonSchemaFieldTag && w.hidden {
-			value, present = ignoredFieldTag, true
+		if key == jsonSchemaFieldTag {
+			value = w.schemaTag
+			if w.hidden {
+				value, present = ignoredFieldTag, true
+			}
 		}
 		if present {
 			tag.WriteString(" " + key + ":" + strconv.Quote(value))
@@ -138,13 +183,19 @@ func (w wireField) projection(position int) reflect.StructField {
 	}
 }
 
+type structProjection struct {
+	typeOf            reflect.Type
+	nullable          []string
+	reflectedNullable []string
+}
+
 // The dependency's embedding rules predate JSON v2. Resolve the codec's field
 // precedence once before applying its schema-tag dialect, so hidden fields
 // cannot change a contract merely by moving their declaration.
-func projectStructFields(typeOf reflect.Type) (reflect.Type, error) {
+func projectStructFields(typeOf reflect.Type) (structProjection, error) {
 	fields, err := collectWireFields(typeOf)
 	if err != nil {
-		return nil, err
+		return structProjection{}, err
 	}
 	slices.SortStableFunc(fields, func(left, right wireField) int {
 		named := 0
@@ -169,10 +220,19 @@ func projectStructFields(typeOf reflect.Type) (reflect.Type, error) {
 	}
 	slices.SortFunc(selected, func(left, right wireField) int { return slices.Compare(left.index, right.index) })
 	projection := make([]reflect.StructField, len(selected))
+	var nullable, reflectedNullable []string
 	for index, field := range selected {
 		projection[index] = field.projection(index)
+		if field.nullable && !field.hidden {
+			nullable = append(nullable, field.name)
+		}
+		// The dependency's field-name pass splits escaped values again without
+		// honoring escapes. Track only the spurious wrapper it will introduce.
+		if !field.hidden && slices.Contains(strings.Split(field.schemaTag, ","), nullableSchemaTag) {
+			reflectedNullable = append(reflectedNullable, field.name)
+		}
 	}
-	return reflect.StructOf(projection), nil
+	return structProjection{typeOf: reflect.StructOf(projection), nullable: nullable, reflectedNullable: reflectedNullable}, nil
 }
 
 type wireFieldVisit struct {

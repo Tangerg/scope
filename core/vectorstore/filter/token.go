@@ -44,19 +44,6 @@ var tokenKindNames = [...]string{
 	tokenString:       "string",
 	tokenTrue:         "boolean",
 	tokenFalse:        "boolean",
-	tokenEqual:        "==",
-	tokenNotEqual:     "!=",
-	tokenLess:         "<",
-	tokenLessEqual:    "<=",
-	tokenGreater:      ">",
-	tokenGreaterEqual: ">=",
-	tokenAnd:          "AND",
-	tokenOr:           "OR",
-	tokenNot:          "NOT",
-	tokenIn:           "IN",
-	tokenHas:          "HAS",
-	tokenLike:         "LIKE",
-	tokenIs:           "IS",
 	tokenNull:         "NULL",
 	tokenLeftParen:    "(",
 	tokenRightParen:   ")",
@@ -66,6 +53,12 @@ var tokenKindNames = [...]string{
 }
 
 func (t tokenKind) string() string {
+	if operator := t.operator(); operator != "" {
+		if operator.IsComparisonOperator() {
+			return string(operator)
+		}
+		return operator.Name()
+	}
 	if int(t) < len(tokenKindNames) && tokenKindNames[t] != "" {
 		return tokenKindNames[t]
 	}
@@ -86,6 +79,20 @@ func (t tokenKind) operator() Operator {
 		return OpGreater
 	case tokenGreaterEqual:
 		return OpGreaterEqual
+	case tokenAnd:
+		return OpAnd
+	case tokenOr:
+		return OpOr
+	case tokenNot:
+		return OpNot
+	case tokenIn:
+		return OpIn
+	case tokenHas:
+		return OpHas
+	case tokenLike:
+		return OpLike
+	case tokenIs:
+		return OpIs
 	default:
 		return ""
 	}

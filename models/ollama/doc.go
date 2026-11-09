@@ -4,6 +4,8 @@
 // preserving interrupted outcomes and the native done reason.
 // Core ToolCall.ID is replayed unchanged on the call and its matching result,
 // including IDs synthesized when the provider omitted one.
+// Unknown native message roles fail with [chat.ErrInvalidResponse] before a
+// response delta can reinterpret them as assistant content.
 //
 // Stream termination. A chunk with done true is the only claim that the
 // generation finished, and the non-streaming path already refuses a response

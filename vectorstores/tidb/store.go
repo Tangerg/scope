@@ -180,13 +180,12 @@ var (
 
 type Store struct {
 	db              *sql.DB
-	schemaName      string
-	tableName       string
-	fullTable       string
-	idColumn        string
-	contentColumn   string
-	metadataColumn  string
-	embeddingColumn string
+	schemaName      identifier
+	tableName       identifier
+	idColumn        identifier
+	contentColumn   identifier
+	metadataColumn  identifier
+	embeddingColumn identifier
 	space           vectorstore.SpaceID
 	dimensions      int
 	distanceMetric  DistanceMetric
@@ -200,19 +199,14 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	var err error
-	fullTable := config.TableName
-	if config.SchemaName != "" {
-		fullTable = config.SchemaName + "." + config.TableName
-	}
 	store := &Store{
 		db:              config.DB,
-		schemaName:      config.SchemaName,
-		tableName:       config.TableName,
-		fullTable:       fullTable,
-		idColumn:        config.IDColumn,
-		contentColumn:   config.ContentColumn,
-		metadataColumn:  config.MetadataColumn,
-		embeddingColumn: config.EmbeddingColumn,
+		schemaName:      identifier(config.SchemaName),
+		tableName:       identifier(config.TableName),
+		idColumn:        identifier(config.IDColumn),
+		contentColumn:   identifier(config.ContentColumn),
+		metadataColumn:  identifier(config.MetadataColumn),
+		embeddingColumn: identifier(config.EmbeddingColumn),
 		space:           config.Space,
 		dimensions:      config.Dimensions,
 		distanceMetric:  config.DistanceMetric,
@@ -226,6 +220,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
+func (s *Store) tableSQL() string {
+	if s.schemaName == "" {
+		return s.tableName.sql()
+	}
+	return s.schemaName.sql() + "." + s.tableName.sql()
+}
+
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
 		return s.validateSchema(ctx)
@@ -236,13 +237,13 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 
 	if s.schemaName != "" {
 		if _, err := s.db.ExecContext(ctx,
-			fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.schemaName)); err != nil {
-			return fmt.Errorf("create schema %s: %w", s.schemaName, err)
+			fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.schemaName.sql())); err != nil {
+			return fmt.Errorf("create schema %s: %w", s.schemaName.sql(), err)
 		}
 	}
 
 	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
-		return fmt.Errorf("create table %s: %w", s.fullTable, err)
+		return fmt.Errorf("create table %s: %w", s.tableSQL(), err)
 	}
 	return s.validateSchema(ctx)
 }
@@ -254,7 +255,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	var length sql.NullInt64
 	err = s.db.QueryRowContext(ctx,
 		"SELECT c.DATA_TYPE, c.CHARACTER_MAXIMUM_LENGTH, c.IS_NULLABLE FROM information_schema.COLUMNS AS c WHERE c.TABLE_SCHEMA = "+database+" AND c.TABLE_NAME = ? AND c.COLUMN_NAME = ?",
-		s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable)
+		string(s.schemaName), string(s.tableName), string(s.idColumn)).Scan(&dataType, &length, &nullable)
 	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
@@ -263,7 +264,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	}
 	err = s.db.QueryRowContext(ctx,
 		"SELECT DATA_TYPE, IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = "+database+" AND TABLE_NAME = ? AND COLUMN_NAME = ?",
-		s.schemaName, s.tableName, s.metadataColumn).Scan(&dataType, &nullable)
+		string(s.schemaName), string(s.tableName), string(s.metadataColumn)).Scan(&dataType, &nullable)
 	if err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
@@ -272,7 +273,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	}
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX, SUB_PART FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = "+database+" AND TABLE_NAME = ? AND NON_UNIQUE = 0",
-		s.schemaName, s.tableName)
+		string(s.schemaName), string(s.tableName))
 	if err != nil {
 		return fmt.Errorf("read document identity constraints: %w", err)
 	}
@@ -289,7 +290,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		if err := rows.Scan(&name, &column, &ordinal, &prefix); err != nil {
 			return fmt.Errorf("read document identity constraint: %w", err)
 		}
-		if !strings.EqualFold(column, s.idColumn) || ordinal != 1 || prefix.Valid {
+		if !strings.EqualFold(column, string(s.idColumn)) || ordinal != 1 || prefix.Valid {
 			return errors.New("unique constraints must use the entire document ID as their sole key; rebuild the table")
 		}
 		primary = primary || name == "PRIMARY"
@@ -309,9 +310,9 @@ func (s *Store) searchStatement(wherePart string) string {
 	return fmt.Sprintf(
 		`SELECT /*+ READ_FROM_STORAGE(TIKV[source]) */ %s, %s, %s, %s(%s, VEC_FROM_TEXT(?)) AS distance `+
 			`FROM %s AS source FORCE INDEX(PRIMARY) WHERE 1=1%s ORDER BY distance ASC, %s ASC LIMIT ?`,
-		s.idColumn, s.contentColumn, s.metadataColumn,
-		s.distanceMetric.function(), s.embeddingColumn,
-		s.fullTable, wherePart, s.idColumn,
+		s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(),
+		s.distanceMetric.function(), s.embeddingColumn.sql(),
+		s.tableSQL(), wherePart, s.idColumn.sql(),
 	)
 }
 
@@ -323,11 +324,11 @@ func (s *Store) createTableStatement() string {
 			%s LONGBLOB NOT NULL,
 			%s VECTOR(%d) NOT NULL
 		) ENGINE=InnoDB DEFAULT CHARACTER SET %s COMMENT='%s'`,
-		s.fullTable,
-		s.idColumn, documentIDBytes,
-		s.contentColumn,
-		s.metadataColumn,
-		s.embeddingColumn, s.dimensions, nativeTextCharset, s.space.StorageKey(),
+		s.tableSQL(),
+		s.idColumn.sql(), documentIDBytes,
+		s.contentColumn.sql(),
+		s.metadataColumn.sql(),
+		s.embeddingColumn.sql(), s.dimensions, nativeTextCharset, s.space.StorageKey(),
 	)
 }
 
@@ -340,7 +341,7 @@ JOIN information_schema.COLUMNS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE
 JOIN information_schema.COLUMNS c ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
 WHERE t.TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND t.TABLE_NAME = ?
 AND v.COLUMN_NAME = ? AND c.COLUMN_NAME = ?`
-	err := s.db.QueryRowContext(ctx, query, s.schemaName, s.tableName, s.embeddingColumn, s.contentColumn).Scan(&marker, &shape, &contentType, &contentCharset)
+	err := s.db.QueryRowContext(ctx, query, string(s.schemaName), string(s.tableName), string(s.embeddingColumn), string(s.contentColumn)).Scan(&marker, &shape, &contentType, &contentCharset)
 	if err != nil {
 		return nativeBinding{}, err
 	}
@@ -435,10 +436,10 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	upsert := fmt.Sprintf(
 		`INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?) `+
 			`ON DUPLICATE KEY UPDATE %s = VALUES(%s), %s = VALUES(%s), %s = VALUES(%s)`,
-		s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn,
-		s.contentColumn, s.contentColumn,
-		s.metadataColumn, s.metadataColumn,
-		s.embeddingColumn, s.embeddingColumn,
+		s.tableSQL(), s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
+		s.contentColumn.sql(), s.contentColumn.sql(),
+		s.metadataColumn.sql(), s.metadataColumn.sql(),
+		s.embeddingColumn.sql(), s.embeddingColumn.sql(),
 	)
 	stmt, err := s.db.PrepareContext(ctx, upsert)
 	if err != nil {
@@ -604,7 +605,7 @@ type rankedResult struct {
 func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *vectorstore.Query, vector string, ids []any) (results []rankedResult, err error) {
 	where := ""
 	if len(ids) > 0 {
-		where = " AND " + s.idColumn + " IN (" + strings.Repeat("?, ", len(ids)-1) + "?)"
+		where = " AND " + s.idColumn.sql() + " IN (" + strings.Repeat("?, ", len(ids)-1) + "?)"
 	}
 	args := []any{vector}
 	args = append(args, ids...)
@@ -616,7 +617,7 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		rows, err = transaction.QueryContext(ctx, s.searchStatement(where), args...)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("tidb: query %s: %w", s.fullTable, err)
+		return nil, fmt.Errorf("tidb: query %s: %w", s.tableSQL(), err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -704,9 +705,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(args) == 0 {
 		return nil
 	}
-	statement := "DELETE FROM " + s.fullTable + " WHERE " + s.idColumn + " IN (" + strings.Repeat("?, ", len(args)-1) + "?)"
+	statement := "DELETE FROM " + s.tableSQL() + " WHERE " + s.idColumn.sql() + " IN (" + strings.Repeat("?, ", len(args)-1) + "?)"
 	if _, err := s.db.ExecContext(ctx, statement, args...); err != nil {
-		return fmt.Errorf("tidb: delete by IDs from %s: %w", s.fullTable, err)
+		return fmt.Errorf("tidb: delete by IDs from %s: %w", s.tableSQL(), err)
 	}
 	return nil
 }
@@ -725,13 +726,13 @@ type filterPage struct {
 }
 
 func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
-	statement := "SELECT " + s.idColumn + ", " + s.metadataColumn + " FROM " + s.fullTable + " FORCE INDEX(PRIMARY)"
+	statement := "SELECT " + s.idColumn.sql() + ", " + s.metadataColumn.sql() + " FROM " + s.tableSQL() + " FORCE INDEX(PRIMARY)"
 	var args []any
 	if lastID != nil {
-		statement += " WHERE " + s.idColumn + " > ?"
+		statement += " WHERE " + s.idColumn.sql() + " > ?"
 		args = append(args, lastID)
 	}
-	statement += " ORDER BY " + s.idColumn + " ASC LIMIT ?"
+	statement += " ORDER BY " + s.idColumn.sql() + " ASC LIMIT ?"
 	args = append(args, filterPageSize)
 	rows, err := transaction.QueryContext(ctx, statement, args...)
 	if err != nil {
@@ -780,7 +781,7 @@ func (s *Store) prepareFilter(ctx context.Context, transaction *sql.Tx, predicat
 		return vectorstore.ErrUnsupportedFilter
 	}
 	var allowed int
-	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=? AND 2*COALESCE(SUM(n),0)<=? THEN 1 ELSE 0 END FROM (SELECT OCTET_LENGTH(%s)+COALESCE(OCTET_LENGTH(%s),0) AS n FROM %s LIMIT ?) AS bounded", s.idColumn, s.metadataColumn, s.fullTable)
+	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=? AND 2*COALESCE(SUM(n),0)<=? THEN 1 ELSE 0 END FROM (SELECT OCTET_LENGTH(%s)+COALESCE(OCTET_LENGTH(%s),0) AS n FROM %s LIMIT ?) AS bounded", s.idColumn.sql(), s.metadataColumn.sql(), s.tableSQL())
 	if err := transaction.QueryRowContext(ctx, statement, budget.MaxRecords, budget.MaxBytes, budget.MaxRecords+1).Scan(&allowed); err != nil {
 		return err
 	}
@@ -807,10 +808,10 @@ func (s *Store) deleteMatches(ctx context.Context, transaction *sql.Tx, matches 
 	conditions := make([]string, len(matches))
 	args := make([]any, 0, 2*len(matches))
 	for index, match := range matches {
-		conditions[index] = "(" + s.idColumn + " = ? AND " + s.metadataColumn + " = ?)"
+		conditions[index] = "(" + s.idColumn.sql() + " = ? AND " + s.metadataColumn.sql() + " = ?)"
 		args = append(args, match.id, match.metadata)
 	}
-	result, err := transaction.ExecContext(ctx, "DELETE FROM "+s.fullTable+" WHERE "+strings.Join(conditions, " OR "), args...)
+	result, err := transaction.ExecContext(ctx, "DELETE FROM "+s.tableSQL()+" WHERE "+strings.Join(conditions, " OR "), args...)
 	if err != nil {
 		return fmt.Errorf("tidb: delete matching documents: %w", err)
 	}

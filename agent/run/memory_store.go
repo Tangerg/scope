@@ -20,18 +20,16 @@ func (m *MemoryStore) Append(ctx context.Context, batch Batch) error {
 	if err := RequireContext(ctx).Err(); err != nil {
 		return err
 	}
-	if err := batch.Validate(); err != nil {
-		return err
-	}
-	owned, err := cloneEntries(batch.Entries())
+	owned, err := batch.Clone()
 	if err != nil {
 		return err
 	}
-	stream, created, err := m.stream(ctx, batch, owned)
+	entries := owned.Entries()
+	stream, created, err := m.stream(ctx, owned, entries)
 	if err != nil || created {
 		return err
 	}
-	return stream.append(ctx, batch, owned)
+	return stream.append(ctx, owned, entries)
 }
 
 func (m *MemoryStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
@@ -85,7 +83,7 @@ func (m *MemoryStore) stream(ctx context.Context, batch Batch, owned []Entry) (*
 	if stream := m.logs[batch.Root]; stream != nil {
 		return stream, false, nil
 	}
-	if _, _, err := batch.Admit(0, 0, nil); err != nil {
+	if _, _, err := batch.admitValidated(0, 0, nil); err != nil {
 		return nil, false, err
 	}
 	if m.logs == nil {
@@ -127,7 +125,7 @@ func (m *memoryLog) append(ctx context.Context, batch Batch, owned []Entry) erro
 	if end := batch.After + LSN(len(batch.Records)); batch.After < head && end <= head {
 		existing = m.entries[batch.After:end]
 	}
-	_, duplicate, err := batch.Admit(m.entries[len(m.entries)-1].Epoch, head, existing)
+	_, duplicate, err := batch.admitValidated(m.entries[len(m.entries)-1].Epoch, head, existing)
 	if err != nil || duplicate {
 		return err
 	}

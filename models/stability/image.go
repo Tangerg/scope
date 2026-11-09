@@ -127,7 +127,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 
 	// Binary responses omit the verdict needed to reject filtered generations.
 	apiReq.Mode = ResponseModeJSON
-	if err := apiReq.validate(); err != nil {
+	if err := apiReq.validate(endpoint); err != nil {
 		return "", nil, err
 	}
 

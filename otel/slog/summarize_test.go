@@ -3,7 +3,6 @@ package slog
 import (
 	"fmt"
 	stdslog "log/slog"
-	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -51,21 +50,44 @@ func TestSummarizeRendersEveryAggregation(t *testing.T) {
 			}},
 			want: "hist count=1 sum=2.5 points=1",
 		},
+		"int exponential histogram": {
+			data: metricdata.ExponentialHistogram[int64]{DataPoints: []metricdata.ExponentialHistogramDataPoint[int64]{
+				{Count: 2, Sum: 10},
+				{Count: 3, Sum: 5},
+			}},
+			want: "exp_hist count=5 sum=15 points=2",
+		},
+		"float exponential histogram": {
+			data: metricdata.ExponentialHistogram[float64]{DataPoints: []metricdata.ExponentialHistogramDataPoint[float64]{
+				{Count: 1, Sum: 2.5},
+			}},
+			want: "exp_hist count=1 sum=2.5 points=1",
+		},
+		"summary": {
+			data: metricdata.Summary{DataPoints: []metricdata.SummaryDataPoint{
+				{Count: 2, Sum: 1.5},
+				{Count: 3, Sum: 5},
+			}},
+			want: "summary count=5 sum=6.5 points=2",
+		},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := exporter.summarize(testCase.data); got != testCase.want {
+			got, err := exporter.summarize(testCase.data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != testCase.want {
 				t.Fatalf("summarize = %q, want %q", got, testCase.want)
 			}
 		})
 	}
 }
 
-func TestSummarizeFallsBackForAnUnknownAggregation(t *testing.T) {
+func TestSummarizeRejectsAnUnknownAggregation(t *testing.T) {
 	exporter := NewMetricExporter(stdslog.Default())
-	got := exporter.summarize(metricdata.ExponentialHistogram[int64]{})
-	if got == "" || !strings.Contains(got, "ExponentialHistogram") {
-		t.Fatalf("summarize = %q, want the aggregation type name", got)
+	if got, err := exporter.summarize(nil); got != "" || err == nil {
+		t.Fatalf("summarize = %q, error = %v; want no value and an error", got, err)
 	}
 }
 

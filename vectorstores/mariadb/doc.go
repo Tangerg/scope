@@ -3,6 +3,8 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Configured schema, table and column names are native names, not SQL fragments;
+// SQL quotes each name so reserved words retain the same catalog identity.
 // Content and metadata require utf8mb4 TEXT-family columns; MariaDB's JSON alias
 // is LONGTEXT. CheckDocuments and Upsert read both native byte capacities and
 // reject the complete batch before writes, including JSON encoding expansion

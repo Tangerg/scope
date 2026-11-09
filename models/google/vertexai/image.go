@@ -35,16 +35,36 @@ const (
 	imageNativePartMetadataKey = Provider + "/native_part"
 )
 
+// ImagePersonGeneration uses GenerateContent's vocabulary. Imagen's similarly
+// named SDK enum uses a different spelling for blocking people.
+type ImagePersonGeneration string
+
+const (
+	ImagePersonGenerationUnspecified ImagePersonGeneration = "PERSON_GENERATION_UNSPECIFIED"
+	ImagePersonGenerationAllowAll    ImagePersonGeneration = "ALLOW_ALL"
+	ImagePersonGenerationAllowAdult  ImagePersonGeneration = "ALLOW_ADULT"
+	ImagePersonGenerationAllowNone   ImagePersonGeneration = "ALLOW_NONE"
+)
+
+func (i ImagePersonGeneration) validate() error {
+	switch i {
+	case "", ImagePersonGenerationUnspecified, ImagePersonGenerationAllowAll, ImagePersonGenerationAllowAdult, ImagePersonGenerationAllowNone:
+		return nil
+	default:
+		return fmt.Errorf("vertexai: image: unsupported person_generation %q", i)
+	}
+}
+
 // ImageGenerationOptions carries Vertex-specific GenerateContent controls and
 // optional source images for editing. Store it under
 // [ImageRequestExtensionKey].
 type ImageGenerationOptions struct {
-	InputImages              []*media.Media `json:"input_images,omitempty"`
-	AspectRatio              string         `json:"aspect_ratio,omitempty"`
-	ImageSize                string         `json:"image_size,omitempty"`
-	PersonGeneration         string         `json:"person_generation,omitempty"`
-	ProminentPeople          string         `json:"prominent_people,omitempty"`
-	OutputCompressionQuality *int32         `json:"output_compression_quality,omitzero"`
+	InputImages              []*media.Media        `json:"input_images,omitempty"`
+	AspectRatio              string                `json:"aspect_ratio,omitempty"`
+	ImageSize                string                `json:"image_size,omitempty"`
+	PersonGeneration         ImagePersonGeneration `json:"person_generation,omitempty"`
+	ProminentPeople          genai.ProminentPeople `json:"prominent_people,omitempty"`
+	OutputCompressionQuality *int32                `json:"output_compression_quality,omitzero"`
 }
 
 func (i *ImageGenerationOptions) UnmarshalJSON(data []byte) error {
@@ -56,8 +76,24 @@ func (i *ImageGenerationOptions) UnmarshalJSON(data []byte) error {
 	if decoded == nil {
 		return errors.New("vertexai: image options must be an object")
 	}
-	*i = ImageGenerationOptions(*decoded)
+	value := ImageGenerationOptions(*decoded)
+	if err := value.validate(); err != nil {
+		return err
+	}
+	*i = value
 	return nil
+}
+
+func (i ImageGenerationOptions) validate() error {
+	if err := i.PersonGeneration.validate(); err != nil {
+		return err
+	}
+	switch i.ProminentPeople {
+	case "", genai.ProminentPeopleUnspecified, genai.ProminentPeopleAllowProminentPeople, genai.ProminentPeopleBlockProminentPeople:
+		return nil
+	default:
+		return fmt.Errorf("vertexai: image: unsupported prominent_people %q", i.ProminentPeople)
+	}
 }
 
 var _ image.Model = (*ImageModel)(nil)
@@ -103,8 +139,8 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 		ImageConfig: &genai.ImageConfig{
 			AspectRatio:              providerOpts.AspectRatio,
 			ImageSize:                providerOpts.ImageSize,
-			PersonGeneration:         providerOpts.PersonGeneration,
-			ProminentPeople:          genai.ProminentPeople(providerOpts.ProminentPeople),
+			PersonGeneration:         string(providerOpts.PersonGeneration),
+			ProminentPeople:          providerOpts.ProminentPeople,
 			OutputCompressionQuality: providerOpts.OutputCompressionQuality,
 		},
 	}

@@ -7,6 +7,8 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"math"
+	"math/big"
 	"net"
 	"net/url"
 	"reflect"
@@ -151,16 +153,19 @@ func (d *derivation) mapType(typeOf reflect.Type) *reflection.Schema {
 		// URL has no JSON codec. Userinfo has no exported fields, so JSON v2
 		// can encode User only as null; the remaining fields retain their owner.
 		fields := slices.Collect(typeOf.Fields())
+		var userinfo string
 		for index := range fields {
 			switch {
 			case fields[index].Type == reflect.TypeFor[*url.Userinfo]():
 				fields[index].Type = reflect.TypeFor[any]()
-				fields[index].Tag += reflect.StructTag(` jsonschema:"type=` + schemaTypeNull + `"`)
+				userinfo = fields[index].Name
 			case fields[index].Type.Kind() == reflect.Pointer:
-				fields[index].Tag += ` jsonschema:"nullable"`
+				fields[index].Tag += reflect.StructTag(` jsonschema:"` + nullableSchemaTag + `"`)
 			}
 		}
-		return d.reflect(reflect.StructOf(fields))
+		shape := d.reflect(reflect.StructOf(fields))
+		shape.Properties.Set(userinfo, &reflection.Schema{Type: schemaTypeNull})
+		return shape
 	}
 	if shape := reflectWireType(typeOf); shape != nil {
 		return shape
@@ -191,14 +196,49 @@ func (d *derivation) object(typeOf reflect.Type) *reflection.Schema {
 			Anonymous: true,
 			Namer:     d.typeName,
 			Mapper: func(candidate reflect.Type) *reflection.Schema {
-				if candidate == projection {
+				if candidate == projection.typeOf {
 					return nil
 				}
 				return d.mapType(candidate)
 			},
 		}
-		return d.collect(reflector.ReflectFromType(projection))
+		shape := d.collect(reflector.ReflectFromType(projection.typeOf))
+		for _, name := range projection.reflectedNullable {
+			property, exists := shape.Properties.Get(name)
+			if !exists || len(property.OneOf) != 2 || property.OneOf[1].Type != schemaTypeNull {
+				panic(fmt.Sprintf("unexpected nullable wrapper for property %q", name))
+			}
+			shape.Properties.Set(name, property.OneOf[0])
+		}
+		for _, name := range projection.nullable {
+			property, exists := shape.Properties.Get(name)
+			if !exists {
+				panic(fmt.Sprintf("nullable property %q has no wire shape", name))
+			}
+			shape.Properties.Set(name, d.nullableProperty(property))
+		}
+		return shape
 	})
+}
+
+func (d *derivation) nullableProperty(property *reflection.Schema) *reflection.Schema {
+	// Field annotations describe the entire nullable property. Keep the original
+	// shape in the union so deferred domain constraints still reach their owner.
+	nullable := &reflection.Schema{
+		AnyOf:       []*reflection.Schema{property, {Type: schemaTypeNull}},
+		Title:       property.Title,
+		Description: property.Description,
+		Default:     property.Default,
+		Deprecated:  property.Deprecated,
+		ReadOnly:    property.ReadOnly,
+		WriteOnly:   property.WriteOnly,
+		Examples:    property.Examples,
+		Extras:      property.Extras,
+	}
+	property.Title, property.Description = "", ""
+	property.Default, property.Examples, property.Extras = nil, nil, nil
+	property.Deprecated, property.ReadOnly, property.WriteOnly = false, false, false
+	return nullable
 }
 
 func (d *derivation) project(typeOf reflect.Type, derive func() *reflection.Schema) *reflection.Schema {
@@ -312,12 +352,12 @@ func wireShapePath(shape *reflection.Schema, definitions reflection.Definitions)
 
 func constraintObjectShape(shape *reflection.Schema, definitions reflection.Definitions) (*reflection.Schema, error) {
 	shape, err := referencedShape(shape, definitions)
-	if err != nil || shape == nil || len(shape.OneOf) != 2 {
+	if err != nil || shape == nil || len(shape.AnyOf) != 2 {
 		return shape, err
 	}
-	// invopop represents a nullable property as its wire shape plus null.
+	// A nullable property retains its wire shape beside the null alternative.
 	// Only that shape supplies property names; the projection leaves null valid.
-	left, right := shape.OneOf[0], shape.OneOf[1]
+	left, right := shape.AnyOf[0], shape.AnyOf[1]
 	if left.Type == schemaTypeNull && right.Type != schemaTypeNull {
 		return referencedShape(right, definitions)
 	}
@@ -352,13 +392,16 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaModel", typeOf))
 	}
 	if typeOf.Kind() == reflect.Array && typeOf.Elem() == reflect.TypeFor[byte]() {
-		return &reflection.Schema{Type: schemaTypeString, ContentEncoding: base64ContentEncoding}
+		return constrainedWireType(typeOf, byteStringSchema(typeOf))
 	}
 	if typeOf.Kind() == reflect.Slice && typeOf.Elem() == reflect.TypeFor[byte]() {
 		return &reflection.Schema{OneOf: []*reflection.Schema{
 			{Type: schemaTypeNull},
-			{Type: schemaTypeString, ContentEncoding: base64ContentEncoding},
+			constrainedWireType(typeOf, byteStringSchema(typeOf)),
 		}}
+	}
+	if typeOf.Kind() == reflect.Float32 || typeOf.Kind() == reflect.Float64 {
+		return constrainedWireType(typeOf, floatSchema(typeOf))
 	}
 	var minimum, maximum string
 	switch typeOf.Kind() {
@@ -371,30 +414,27 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
 	default:
 		value := reflect.Zero(typeOf).Interface()
-		if constraint, ok := value.(Constrained); ok && typeOf.Kind() != reflect.Struct {
+		if _, ok := value.(Constrained); ok && typeOf.Kind() != reflect.Struct {
 			definition := stringConstraint(value)
 			if definition == nil {
 				switch typeOf.Kind() {
-				case reflect.Float32, reflect.Float64:
-					definition = &reflection.Schema{Type: schemaTypeNumber}
 				case reflect.String:
 					definition = &reflection.Schema{Type: schemaTypeString}
 				default:
 					panic("constraints require a supported scalar or struct")
 				}
 			}
-			owned, err := constraint.JSONSchemaConstraints().schema(nil, nil)
-			if err != nil {
-				panic(err)
-			}
-			definition.AllOf = append(definition.AllOf, owned)
-			return definition
+			return constrainedWireType(typeOf, definition)
 		}
 		return stringConstraint(value)
 	}
 	// The reflector writes field tags onto the outer schema. Keeping machine
 	// bounds in an intersection lets tags narrow them without widening the type.
 	definition := &reflection.Schema{Type: schemaTypeInteger, AllOf: []*reflection.Schema{{Minimum: json.Number(minimum), Maximum: json.Number(maximum)}}}
+	return constrainedWireType(typeOf, definition)
+}
+
+func constrainedWireType(typeOf reflect.Type, definition *reflection.Schema) *reflection.Schema {
 	if owner, ok := reflect.Zero(typeOf).Interface().(Constrained); ok {
 		constraint, err := owner.JSONSchemaConstraints().schema(nil, nil)
 		if err != nil {
@@ -403,6 +443,51 @@ func reflectWireType(typeOf reflect.Type) *reflection.Schema {
 		definition.AllOf = append(definition.AllOf, constraint)
 	}
 	return definition
+}
+
+func byteStringSchema(typeOf reflect.Type) *reflection.Schema {
+	const (
+		alphabet = "[A-Za-z0-9+/]"
+		quantum  = 3
+		pattern  = "^(?:" + alphabet + "{4})*(?:" + alphabet + "{2}==|" + alphabet + "{3}=)?$"
+	)
+	constraint := &reflection.Schema{Pattern: pattern}
+	if typeOf.Kind() == reflect.Array {
+		length := uint64(base64.StdEncoding.EncodedLen(typeOf.Len()))
+		padding := (quantum - typeOf.Len()%quantum) % quantum
+		constraint.MinLength, constraint.MaxLength = &length, &length
+		constraint.Pattern = "^" + alphabet + "*" + strings.Repeat("=", padding) + "$"
+	}
+	// contentEncoding is an annotation. The assertion stays in the published
+	// schema so local, persisted and remote contracts enforce the same wire shape.
+	return &reflection.Schema{
+		Type: schemaTypeString, ContentEncoding: base64ContentEncoding,
+		AllOf: []*reflection.Schema{constraint},
+	}
+}
+
+func floatSchema(typeOf reflect.Type) *reflection.Schema {
+	if typeOf.Kind() == reflect.Float64 {
+		// Schema numbers also cross SDKs that decode through float64. Its
+		// overflow midpoint cannot be carried by those transports.
+		bound := new(big.Rat).SetFloat64(math.MaxFloat64).FloatString(0)
+		return &reflection.Schema{Type: schemaTypeNumber, AllOf: []*reflection.Schema{{
+			Minimum: json.Number("-" + bound), Maximum: json.Number(bound),
+		}}}
+	}
+	// JSON decoding rounds to the nearest float. The midpoint above the last
+	// finite value overflows; using MaxFloat itself would reject its rounded JSON
+	// encoding, notably float32's 3.4028235e38. Both midpoints are exact integers.
+	limit := new(big.Rat).SetFloat64(math.MaxFloat32)
+	previous := float64(math.Nextafter32(math.MaxFloat32, 0))
+	halfStep := new(big.Rat).SetFloat64(math.MaxFloat32 - previous)
+	halfStep.Quo(halfStep, big.NewRat(2, 1))
+	limit.Add(limit, halfStep)
+	bound := limit.FloatString(0)
+	return &reflection.Schema{Type: schemaTypeNumber, AllOf: []*reflection.Schema{{
+		ExclusiveMinimum: json.Number("-" + bound),
+		ExclusiveMaximum: json.Number(bound),
+	}}}
 }
 
 func hasCustomEncoding(typeOf reflect.Type) bool {

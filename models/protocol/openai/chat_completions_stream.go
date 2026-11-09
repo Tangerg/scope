@@ -52,6 +52,9 @@ func newOpenAIStreamState(dialect chatDialect) *openAIStreamState {
 }
 
 func (o *openAIStreamState) mapChunk(chunk openaisdk.ChatCompletionChunk) (*corechat.ResponseDelta, error) {
+	if err := validateResponseWire[chatChunkWire](chunk.RawJSON()); err != nil {
+		return nil, fmt.Errorf("%w: openai: stream response: %w", corechat.ErrInvalidResponse, err)
+	}
 	o.sequence++
 	if err := o.identity.bind(chunk.ID, chunk.Model, chunk.Created); err != nil {
 		return nil, err
@@ -189,16 +192,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		parts = append(parts, corechat.NewRefusalDelta(choice.Delta.Refusal))
 	}
 	if field := choice.Delta.JSON.Audio; field.Raw() != "" && field.Raw() != "null" {
-		// The SDK coerces response numbers to strings; Core requires the wire
-		// audio fields to retain their declared types before accumulation.
-		var audio struct {
-			ID         string `json:"id"`
-			Data       string `json:"data"`
-			Transcript string `json:"transcript"`
-		}
-		if err := jsonv2.Unmarshal([]byte(field.Raw()), &audio); err != nil {
-			return nil, fmt.Errorf("audio delta: %w: %w", corechat.ErrInvalidResponse, err)
-		}
+		audio := choice.Delta.Audio
 		if audio.ID != "" {
 			if o.audioID != "" && o.audioID != audio.ID {
 				return nil, fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)

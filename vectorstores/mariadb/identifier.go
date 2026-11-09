@@ -15,3 +15,7 @@ func (i identifier) validate(field string) error {
 	}
 	return nil
 }
+
+func (i identifier) sql() string {
+	return "`" + string(i) + "`"
+}

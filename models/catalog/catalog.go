@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"sync"
 )
 
 type Provider struct {
@@ -36,7 +37,9 @@ type catalogEntry struct {
 	models   map[string]Model
 }
 
-var entries = mustLoad()
+// The generator reuses catalog types while replacing stale embedded data.
+// Importing those types must not require the previous data to remain valid.
+var loadEntries = sync.OnceValue(mustLoad)
 
 func mustLoad() map[string]catalogEntry {
 	providers, err := loadCatalog(configs)
@@ -98,7 +101,7 @@ func loadCatalog(source fs.FS) (map[string]catalogEntry, error) {
 // LookupModel returns one model for a provider/model pair. Provider is an
 // adapter's Provider constant. The returned value owns its slices.
 func LookupModel(provider, modelID string) (Model, bool) {
-	entry, ok := entries[provider]
+	entry, ok := loadEntries()[provider]
 	if !ok {
 		return Model{}, false
 	}
@@ -112,7 +115,7 @@ func LookupModel(provider, modelID string) (Model, bool) {
 // Models returns every cataloged model for provider, or nil when unknown.
 // Order is unspecified and returned values own their slices.
 func Models(provider string) []Model {
-	entry, ok := entries[provider]
+	entry, ok := loadEntries()[provider]
 	if !ok {
 		return nil
 	}
@@ -121,7 +124,7 @@ func Models(provider string) []Model {
 
 // LookupProvider returns one provider's complete catalog entry.
 func LookupProvider(provider string) (Provider, bool) {
-	entry, ok := entries[provider]
+	entry, ok := loadEntries()[provider]
 	if !ok {
 		return Provider{}, false
 	}

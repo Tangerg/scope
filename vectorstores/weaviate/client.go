@@ -136,7 +136,7 @@ func (c *Client) readJSON(ctx context.Context, u *url.URL, target any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("weaviate: GET %s: HTTP %d", u.Path, resp.StatusCode)
+		return fmt.Errorf("weaviate: GET %s: %w", u.Path, httpclient.NewResponseError(resp.StatusCode, resp.Header))
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSchemaBytes+1))
 	if err != nil {
@@ -155,7 +155,7 @@ func (c *Client) delete(ctx context.Context, collection, id string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("weaviate: delete object: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("weaviate: delete object: %w", httpclient.NewResponseError(resp.StatusCode, resp.Header))
 	}
 	return nil
 }

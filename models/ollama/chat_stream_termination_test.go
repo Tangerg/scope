@@ -123,3 +123,15 @@ func TestStreamDoesNotCompleteBeforeItsNativeBody(t *testing.T) {
 		})
 	}
 }
+
+func TestStreamRejectsUnknownMessageRole(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprintln(writer, `{"model":"qwen3:8b","message":{"role":"unknown","content":"answer"},"done":true,"done_reason":"stop"}`)
+	}))
+	t.Cleanup(server.Close)
+	deltas, err := collectOllamaStream(t, server.URL)
+	if len(deltas) != 0 || !errors.Is(err, corechat.ErrInvalidResponse) {
+		t.Fatalf("unknown role produced deltas=%v error=%v", deltas, err)
+	}
+}

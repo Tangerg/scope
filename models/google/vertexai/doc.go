@@ -8,6 +8,9 @@
 // image models, whereas the public Gemini Developer API now recommends the
 // Interactions API. Treating those two transports as interchangeable would
 // leak backend details and preserve deprecated Imagen behavior.
+// Image person controls use [ImagePersonGeneration] and genai.ProminentPeople;
+// unknown values fail before dispatch. Empty controls omit the parameter so
+// the service retains its default. Aspect ratio and size remain model-defined strings.
 // Native chat request extensions use SDK camelCase fields. Core exclusively
 // owns sampling, output format, reasoning effort, system messages, function
 // tools, and tool choice; duplicate native fields are rejected. Provider-only

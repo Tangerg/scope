@@ -22,6 +22,8 @@
 // alpha leaves the server default intact. DeleteIDs removes named UUIDs only.
 // Missing native identities, vectors, scores or source evidence invalidate the
 // entire result. No operation falls back to enumeration.
+// Unexpected REST statuses retain HTTP status and safe request identity through
+// core/httpclient.ResponseError; DELETE accepts both 204 and 404 as success.
 //
 // The integration suite requires an isolated server and provisions disposable
 // collections. A local protocol peer exercises both transports in ordinary tests.

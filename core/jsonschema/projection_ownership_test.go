@@ -16,7 +16,7 @@ func TestAnonymousObjectRefinementsStayWithTheirField(t *testing.T) {
 	type input struct {
 		First struct {
 			Count int `json:"count"`
-		} `json:"first" jsonschema:"oneof_type=object;null" jsonschema_description:"first field" jsonschema_extras:"scope=first"`
+		} `json:"first" jsonschema:"nullable" jsonschema_description:"first field" jsonschema_extras:"scope=first"`
 		Second struct {
 			Count int `json:"count"`
 		} `json:"second" jsonschema_description:"second field" jsonschema_extras:"scope=second"`

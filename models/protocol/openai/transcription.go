@@ -94,10 +94,14 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 }
 
 func (t *TranscriptionModel) buildTranscriptionResponse(resp *openai.AudioTranscriptionNewResponseUnion) (*transcription.Response, error) {
-	if resp == nil || !resp.JSON.Text.Valid() {
+	if resp == nil {
 		return nil, fmt.Errorf("%w: openai: transcription requires text", transcription.ErrInvalidResponse)
 	}
-	output, err := transcription.NewOutput(resp.Text, nil)
+	text, err := transcriptionWireText(resp.RawJSON())
+	if err != nil {
+		return nil, fmt.Errorf("%w: openai: transcription: %w", transcription.ErrInvalidResponse, err)
+	}
+	output, err := transcription.NewOutput(text, nil)
 	if err != nil {
 		return nil, err
 	}

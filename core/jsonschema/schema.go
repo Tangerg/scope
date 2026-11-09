@@ -124,8 +124,11 @@ type Schema struct {
 
 // For derives and compiles the JSON Schema contract for T. It follows
 // encoding/json/v2 field names and options and the invopop/jsonschema tag dialect.
-// Structs reject additional properties by default. Integer bounds preserve the
-// Go representation even when field tags specify a wider semantic range.
+// Structs reject additional properties by default. Machine numeric bounds and
+// byte encoding and length constraints survive wider semantic field tags.
+// Tags cannot replace a wire type or reference: Go types and Modeler own the
+// wire shape. The nullable tag adds null idempotently without changing existing
+// unions; ordinary field constraints and annotations remain supported.
 // Named definitions include their Go package; moving a type changes its canonical
 // schema and any deployment identities derived from it.
 // The root exposes its complete wire shape; Modeler reference chains retain

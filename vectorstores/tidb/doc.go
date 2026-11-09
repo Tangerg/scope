@@ -3,6 +3,8 @@
 // vector dimension. Deletion uses the table selected by the Host directly.
 // Dimensions in StoreConfig seeds only a newly created column;
 // no model, tokenization or embedding call occurs inside the adapter.
+// Configured schema, table and column names are native names, not SQL fragments;
+// SQL quotes each name so reserved words retain the same catalog identity.
 // Content requires a utf8mb4 TEXT-family column. CheckDocuments and Upsert derive
 // its byte capacity from the actual native column type and reject the complete
 // batch before writes; the default TEXT schema permits at most 65,535 UTF-8 bytes

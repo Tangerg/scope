@@ -3,6 +3,7 @@ package catalog
 import "testing"
 
 func TestCatalogIntegrity(t *testing.T) {
+	entries := loadEntries()
 	if len(entries) == 0 {
 		t.Fatal("catalog is empty")
 	}

@@ -6,6 +6,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,6 +113,38 @@ func BenchmarkMemoryStoreReadOneEntry(b *testing.B) {
 				}
 			}
 			b.ReportMetric(1, "yielded_entries")
+		})
+	}
+}
+
+func BenchmarkMemoryStoreAppendPayload(b *testing.B) {
+	for _, payloadBytes := range []int{1 << 10, 1 << 20, MaxPayloadBytes} {
+		b.Run(fmt.Sprint(payloadBytes), func(b *testing.B) {
+			runtime := kernelRuntime(b, Config{})
+			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{
+				Definition: &boundaryDefinition{descriptor: kernelDescriptor(b, "benchmark.append"), step: func(context.Context, Turn) (Transition, error) { return Continue(0) }},
+				Revision:   "benchmark",
+			}))
+			root := hostStartID().Root()
+			started := Started{Process: root, Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: DefaultTreeLimits(), At: time.Unix(1, 0).UTC()}
+			initial := Batch{Root: root, Records: []Record{started, Activated{Epoch: 1}}}
+			payload := controlValue(EncodePayload(strings.Repeat("a", payloadBytes-2)))
+			batch := Batch{Root: root, Epoch: 1, After: 2, Records: []Record{SignalAdmitted{
+				Process: root, Signal: Signal{ID: controlValue(ParseSignalID("benchmark")), Payload: payload}, At: started.At,
+			}}}
+			b.SetBytes(int64(payloadBytes))
+			b.ReportAllocs()
+			for b.Loop() {
+				b.StopTimer()
+				store := NewMemoryStore()
+				if err := store.Append(b.Context(), initial); err != nil {
+					b.Fatal(err)
+				}
+				b.StartTimer()
+				if err := store.Append(b.Context(), batch); err != nil {
+					b.Fatal(err)
+				}
+			}
 		})
 	}
 }

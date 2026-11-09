@@ -95,6 +95,12 @@ func (b Batch) Admit(current Epoch, head LSN, existing []Entry) (next Epoch, ret
 	if err := b.Validate(); err != nil {
 		return current, false, err
 	}
+	return b.admitValidated(current, head, existing)
+}
+
+// MemoryStore already validated and detached its batch before taking the append
+// lock, so rechecking its structure would re-encode unchanged payloads.
+func (b Batch) admitValidated(current Epoch, head LSN, existing []Entry) (next Epoch, retry bool, err error) {
 	entries := b.Entries()
 	next = entries[len(entries)-1].Epoch
 	activationRetry := b.After < head && next == current && next == b.Epoch+1

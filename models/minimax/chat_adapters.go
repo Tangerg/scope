@@ -41,21 +41,24 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	reasoningDialect := openai.DialectConfig{Provider: Provider, TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-		TextField:       "reasoning_content",
-		DetailsField:    "reasoning_details",
-		ReplayPlainText: true,
-	}}
-	reasoningDialect.PrepareRequest = prepareOpenAIRequest
-	reasoningDialect.DisableRawRequestExtension = true
-	reasoningDialect.TokenLimitField = openai.TokenLimitMaxCompletionTokens
-	reasoningDialect.IgnoredOptions = []openai.ChatOption{
-		openai.ChatOptionTemperature, openai.ChatOptionTopP,
-		openai.ChatOptionPresencePenalty, openai.ChatOptionFrequencyPenalty,
+	dialect := openai.DialectConfig{
+		Provider:        Provider,
+		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
+		ReasoningDetails: &openai.ReasoningDetailsConfig{
+			TextField:       "reasoning_content",
+			DetailsField:    "reasoning_details",
+			ReplayPlainText: true,
+		},
+		PrepareRequest:             prepareOpenAIRequest,
+		DisableRawRequestExtension: true,
+		IgnoredOptions: []openai.ChatOption{
+			openai.ChatOptionTemperature, openai.ChatOptionTopP,
+			openai.ChatOptionPresencePenalty, openai.ChatOptionFrequencyPenalty,
+		},
 	}
 	protocol, err := openai.NewChatCompletions(ctx,
 		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntl), HTTPClient: config.HTTPClient},
-		reasoningDialect,
+		dialect,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("minimax: construct OpenAI-compatible chat: %w", err)

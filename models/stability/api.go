@@ -57,15 +57,15 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 // raw bytes; [ResponseModeJSON] returns a base64 envelope with FinishReason
 // + Seed echoed back (required when callers care about those).
 type generateRequest struct {
-	Prompt         string   `json:"prompt,omitempty"`
-	NegativePrompt string   `json:"negative_prompt,omitempty"`
-	AspectRatio    string   `json:"aspect_ratio,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	OutputFormat   string   `json:"output_format,omitempty"`
-	Seed           *int64   `json:"seed,omitzero"`
-	StylePreset    string   `json:"style_preset,omitempty"`
-	CFGScale       *float64 `json:"cfg_scale,omitzero"`
-	Mode           string   `json:"-"`
+	Prompt         string      `json:"prompt,omitempty"`
+	NegativePrompt string      `json:"negative_prompt,omitempty"`
+	AspectRatio    string      `json:"aspect_ratio,omitempty"`
+	Model          string      `json:"model,omitempty"`
+	OutputFormat   string      `json:"output_format,omitempty"`
+	Seed           *int64      `json:"seed,omitzero"`
+	StylePreset    stylePreset `json:"style_preset,omitempty"`
+	CFGScale       *float64    `json:"cfg_scale,omitzero"`
+	Mode           string      `json:"-"`
 }
 
 func (g *generateRequest) UnmarshalJSON(data []byte) error {
@@ -93,7 +93,7 @@ func (g *generateRequest) formFields() map[string]string {
 	put(fieldAspectRatio, g.AspectRatio)
 	put(fieldModel, g.Model)
 	put(fieldOutputFormat, g.OutputFormat)
-	put(fieldStylePreset, g.StylePreset)
+	put(fieldStylePreset, string(g.StylePreset))
 	if g.CFGScale != nil {
 		out[fieldCfgScale] = strconv.FormatFloat(*g.CFGScale, 'f', -1, 64)
 	}
@@ -103,7 +103,7 @@ func (g *generateRequest) formFields() map[string]string {
 	return out
 }
 
-func (g *generateRequest) validate() error {
+func (g *generateRequest) validate(endpoint string) error {
 	if g.AspectRatio != "" {
 		switch g.AspectRatio {
 		case aspectRatio16By9, aspectRatio1By1, aspectRatio21By9, aspectRatio2By3, aspectRatio3By2, aspectRatio4By5, aspectRatio5By4, aspectRatio9By16, aspectRatio9By21:
@@ -116,6 +116,12 @@ func (g *generateRequest) validate() error {
 	}
 	if g.Seed != nil && (*g.Seed < 0 || *g.Seed > maximumSeed) {
 		return fmt.Errorf("stability: seed must be between 0 and 4294967294, got %d", *g.Seed)
+	}
+	if err := g.StylePreset.validate(); err != nil {
+		return err
+	}
+	if g.CFGScale != nil && endpoint != endpointSD3 {
+		return fmt.Errorf("stability: cfg_scale is unsupported by endpoint %q", endpoint)
 	}
 	if g.CFGScale != nil && (*g.CFGScale < minimumCFGScale || *g.CFGScale > maximumCFGScale) {
 		return fmt.Errorf("stability: cfg_scale must be between 1 and 10, got %g", *g.CFGScale)

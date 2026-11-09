@@ -4,6 +4,9 @@
 // (ultra, core, sd3, etc.). Per-model knobs (aspect_ratio, negative_prompt,
 // seed, style_preset, output_format) ride through the typed
 // [image.Options] fields plus extension-threaded params.
+// cfg_scale belongs only to SD 3.5; the resolved model, including a per-call
+// override, determines admission. Unknown style_preset values are rejected
+// before transport, while omission leaves the service default intact.
 //
 // Stability's edit / upscale / control / video surfaces ship at sibling
 // paths under /v2beta but require a different request shape; they're

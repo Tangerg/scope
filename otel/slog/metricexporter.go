@@ -36,8 +36,8 @@ func (m *MetricExporter) Aggregation(k sdkmetric.InstrumentKind) sdkmetric.Aggre
 	return sdkmetric.DefaultAggregationSelector(k)
 }
 
-// Export reports cancellation, nil input, and shutdown. log/slog does not
-// expose handler failures, so they cannot become collection errors.
+// Export reports cancellation, invalid or unsupported input, and shutdown.
+// log/slog does not expose handler failures, so they cannot become collection errors.
 func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
 	if m.shutdown.Load() {
 		return sdkmetric.ErrExporterShutdown
@@ -56,6 +56,10 @@ func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetr
 			if m.shutdown.Load() {
 				return sdkmetric.ErrExporterShutdown
 			}
+			value, err := m.summarize(metric.Data)
+			if err != nil {
+				return fmt.Errorf("otel/slog: export metric %q: %w", metric.Name, err)
+			}
 			attrs := []stdslog.Attr{
 				stdslog.String(metricNameKey, metric.Name),
 				stdslog.String(scopeKey, sm.Scope.Name),
@@ -63,7 +67,7 @@ func (m *MetricExporter) Export(ctx context.Context, rm *metricdata.ResourceMetr
 			if metric.Unit != "" {
 				attrs = append(attrs, stdslog.String(metricUnitKey, metric.Unit))
 			}
-			attrs = append(attrs, stdslog.String(metricValueKey, m.summarize(metric.Data)))
+			attrs = append(attrs, stdslog.String(metricValueKey, value))
 			m.logger.LogAttrs(ctx, stdslog.LevelInfo, "metric", attrs...)
 		}
 	}
@@ -84,22 +88,28 @@ func (m *MetricExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (m *MetricExporter) summarize(data metricdata.Aggregation) string {
+func (m *MetricExporter) summarize(data metricdata.Aggregation) (string, error) {
 	switch d := data.(type) {
 	case metricdata.Sum[int64]:
-		return m.summarizeSum(d.DataPoints)
+		return m.summarizeSum(d.DataPoints), nil
 	case metricdata.Sum[float64]:
-		return m.summarizeSum(d.DataPoints)
+		return m.summarizeSum(d.DataPoints), nil
 	case metricdata.Gauge[int64]:
-		return m.summarizeGauge(d.DataPoints)
+		return m.summarizeGauge(d.DataPoints), nil
 	case metricdata.Gauge[float64]:
-		return m.summarizeGauge(d.DataPoints)
+		return m.summarizeGauge(d.DataPoints), nil
 	case metricdata.Histogram[int64]:
-		return m.summarizeHistogram(d.DataPoints)
+		return m.summarizeHistogram(d.DataPoints), nil
 	case metricdata.Histogram[float64]:
-		return m.summarizeHistogram(d.DataPoints)
+		return m.summarizeHistogram(d.DataPoints), nil
+	case metricdata.ExponentialHistogram[int64]:
+		return m.summarizeExponentialHistogram(d.DataPoints), nil
+	case metricdata.ExponentialHistogram[float64]:
+		return m.summarizeExponentialHistogram(d.DataPoints), nil
+	case metricdata.Summary:
+		return m.summarizeSummary(d.DataPoints), nil
 	default:
-		return fmt.Sprintf("%T", data)
+		return "", fmt.Errorf("unsupported aggregation %T", data)
 	}
 }
 
@@ -126,4 +136,24 @@ func (m *MetricExporter) summarizeHistogram[N int64 | float64](points []metricda
 		sum += point.Sum
 	}
 	return fmt.Sprintf("hist count=%d sum=%v points=%d", count, sum, len(points))
+}
+
+func (m *MetricExporter) summarizeExponentialHistogram[N int64 | float64](points []metricdata.ExponentialHistogramDataPoint[N]) string {
+	var count uint64
+	var sum N
+	for _, point := range points {
+		count += point.Count
+		sum += point.Sum
+	}
+	return fmt.Sprintf("exp_hist count=%d sum=%v points=%d", count, sum, len(points))
+}
+
+func (m *MetricExporter) summarizeSummary(points []metricdata.SummaryDataPoint) string {
+	var count uint64
+	var sum float64
+	for _, point := range points {
+		count += point.Count
+		sum += point.Sum
+	}
+	return fmt.Sprintf("summary count=%d sum=%v points=%d", count, sum, len(points))
 }

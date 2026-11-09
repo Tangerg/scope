@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/google/vertexai"
 )
 
@@ -82,6 +84,74 @@ func TestImageRequiresStopForEveryCandidate(t *testing.T) {
 			response, err := model.Call(t.Context(), request)
 			if (reason == "STOP") != (err == nil) || (err != nil && response != nil) {
 				t.Fatalf("finish %q produced %v, %v", reason, response, err)
+			}
+		})
+	}
+}
+
+func TestImagePeopleControlsAreAdmittedBeforeTransport(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		options   vertexai.ImageGenerationOptions
+		person    string
+		prominent string
+		accepted  bool
+	}{
+		{name: "omitted", accepted: true},
+		{name: "all people", options: vertexai.ImageGenerationOptions{PersonGeneration: "ALLOW_ALL"}, person: "ALLOW_ALL", accepted: true},
+		{name: "adults", options: vertexai.ImageGenerationOptions{PersonGeneration: "ALLOW_ADULT"}, person: "ALLOW_ADULT", accepted: true},
+		{name: "no people", options: vertexai.ImageGenerationOptions{PersonGeneration: "ALLOW_NONE"}, person: "ALLOW_NONE", accepted: true},
+		{name: "unspecified people", options: vertexai.ImageGenerationOptions{PersonGeneration: "PERSON_GENERATION_UNSPECIFIED"}, person: "PERSON_GENERATION_UNSPECIFIED", accepted: true},
+		{name: "allow prominent", options: vertexai.ImageGenerationOptions{ProminentPeople: "ALLOW_PROMINENT_PEOPLE"}, prominent: "ALLOW_PROMINENT_PEOPLE", accepted: true},
+		{name: "block prominent", options: vertexai.ImageGenerationOptions{ProminentPeople: "BLOCK_PROMINENT_PEOPLE"}, prominent: "BLOCK_PROMINENT_PEOPLE", accepted: true},
+		{name: "unspecified prominent", options: vertexai.ImageGenerationOptions{ProminentPeople: "PROMINENT_PEOPLE_UNSPECIFIED"}, prominent: "PROMINENT_PEOPLE_UNSPECIFIED", accepted: true},
+		{name: "unknown people", options: vertexai.ImageGenerationOptions{PersonGeneration: "unknown"}},
+		{name: "imagen vocabulary", options: vertexai.ImageGenerationOptions{PersonGeneration: "DONT_ALLOW"}},
+		{name: "unknown prominent", options: vertexai.ImageGenerationOptions{ProminentPeople: "unknown"}},
+		{name: "ratio beyond SDK comment", options: vertexai.ImageGenerationOptions{AspectRatio: "4:5"}, accepted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				var body struct {
+					GenerationConfig struct {
+						ImageConfig struct {
+							PersonGeneration string `json:"personGeneration"`
+							ProminentPeople  string `json:"prominentPeople"`
+							AspectRatio      string `json:"aspectRatio"`
+						} `json:"imageConfig"`
+					} `json:"generationConfig"`
+				}
+				if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
+					t.Error(err)
+				}
+				controls := body.GenerationConfig.ImageConfig
+				if controls.PersonGeneration != test.person || controls.ProminentPeople != test.prominent || controls.AspectRatio != test.options.AspectRatio {
+					t.Errorf("image controls = %+v", controls)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"candidates":[{"finishReason":"STOP","content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"UE5H"}}]}}]}`)
+			}))
+			defer server.Close()
+			model, err := vertexai.NewImageModel(t.Context(), vertexai.ImageModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: vertexai.LocationGlobal, BaseURL: server.URL, HTTPClient: server.Client()}, DefaultOptions: image.Options{Model: vertexai.ModelGemini25FlashImage}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := image.NewRequest("cube")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if setErr := request.Options.Extensions.Set(vertexai.ImageRequestExtensionKey, test.options); setErr != nil {
+				t.Fatal(setErr)
+			}
+			response, err := model.Call(t.Context(), request)
+			if test.accepted {
+				if err != nil || response == nil || calls.Load() != 1 {
+					t.Fatalf("supported controls: response=%v calls=%d error=%v", response, calls.Load(), err)
+				}
+			} else if response != nil || calls.Load() != 0 || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted {
+				t.Fatalf("unsupported controls reached transport: response=%v calls=%d error=%v", response, calls.Load(), err)
 			}
 		})
 	}

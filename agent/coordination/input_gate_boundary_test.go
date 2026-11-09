@@ -35,13 +35,13 @@ func TestInputGateAdmittedMaximumAnswerCompletes(t *testing.T) {
 	schema := require(jsonschema.For[string]())
 	program := require(Compile[string, string](runtime.Compiler(), Config{
 		Name: "test.input_maximum", Description: "Return the admitted answer without another envelope.",
-		Policy: InputGate{RequestSchema: schema, AnswerSchema: schema},
+		Policy: InputGate{RequestSchema: schema, AnswerSchema: schema, MaxAnswerBytes: inputGateTestAnswerBytes},
 	}))
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	handle := require(runtime.Start(ctx, program, run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: "question"}))
 	wait := waitFor(t, handle)
-	answer := strings.Repeat("a", run.MaxPayloadBytes-2)
+	answer := strings.Repeat("a", inputGateTestAnswerBytes-2)
 	payload := require(run.EncodePayload(answer))
 	signal := run.Signal{ID: require(run.ParseSignalID("delivery-specific-identity")), Wait: wait.Key, Payload: payload}
 	if accepted, err := handle.DeliverSignals(ctx, signal); !accepted || err != nil {

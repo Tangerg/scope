@@ -160,13 +160,12 @@ var (
 
 type Store struct {
 	db              *sql.DB
-	schemaName      string
-	tableName       string
-	fullTable       string
-	idColumn        string
-	contentColumn   string
-	metadataColumn  string
-	embeddingColumn string
+	schemaName      identifier
+	tableName       identifier
+	idColumn        identifier
+	contentColumn   identifier
+	metadataColumn  identifier
+	embeddingColumn identifier
 	space           vectorstore.SpaceID
 	dimensions      int
 	distanceMetric  DistanceMetric
@@ -191,17 +190,15 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 			return nil, err
 		}
 	}
-	fullTable := config.SchemaName + "." + config.TableName
 
 	store := &Store{
 		db:              config.DB,
-		schemaName:      config.SchemaName,
-		tableName:       config.TableName,
-		fullTable:       fullTable,
-		idColumn:        config.IDColumn,
-		contentColumn:   config.ContentColumn,
-		metadataColumn:  config.MetadataColumn,
-		embeddingColumn: config.EmbeddingColumn,
+		schemaName:      identifier(config.SchemaName),
+		tableName:       identifier(config.TableName),
+		idColumn:        identifier(config.IDColumn),
+		contentColumn:   identifier(config.ContentColumn),
+		metadataColumn:  identifier(config.MetadataColumn),
+		embeddingColumn: identifier(config.EmbeddingColumn),
 		space:           config.Space,
 		dimensions:      config.Dimensions,
 		distanceMetric:  config.DistanceMetric,
@@ -219,12 +216,16 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return store, nil
 }
 
+func (s *Store) tableSQL() string {
+	return s.schemaName.sql() + "." + s.tableName.sql()
+}
+
 func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 	if !initSchema {
 		return s.validateSchema(ctx)
 	}
 	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
-		return fmt.Errorf("create table %s: %w", s.fullTable, err)
+		return fmt.Errorf("create table %s: %w", s.tableSQL(), err)
 	}
 	return s.validateSchema(ctx)
 }
@@ -236,7 +237,7 @@ func (s *Store) createTableStatement() string {
 		%s BLOB NOT NULL,
 		%s VECTOR(%d, FLOAT32) NOT NULL,
 CONSTRAINT %s CHECK (1=1)
-	)`, s.fullTable, s.idColumn, documentIDBytes, s.contentColumn, contentColumnType, s.metadataColumn, s.embeddingColumn, s.dimensions, s.space.StorageKey())
+	)`, s.tableSQL(), s.idColumn.sql(), documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), s.embeddingColumn.sql(), s.dimensions, identifier(s.space.StorageKey()).sql())
 }
 
 func (s *Store) validateSchema(ctx context.Context) (err error) {
@@ -247,27 +248,27 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 	)
 	var dataType, nullable string
 	var length int
-	const columns = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = UPPER(:1) AND TABLE_NAME = UPPER(:2) AND COLUMN_NAME = UPPER(:3)"
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.idColumn).Scan(&dataType, &length, &nullable); err != nil {
+	const columns = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = :1 AND TABLE_NAME = :2 AND COLUMN_NAME = :3"
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.idColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
 	if dataType != "RAW" || length != documentIDBytes || nullable != columnNotNullable {
 		return fmt.Errorf("document ID column must be RAW(%d) NOT NULL; rebuild the table", documentIDBytes)
 	}
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.metadataColumn).Scan(&dataType, &length, &nullable); err != nil {
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.metadataColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
 	if dataType != "BLOB" || nullable != columnNotNullable {
 		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
 	}
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName, s.tableName, s.contentColumn).Scan(&dataType, &length, &nullable); err != nil {
+	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.contentColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
 		return fmt.Errorf("read content schema: %w", err)
 	}
 	if dataType != contentColumnType || nullable != columnNotNullable {
 		return fmt.Errorf("content column must be %s NOT NULL; rebuild the table", contentColumnType)
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT c.CONSTRAINT_TYPE, c.STATUS, c.VALIDATED, cc.COLUMN_NAME, cc.POSITION FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS cc ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.OWNER = UPPER(:1) AND c.TABLE_NAME = UPPER(:2) AND c.CONSTRAINT_TYPE IN ('P', 'U')", s.schemaName, s.tableName)
+		"SELECT c.CONSTRAINT_TYPE, c.STATUS, c.VALIDATED, cc.COLUMN_NAME, cc.POSITION FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS cc ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.OWNER = :1 AND c.TABLE_NAME = :2 AND c.CONSTRAINT_TYPE IN ('P', 'U')", s.schemaName.name(), s.tableName.name())
 	if err != nil {
 		return fmt.Errorf("read document identity constraints: %w", err)
 	}
@@ -283,7 +284,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		if err = rows.Scan(&kind, &status, &validated, &column, &position); err != nil {
 			return fmt.Errorf("read document identity constraint: %w", err)
 		}
-		if !strings.EqualFold(column, s.idColumn) || position != 1 || status != constraintStatusEnabled || validated != constraintValidated {
+		if column != s.idColumn.name() || position != 1 || status != constraintStatusEnabled || validated != constraintValidated {
 			return errors.New("uniqueness constraints must identify a document solely by its full ID; rebuild the table")
 		}
 		primary = primary || kind == "P"
@@ -298,7 +299,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		return errors.New("document ID must be the sole primary key; rebuild the table")
 	}
 	rows, err = s.db.QueryContext(ctx,
-		"SELECT cc.COLUMN_NAME, cc.COLUMN_POSITION FROM ALL_INDEXES i JOIN ALL_IND_COLUMNS cc ON cc.INDEX_OWNER = i.OWNER AND cc.INDEX_NAME = i.INDEX_NAME WHERE i.TABLE_OWNER = UPPER(:1) AND i.TABLE_NAME = UPPER(:2) AND i.UNIQUENESS = 'UNIQUE'", s.schemaName, s.tableName)
+		"SELECT cc.COLUMN_NAME, cc.COLUMN_POSITION FROM ALL_INDEXES i JOIN ALL_IND_COLUMNS cc ON cc.INDEX_OWNER = i.OWNER AND cc.INDEX_NAME = i.INDEX_NAME WHERE i.TABLE_OWNER = :1 AND i.TABLE_NAME = :2 AND i.UNIQUENESS = 'UNIQUE'", s.schemaName.name(), s.tableName.name())
 	if err != nil {
 		return fmt.Errorf("read document identity indexes: %w", err)
 	}
@@ -313,7 +314,7 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		if err = rows.Scan(&column, &position); err != nil {
 			return fmt.Errorf("read document identity index: %w", err)
 		}
-		if !strings.EqualFold(column, s.idColumn) || position != 1 {
+		if column != s.idColumn.name() || position != 1 {
 			return errors.New("unique indexes must identify a document solely by its full ID; rebuild the table")
 		}
 	}
@@ -328,12 +329,12 @@ func (s *Store) binding(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	var shape string
-	err := s.db.QueryRowContext(ctx, `SELECT VECTOR_INFO FROM ALL_TAB_COLS WHERE OWNER=UPPER(:1) AND TABLE_NAME=UPPER(:2) AND COLUMN_NAME=UPPER(:3)`, s.schemaName, s.tableName, s.embeddingColumn).Scan(&shape)
+	err := s.db.QueryRowContext(ctx, `SELECT VECTOR_INFO FROM ALL_TAB_COLS WHERE OWNER=:1 AND TABLE_NAME=:2 AND COLUMN_NAME=:3`, s.schemaName.name(), s.tableName.name(), s.embeddingColumn.name()).Scan(&shape)
 	if err != nil {
 		return 0, err
 	}
 	var found int
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ALL_CONSTRAINTS WHERE OWNER=UPPER(:1) AND TABLE_NAME=UPPER(:2) AND CONSTRAINT_TYPE='C' AND SUBSTR(CONSTRAINT_NAME,1,LENGTH(:4))=UPPER(:4) HAVING MIN(CONSTRAINT_NAME)=UPPER(:3) AND MAX(CONSTRAINT_NAME)=UPPER(:3)`, s.schemaName, s.tableName, s.space.StorageKey(), vectorstore.SpaceStorageKeyPrefix).Scan(&found)
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM ALL_CONSTRAINTS WHERE OWNER=:1 AND TABLE_NAME=:2 AND CONSTRAINT_TYPE='C' AND SUBSTR(CONSTRAINT_NAME,1,LENGTH(:4))=:4 HAVING MIN(CONSTRAINT_NAME)=:3 AND MAX(CONSTRAINT_NAME)=:3`, s.schemaName.name(), s.tableName.name(), identifier(s.space.StorageKey()).name(), identifier(vectorstore.SpaceStorageKeyPrefix).name()).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && found != 1 {
 		return 0, vectorstore.ErrIncompatibleSpace
 	}
@@ -440,10 +441,10 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			`ON (tgt.%s = src.id) `+
 			`WHEN MATCHED THEN UPDATE SET tgt.%s = src.content, tgt.%s = src.metadata, tgt.%s = src.embedding `+
 			`WHEN NOT MATCHED THEN INSERT (tgt.%s, tgt.%s, tgt.%s, tgt.%s) VALUES (src.id, src.content, src.metadata, src.embedding)`,
-		s.fullTable,
-		s.idColumn,
-		s.contentColumn, s.metadataColumn, s.embeddingColumn,
-		s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn,
+		s.tableSQL(),
+		s.idColumn.sql(),
+		s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
+		s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
 	)
 	stmt, err := s.db.PrepareContext(ctx, mergeSQL)
 	if err != nil {
@@ -615,12 +616,12 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 			args = append(args, id)
 			placeholders[index] = ":" + strconv.Itoa(len(args))
 		}
-		where = " WHERE " + s.idColumn + " IN (" + strings.Join(placeholders, ", ") + ")"
+		where = " WHERE " + s.idColumn.sql() + " IN (" + strings.Join(placeholders, ", ") + ")"
 	}
 	args = append(args, request.Options.ResultLimit())
 	statement := fmt.Sprintf(
 		`SELECT %s, %s, %s, VECTOR_DISTANCE(%s, TO_VECTOR(:1, *, FLOAT32), %s) AS distance FROM %s%s ORDER BY distance ASC, %s ASC FETCH FIRST :%d ROWS ONLY`,
-		s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.distanceMetric, s.fullTable, where, s.idColumn, len(args))
+		s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(), s.distanceMetric, s.tableSQL(), where, s.idColumn.sql(), len(args))
 	var rows *sql.Rows
 	if transaction == nil {
 		rows, err = s.db.QueryContext(ctx, statement, args...)
@@ -628,7 +629,7 @@ func (s *Store) searchRows(ctx context.Context, transaction *sql.Tx, request *ve
 		rows, err = transaction.QueryContext(ctx, statement, args...)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("oracle: query %s: %w", s.fullTable, err)
+		return nil, fmt.Errorf("oracle: query %s: %w", s.tableSQL(), err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -704,7 +705,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 				placeholders[index] = ":" + strconv.Itoa(index+1)
 				args[index] = id
 			}
-			result, execErr := transaction.ExecContext(ctx, "DELETE FROM "+s.fullTable+" WHERE "+s.idColumn+" IN ("+strings.Join(placeholders, ", ")+")", args...)
+			result, execErr := transaction.ExecContext(ctx, "DELETE FROM "+s.tableSQL()+" WHERE "+s.idColumn.sql()+" IN ("+strings.Join(placeholders, ", ")+")", args...)
 			if execErr != nil {
 				return fmt.Errorf("oracle: delete matching documents: %w", execErr)
 			}
@@ -740,9 +741,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	}
 
 	stmt := fmt.Sprintf("DELETE FROM %s WHERE %s IN (%s)",
-		s.fullTable, s.idColumn, strings.Join(placeholders, ", "))
+		s.tableSQL(), s.idColumn.sql(), strings.Join(placeholders, ", "))
 	if _, err = s.db.ExecContext(ctx, stmt, args...); err != nil {
-		return fmt.Errorf("oracle: delete by ids from %s: %w", s.fullTable, err)
+		return fmt.Errorf("oracle: delete by ids from %s: %w", s.tableSQL(), err)
 	}
 	return nil
 }
@@ -756,14 +757,14 @@ type filterPage struct {
 }
 
 func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
-	statement := "SELECT " + s.idColumn + ", " + s.metadataColumn + " FROM " + s.fullTable
+	statement := "SELECT " + s.idColumn.sql() + ", " + s.metadataColumn.sql() + " FROM " + s.tableSQL()
 	var args []any
 	if lastID != nil {
-		statement += " WHERE " + s.idColumn + " > :1"
+		statement += " WHERE " + s.idColumn.sql() + " > :1"
 		args = append(args, lastID)
 	}
 	args = append(args, filterPageSize)
-	statement += " ORDER BY " + s.idColumn + " ASC FETCH FIRST :" + strconv.Itoa(len(args)) + " ROWS ONLY"
+	statement += " ORDER BY " + s.idColumn.sql() + " ASC FETCH FIRST :" + strconv.Itoa(len(args)) + " ROWS ONLY"
 	rows, err := transaction.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return page, fmt.Errorf("oracle: read filter metadata: %w", err)
@@ -816,7 +817,7 @@ func (s *Store) prepareFilter(ctx context.Context, transaction *sql.Tx, predicat
 		return fmt.Errorf("oracle: set filter transaction isolation: %w", err)
 	}
 	if forDeletion {
-		if _, err := transaction.ExecContext(ctx, "LOCK TABLE "+s.fullTable+" IN EXCLUSIVE MODE NOWAIT"); err != nil {
+		if _, err := transaction.ExecContext(ctx, "LOCK TABLE "+s.tableSQL()+" IN EXCLUSIVE MODE NOWAIT"); err != nil {
 			return fmt.Errorf("oracle: lock documents for filtered deletion: %w", err)
 		}
 	}
@@ -824,7 +825,7 @@ func (s *Store) prepareFilter(ctx context.Context, transaction *sql.Tx, predicat
 		return vectorstore.ErrUnsupportedFilter
 	}
 	var allowed int
-	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=:1 AND 2*COALESCE(SUM(n),0)<=:2 THEN 1 ELSE 0 END FROM (SELECT UTL_RAW.LENGTH(%s)+COALESCE(DBMS_LOB.GETLENGTH(%s),0) n FROM %s FETCH FIRST :3 ROWS ONLY)", s.idColumn, s.metadataColumn, s.fullTable)
+	statement := fmt.Sprintf("SELECT CASE WHEN COUNT(*)<=:1 AND 2*COALESCE(SUM(n),0)<=:2 THEN 1 ELSE 0 END FROM (SELECT UTL_RAW.LENGTH(%s)+COALESCE(DBMS_LOB.GETLENGTH(%s),0) n FROM %s FETCH FIRST :3 ROWS ONLY)", s.idColumn.sql(), s.metadataColumn.sql(), s.tableSQL())
 	if err := transaction.QueryRowContext(ctx, statement, budget.MaxRecords, budget.MaxBytes, budget.MaxRecords+1).Scan(&allowed); err != nil {
 		return err
 	}

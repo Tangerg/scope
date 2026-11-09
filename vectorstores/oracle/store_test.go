@@ -44,7 +44,7 @@ func closedDatabase(t *testing.T) (*sql.DB, error) {
 
 func offlineStore(t *testing.T, db *sql.DB) *Store {
 	t.Helper()
-	return &Store{db: db, fullTable: "documents", tableName: "documents", idColumn: "id", contentColumn: "content", metadataColumn: "facts", embeddingColumn: "embedding", space: fixtureSpace, distanceMetric: DistanceCosine}
+	return &Store{db: db, schemaName: "APP", tableName: "documents", idColumn: "id", contentColumn: "content", metadataColumn: "facts", embeddingColumn: "embedding", space: fixtureSpace, distanceMetric: DistanceCosine}
 }
 
 func TestClosedDatabaseFailuresPreserveEffectsAndCause(t *testing.T) {

@@ -1,12 +1,8 @@
 package filter
 
 import (
-	"encoding/json"
 	"fmt"
-	"math"
-	"math/big"
 	"reflect"
-	"strconv"
 )
 
 type evaluator struct {
@@ -273,48 +269,7 @@ func compareNumbers(left, right any) (order int, numeric, ordered bool) {
 	if leftNumber == nil || rightNumber == nil {
 		return 0, true, false
 	}
-	return leftNumber.Cmp(rightNumber), true, true
-}
-
-// Numbers use their JSON decimal value so metadata serialization does not
-// change comparisons. Integers never pass through floating-point conversion.
-func numberValue(value any) (*big.Rat, bool) {
-	switch number := value.(type) {
-	case int:
-		return new(big.Rat).SetInt64(int64(number)), true
-	case int8:
-		return new(big.Rat).SetInt64(int64(number)), true
-	case int16:
-		return new(big.Rat).SetInt64(int64(number)), true
-	case int32:
-		return new(big.Rat).SetInt64(int64(number)), true
-	case int64:
-		return new(big.Rat).SetInt64(number), true
-	case uint:
-		return new(big.Rat).SetUint64(uint64(number)), true
-	case uint8:
-		return new(big.Rat).SetUint64(uint64(number)), true
-	case uint16:
-		return new(big.Rat).SetUint64(uint64(number)), true
-	case uint32:
-		return new(big.Rat).SetUint64(uint64(number)), true
-	case uint64:
-		return new(big.Rat).SetUint64(number), true
-	case float32:
-		if math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) {
-			return nil, true
-		}
-		return new(big.Rat).SetString(strconv.FormatFloat(float64(number), 'g', -1, 32))
-	case float64:
-		if math.IsNaN(number) || math.IsInf(number, 0) {
-			return nil, true
-		}
-		return new(big.Rat).SetString(strconv.FormatFloat(number, 'g', -1, 64))
-	case json.Number:
-		return new(big.Rat).SetString(number.String())
-	default:
-		return nil, false
-	}
+	return leftNumber.compare(rightNumber), true, true
 }
 
 func (e *evaluator) evalIn(b *BinaryExpr) (any, error) {
