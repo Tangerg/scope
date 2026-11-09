@@ -42,7 +42,7 @@ type Runtime struct {
 	storeTimeout       time.Duration
 	mu                 sync.RWMutex
 	roots              map[ProcessID]*treeRuntime
-	starting           map[string]*startup
+	starting           map[ProcessID]*startup
 	closeDone          chan struct{}
 }
 
@@ -65,7 +65,7 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 	if timeout == 0 {
 		timeout = defaultStoreTimeout
 	}
-	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, roots: make(map[ProcessID]*treeRuntime), starting: make(map[string]*startup)}, nil
+	return &Runtime{store: config.Store, compiler: &Compiler{build: config.Build}, resolver: config.ProgramResolver, admitter: config.ProcessAdmitter, deltas: config.Deltas, budget: config.Budget, limits: limits, capabilities: config.Capabilities, checkpointInterval: interval, storeTimeout: timeout, roots: make(map[ProcessID]*treeRuntime), starting: make(map[ProcessID]*startup)}, nil
 }
 
 func (r *Runtime) Compiler() *Compiler {
@@ -395,16 +395,16 @@ func (r *Runtime) claim(ctx context.Context, root ProcessID) (context.Context, f
 			r.mu.Unlock()
 			return nil, nil, ErrClosed
 		}
-		pending := r.starting[root.String()]
+		pending := r.starting[root]
 		if pending == nil {
 			work, cancel := context.WithCancel(ctx)
 			pending = &startup{done: make(chan struct{}), cancel: cancel}
-			r.starting[root.String()] = pending
+			r.starting[root] = pending
 			r.mu.Unlock()
 			return work, func() {
 				cancel()
 				r.mu.Lock()
-				delete(r.starting, root.String())
+				delete(r.starting, root)
 				close(pending.done)
 				r.mu.Unlock()
 			}, nil

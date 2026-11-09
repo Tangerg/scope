@@ -875,8 +875,7 @@ type dispatchResult struct {
 }
 
 func unknownSettlement() Settlement {
-	value := Settlement{status: SettlementStatusUnknown, payload: nullPayload}
-	return value
+	return Settlement{status: SettlementStatusUnknown, payload: nullPayload}
 }
 
 func unknownRecord(id EffectID, failure Failure) EffectSettled {

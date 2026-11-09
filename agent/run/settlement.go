@@ -146,21 +146,17 @@ type settlementWire struct {
 // started child, a Send or Cancel carries an empty object, and a rejection
 // carries its Failure. These constructors and SpawnResult are their one codec,
 // so strategies never depend on the encoding.
-func frameworkSettlement(status SettlementStatus, value any) (Settlement, error) {
+func frameworkSettlement(value any) (Settlement, error) {
 	payload, err := EncodePayload(value)
 	if err != nil {
 		return Settlement{}, err
 	}
-	return Settlement{status: status, payload: payload}, nil
+	return Settlement{status: SettlementStatusSucceeded, payload: payload}, nil
 }
 
-func spawnedSettlement(child ProcessID) (Settlement, error) {
-	return frameworkSettlement(SettlementStatusSucceeded, child)
-}
+func spawnedSettlement(child ProcessID) (Settlement, error) { return frameworkSettlement(child) }
 
-func appliedSettlement() (Settlement, error) {
-	return frameworkSettlement(SettlementStatusSucceeded, struct{}{})
-}
+func appliedSettlement() (Settlement, error) { return frameworkSettlement(struct{}{}) }
 
 // SpawnResult reads the outcome of a Spawn: the started child, or the Failure
 // that rejected the start. Exactly one of them is valid.

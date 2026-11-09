@@ -2,6 +2,7 @@ package run
 
 import (
 	"encoding/json"
+	"math"
 	"sync"
 	"time"
 )
@@ -38,7 +39,7 @@ type deltaEmitter struct {
 func (d *deltaEmitter) emit(raw json.RawMessage) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.sequence == ^uint64(0) {
+	if d.sequence == math.MaxUint64 {
 		return
 	}
 	d.sequence++

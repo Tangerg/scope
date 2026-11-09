@@ -173,12 +173,12 @@ func (b Batch) Clone() (Batch, error) {
 	}
 	owned := b
 	owned.Records = make([]Record, len(b.Records))
+	var err error
 	for index, record := range b.Records {
-		copy, err := cloneRecord(record)
+		owned.Records[index], err = cloneRecord(record)
 		if err != nil {
 			return Batch{}, err
 		}
-		owned.Records[index] = copy
 	}
 	return owned, nil
 }
