@@ -8,7 +8,6 @@ import (
 
 // NewBlockingServer holds one request until cancellation. Lifecycle signals
 // allow tests to synchronize with the initial write and handler exit.
-// The test owns server cleanup.
 func NewBlockingServer(t *testing.T, writeInitial func(http.ResponseWriter)) (*httptest.Server, Lifecycle) {
 	t.Helper()
 	started := make(chan struct{})

@@ -71,7 +71,7 @@ func TestTranscriptionOutcomeEvidence(t *testing.T) {
 					t.Fatal(err)
 				}
 				response, err := model.Call(ctx, &transcription.Request{Audio: audio})
-				if test.kind == invocation.FailureInvalid {
+				if test.kind == invocation.FailureNone {
 					if err != nil || response == nil || response.Output.Text != "hello" {
 						t.Fatalf("Call = %+v, %v", response, err)
 					}

@@ -16,8 +16,8 @@ var ErrInvalidBlock = errors.New("content: invalid block")
 type Kind string
 
 const (
-	Text  = "text"
-	Media = "media"
+	Text  Kind = "text"
+	Media Kind = "media"
 )
 
 // Block carries content, never a control instruction, tool call, or nested result.

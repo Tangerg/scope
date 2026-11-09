@@ -18,7 +18,7 @@ func TestFailureScopesExecutionEvidenceWithoutHidingCauses(t *testing.T) {
 		err  error
 		want invocation.FailureKind
 	}{
-		{name: "absent", want: invocation.FailureInvalid},
+		{name: "absent", want: invocation.FailureNone},
 		{name: "ordinary", err: cause, want: invocation.FailureUnknown},
 		{name: "not executed", err: inner, want: invocation.FailureNotExecuted},
 		{name: "transparent wrapping", err: fmt.Errorf("adapter: %w", inner), want: invocation.FailureNotExecuted},

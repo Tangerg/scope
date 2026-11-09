@@ -71,7 +71,7 @@ func TestImageOutcomeEvidence(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := model.Call(ctx, request)
-			if test.kind == invocation.FailureInvalid {
+			if test.kind == invocation.FailureNone {
 				if err != nil || response == nil || string(response.First().Media.Source.Bytes) != "PNG" {
 					t.Fatalf("Call = %+v, %v", response, err)
 				}

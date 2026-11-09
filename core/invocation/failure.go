@@ -11,10 +11,11 @@ var ErrInvalidFailure = errors.New("invocation: invalid call failure")
 
 type FailureKind string
 
-// Failed establishes an unsuccessful invocation, not absence of side effects
-// or token use. Only NotExecuted proves no provider work ran in this invocation.
+// None classifies a nil error and is never the Kind of a Failure. Failed
+// establishes an unsuccessful invocation, not absence of side effects or token
+// use. Only NotExecuted proves no provider work ran in this invocation.
 const (
-	FailureInvalid     FailureKind = ""
+	FailureNone        FailureKind = ""
 	FailureUnknown     FailureKind = "unknown"
 	FailureFailed      FailureKind = "failed"
 	FailureNotExecuted FailureKind = "not_executed"
@@ -62,7 +63,7 @@ func (f *Failure) Validate() error {
 // Nil has no failure; an ordinary or invalid error establishes only Unknown.
 func ClassifyFailure(err error) FailureKind {
 	if err == nil {
-		return FailureInvalid
+		return FailureNone
 	}
 	return classifyFailure(err)
 }
