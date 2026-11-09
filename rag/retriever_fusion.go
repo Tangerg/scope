@@ -53,7 +53,7 @@ func ReciprocalRankFusion(config FusionRetrieverConfig, retrievers ...Retriever)
 		return nil, err
 	}
 	if len(retrievers) == 0 {
-		return nil, ErrNilRetriever
+		return nil, fmt.Errorf("rag.ReciprocalRankFusion: at least one retriever is required: %w", ErrNilRetriever)
 	}
 	owned := slices.Clone(retrievers)
 	for index, retriever := range owned {
