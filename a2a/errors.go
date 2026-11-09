@@ -28,6 +28,10 @@ var (
 	ErrInvalidRPCInterface = errors.New("a2a: invalid RPC interface")
 
 	ErrInvalidResult = errors.New("a2a: invalid send-message result")
+
+	// ErrInvalidWaitAddress rejects metadata that does not name exactly one
+	// external wait.
+	ErrInvalidWaitAddress = errors.New("a2a: invalid wait address")
 )
 
 var errNilAgentSequence = errors.New("a2a: agent returned a nil output sequence")

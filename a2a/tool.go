@@ -240,7 +240,7 @@ func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (
 	if hasWait {
 		wait, err = ParseWaitAddress(declared)
 		if err != nil {
-			return toolcontract.Result{}, err
+			return toolcontract.Result{}, fmt.Errorf("%w: %w", ErrInvalidResult, err)
 		}
 		raw, ok := msg.Metadata[AnswerSchemaMetadataKey].(string)
 		if !ok || len(msg.Parts) != 1 || msg.Parts[0] == nil {

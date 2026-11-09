@@ -9,12 +9,21 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
+// Task metadata keys a managed task publishes; clients read each by name.
 const (
-	PendingKey                    = "scope.pending"
-	ProgramKey                    = "scope.program"
-	RootKey                       = "scope.root_id"
-	rootStatusMetadataKey         = "scope.root_status"
-	terminationMetadataKey        = "scope.termination"
+	// PendingKey lists the questions the tree is waiting on.
+	PendingKey = "scope.pending"
+	// ProgramKey names the Program reference the task runs.
+	ProgramKey = "scope.program"
+	// RootKey is the root Process ID.
+	RootKey = "scope.root_id"
+	// RootStatusKey is the root Process status.
+	RootStatusKey = "scope.root_status"
+	// TerminationKey is the root's termination cause once it has exited.
+	TerminationKey = "scope.termination"
+)
+
+const (
 	resultArtifactID              = "result"
 	questionMessageIdentityDomain = "a2a.wait.question"
 	absentQuestionJSON            = "null"
@@ -69,7 +78,7 @@ func projectTask(k taskKey, head run.TreeInspection, content contentPolicy) (*sd
 		return nil, sdk.ErrInternalError
 	}
 	task := &sdk.Task{ID: k.id, ContextID: k.context, Status: sdk.TaskStatus{State: sdk.TaskStateWorking}, Metadata: map[string]any{
-		RootKey: head.Root.String(), ProgramKey: root.Program.String(), rootStatusMetadataKey: root.Status.String(),
+		RootKey: head.Root.String(), ProgramKey: root.Program.String(), RootStatusKey: root.Status.String(),
 	}}
 	if root.Termination.Valid() {
 		switch root.Termination.Status() {
@@ -83,7 +92,7 @@ func projectTask(k taskKey, head run.TreeInspection, content contentPolicy) (*sd
 		default:
 			task.Status.State = sdk.TaskStateFailed
 		}
-		task.Metadata[terminationMetadataKey] = root.Termination.Cause().String()
+		task.Metadata[TerminationKey] = root.Termination.Cause().String()
 		return task, nil
 	}
 	var questions []pendingQuestion
