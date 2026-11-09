@@ -9,10 +9,11 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// Options holds per-request reranking configuration. A nil TopK inherits the
-// configured default; without a default, every document is returned. A pointer
-// to zero explicitly requests every document. Provider-specific controls remain
-// in Extensions.
+// Options holds per-request reranking configuration. A positive TopK caps the
+// number of results, so a request with fewer documents returns every one. A
+// nil TopK inherits the configured default; without a default, every document
+// is returned. A pointer to zero explicitly requests every document.
+// Provider-specific controls remain in Extensions.
 type Options struct {
 	Model      string              `json:"model"`
 	TopK       *int                `json:"top_k,omitzero"`
@@ -62,11 +63,13 @@ func (o Options) Validate() error {
 	return nil
 }
 
+// ResultLimit is the exact number of results a response ranking documentCount
+// documents holds under these options.
 func (o Options) ResultLimit(documentCount int) int {
 	if o.TopK == nil || *o.TopK == 0 {
 		return documentCount
 	}
-	return *o.TopK
+	return min(*o.TopK, documentCount)
 }
 
 func (o Options) MarshalJSON() ([]byte, error) {

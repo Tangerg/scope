@@ -90,7 +90,7 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, 
 		Truncation: extension.Truncation,
 	}
 	if effective.TopK != nil && *effective.TopK > 0 {
-		apiRequest.TopK = effective.TopK
+		apiRequest.TopK = new(effective.ResultLimit(len(request.Documents)))
 	}
 	return apiRequest, nil
 }

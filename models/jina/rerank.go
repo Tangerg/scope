@@ -55,7 +55,7 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*rerankRequest, 
 		Model: effective.Model, Query: request.Query, Documents: request.Documents,
 	}
 	if effective.TopK != nil && *effective.TopK > 0 {
-		apiRequest.TopN = effective.TopK
+		apiRequest.TopN = new(effective.ResultLimit(len(request.Documents)))
 	}
 	return apiRequest, nil
 }

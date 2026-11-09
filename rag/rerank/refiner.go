@@ -85,9 +85,7 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 	if requestErr != nil {
 		return nil, fmt.Errorf("%w: create model request: %w", rag.ErrInvalidReranking, requestErr)
 	}
-	// The core request rejects a TopK above its document count, while this
-	// refiner's TopK is a cap that a shorter candidate list simply satisfies.
-	request.Options.TopK = new(min(r.topK, len(candidates)))
+	request.Options.TopK = new(r.topK)
 	if err := request.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: model request: %w", rag.ErrInvalidReranking, err)
 	}

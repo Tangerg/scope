@@ -81,6 +81,18 @@ func TestRequestOwnsInputAndOptionsResolve(t *testing.T) {
 	}
 }
 
+// A configured TopK caps results; a request with fewer documents is still a
+// valid request and ranks every document it has.
+func TestTopKCapsTheResultCountAtTheDocumentCount(t *testing.T) {
+	request := &rerank.Request{Query: "query", Documents: []string{"first", "second"}, Options: rerank.Options{TopK: new(3)}}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("Validate() = %v", err)
+	}
+	if got := request.Options.ResultLimit(len(request.Documents)); got != 2 {
+		t.Fatalf("ResultLimit = %d, want 2", got)
+	}
+}
+
 func TestOptionsResolveValidatesTheEffectiveValue(t *testing.T) {
 	for _, test := range []struct {
 		name           string
@@ -154,7 +166,6 @@ func TestRequestValidation(t *testing.T) {
 		{name: "no documents", request: &rerank.Request{Query: "query"}},
 		{name: "blank document", request: &rerank.Request{Query: "query", Documents: []string{" "}}},
 		{name: "negative top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: new(-1)}}},
-		{name: "oversized top K", request: &rerank.Request{Query: "query", Documents: []string{"document"}, Options: rerank.Options{TopK: new(2)}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

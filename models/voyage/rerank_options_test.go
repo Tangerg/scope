@@ -57,16 +57,25 @@ func TestRerankUsesEffectiveLimit(t *testing.T) {
 		})
 	}
 }
-func TestRerankRejectsInvalidEffectiveLimitBeforeIO(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusBadRequest) }))
+func TestRerankCapsTheDefaultLimitAtTheDocumentCount(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := jsonv2.UnmarshalRead(r.Body, &body); err != nil {
+			t.Error(err)
+		}
+		if body["top_k"] != float64(2) {
+			t.Errorf("wire limit=%v, want 2", body["top_k"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"data":[{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":0.4}]}`)
+	}))
 	defer server.Close()
 	model, err := voyage.NewRerankModel(t.Context(), voyage.RerankModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: rerank.Options{Model: "test", TopK: new(3)}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = model.Call(t.Context(), &rerank.Request{Query: "query", Documents: []string{"first", "second"}})
-	if err == nil || calls != 0 {
-		t.Fatalf("requests=%d error=%v", calls, err)
+	response, err := model.Call(t.Context(), &rerank.Request{Query: "query", Documents: []string{"first", "second"}})
+	if err != nil || len(response.Results) != 2 {
+		t.Fatalf("response=%v error=%v", response, err)
 	}
 }

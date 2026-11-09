@@ -75,8 +75,8 @@ func TestRerankerTopKAndResponseContract(t *testing.T) {
 
 func TestRerankerTopKCapsShorterCandidateLists(t *testing.T) {
 	model := corererank.ModelFunc(func(_ context.Context, request *corererank.Request) (*corererank.Response, error) {
-		if request.Options.TopK == nil || *request.Options.TopK != 2 {
-			t.Fatalf("TopK = %v, want pointer to 2", request.Options.TopK)
+		if got := request.Options.ResultLimit(len(request.Documents)); got != 2 {
+			t.Fatalf("result limit = %d, want 2", got)
 		}
 		return &corererank.Response{Results: []*corererank.Result{{Index: 1, Score: 0.8}, {Index: 0, Score: 0.3}}}, nil
 	})

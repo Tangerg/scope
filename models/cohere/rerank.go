@@ -98,7 +98,7 @@ func (r *RerankModel) buildAPIRequest(request *rerank.Request) (*cohere.V2Rerank
 		Priority:        extension.Priority,
 	}
 	if effective.TopK != nil && *effective.TopK > 0 {
-		value.TopN = effective.TopK
+		value.TopN = new(effective.ResultLimit(len(request.Documents)))
 	}
 	return value, nil
 }
