@@ -190,7 +190,7 @@ func TestObserveSkipsCoveredEntriesAndObservesLaterCompletion(t *testing.T) {
 		store.mu.Unlock()
 	}
 	store.mu.Unlock()
-	result, err := observe(ctx, b, local, id, nil, target{})
+	result, err := observe(ctx, b, local, id, nil)
 	if err != nil || result == nil || result.IsError || len(result.Content) != 1 {
 		t.Fatalf("later completion was not observed: result=%+v error=%v", result, err)
 	}

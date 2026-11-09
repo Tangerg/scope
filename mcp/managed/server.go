@@ -3,7 +3,6 @@ package managed
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"time"
@@ -137,11 +136,7 @@ func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (ad
 	if req.ProtocolVersion() != elicitation.ProtocolVersion || caps == nil || caps.Elicitation == nil || caps.Elicitation.Form == nil && caps.Elicitation.URL != nil {
 		return admittedCall[I]{}, errForm
 	}
-	wire := req.Params.Arguments
-	if len(wire) == 0 {
-		wire = json.RawMessage("{}")
-	}
-	payload, err := run.ParsePayload(wire)
+	payload, err := run.ParsePayload(tool.Request{Arguments: string(req.Params.Arguments)}.Input())
 	if err != nil || b.cfg.Program.Descriptor().ValidateInput(payload) != nil {
 		return admittedCall[I]{}, errArguments
 	}
@@ -165,7 +160,7 @@ func (b *binding[I, O]) admit(ctx context.Context, req *sdk.CallToolRequest) (ad
 func (b *binding[I, O]) start(ctx context.Context, call admittedCall[I]) (*sdk.CallToolResult, error) {
 	handle, err := b.cfg.Runtime.Start(ctx, b.cfg.Program, run.StartRequest[I]{ID: call.start, Input: call.input})
 	if err == nil {
-		return observe(ctx, b, handle, call.start, call.authority, target{})
+		return observe(ctx, b, handle, call.start, call.authority)
 	}
 	if _, ok := errors.AsType[*run.StartConflictError](err); ok {
 		return nil, errArguments
@@ -198,7 +193,7 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 	}
 	acknowledged, err := b.cfg.Runtime.Answered(ctx, destination.Owner, destination.Wait, reply.answer)
 	if err != nil {
-		return nil, errArguments
+		return nil, answerFailure(err)
 	}
 	root, active := b.cfg.Runtime.Process(head.Root)
 	owns := active && root.Epoch() == head.Epoch
@@ -213,9 +208,9 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 			return nil, err
 		}
 	} else if !owns {
-		return b.viewOnly(ctx, call.start, call.authority, destination)
+		return b.viewOnly(ctx, call.start, call.authority)
 	}
-	return observe(ctx, b, root, call.start, call.authority, destination)
+	return observe(ctx, b, root, call.start, call.authority)
 }
 
 func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload], destination target, answer run.Payload) error {
@@ -227,20 +222,31 @@ func (b *binding[I, O]) answer(ctx context.Context, root *run.Handle[run.Payload
 		return errContinuation
 	}
 	if err := owner.Answer(ctx, destination.Wait, answer); err != nil {
-		if errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) {
-			return errArguments
-		}
-		return errUnavailable
+		return answerFailure(err)
 	}
 	return nil
 }
 
-func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte, answered target) (*sdk.CallToolResult, error) {
+// answerFailure classifies why an answer was neither confirmed nor admitted.
+// Only a contradiction with the wait's contract is the caller's error; a
+// storage, writer or context failure leaves the same answer retryable.
+func answerFailure(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return err
+	case errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrInvalidPayload):
+		return errArguments
+	default:
+		return errUnavailable
+	}
+}
+
+func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H], id run.StartID, auth []byte) (*sdk.CallToolResult, error) {
 	head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
 	if err != nil || head.Root != h.ID() {
 		return nil, errUnavailable
 	}
-	if out, err := b.project(head, auth, answered); out != nil || err != nil {
+	if out, err := b.project(head, auth); out != nil || err != nil {
 		return out, err
 	}
 	for entry, err := range h.Observe(ctx, head.Head) {
@@ -254,26 +260,26 @@ func observe[I, O, H any](ctx context.Context, b *binding[I, O], h *run.Handle[H
 		if err != nil {
 			return nil, errUnavailable
 		}
-		if out, err := b.project(head, auth, answered); out != nil || err != nil {
+		if out, err := b.project(head, auth); out != nil || err != nil {
 			return out, err
 		}
 	}
-	return b.viewOnly(ctx, id, auth, answered)
+	return b.viewOnly(ctx, id, auth)
 }
 
-func (b *binding[I, O]) viewOnly(ctx context.Context, id run.StartID, auth []byte, answered target) (*sdk.CallToolResult, error) {
+func (b *binding[I, O]) viewOnly(ctx context.Context, id run.StartID, auth []byte) (*sdk.CallToolResult, error) {
 	head, err := b.cfg.Runtime.Inspect(ctx, id.Root())
 	if err != nil {
 		return nil, errUnavailable
 	}
-	out, err := b.project(head, auth, answered)
+	out, err := b.project(head, auth)
 	if out == nil && err == nil {
 		return nil, errUnavailable
 	}
 	return out, err
 }
 
-func (b *binding[I, O]) project(head run.TreeInspection, auth []byte, answered target) (*sdk.CallToolResult, error) {
+func (b *binding[I, O]) project(head run.TreeInspection, auth []byte) (*sdk.CallToolResult, error) {
 	root, ok := head.Process(head.Root)
 	if !ok || root.Program != b.cfg.Program.ProgramRef() {
 		return nil, errContinuation
@@ -297,21 +303,22 @@ func (b *binding[I, O]) project(head run.TreeInspection, auth []byte, answered t
 		}
 		return out, nil
 	}
+	// Inspection orders processes and their waits canonically, so the first
+	// pending wait is the same question on every projection of this head.
 	for _, process := range head.Processes {
-		for _, wait := range process.Waits {
-			if process.ID == answered.Owner && wait.Key == answered.Wait {
-				continue
-			}
-			f, err := form(wait)
-			if err != nil {
-				return nil, err
-			}
-			token, err := b.issuer.seal(target{Owner: process.ID, Wait: wait.Key}, auth)
-			if err != nil {
-				return nil, errInternal
-			}
-			return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{formInputKey: f}}, nil
+		if len(process.Waits) == 0 {
+			continue
 		}
+		wait := process.Waits[0]
+		f, err := form(wait)
+		if err != nil {
+			return nil, err
+		}
+		token, err := b.issuer.seal(target{Owner: process.ID, Wait: wait.Key}, auth)
+		if err != nil {
+			return nil, errInternal
+		}
+		return &sdk.CallToolResult{RequestState: token, InputRequests: sdk.InputRequestMap{formInputKey: f}}, nil
 	}
 	return nil, nil
 }

@@ -158,7 +158,7 @@ func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[stri
 	}
 	matched, err := h.runtime.Answered(ctx, process, wait, payload)
 	if err != nil {
-		return sdk.NewError(sdk.ErrInvalidRequest, "answer is not consistent with the external wait")
+		return answerFailure(err)
 	}
 	if matched {
 		return nil
@@ -167,16 +167,26 @@ func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[stri
 	if !attached || local.Epoch() != head.Epoch {
 		return fmt.Errorf("%w: run writer is not attached here", sdk.ErrUnsupportedOperation)
 	}
-	if err = local.Answer(ctx, wait, payload); err == nil {
-		return nil
+	if err = local.Answer(ctx, wait, payload); err != nil {
+		return answerFailure(err)
 	}
-	if errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidMessage) || errors.Is(err, run.ErrInvalidPayload) {
+	return nil
+}
+
+// answerFailure classifies why an answer was neither confirmed nor admitted.
+// Only a contradiction with the wait's contract is the client's error; a
+// storage, writer or context failure leaves the same answer retryable.
+func answerFailure(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return err
+	case errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidMessage) || errors.Is(err, run.ErrInvalidPayload):
 		return sdk.NewError(sdk.ErrInvalidRequest, "answer does not match the external wait")
-	}
-	if errors.Is(err, run.ErrEpochConflict) {
+	case errors.Is(err, run.ErrEpochConflict):
 		return sdk.ErrUnsupportedOperation
+	default:
+		return sdk.NewError(sdk.ErrInternalError, "answer was not acknowledged; retry the same wait and answer")
 	}
-	return sdk.NewError(sdk.ErrInternalError, "answer was not acknowledged; retry the same wait and answer")
 }
 
 func (h *handler) GetTask(ctx context.Context, p *sdk.GetTaskRequest) (*sdk.Task, error) {
