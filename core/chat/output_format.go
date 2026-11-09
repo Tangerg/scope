@@ -93,7 +93,7 @@ func (o *OutputFormat) SchemaAs[T any]() (T, error) {
 func (o OutputFormat) Validate() error {
 	switch o.Type {
 	case OutputFormatText, OutputFormatJSON:
-		if o.Name != "" || o.Description != "" || len(o.Schema) != 0 {
+		if o.Name != "" || o.Description != "" || o.Schema != nil {
 			return fmt.Errorf("%w: %s output must not define schema fields", ErrInvalidOutputFormat, o.Type)
 		}
 		return nil

@@ -79,6 +79,7 @@ func TestOutputFormatRejectsInvalidContracts(t *testing.T) {
 		{},
 		{Type: "xml"},
 		{Type: chat.OutputFormatText, Schema: json.RawMessage(`{}`)},
+		{Type: chat.OutputFormatText, Schema: json.RawMessage{}},
 		{Type: chat.OutputFormatJSON, Name: "answer"},
 		{Type: chat.OutputFormatJSONSchema, Schema: json.RawMessage(`{}`)},
 		{Type: chat.OutputFormatJSONSchema, Name: " answer ", Schema: json.RawMessage(`{}`)},
