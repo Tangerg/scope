@@ -9,6 +9,12 @@ import (
 const (
 	minimumCosineSimilarity = -1
 	maximumCosineSimilarity = 1
+	// cosineRoundingTolerance is how far a measured cosine may fall outside
+	// [-1, 1] and still be read as the nearest endpoint. Engines compute it in
+	// float32 over thousands of dimensions, so an exact duplicate can measure
+	// slightly above one; a value farther out cannot come from a cosine and
+	// still invalidates the result.
+	cosineRoundingTolerance = 1e-3
 )
 
 // Score is a provider-neutral, query-relative relevance value in [0, 1]. Scores
@@ -63,21 +69,24 @@ func ScoreFromValue(value float64) Score {
 }
 
 // ScoreFromCosineSimilarity maps cosine similarity from [-1, 1] to [0, 1].
+// Rounding within cosineRoundingTolerance of an endpoint maps to that
+// endpoint; anything else outside the range becomes NaN.
 func ScoreFromCosineSimilarity(similarity float64) Score {
-	if similarity < minimumCosineSimilarity || similarity > maximumCosineSimilarity {
+	if math.IsNaN(similarity) ||
+		similarity < minimumCosineSimilarity-cosineRoundingTolerance ||
+		similarity > maximumCosineSimilarity+cosineRoundingTolerance {
 		return Score(math.NaN())
 	}
+	similarity = min(maximumCosineSimilarity, max(minimumCosineSimilarity, similarity))
 	return ScoreFromValue(
 		(similarity - minimumCosineSimilarity) /
 			(maximumCosineSimilarity - minimumCosineSimilarity),
 	)
 }
 
-// ScoreFromCosineDistance maps 1-cosine-similarity from [0, 2] to [0, 1].
+// ScoreFromCosineDistance maps 1-cosine-similarity from [0, 2] to [0, 1],
+// with the same endpoint rounding as ScoreFromCosineSimilarity.
 func ScoreFromCosineDistance(distance float64) Score {
-	if distance < 0 {
-		return Score(math.NaN())
-	}
 	return ScoreFromCosineSimilarity(maximumCosineSimilarity - distance)
 }
 

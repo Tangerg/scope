@@ -48,9 +48,7 @@ func CosineSimilarity(left, right []float64) vectorstore.Score {
 		magA += a * a
 		magB += b * b
 	}
-	// The exact finite cosine is bounded; only this computation owns its rounding error.
-	ratio := dot / (math.Sqrt(magA) * math.Sqrt(magB))
-	return vectorstore.ScoreFromCosineSimilarity(max(-1, min(1, ratio)))
+	return vectorstore.ScoreFromCosineSimilarity(dot / (math.Sqrt(magA) * math.Sqrt(magB)))
 }
 
 // DotProductSimilarity maps the unbounded inner product monotonically into

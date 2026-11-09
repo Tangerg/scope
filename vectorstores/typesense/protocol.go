@@ -9,7 +9,6 @@ const (
 	fieldTypeString     = "string"
 	fieldTypeFloatArray = "float[]"
 	distanceCosine      = "cosine"
-	maxCosineDistance   = 2
 
 	wildcardQuery  = "*"
 	mediaTypeJSON  = "application/json"

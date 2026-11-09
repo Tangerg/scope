@@ -113,10 +113,8 @@ func (n nativePolicy) score(raw float64) (vectorstore.Score, error) {
 	}
 	switch n.metric {
 	case entity.COSINE:
-		if raw < -1 || raw > 1 {
-			return 0, errors.New("milvus: cosine similarity is outside [-1, 1]")
-		}
-		return vectorstore.ScoreFromCosineSimilarity(raw), nil
+		score := vectorstore.ScoreFromCosineSimilarity(raw)
+		return score, score.Validate()
 	case entity.IP:
 		return vectorstore.ScoreFromInnerProduct(raw), nil
 	case entity.L2:

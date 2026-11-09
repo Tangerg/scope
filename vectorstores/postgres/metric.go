@@ -38,10 +38,8 @@ func (d DistanceMetric) Score(value float64) (vectorstore.Score, error) {
 	}
 	switch d {
 	case DistanceCosine:
-		if value < 0 || value > 2 {
-			return 0, errors.New("postgres: cosine distance is outside [0,2]")
-		}
-		return vectorstore.ScoreFromCosineDistance(value), nil
+		score := vectorstore.ScoreFromCosineDistance(value)
+		return score, score.Validate()
 	case DistanceL2:
 		if value < 0 {
 			return 0, errors.New("postgres: negative Euclidean distance")

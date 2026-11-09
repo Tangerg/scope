@@ -127,10 +127,8 @@ func (n nativeSchema) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 	}
 	switch n.metric {
 	case distanceCosine:
-		if raw < 0 || raw > 2 {
-			return 0, errors.New("weaviate: invalid native cosine distance")
-		}
-		return vectorstore.ScoreFromCosineDistance(raw), nil
+		score := vectorstore.ScoreFromCosineDistance(raw)
+		return score, score.Validate()
 	case distanceDot:
 		return vectorstore.ScoreFromNegativeInnerProductDistance(raw), nil
 	case distanceL2Squared, distanceHamming, distanceManhattan:

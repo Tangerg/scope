@@ -93,10 +93,8 @@ func (c containerSchema) score(raw float64) (vectorstore.Score, error) {
 	}
 	switch c.function {
 	case azcosmos.VectorDistanceFunctionCosine:
-		if raw < -1 || raw > 1 {
-			return 0, errors.New("azurecosmos: cosine similarity is outside [-1,1]")
-		}
-		return vectorstore.ScoreFromCosineSimilarity(raw), nil
+		score := vectorstore.ScoreFromCosineSimilarity(raw)
+		return score, score.Validate()
 	case azcosmos.VectorDistanceFunctionDotProduct:
 		return vectorstore.ScoreFromInnerProduct(raw), nil
 	case azcosmos.VectorDistanceFunctionEuclidean:

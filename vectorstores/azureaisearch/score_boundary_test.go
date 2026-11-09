@@ -15,7 +15,7 @@ func TestQueryPreservesAdmittedCosineBoundary(t *testing.T) {
 		wantErr bool
 	}{
 		{"float32 lower endpoint", float64(math.Nextafter32(1.0/3, 0)), false},
-		{"outside lower tolerance", math.Nextafter(float64(math.Nextafter32(1.0/3, 0)), 0), true},
+		{"outside cosine rounding", 0.333, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newProtocolFixture(t)

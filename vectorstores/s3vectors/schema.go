@@ -63,16 +63,17 @@ func (i indexSchema) validateVector(vector []float32) error {
 }
 
 func (i indexSchema) score(distance float64) (vectorstore.Score, error) {
-	if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 {
-		return 0, errors.New("s3vectors: native distance must be finite and nonnegative")
+	if math.IsNaN(distance) || math.IsInf(distance, 0) {
+		return 0, errors.New("s3vectors: native distance must be finite")
 	}
 	switch i.metric {
 	case types.DistanceMetricCosine:
-		if distance > 2 {
-			return 0, errors.New("s3vectors: native cosine distance exceeds 2")
-		}
-		return vectorstore.ScoreFromCosineDistance(distance), nil
+		score := vectorstore.ScoreFromCosineDistance(distance)
+		return score, score.Validate()
 	case types.DistanceMetricEuclidean:
+		if distance < 0 {
+			return 0, errors.New("s3vectors: native Euclidean distance is negative")
+		}
 		return vectorstore.ScoreFromDistance(distance), nil
 	default:
 		return 0, ErrIncompatibleIndex

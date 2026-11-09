@@ -18,9 +18,7 @@ const (
 	metricDot       nativeMetric = "dotProduct"
 	metricEuclidean nativeMetric = "euclidean"
 
-	nativeCosineMinimum = 1.0 / 3
-	nativeCosineMaximum = 1.0
-	cosineScoreOffset   = 2.0
+	cosineScoreOffset = 2.0
 
 	minimumIndexNameLength   = 2
 	maximumIndexNameLength   = 128
@@ -37,13 +35,10 @@ func (n nativeMetric) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 		return 0, errors.New("azureaisearch: invalid native score")
 	}
 	if mode == vectorstore.SearchModeSemantic && n == metricCosine {
-		if raw < float64(math.Nextafter32(nativeCosineMinimum, 0)) || raw > nativeCosineMaximum {
-			return 0, errors.New("azureaisearch: cosine score is outside the native range")
-		}
-		// FLOAT32 rounding can cross the lower native endpoint. Normalize only
-		// the admitted tolerance before applying the inverse transform.
-		cosine := cosineScoreOffset - 1/max(nativeCosineMinimum, raw)
-		return vectorstore.ScoreFromCosineSimilarity(cosine), nil
+		// Azure reports cosine as 1/(2-cosine); inverting it hands Core the
+		// cosine, whose range and endpoint rounding Core owns.
+		score := vectorstore.ScoreFromCosineSimilarity(cosineScoreOffset - 1/raw)
+		return score, score.Validate()
 	}
 	// Azure publishes an invertible transform only for cosine. Other native
 	// scores, including hybrid RRF, retain their native ranking and clamp to Core.

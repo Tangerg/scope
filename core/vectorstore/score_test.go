@@ -64,12 +64,34 @@ func TestNonFiniteScoresRemainInvalid(t *testing.T) {
 
 func TestImpossibleNativeDistancesNeverProduceSuccessfulMatches(t *testing.T) {
 	for _, s := range []vectorstore.Score{
-		vectorstore.ScoreFromDistance(-1), vectorstore.ScoreFromCosineDistance(-math.SmallestNonzeroFloat64),
-		vectorstore.ScoreFromCosineDistance(math.Nextafter(2, 3)), vectorstore.ScoreFromCosineSimilarity(-2),
-		vectorstore.ScoreFromCosineSimilarity(math.Nextafter(1, 2)),
+		vectorstore.ScoreFromDistance(-1), vectorstore.ScoreFromCosineDistance(-0.002),
+		vectorstore.ScoreFromCosineDistance(2.002), vectorstore.ScoreFromCosineSimilarity(-2),
+		vectorstore.ScoreFromCosineSimilarity(1.002), vectorstore.ScoreFromCosineSimilarity(math.NaN()),
+		vectorstore.ScoreFromCosineDistance(math.Inf(-1)),
 	} {
 		if err := s.Validate(); err == nil {
 			t.Fatalf("invalid metric became valid ranking %g", s)
 		}
+	}
+}
+
+// Engines measure cosine in float32, so an exact duplicate can land one
+// rounding step past an endpoint; that is the endpoint, not a broken metric.
+func TestCosineRoundingAtTheEndpointsMapsToTheEndpoint(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		got  vectorstore.Score
+		want vectorstore.Score
+	}{
+		{"similarity above one", vectorstore.ScoreFromCosineSimilarity(float64(math.Nextafter32(1, 2))), 1},
+		{"similarity below minus one", vectorstore.ScoreFromCosineSimilarity(float64(math.Nextafter32(-1, -2))), 0},
+		{"negative distance", vectorstore.ScoreFromCosineDistance(-1e-7), 1},
+		{"distance above two", vectorstore.ScoreFromCosineDistance(2 + 1e-7), 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.got != test.want {
+				t.Fatalf("score = %v, want %v", test.got, test.want)
+			}
+		})
 	}
 }

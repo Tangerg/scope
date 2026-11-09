@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"math"
 	"net/http"
 
 	"github.com/samber/lo"
@@ -162,12 +161,12 @@ type searchHit struct {
 
 func (s searchHit) score(mode vectorstore.SearchMode, rank int) (vectorstore.Score, error) {
 	if s.VectorDistance != nil {
-		distance := *s.VectorDistance
-		if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 || distance > maxCosineDistance {
-			return 0, errors.New("typesense: native cosine distance is outside [0,2]")
+		semantic := vectorstore.ScoreFromCosineDistance(*s.VectorDistance)
+		if err := semantic.Validate(); err != nil {
+			return 0, fmt.Errorf("typesense: native cosine distance: %w", err)
 		}
 		if mode == vectorstore.SearchModeSemantic {
-			return vectorstore.ScoreFromCosineDistance(distance), nil
+			return semantic, nil
 		}
 	} else if mode == vectorstore.SearchModeSemantic {
 		return 0, errors.New("typesense: semantic hit has no vector distance")

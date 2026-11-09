@@ -105,10 +105,8 @@ func (n nativeSchema) score(distance float64) (vectorstore.Score, error) {
 	}
 	switch n.metric {
 	case metricCosine:
-		if distance < 0 || distance > 2 {
-			return 0, errors.New("redis: native cosine distance is outside [0,2]")
-		}
-		return vectorstore.ScoreFromCosineDistance(distance), nil
+		score := vectorstore.ScoreFromCosineDistance(distance)
+		return score, score.Validate()
 	case metricL2:
 		if distance < 0 {
 			return 0, errors.New("redis: native L2 distance is negative")
