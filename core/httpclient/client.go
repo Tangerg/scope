@@ -29,14 +29,6 @@ func New(_ context.Context, config Config) (*http.Client, error) {
 	if config.HTTPClient != nil {
 		owned = *config.HTTPClient
 	}
-	origin.restrict(&owned)
-	if config.RejectRedirects {
-		owned.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
-			if err := origin.ValidateRequest(req); err != nil {
-				return err
-			}
-			return http.ErrUseLastResponse
-		}
-	}
+	origin.restrict(&owned, config.RejectRedirects)
 	return &owned, nil
 }

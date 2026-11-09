@@ -90,7 +90,9 @@ func (o Origin) ValidateRequest(request *http.Request) error {
 	return nil
 }
 
-func (o Origin) restrict(client *http.Client) {
+// restrict chains the host's redirect policy, then the origin check, then the
+// optional refusal to follow, so no setting replaces another.
+func (o Origin) restrict(client *http.Client, rejectRedirects bool) {
 	transport := client.Transport
 	if lo.IsNil(transport) {
 		transport = http.DefaultTransport
@@ -105,7 +107,13 @@ func (o Origin) restrict(client *http.Client) {
 		} else if len(via) >= maxHTTPRedirects {
 			return fmt.Errorf("httpclient: stopped after %d redirects", maxHTTPRedirects)
 		}
-		return o.ValidateRequest(request)
+		if err := o.ValidateRequest(request); err != nil {
+			return err
+		}
+		if rejectRedirects {
+			return http.ErrUseLastResponse
+		}
+		return nil
 	}
 }
 

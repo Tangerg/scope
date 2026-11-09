@@ -276,3 +276,24 @@ func TestResourceBoundClientRejectsRedirectsBeforeAnotherRequest(t *testing.T) {
 		}
 	}
 }
+
+// Refusing to follow redirects adds to the host's redirect policy rather than
+// replacing it, so a host refusal still wins.
+func TestResourceBoundClientKeepsTheHostRedirectPolicy(t *testing.T) {
+	refused := errors.New("host refuses redirects")
+	client, err := httpclient.New(t.Context(), httpclient.Config{
+		BaseURL:         "https://api.example",
+		RejectRedirects: true,
+		HTTPClient:      &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return refused }},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example/other", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = client.CheckRedirect(req, nil); !errors.Is(err, refused) {
+		t.Fatalf("redirect error = %v, want the host refusal", err)
+	}
+}
