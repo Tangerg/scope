@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -22,7 +21,6 @@ const (
 	phaseAdvancingTools
 	phaseRoundComplete
 	phaseAwaitingCalls
-	phaseCompleted
 )
 
 type contextPreparation struct {
@@ -40,28 +38,12 @@ type executionState struct {
 	ToolRound           *toolCallRound      `json:"tool_round,omitzero"`
 	PendingSteer        *steerBatch         `json:"pending_steer,omitzero"`
 	ArtifactRecords     []artifactRecord    `json:"artifact_records,omitempty"`
-	// Completed marks the Step that returned the final Output. The Runtime owns
-	// that Output, including its model call count, so a completed state keeps
-	// nothing else.
-	Completed bool `json:"completed,omitzero"`
-}
-
-func (e *executionState) UnmarshalJSON(data []byte) error {
-	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data)
-	if err != nil {
-		return err
-	}
-	*e = executionState(decoded)
-	return nil
 }
 
 // phase relies on every model request advancing ModelCallCount in the Step
-// that emits it: without a round or completion, a counted call is in flight.
+// that emits it: without a round, a counted call is in flight.
 func (e executionState) phase() phase {
 	switch {
-	case e.Completed:
-		return phaseCompleted
 	case e.Preparation != nil:
 		return phaseAwaitingContext
 	case e.ToolRound == nil && e.ModelCallCount == 0:
@@ -107,9 +89,6 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	}
 	if !definition.valid() {
 		return fmt.Errorf("%w: valid definition is required", ErrInvalidExecutionState)
-	}
-	if e.Completed {
-		return e.validateCompletedState()
 	}
 	if !definition.maxModelCalls.Allows(e.ModelCallCount) {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
@@ -334,18 +313,6 @@ func (e *executionState) applyPendingSteer() ([]run.SignalID, error) {
 	appliedSignalIDs := slices.Clone(e.PendingSteer.SignalIDs)
 	e.PendingSteer = nil
 	return appliedSignalIDs, nil
-}
-
-func (e *executionState) complete() {
-	*e = executionState{Completed: true}
-}
-
-func (e executionState) validateCompletedState() error {
-	if e.PendingEffect != nil || e.Preparation != nil || e.WorkingContext != nil || e.ModelCallCount != 0 || len(e.AdvertisedToolNames) != 0 ||
-		e.ToolRound != nil || e.PendingSteer != nil || len(e.ArtifactRecords) != 0 {
-		return fmt.Errorf("%w: completed Interaction repeats its Output", ErrInvalidExecutionState)
-	}
-	return nil
 }
 
 func (e executionState) validateArtifacts(ctx context.Context, definition *definition) error {

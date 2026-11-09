@@ -155,16 +155,7 @@ func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invoca
 	if len(declared) == 0 {
 		return nil, nil
 	}
-	aliases := make([]string, len(declared))
-	for i, identity := range declared {
-		alias := chat.SanitizeToolName(identity)
-		item, exists := t.manifest.entries[alias]
-		if !exists || item.contract.Name() != identity {
-			return nil, fmt.Errorf("%w: unbound tool identity %q", ErrInvalidToolAdvertisement, identity)
-		}
-		aliases[i] = alias
-	}
-	canonical, err := t.manifest.normalizeAdvertisements(aliases)
+	canonical, err := t.manifest.advertisedAliases(declared)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidToolAdvertisement, err)
 	}

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -288,40 +289,56 @@ func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
 	return envelope, nil
 }
 
-// failedSettlement settles a dispatcher Effect as definitely failed with
-// cause as its diagnostic payload.
+// failedSettlement settles a dispatcher Effect the Interaction protocol
+// itself rejects: a malformed Effect or an unconfigured collaborator.
 func failedSettlement(cause error) (run.Settlement, error) {
-	failure, err := run.NewFailure(run.FailureKindContract, failureCodeDispatchRejected, run.NormalizeDiagnostic(cause.Error()))
-	if err != nil {
-		return run.Settlement{}, err
-	}
-	return run.NewFailedSettlement(failure, run.Payload{})
+	return stepfail.Settlement(run.FailureKindContract, failureCodeDispatchRejected, cause.Error())
 }
 
-func decodeSettlement(settlement run.Settlement) (resultEnvelope, string, error) {
-	if !settlement.Valid() {
-		return resultEnvelope{}, "", ErrInvalidProtocol
+// decodeSettlement reads the definite settlement delivered for an Effect of
+// the expected operation. A failure keeps the classification its dispatcher
+// recorded, so the Step that ends on it terminates with that same Failure.
+func decodeSettlement(settlement run.Settlement, expected operation) (resultEnvelope, run.Failure, error) {
+	if !settlement.Valid() || settlement.Status() == run.SettlementStatusUnknown {
+		return resultEnvelope{}, run.Failure{}, ErrInvalidProtocol
 	}
-	if settlement.Status() == run.SettlementStatusFailed {
-		failure, _ := settlement.Failure()
-		if settlement.Payload().Valid() {
-			if _, err := ModelSettlementFromOutcome(settlement); err != nil {
-				return resultEnvelope{}, "", err
-			}
-		}
-		return resultEnvelope{}, failure.Message(), nil
+	if failure, failed := settlement.Failure(); failed {
+		_, err := expected.failedResponse(settlement)
+		return resultEnvelope{}, failure, err
 	}
-	if settlement.Status() == run.SettlementStatusUnknown {
-		evidence, err := jsonwire.Decode[dispatchUncertainty](settlement.Payload().JSON())
-		if err != nil {
-			return resultEnvelope{}, "", err
-		}
-		diagnostic, err := evidence.diagnostic()
-		return resultEnvelope{}, diagnostic, err
-	}
-
 	envelope, err := decodeResult(settlement.Payload().JSON())
-	return envelope, "", err
+	if err == nil && envelope.operation() != expected {
+		err = ErrInvalidProtocol
+	}
+	return envelope, run.Failure{}, err
+}
+
+// failedResponse admits a failed settlement of an Effect of this operation and
+// returns the generation a failed model call completed, if any. Only a model
+// call carries model classifications or failure details; Step decoding and the
+// public projections apply this one rule.
+func (o operation) failedResponse(outcome run.Settlement) (*chat.Response, error) {
+	failure, _ := outcome.Failure()
+	if o != operationModelCall {
+		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
+			return nil, ErrInvalidProtocol
+		}
+		return nil, nil
+	}
+	if !outcome.Payload().Valid() {
+		return nil, nil
+	}
+	if failure.Code() != failureCodeModelFailed {
+		return nil, ErrInvalidProtocol
+	}
+	details, err := outcome.Payload().Decode[failedModelDetails]()
+	if err != nil {
+		return nil, err
+	}
+	if err := details.validate(); err != nil {
+		return nil, err
+	}
+	return details.Response, nil
 }
 
 func decodeResult(data json.RawMessage) (resultEnvelope, error) {

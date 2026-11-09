@@ -1,6 +1,7 @@
 package interaction
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -32,13 +33,33 @@ func TestCommittedEvidenceRejectsContradictoryOpaqueOutcomes(t *testing.T) {
 			}
 			var err error
 			if row.model {
-				_, err = ModelSettlementFromOutcome(outcome)
+				_, err = ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome})
 			} else {
-				_, err = ToolSettlementFromOutcome(requested("tool", "call"), outcome)
+				_, err = ToolSettlementFromRecord(requested("tool", "call"), run.EffectSettled{Outcome: outcome})
 			}
 			if err == nil {
 				t.Fatal("contradictory evidence was admitted")
 			}
 		})
+	}
+}
+
+// When Dispatch returns an error the runtime records Unknown with its own
+// Failure and a null payload; the projections own that committed shape too.
+func TestSettlementProjectionsReadRuntimeRecordedUncertainty(t *testing.T) {
+	failure := mustValue(run.NewFailure(run.FailureKindExternal, "runtime.dispatch.failed", "connection reset"))
+	outcome := mustValue(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))
+	record := run.EffectSettled{Outcome: outcome, Failure: &failure}
+	model := mustValue(ModelSettlementFromRecord(record))
+	if model.Outcome != ModelOutcomeUnknown || model.Failure != "connection reset" {
+		t.Fatalf("model settlement = %+v", model)
+	}
+	tool := mustValue(ToolSettlementFromRecord(requested("tool", "call"), record))
+	if tool.Outcome != ToolOutcomeUnknown || tool.Failure != "connection reset" {
+		t.Fatalf("tool settlement = %+v", tool)
+	}
+	succeeded := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`)))
+	if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: succeeded, Failure: &failure}); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatalf("runtime failure beside a definite outcome: %v", err)
 	}
 }

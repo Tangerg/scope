@@ -136,32 +136,17 @@ func (c *callProjection) intent(record run.EffectIntent, role effectRole) error 
 }
 func (c *callProjection) settle(record run.EffectSettled) error {
 	if call, ok := c.models[record.ID]; ok {
-		settlement := interaction.ModelSettlement{Outcome: interaction.ModelOutcomeUnknown}
-		if record.Failure != nil {
-			settlement.Failure = record.Failure.Message()
-		} else {
-			var err error
-			settlement, err = interaction.ModelSettlementFromOutcome(record.Outcome)
-			if err != nil {
-				return fmt.Errorf("%w: model settlement %s: %w", ErrInvalidTrajectory, record.ID, err)
-			}
-		}
-		if err := settlement.Validate(); err != nil {
+		settlement, err := interaction.ModelSettlementFromRecord(record)
+		if err != nil {
 			return fmt.Errorf("%w: model settlement %s: %w", ErrInvalidTrajectory, record.ID, err)
 		}
 		call.Settlement = &settlement
 		c.models[record.ID] = call
 	}
 	if call, ok := c.tools[record.ID]; ok {
-		settlement := interaction.ToolSettlement{Outcome: interaction.ToolOutcomeUnknown}
-		if record.Failure != nil {
-			settlement.Failure = record.Failure.Message()
-		} else {
-			var err error
-			settlement, err = interaction.ToolSettlementFromOutcome(call.Call, record.Outcome)
-			if err != nil {
-				return fmt.Errorf("%w: tool settlement %s: %w", ErrInvalidTrajectory, record.ID, err)
-			}
+		settlement, err := interaction.ToolSettlementFromRecord(call.Call, record)
+		if err != nil {
+			return fmt.Errorf("%w: tool settlement %s: %w", ErrInvalidTrajectory, record.ID, err)
 		}
 		call.Settlement = &settlement
 		if !call.Outcome().Valid() {

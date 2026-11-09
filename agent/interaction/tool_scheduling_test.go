@@ -295,7 +295,7 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 		}
 		return false
 	})
-	projection := mustValue(ToolSettlementFromOutcome(requested("panic", "call"), pending.Outcome))
+	projection := mustValue(ToolSettlementFromRecord(requested("panic", "call"), run.EffectSettled{Outcome: pending.Outcome}))
 	if projection.Result != nil || projection.Outcome != ToolOutcomeUnknown || projection.Failure == "" || pending.Failure != nil {
 		t.Fatal("panic established an outcome or lost typed tool evidence")
 	}
@@ -311,7 +311,7 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 
 func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
+	definition := mustValue(newDefinition(Config{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
 	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return nil, errors.New("must not call the model")
 	}))}))

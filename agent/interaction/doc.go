@@ -8,7 +8,7 @@
 // dispatcher holds executable models and tools. Every model request, including
 // its advertised tools, is frozen in an Effect before external work starts.
 // [ModelCallFromEffect] and [ToolCallFromEffect] decode committed intent;
-// [ModelSettlementFromOutcome] and [ToolSettlementFromOutcome] decode its outcome.
+// [ModelSettlementFromRecord] and [ToolSettlementFromRecord] decode its settlement.
 // Transient streaming deltas do not establish durable results. A model call
 // publishes ModelResponseDelta values and a tool call publishes the progress its
 // Tool reports; ParseModelResponseDelta and ParseToolProgress decode them.

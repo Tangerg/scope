@@ -7,21 +7,38 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
+// Config describes one Interaction. Cumulative quotas default to unlimited;
+// the Host retains cancellation and capacity controls.
 type Config struct {
+	// CompletionValidator optionally verifies a proposed final semantic output
+	// against the current WorkingContext and accumulated typed Delegate
+	// Artifacts. It is a pure Strategy callback whose identity must be covered
+	// by Revision. Nil accepts every otherwise valid completion.
 	CompletionValidator CompletionValidator
 	ContextPolicy       ContextPolicy
-	ContextProcessor    ContextProcessor
-	Name                string
-	Description         string
-	Revision            string
-	Model               ModelSource
-	Tools               ToolSet
-	// MaxModelCalls is unlimited by default; a finite zero cannot call a model.
+	// ContextProcessor, when set, prepares every model context as an external
+	// Effect before the model call.
+	ContextProcessor ContextProcessor
+	Name             string
+	Description      string
+	Revision         string
+	Model            ModelSource
+	// Tools freezes tool admission and execution policy.
+	Tools ToolSet
+	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
+	// unlimited; a finite zero is rejected because an Interaction needs a model call.
 	MaxModelCalls            run.Quota
 	RequiredToolCapabilities run.CapabilitySet
-	MaxConcurrentToolCalls   int
-	MaxResponseBytes         int
-	Delegates                []Delegate
+	// MaxConcurrentToolCalls bounds active calls declared safe to overlap.
+	// Zero means one; calls without a concurrency declaration execute alone.
+	MaxConcurrentToolCalls int
+	// MaxResponseBytes bounds each prepared-context and model-result
+	// settlement. Zero uses the runtime payload limit; a limit below the
+	// smallest complete model response is rejected.
+	MaxResponseBytes int
+	// Delegates is the frozen model-visible manifest of exact child Programs.
+	// Names must be unique and must not collide with ordinary Tools.
+	Delegates []Delegate
 }
 
 // Compile freezes the real model loop, binds its child programs and checks its
@@ -31,19 +48,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	if cfg.Revision == "" {
 		return zero, fmt.Errorf("%w: Revision must identify model and callback configuration", run.ErrInvalidProgram)
 	}
-	definition, err := newDefinition(definitionConfig{
-		CompletionValidator:      cfg.CompletionValidator,
-		MaxResponseBytes:         cfg.MaxResponseBytes,
-		ContextPolicy:            cfg.ContextPolicy,
-		PrepareContext:           cfg.ContextProcessor != nil,
-		Name:                     cfg.Name,
-		Description:              cfg.Description,
-		MaxModelCalls:            cfg.MaxModelCalls,
-		Tools:                    cfg.Tools,
-		RequiredToolCapabilities: cfg.RequiredToolCapabilities,
-		MaxConcurrentToolCalls:   cfg.MaxConcurrentToolCalls,
-		Delegates:                cfg.Delegates,
-	})
+	definition, err := newDefinition(cfg)
 	if err != nil {
 		return zero, err
 	}

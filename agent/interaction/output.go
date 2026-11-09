@@ -39,11 +39,11 @@ func (o Output) validateModelResponse() error {
 	if err := o.ModelResponse.Validate(); err != nil {
 		return fmt.Errorf("%w: output model response: %w", ErrInvalidResult, err)
 	}
-	modelOutput := o.ModelResponse.Output
-	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
+	message := finishedMessage(o.ModelResponse)
+	if message == nil {
 		return fmt.Errorf("%w: output has no finished assistant response", ErrInvalidResult)
 	}
-	for _, part := range modelOutput.Message.Parts {
+	for _, part := range message.Parts {
 		if part.ToolCall != nil {
 			return fmt.Errorf("%w: final model response contains a pending tool call", ErrInvalidResult)
 		}
@@ -73,4 +73,14 @@ func (o Output) clone() Output {
 	cloned.ModelResponse = o.ModelResponse.Clone()
 	cloned.DirectToolResults = cloneToolResults(o.DirectToolResults)
 	return cloned
+}
+
+// finishedMessage is the assistant message a response finished with, or nil
+// when the response has not finished one. Admitting a final model response and
+// validating an Output apply this one rule.
+func finishedMessage(response *chat.Response) *chat.Message {
+	if response == nil || response.Output == nil || response.Output.FinishReason == "" {
+		return nil
+	}
+	return response.Output.Message
 }

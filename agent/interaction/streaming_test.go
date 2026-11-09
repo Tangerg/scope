@@ -105,7 +105,7 @@ func TestStreamingUnknownOutcomesRetainCompletedGeneration(t *testing.T) {
 			if pending.Failure != nil {
 				t.Fatal("interaction lost its available generation to a runtime failure envelope")
 			}
-			settlement := mustValue(ModelSettlementFromOutcome(pending.Outcome))
+			settlement := mustValue(ModelSettlementFromRecord(run.EffectSettled{Outcome: pending.Outcome}))
 			if settlement.Outcome != ModelOutcomeUnknown || settlement.Failure == "" || (settlement.Response != nil) != row.completed {
 				t.Fatalf("generation evidence=%+v", settlement)
 			}

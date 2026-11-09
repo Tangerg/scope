@@ -792,7 +792,7 @@ func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, erro
 			if !exists || !wait.Pending {
 				return nil, ErrSignalRejected
 			}
-			if err := wait.Wait.admits(signal.Payload); err != nil {
+			if err := wait.Wait.Admits(signal.Payload); err != nil {
 				return nil, err
 			}
 		} else if err := p.program.descriptor.ValidateSignal(signal.Payload); err != nil {

@@ -104,21 +104,18 @@ func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, nex
 }
 
 // acceptToolSettlement records the outcome of the call's pending Effect: a
-// question, a result, or a host failure that ends the interaction.
+// question, a result, or the definite dispatch failure that ends the
+// interaction.
 func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run.Completion) (bool, *run.Failure, error) {
 	if c.Pending == nil || completion.Effect != *c.Pending {
 		return false, nil, nil
 	}
-	envelope, failure, err := decodeSettlement(completion.Outcome)
+	envelope, failure, err := decodeSettlement(completion.Outcome, operationToolCall)
 	if err != nil {
 		return true, nil, err
 	}
-	if failure != "" {
-		diagnostic, failureErr := run.NewFailure(run.FailureKindExternal, failureCodeInteractionHostFailed, failure)
-		return true, &diagnostic, failureErr
-	}
-	if envelope.ToolResult == nil {
-		return false, nil, ErrInvalidProtocol
+	if failure.Valid() {
+		return true, &failure, nil
 	}
 	outcome := envelope.ToolResult
 	c.Pending = nil

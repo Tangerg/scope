@@ -46,7 +46,9 @@ func SettlePreparedContext[I, O any](program run.Program[I, O], request run.Effe
 	return definition.settlePreparedContext(request, messages)
 }
 
-func SettleToolResult(program run.Program[Input, Output], request run.EffectRequest, result tool.Result, disposition ResultDisposition, advertisedToolNames []string) (run.Settlement, error) {
+// SettleToolResult takes advertised as the Tool identities its
+// AdvertisingTool returned for this result, exactly as live dispatch reads them.
+func SettleToolResult[I, O any](program run.Program[I, O], request run.EffectRequest, result tool.Result, disposition ResultDisposition, advertised []string) (run.Settlement, error) {
 	definition, err := recoveryDefinition(program, request)
 	if err != nil {
 		return run.Settlement{}, err
@@ -79,12 +81,12 @@ func SettleToolResult(program run.Program[Input, Output], request run.EffectRequ
 		return run.Settlement{}, fmt.Errorf("%w: Tool recovery result: %w", ErrInvalidProtocol, err)
 	}
 	if result.InputRequest != nil {
-		if disposition != ResultSucceeded || len(advertisedToolNames) != 0 {
+		if disposition != ResultSucceeded || len(advertised) != 0 {
 			return run.Settlement{}, fmt.Errorf("%w: an input request cannot fail or advertise Tools", ErrInvalidProtocol)
 		}
 		return (toolDispatchResult{InputRequest: result.InputRequest}).settlement()
 	}
-	canonical, err := manifest.normalizeAdvertisements(advertisedToolNames)
+	canonical, err := manifest.advertisedAliases(advertised)
 	if err != nil {
 		return run.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}

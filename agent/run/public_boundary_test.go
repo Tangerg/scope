@@ -317,16 +317,16 @@ func TestEffectPolicyAndWaitSchemasRemainOwned(t *testing.T) {
 	if err := jsonv2.Unmarshal(encoded, &restored); err != nil || !restored.Valid() || restored.Key != wait.Key || !restored.AnswerSchema.Equal(wait.AnswerSchema) {
 		t.Fatalf("wait lost its answer contract: %v", err)
 	}
-	if err := restored.admits(controlValue(EncodePayload(123))); err != nil {
+	if err := restored.Admits(controlValue(EncodePayload(123))); err != nil {
 		t.Fatalf("answer at exact byte limit rejected: %v", err)
 	}
 	for _, answer := range []Payload{{}, controlValue(EncodePayload(1234)), controlValue(EncodePayload("x"))} {
-		if err := restored.admits(answer); !errors.Is(err, ErrSignalRejected) {
+		if err := restored.Admits(answer); !errors.Is(err, ErrSignalRejected) {
 			t.Fatalf("answer violated size or schema: %v", err)
 		}
 	}
 	untyped := Wait{Key: wait.Key}
-	if err := untyped.admits(controlValue(EncodePayload(true))); err != nil {
+	if err := untyped.Admits(controlValue(EncodePayload(true))); err != nil {
 		t.Fatalf("optional answer schema invented a restriction: %v", err)
 	}
 }

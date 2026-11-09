@@ -53,6 +53,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		{"typed nil processor", func(config *Config) { config.ContextProcessor = contextProcessorFunc(nil) }},
 		{"negative response bound", func(config *Config) { config.MaxResponseBytes = -1 }},
 		{"oversized response bound", func(config *Config) { config.MaxResponseBytes = run.MaxPayloadBytes + 1 }},
+		{"response bound below any response", func(config *Config) { config.MaxResponseBytes = 1 }},
 		{"zero model admission", func(config *Config) { config.MaxModelCalls = run.NewQuota(0) }},
 		{"negative concurrency", func(config *Config) { config.MaxConcurrentToolCalls = -1 }},
 		{"unbound scheduling", func(config *Config) { config.MaxConcurrentToolCalls = 2 }},
@@ -95,7 +96,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.context", Description: "Require the declared processor.", PrepareContext: true}))
+	definition := mustValue(newDefinition(Config{Name: "test.context", Description: "Require the declared processor.", ContextProcessor: contextProcessorFunc(nil)}))
 	if _, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model)}); !errors.Is(err, ErrInvalidDispatcherConfig) {
 		t.Fatal("processor capability did not match compiled execution", err)
 	}
@@ -175,7 +176,7 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 }
 
 func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.rejection", Description: "Reject malformed dispatch requests."}))
+	definition := mustValue(newDefinition(Config{Name: "test.rejection", Description: "Reject malformed dispatch requests."}))
 	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		t.Error("malformed request invoked a model")
 		return nil, errors.New("must not run")

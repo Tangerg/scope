@@ -22,7 +22,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 		calls.Add(1)
 		return tool.Result{}, errors.New("receipt was lost")
 	}}
-	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "recovery-contract", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{scriptTool{name: "hidden"}}}))
+	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "recovery-contract", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{scriptTool{name: "hidden"}, scriptTool{name: "report.read"}}}))
 	model := chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("write", "call")), nil
 	})
@@ -63,6 +63,14 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 			}
 		})
 	}
+	// Recovery reads an advertisement in the Tool identities AdvertiseDeferred
+	// returns, as live dispatch does, never in the model aliases they bind.
+	if settlement, err := SettleToolResult(program, request, tool.Result{}, ResultSucceeded, []string{"report.read"}); err != nil || !settlement.Valid() {
+		t.Fatal("recovery rejected an advertisement in Tool identities", err)
+	}
+	if _, err := SettleToolResult(program, request, tool.Result{}, ResultSucceeded, []string{"report_read"}); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatal("recovery accepted a model alias as a Tool identity", err)
+	}
 	foreign := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(model), MaxModelCalls: run.NewQuota(1)})
 	for _, candidate := range []run.Program[Input, Output]{{}, foreign} {
 		if settlement, err := SettleToolResult(candidate, request, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
@@ -80,7 +88,7 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 	}
 	for _, disposition := range []ResultDisposition{ResultSucceeded, ResultFailed, ResultRejected} {
 		settlement := mustValue(SettleToolResult(program, request, tool.Result{}, disposition, nil))
-		observed := mustValue(ToolSettlementFromOutcome(requested("write", "call"), settlement))
+		observed := mustValue(ToolSettlementFromRecord(requested("write", "call"), run.EffectSettled{Outcome: settlement}))
 		if settlement.Status() != run.SettlementStatusSucceeded || observed.Result == nil || observed.Result.IsError != (disposition != ResultSucceeded) || len(observed.Result.Output.Content) != 0 {
 			t.Fatal("empty, definite output changed its semantic disposition")
 		}

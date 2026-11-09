@@ -19,7 +19,7 @@ func TestTruncatedProposalIsRejectedAsOneAtomicRound(t *testing.T) {
 		t.Error("a truncated proposal executed external work")
 		return tool.Result{}, errors.New("must not execute")
 	}})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.truncated", Description: "Reject incomplete proposals atomically.", Tools: tools}))
+	definition := mustValue(newDefinition(Config{Name: "test.truncated", Description: "Reject incomplete proposals atomically.", Tools: tools}))
 	models := 0
 	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
@@ -74,7 +74,8 @@ func TestUnfinishedOrAmbiguousModelCallsCannotExecuteTools(t *testing.T) {
 }
 
 func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
-	for _, kind := range []invocation.FailureKind{invocation.FailureFailed, invocation.FailureNotExecuted} {
+	codes := map[invocation.FailureKind]string{invocation.FailureFailed: failureCodeModelFailed, invocation.FailureNotExecuted: failureCodeModelNotExecuted}
+	for kind, code := range codes {
 		runtime := conformancetest.Runtime(t, run.Config{})
 		calls := 0
 		program := compileTest(t, runtime, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
@@ -86,7 +87,7 @@ func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
 			t.Fatal(err)
 		}
 		failure, ok := result.Termination().Failure()
-		if !ok || failure.Code() != failureCodeInteractionHostFailed || calls != 1 {
+		if !ok || failure.Kind() != run.FailureKindExternal || failure.Code() != code || calls != 1 {
 			t.Fatalf("model failure=%+v calls=%d", failure, calls)
 		}
 	}
@@ -122,7 +123,7 @@ func TestUnadmittedToolArgumentsRejectTheWholeModelProposal(t *testing.T) {
 
 func TestCompletionCancellationDoesNotCommitACandidate(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.validator.cancel", Description: "Honor cancellation before accepting output.", CompletionValidator: func(context.Context, CompletionCandidate) (CompletionDecision, error) {
+	definition := mustValue(newDefinition(Config{Name: "test.validator.cancel", Description: "Honor cancellation before accepting output.", CompletionValidator: func(context.Context, CompletionCandidate) (CompletionDecision, error) {
 		cancel()
 		return CompletionDecision{Accepted: true}, nil
 	}}))
@@ -140,7 +141,7 @@ func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) 
 	encoded := mustValue((modelCallResult{Response: response}).settlement())
 	for _, offset := range []int{-1, 0, 1} {
 		limit := len(encoded.Payload().JSON()) + offset
-		definition := mustValue(newDefinition(definitionConfig{Name: "test.response.boundary", Description: "Bound canonical settlement bytes.", MaxResponseBytes: limit}))
+		definition := mustValue(newDefinition(Config{Name: "test.response.boundary", Description: "Bound canonical settlement bytes.", MaxResponseBytes: limit}))
 		settlement, err := definition.settleModelResponse(response, nil)
 		if offset < 0 {
 			if !errors.Is(err, ErrModelResponseTooLarge) || settlement.Valid() {

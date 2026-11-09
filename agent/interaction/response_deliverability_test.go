@@ -12,7 +12,7 @@ import (
 // payload size once wrapped in the final Output; completion must then fail
 // definitely, not with an opaque encode error that strands the Interaction.
 func TestCompleteFailsDefinitelyWhenFinalOutputExceedsDeliverableSize(t *testing.T) {
-	definition, err := newDefinition(definitionConfig{
+	definition, err := newDefinition(Config{
 		Name: "interaction.oversize", Description: "Check the deliverable output bound.",
 	})
 	if err != nil {
@@ -40,8 +40,5 @@ func TestCompleteFailsDefinitelyWhenFinalOutputExceedsDeliverableSize(t *testing
 	failure, failed := transition.Failure()
 	if !failed || failure.Kind() != run.FailureKindExecution || failure.Code() != "interaction.limit.response_bytes" {
 		t.Fatalf("transition = %+v, want a definite interaction.limit.response_bytes failure", transition)
-	}
-	if execution.state.Completed {
-		t.Fatal("an undeliverable response must not mark the Interaction complete")
 	}
 }

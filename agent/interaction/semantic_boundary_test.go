@@ -35,7 +35,7 @@ func TestOutputRequiresOneCompleteSuccessfulSemanticVariant(t *testing.T) {
 }
 
 func TestDefinitionStartRejectsNonProtocolInput(t *testing.T) {
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.start.contract", Description: "Reject malformed interaction input."}))
+	definition := mustValue(newDefinition(Config{Name: "test.start.contract", Description: "Reject malformed interaction input."}))
 	for _, raw := range []string{`null`, `[]`, `42`, `{}`, `{"messages":[]}`, `{"messages":[{"role":"user","parts":[{"kind":"text","text":"work"}]}],"unknown":true}`} {
 		if execution, err := definition.Start(mustValue(run.ParsePayload([]byte(raw)))); !errors.Is(err, ErrInvalidInput) || execution != nil {
 			t.Fatal("input without the current interaction contract was admitted", raw, err)
@@ -46,13 +46,13 @@ func TestDefinitionStartRejectsNonProtocolInput(t *testing.T) {
 func TestExternalGuidanceAndDispatcherOutcomesHaveDisjointAdmission(t *testing.T) {
 	guidance := steer(t, "guidance")
 	outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, guidance.Payload.JSON()))
-	if _, err := ModelSettlementFromOutcome(outcome); !errors.Is(err, ErrInvalidProtocol) {
+	if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("external guidance became a model outcome", err)
 	}
-	if _, err := ToolSettlementFromOutcome(requested("echo", "call"), outcome); !errors.Is(err, ErrInvalidProtocol) {
+	if _, err := ToolSettlementFromRecord(requested("echo", "call"), run.EffectSettled{Outcome: outcome}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("external guidance became a tool outcome", err)
 	}
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.guidance", Description: "Admit only unaddressed external guidance."}))
+	definition := mustValue(newDefinition(Config{Name: "test.guidance", Description: "Admit only unaddressed external guidance."}))
 	for _, signal := range []run.Signal{
 		{ID: guidance.ID, Payload: mustValue(run.ParsePayload([]byte(`{"steer":{"messages":[]}}`)))},
 		{ID: guidance.ID, Wait: mustValue(run.ParseWaitKey("question")), Payload: guidance.Payload},
@@ -82,7 +82,7 @@ func pendingToolExecution(t *testing.T, definition *definition) (run.Execution, 
 
 func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "echo"})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.tool.messages", Description: "Accept only the exact tool obligation.", Tools: tools}))
+	definition := mustValue(newDefinition(Config{Name: "test.tool.messages", Description: "Accept only the exact tool obligation.", Tools: tools}))
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	questionOutcome := mustValue((toolDispatchResult{InputRequest: &question}).settlement())
 	wrongOutcome := mustValue((modelCallResult{Response: finalResponse("another operation")}).settlement())
@@ -142,7 +142,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 	execution, effect := pendingToolExecution(t, definition)
 	transition := advance(t, execution, 4, run.Completion{Effect: effect, Outcome: mustValue(failedSettlement(errors.New("dispatcher refused")))})
 	failure, found := transition.Failure()
-	if !found || transition.Kind() != run.TransitionKindFail || transition.Consumed() != 1 || failure.Kind() != run.FailureKindExternal || failure.Code() != failureCodeInteractionHostFailed || failure.Message() != "dispatcher refused" {
+	if !found || transition.Kind() != run.TransitionKindFail || transition.Consumed() != 1 || failure.Kind() != run.FailureKindContract || failure.Code() != failureCodeDispatchRejected || failure.Message() != "dispatcher refused" {
 		t.Fatal("definite dispatch failure lost its committed classification")
 	}
 }

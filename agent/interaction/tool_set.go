@@ -120,6 +120,23 @@ func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string
 	return slices.Compact(merged), nil
 }
 
+// advertisedAliases reads the Tool identities an AdvertisingTool declares as
+// the canonical set of model aliases bound to deferred Tools. Live dispatch and
+// recovery both read declarations here, so a Host settles an advertisement in
+// the identities the Tool itself returns.
+func (t toolManifest) advertisedAliases(identities []string) ([]string, error) {
+	aliases := make([]string, len(identities))
+	for index, identity := range identities {
+		alias := chat.SanitizeToolName(identity)
+		entry, exists := t.entries[alias]
+		if !exists || entry.contract.Name() != identity {
+			return nil, fmt.Errorf("unbound tool identity %q", identity)
+		}
+		aliases[index] = alias
+	}
+	return t.normalizeAdvertisements(aliases)
+}
+
 // Live declarations describe a set; persisted state must already be canonical.
 func (t toolManifest) normalizeAdvertisements(names []string) ([]string, error) {
 	canonical := slices.Clone(names)

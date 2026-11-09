@@ -35,7 +35,7 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 	policy := func(_ context.Context, input Input) ([]chat.Message, error) {
 		return append(input.Messages, chat.NewUserMessage(chat.NewTextPart("local policy"))), nil
 	}
-	definition, err := newDefinition(definitionConfig{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, PrepareContext: true})
+	definition, err := newDefinition(Config{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, ContextProcessor: contextProcessorFunc(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,10 +137,14 @@ func TestUnknownContextCanBeResolvedWithoutRepeatingPreparation(t *testing.T) {
 
 func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 	cause := errors.New("retrieval denied")
+	// The Step terminates with the Failure its settlement recorded: a Host
+	// refusal stays external, while a contract breach stays a contract defect.
 	for _, row := range []struct {
 		name      string
 		processor contextProcessorFunc
 		limit     int
+		kind      run.FailureKind
+		code      string
 	}{
 		{"definite refusal", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 			failure := &ContextFailure{Cause: cause}
@@ -148,11 +152,11 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 				t.Fatal("context failure lost cause")
 			}
 			return nil, failure
-		}, 0},
-		{"invalid messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) { return nil, nil }, 0},
+		}, 0, run.FailureKindExternal, failureCodeContextRejected},
+		{"invalid messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) { return nil, nil }, 0, run.FailureKindContract, failureCodeDispatchRejected},
 		{"oversized messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 			return []chat.Message{chat.NewUserMessage(chat.NewTextPart(strings.Repeat("evidence", 100)))}, nil
-		}, 128},
+		}, 128, run.FailureKindContract, failureCodeDispatchRejected},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
@@ -165,7 +169,7 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, ok := result.Termination().Failure()
-			if !ok || failure.Kind() != run.FailureKindExternal || failure.Code() != failureCodeInteractionHostFailed {
+			if !ok || failure.Kind() != row.kind || failure.Code() != row.code {
 				t.Fatalf("termination=%+v", result.Termination())
 			}
 		})
@@ -176,7 +180,7 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "direct", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("evidence")}, nil
 	}})
-	definition, err := newDefinition(definitionConfig{Name: "test.validated", Description: "Validate the semantic result.", Tools: tools, MaxModelCalls: run.NewQuota(3), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	definition, err := newDefinition(Config{Name: "test.validated", Description: "Validate the semantic result.", Tools: tools, MaxModelCalls: run.NewQuota(3), CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
 		contextCopy := candidate.WorkingContext()
 		contextCopy.Messages[0] = chat.NewUserMessage(chat.NewTextPart("mutated"))
 		if candidate.WorkingContext().Messages[0].Text() == "mutated" || len(candidate.Artifacts()) != 0 {

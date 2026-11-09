@@ -177,7 +177,11 @@ func TestInputResponseRequiresPresentJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending := PendingToolInput{processID: processID, waitKey: waitKey, prompt: json.RawMessage(`"answer"`), responseSchema: schema}
+	question, err := run.ParsePayload(json.RawMessage(`"answer"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := PendingToolInput{processID: processID, wait: run.Wait{Key: waitKey, Question: question, AnswerSchema: schema, MaxAnswerBytes: tool.MaxInputBytes}}
 	if _, err := pending.ResponseSignal(id, nil); err == nil {
 		t.Fatal("accepted a missing answer")
 	}

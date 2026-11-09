@@ -37,8 +37,6 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 		return e.acceptModel(ctx, turn)
 	case phaseAwaitingCalls:
 		return e.advanceCalls(ctx, turn)
-	case phaseCompleted:
-		return run.Transition{}, fmt.Errorf("%w: completed execution cannot advance", ErrInvalidExecutionState)
 	default:
 		return run.Transition{}, ErrInvalidExecutionState
 	}
@@ -103,7 +101,7 @@ func (e *execution) requestModel(
 			return run.Transition{}, contextErr
 		}
 		if err != nil {
-			return stepfail.Transition(consumedMessages, run.FailureKindExecution, failureCodeInteractionHostFailed, err.Error())
+			return stepfail.Transition(consumedMessages, run.FailureKindExecution, failureCodeInteractionContextPolicyFailed, err.Error())
 		}
 		if err := e.state.replaceModelContext(messages); err != nil {
 			return run.Transition{}, err
@@ -151,8 +149,8 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 		return e.awaitPendingEffect(arrival)
 	}
 	e.state.PendingEffect = nil
-	if arrival.failure != "" {
-		return stepfail.Transition(arrival.consumed, run.FailureKindExternal, failureCodeInteractionHostFailed, arrival.failure)
+	if arrival.failure.Valid() {
+		return run.Fail(arrival.consumed, arrival.failure)
 	}
 	if err = e.state.replaceModelContext(arrival.result.Prepared.Messages); err != nil {
 		return run.Transition{}, err
@@ -187,8 +185,8 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 	}
 	consumedMessages := arrival.consumed
 	e.state.PendingEffect = nil
-	if arrival.failure != "" {
-		return stepfail.Transition(consumedMessages, run.FailureKindExternal, failureCodeInteractionHostFailed, arrival.failure)
+	if arrival.failure.Valid() {
+		return run.Fail(consumedMessages, arrival.failure)
 	}
 	response := arrival.result.ModelResult.Response.Clone()
 	calls, err := validatedToolCalls(response)
@@ -235,17 +233,17 @@ func (e *execution) acceptFinalModelResponse(
 	consumedMessages uint32,
 	response *chat.Response,
 ) (run.Transition, error) {
-	modelOutput := response.Output
-	if modelOutput == nil || modelOutput.Message == nil || modelOutput.FinishReason == "" {
+	message := finishedMessage(response)
+	if message == nil {
 		return run.Transition{}, fmt.Errorf("%w: model response has no finished assistant message", ErrInvalidModelResponse)
 	}
 	if e.state.PendingSteer == nil {
 		return e.finishOrRetry(ctx, turn, consumedMessages, Output{
 			ModelResponse: response,
 			ModelCalls:    e.state.ModelCallCount,
-		}, []chat.Message{modelOutput.Message.Clone()})
+		}, []chat.Message{message.Clone()})
 	}
-	if err := e.state.appendToContext("steered final response", *modelOutput.Message); err != nil {
+	if err := e.state.appendToContext("steered final response", *message); err != nil {
 		return run.Transition{}, err
 	}
 	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
@@ -272,7 +270,6 @@ func (e *execution) complete(consumedMessages uint32, output Output) (run.Transi
 		}
 		return run.Transition{}, err
 	}
-	e.state.complete()
 	return run.Complete(consumedMessages, encoded)
 }
 
@@ -322,8 +319,6 @@ func (e *execution) finishOrRetry(
 	if err := e.state.appendToContext("completion retry request", slices.Concat(completionContext, []chat.Message{feedback})...); err != nil {
 		return run.Transition{}, err
 	}
-	e.state.ToolRound = nil
-	e.state.PendingSteer = nil
 	return e.requestModel(ctx, turn, consumedMessages, nil)
 }
 
@@ -399,12 +394,12 @@ func collectSteerSignals(messages []run.Message) (steerBatch, uint32, error) {
 }
 
 // effectArrival is what one Step received while awaiting a pending Effect.
-// Steering may arrive without the settlement; failure is the diagnostic of a
-// settlement that did not succeed.
+// Steering may arrive without the settlement; failure is valid only when the
+// settlement definitely failed.
 type effectArrival struct {
 	settled  bool
 	result   resultEnvelope
-	failure  string
+	failure  run.Failure
 	steer    steerBatch
 	consumed uint32
 }
@@ -421,12 +416,9 @@ func collectEffectResult(messages []run.Message, expected operation, id *run.Eff
 			if arrival.settled || id == nil || value.Effect != *id {
 				return effectArrival{}, ErrInvalidProtocol
 			}
-			envelope, failure, err := decodeSettlement(value.Outcome)
+			envelope, failure, err := decodeSettlement(value.Outcome, expected)
 			if err != nil {
 				return effectArrival{}, err
-			}
-			if failure == "" && envelope.operation() != expected {
-				return effectArrival{}, ErrInvalidProtocol
 			}
 			arrival.settled, arrival.result, arrival.failure = true, envelope, failure
 		default:
@@ -598,7 +590,7 @@ const (
 	failureCodeInteractionToolAdvertisementInvalid   = "interaction.tool.advertisement_invalid"
 	failureCodeInteractionCompletionDecisionInvalid  = "interaction.completion.decision_invalid"
 	failureCodeInteractionCompletionValidatorFailed  = "interaction.completion.validator_failed"
-	failureCodeInteractionHostFailed                 = "interaction.host.failed"
+	failureCodeInteractionContextPolicyFailed        = "interaction.context.policy_failed"
 	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
 	failureCodeInteractionLimitResponseBytes         = "interaction.limit.response_bytes"
 	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"

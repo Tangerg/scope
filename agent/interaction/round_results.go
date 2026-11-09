@@ -77,14 +77,11 @@ func (r *RoundResults) result(index uint32, result toolCallResult) error {
 	if err := result.validateCall(call); err != nil {
 		return err
 	}
-	entry := ResultEntry{Reference: r.references[index], ToolCallIndex: index, Call: call, Result: result.toolResult(call), Disposition: result.Disposition}
-	for position := range r.entries {
-		if r.entries[position].ToolCallIndex == index {
-			r.entries[position] = entry
-			return nil
-		}
+	// A committed call settles once; a second result for it is a corrupt log.
+	if slices.ContainsFunc(r.entries, func(entry ResultEntry) bool { return entry.ToolCallIndex == index }) {
+		return ErrInvalidResult
 	}
-	r.entries = append(r.entries, entry)
+	r.entries = append(r.entries, ResultEntry{Reference: r.references[index], ToolCallIndex: index, Call: call, Result: result.toolResult(call), Disposition: result.Disposition})
 	return nil
 }
 

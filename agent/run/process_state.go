@@ -92,7 +92,7 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 		if !ok || !wait.Pending {
 			return ErrSignalRejected
 		}
-		if err := wait.Wait.admits(signal.Payload); err != nil {
+		if err := wait.Wait.Admits(signal.Payload); err != nil {
 			return err
 		}
 		wait.Pending = false

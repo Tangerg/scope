@@ -21,7 +21,7 @@ func TestModelSettlementKeepsDefiniteFailureEvidence(t *testing.T) {
 		{name: "unknown", cause: errors.New("lost response"), outcome: ModelOutcomeUnknown},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			settlement := mustValue(ModelSettlementFromOutcome(mustValue(modelFailureSettlement(nil, test.cause))))
+			settlement := mustValue(ModelSettlementFromRecord(run.EffectSettled{Outcome: mustValue(modelFailureSettlement(nil, test.cause))}))
 			if settlement.Outcome != test.outcome || settlement.Failure != test.cause.Error() || settlement.Response != nil || settlement.Validate() != nil {
 				t.Fatalf("settlement=%+v, want %s", settlement, test.outcome)
 			}
@@ -44,11 +44,11 @@ func TestFailedSettlementKeepsCompletedGenerationAcrossPersistence(t *testing.T)
 		t.Fatal(err)
 	}
 	response.Metadata.Usage.InputTokens = 99
-	projected := mustValue(ModelSettlementFromOutcome(restored))
+	projected := mustValue(ModelSettlementFromRecord(run.EffectSettled{Outcome: restored}))
 	if projected.Outcome != ModelOutcomeFailed || projected.Failure != failure.Message() || projected.Response.Output.Text() != "generated before commit failed" || projected.Response.Metadata.Usage.TotalTokens() != 22 {
 		t.Fatalf("completed work was lost or advanced separately: %+v", projected)
 	}
-	if _, err := ToolSettlementFromOutcome(requested("tool", "call"), restored); err == nil {
+	if _, err := ToolSettlementFromRecord(requested("tool", "call"), run.EffectSettled{Outcome: restored}); err == nil {
 		t.Fatal("tool projection admitted model-owned generation")
 	}
 }

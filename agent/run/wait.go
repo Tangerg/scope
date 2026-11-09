@@ -29,7 +29,10 @@ func (w Wait) equal(other Wait) bool {
 	return w.AnswerSchema.Equal(other.AnswerSchema)
 }
 
-func (w Wait) admits(payload Payload) error {
+// Admits is the one admission rule for an answer to this Wait: the byte bound,
+// where zero means MaxPayloadBytes, and then the answer schema. The Runtime
+// applies it to every addressed Signal; Hosts may check an answer early with it.
+func (w Wait) Admits(payload Payload) error {
 	limit := w.MaxAnswerBytes
 	if limit == 0 {
 		limit = MaxPayloadBytes

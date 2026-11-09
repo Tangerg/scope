@@ -9,6 +9,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -113,13 +114,8 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit run.DeltaEmitter) (run.Settlement, error) {
 	modelRequest := call.request()
 	if validateErr := modelRequest.Validate(); validateErr != nil {
-		return failedSettlement(fmt.Errorf("interaction: prepare model request: %w", validateErr))
-	}
-	// A content-free stop is the smallest complete chat response. Measure it
-	// with the same owner and representation as the eventual settlement.
-	minimum := &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}
-	if _, settlementErr := d.definition.settleModelResponse(minimum, nil); settlementErr != nil {
-		return failedSettlement(settlementErr)
+		// No provider work ran, which only NotExecuted establishes.
+		return stepfail.Settlement(run.FailureKindContract, failureCodeModelNotExecuted, fmt.Sprintf("interaction: prepare model request: %v", validateErr))
 	}
 	response, err := d.callModelResponse(ctx, modelRequest, emit)
 	return d.definition.settleModelResponse(response, err)
@@ -133,7 +129,7 @@ func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, 
 	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, original.Clone())
 	if err != nil {
 		if _, definite := errors.AsType[*ContextFailure](err); definite {
-			return failedSettlement(err)
+			return stepfail.Settlement(run.FailureKindExternal, failureCodeContextRejected, err.Error())
 		}
 		return run.Settlement{}, err
 	}

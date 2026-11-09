@@ -16,43 +16,6 @@ import (
 
 const executionStateKind = "interaction"
 
-// definitionConfig describes immutable Interaction behavior. Cumulative quotas
-// default to unlimited; the Host retains cancellation and capacity controls.
-type definitionConfig struct {
-	// MaxResponseBytes bounds each prepared-context and model-result settlement. Zero uses the runtime payload limit.
-	MaxResponseBytes int
-	ContextPolicy    ContextPolicy
-	PrepareContext   bool
-	Name             string
-
-	Description string
-
-	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
-	// unlimited; a finite zero is rejected because an Interaction needs a model call.
-	MaxModelCalls run.Quota
-
-	// Tools freezes tool admission and execution policy.
-	Tools ToolSet
-
-	RequiredToolCapabilities run.CapabilitySet
-
-	// MaxConcurrentToolCalls bounds active calls declared safe to overlap.
-	// Zero means one; calls without a concurrency declaration execute alone.
-	MaxConcurrentToolCalls int
-
-	// Delegates is the frozen model-visible manifest of exact child
-	// Programs. Names must be unique within this slice and must not collide
-	// with ordinary Tools in ToolSet.
-	Delegates []Delegate
-
-	// CompletionValidator optionally verifies a proposed final semantic output
-	// against the current WorkingContext and accumulated typed Delegate
-	// Artifacts. It is a pure Strategy callback whose identity must be covered by
-	// the Program's Revision. Nil accepts every otherwise valid
-	// completion.
-	CompletionValidator CompletionValidator
-}
-
 // The definition retains immutable declarations and pure validators. Executable
 // models and tools belong exclusively to the dispatcher.
 type definition struct {
@@ -68,13 +31,10 @@ type definition struct {
 	maxConcurrentToolCalls int
 }
 
-func newDefinition(config definitionConfig) (*definition, error) {
-	if config.MaxResponseBytes < 0 || config.MaxResponseBytes > run.MaxPayloadBytes {
-		return nil, fmt.Errorf("%w: invalid MaxResponseBytes", ErrInvalidDefinitionConfig)
-	}
-	limit := config.MaxResponseBytes
-	if limit == 0 {
-		limit = run.MaxPayloadBytes
+func newDefinition(config Config) (*definition, error) {
+	limit, err := responseLimit(config.MaxResponseBytes)
+	if err != nil {
+		return nil, err
 	}
 	if !config.MaxModelCalls.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidDefinitionConfig)
@@ -94,7 +54,7 @@ func newDefinition(config definitionConfig) (*definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, prepareContext: config.PrepareContext,
+	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, prepareContext: config.ContextProcessor != nil,
 		descriptor:             descriptor,
 		maxModelCalls:          config.MaxModelCalls,
 		delegates:              delegates,
@@ -103,6 +63,27 @@ func newDefinition(config definitionConfig) (*definition, error) {
 		tools:                  config.Tools.manifest(),
 		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
 	}, nil
+}
+
+// responseLimit resolves MaxResponseBytes once, at construction: a limit no
+// complete model response fits would otherwise fail every model call alike.
+func responseLimit(configured int) (int, error) {
+	if configured < 0 || configured > run.MaxPayloadBytes {
+		return 0, fmt.Errorf("%w: invalid MaxResponseBytes", ErrInvalidDefinitionConfig)
+	}
+	if configured == 0 {
+		return run.MaxPayloadBytes, nil
+	}
+	// A content-free stop is the smallest complete chat response, measured with
+	// the same owner and representation as every model settlement.
+	minimum, err := (modelCallResult{Response: &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}}).settlement()
+	if err != nil {
+		return 0, err
+	}
+	if len(minimum.Payload().JSON()) > configured {
+		return 0, fmt.Errorf("%w: MaxResponseBytes %d cannot hold the smallest model response", ErrInvalidDefinitionConfig, configured)
+	}
+	return configured, nil
 }
 
 func newDescriptor(name, description string) (run.Descriptor, error) {

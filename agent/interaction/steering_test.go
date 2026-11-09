@@ -30,7 +30,7 @@ func advance(t testing.TB, execution run.Execution, step uint64, messages ...run
 }
 
 func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.T) {
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.steering", Description: "Apply each committed instruction once."}))
+	definition := mustValue(newDefinition(Config{Name: "test.steering", Description: "Apply each committed instruction once."}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	first := advance(t, execution, 1, steer(t, "initial"))
 	request := mustValue(decodeEffect(first.Effects()[0].Payload().JSON())).ModelCall
@@ -64,15 +64,10 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 	if completed.Kind() != run.TransitionKindComplete {
 		t.Fatal("revised response did not complete")
 	}
-	state := mustValue(execution.Snapshot())
-	restored := mustValue(definition.Restore(t.Context(), state))
-	if _, err := restored.Step(t.Context(), testTurn(6)); !errors.Is(err, ErrInvalidExecutionState) {
-		t.Fatal("completed interaction restarted", err)
-	}
 }
 
 func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", PrepareContext: true}))
+	definition := mustValue(newDefinition(Config{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", ContextProcessor: contextProcessorFunc(nil)}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)
 	empty := advance(t, execution, 2)
@@ -90,7 +85,7 @@ func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
 }
 
 func TestSteeringAndOutcomeMessagesCannotCrossProtocolBoundaries(t *testing.T) {
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.messages", Description: "Reject messages outside their declared phase."}))
+	definition := mustValue(newDefinition(Config{Name: "test.messages", Description: "Reject messages outside their declared phase."}))
 	input := mustValue(run.EncodePayload(testInput()))
 	final := mustValue((modelCallResult{Response: finalResponse("answer")}).settlement())
 	for _, messages := range [][]run.Message{
@@ -132,14 +127,14 @@ func TestLocalContextPolicyFailureCannotDispatchAModel(t *testing.T) {
 		func(context.Context, Input) ([]chat.Message, error) { return nil, errors.New("policy refused") },
 		func(context.Context, Input) ([]chat.Message, error) { return nil, nil },
 	} {
-		definition := mustValue(newDefinition(definitionConfig{Name: "test.policy", Description: "Validate local context before emission.", ContextPolicy: policy}))
+		definition := mustValue(newDefinition(Config{Name: "test.policy", Description: "Validate local context before emission.", ContextPolicy: policy}))
 		execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 		transition, err := execution.Step(t.Context(), testTurn(1))
 		if err == nil && transition.Kind() != run.TransitionKindFail || len(transition.Effects()) != 0 {
 			t.Fatal("failed local policy emitted external work")
 		}
 	}
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.cancel", Description: "Honor cancellation before state mutation."}))
+	definition := mustValue(newDefinition(Config{Name: "test.cancel", Description: "Honor cancellation before state mutation."}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	before := mustValue(execution.Snapshot())
 	ctx, cancel := context.WithCancel(t.Context())
@@ -155,7 +150,7 @@ func TestLocalContextPolicyFailureCannotDispatchAModel(t *testing.T) {
 func TestCancellationDuringLocalContextPolicyPreventsEmission(t *testing.T) {
 	for _, policyError := range []error{nil, errors.New("policy stopped")} {
 		ctx, cancel := context.WithCancel(t.Context())
-		definition := mustValue(newDefinition(definitionConfig{Name: "test.policy.cancel", Description: "Discard canceled pure callback work.", ContextPolicy: func(context.Context, Input) ([]chat.Message, error) {
+		definition := mustValue(newDefinition(Config{Name: "test.policy.cancel", Description: "Discard canceled pure callback work.", ContextPolicy: func(context.Context, Input) ([]chat.Message, error) {
 			cancel()
 			return []chat.Message{chat.NewUserMessage(chat.NewTextPart("replacement"))}, policyError
 		}}))

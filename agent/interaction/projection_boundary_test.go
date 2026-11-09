@@ -79,16 +79,16 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	failure := mustValue(run.NewFailure(run.FailureKindExternal, failureCodeModelFailed, "rejected"))
 	nullDetails := mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(`null`)))))
 	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
-		if _, err := ModelSettlementFromOutcome(outcome); err == nil {
+		if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("model decoder admitted another or missing outcome")
 		}
 	}
 	for _, outcome := range []run.Settlement{{}, model, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
-		if _, err := ToolSettlementFromOutcome(call, outcome); err == nil {
+		if _, err := ToolSettlementFromRecord(call, run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("tool decoder admitted another or missing outcome")
 		}
 	}
-	if _, err := ToolSettlementFromOutcome(chat.ToolCall{}, toolResult); !errors.Is(err, ErrInvalidProtocol) {
+	if _, err := ToolSettlementFromRecord(chat.ToolCall{}, run.EffectSettled{Outcome: toolResult}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("tool result fabricated call identity", err)
 	}
 	for _, sample := range []struct {
@@ -107,38 +107,38 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 		} else {
 			outcome = mustValue(run.NewSettlement(sample.status, []byte(sample.wire)))
 		}
-		if _, err := ModelSettlementFromOutcome(outcome); err == nil {
+		if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("invalid failure became model evidence", sample.wire)
 		}
-		if _, err := ToolSettlementFromOutcome(call, outcome); err == nil {
+		if _, err := ToolSettlementFromRecord(call, run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("invalid failure became tool evidence", sample.wire)
 		}
 	}
 	failed := mustValue(failedSettlement(errors.New("local admission rejected")))
-	observedFailure := mustValue(ToolSettlementFromOutcome(call, failed))
+	observedFailure := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: failed}))
 	if observedFailure.Outcome != ToolOutcomeDispatchFailed || observedFailure.Failure != "local admission rejected" || observedFailure.Result != nil || observedFailure.Evidence != nil {
 		t.Fatal("definite local rejection acquired external evidence")
 	}
 	uncertain := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.NewTextOutput("unconfirmed output"))}}).settlement())
-	evidence := mustValue(ToolSettlementFromOutcome(call, uncertain))
+	evidence := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: uncertain}))
 	evidence.Evidence.Content[0].Text = "changed"
-	retained := mustValue(ToolSettlementFromOutcome(call, uncertain))
+	retained := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: uncertain}))
 	if retained.Evidence.Content[0].Text != "unconfirmed output" || retained.Result != nil || retained.Outcome != ToolOutcomeUnknown {
 		t.Fatal("unknown evidence became final or was mutated")
 	}
 	emptyEvidence := mustValue((dispatchUncertainty{Tool: &toolUncertainty{Diagnostic: "acknowledgment lost", Evidence: new(tool.Output)}}).settlement())
-	empty := mustValue(ToolSettlementFromOutcome(call, emptyEvidence))
+	empty := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: emptyEvidence}))
 	if empty.Evidence == nil || empty.Evidence.Validate() != nil || empty.Result != nil {
 		t.Fatal("present empty evidence was treated as absent or final")
 	}
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
-	input := mustValue(ToolSettlementFromOutcome(call, mustValue((toolDispatchResult{InputRequest: &question}).settlement())))
+	input := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: mustValue((toolDispatchResult{InputRequest: &question}).settlement())}))
 	if input.Outcome != ToolOutcomeInputRequired || input.Result != nil || input.Failure != "" {
 		t.Fatal("input request became a final tool result")
 	}
 	for _, disposition := range []ResultDisposition{ResultSucceeded, ResultFailed, ResultRejected} {
 		outcome := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: disposition, Output: tool.NewTextOutput("result")}}).settlement())
-		observed := mustValue(ToolSettlementFromOutcome(call, outcome))
+		observed := mustValue(ToolSettlementFromRecord(call, run.EffectSettled{Outcome: outcome}))
 		if observed.Outcome != ToolOutcome(disposition) || !observed.Outcome.Valid() || observed.Result == nil || observed.Result.ID != call.ID || observed.Result.Name != call.Name || observed.Result.IsError != (disposition != ResultSucceeded) {
 			t.Fatal("model-visible result changed its call or disposition")
 		}
@@ -154,8 +154,9 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 func TestPendingInputBoundaryDoesNotExposeContinuationState(t *testing.T) {
 	key := mustValue(run.ParseWaitKey("question"))
 	schema := mustValue(jsonschema.For[bool]())
-	pending := PendingToolInput{processID: testTurn(1).Process, waitKey: key, prompt: []byte(`"Approve?"`), responseSchema: schema}
-	for _, value := range []PendingToolInput{{}, {processID: pending.processID, prompt: pending.prompt, responseSchema: schema}, {processID: pending.processID, waitKey: key}} {
+	question := mustValue(run.ParsePayload([]byte(`"Approve?"`)))
+	pending := PendingToolInput{processID: testTurn(1).Process, wait: run.Wait{Key: key, Question: question, AnswerSchema: schema, MaxAnswerBytes: tool.MaxInputBytes}}
+	for _, value := range []PendingToolInput{{}, {processID: pending.processID, wait: run.Wait{Question: question, AnswerSchema: schema}}, {processID: pending.processID, wait: run.Wait{Key: key}}} {
 		if value.Valid() {
 			t.Fatal("incomplete question acquired an answer authority")
 		}

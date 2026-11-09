@@ -16,7 +16,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) {
 		return delegateValue{Value: value.Value * 2}, nil
 	})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.artifacts", Description: "Restore ordered typed evidence.", Delegates: []Delegate{delegate}, CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
+	definition := mustValue(newDefinition(Config{Name: "test.artifacts", Description: "Restore ordered typed evidence.", Delegates: []Delegate{delegate}, CompletionValidator: func(_ context.Context, candidate CompletionCandidate) (CompletionDecision, error) {
 		artifacts := candidate.Artifacts()
 		if len(artifacts) != 2 {
 			return CompletionDecision{}, errors.New("missing delegated evidence")
@@ -52,7 +52,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
 	tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.restore", Description: "Reject contradictory continuation facts.", Tools: tools, Delegates: []Delegate{delegate}, MaxModelCalls: run.NewQuota(4)}))
+	definition := mustValue(newDefinition(Config{Name: "test.restore", Description: "Reject contradictory continuation facts.", Tools: tools, Delegates: []Delegate{delegate}, MaxModelCalls: run.NewQuota(4)}))
 	call := requested("echo", "call")
 	second := requested("echo", "second")
 	reference := testTurn(3).EffectID(0)
@@ -89,7 +89,6 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 			value.PendingSteer = &steerBatch{Messages: testInput().Messages, SignalIDs: []run.SignalID{steerID}}
 		}},
 		{"undeclared preparation", state, func(value *executionState) { value.Preparation = new(contextPreparation) }},
-		{"completion retains context", state, func(value *executionState) { value.Completed = true }},
 		{"unknown artifact owner", state, func(value *executionState) {
 			artifact := validArtifact
 			artifact.DelegateName = "missing"
@@ -188,7 +187,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 
 func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 	delegate := compiledDelegate(t, conformancetest.Compiler(t), "worker", func(_ context.Context, value delegateValue) (delegateValue, error) { return value, nil })
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.restore.children", Description: "Bind restored obligations to their declared calls.", Delegates: []Delegate{delegate}}))
+	definition := mustValue(newDefinition(Config{Name: "test.restore.children", Description: "Bind restored obligations to their declared calls.", Delegates: []Delegate{delegate}}))
 	firstCall := chat.ToolCall{ID: "first", Name: "worker", Arguments: `{"value":1}`}
 	secondCall := chat.ToolCall{ID: "second", Name: "worker", Arguments: `{"value":2}`}
 	firstRef, secondRef := testTurn(3).EffectID(0), testTurn(3).EffectID(1)
@@ -239,7 +238,7 @@ func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 
 func TestRestoredContinuationCannotOwnAnotherCallsOriginalEffect(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-	definition := mustValue(newDefinition(definitionConfig{Name: "test.restore.continuation", Description: "Keep logical and resumed calls disjoint.", Tools: tools, MaxConcurrentToolCalls: 2}))
+	definition := mustValue(newDefinition(Config{Name: "test.restore.continuation", Description: "Keep logical and resumed calls disjoint.", Tools: tools, MaxConcurrentToolCalls: 2}))
 	first, second, third := testTurn(3).EffectID(0), testTurn(3).EffectID(1), testTurn(4).EffectID(0)
 	continued := testTurn(6).EffectID(0)
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
@@ -281,7 +280,7 @@ func TestRestorePreservesProviderOrderOfDirectToolEffects(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-			definition := mustValue(newDefinition(definitionConfig{Name: "test.restore.order", Description: "Bind results to the original provider order.", Tools: tools, MaxConcurrentToolCalls: row.concurrency}))
+			definition := mustValue(newDefinition(Config{Name: "test.restore.order", Description: "Bind results to the original provider order.", Tools: tools, MaxConcurrentToolCalls: row.concurrency}))
 			execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 			advance(t, execution, 1)
 			modelOutcome := mustValue((modelCallResult{Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third"))}).settlement())

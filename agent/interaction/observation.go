@@ -2,6 +2,7 @@ package interaction
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -11,6 +12,7 @@ import (
 
 const (
 	failureCodeDispatchRejected = "interaction.dispatch.rejected"
+	failureCodeContextRejected  = "interaction.context.rejected"
 	failureCodeModelFailed      = "interaction.model.failed"
 	failureCodeModelNotExecuted = "interaction.model.not_executed"
 )
@@ -157,10 +159,15 @@ func ToolCallFromEffect(effect run.Effect) (ToolCallIntent, bool, error) {
 	}
 	return intent, true, nil
 }
-func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error) {
-	if !outcome.Valid() {
-		return ModelSettlement{}, ErrInvalidProtocol
+
+// ModelSettlementFromRecord projects the committed settlement of a model call,
+// including one the runtime left Unknown because Dispatch returned an error.
+func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error) {
+	if diagnostic, recorded, err := runtimeUncertainty(record); recorded || err != nil {
+		result := ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic}
+		return result, errors.Join(err, result.Validate())
 	}
+	outcome := record.Outcome
 	switch outcome.Status() {
 	case run.SettlementStatusUnknown:
 		evidence, err := outcome.Payload().Decode[dispatchUncertainty]()
@@ -169,23 +176,14 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 		}
 		return evidence.modelSettlement()
 	case run.SettlementStatusFailed:
+		response, err := operationModelCall.failedResponse(outcome)
+		if err != nil {
+			return ModelSettlement{}, err
+		}
 		failure, _ := outcome.Failure()
-		result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: failure.Message()}
+		result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: failure.Message(), Response: response}
 		if failure.Code() == failureCodeModelNotExecuted {
 			result.Outcome = ModelOutcomeNotExecuted
-		}
-		if outcome.Payload().Valid() {
-			if failure.Code() != failureCodeModelFailed {
-				return ModelSettlement{}, ErrInvalidProtocol
-			}
-			details, err := outcome.Payload().Decode[failedModelDetails]()
-			if err != nil {
-				return ModelSettlement{}, err
-			}
-			if err := details.validate(); err != nil {
-				return ModelSettlement{}, err
-			}
-			result.Response = details.Response.Clone()
 		}
 		return result, result.Validate()
 	default:
@@ -199,14 +197,20 @@ func ModelSettlementFromOutcome(outcome run.Settlement) (ModelSettlement, error)
 		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: envelope.ModelResult.Response.Clone()}, nil
 	}
 }
-func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (ToolSettlement, error) {
-	if !outcome.Valid() || call.Validate() != nil {
+
+// ToolSettlementFromRecord projects the committed settlement of call,
+// including one the runtime left Unknown because Dispatch returned an error.
+func ToolSettlementFromRecord(call chat.ToolCall, record run.EffectSettled) (ToolSettlement, error) {
+	if call.Validate() != nil {
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
-	if outcome.Status() == run.SettlementStatusFailed {
-		failure, _ := outcome.Failure()
-		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
-			return ToolSettlement{}, ErrInvalidProtocol
+	if diagnostic, recorded, err := runtimeUncertainty(record); recorded || err != nil {
+		return ToolSettlement{Outcome: ToolOutcomeUnknown, Failure: diagnostic}, err
+	}
+	outcome := record.Outcome
+	if failure, failed := outcome.Failure(); failed {
+		if _, err := operationToolCall.failedResponse(outcome); err != nil {
+			return ToolSettlement{}, err
 		}
 		return ToolSettlement{Outcome: ToolOutcomeDispatchFailed, Failure: failure.Message()}, nil
 	}
@@ -233,4 +237,20 @@ func ToolSettlementFromOutcome(call chat.ToolCall, outcome run.Settlement) (Tool
 	}
 	completion := envelope.ToolResult.Completion
 	return ToolSettlement{Outcome: ToolOutcome(completion.Disposition), Result: new(completion.toolResult(call))}, nil
+}
+
+// runtimeUncertainty reads the diagnostic of a settlement the runtime itself
+// recorded as Unknown: Dispatch returned an error, so the record carries a
+// runtime Failure and a null outcome payload instead of dispatcher evidence.
+func runtimeUncertainty(record run.EffectSettled) (string, bool, error) {
+	if !record.Outcome.Valid() {
+		return "", false, ErrInvalidProtocol
+	}
+	if record.Failure == nil {
+		return "", false, nil
+	}
+	if record.Outcome.Status() != run.SettlementStatusUnknown || !record.Failure.Valid() {
+		return "", false, ErrInvalidProtocol
+	}
+	return record.Failure.Message(), true, nil
 }

@@ -150,7 +150,7 @@ func (p ProcessCheckpoint) inboxValid() bool {
 				index, found := slices.BinarySearchFunc(p.Waits, value.Wait, func(wait WaitCheckpoint, key WaitKey) int {
 					return strings.Compare(wait.Wait.Key.String(), key.String())
 				})
-				if !found || p.Waits[index].Wait.admits(value.Payload) != nil {
+				if !found || p.Waits[index].Wait.Admits(value.Payload) != nil {
 					return false
 				}
 			}

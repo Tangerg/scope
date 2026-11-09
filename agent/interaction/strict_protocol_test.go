@@ -31,7 +31,7 @@ func TestParseModelResponseDeltaRejectsUnknownCoreMembers(t *testing.T) {
 }
 
 func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
-	definition, err := newDefinition(definitionConfig{
+	definition, err := newDefinition(Config{
 		Name: "strict.restore", Description: "Restore current protocol values", MaxModelCalls: run.NewQuota(1),
 	})
 	if err != nil {

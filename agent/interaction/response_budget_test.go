@@ -22,7 +22,7 @@ func TestModelFailureResponseCannotBypassSettlementBudget(t *testing.T) {
 	const limit = 512
 	for _, kind := range []invocation.FailureKind{invocation.FailureFailed, invocation.FailureUnknown} {
 		t.Run(string(kind), func(t *testing.T) {
-			definition := mustValue(newDefinition(definitionConfig{Name: "test.failed.response", Description: "Bound failed generation evidence.", MaxResponseBytes: limit}))
+			definition := mustValue(newDefinition(Config{Name: "test.failed.response", Description: "Bound failed generation evidence.", MaxResponseBytes: limit}))
 			calls := 0
 			dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls++
@@ -43,7 +43,7 @@ func TestModelFailureBudgetMeasuresCanonicalEvidenceWithoutDroppingUsage(t *test
 			response.Metadata = &chat.ResponseMetadata{Usage: &chat.Usage{InputTokens: 17, OutputTokens: 5}}
 			cause := &invocation.Failure{Kind: kind, Cause: errors.New("postprocessing failed")}
 			settle := func(limit int) (run.Settlement, error) {
-				definition := mustValue(newDefinition(definitionConfig{Name: "test.failure.boundary", Description: "Bound canonical evidence bytes.", MaxResponseBytes: limit}))
+				definition := mustValue(newDefinition(Config{Name: "test.failure.boundary", Description: "Bound canonical evidence bytes.", MaxResponseBytes: limit}))
 				dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response.Clone(), cause }))}))
 				return dispatcher.dispatchModel(t.Context(), &modelCall{ModelCallSequence: 1, Request: testInput()}, nil)
 			}
@@ -59,7 +59,7 @@ func TestModelFailureBudgetMeasuresCanonicalEvidenceWithoutDroppingUsage(t *test
 				if err != nil || !outcome.Payload().Equal(encoded.Payload()) || outcome.Status() != encoded.Status() {
 					t.Fatal("budget boundary changed evidence", err)
 				}
-				observed := mustValue(ModelSettlementFromOutcome(outcome))
+				observed := mustValue(ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}))
 				if observed.Response == nil || observed.Response.Text() != response.Text() || observed.Response.Metadata.Usage.TotalTokens() != 22 || observed.Failure == "" {
 					t.Fatal("admitted evidence lost generation, usage, or failure")
 				}

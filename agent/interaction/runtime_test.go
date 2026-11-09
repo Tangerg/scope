@@ -345,7 +345,7 @@ func TestUnknownToolEvidenceRequiresExplicitResolution(t *testing.T) {
 	if unknown.Failure != nil {
 		t.Fatal("owner-defined uncertainty was replaced by a runtime fault")
 	}
-	evidence, err := ToolSettlementFromOutcome(requested("write", "operation"), unknown.Outcome)
+	evidence, err := ToolSettlementFromRecord(requested("write", "operation"), run.EffectSettled{Outcome: unknown.Outcome})
 	if err != nil || evidence.Evidence == nil || evidence.Result != nil {
 		t.Fatalf("evidence=%+v err=%v", evidence, err)
 	}
