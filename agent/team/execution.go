@@ -24,9 +24,6 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	if e.state.Completed {
-		return run.Transition{}, ErrInvalidProtocol
-	}
 	for _, message := range turn.Messages {
 		if err := e.accept(message); err != nil {
 			return run.Transition{}, err
@@ -102,7 +99,7 @@ func (e *execution) accept(message run.Message) error {
 	return fmt.Errorf("%w: message answers no outstanding team operation", ErrInvalidProtocol)
 }
 func (e *execution) advance(turn run.Turn, consumed uint32) (run.Transition, error) {
-	if e.state.unapplied() || e.state.WaitForTask && !e.state.OutcomeArrived && e.state.remainingCount() > 0 {
+	if !e.state.nextTurnDue() {
 		return run.Yield(consumed, nil)
 	}
 	return e.startTurn(turn, consumed)
@@ -152,7 +149,6 @@ func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision D
 		return run.Transition{}, err
 	}
 	if decision.completes() {
-		e.state = executionState{Completed: true}
 		return run.Complete(consumed, decision.Output)
 	}
 	tasks := e.state.taskIndex()

@@ -138,22 +138,29 @@ func (s Stage) fanoutMemberLabel(index uint32) string {
 	if !present {
 		panic("workflow: fanout diagnostic refers to an absent member")
 	}
-	return s.fanoutMemberNoun() + " " + member.id
+	return s.kind.fanoutMemberNoun() + " " + member.id
 }
 
 func (s Stage) fanoutFailureCode(suffix string) string {
-	return s.failureCode(s.fanoutMemberNoun() + "_" + suffix)
+	return s.failureCode(s.kind.fanoutMemberNoun() + "_" + suffix)
 }
 
 func (s Stage) failureCode(suffix string) string {
 	return fmt.Sprintf("workflow.%s.%s", string(s.kind), suffix)
 }
 
-func (s Stage) fanoutMemberNoun() string {
-	if s.kind == StageKindFork {
+// fanoutMemberNoun names one member of a fan-out Stage of this kind.
+func (s StageKind) fanoutMemberNoun() string {
+	if s == StageKindFork {
 		return "branch"
 	}
 	return "item"
+}
+
+// carriesCallbacks reports whether this Stage runs opaque Host code, whose
+// identity a Program's Revision must cover; Call and Map only bind Programs.
+func (s Stage) carriesCallbacks() bool {
+	return s.kind != StageKindCall && s.kind != StageKindMap
 }
 
 func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failure, json.RawMessage, error) {
@@ -163,7 +170,7 @@ func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failur
 		return failure, nil, err
 	}
 	raw := output.JSON()
-	if err := s.fanout.validateOutput(raw); err != nil {
+	if err := s.fanout.validateMemberOutput(raw); err != nil {
 		return nil, nil, fmt.Errorf("%s output: %w", subject, err)
 	}
 	return nil, raw, nil
@@ -224,7 +231,7 @@ func (s Stage) topology() StageTopology {
 		}
 	case StageKindFork, StageKindMap:
 		projected.WindowSize = s.fanout.windowSize
-		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.outputSchema)
+		projected.Bindings, projected.MaxItems = s.fanout.source.topology(s.inputSchema, s.fanout.memberOutputSchema)
 	case StageKindLoop:
 		projected.MaxIterations = new(s.loop.maxIterations)
 		projected.Bindings = []BindingTopology{bindingTopology(s.loop.binding,

@@ -69,6 +69,9 @@ func newDefinition(config definitionConfig) (*definition, error) {
 			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
 		}
 		name := binding.action.name
+		if binding.delegatesToChild() && binding.childInput == nil && !config.InputSchema.Equal(binding.child.Program.Descriptor().InputSchema()) {
+			return nil, fmt.Errorf("%w: Action %q passes the planning input to a child with a different input schema", ErrInvalidDefinitionConfig, name)
+		}
 		if _, duplicate := names[name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate Action %q", ErrInvalidDefinitionConfig, name)
 		}
@@ -124,8 +127,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 }
 
 // Restore recreates a Planning Execution solely from its opaque state and this
-// exact definition. A completed state carries its phase and input but no Output,
-// which the Runtime owns.
+// exact definition.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
 		return nil, ErrInvalidDefinitionConfig

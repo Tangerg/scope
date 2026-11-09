@@ -13,18 +13,11 @@ type firstSuccessState struct {
 	Calls         []child.Invocation `json:"calls,omitempty"`
 	Winner        *uint32            `json:"winner,omitzero"`
 	Cancellations []run.EffectID     `json:"cancellations,omitempty"`
-	Completed     bool               `json:"completed,omitzero"`
 }
 
 func (f firstSuccessState) validate(ctx context.Context, maximum uint32) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if f.Completed {
-		if len(f.Candidates)+len(f.Calls)+len(f.Cancellations) != 0 || f.Winner != nil {
-			return ErrInvalidExecutionState
-		}
-		return nil
 	}
 	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maximum) || len(f.Calls) != 0 && len(f.Calls) != len(f.Candidates) {
 		return ErrInvalidExecutionState
@@ -53,32 +46,9 @@ func (f firstSuccessState) validate(ctx context.Context, maximum uint32) error {
 }
 
 func (f firstSuccessState) validateCalls() (run.ProcessID, error) {
-	var parent run.ProcessID
-	var started uint64
-	for index, call := range f.Calls {
-		if !call.Valid() {
-			return run.ProcessID{}, ErrInvalidExecutionState
-		}
-		var current run.ProcessID
-		switch {
-		case call.Request != nil:
-			if call.Request.Index != uint32(index) || started != 0 && call.Request.Step != started {
-				return run.ProcessID{}, ErrInvalidExecutionState
-			}
-			current, started = call.Request.Process, call.Request.Step
-		case call.Process != nil:
-			key, _ := call.Process.Key()
-			if key != f.Candidates[index].Key {
-				return run.ProcessID{}, ErrInvalidExecutionState
-			}
-			current, _ = call.Process.Parent()
-		default:
-			continue
-		}
-		if parent.Valid() && parent != current {
-			return run.ProcessID{}, ErrInvalidExecutionState
-		}
-		parent = current
+	parent, err := child.Batch(f.Calls).Parent(func(position int) (run.ChildKey, error) { return f.Candidates[position].Key, nil })
+	if err != nil {
+		return run.ProcessID{}, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	return parent, nil
 }

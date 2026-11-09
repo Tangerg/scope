@@ -122,7 +122,7 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		inputSchema: schemas.input, outputSchema: schemas.output,
 		fanout: fanoutStage{
 			source:     mapSource{binding: binding, codec: codec, decodeItem: codec.item[I]},
-			windowSize: config.WindowSize, outputSchema: schemas.itemOutput, complete: collect,
+			windowSize: config.WindowSize, memberOutputSchema: schemas.itemOutput, complete: collect,
 		},
 	}, nil
 }
@@ -221,10 +221,7 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (run.Payload, error) {
 }
 
 func (m mapValueCodec) collect[O any](ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
-	outputs := fanoutOutputs{
-		stageName: "Map", stageID: m.id, memberName: "item",
-		resultSchema: m.schemas.output,
-	}
+	outputs := fanoutOutputs{kind: StageKindMap, stageID: m.id, resultSchema: m.schemas.output}
 	values, err := outputs.decode[O](ctx, raw)
 	if err != nil {
 		return nil, err

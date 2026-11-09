@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -100,9 +101,5 @@ func waitUntil(ctx context.Context, deadline time.Time) bool {
 const failureCodeDeadlineInterrupted = "coordination.deadline.interrupted"
 
 func timerFailureSettlement(cause error) (run.Settlement, error) {
-	failure, err := run.NewFailure(run.FailureKindExternal, failureCodeDeadlineInterrupted, run.NormalizeDiagnostic(cause.Error()))
-	if err != nil {
-		return run.Settlement{}, err
-	}
-	return run.NewFailedSettlement(failure, run.Payload{})
+	return stepfail.Settlement(run.FailureKindExternal, failureCodeDeadlineInterrupted, cause.Error())
 }

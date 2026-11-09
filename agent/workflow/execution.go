@@ -30,15 +30,13 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	switch e.state.phase(uint32(len(e.definition.stages))) {
+	switch e.state.phase() {
 	case phaseReady:
 		return e.advance(ctx, turn)
 	case phaseChild:
 		return e.advanceChild(ctx, turn)
 	case phaseFanout:
 		return e.advanceFanout(ctx, turn)
-	case phaseCompleted:
-		return run.Transition{}, fmt.Errorf("%w: completed Execution cannot advance", ErrInvalidProtocol)
 	default:
 		return run.Transition{}, ErrInvalidExecutionState
 	}
@@ -125,7 +123,7 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 	for _, message := range turn.Messages {
 		accepted, err := e.state.Child.Accept(message)
 		if err != nil {
-			return run.Transition{}, fmt.Errorf("%w: child completion: %w", ErrInvalidProtocol, err)
+			return run.Transition{}, err
 		}
 		if !accepted {
 			return run.Transition{}, ErrInvalidProtocol
@@ -157,16 +155,15 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 
 func (e *execution) finishStage(consumedMessages uint32) (run.Transition, error) {
 	e.fanoutInput = nil
+	if uint64(e.state.StageIndex)+1 == uint64(len(e.definition.stages)) {
+		output, err := run.ParsePayload(e.state.CurrentValue)
+		if err != nil {
+			return run.Transition{}, err
+		}
+		return run.Complete(consumedMessages, output)
+	}
 	e.state.finishStage()
-	if e.state.StageIndex < uint32(len(e.definition.stages)) {
-		return run.Continue(consumedMessages)
-	}
-	output, err := run.ParsePayload(e.state.CurrentValue)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	e.state.CurrentValue = nil
-	return run.Complete(consumedMessages, output)
+	return run.Continue(consumedMessages)
 }
 
 func (e *execution) stage() Stage {

@@ -30,7 +30,7 @@ func TestCoordinationConstructionRejectsInvalidNamesSchemasAndLimits(t *testing.
 	}
 }
 
-func TestInputGateRejectsUnaddressedMessagesAndDropsCompletedRequest(t *testing.T) {
+func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 	schema := require(jsonschema.For[string]())
 	program := require(Compile[string, string](conformancetest.Compiler(t), Config{Name: "test.gate", Description: "Ask once.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 	definition := program.Definition()
@@ -69,15 +69,6 @@ func TestInputGateRejectsUnaddressedMessagesAndDropsCompletedRequest(t *testing.
 	output, present := completed.Output()
 	if !present || !output.Equal(answer.Payload) {
 		t.Fatal("completion changed the admitted answer")
-	}
-	state := require(execution.Snapshot())
-	retained := require(state.Decode[inputGateState](inputGateStateKind))
-	if retained.Request.Valid() {
-		t.Fatal("completed gate retained a second copy of its question")
-	}
-	restored := require(definition.Restore(t.Context(), state))
-	if _, err := restored.Step(t.Context(), turn(3)); !errors.Is(err, ErrInvalidProtocol) {
-		t.Fatal("completed gate advanced", err)
 	}
 	conformancetest.CheckRestoreCancellation(t, definition, waiting)
 	for _, raw := range []string{`{"phase":"unknown"}`, `{"phase":"waiting","request":42}`, `{"phase":"completed","request":"question"}`} {
@@ -122,7 +113,7 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 		{Deadline: deadline, Phase: "unknown"},
 		{Deadline: deadline, Phase: deadlineAwaiting},
 		{Deadline: deadline, Phase: deadlineReady, Effect: new(turn(1).EffectID(0))},
-		{Deadline: deadline, Phase: deadlineCompleted, Effect: new(turn(1).EffectID(0))},
+		{Deadline: deadline, Phase: "completed"},
 	} {
 		state := require(run.EncodeExecutionState(deadlineStateKind, sample))
 		if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
@@ -228,7 +219,6 @@ func TestCompetitionRestorationRejectsContradictoryPendingState(t *testing.T) {
 	initial := require(execution.Snapshot())
 	conformancetest.CheckRestoreCancellation(t, definition, initial)
 	for _, state := range []firstSuccessState{
-		{Completed: true, Candidates: []run.ChildSpec{a}},
 		{Candidates: []run.ChildSpec{a, a}},
 		{Candidates: []run.ChildSpec{a, b}, Calls: []child.Invocation{{Request: new(turn(1).EffectID(0))}}},
 		{Candidates: []run.ChildSpec{a, b}, Calls: []child.Invocation{{}, {}}},
@@ -238,11 +228,6 @@ func TestCompetitionRestorationRejectsContradictoryPendingState(t *testing.T) {
 		if _, err := definition.Restore(t.Context(), encoded); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatalf("contradictory competition state admitted: %+v, %v", state, err)
 		}
-	}
-	completed := require(run.EncodeExecutionState(firstSuccessStateKind, firstSuccessState{Completed: true}))
-	done := require(definition.Restore(t.Context(), completed))
-	if _, err := done.Step(t.Context(), turn(1)); !errors.Is(err, ErrInvalidProtocol) {
-		t.Fatal("completed competition restarted", err)
 	}
 }
 

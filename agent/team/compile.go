@@ -1,7 +1,7 @@
 package team
 
 import (
-	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -10,18 +10,18 @@ import (
 type Config struct {
 	Name        string
 	Description string
-	Coordinator agentrun.ChildBinding
-	Workers     []agentrun.ChildBinding
+	Coordinator run.ChildBinding
+	Workers     []run.ChildBinding
 	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
-	MaxTurns agentrun.Quota
+	MaxTurns run.Quota
 	// MaxTasks is unlimited by default; finite zero forbids worker startups.
-	MaxTasks           agentrun.Quota
+	MaxTasks           run.Quota
 	MaxConcurrentTasks uint32
 	MaxControlsPerTurn uint32
 }
 
-func Compile[I, O any](compiler *agentrun.Compiler, cfg Config) (agentrun.Program[I, O], error) {
-	var zero agentrun.Program[I, O]
+func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], error) {
+	var zero run.Program[I, O]
 
 	in, err := jsonschema.For[I]()
 	if err != nil {
@@ -36,11 +36,11 @@ func Compile[I, O any](compiler *agentrun.Compiler, cfg Config) (agentrun.Progra
 		return zero, err
 	}
 	type grant struct {
-		Ref          agentrun.ProgramRef
-		Budget       agentrun.Budget
-		Capabilities agentrun.CapabilitySet
+		Ref          run.ProgramRef
+		Budget       run.Budget
+		Capabilities run.CapabilitySet
 	}
-	binding := func(b agentrun.ChildBinding) grant { return grant{b.Program.ProgramRef(), b.Budget, b.Capabilities} }
+	binding := func(b run.ChildBinding) grant { return grant{b.Program.ProgramRef(), b.Budget, b.Capabilities} }
 	workers := make([]grant, 0, len(def.workers))
 	for _, b := range def.workers {
 		workers = append(workers, binding(b))
@@ -48,10 +48,10 @@ func Compile[I, O any](compiler *agentrun.Compiler, cfg Config) (agentrun.Progra
 	configuration := struct {
 		Coordinator          grant
 		Workers              []grant
-		Turns, Tasks         agentrun.Quota
+		Turns, Tasks         run.Quota
 		Concurrent, Controls uint32
 	}{binding(def.coordinator), workers, def.maxTurns, def.maxTasks, def.maxConcurrentTasks, def.maxControlsPerTurn}
-	return agentrun.Bind[I, O](compiler, agentrun.BindingConfig{
+	return run.Bind[I, O](compiler, run.BindingConfig{
 		Definition:    def,
 		Configuration: configuration,
 	})

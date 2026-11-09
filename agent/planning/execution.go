@@ -30,7 +30,7 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	switch e.state.phase(e.definition) {
+	switch e.state.Phase {
 	case phaseReadySense:
 		if len(turn.Messages) != 0 {
 			return run.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
@@ -39,11 +39,10 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	case phaseAwaitingSense:
 		return e.acceptSense(ctx, turn)
 	case phaseAwaitingAction:
+		if e.state.awaitsChild(e.definition) {
+			return e.advanceChild(turn)
+		}
 		return e.acceptAction(turn)
-	case phaseChild:
-		return e.advanceChild(turn)
-	case phaseCompleted:
-		return run.Transition{}, fmt.Errorf("%w: completed execution cannot advance", ErrInvalidExecutionState)
 	default:
 		return run.Transition{}, ErrInvalidExecutionState
 	}
@@ -152,19 +151,15 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding a
 			return stepfail.Transition(consumedMessages, run.FailureKindContract, failureCodePlanningChildInputFailed, err.Error())
 		}
 	}
-	if !childInput.Valid() {
-		return stepfail.Transition(
-			consumedMessages, run.FailureKindContract, failureCodePlanningChildInputInvalid,
-			"Child input function returned an invalid Input",
-		)
-	}
 	key, err := planningChildKey(binding.action.name, uint64(len(e.state.Attempts))+1)
 	if err != nil {
 		return run.Transition{}, err
 	}
+	// The key and binding were checked at construction, so Spec can only reject
+	// the input: absent, or outside the child's input schema.
 	spec, err := binding.child.Spec(key, childInput)
 	if err != nil {
-		return run.Transition{}, err
+		return stepfail.Transition(consumedMessages, run.FailureKindContract, failureCodePlanningChildInputInvalid, err.Error())
 	}
 	invocation, effect, err := child.Start(turn, 0, spec)
 	if err != nil {

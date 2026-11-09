@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	run "github.com/Tangerg/scope/agent/run"
 )
@@ -87,18 +86,8 @@ type executionState struct {
 	Controls       []controlState    `json:"controls,omitempty"`
 	WaitForTask    bool              `json:"wait_for_task,omitzero"`
 	OutcomeArrived bool              `json:"outcome_arrived,omitzero"`
-	Completed      bool              `json:"completed,omitzero"`
 }
 
-func (e *executionState) UnmarshalJSON(data []byte) error {
-	type wire executionState
-	value, err := jsonwire.Decode[wire](data)
-	if err != nil {
-		return err
-	}
-	*e = executionState(value)
-	return nil
-}
 func (e executionState) remainingCount() int {
 	count := 0
 	for _, task := range e.Tasks {
@@ -108,6 +97,15 @@ func (e executionState) remainingCount() int {
 	}
 	return count
 }
+
+// nextTurnDue reports whether the coordinator runs again: every action of the
+// last decision has its receipt, and a waiting decision has seen a task finish
+// or has no task left to wait for.
+func (e executionState) nextTurnDue() bool {
+	waiting := e.WaitForTask && !e.OutcomeArrived && e.remainingCount() > 0
+	return !e.unapplied() && !waiting
+}
+
 func (e executionState) unapplied() bool {
 	for _, task := range e.Tasks {
 		if task.Invocation.Request != nil {
@@ -132,9 +130,6 @@ func (e executionState) taskIndex() map[run.ChildKey]*taskState {
 func (e executionState) validate(ctx context.Context, definition *definition) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if e.Completed {
-		return e.validateCompleted()
 	}
 	if err := definition.descriptor.ValidateInput(e.WorkingState); err != nil {
 		return err
@@ -199,14 +194,6 @@ func (e executionState) validateObligations(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
-}
-
-// A completed collaboration keeps no state: its output belongs to the runtime.
-func (e executionState) validateCompleted() error {
-	if e.WorkingState.Valid() || e.Coordinator != nil || e.TurnNumber != 0 || len(e.Tasks)+len(e.Controls) != 0 || e.WaitForTask || e.OutcomeArrived {
-		return ErrInvalidExecutionState
-	}
-	return nil
 }
 
 func (e executionState) withinBounds(definition *definition) bool {

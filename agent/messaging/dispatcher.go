@@ -7,6 +7,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -100,9 +101,5 @@ var _ run.Dispatcher = (*Dispatcher)(nil)
 const failureCodeDispatcher = "messaging.dispatch.rejected"
 
 func messageFailureSettlement(cause error) (run.Settlement, error) {
-	failure, err := run.NewFailure(run.FailureKindContract, failureCodeDispatcher, run.NormalizeDiagnostic(cause.Error()))
-	if err != nil {
-		return run.Settlement{}, err
-	}
-	return run.NewFailedSettlement(failure, run.Payload{})
+	return stepfail.Settlement(run.FailureKindContract, failureCodeDispatcher, cause.Error())
 }

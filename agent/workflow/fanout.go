@@ -35,26 +35,26 @@ func fanoutWindowLen(start, count, windowSize uint32) uint32 {
 }
 
 type fanoutStage struct {
-	source       fanoutSource
-	windowSize   uint32
-	outputSchema jsonschema.Schema
+	source     fanoutSource
+	windowSize uint32
+	// memberOutputSchema governs one branch or item, not the Stage result.
+	memberOutputSchema jsonschema.Schema
 	// complete receives the Stage input with the member outputs, so members
 	// never carry the input forward themselves.
 	complete func(ctx context.Context, input json.RawMessage, outputs []json.RawMessage) (json.RawMessage, error)
 }
 
-func (f fanoutStage) validateOutput(raw json.RawMessage) error {
+func (f fanoutStage) validateMemberOutput(raw json.RawMessage) error {
 	output, err := run.ParsePayload(raw)
 	if err != nil {
 		return err
 	}
-	return f.outputSchema.Validate(output.JSON())
+	return f.memberOutputSchema.Validate(output.JSON())
 }
 
 type fanoutOutputs struct {
-	stageName    string
+	kind         StageKind
 	stageID      string
-	memberName   string
 	resultSchema jsonschema.Schema
 }
 
@@ -69,11 +69,11 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.
 		}
 		output, err := run.ParsePayload(encoded)
 		if err != nil {
-			return nil, fmt.Errorf("%s %q %s %d output: %w", f.stageName, f.stageID, f.memberName, index, err)
+			return nil, fmt.Errorf("%s %q %s %d output: %w", f.kind, f.stageID, f.kind.fanoutMemberNoun(), index, err)
 		}
 		decoded, err := output.Decode[T]()
 		if err != nil {
-			return nil, fmt.Errorf("%s %q %s %d decode output: %w", f.stageName, f.stageID, f.memberName, index, err)
+			return nil, fmt.Errorf("%s %q %s %d decode output: %w", f.kind, f.stageID, f.kind.fanoutMemberNoun(), index, err)
 		}
 		values[index] = decoded
 	}
@@ -86,10 +86,10 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.
 func (f fanoutOutputs) encodeResult[O any](result O) (json.RawMessage, error) {
 	erased, err := run.EncodePayload(result)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q encode result: %w", f.stageName, f.stageID, err)
+		return nil, fmt.Errorf("%s %q encode result: %w", f.kind, f.stageID, err)
 	}
 	if err := f.resultSchema.Validate(erased.JSON()); err != nil {
-		return nil, fmt.Errorf("%s %q result contract: %w", f.stageName, f.stageID, err)
+		return nil, fmt.Errorf("%s %q result contract: %w", f.kind, f.stageID, err)
 	}
 	return erased.JSON(), nil
 }

@@ -109,41 +109,6 @@ func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	}
 }
 
-func TestCompletedWorkflowCannotAdvanceOrChangeItsSnapshot(t *testing.T) {
-	definition := mustDefinition(t, "test.completed",
-		mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil }),
-	)
-	input, err := run.EncodePayload(7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	execution, err := definition.Start(input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, stepErr := execution.Step(t.Context(), testTurn(1)); stepErr != nil {
-		t.Fatal(stepErr)
-	}
-	completed, err := execution.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	restored, err := definition.Restore(t.Context(), completed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, stepErr := restored.Step(t.Context(), testTurn(1)); !errors.Is(stepErr, ErrInvalidProtocol) {
-		t.Fatalf("completed execution Step = %v", stepErr)
-	}
-	after, err := restored.Snapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(after.Payload()) != string(completed.Payload()) || after.Kind() != completed.Kind() {
-		t.Fatalf("completed execution changed its checkpoint: %s -> %s", completed.Payload(), after.Payload())
-	}
-}
-
 func mustProgram(t *testing.T, definition run.Definition, identity string) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	program, err := run.Bind[run.Payload, run.Payload](conformancetest.Compiler(t), run.BindingConfig{

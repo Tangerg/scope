@@ -2,6 +2,7 @@ package child
 
 import (
 	jsonv2 "encoding/json/v2"
+	"fmt"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -101,5 +102,44 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	}
 	if _, _, err := Start(run.Turn{}, 0, run.ChildSpec{}); err == nil {
 		t.Fatal("invalid start accepted")
+	}
+}
+
+// A strategy may add context around a child protocol violation, but the
+// Failure the Runtime records stays the one this package declares.
+func TestInvalidMessageCarriesOneContractClassification(t *testing.T) {
+	invocation := Invocation{Process: new(value(value(run.ParseProcessID("root")).Child(value(run.ParseChildKey("worker")))))}
+	_, err := invocation.Accept(run.Exit{Child: *invocation.Process})
+	failure, classified := run.StepFailure(fmt.Errorf("strategy context: %w", err))
+	if !classified || failure.Kind() != run.FailureKindContract || failure.Code() != "strategy.child.message_invalid" {
+		t.Fatalf("StepFailure = %+v, %t", failure, classified)
+	}
+}
+
+func TestBatchParentAdmitsOnlyOneDeclaredBatch(t *testing.T) {
+	parent := value(run.ParseProcessID("root"))
+	other := value(run.ParseProcessID("other"))
+	keys := []run.ChildKey{value(run.ParseChildKey("a")), value(run.ParseChildKey("b"))}
+	expected := func(position int) (run.ChildKey, error) { return keys[position], nil }
+	request := func(process run.ProcessID, step uint64, index uint32) Invocation {
+		return Invocation{Request: &run.EffectID{Process: process, Step: step, Index: index}}
+	}
+	started := func(process run.ProcessID, key run.ChildKey) Invocation {
+		return Invocation{Process: new(value(process.Child(key)))}
+	}
+	got, err := Batch{request(parent, 2, 0), started(parent, keys[1])}.Parent(expected)
+	if err != nil || got != parent {
+		t.Fatalf("Parent = %v, %v", got, err)
+	}
+	for name, batch := range map[string]Batch{
+		"index":  {request(parent, 2, 1), started(parent, keys[1])},
+		"step":   {request(parent, 2, 0), request(parent, 3, 1)},
+		"key":    {started(parent, keys[1]), started(parent, keys[1])},
+		"parent": {request(parent, 2, 0), started(other, keys[1])},
+		"empty":  {{}},
+	} {
+		if _, err := batch.Parent(expected); err == nil {
+			t.Fatalf("%s: batch admitted", name)
+		}
 	}
 }

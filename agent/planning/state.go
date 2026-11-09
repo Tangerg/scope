@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/run"
 )
@@ -17,13 +16,11 @@ const (
 	phaseReadySense     phase = "ready_sense"
 	phaseAwaitingSense  phase = "awaiting_sense"
 	phaseAwaitingAction phase = "awaiting_action"
-	phaseChild          phase = "child"
-	phaseCompleted      phase = "completed"
 )
 
 func (p phase) valid() bool {
 	switch p {
-	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction, phaseCompleted:
+	case phaseReadySense, phaseAwaitingSense, phaseAwaitingAction:
 		return true
 	default:
 		return false
@@ -40,24 +37,11 @@ type executionState struct {
 	PendingEffect     *run.EffectID     `json:"pending_effect,omitzero"`
 }
 
-func (e executionState) phase(definition *definition) phase {
-	if e.Phase != phaseAwaitingAction {
-		return e.Phase
-	}
-	if binding, found := definition.binding(e.CurrentActionName); found && binding.delegatesToChild() {
-		return phaseChild
-	}
-	return e.Phase
-}
-
-func (e *executionState) UnmarshalJSON(data []byte) error {
-	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data)
-	if err != nil {
-		return err
-	}
-	*e = executionState(decoded)
-	return nil
+// awaitsChild reports whether the awaited Action runs as a child Process
+// rather than a dispatcher Effect; the Action's binding owns that choice.
+func (e executionState) awaitsChild(definition *definition) bool {
+	binding, found := definition.binding(e.CurrentActionName)
+	return e.Phase == phaseAwaitingAction && found && binding.delegatesToChild()
 }
 
 func (e executionState) validate(ctx context.Context, definition *definition) error {
@@ -134,15 +118,12 @@ func (e executionState) validateCurrentAction(definition *definition) error {
 		return ErrInvalidExecutionState
 	}
 	if e.Child != nil {
-		if e.Child.Done() || e.Child.Request != nil && e.Child.Request.Index != 0 {
+		if e.Child.Done() {
 			return ErrInvalidExecutionState
 		}
-		if e.Child.Process != nil {
-			expected, err := planningChildKey(e.CurrentActionName, uint64(len(e.Attempts))+1)
-			key, _ := e.Child.Process.Key()
-			if err != nil || key != expected {
-				return ErrInvalidExecutionState
-			}
+		attempt := uint64(len(e.Attempts)) + 1
+		if _, err := (child.Batch{*e.Child}).Parent(func(int) (run.ChildKey, error) { return planningChildKey(e.CurrentActionName, attempt) }); err != nil {
+			return fmt.Errorf("%w: child: %w", ErrInvalidExecutionState, err)
 		}
 	}
 	if !binding.delegatesToChild() && e.Child != nil {
@@ -152,12 +133,6 @@ func (e executionState) validateCurrentAction(definition *definition) error {
 }
 
 func (e executionState) validateProgress() error {
-	if e.Phase == phaseCompleted {
-		if len(e.Attempts) != 0 || len(e.WorldState.conditions) != 0 {
-			return fmt.Errorf("%w: completed planning repeats its Output", ErrInvalidExecutionState)
-		}
-		return nil
-	}
 	if e.Phase == phaseReadySense && len(e.Attempts) != 0 {
 		return fmt.Errorf("%w: ready_sense requires zero attempts", ErrInvalidExecutionState)
 	}
@@ -174,7 +149,7 @@ func (e executionState) validatePhase() error {
 	}
 	hasAction := e.CurrentActionName != ""
 	switch e.Phase {
-	case phaseReadySense, phaseCompleted:
+	case phaseReadySense:
 		if hasAction {
 			return fmt.Errorf("%w: phase %q cannot have a current Action", ErrInvalidExecutionState, e.Phase)
 		}
@@ -218,9 +193,6 @@ func (e *executionState) complete(ctx context.Context, definition *definition) (
 	if output.Attempts == nil {
 		output.Attempts = []Attempt{}
 	}
-	// The Runtime owns the completed Output, so the state retains only its phase
-	// and input once completion is reported.
-	*e = executionState{Phase: phaseCompleted, Input: e.Input}
 	return output, nil
 }
 

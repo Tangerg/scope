@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -96,7 +97,7 @@ func NewActionSettlement(result ActionResult) (run.Settlement, error) {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
 	if !result.Succeeded() {
-		return failedSettlement(run.FailureKindExternal, failureCodePlanningOperationFailed, result.Diagnostic())
+		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningOperationFailed, result.Diagnostic())
 	}
 	payload, err := jsonv2.Marshal(actionCompleted{})
 	if err != nil {

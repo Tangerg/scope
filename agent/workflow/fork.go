@@ -147,10 +147,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		return Stage{}, err
 	}
 	reducer := config.Reduce
-	outputs := fanoutOutputs{
-		stageName: "Fork", stageID: config.ID, memberName: "branch",
-		resultSchema: outputSchema,
-	}
+	outputs := fanoutOutputs{kind: StageKindFork, stageID: config.ID, resultSchema: outputSchema}
 	reduce := func(ctx context.Context, rawInput json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
 		input, err := run.ParsePayload(rawInput)
 		if err != nil {
@@ -175,7 +172,7 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 		inputSchema: inputSchema, outputSchema: outputSchema,
 		fanout: fanoutStage{
 			source: source, windowSize: config.WindowSize,
-			outputSchema: branchSchema, complete: reduce,
+			memberOutputSchema: branchSchema, complete: reduce,
 		},
 	}, nil
 }

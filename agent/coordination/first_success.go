@@ -79,9 +79,6 @@ func (f *firstSuccessExecution) Step(ctx context.Context, turn run.Turn) (run.Tr
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	if f.state.Completed {
-		return run.Transition{}, ErrInvalidProtocol
-	}
 	if len(f.state.Calls) == 0 {
 		return f.start(turn)
 	}
@@ -178,6 +175,5 @@ func (f *firstSuccessExecution) complete(consumed uint32) (run.Transition, error
 	if err != nil {
 		return run.Transition{}, err
 	}
-	f.state = firstSuccessState{Completed: true}
 	return run.Complete(consumed, output)
 }

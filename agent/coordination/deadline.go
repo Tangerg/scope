@@ -2,6 +2,7 @@ package coordination
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -58,7 +59,10 @@ func (d *deadlineDefinition) Restore(ctx context.Context, state run.ExecutionSta
 		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, deadlineStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded deadlineState) error {
-		return decoded.validate()
+		if err := decoded.validate(); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -73,13 +77,12 @@ func (d *deadlineDefinition) valid() bool {
 type deadlinePhase string
 
 const (
-	deadlineReady     deadlinePhase = "ready"
-	deadlineAwaiting  deadlinePhase = "awaiting_timer"
-	deadlineCompleted deadlinePhase = "completed"
+	deadlineReady    deadlinePhase = "ready"
+	deadlineAwaiting deadlinePhase = "awaiting_timer"
 )
 
 func (d deadlinePhase) valid() bool {
-	return d == deadlineReady || d == deadlineAwaiting || d == deadlineCompleted
+	return d == deadlineReady || d == deadlineAwaiting
 }
 
 type deadlineState struct {
@@ -88,15 +91,17 @@ type deadlineState struct {
 	Effect   *run.EffectID `json:"effect,omitzero"`
 }
 
+// validate states the rule without classifying it: Start reports a breach as
+// invalid input and Restore as invalid execution state.
 func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
-		return fmt.Errorf("%w: absolute deadline is required", ErrInvalidExecutionState)
+		return errors.New("absolute deadline is required")
 	}
 	if (d.Phase == deadlineAwaiting) != (d.Effect != nil) || d.Effect != nil && !d.Effect.Valid() {
-		return ErrInvalidExecutionState
+		return errors.New("timer effect disagrees with the deadline phase")
 	}
 	if !d.Phase.valid() {
-		return fmt.Errorf("%w: unknown deadline phase %q", ErrInvalidExecutionState, d.Phase)
+		return fmt.Errorf("unknown deadline phase %q", d.Phase)
 	}
 	return nil
 }
@@ -149,8 +154,6 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 	if _, err := payload.Decode[timerReached](); err != nil {
 		return run.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
-	d.state.Effect = nil
-	d.state.Phase = deadlineCompleted
 	output, err := run.EncodePayload(d.state.Deadline)
 	if err != nil {
 		return run.Transition{}, err

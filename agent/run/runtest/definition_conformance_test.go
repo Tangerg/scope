@@ -361,3 +361,48 @@ func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
 		})
 	}
 }
+
+// terminalDefinition completes on its first Step and owes no state afterwards,
+// exactly as the Runtime treats a terminated Execution.
+type terminalDefinition struct{ descriptor run.Descriptor }
+
+func (t terminalDefinition) Descriptor() run.Descriptor                           { return t.descriptor }
+func (terminalDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+func (terminalDefinition) Start(run.Payload) (run.Execution, error)               { return &terminalExecution{}, nil }
+func (terminalDefinition) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
+	return &terminalExecution{}, nil
+}
+
+type terminalExecution struct{ done bool }
+
+func (t *terminalExecution) Step(context.Context, run.Turn) (run.Transition, error) {
+	t.done = true
+	output, err := run.EncodePayload(definitionConformanceInput{Value: 1})
+	if err != nil {
+		return run.Transition{}, err
+	}
+	return run.Complete(0, output)
+}
+
+func (t *terminalExecution) Snapshot() (run.ExecutionState, error) {
+	if t.done {
+		return run.ExecutionState{}, errors.New("a terminated Execution has no state to snapshot")
+	}
+	return run.ParseExecutionState("agenttest.terminal", []byte(`{}`))
+}
+
+func TestDefinitionConformanceEndsAtTheTerminalTransition(t *testing.T) {
+	definition := terminalDefinition{descriptor: newDefinitionConformanceFixture(t).descriptor}
+	input, err := run.EncodePayload(definitionConformanceInput{Value: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := DefinitionConformanceConfig{Definition: definition, Input: input, InitialTurn: definitionTurn(1)}
+	if err := verifyFreshExecutions(t.Context(), config); err != nil {
+		t.Fatalf("terminal Step demanded post-termination state: %v", err)
+	}
+	config.FollowingTurns = []run.Turn{definitionTurn(2)}
+	if err := verifyFreshExecutions(t.Context(), config); err == nil || !strings.Contains(err.Error(), "follows a terminal Transition") {
+		t.Fatalf("Turn after termination = %v", err)
+	}
+}

@@ -327,10 +327,6 @@ func TestTeamRestoredBoundsDoNotAdmitAnotherTurn(t *testing.T) {
 		})
 	}
 	definition := require(Compile[string, string](runtime.Compiler(), config)).Definition()
-	finished := require(definition.Restore(t.Context(), require(run.EncodeExecutionState(stateKind, executionState{Completed: true}))))
-	if _, err := finished.Step(t.Context(), testTurn(1)); !errors.Is(err, ErrInvalidProtocol) {
-		t.Fatalf("completed team advanced: %v", err)
-	}
 	if _, err := definition.Start(input(42)); err == nil {
 		t.Fatal("team accepted working state outside its schema")
 	}

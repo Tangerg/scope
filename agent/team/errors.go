@@ -3,7 +3,7 @@ package team
 import (
 	"errors"
 
-	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 // ErrInvalidConfig rejects construction before execution and therefore carries
@@ -13,23 +13,23 @@ var ErrInvalidConfig = errors.New("team: invalid configuration")
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping
 // one is the only way a Step error acquires its classification.
 var (
-	ErrInvalidDecision = agentrun.NewClassifiedError(
-		agentrun.FailureKindContract,
+	ErrInvalidDecision = run.NewClassifiedError(
+		run.FailureKindContract,
 		"team.decision.invalid",
 		"team: invalid decision",
 	)
-	ErrInvalidExecutionState = agentrun.NewClassifiedError(
-		agentrun.FailureKindContract,
+	ErrInvalidExecutionState = run.NewClassifiedError(
+		run.FailureKindContract,
 		"team.state.invalid",
 		"team: invalid execution state",
 	)
-	ErrInvalidProtocol = agentrun.NewClassifiedError(
-		agentrun.FailureKindContract,
+	ErrInvalidProtocol = run.NewClassifiedError(
+		run.FailureKindContract,
 		"team.protocol.invalid",
 		"team: invalid execution protocol",
 	)
-	ErrTurnLimit = agentrun.NewClassifiedError(
-		agentrun.FailureKindExecution,
+	ErrTurnLimit = run.NewClassifiedError(
+		run.FailureKindExecution,
 		"team.limit.turns",
 		"team: turn limit reached",
 	)

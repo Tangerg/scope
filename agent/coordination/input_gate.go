@@ -52,9 +52,8 @@ func (i *inputGateDefinition) Restore(ctx context.Context, state run.ExecutionSt
 type inputGatePhase string
 
 const (
-	inputGateReady     inputGatePhase = "ready"
-	inputGateWaiting   inputGatePhase = "waiting"
-	inputGateCompleted inputGatePhase = "completed"
+	inputGateReady   inputGatePhase = "ready"
+	inputGateWaiting inputGatePhase = "waiting"
 )
 
 type inputGateState struct {
@@ -65,12 +64,6 @@ type inputGateState struct {
 func (i inputGateState) validate(ctx context.Context, definition *inputGateDefinition) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if i.Phase == inputGateCompleted {
-		if i.Request.Valid() {
-			return ErrInvalidExecutionState
-		}
-		return nil
 	}
 	if i.Phase != inputGateReady && i.Phase != inputGateWaiting {
 		return ErrInvalidExecutionState
@@ -93,9 +86,6 @@ func (i *inputGateExecution) Step(ctx context.Context, turn run.Turn) (run.Trans
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	if i.state.Phase == inputGateCompleted {
-		return run.Transition{}, ErrInvalidProtocol
-	}
 	if i.state.Phase == inputGateReady {
 		if len(turn.Messages) != 0 {
 			return run.Transition{}, ErrInvalidProtocol
@@ -112,6 +102,5 @@ func (i *inputGateExecution) Step(ctx context.Context, turn run.Turn) (run.Trans
 	if !ok || answer.Wait != i.definition.wait.Key {
 		return run.Transition{}, fmt.Errorf("%w: answer does not address input gate", ErrInvalidProtocol)
 	}
-	i.state = inputGateState{Phase: inputGateCompleted}
 	return run.Complete(1, answer.Payload)
 }

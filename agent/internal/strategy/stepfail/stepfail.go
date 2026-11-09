@@ -1,5 +1,6 @@
-// Package stepfail builds the classified failures built-in strategies end
-// their Steps with, so every strategy normalizes diagnostic text the same way.
+// Package stepfail builds the classified failures built-in strategies record:
+// the Failures that end their Steps and the failed settlements their
+// dispatchers return, so every strategy normalizes diagnostic text the same way.
 package stepfail
 
 import (
@@ -18,4 +19,13 @@ func Transition(consumedMessages uint32, kind run.FailureKind, code, message str
 		return run.Transition{}, err
 	}
 	return run.Fail(consumedMessages, failure)
+}
+
+// Settlement is a definite dispatcher failure that carries no domain details.
+func Settlement(kind run.FailureKind, code, message string) (run.Settlement, error) {
+	failure, err := Failure(kind, code, message)
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	return run.NewFailedSettlement(failure, run.Payload{})
 }

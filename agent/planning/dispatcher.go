@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -139,5 +140,5 @@ func (d *dispatcher) execute(
 var _ run.Dispatcher = (*dispatcher)(nil)
 
 func planningFailureSettlement(cause error) (run.Settlement, error) {
-	return failedSettlement(run.FailureKindContract, failureCodePlanningHostRejected, cause.Error())
+	return stepfail.Settlement(run.FailureKindContract, failureCodePlanningHostRejected, cause.Error())
 }

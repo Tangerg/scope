@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
+	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
 
@@ -97,21 +98,13 @@ func (e effectEnvelope) valid() bool {
 
 func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	if cause != nil {
-		return failedSettlement(run.FailureKindExternal, failureCodePlanningOperationFailed, cause.Error())
+		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningOperationFailed, cause.Error())
 	}
 	payload, err := jsonv2.Marshal(senseResult{WorldState: state}, jsonv2.Deterministic(true))
 	if err != nil {
 		return run.Settlement{}, err
 	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
-}
-
-func failedSettlement(kind run.FailureKind, code, diagnostic string) (run.Settlement, error) {
-	failure, err := run.NewFailure(kind, code, run.NormalizeDiagnostic(diagnostic))
-	if err != nil {
-		return run.Settlement{}, err
-	}
-	return run.NewFailedSettlement(failure, run.Payload{})
 }
 
 // decodeSettlement reads the single dispatcher settlement of the awaited

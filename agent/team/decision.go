@@ -3,7 +3,7 @@ package team
 import (
 	"strings"
 
-	agentrun "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 type Mode string
@@ -28,6 +28,10 @@ func (m Mode) Valid() bool {
 	return m == ModeUndecided || m == ModeContinue || m == ModeWait
 }
 
+// JSONSchemaEnum publishes the decided modes. A completing Decision omits the
+// member, so the undecided zero value never appears on the wire.
+func (Mode) JSONSchemaEnum() []string { return []string{string(ModeContinue), string(ModeWait)} }
+
 func (m Mode) String() string {
 	if !m.Valid() {
 		return invalidEnumName
@@ -42,16 +46,16 @@ func (m Mode) String() string {
 // up on a completed task, choose a new Key and carry the previous result in
 // Input. Terminal Processes are immutable; continuation has a new lifecycle.
 type TaskRequest struct {
-	Key    agentrun.ChildKey `json:"key"`
-	Worker string            `json:"worker"`
-	Input  agentrun.Payload  `json:"input"`
+	Key    run.ChildKey `json:"key"`
+	Worker string       `json:"worker"`
+	Input  run.Payload  `json:"input"`
 }
 
 type Task struct {
-	Request   TaskRequest           `json:"request"`
-	Process   *agentrun.ProcessID   `json:"process,omitzero"`
-	Outcome   *agentrun.Termination `json:"outcome,omitzero"`
-	Rejection *agentrun.Failure     `json:"rejection,omitzero"`
+	Request   TaskRequest      `json:"request"`
+	Process   *run.ProcessID   `json:"process,omitzero"`
+	Outcome   *run.Termination `json:"outcome,omitzero"`
+	Rejection *run.Failure     `json:"rejection,omitzero"`
 }
 
 // Control targets an already admitted task. Exactly one of Signal and
@@ -60,14 +64,14 @@ type Task struct {
 // A task may exit during the coordinator turn; the runtime then decides the
 // control's receipt without invalidating the coordinator's decision.
 type Control struct {
-	Task         agentrun.ChildKey `json:"task"`
-	Signal       *agentrun.Signal  `json:"signal,omitzero"`
-	CancelReason *string           `json:"cancel_reason,omitzero"`
+	Task         run.ChildKey `json:"task"`
+	Signal       *run.Signal  `json:"signal,omitzero"`
+	CancelReason *string      `json:"cancel_reason,omitzero"`
 }
 
 type ControlReceipt struct {
-	Control Control              `json:"control"`
-	Result  *agentrun.Settlement `json:"result,omitzero"`
+	Control Control         `json:"control"`
+	Result  *run.Settlement `json:"result,omitzero"`
 }
 
 // Turn is the coordinator's complete portable input. Tasks are cumulative and
@@ -76,11 +80,11 @@ type ControlReceipt struct {
 // exposes the exact configured input/output contracts without execution grants.
 // Facts arriving while this turn runs are visible in the following turn.
 type Turn struct {
-	Number   uint64                `json:"number"`
-	State    agentrun.Payload      `json:"state"`
-	Workers  []agentrun.Descriptor `json:"workers"`
-	Tasks    []Task                `json:"tasks"`
-	Controls []ControlReceipt      `json:"controls"`
+	Number   uint64           `json:"number"`
+	State    run.Payload      `json:"state"`
+	Workers  []run.Descriptor `json:"workers"`
+	Tasks    []Task           `json:"tasks"`
+	Controls []ControlReceipt `json:"controls"`
 }
 
 // Decision is the coordinator's output contract. The entire batch is validated
@@ -89,11 +93,11 @@ type Turn struct {
 // Mode chooses how the next turn starts. An explicit JSON null is a present
 // Output. Input and Output retain the configured domain schemas.
 type Decision struct {
-	Mode     Mode             `json:"mode"`
-	State    agentrun.Payload `json:"state"`
-	Tasks    []TaskRequest    `json:"tasks,omitempty"`
-	Controls []Control        `json:"controls,omitempty"`
-	Output   agentrun.Payload `json:"output,omitzero"`
+	Mode     Mode          `json:"mode,omitzero"`
+	State    run.Payload   `json:"state"`
+	Tasks    []TaskRequest `json:"tasks,omitempty"`
+	Controls []Control     `json:"controls,omitempty"`
+	Output   run.Payload   `json:"output,omitzero"`
 }
 
 func (d Decision) completes() bool { return d.Output.Valid() }
@@ -124,16 +128,16 @@ func (c Control) validate() error {
 	return nil
 }
 
-func (c Control) effect(parent agentrun.ProcessID, task *taskState) (agentrun.Effect, error) {
+func (c Control) effect(parent run.ProcessID, task *taskState) (run.Effect, error) {
 	if task == nil || c.validate() != nil {
-		return agentrun.Effect{}, ErrInvalidDecision
+		return run.Effect{}, ErrInvalidDecision
 	}
 	id, started := task.processID(parent)
 	if !started {
-		return agentrun.Effect{}, ErrInvalidDecision
+		return run.Effect{}, ErrInvalidDecision
 	}
 	if c.Signal != nil {
-		return agentrun.NewChildSignalEffect(id, *c.Signal)
+		return run.NewChildSignalEffect(id, *c.Signal)
 	}
-	return agentrun.NewChildCancelEffect(id, *c.CancelReason)
+	return run.NewChildCancelEffect(id, *c.CancelReason)
 }

@@ -290,60 +290,71 @@ func verifyRestoredExecutions(
 }
 
 func verifyExecutionPair(ctx context.Context, definition run.Definition, left, right run.Execution, turn run.Turn, following ...run.Turn) error {
-	for _, batch := range append([]run.Turn{turn}, following...) {
-		if err := verifyExecutionStep(ctx, definition, left, right, batch); err != nil {
+	turns := append([]run.Turn{turn}, following...)
+	for index, batch := range turns {
+		terminal, err := verifyExecutionStep(ctx, definition, left, right, batch)
+		if err != nil {
 			return err
+		}
+		if terminal && index < len(turns)-1 {
+			return errors.New("runtest: a Turn follows a terminal Transition, which the Runtime never steps")
 		}
 	}
 	return nil
 }
 
+// verifyExecutionStep reports whether the Step terminated. The Runtime never
+// snapshots, restores or steps an Execution after a terminal Transition, so a
+// Definition owes no state beyond it and the comparison ends there.
 func verifyExecutionStep(
 	ctx context.Context,
 	definition run.Definition,
 	left run.Execution,
 	right run.Execution,
 	turn run.Turn,
-) error {
+) (bool, error) {
 	if lo.IsNil(left) || lo.IsNil(right) {
-		return errors.New("runtest: Definition returned a nil Execution")
+		return false, errors.New("runtest: Definition returned a nil Execution")
 	}
 	leftBefore, rightBefore, err := snapshotEquivalentPair("initial Execution state", left, right)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if restoreErr := verifyExactRestore(ctx, definition, leftBefore); restoreErr != nil {
-		return restoreErr
+		return false, restoreErr
 	}
 
 	restored, err := callRestore(ctx, definition, leftBefore)
 	if err != nil {
-		return err
+		return false, err
 	}
 	leftTransition, err := stepIsolatedPair(ctx, left, right, rightBefore, turn)
 	if err != nil {
-		return err
+		return false, err
 	}
 	restoredTransition, err := callStep(ctx, restored, cloneTurn(turn))
 	if err != nil {
-		return err
+		return false, err
 	}
 	if checkErr := requireEquivalent("original versus restored Step Transition", leftTransition, restoredTransition); checkErr != nil {
-		return checkErr
+		return false, checkErr
+	}
+	if kind := leftTransition.Kind(); kind == run.TransitionKindComplete || kind == run.TransitionKindFail {
+		return true, nil
 	}
 
 	leftAfter, _, err := snapshotEquivalentPair("original versus restored resulting state", left, restored)
 	if err != nil {
-		return err
+		return false, err
 	}
 	rightAfter, err := callSnapshot(right)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if checkErr := requireEquivalent("resulting Execution state", leftAfter, rightAfter); checkErr != nil {
-		return checkErr
+		return false, checkErr
 	}
-	return verifyExactRestore(ctx, definition, leftAfter)
+	return false, verifyExactRestore(ctx, definition, leftAfter)
 }
 
 // stepIsolatedPair steps left before right so a Step that mutates state shared

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/run"
 )
@@ -19,13 +18,11 @@ const (
 	phaseReady phase = iota
 	phaseChild
 	phaseFanout
-	phaseCompleted
 )
 
 type executionState struct {
 	StageIndex uint32 `json:"stage_index" jsonwire:"required"`
-	// CurrentValue feeds the current Stage; a completed workflow's value is
-	// the Runtime-owned Output and is not repeated here.
+	// CurrentValue feeds the current Stage.
 	CurrentValue           json.RawMessage    `json:"current_value,omitzero"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
 	Child                  *child.Invocation  `json:"child,omitzero"`
@@ -34,20 +31,8 @@ type executionState struct {
 	LoopIteration          uint64             `json:"loop_iteration,omitzero"`
 }
 
-func (e *executionState) UnmarshalJSON(data []byte) error {
-	type wire executionState
-	decoded, err := jsonwire.Decode[wire](data)
-	if err != nil {
-		return err
-	}
-	*e = executionState(decoded)
-	return nil
-}
-
-func (e executionState) phase(stageCount uint32) phase {
+func (e executionState) phase() phase {
 	switch {
-	case e.StageIndex == stageCount:
-		return phaseCompleted
 	case e.Child != nil:
 		return phaseChild
 	case e.ActiveFanoutWindow != nil:
@@ -64,14 +49,10 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if !definition.valid() {
 		return fmt.Errorf("%w: definition is invalid", ErrInvalidExecutionState)
 	}
-	if uint64(e.StageIndex) > uint64(len(definition.stages)) {
-		return fmt.Errorf("%w: stage index %d exceeds stage count", ErrInvalidExecutionState, e.StageIndex)
-	}
-	if e.StageIndex == uint32(len(definition.stages)) {
-		if e.CurrentValue != nil {
-			return fmt.Errorf("%w: completed workflow repeats its Output", ErrInvalidExecutionState)
-		}
-		return e.validatePhaseState(ctx, definition)
+	// The Runtime never restores a completed Execution, so a restorable state
+	// always names a Stage that has yet to finish.
+	if uint64(e.StageIndex) >= uint64(len(definition.stages)) {
+		return fmt.Errorf("%w: stage index %d is not a pending Stage", ErrInvalidExecutionState, e.StageIndex)
 	}
 	input, err := run.ParsePayload(e.CurrentValue)
 	if err != nil {
@@ -87,24 +68,17 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *defi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	switch current := e.phase(uint32(len(definition.stages))); current {
-	case phaseReady, phaseCompleted:
+	switch current := e.phase(); current {
+	case phaseReady:
 		if !e.noProgress() {
 			return fmt.Errorf("%w: progress outside a child or fan-out step", ErrInvalidExecutionState)
 		}
 	case phaseChild:
-		if !e.singleChildStage(definition) || e.hasFanoutProgress() || !e.Child.Valid() || e.Child.Done() {
+		if !e.singleChildStage(definition) || e.hasFanoutProgress() || e.Child.Done() {
 			return fmt.Errorf("%w: single-child progress does not match its Stage", ErrInvalidExecutionState)
 		}
-		if e.Child.Process != nil {
-			expected, err := e.childKey(definition.stages[e.StageIndex])
-			key, _ := e.Child.Process.Key()
-			if err != nil || key != expected {
-				return ErrInvalidExecutionState
-			}
-		}
-		if e.Child.Request != nil && e.Child.Request.Index != 0 {
-			return ErrInvalidExecutionState
+		if _, err := (child.Batch{*e.Child}).Parent(func(int) (run.ChildKey, error) { return e.childKey(definition.stages[e.StageIndex]) }); err != nil {
+			return fmt.Errorf("%w: single child: %w", ErrInvalidExecutionState, err)
 		}
 	default:
 		if e.hasSingleChildProgress() {
@@ -160,43 +134,23 @@ func (e executionState) validateFanout(ctx context.Context, definition *definiti
 	if err != nil {
 		return err
 	}
-	var owner run.ProcessID
-	var spawnStep uint64
+	windowStart := e.fanoutWindowStart()
+	if _, err := child.Batch(e.ActiveFanoutWindow).Parent(func(position int) (run.ChildKey, error) {
+		return fanoutChildKey(stage, windowStart+uint32(position))
+	}); err != nil {
+		return fmt.Errorf("%w: active fan-out window: %w", ErrInvalidExecutionState, err)
+	}
 	for index, invocation := range e.ActiveFanoutWindow {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !invocation.Valid() {
-			return ErrInvalidExecutionState
+		if invocation.Termination == nil {
+			continue
 		}
-		if invocation.Termination != nil {
-			if output, completed := invocation.Termination.Output(); completed {
-				if err := stage.fanout.validateOutput(output.JSON()); err != nil {
-					return fmt.Errorf("%w: active fan-out output %d: %w", ErrInvalidExecutionState, index, err)
-				}
+		if output, completed := invocation.Termination.Output(); completed {
+			if err := stage.fanout.validateMemberOutput(output.JSON()); err != nil {
+				return fmt.Errorf("%w: active fan-out output %d: %w", ErrInvalidExecutionState, index, err)
 			}
-		}
-		var process run.ProcessID
-		if invocation.Request != nil {
-			if invocation.Request.Index != uint32(index) || spawnStep != 0 && invocation.Request.Step != spawnStep {
-				return ErrInvalidExecutionState
-			}
-			spawnStep = invocation.Request.Step
-			process = invocation.Request.Process
-		}
-		if invocation.Process != nil {
-			key, _ := invocation.Process.Key()
-			expected, err := fanoutChildKey(stage, e.fanoutWindowStart()+uint32(index))
-			if err != nil || key != expected {
-				return ErrInvalidExecutionState
-			}
-			process, _ = invocation.Process.Parent()
-		}
-		if process.Valid() {
-			if owner.Valid() && owner != process {
-				return ErrInvalidExecutionState
-			}
-			owner = process
 		}
 	}
 	if err := e.validateCompletedFanoutOutputs(ctx, stage); err != nil {
@@ -240,7 +194,7 @@ func (e executionState) validateCompletedFanoutOutputs(ctx context.Context, stag
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := stage.fanout.validateOutput(output); err != nil {
+		if err := stage.fanout.validateMemberOutput(output); err != nil {
 			return fmt.Errorf("%w: completed fan-out output %d: %w", ErrInvalidExecutionState, index, err)
 		}
 	}

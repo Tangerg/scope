@@ -168,7 +168,7 @@ func TestDefinitionConformanceRejectsUnusableInputsAndRestoredCases(t *testing.T
 		t.Fatalf("input schema mismatch = %v", err)
 	}
 	var typedNil *executionProbe
-	if err := verifyExecutionStep(t.Context(), definition, typedNil, typedNil, definitionTurn(1)); err == nil || !strings.Contains(err.Error(), "nil Execution") {
+	if _, err := verifyExecutionStep(t.Context(), definition, typedNil, typedNil, definitionTurn(1)); err == nil || !strings.Contains(err.Error(), "nil Execution") {
 		t.Fatalf("nil execution pair = %v", err)
 	}
 }
@@ -309,7 +309,7 @@ func TestConformanceReportsFailuresAtEachExecutionComparisonBoundary(t *testing.
 					return &executionProbe{snapshot: execution.Snapshot, step: badStep}, nil
 				}
 			}
-			err = verifyExecutionStep(t.Context(), probe, left, right, definitionTurn(1))
+			_, err = verifyExecutionStep(t.Context(), probe, left, right, definitionTurn(1))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("comparison defect was accepted or misreported: %v, want %s", err, test.want)
 			}
@@ -345,7 +345,7 @@ func TestConformanceRejectsEqualTransitionsWithDifferentResultingState(t *testin
 		}
 		return right.Snapshot()
 	}
-	err = verifyExecutionStep(t.Context(), definition, left, changed, definitionTurn(1))
+	_, err = verifyExecutionStep(t.Context(), definition, left, changed, definitionTurn(1))
 	if !errors.Is(err, errConformanceValuesDiffer) || !strings.Contains(err.Error(), "resulting Execution state") {
 		t.Fatalf("equal Transitions hid divergent resulting state: %v", err)
 	}

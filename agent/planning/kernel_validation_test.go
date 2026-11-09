@@ -68,7 +68,6 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"unknown phase", func(s *executionState) { s.Phase = phase("other") }},
-		{"derived phase persisted", func(s *executionState) { s.Phase = phaseChild }},
 		{"input schema", func(s *executionState) { s.Input = []byte(`42`) }},
 		{"unknown action", func(s *executionState) { s.CurrentActionName = "action.unknown" }},
 		{"inapplicable action", func(s *executionState) { s.WorldState = WorldState{} }},
@@ -97,9 +96,6 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
 			s.CurrentActionName, s.PendingEffect, s.Phase = "", nil, phaseReadySense
 		}},
-		{"terminal state repeats observation", func(s *executionState) {
-			s.CurrentActionName, s.PendingEffect, s.Phase = "", nil, phaseCompleted
-		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := newState()
@@ -108,11 +104,6 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 				t.Fatalf("restored contradictory progress: %v", err)
 			}
 		})
-	}
-	terminal := executionState{Phase: phaseCompleted, Input: newState().Input}
-	finished := planningValue(definition.Restore(t.Context(), planningValue(terminal.snapshot())))
-	if _, err := finished.Step(t.Context(), validationTurn(1)); !errors.Is(err, ErrInvalidExecutionState) {
-		t.Fatalf("terminal planning execution advanced: %v", err)
 	}
 	if _, err := definition.Start(planningValue(run.EncodePayload(42))); err == nil {
 		t.Fatal("planning accepted input outside its declared contract")
@@ -265,6 +256,7 @@ func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 			return run.Payload{}, errors.New("conversion refused")
 		}, failureCodePlanningChildInputFailed},
 		{"invalid output", func(run.Payload, WorldState) (run.Payload, error) { return run.Payload{}, nil }, failureCodePlanningChildInputInvalid},
+		{"schema violation", func(run.Payload, WorldState) (run.Payload, error) { return run.EncodePayload(42) }, failureCodePlanningChildInputInvalid},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := validationConfig(t)
@@ -278,6 +270,19 @@ func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 				t.Fatalf("invalid child input declared a Spawn: %+v", transition)
 			}
 		})
+	}
+}
+
+// Without an input function the planning input reaches the child unchanged,
+// so the two schemas must agree before any Program is built.
+func TestPlanningRejectsChildWhoseSchemaCannotAcceptThePlanningInput(t *testing.T) {
+	runtime := conformancetest.Runtime(t, run.Config{})
+	stage := planningValue(workflow.Transform("count", func(_ context.Context, value int) (int, error) { return value, nil }))
+	program := planningValue(workflow.Compile[int, int](runtime.Compiler(), workflow.Config{Name: "test.planning.int-child", Description: "Accept a number.", Revision: "one", Stages: []workflow.Stage{stage}}))
+	config := validationConfig(t)
+	config.Actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.Actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
+	if _, err := newDefinition(config); !errors.Is(err, ErrInvalidDefinitionConfig) {
+		t.Fatalf("newDefinition error = %v, want ErrInvalidDefinitionConfig", err)
 	}
 }
 
@@ -310,10 +315,6 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	output := planningValue(payload.Decode[Output]())
 	if output.Outcome != OutcomeStuck || len(output.Attempts) != 1 || output.Attempts[0].Status != AttemptFailed || output.Attempts[0].Diagnostic != failure.Code()+": "+failure.Message() {
 		t.Fatalf("rejection lost its attempt fact: %+v", output)
-	}
-	state := planningValue(planningValue(restored.Snapshot()).Decode[executionState](executionStateKind))
-	if state.Phase != phaseCompleted || len(state.Attempts) != 0 || len(state.WorldState.Conditions()) != 0 || state.Child != nil || state.PendingEffect != nil {
-		t.Fatal("terminal state duplicates the runtime-owned output")
 	}
 }
 

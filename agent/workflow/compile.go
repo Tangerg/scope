@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/Tangerg/scope/agent/run"
 )
@@ -24,13 +25,7 @@ func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], e
 		return zero, err
 	}
 
-	callbacks := false
-	for _, stage := range def.stages {
-		if stage.kind != StageKindCall && stage.kind != StageKindMap {
-			callbacks = true
-			break
-		}
-	}
+	callbacks := slices.ContainsFunc(def.stages, Stage.carriesCallbacks)
 	if callbacks != (cfg.Revision != "") || !callbacks && cfg.Configuration != nil {
 		return zero, fmt.Errorf("%w: Revision must identify the configured stage callbacks", run.ErrInvalidProgram)
 	}
