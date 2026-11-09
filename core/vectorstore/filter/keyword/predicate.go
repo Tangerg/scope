@@ -1,6 +1,8 @@
 package keyword
 
 import (
+	"github.com/samber/lo"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -8,7 +10,7 @@ import (
 // EqualString returns the term for a top-level scalar string equality.
 // Predicates without this exact representation return vectorstore.ErrUnsupportedFilter.
 func EqualString(p filter.Predicate) (string, error) {
-	if p == nil {
+	if lo.IsNil(p) {
 		return "", vectorstore.ErrMissingFilter
 	}
 	if err := p.Validate(); err != nil {

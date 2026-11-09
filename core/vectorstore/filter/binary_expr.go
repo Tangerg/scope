@@ -247,7 +247,7 @@ func (b *BinaryExpr) Inverse() (*BinaryExpr, error) {
 	}
 	inverse := &BinaryExpr{left: b.left, operator: operator, right: b.right, start: b.start, end: b.end}
 	if b.operator.IsOrderingOperator() {
-		nullTest := &BinaryExpr{left: b.left, operator: OpIs, right: &Literal{kind: LiteralNull, text: "null"}, start: b.start, end: b.end}
+		nullTest := &BinaryExpr{left: b.left, operator: OpIs, right: &Literal{kind: LiteralNull, text: string(LiteralNull)}, start: b.start, end: b.end}
 		return Or(nullTest, inverse), nil
 	}
 	return inverse, nil

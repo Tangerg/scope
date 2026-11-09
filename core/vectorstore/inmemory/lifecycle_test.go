@@ -173,6 +173,24 @@ func TestDeleteWhereHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+// A record whose metadata cannot be compared fails the whole request, which
+// must then delete nothing, whichever record map iteration evaluates first.
+func TestDeleteWhereEvaluationFailureDeletesNothing(t *testing.T) {
+	store := newStore(t)
+	indexDocuments(t, store,
+		mustDoc(t, "1", "alpha", map[string]any{"year": 2020}),
+		mustDoc(t, "2", "beta", map[string]any{"year": "2021"}),
+		mustDoc(t, "3", "gamma", map[string]any{"year": 2019}),
+		mustDoc(t, "4", "delta", map[string]any{"year": 2018}),
+	)
+	if err := store.DeleteWhere(t.Context(), filter.LT("year", 2025)); err == nil {
+		t.Fatal("DeleteWhere accepted a string compared as a number")
+	}
+	if store.Len() != 4 {
+		t.Fatalf("failed DeleteWhere left %d of 4 records", store.Len())
+	}
+}
+
 func TestDeleteIDsHonorsContextCancellation(t *testing.T) {
 	store := newStore(t)
 	indexDocuments(t, store, mustDoc(t, "1", "alpha", nil))

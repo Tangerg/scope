@@ -44,18 +44,14 @@ type record struct {
 }
 
 func (r record) matches(predicate filter.Predicate) (bool, error) {
-	if predicate == nil {
+	if lo.IsNil(predicate) {
 		return true, nil
 	}
 	values, err := r.doc.Metadata.Values()
 	if err != nil {
 		return false, fmt.Errorf("metadata: %w", err)
 	}
-	matched, err := filter.Match(predicate, values)
-	if err != nil {
-		return false, fmt.Errorf("filter: %w", err)
-	}
-	return matched, nil
+	return filter.Match(predicate, values)
 }
 
 var (
@@ -226,6 +222,9 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Every record is evaluated before any is removed, so an evaluation error
+	// or cancellation leaves the store exactly as it was.
+	var matched []string
 	for id, rec := range s.records {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("inmemory: delete by filter: %w", err)
@@ -235,8 +234,11 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 			return fmt.Errorf("inmemory: delete by filter: %w", err)
 		}
 		if match {
-			delete(s.records, id)
+			matched = append(matched, id)
 		}
+	}
+	for _, id := range matched {
+		delete(s.records, id)
 	}
 	return nil
 }
