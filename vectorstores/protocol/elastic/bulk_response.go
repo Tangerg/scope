@@ -37,7 +37,7 @@ func (b bulkResponse) validate(operation Operation, index string, ids []string, 
 
 // Item evidence is usable only inside a coherent envelope. Contradictory
 // summaries invalidate attribution instead of arbitrating two sources of truth.
-func (b bulkResponse) writeFailure(index string, ids []string, cause error) *vectorstore.WriteError {
+func (b bulkResponse) writeFailure(index string, ids []string, cause error) error {
 	var w vectorstore.WriteOutcome
 	if b.Errors == nil || len(b.Items) > len(ids) {
 		w.Unconfirmed = ids

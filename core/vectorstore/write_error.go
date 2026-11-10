@@ -1,13 +1,16 @@
 package vectorstore
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
 
+var ErrInvalidWriteOutcome = errors.New("vectorstore: invalid write outcome")
+
 // WriteOutcome partitions the IDs of one failed indexing operation by what the
 // backend acknowledged. It is plain data an adapter assembles while writing; a
-// WriteError owns its own copy.
+// WriteError validates disjoint, duplicate-free partitions and owns its copy.
 type WriteOutcome struct {
 	// Acknowledged contains IDs for which the backend acknowledged every item
 	// in its write group.
@@ -18,6 +21,7 @@ type WriteOutcome struct {
 	Unconfirmed []string
 	// AcknowledgedCount is a usable aggregate acknowledgment for Unconfirmed,
 	// when available. It does not identify particular records in that group.
+	// It must be between zero and len(Unconfirmed), inclusive.
 	AcknowledgedCount *int
 	// Unattempted contains IDs in groups the adapter never submitted.
 	Unattempted []string
@@ -45,8 +49,30 @@ type WriteError struct {
 	err     error
 }
 
-func NewWriteError(cause error, outcome WriteOutcome) *WriteError {
-	return &WriteError{outcome: outcome.Clone(), err: cause}
+// NewWriteError freezes a valid partition. Invalid evidence returns
+// ErrInvalidWriteOutcome joined with cause, preserving any earlier write error.
+func NewWriteError(cause error, outcome WriteOutcome) error {
+	failure := &WriteError{outcome: outcome.Clone(), err: cause}
+	if err := failure.validate(); err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
+}
+
+func (w *WriteError) validate() error {
+	seen := make(map[string]bool)
+	for _, partition := range [][]string{w.outcome.Acknowledged, w.outcome.Rejected, w.outcome.Unconfirmed, w.outcome.Unattempted} {
+		for _, id := range partition {
+			if seen[id] {
+				return fmt.Errorf("%w: duplicate ID %q", ErrInvalidWriteOutcome, id)
+			}
+			seen[id] = true
+		}
+	}
+	if count := w.outcome.AcknowledgedCount; count != nil && (*count < 0 || *count > len(w.outcome.Unconfirmed)) {
+		return fmt.Errorf("%w: aggregate acknowledgment %d outside [0, %d]", ErrInvalidWriteOutcome, *count, len(w.outcome.Unconfirmed))
+	}
+	return nil
 }
 
 // Outcome returns a copy the caller owns.

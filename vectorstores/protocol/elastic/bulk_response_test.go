@@ -5,6 +5,8 @@ import (
 	"errors"
 	"slices"
 	"testing"
+
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 func TestBulkAcknowledgmentsCannotInventSuccess(t *testing.T) {
@@ -43,12 +45,18 @@ func TestWriteFailureRetainsOnlyAttributableItemAcknowledgments(t *testing.T) {
 		{Index: &bulkItemResult{ID: "denied", Index: "docs", Status: new(409), Error: []byte(`{"type":"conflict"}`)}},
 	}}
 	cause := errors.New("partial bulk response")
-	w := resp.writeFailure("docs", ids, cause)
+	w, ok := errors.AsType[*vectorstore.WriteError](resp.writeFailure("docs", ids, cause))
+	if !ok {
+		t.Fatal("valid bulk evidence did not produce a WriteError")
+	}
 	if !errors.Is(w, cause) || !slices.Equal(w.Outcome().Acknowledged, ids[:1]) || !slices.Equal(w.Outcome().Rejected, ids[1:2]) || !slices.Equal(w.Outcome().Unconfirmed, ids[2:]) {
 		t.Fatalf("incorrect write evidence: %+v", *w)
 	}
 	resp.Errors = new(false)
-	w = resp.writeFailure("docs", ids, cause)
+	w, ok = errors.AsType[*vectorstore.WriteError](resp.writeFailure("docs", ids, cause))
+	if !ok {
+		t.Fatal("valid bulk evidence did not produce a WriteError")
+	}
 	if len(w.Outcome().Acknowledged) != 0 || len(w.Outcome().Rejected) != 0 || !slices.Equal(w.Outcome().Unconfirmed, ids) {
 		t.Fatalf("contradictory bulk reply invented success: %+v", *w)
 	}

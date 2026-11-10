@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
@@ -137,12 +138,18 @@ func TestOrderedBulkFailurePreservesOnlyProvedIDs(t *testing.T) {
 	ids := []string{"inserted", "uncertain", "rejected", "unsent"}
 	failure := mongo.BulkWriteException{WriteErrors: []mongo.BulkWriteError{{WriteError: mongo.WriteError{Index: 2, Code: 11000}}}}
 	r := &mongo.BulkWriteResult{UpsertedIDs: map[int64]any{0: "inserted"}, MatchedCount: 2, UpsertedCount: 1}
-	w := writeEvidence(ids, r, failure)
+	w, ok := errors.AsType[*vectorstore.WriteError](writeEvidence(ids, r, failure))
+	if !ok {
+		t.Fatal("valid bulk evidence did not produce a WriteError")
+	}
 	if !slices.Equal(w.Outcome().Acknowledged, ids[:1]) || !slices.Equal(w.Outcome().Unconfirmed, ids[1:2]) || !slices.Equal(w.Outcome().Rejected, ids[2:3]) || !slices.Equal(w.Outcome().Unattempted, ids[3:]) || w.Outcome().AcknowledgedCount != nil {
 		t.Fatalf("evidence=%+v", w)
 	}
 	r = &mongo.BulkWriteResult{Acknowledged: true, MatchedCount: 1}
-	w = writeEvidence(ids, r, errors.New("short receipt"))
+	w, ok = errors.AsType[*vectorstore.WriteError](writeEvidence(ids, r, errors.New("short receipt")))
+	if !ok {
+		t.Fatal("valid bulk evidence did not produce a WriteError")
+	}
 	if len(w.Outcome().Acknowledged) != 0 || !slices.Equal(w.Outcome().Unconfirmed, ids) || w.Outcome().AcknowledgedCount == nil || *w.Outcome().AcknowledgedCount != 1 {
 		t.Fatalf("evidence=%+v", w)
 	}

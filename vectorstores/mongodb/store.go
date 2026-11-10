@@ -141,7 +141,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	return writeEvidence(ids, result, err)
 }
-func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) *vectorstore.WriteError {
+func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) error {
 	var w vectorstore.WriteOutcome
 	// Ordered writes stop at the first write error. A write concern or transport
 	// failure on its own proves neither rejection nor lack of delivery.
