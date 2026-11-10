@@ -59,7 +59,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 
 // chat decodes Ollama's newline-delimited response for both streaming and
 // non-streaming requests. With stream=false the daemon returns one frame.
-func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeChatResponse) error) error {
+func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeChatResponse) error) (err error) {
 	if req == nil {
 		return errors.New("ollama: request must not be nil")
 	}
@@ -67,7 +67,7 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { err = errors.Join(err, response.Body.Close(), ctx.Err()) }()
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 4096), maxNativeStreamFrameBytes+2)
 	for scanner.Scan() {

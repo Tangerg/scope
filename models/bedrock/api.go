@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -122,17 +124,48 @@ type requestBodyClient struct {
 	client aws.HTTPClient
 }
 
+const converseStreamPathSuffix = "/converse-stream"
+
 func (r requestBodyClient) Do(request *http.Request) (*http.Response, error) {
-	if request.Body == nil || request.Body == http.NoBody {
-		return r.client.Do(request)
-	}
 	// Smithy's closed WriterTo returns EOF where io.Copy expects nil. The
 	// transport can finish copying after response headers arrive, so expose
 	// only Read/Close to keep that EOF from closing the live response connection.
-	clone := request.Clone(request.Context())
-	clone.Body = struct{ io.ReadCloser }{request.Body}
-	return r.client.Do(clone)
+	if request.Body != nil && request.Body != http.NoBody {
+		clone := request.Clone(request.Context())
+		clone.Body = struct{ io.ReadCloser }{request.Body}
+		request = clone
+	}
+	limit := httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
+	streaming := strings.HasSuffix(request.URL.Path, converseStreamPathSuffix)
+	var response *http.Response
+	var err error
+	if streaming {
+		response, err = limit.ApplyErrors(request, r.client.Do)
+	} else {
+		response, err = limit.Apply(request, r.client.Do)
+	}
+	if err == nil && response != nil && response.Body != nil && (!streaming || response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices) {
+		response.Body = &boundedResponseBody{source: response.Body, closeBody: sync.OnceValue(response.Body.Close)}
+	}
+	return response, err
 }
+
+// The SDK's event-stream error path can return without closing an unread body.
+// A failed bounded read must release it before handing that error to the SDK.
+type boundedResponseBody struct {
+	source    io.ReadCloser
+	closeBody func() error
+}
+
+func (b *boundedResponseBody) Read(buffer []byte) (int, error) {
+	n, err := b.source.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = errors.Join(err, b.Close())
+	}
+	return n, err
+}
+
+func (b *boundedResponseBody) Close() error { return b.closeBody() }
 
 // converseStream returns the event stream rather than the output envelope,
 // because that is all a caller does with the output: the envelope carries the

@@ -11,6 +11,7 @@ import (
 	"iter"
 	"net/http"
 	"slices"
+	"sync"
 
 	"github.com/Tangerg/sse"
 
@@ -159,7 +160,8 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer body.Close()
+		closeBody := sync.OnceValue(body.Close)
+		defer func() { _ = closeBody() }()
 
 		events := sse.NewReader(body)
 		events.MaxLineBytes = mistralStreamMaxBytes
@@ -168,8 +170,8 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 		var terminal *corechat.ResponseDelta
 		for event, eventErr := range events.Messages() {
 			if eventErr != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("mistral: read chat stream: %w", eventErr)})
-				return
+				err = fmt.Errorf("mistral: read chat stream: %w", eventErr)
+				break
 			}
 			data := bytes.TrimSpace(event.Data)
 			if bytes.Equal(data, []byte(mistralStreamDone)) {
@@ -177,13 +179,13 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			}
 			var chunk chatCompletionChunk
 			if decodeErr := jsonv2.Unmarshal(data, &chunk); decodeErr != nil {
-				yield(nil, fmt.Errorf("mistral: decode chat stream chunk: %w", decodeErr))
-				return
+				err = fmt.Errorf("mistral: decode chat stream chunk: %w", decodeErr)
+				break
 			}
 			response, mapErr := state.mapChunk(chunk)
 			if mapErr != nil {
-				yield(nil, mapErr)
-				return
+				err = mapErr
+				break
 			}
 			if terminal != nil {
 				if !yield(terminal, nil) {
@@ -199,6 +201,10 @@ func (c *Chat) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[
 			if !yield(response, nil) {
 				return
 			}
+		}
+		if err = errors.Join(err, closeBody(), ctx.Err()); err != nil {
+			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
+			return
 		}
 		terminal, err = state.complete(terminal)
 		if err != nil {

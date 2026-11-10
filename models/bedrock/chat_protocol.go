@@ -9,6 +9,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
@@ -144,7 +145,8 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return
 		}
-		defer stream.Close()
+		closeStream := sync.OnceValue(stream.Close)
+		defer func() { _ = closeStream() }()
 
 		// The last delta is held back so the finish reason can be stamped on
 		// it. ConverseStream sends its usage-carrying metadata event after
@@ -176,7 +178,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 				return
 			}
 		}
-		if streamErr := stream.Err(); streamErr != nil {
+		if streamErr := errors.Join(closeStream(), stream.Err(), ctx.Err()); streamErr != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: streamErr})
 			return
 		}

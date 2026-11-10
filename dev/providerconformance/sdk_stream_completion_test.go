@@ -1,6 +1,7 @@
 package providerconformance_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io"
@@ -16,11 +17,7 @@ import (
 
 func TestSDKChatCompletionRequiresSuccessfulClose(t *testing.T) {
 	const anthropicEvents = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"answer\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
-	for _, sample := range []struct {
-		name     string
-		wire     string
-		newModel func(context.Context, *http.Client) (chat.Model, error)
-	}{
+	for _, sample := range append([]chatCompletionBinding{
 		{name: "chat completions", wire: "data: {\"id\":\"m\",\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", newModel: func(ctx context.Context, client *http.Client) (chat.Model, error) {
 			return openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
 		}},
@@ -30,11 +27,11 @@ func TestSDKChatCompletionRequiresSuccessfulClose(t *testing.T) {
 		{name: "messages", wire: anthropicEvents, newModel: func(ctx context.Context, client *http.Client) (chat.Model, error) {
 			return anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "claude"}})
 		}},
-	} {
+	}, googleChatCompletionBindings(t)...) {
 		t.Run(sample.name, func(t *testing.T) {
 			fault := errors.New("stream close failed")
 			for _, closeErr := range []error{nil, fault} {
-				transport := &responseBudgetTransport{status: http.StatusOK, contentType: "text/event-stream", closeErr: closeErr, reader: func(*http.Request) io.Reader { return strings.NewReader(sample.wire) }}
+				transport := &responseBudgetTransport{status: http.StatusOK, contentType: cmp.Or(sample.contentType, "text/event-stream"), closeErr: closeErr, reader: func(*http.Request) io.Reader { return strings.NewReader(sample.wire) }}
 				model, err := sample.newModel(t.Context(), &http.Client{Transport: transport})
 				if err != nil {
 					t.Fatal(err)
