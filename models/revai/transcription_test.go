@@ -3,6 +3,7 @@ package revai_test
 import (
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func TestTranscriptionModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 
 	srv := modeltest.MuxServer(
 		// Order matters: more specific routes first.
@@ -31,7 +32,7 @@ func TestTranscriptionModel_Call_Mock(t *testing.T) {
 				http.NotFound(w, r)
 				return
 			}
-			n := polls.Inc()
+			n := polls.Add(1)
 			status := "in_progress"
 			if n >= 2 {
 				status = "transcribed"

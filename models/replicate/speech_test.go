@@ -4,6 +4,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 func TestSpeechModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 
 	// We register the audio download path on the same server — the
 	// poll-success response will point at /audio.bin (same origin).
@@ -34,7 +35,7 @@ func TestSpeechModel_Call_Mock(t *testing.T) {
 			w.Write([]byte(`{"id":"pred-tts","status":"starting","urls":{"get":"/v1/predictions/pred-tts"}}`))
 		}},
 		modeltest.Route{Method: "GET", Contains: "/predictions/", Handle: func(w http.ResponseWriter, r *http.Request) {
-			n := polls.Inc()
+			n := polls.Add(1)
 			status := "processing"
 			output := "null"
 			if n >= 2 {

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 )
 
 // Contains matches a URL-path substring. Empty Method or Contains matches any
@@ -32,12 +31,3 @@ func MuxServer(routes ...Route) *httptest.Server {
 		http.Error(w, "modeltest.MuxServer: no route matched "+r.Method+" "+r.URL.Path, http.StatusNotFound)
 	}))
 }
-
-// PollCounter is safe for concurrent handlers.
-type PollCounter struct {
-	n atomic.Int32
-}
-
-func (p *PollCounter) Inc() int32 { return p.n.Add(1) }
-
-func (p *PollCounter) N() int32 { return p.n.Load() }

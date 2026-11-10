@@ -2,6 +2,7 @@ package assemblyai_test
 
 import (
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func TestTranscriptionModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 
 	srv := modeltest.MuxServer(
 		modeltest.Route{Method: "POST", Contains: "/upload", Handle: func(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +25,7 @@ func TestTranscriptionModel_Call_Mock(t *testing.T) {
 			w.Write([]byte(`{"id":"job-1","status":"queued","audio_duration":0}`))
 		}},
 		modeltest.Route{Method: "GET", Contains: "/transcript/", Handle: func(w http.ResponseWriter, r *http.Request) {
-			n := polls.Inc()
+			n := polls.Add(1)
 			status := "processing"
 			text := ""
 			if n >= 2 {

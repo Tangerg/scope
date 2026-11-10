@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestImageModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 
 	var server *httptest.Server
 	server = modeltest.MuxServer(
@@ -27,7 +28,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 			w.Write([]byte(`{"id":"gen-1","created_at":"2026-07-31T08:00:00Z","model":"uni-1","state":"queued","type":"image","output":[]}`))
 		}},
 		modeltest.Route{Method: "GET", Contains: "/generations/", Handle: func(w http.ResponseWriter, r *http.Request) {
-			n := polls.Inc()
+			n := polls.Add(1)
 			state := "processing"
 			output := "[]"
 			if n >= 2 {

@@ -3,6 +3,7 @@
 package openai_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestImageModel_Call_Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := modeltest.WithTimeout(t, 60*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	req, _ := image.NewRequest("a small red square on white background")
 	out, err := m.Call(ctx, req)

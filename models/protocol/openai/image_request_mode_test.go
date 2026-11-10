@@ -2,6 +2,7 @@ package openai_test
 
 import (
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
@@ -16,8 +17,8 @@ func TestImageRequestOwnsUnaryResponseMode(t *testing.T) {
 			value any
 		}{{"true", true}, {"false", false}, {"null", nil}, {"zero", 0}, {"string", "true"}} {
 			t.Run(field+"/"+test.name, func(t *testing.T) {
-				var requests modeltest.PollCounter
-				server := modeltest.JSONServer(http.StatusOK, `{"data":[{"b64_json":"aW1hZ2U="}]}`, func(*http.Request) { requests.Inc() })
+				var requests atomic.Int32
+				server := modeltest.JSONServer(http.StatusOK, `{"data":[{"b64_json":"aW1hZ2U="}]}`, func(*http.Request) { requests.Add(1) })
 				t.Cleanup(server.Close)
 				model := newImageModel(t, server.URL, "gpt-image-1")
 				request, err := image.NewRequest("a square")
@@ -28,8 +29,8 @@ func TestImageRequestOwnsUnaryResponseMode(t *testing.T) {
 					t.Fatal(setErr)
 				}
 				response, err := model.Call(t.Context(), request)
-				if err == nil || response != nil || requests.N() != 0 {
-					t.Fatalf("response = %v; error = %v; requests = %d", response, err, requests.N())
+				if err == nil || response != nil || requests.Load() != 0 {
+					t.Fatalf("response = %v; error = %v; requests = %d", response, err, requests.Load())
 				}
 			})
 		}

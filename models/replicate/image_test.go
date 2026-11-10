@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestImageModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 
 	var srv *httptest.Server
 	srv = modeltest.MuxServer(
@@ -40,7 +41,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		}},
 		// GET /v1/predictions/<id>
 		modeltest.Route{Method: "GET", Contains: "/predictions/", Handle: func(w http.ResponseWriter, r *http.Request) {
-			n := polls.Inc()
+			n := polls.Add(1)
 			status := "processing"
 			output := "null"
 			if n >= 2 {

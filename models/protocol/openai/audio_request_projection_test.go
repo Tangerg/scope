@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/media"
@@ -144,14 +145,14 @@ func TestAudioRequestTypeErrorPreservesSDKCause(t *testing.T) {
 
 func assertAudioExtensionRejected(t *testing.T, modality, raw string) error {
 	t.Helper()
-	var requests modeltest.PollCounter
-	server := modeltest.JSONServer(http.StatusOK, `{"text":"unexpected network request"}`, func(*http.Request) { requests.Inc() })
+	var requests atomic.Int32
+	server := modeltest.JSONServer(http.StatusOK, `{"text":"unexpected network request"}`, func(*http.Request) { requests.Add(1) })
 	t.Cleanup(server.Close)
 	model := newAudioRequestModel(t, modality, "whisper-1", server.URL)
 	request := newAudioExtensionRequest(t, modality, json.RawMessage(raw))
 	response, err := model.Call(t.Context(), request)
-	if err == nil || response != nil || requests.N() != 0 {
-		t.Fatalf("response = %v; error = %v; requests = %d", response, err, requests.N())
+	if err == nil || response != nil || requests.Load() != 0 {
+		t.Fatalf("response = %v; error = %v; requests = %d", response, err, requests.Load())
 	}
 	if !strings.Contains(err.Error(), "extension") {
 		t.Fatalf("error does not identify the extension: %v", err)

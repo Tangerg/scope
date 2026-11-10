@@ -1,6 +1,7 @@
 package modeltest
 
 import (
+	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"net/http"
@@ -108,7 +109,7 @@ func RunIntegrationEmbedding(t *testing.T, probe IntegrationEmbeddingProbe) {
 	t.Helper()
 	key := RequireKey(t, probe.Provider)
 	model := probe.Build(t, key)
-	ctx, cancel := WithTimeout(t, integrationEmbeddingTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), integrationEmbeddingTimeout)
 	defer cancel()
 
 	request, err := embedding.NewRequest([]string{"the quick brown fox", "jumps over the lazy dog"})

@@ -1,18 +1,10 @@
 package modeltest
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
-
-// WithTimeout derives the call deadline from the test context.
-func WithTimeout(t *testing.T, duration time.Duration) (context.Context, context.CancelFunc) {
-	t.Helper()
-	return context.WithTimeout(t.Context(), duration)
-}
 
 const envKeyPrefix = "SCOPE_TEST_"
 

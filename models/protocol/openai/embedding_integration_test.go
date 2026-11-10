@@ -3,6 +3,7 @@
 package openai_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -40,7 +41,7 @@ func TestEmbeddingModel_Call_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := modeltest.WithTimeout(t, 30*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	resp, err := m.Call(ctx, req)

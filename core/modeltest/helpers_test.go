@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -302,13 +303,13 @@ func (p probeEmbedding) Call(ctx context.Context, request *embedding.Request) (*
 }
 
 func TestMuxServerRoutesByMethodAndPath(t *testing.T) {
-	var counter modeltest.PollCounter
+	var polls atomic.Int32
 	server := modeltest.MuxServer(
 		modeltest.Route{Method: http.MethodPost, Contains: "/transcript", Handle: func(writer http.ResponseWriter, _ *http.Request) {
 			_, _ = writer.Write([]byte("created"))
 		}},
 		modeltest.Route{Method: http.MethodGet, Contains: "/transcript", Handle: func(writer http.ResponseWriter, _ *http.Request) {
-			if counter.Inc() < 2 {
+			if polls.Add(1) < 2 {
 				_, _ = writer.Write([]byte("processing"))
 				return
 			}
@@ -329,8 +330,8 @@ func TestMuxServerRoutesByMethodAndPath(t *testing.T) {
 	if body := get(t, server.URL+"/v2/transcript/job-1"); body != "completed" {
 		t.Fatalf("second poll body = %q", body)
 	}
-	if counter.N() != 2 {
-		t.Fatalf("PollCounter.N = %d, want 2", counter.N())
+	if polls.Load() != 2 {
+		t.Fatalf("polls = %d, want 2", polls.Load())
 	}
 	if body := get(t, server.URL+"/unmatched"); body != "fallback" {
 		t.Fatalf("fallback body = %q", body)
@@ -617,18 +618,6 @@ func TestRunIntegrationRerankCallsTheConfiguredModel(t *testing.T) {
 	})
 	if !built || !called {
 		t.Fatalf("integration probe = built:%t called:%t", built, called)
-	}
-}
-
-func TestWithTimeoutDerivesFromTheTestContext(t *testing.T) {
-	ctx, cancel := modeltest.WithTimeout(t, time.Minute)
-	defer cancel()
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
-		t.Fatal("WithTimeout returned a context without a deadline")
-	}
-	cancel()
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatalf("context error = %v", ctx.Err())
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
@@ -16,11 +17,11 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
-func requestOwnershipBoundary(t *testing.T) (*httptest.Server, *modeltest.PollCounter) {
+func requestOwnershipBoundary(t *testing.T) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	calls := new(modeltest.PollCounter)
+	calls := new(atomic.Int32)
 	server := modeltest.JSONServer(http.StatusBadRequest, `{"error":{"message":"unexpected provider call","type":"invalid_request_error"}}`, func(request *http.Request) {
-		calls.Inc()
+		calls.Add(1)
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Error(err)
@@ -76,8 +77,8 @@ func TestResponsesUnsupportedCoreOptionsCannotUseNativeFields(t *testing.T) {
 					}
 					response, callErr := model.Call(t.Context(), request)
 					count, countErr := model.CountInputTokens(t.Context(), request)
-					if response != nil || invocation.ClassifyFailure(callErr) != invocation.FailureNotExecuted || count != 0 || countErr == nil || calls.N() != 0 {
-						t.Fatalf("response=%v Call=%v count=%d CountInputTokens=%v requests=%d", response, callErr, count, countErr, calls.N())
+					if response != nil || invocation.ClassifyFailure(callErr) != invocation.FailureNotExecuted || count != 0 || countErr == nil || calls.Load() != 0 {
+						t.Fatalf("response=%v Call=%v count=%d CountInputTokens=%v requests=%d", response, callErr, count, countErr, calls.Load())
 					}
 					if !strings.Contains(callErr.Error(), field.name) || !strings.Contains(countErr.Error(), field.name) {
 						t.Fatalf("missing field diagnosis: Call=%v CountInputTokens=%v", callErr, countErr)
@@ -127,8 +128,8 @@ func TestImageCoreOptionsCannotUseNativeFields(t *testing.T) {
 						t.Fatal(err)
 					}
 					response, err := model.Call(t.Context(), request)
-					if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.N() != 0 {
-						t.Fatalf("response=%v error=%v requests=%d", response, err, calls.N())
+					if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
+						t.Fatalf("response=%v error=%v requests=%d", response, err, calls.Load())
 					}
 					if !strings.Contains(err.Error(), field.name) {
 						t.Fatalf("missing field diagnosis: %v", err)

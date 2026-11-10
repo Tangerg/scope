@@ -1,6 +1,7 @@
 package modeltest
 
 import (
+	"context"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
@@ -112,7 +113,7 @@ func RunIntegrationRerank(t *testing.T, probe IntegrationRerankProbe) {
 	t.Helper()
 	key := RequireKey(t, probe.Provider)
 	model := probe.Build(t, key)
-	ctx, cancel := WithTimeout(t, integrationRerankTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), integrationRerankTimeout)
 	defer cancel()
 	request, err := rerank.NewRequest("capital of France", []string{"Paris is the capital of France.", "Berlin is in Germany."})
 	if err != nil {

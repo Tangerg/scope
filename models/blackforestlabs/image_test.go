@@ -5,6 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestImageModel_Call_Mock(t *testing.T) {
-	var polls modeltest.PollCounter
+	var polls atomic.Int32
 	var serverURL string
 
 	srv := modeltest.MuxServer(
@@ -31,7 +32,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 			if r.Header.Get("x-key") != "test-key" {
 				t.Errorf("poll x-key = %q", r.Header.Get("x-key"))
 			}
-			n := polls.Inc()
+			n := polls.Add(1)
 			status := "Pending"
 			sample := ""
 			if n >= 2 {
