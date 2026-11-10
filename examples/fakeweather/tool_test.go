@@ -2,9 +2,12 @@ package fakeweather
 
 import (
 	jsonv2 "encoding/json/v2"
+	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestToolUsesOnePreciseContract(t *testing.T) {
@@ -132,6 +135,53 @@ func TestToolDailyExtremaComeFromTheHourlyTemperatures(t *testing.T) {
 				t.Fatalf("%s on %s: daily range [%d,%d] contradicts hourly range [%d,%d]", location, date, response.Temperature.Min, response.Temperature.Max, minimum, maximum)
 			}
 		}
+	}
+}
+
+func TestToolDailyPrecipitationComesFromTheHourlyForecast(t *testing.T) {
+	for _, location := range []string{"London", "Singapore", "Beijing", "Reykjavik"} {
+		for day := 1; day <= 31; day++ {
+			date := time.Date(2024, time.January, day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+			response := callWeatherTool(t, Request{Location: location, Date: date, IncludeHourly: true})
+			total := 0.0
+			for _, hour := range response.HourlyForecast {
+				total += hour.Precipitation
+			}
+			if total == 0 {
+				if response.Precipitation != nil {
+					t.Fatalf("%s on %s: dry hours with daily precipitation %+v", location, date, response.Precipitation)
+				}
+			} else if response.Precipitation == nil || math.Abs(response.Precipitation.Amount-total) > 0.000001 {
+				t.Fatalf("%s on %s: daily=%+v hourly total=%g", location, date, response.Precipitation, total)
+			}
+			if total > 0 && !strings.Contains(response.Description, fmt.Sprintf("%.1f mm", total)) {
+				t.Fatalf("daily description contradicts hourly accumulation: %q; total=%g", response.Description, total)
+			}
+		}
+	}
+}
+
+func TestToolLunarPhaseAndIlluminationAgreeAcrossACycle(t *testing.T) {
+	seen := make(map[string]bool)
+	for day := 1; day <= 60; day++ {
+		date := time.Date(2024, time.January, day, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+		astronomy := callWeatherTool(t, Request{Location: "London", Date: date}).Astronomy
+		seen[astronomy.MoonPhase] = true
+		minimum, maximum := 0, 100
+		switch astronomy.MoonPhase {
+		case "New Moon":
+			maximum = 4
+		case "Full Moon":
+			minimum = 96
+		case "First Quarter", "Last Quarter":
+			minimum, maximum = 30, 70
+		}
+		if astronomy.MoonIllumination < minimum || astronomy.MoonIllumination > maximum {
+			t.Fatalf("%s: %s illumination=%d outside [%d,%d]", date, astronomy.MoonPhase, astronomy.MoonIllumination, minimum, maximum)
+		}
+	}
+	if len(seen) != 8 {
+		t.Fatalf("incomplete lunar cycle: %v", seen)
 	}
 }
 

@@ -34,20 +34,20 @@ func (c Condition) hasPrecipitation() bool {
 	return false
 }
 
-func (c Condition) summary(precip *Precipitation) string {
+func (c Condition) summary() string {
 	switch c {
 	case ConditionSunny:
-		return "Clear skies with abundant sunshine throughout the day."
+		return "Clear skies with abundant sunshine."
 	case ConditionPartlyCloudy:
 		return "Mix of sun and clouds with pleasant weather conditions."
 	case ConditionCloudy:
-		return "Overcast skies with cloud cover throughout the day."
+		return "Overcast skies with cloud cover."
 	case ConditionRainy:
-		return "Rainy conditions expected." + precip.amountSentence("Rainfall")
+		return "Rainy conditions expected."
 	case ConditionStormy:
 		return "Severe thunderstorms with heavy rain and strong winds. Lightning activity expected."
 	case ConditionSnowy:
-		return "Snow is expected." + precip.amountSentence("Snowfall")
+		return "Snow is expected."
 	case ConditionBlizzard:
 		return "Blizzard conditions with heavy snow and very strong winds. Visibility severely reduced."
 	case ConditionFoggy:

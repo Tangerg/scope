@@ -89,17 +89,39 @@ type Wind struct {
 
 type Precipitation struct {
 	Type        PrecipitationType      `json:"type"`
-	Probability int                    `json:"probability"` // 0-100
-	Amount      float64                `json:"amount"`      // mm
+	Probability int                    `json:"probability"` // 0-100 chance of precipitation during the target day
+	Amount      float64                `json:"amount"`      // mm accumulated over Timestamp, summed from the hourly forecast
 	Intensity   PrecipitationIntensity `json:"intensity"`
 }
 
+func newPrecipitation(hourly [hoursPerDay]HourlyForecast, kind PrecipitationType, probability int) *Precipitation {
+	const (
+		moderateDailyPrecipitationMM = 15
+		heavyDailyPrecipitationMM    = 30
+	)
+	amount := 0.0
+	for _, forecast := range hourly {
+		amount += forecast.Precipitation
+	}
+	amount = roundMeasurement(amount)
+	if amount == 0 {
+		return nil
+	}
+	intensity := PrecipitationLight
+	if amount >= heavyDailyPrecipitationMM {
+		intensity = PrecipitationHeavy
+	} else if amount >= moderateDailyPrecipitationMM {
+		intensity = PrecipitationModerate
+	}
+	return &Precipitation{Type: kind, Probability: probability, Amount: amount, Intensity: intensity}
+}
+
 // A nil Precipitation describes a dry day and contributes no sentence.
-func (p *Precipitation) amountSentence(kind string) string {
+func (p *Precipitation) amountSentence() string {
 	if p == nil {
 		return ""
 	}
-	return fmt.Sprintf(" %s amount: %.*f mm. %s intensity.", kind, measurementDecimalPlaces, p.Amount, p.Intensity)
+	return fmt.Sprintf(" Daily %s accumulation: %.*f mm; %s intensity.", p.Type, measurementDecimalPlaces, p.Amount, p.Intensity)
 }
 
 type AirQuality struct {
@@ -138,7 +160,7 @@ type HourlyForecast struct {
 	Time          int64     `json:"time"`
 	Temperature   int       `json:"temperature"`
 	Condition     Condition `json:"condition"`
-	Precipitation float64   `json:"precipitation"`
+	Precipitation float64   `json:"precipitation"` // mm accumulated over [Time, Time+1 hour)
 	Humidity      int       `json:"humidity"`
 	WindSpeed     float64   `json:"wind_speed"`
 }

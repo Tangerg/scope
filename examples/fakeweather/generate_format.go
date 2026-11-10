@@ -43,7 +43,8 @@ func buildDescription(condition Condition, temp int, wind Wind, humidity int, pr
 		lowHumidityDescriptionThreshold     = 30
 	)
 	var b strings.Builder
-	b.WriteString(condition.summary(precip))
+	b.WriteString(condition.summary())
+	b.WriteString(precip.amountSentence())
 
 	switch {
 	case temp < freezingPointCelsius:

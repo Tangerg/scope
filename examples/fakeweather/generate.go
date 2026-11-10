@@ -82,16 +82,12 @@ func (r *reportGenerator) report() *Response {
 	visibility := r.visibility(condition, humidity)
 	cloudCover := r.cloudCover(condition)
 
-	var precipitation *Precipitation
-	if condition.hasPrecipitation() {
-		precipitation = r.precipitation(condition, current)
-	}
-
 	airQuality := r.airQuality(condition)
 	uvIndex := r.uvIndex(condition, cloudCover)
 	astronomy := r.astronomy()
 	hourlyForecast := r.hourlyForecast(current, condition)
 	temperature := newTemperature(hourlyForecast, humidity, wind.Speed)
+	precipitation := newPrecipitation(hourlyForecast, r.precipitationType(temperature.Value), r.precipitationProbability(condition))
 	dewPoint := calculateDewPoint(temperature.Value, humidity)
 	alerts := r.alerts(condition, temperature.Value, wind.Speed)
 	description := buildDescription(condition, temperature.Value, wind, humidity, precipitation)
@@ -431,13 +427,6 @@ func (r *reportGenerator) cloudCover(condition Condition) int {
 	return defaultMinimumPercent + r.rng.IntN(defaultMaximumPercent-defaultMinimumPercent)
 }
 
-func (r *reportGenerator) precipitation(condition Condition, temp int) *Precipitation {
-	p := &Precipitation{Type: r.precipitationType(temp), Probability: r.precipitationProbability(condition)}
-	p.Amount, p.Intensity = r.precipitationAmount(condition)
-	p.Amount = roundMeasurement(p.Amount)
-	return p
-}
-
 func (r *reportGenerator) precipitationType(temp int) PrecipitationType {
 	const (
 		mixedPrecipitationMaximumCelsius = 3
@@ -483,39 +472,6 @@ func (r *reportGenerator) precipitationProbability(condition Condition) int {
 		probability = min(fullPercentage, probability+monsoonIncreasePercent)
 	}
 	return probability
-}
-
-func (r *reportGenerator) precipitationAmount(condition Condition) (float64, PrecipitationIntensity) {
-	const (
-		stormMinimumMM          = 20.0
-		stormMaximumMM          = 60.0
-		rainMinimumMM           = 5.0
-		rainMaximumMM           = 25.0
-		moderateRainThresholdMM = 15
-		drizzleMinimumMM        = 0.5
-		drizzleMaximumMM        = 3.5
-		snowMinimumMM           = 1.0
-		snowMaximumMM           = 11.0
-		defaultMaximumMM        = 5.0
-	)
-
-	switch condition {
-	case ConditionStormy:
-		return stormMinimumMM + r.rng.Float64()*(stormMaximumMM-stormMinimumMM), PrecipitationHeavy
-	case ConditionRainy:
-		amount := rainMinimumMM + r.rng.Float64()*(rainMaximumMM-rainMinimumMM)
-		if amount > moderateRainThresholdMM {
-			return amount, PrecipitationModerate
-		}
-		return amount, PrecipitationLight
-	case ConditionDrizzle:
-		return drizzleMinimumMM + r.rng.Float64()*(drizzleMaximumMM-drizzleMinimumMM), PrecipitationLight
-	case ConditionSnowy:
-		return snowMinimumMM + r.rng.Float64()*(snowMaximumMM-snowMinimumMM), PrecipitationModerate
-	case ConditionBlizzard:
-		return snowMinimumMM + r.rng.Float64()*(snowMaximumMM-snowMinimumMM), PrecipitationHeavy
-	}
-	return r.rng.Float64() * defaultMaximumMM, PrecipitationLight
 }
 
 func (r *reportGenerator) airQuality(condition Condition) *AirQuality {
@@ -658,7 +614,7 @@ func (r *reportGenerator) uvIndex(condition Condition, cloudCover int) UVIndex {
 	return uv
 }
 
-// Sun times use approximate solar declination; moon illumination uses a 29.5-day cycle.
+// Sun times use approximate solar declination.
 func (r *reportGenerator) astronomy() Astronomy {
 	const (
 		solarNoonHour          = hoursPerDay / 2
@@ -678,8 +634,7 @@ func (r *reportGenerator) astronomy() Astronomy {
 	sunrise := formatHM(solarNoonHour - daylight/2)
 	sunset := formatHM(solarNoonHour + daylight/2)
 
-	phaseIndex := (dayOfYear * len(moonPhases) / 30) % len(moonPhases)
-	moonIllum := int(math.Abs(math.Sin(float64(dayOfYear)*2*math.Pi/29.5)) * fullPercentage)
+	phase := newLunarPhase(r.target)
 
 	moonriseOffset := r.rng.IntN(2*moonEventJitterMinutes) - moonEventJitterMinutes
 	moonsetOffset := r.rng.IntN(2*moonEventJitterMinutes) - moonEventJitterMinutes
@@ -691,8 +646,8 @@ func (r *reportGenerator) astronomy() Astronomy {
 		Sunset:           sunset,
 		Moonrise:         moonrise,
 		Moonset:          moonset,
-		MoonPhase:        moonPhases[phaseIndex],
-		MoonIllumination: moonIllum,
+		MoonPhase:        phase.name(),
+		MoonIllumination: phase.illumination(),
 	}
 }
 

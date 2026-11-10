@@ -58,8 +58,3 @@ func calculateDewPoint(temp, humidity int) int {
 	alpha := (a*t)/(b+t) + math.Log(rh)
 	return int(math.Round((b * alpha) / (a - alpha)))
 }
-
-var moonPhases = [...]string{
-	"New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
-	"Full Moon", "Waning Gibbous", "Last Quarter", "Waning Crescent",
-}
