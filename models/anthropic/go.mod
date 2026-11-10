@@ -3,9 +3,9 @@ module github.com/Tangerg/scope/models/anthropic
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/protocol/anthropic v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/models/protocol/anthropic v0.61.0
+	github.com/Tangerg/scope/models/protocol/openai v0.61.0
 )
 
 require (
