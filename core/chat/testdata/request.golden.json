@@ -23,7 +23,8 @@
             "source": {
               "kind": "uri",
               "uri": "https://example.com/scope.png"
-            }
+            },
+            "metadata": {}
           }
         }
       ]

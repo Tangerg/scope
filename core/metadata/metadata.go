@@ -21,8 +21,10 @@ var (
 
 // Map stores encoded JSON extension values. Its zero value is writable through
 // Set. Clone and Merge copy bytes; Merge validates both sides before mutation.
-// Equal compares encoded forms without semantic normalization. JSON preserves
-// nil as null and an explicitly empty map as an object.
+// Equal compares encoded entries without semantic normalization and treats nil
+// and empty maps as equal. JSON preserves nil as null and an explicitly empty
+// map as an object. Only nil is zero for omitzero fields; an explicit empty
+// object retains its presence.
 type Map map[string]json.RawMessage
 
 func FromValues(values map[string]any) (Map, error) {
@@ -142,7 +144,7 @@ func (m Map) Decode[T any](key string) (T, bool, error) {
 	return value, true, nil
 }
 
-func (m Map) IsZero() bool { return len(m) == 0 }
+func (m Map) IsZero() bool { return m == nil }
 
 func (m Map) Clone() Map {
 	if m == nil {

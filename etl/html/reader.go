@@ -226,8 +226,5 @@ func (r *Reader) pageMetadata(doc *goquery.Document) (coremetadata.Map, error) {
 			}
 		}
 	}
-	if len(facts) == 0 {
-		return nil, nil
-	}
 	return facts, nil
 }

@@ -77,6 +77,28 @@ func TestDocumentJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDocumentJSONPreservesMetadataPresence(t *testing.T) {
+	for _, facts := range []metadata.Map{nil, {}, {"source": []byte(`"test"`)}} {
+		original := &document.Document{Text: "hello", Metadata: facts}
+		stored, err := original.MarshalStoredMetadata()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := jsonv2.Marshal(original)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var restored document.Document
+		if decodeErr := jsonv2.Unmarshal(data, &restored); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		again, err := restored.MarshalStoredMetadata()
+		if err != nil || string(again) != string(stored) || (restored.Metadata == nil) != (facts == nil) {
+			t.Fatalf("metadata presence changed: JSON=%s stored=%s restored=%s error=%v", data, stored, again, err)
+		}
+	}
+}
+
 func TestDocumentJSONRejectsInvalidValuesTransactionally(t *testing.T) {
 	if _, err := jsonv2.Marshal(document.Document{}); !errors.Is(err, document.ErrInvalidDocument) {
 		t.Fatalf("Marshal error = %v, want ErrInvalidDocument", err)

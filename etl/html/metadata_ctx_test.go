@@ -33,6 +33,22 @@ func TestConfigMetadataAppliedToEveryDocument(t *testing.T) {
 	}
 }
 
+func TestReaderPreservesExplicitlyEmptyMetadata(t *testing.T) {
+	for _, facts := range []coremetadata.Map{nil, {}} {
+		reader, err := html.NewReader(strings.NewReader("<p>Content</p>"), html.ReaderConfig{Metadata: facts})
+		if err != nil {
+			t.Fatal(err)
+		}
+		docs, err := reader.Read(t.Context())
+		if err != nil || len(docs) != 1 {
+			t.Fatalf("documents=%v error=%v", docs, err)
+		}
+		if (docs[0].Metadata == nil) != (facts == nil) {
+			t.Fatalf("metadata=%#v want presence of %#v", docs[0].Metadata, facts)
+		}
+	}
+}
+
 func TestConfigMetadataRejectsReaderOwnedKeys(t *testing.T) {
 	for _, key := range []string{html.MetadataTitle, html.MetadataDescription, html.MetadataCanonical, html.MetadataSelector} {
 		reader, err := html.NewReader(strings.NewReader("<p>Content without page information</p>"), html.ReaderConfig{

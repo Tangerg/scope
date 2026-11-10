@@ -16,13 +16,15 @@
     "source": {
       "kind": "uri",
       "uri": "https://example.com/manual.pdf"
-    }
+    },
+    "metadata": {}
   },
   "reference": {
     "mime": "audio/mpeg",
     "source": {
       "kind": "reference",
       "ref": "provider-file-1"
-    }
+    },
+    "metadata": {}
   }
 }
