@@ -8,9 +8,44 @@ import (
 
 	"github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/mcp"
 )
+
+func TestEmbeddedResourceValidatesProvenanceAtBothBoundaries(t *testing.T) {
+	for _, uri := range []string{"relative/path", "not a uri", "file:///bad path", "custom://valid/resource"} {
+		for _, mimeType := range []string{"text/plain", "not a mime", ""} {
+			for _, blob := range []bool{false, true} {
+				resource := &sdk.ResourceContents{URI: uri, MIMEType: mimeType, Text: "source"}
+				part := content.Block{Kind: content.Text, Text: "source"}
+				textMIME := mimeType
+				if blob {
+					resource.Text, resource.Blob = "", []byte("source")
+					part = content.Block{Kind: content.Media, Media: &media.Media{MIME: "text/plain", Source: media.Source{Kind: media.SourceBytes, Bytes: []byte("source")}}}
+					textMIME = ""
+				}
+				valid := uri == "custom://valid/resource" && mimeType != "not a mime"
+				messages, err := mcp.PromptMessagesToChat([]*sdk.PromptMessage{{Role: "user", Content: &sdk.EmbeddedResource{Resource: resource}}})
+				if (err == nil) != valid {
+					t.Fatalf("import uri=%q MIME=%q blob=%t: %v", uri, mimeType, blob, err)
+				}
+				part.Metadata, err = metadata.FromValues(map[string]any{mcp.ContentMetadataKey: map[string]any{"type": "resource", "resource": map[string]any{"uri": uri, "mimeType": textMIME}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = mcp.EncodeToolResult(tool.Output{Content: []content.Block{part}})
+				validExport := uri == "custom://valid/resource" && (blob || mimeType != "not a mime")
+				if (err == nil) != validExport {
+					t.Fatalf("export uri=%q MIME=%q blob=%t: %v", uri, textMIME, blob, err)
+				}
+				if valid && len(messages) != 1 {
+					t.Fatal("valid resource was lost")
+				}
+			}
+		}
+	}
+}
 
 func TestCoreMIMEChangeSurvivesMCPProjection(t *testing.T) {
 	for name, source := range map[string]sdk.Content{

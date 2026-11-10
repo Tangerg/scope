@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"github.com/samber/lo"
@@ -65,8 +66,8 @@ type resourceEnvelope struct {
 }
 
 func (r resourceEnvelope) contents(part corecontent.Block) (*sdkmcp.ResourceContents, error) {
-	if r.URI == "" {
-		return nil, errors.New("mcp: embedded resource URI is missing")
+	if err := r.validate(); err != nil {
+		return nil, err
 	}
 	resource := &sdkmcp.ResourceContents{URI: r.URI, Meta: metadataToMCP(r.Meta)}
 	if part.Kind == corecontent.Text {
@@ -86,6 +87,19 @@ func (r resourceEnvelope) contents(part corecontent.Block) (*sdkmcp.ResourceCont
 		return nil, err
 	}
 	return resource, nil
+}
+
+func (r resourceEnvelope) validate() error {
+	if err := (media.Source{Kind: media.SourceURI, URI: r.URI}).Validate(); err != nil {
+		return fmt.Errorf("mcp: embedded resource URI: %w", err)
+	}
+	if r.MIMEType != "" {
+		mediaType, _, err := mime.ParseMediaType(r.MIMEType)
+		if err != nil || !utf8.ValidString(r.MIMEType) || !strings.Contains(mediaType, "/") {
+			return fmt.Errorf("mcp: embedded resource: %w: %q", media.ErrInvalidMIME, r.MIMEType)
+		}
+	}
+	return nil
 }
 
 type coreContentEnvelope struct {
@@ -184,9 +198,6 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (corecontent.Block, con
 	if resource == nil {
 		return corecontent.Block{}, contentEnvelope{}, errors.New("mcp: embedded resource is nil")
 	}
-	if resource.URI == "" {
-		return corecontent.Block{}, contentEnvelope{}, errors.New("mcp: embedded resource URI is missing")
-	}
 	resourceMeta, err := metadataFromMCP(resource.Meta)
 	if err != nil {
 		return corecontent.Block{}, contentEnvelope{}, err
@@ -207,7 +218,10 @@ func splitRemoteResource(value *sdkmcp.EmbeddedResource) (corecontent.Block, con
 	default:
 		return corecontent.Block{}, contentEnvelope{}, ErrEmptyEmbeddedResource
 	}
-	return part, envelope, err
+	if err != nil {
+		return corecontent.Block{}, contentEnvelope{}, err
+	}
+	return part, envelope, envelope.Resource.validate()
 }
 
 func (c contentEnvelope) attach(part *corecontent.Block, nativeMeta sdkmcp.Meta) error {
