@@ -141,6 +141,7 @@ package_budget=(
   "core/history/storetest 86.2"
   "core/httpclient 96.4"
   "core/image 97.3"
+  "core/internal/absuri 100.0"
   "core/internal/arch none"
   "core/internal/modelid 100"
   "core/internal/ptr 100.0"

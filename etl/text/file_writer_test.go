@@ -171,13 +171,45 @@ func TestFileWriterRejectsInvalidDocumentsBeforeOpening(t *testing.T) {
 	}
 }
 
-func TestFileWriterReportsDestinationOpenFailure(t *testing.T) {
-	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: t.TempDir()})
+func TestFileWriterRejectsDirectoryDestination(t *testing.T) {
+	for _, appendMode := range []bool{false, true} {
+		t.Run(fmt.Sprintf("append=%t", appendMode), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "documents.txt")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writer, err := text.NewFileWriter(text.FileWriterConfig{Path: path, Append: appendMode})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if writeErr := writer.Write(t.Context(), []*document.Document{{Text: "content"}}); writeErr == nil {
+				t.Fatal("directory destination accepted")
+			}
+			info, err := os.Stat(path)
+			if err != nil || !info.IsDir() {
+				t.Fatalf("destination directory was changed: %v, %v", info, err)
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil || len(entries) != 1 || entries[0].Name() != "documents.txt" {
+				t.Fatalf("failed write left temporary files: %v, %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestFileWriterReportsMissingDestinationDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := text.NewFileWriter(text.FileWriterConfig{Path: filepath.Join(dir, "missing", "documents.txt")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Write(t.Context(), []*document.Document{{Text: "content"}}); err == nil {
-		t.Fatal("directory destination accepted")
+	if writeErr := writer.Write(t.Context(), []*document.Document{{Text: "content"}}); !errors.Is(writeErr, os.ErrNotExist) {
+		t.Fatalf("Write error = %v, want os.ErrNotExist", writeErr)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("failed write created destination entries: %v, %v", entries, err)
 	}
 }
 

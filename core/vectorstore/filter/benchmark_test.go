@@ -85,9 +85,10 @@ func nestedDoubleNegationChain(n int) string {
 
 // BenchmarkParseNestedDoubleNegationChain measures the same per-atom cost on the
 // double-negation-nested chain. Its per-atom cost tracking the flat chain's is
-// what confirms the quadratic flatten rather than a cubic one.
+// what confirms the quadratic flatten rather than a cubic one. Each link adds
+// three recursive levels, so the cases stay below the parser's depth bound.
 func BenchmarkParseNestedDoubleNegationChain(b *testing.B) {
-	for _, n := range []int{250, 500, 1000} {
+	for _, n := range []int{64, 128, 256} {
 		source := nestedDoubleNegationChain(n)
 		b.Run(strconv.Itoa(n), func(b *testing.B) {
 			b.ReportAllocs()

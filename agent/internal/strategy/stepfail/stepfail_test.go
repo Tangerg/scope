@@ -28,4 +28,7 @@ func TestFailureRejectsAnInvalidClassification(t *testing.T) {
 	if _, err := Transition(0, run.FailureKindExecution, "Not A Code", "failed"); !errors.Is(err, run.ErrInvalidFailure) {
 		t.Fatalf("invalid code error = %v", err)
 	}
+	if _, err := Settlement(run.FailureKindContract, "Not A Code", "failed"); !errors.Is(err, run.ErrInvalidFailure) {
+		t.Fatalf("invalid settlement code error = %v", err)
+	}
 }
