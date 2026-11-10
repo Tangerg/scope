@@ -149,9 +149,10 @@ func (b blockKind) String() string {
 }
 
 type markdownBlock struct {
-	kind  blockKind
-	text  string
-	parts []string
+	kind    blockKind
+	text    string
+	parts   []string
+	opening string
 }
 
 type markdownSection struct {
@@ -247,6 +248,11 @@ func classifyBlock(source []byte, node ast.Node, end int, raw string) markdownBl
 		block.kind = blockIndentedCode
 		if typed.CodeBlockKind == ast.CodeBlockKindFenced {
 			block.kind = blockFencedCode
+			opening, _, _ := strings.Cut(raw, "\n")
+			block.opening = strings.TrimSpace(opening)
+			for line := range strings.Lines(typed.Value.Str(source)) {
+				block.parts = append(block.parts, strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"))
+			}
 		}
 	default:
 		block.kind = blockAtomic
@@ -343,7 +349,9 @@ func (t *TextSplitter) splitBlock(ctx context.Context, prefix string, block mark
 			return strings.Join(items, "\n\n")
 		})
 	case blockFencedCode:
-		return t.splitFencedCode(ctx, prefix, block.text)
+		return t.groupSemanticUnits(ctx, prefix, block.kind, block.parts, func(lines []string) string {
+			return block.opening + "\n" + strings.Join(lines, "\n") + "\n" + closingFence(block.opening)
+		})
 	case blockIndentedCode:
 		lines := strings.Split(block.text, "\n")
 		return t.groupSemanticUnits(ctx, prefix, block.kind, lines, func(lines []string) string {
@@ -404,20 +412,6 @@ func (t *TextSplitter) splitTable(ctx context.Context, prefix, table string) ([]
 	header := lines[:2]
 	return t.groupSemanticUnits(ctx, prefix, blockTable, lines[2:], func(rows []string) string {
 		return strings.Join(slices.Concat(header, rows), "\n")
-	})
-}
-
-func (t *TextSplitter) splitFencedCode(ctx context.Context, prefix, code string) ([]string, error) {
-	lines := strings.Split(code, "\n")
-	opening := lines[0]
-	closing := closingFence(opening)
-	content := lines[1:]
-	if len(content) > 0 && isClosingFence(content[len(content)-1], opening) {
-		closing = content[len(content)-1]
-		content = content[:len(content)-1]
-	}
-	return t.groupSemanticUnits(ctx, prefix, blockFencedCode, content, func(lines []string) string {
-		return opening + "\n" + strings.Join(lines, "\n") + "\n" + closing
 	})
 }
 
@@ -544,16 +538,6 @@ func closingFence(opening string) string {
 		return "```"
 	}
 	return indent + strings.Repeat(string(trimmed[0]), max(minimumCodeFenceLength, fenceRun(trimmed)))
-}
-
-func isClosingFence(line, opening string) bool {
-	open := strings.TrimLeft(opening, " \t")
-	candidate := strings.TrimLeft(line, " \t")
-	if open == "" || candidate == "" || candidate[0] != open[0] {
-		return false
-	}
-	count := fenceRun(candidate)
-	return count >= fenceRun(open) && strings.TrimSpace(candidate[count:]) == ""
 }
 
 // fenceRun counts the repeated fence character that begins a nonempty line.

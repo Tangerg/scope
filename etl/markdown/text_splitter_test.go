@@ -116,6 +116,23 @@ func TestSplitterRepeatsFencesAroundCodeLines(t *testing.T) {
 	}
 }
 
+func TestSplitterUsesParsedFencedCodeBoundaries(t *testing.T) {
+	for _, separator := range []string{"\n  \n", "\n\t\n", "\r\n \t\r\n", "\n\n"} {
+		for _, tail := range []string{"# Next\ntext", ""} {
+			source := "```go\nfirst()\nsecond()\nthird()\n```" + separator + tail
+			splitter := newSplitter(t, len("```go\nsecond()\n```"), 4)
+			chunks, err := splitter.SplitText(t.Context(), source)
+			want := []string{"```go\nfirst()\n```", "```go\nsecond()\n```", "```go\nthird()\n```"}
+			if tail != "" {
+				want = append(want, "# Next\n\ntext")
+			}
+			if err != nil || !slices.Equal(chunks, want) {
+				t.Fatalf("separator=%q tail=%q chunks=%q error=%v", separator, tail, chunks, err)
+			}
+		}
+	}
+}
+
 func TestSplitterUsesFullHeadingAncestry(t *testing.T) {
 	const source = "# Guide\n\nintro\n\n## Install\n\nfirst paragraph\n\nsecond paragraph"
 	limit := len([]rune("# Guide\n\n## Install\n\nsecond paragraph"))
