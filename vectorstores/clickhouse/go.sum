@@ -4,8 +4,8 @@ github.com/ClickHouse/clickhouse-go/v2 v2.50.0 h1:cX9TLBOdNVbecglF/c8KkbtZQpov84
 github.com/ClickHouse/clickhouse-go/v2 v2.50.0/go.mod h1:2mzC9OqL8g+vZgmdOoRQ9iEp2BxIsV5hKA1m7DBVU+M=
 github.com/DATA-DOG/go-sqlmock v1.5.2 h1:OcvFkGmslmlZibjAjaHm3L//6LiuBgolP7OputlJIzU=
 github.com/DATA-DOG/go-sqlmock v1.5.2/go.mod h1:88MAG/4G7SMwSE3CeA0ZKzrT5CiOU3OJ+JlNzwDqpNU=
-github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02 h1:GBj0heTEowlo9W65HECZNaS1iyl9wNUuQ/khgHS+mOs=
-github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02/go.mod h1:nfLAh+FmtWTfPqvkIRibKkSegZ4RJvKR4MI+E4cjZYo=
+github.com/Tangerg/scope/core v0.61.0 h1:e1uiSBL9+hzWOk4fy2El4FcprngM1+PfiJP1mrJNHBM=
+github.com/Tangerg/scope/core v0.61.0/go.mod h1:nfLAh+FmtWTfPqvkIRibKkSegZ4RJvKR4MI+E4cjZYo=
 github.com/andybalholm/brotli v1.2.7 h1:UgafRPGMam5ySHfRkhthMqOFA6IFoeF3D7mWIDLjG5A=
 github.com/andybalholm/brotli v1.2.7/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/bahlo/generic-list-go v0.2.0 h1:5sz/EEAK+ls5wF+NeqDpk5+iNdMDXrh3z3nPnH1Wvgk=

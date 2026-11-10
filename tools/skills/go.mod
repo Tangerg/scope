@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/tools/skills
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/skills v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/skills v0.61.0
 	github.com/samber/lo v1.53.0
 )
 
