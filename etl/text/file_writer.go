@@ -106,15 +106,15 @@ func (f *FileWriter) replace(payload string) (err error) {
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
-	var entropy [temporaryNameEntropyBytes]byte
-	if _, err = rand.Read(entropy[:]); err != nil {
-		return err
+	mode := createdTextFileMode
+	if preserved != nil {
+		mode = *preserved
 	}
-	temporary := filepath.Join(filepath.Dir(f.path), "."+filepath.Base(f.path)+"."+hex.EncodeToString(entropy[:]))
-	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, createdTextFileMode)
+	file, err := f.openReplacement(mode)
 	if err != nil {
 		return err
 	}
+	temporary := file.Name()
 	defer func() {
 		if err != nil {
 			if removeErr := os.Remove(temporary); !errors.Is(removeErr, os.ErrNotExist) {
@@ -122,18 +122,29 @@ func (f *FileWriter) replace(payload string) (err error) {
 			}
 		}
 	}()
+	if preserved != nil {
+		if err = file.Chmod(*preserved); err != nil {
+			return errors.Join(err, file.Close())
+		}
+	}
 	if err = f.write(payload, file); err != nil {
 		return errors.Join(err, file.Close())
 	}
 	if err = file.Close(); err != nil {
 		return err
 	}
-	if preserved != nil {
-		if err = os.Chmod(temporary, *preserved); err != nil {
-			return err
-		}
-	}
 	return os.Rename(temporary, f.path)
+}
+
+// Creation must never grant more permissions than the destination, even before
+// Chmod restores bits narrowed by the process umask.
+func (f *FileWriter) openReplacement(mode os.FileMode) (*os.File, error) {
+	var entropy [temporaryNameEntropyBytes]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return nil, err
+	}
+	temporary := filepath.Join(filepath.Dir(f.path), "."+filepath.Base(f.path)+"."+hex.EncodeToString(entropy[:]))
+	return os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 }
 
 func (f *FileWriter) render(ctx context.Context, docs []*document.Document) (string, error) {
