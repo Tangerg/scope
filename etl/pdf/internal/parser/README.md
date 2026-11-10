@@ -2,8 +2,9 @@
 
 This package is derived from `github.com/ledongthuc/pdf` at commit
 `5e46805f718e` (2026-10-20), itself derived from `rsc/pdf`.
-The upstream BSD license is preserved in `LICENSE`. The character mappings in
-`name.go` are unchanged.
+The upstream BSD license is preserved in `LICENSE`. `glyph_generate.go` generates
+`glyph_unicode.go` from the bundled Adobe Glyph List at
+`../../testdata/adobe-glyphlist.txt`; the generated header records its SHA-256.
 
 Scope uses this single internal parser because source byte and page limits
 cannot bound cross-reference traversal, decompression, object allocation, or
