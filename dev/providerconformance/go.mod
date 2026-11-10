@@ -3,39 +3,39 @@ module github.com/Tangerg/scope/dev/providerconformance
 go 1.27.3
 
 require (
-	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/anthropic v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/assemblyai v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/bedrock v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/blackforestlabs v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/cohere v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/deepgram v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/elevenlabs v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/gladia v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/google v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/hume v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/jina v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/luma v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/mistral v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/nomic v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/ollama v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/openai v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/openrouter v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/prodia v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/protocol/openai v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/replicate v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/revai v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/stability v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/voyage v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/models/xiaomi v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/tools v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/models/anthropic v0.61.0
+	github.com/Tangerg/scope/models/assemblyai v0.61.0
+	github.com/Tangerg/scope/models/bedrock v0.61.0
+	github.com/Tangerg/scope/models/blackforestlabs v0.61.0
+	github.com/Tangerg/scope/models/cohere v0.61.0
+	github.com/Tangerg/scope/models/deepgram v0.61.0
+	github.com/Tangerg/scope/models/elevenlabs v0.61.0
+	github.com/Tangerg/scope/models/gladia v0.61.0
+	github.com/Tangerg/scope/models/google v0.61.0
+	github.com/Tangerg/scope/models/hume v0.61.0
+	github.com/Tangerg/scope/models/jina v0.61.0
+	github.com/Tangerg/scope/models/luma v0.61.0
+	github.com/Tangerg/scope/models/mistral v0.61.0
+	github.com/Tangerg/scope/models/nomic v0.61.0
+	github.com/Tangerg/scope/models/ollama v0.61.0
+	github.com/Tangerg/scope/models/openai v0.61.0
+	github.com/Tangerg/scope/models/openrouter v0.61.0
+	github.com/Tangerg/scope/models/prodia v0.61.0
+	github.com/Tangerg/scope/models/protocol/openai v0.61.0
+	github.com/Tangerg/scope/models/replicate v0.61.0
+	github.com/Tangerg/scope/models/revai v0.61.0
+	github.com/Tangerg/scope/models/stability v0.61.0
+	github.com/Tangerg/scope/models/voyage v0.61.0
+	github.com/Tangerg/scope/models/xiaomi v0.61.0
+	github.com/Tangerg/scope/tools v0.61.0
 )
 
 require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.24.2 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
-	github.com/Tangerg/scope/models/protocol/anthropic v0.60.1-0.20261108171018-f61011de7e02 // indirect
+	github.com/Tangerg/scope/models/protocol/anthropic v0.61.0 // indirect
 	github.com/Tangerg/sse v0.0.6 // indirect
 	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.5 // indirect

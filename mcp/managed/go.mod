@@ -4,13 +4,13 @@ go 1.27.3
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.5
-	github.com/Tangerg/scope/agent v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/core v0.60.1-0.20261108171018-f61011de7e02
-	github.com/Tangerg/scope/mcp v0.60.1-0.20261108171018-f61011de7e02
+	github.com/Tangerg/scope/agent v0.61.0
+	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/mcp v0.61.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.60.1-0.20261108171018-f61011de7e02 // indirect
+	github.com/Tangerg/scope/otel v0.61.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
