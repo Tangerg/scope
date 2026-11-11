@@ -105,6 +105,10 @@ func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 // invocations. Retaining it does not retain the executable Tool.
 func (b Binding) Contract() Contract { return b.contract }
 
+// bound reports a Binding Bind produced; only Bind sets the contract, and it
+// always pairs it with the executable.
+func (b Binding) bound() bool { return b.contract.state != nil }
+
 func (c Contract) Effect() Effect {
 	if c.state == nil {
 		return EffectUnsafe
@@ -222,7 +226,7 @@ func (c Contract) validateInput(arguments []byte) (err error) {
 // Call executes an Invocation prepared by this Binding's exact Contract. It
 // rejects another binding's contract even when the public Tool name matches.
 func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error) {
-	if b.contract.state == nil || invocation.contract != b.contract.state {
+	if !b.bound() || invocation.contract != b.contract.state {
 		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
 	result, err := b.call(ctx, invocation, 0)

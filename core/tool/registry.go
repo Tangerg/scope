@@ -41,7 +41,7 @@ func (r *Registry) Register(values ...Binding) error {
 	pending := make(map[string]Binding, len(values))
 	names := make([]string, 0, len(values))
 	for index, binding := range values {
-		if binding.contract.state == nil || binding.executable == nil {
+		if !binding.bound() {
 			return fmt.Errorf("tools[%d]: %w", index, ErrInvalidTool)
 		}
 		name := binding.Contract().Name()
