@@ -3,7 +3,6 @@ package groq
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -26,13 +25,14 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("groq: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("groq: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("groq: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
@@ -52,7 +52,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		TextReasoning:      &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever},
 		NativeOutputFormat: nativeOutputFormat,
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
+	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {
 		return nil, fmt.Errorf("groq: construct OpenAI-compatible chat: %w", err)
 	}

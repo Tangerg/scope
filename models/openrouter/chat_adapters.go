@@ -40,13 +40,18 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("openrouter: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("openrouter: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("openrouter: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{
+		APIKey: c.APIKey, DefaultOptions: c.DefaultOptions,
+		BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient,
+		Headers: providerHeaders(c.AppURL, c.AppTitle),
+	}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
@@ -64,11 +69,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 			ReplayPlainText: true,
 		},
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{
-		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
-		BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient,
-		Headers: providerHeaders(config.AppURL, config.AppTitle),
-	}, dialect)
+	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct OpenAI-compatible chat: %w", err)
 	}
@@ -85,25 +86,25 @@ type MessagesConfig struct {
 }
 
 func (m MessagesConfig) Validate() error {
-	if m.APIKey == "" {
-		return errors.New("openrouter: APIKey is required")
-	}
-	if err := m.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("openrouter: DefaultOptions: %w", err)
+	if err := m.protocol().Validate(); err != nil {
+		return fmt.Errorf("openrouter: %w", err)
 	}
 	return nil
+}
+
+func (m MessagesConfig) protocol() anthropic.MessagesConfig {
+	return anthropic.MessagesConfig{
+		APIKey: m.APIKey, DefaultOptions: m.DefaultOptions,
+		BaseURL: cmp.Or(m.BaseURL, BaseURLAnthropic), HTTPClient: m.HTTPClient,
+		Headers: providerHeaders(m.AppURL, m.AppTitle),
+	}
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	headers := providerHeaders(config.AppURL, config.AppTitle)
-	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{
-		APIKey: config.APIKey, DefaultOptions: config.DefaultOptions,
-		BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient,
-		Headers: headers,
-	}, anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeBearer, SupportsSampling: true})
+	protocol, err := anthropic.NewMessages(ctx, config.protocol(), anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeBearer, SupportsSampling: true})
 	if err != nil {
 		return nil, fmt.Errorf("openrouter: construct Anthropic-compatible chat: %w", err)
 	}

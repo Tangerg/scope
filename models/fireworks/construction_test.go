@@ -27,3 +27,15 @@ func TestProviderIdentifierIsPresent(t *testing.T) {
 		t.Fatal("Provider is empty")
 	}
 }
+
+// Validate is the same admission NewChatCompletions applies, so a config it
+// accepts cannot fail construction on an endpoint it never checked.
+func TestValidateAdmitsOnlyWhatConstructionAccepts(t *testing.T) {
+	config := fireworks.ChatCompletionsConfig{APIKey: "key", BaseURL: "ftp://api.fireworks.example/v1"}
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate accepted an endpoint that construction rejects")
+	}
+	if _, err := fireworks.NewChatCompletions(t.Context(), config); err == nil {
+		t.Fatal("construction accepted a non-HTTP endpoint")
+	}
+}

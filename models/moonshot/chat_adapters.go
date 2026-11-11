@@ -3,7 +3,6 @@ package moonshot
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -28,13 +27,14 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("moonshot: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("moonshot: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("moonshot: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
 }
 
 // maximumTemperature is the top of the range Moonshot documents for its
@@ -55,7 +55,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		MaxTemperature:             new(float64(maximumTemperature)),
 		TextReasoning:              &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient}, dialect)
+	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {
 		return nil, fmt.Errorf("moonshot: construct OpenAI-compatible chat: %w", err)
 	}
@@ -70,20 +70,21 @@ type MessagesConfig struct {
 }
 
 func (m MessagesConfig) Validate() error {
-	if m.APIKey == "" {
-		return errors.New("moonshot: APIKey is required")
-	}
-	if err := m.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("moonshot: DefaultOptions: %w", err)
+	if err := m.protocol().Validate(); err != nil {
+		return fmt.Errorf("moonshot: %w", err)
 	}
 	return nil
+}
+
+func (m MessagesConfig) protocol() anthropic.MessagesConfig {
+	return anthropic.MessagesConfig{APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: cmp.Or(m.BaseURL, BaseURLAnthropic), HTTPClient: m.HTTPClient}
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true})
+	protocol, err := anthropic.NewMessages(ctx, config.protocol(), anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true})
 	if err != nil {
 		return nil, fmt.Errorf("moonshot: construct Anthropic-compatible chat: %w", err)
 	}

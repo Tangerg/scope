@@ -3,7 +3,7 @@ package zhipu
 import (
 	"cmp"
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/embedding"
@@ -18,27 +18,25 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if e.APIKey == "" {
-		return errors.New("zhipu: APIKey is required")
-	}
-	if e.DefaultOptions.Model == "" {
-		return errors.New("zhipu: DefaultOptions.Model is required")
-	}
-	if err := e.DefaultOptions.Validate(); err != nil {
-		return err
+	if err := e.protocol().Validate(); err != nil {
+		return fmt.Errorf("zhipu: %w", err)
 	}
 	return nil
+}
+
+func (e EmbeddingModelConfig) protocol() openai.EmbeddingModelConfig {
+	return openai.EmbeddingModelConfig{
+		Provider:       Provider,
+		APIKey:         e.APIKey,
+		DefaultOptions: e.DefaultOptions,
+		BaseURL:        cmp.Or(e.BaseURL, BaseURL),
+		HTTPClient:     e.HTTPClient,
+	}
 }
 
 func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*openai.EmbeddingModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	return openai.NewEmbeddingModel(ctx, openai.EmbeddingModelConfig{
-		Provider:       Provider,
-		APIKey:         config.APIKey,
-		DefaultOptions: config.DefaultOptions,
-		BaseURL:        cmp.Or(config.BaseURL, BaseURL),
-		HTTPClient:     config.HTTPClient,
-	})
+	return openai.NewEmbeddingModel(ctx, config.protocol())
 }

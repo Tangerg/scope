@@ -3,7 +3,6 @@ package huggingface
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -26,20 +25,21 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("huggingface: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("huggingface: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("huggingface: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, DefaultBaseURL), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, DefaultBaseURL), HTTPClient: config.HTTPClient}, openai.DialectConfig{Provider: Provider, TokenLimitField: openai.TokenLimitMaxTokens})
+	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), openai.DialectConfig{Provider: Provider, TokenLimitField: openai.TokenLimitMaxTokens})
 	if err != nil {
 		return nil, fmt.Errorf("huggingface: construct OpenAI-compatible chat: %w", err)
 	}

@@ -3,7 +3,6 @@ package deepseek
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -25,11 +24,8 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("deepseek: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("deepseek: %w", err)
 	}
 	options, _, err := c.DefaultOptions.Extensions.Decode[RequestOptions](RequestExtensionKey)
 	if err != nil {
@@ -39,6 +35,10 @@ func (c ChatCompletionsConfig) Validate() error {
 		return fmt.Errorf("deepseek: DefaultOptions: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
@@ -53,15 +53,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		DisableRawRequestExtension: true,
 		TextReasoning:              &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways},
 	}
-	protocol, err := openai.NewChatCompletions(ctx,
-		openai.ChatCompletionsConfig{
-			APIKey:         config.APIKey,
-			DefaultOptions: config.DefaultOptions,
-			BaseURL:        cmp.Or(config.BaseURL, BaseURL),
-			HTTPClient:     config.HTTPClient,
-		},
-		dialect,
-	)
+	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {
 		return nil, fmt.Errorf("deepseek: construct OpenAI-compatible chat: %w", err)
 	}

@@ -3,7 +3,6 @@ package minimax
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -28,13 +27,14 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("minimax: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("minimax: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("minimax: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURLIntl), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
@@ -57,7 +57,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		},
 	}
 	protocol, err := openai.NewChatCompletions(ctx,
-		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntl), HTTPClient: config.HTTPClient},
+		config.protocol(),
 		dialect,
 	)
 	if err != nil {
@@ -74,20 +74,21 @@ type MessagesConfig struct {
 }
 
 func (m MessagesConfig) Validate() error {
-	if m.APIKey == "" {
-		return errors.New("minimax: APIKey is required")
-	}
-	if err := m.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("minimax: DefaultOptions: %w", err)
+	if err := m.protocol().Validate(); err != nil {
+		return fmt.Errorf("minimax: %w", err)
 	}
 	return nil
+}
+
+func (m MessagesConfig) protocol() anthropic.MessagesConfig {
+	return anthropic.MessagesConfig{APIKey: m.APIKey, DefaultOptions: m.DefaultOptions, BaseURL: cmp.Or(m.BaseURL, BaseURLIntlAnthropic), HTTPClient: m.HTTPClient}
 }
 
 func NewMessages(ctx context.Context, config MessagesConfig) (*corechat.StreamModel, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	protocol, err := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLIntlAnthropic), HTTPClient: config.HTTPClient}, anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true, PrepareRequest: prepareAnthropicRequest})
+	protocol, err := anthropic.NewMessages(ctx, config.protocol(), anthropic.Dialect{Provider: Provider, Revision: anthropic.MessagesRevision20230601, APIKeyScheme: anthropic.APIKeySchemeXAPIKey, SupportsSampling: true, PrepareRequest: prepareAnthropicRequest})
 	if err != nil {
 		return nil, fmt.Errorf("minimax: construct Anthropic-compatible chat: %w", err)
 	}

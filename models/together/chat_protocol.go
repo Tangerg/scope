@@ -3,7 +3,6 @@ package together
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -26,13 +25,14 @@ type ChatCompletionsConfig struct {
 }
 
 func (c ChatCompletionsConfig) Validate() error {
-	if c.APIKey == "" {
-		return errors.New("together: APIKey is required")
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("together: DefaultOptions: %w", err)
+	if err := c.protocol().Validate(); err != nil {
+		return fmt.Errorf("together: %w", err)
 	}
 	return nil
+}
+
+func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
+	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {
@@ -41,7 +41,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	}
 	dialect := openai.DialectConfig{Provider: Provider, TokenLimitField: openai.TokenLimitMaxTokens, SupportsTopK: true, TextReasoning: &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning, openai.TextReasoningContent}, Replay: openai.TextReasoningReplayAlways}}
 	protocol, err := openai.NewChatCompletions(ctx,
-		openai.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURL), HTTPClient: config.HTTPClient},
+		config.protocol(),
 		dialect,
 	)
 	if err != nil {
