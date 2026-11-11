@@ -113,35 +113,11 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 				return nil, errors.New("elastic: native scroll repeated a document ID")
 			}
 			seen[hit.ID] = struct{}{}
-			if err = hit.Validate(); err != nil {
-				return nil, err
-			}
-			doc, decodeErr := s.decode(hit)
-			if decodeErr != nil {
-				return nil, decodeErr
-			}
-			if err = vectorstore.ValidateDocument(doc); err != nil {
-				return nil, err
-			}
-			if doc.ID != hit.ID {
-				return nil, errors.New("elastic: decoded document changed native identity")
-			}
-			matched := true
-			if !lo.IsNil(predicate) {
-				values, valuesErr := doc.Metadata.Values()
-				if valuesErr != nil {
-					return nil, valuesErr
-				}
-				matched, err = filter.Match(predicate, values)
-				if err != nil {
-					return nil, err
-				}
+			version, matched, memberErr := s.member(hit, predicate)
+			if memberErr != nil {
+				return nil, memberErr
 			}
 			if matched {
-				version, versionErr := hit.Version()
-				if versionErr != nil {
-					return nil, versionErr
-				}
 				selected[hit.ID] = version
 			}
 		}
@@ -160,4 +136,34 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 		}
 		raw, callErr = s.client.Read(ctx, http.MethodPost, scrollPath, nil, payload, bytesLeft)
 	}
+}
+
+// member decodes one scrolled record and reports whether it satisfies the
+// predicate, with the version a conditional delete must hold it at.
+func (s *Scroll) member(hit Hit, predicate filter.Predicate) (Version, bool, error) {
+	if err := hit.Validate(); err != nil {
+		return Version{}, false, err
+	}
+	doc, err := s.decode(hit)
+	if err != nil {
+		return Version{}, false, err
+	}
+	if err := vectorstore.ValidateDocument(doc); err != nil {
+		return Version{}, false, err
+	}
+	if doc.ID != hit.ID {
+		return Version{}, false, errors.New("elastic: decoded document changed native identity")
+	}
+	if !lo.IsNil(predicate) {
+		values, err := doc.Metadata.Values()
+		if err != nil {
+			return Version{}, false, err
+		}
+		matched, err := filter.Match(predicate, values)
+		if err != nil || !matched {
+			return Version{}, false, err
+		}
+	}
+	version, err := hit.Version()
+	return version, err == nil, err
 }
