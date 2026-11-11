@@ -34,6 +34,13 @@ type MetadataScope struct {
 	Value string `json:"value"`
 }
 
+func (m MetadataScope) validate() error {
+	if strings.TrimSpace(m.Key) == "" || m.Value == "" {
+		return errors.New("bedrockkb: exact metadata scope requires a key and value")
+	}
+	return nil
+}
+
 // Config binds the native Retrieve REST boundary. The host owns HTTP
 // authentication, retries, timeouts and lifecycle; ingestion stays in Bedrock.
 type Config struct {
@@ -59,22 +66,11 @@ type Config struct {
 }
 
 func (c Config) Validate() error {
-	endpoint, err := url.Parse(c.Endpoint)
-	_, originErr := httpclient.NewOrigin(endpoint)
-	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
-		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
+	if err := validateEndpoint(c.Endpoint); err != nil {
+		return err
 	}
 	if c.HTTPClient == nil {
 		return errors.New("bedrockkb: HTTPClient is required")
-	}
-	if c.Limit < 0 || c.Limit > maximumResults || c.PageLimit < 0 {
-		return errors.New("bedrockkb: invalid retrieval limits")
-	}
-	if c.Mode != "" && c.Mode != types.SearchTypeSemantic && c.Mode != types.SearchTypeHybrid {
-		return errors.New("bedrockkb: invalid native search mode")
-	}
-	if c.Scope != nil && (strings.TrimSpace(c.Scope.Key) == "" || c.Scope.Value == "") {
-		return errors.New("bedrockkb: exact metadata scope requires a key and value")
 	}
 	if !knowledgeBaseIdentity.MatchString(c.KnowledgeBaseID) || len(c.KnowledgeBaseID) > maximumKnowledgeBaseIdentityBytes {
 		return errors.New("bedrockkb: invalid knowledge base ID or ARN")
@@ -84,6 +80,34 @@ func (c Config) Validate() error {
 	}
 	if c.MaxResponseBytes < 0 || c.MaxResponseBytes == math.MaxInt64 {
 		return errors.New("bedrockkb: MaxResponseBytes must be nonnegative and below MaxInt64")
+	}
+	return c.validateRetrieval()
+}
+
+func validateEndpoint(raw string) error {
+	endpoint, err := url.Parse(raw)
+	if err != nil || strings.ContainsAny(raw, "?#") || strings.Trim(endpoint.Path, "/") != "" {
+		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
+	}
+	if _, err := httpclient.NewOrigin(endpoint); err != nil {
+		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
+	}
+	return nil
+}
+
+// validateRetrieval checks the native retrieval policy: limits, search mode,
+// metadata scope and reranking.
+func (c Config) validateRetrieval() error {
+	if c.Limit < 0 || c.Limit > maximumResults || c.PageLimit < 0 {
+		return errors.New("bedrockkb: invalid retrieval limits")
+	}
+	if c.Mode != "" && c.Mode != types.SearchTypeSemantic && c.Mode != types.SearchTypeHybrid {
+		return errors.New("bedrockkb: invalid native search mode")
+	}
+	if c.Scope != nil {
+		if err := c.Scope.validate(); err != nil {
+			return err
+		}
 	}
 	if c.RerankingMetadataConfiguration != nil && c.RerankingModelConfiguration == nil {
 		return errors.New("bedrockkb: reranking metadata requires a reranking model")
