@@ -19,20 +19,45 @@ import (
 )
 
 const (
-	minimumTranscriptionSpeakers        = 1
-	maximumTranscriptionSpeakers        = 32
-	minimumDiarizationThreshold         = 0.1
-	maximumDiarizationThreshold         = 0.4
-	minimumTranscriptionTemperature     = 0.0
-	maximumTranscriptionTemperature     = 2.0
-	minimumTranscriptionSeed            = 0
-	maximumKeyterms                     = 1000
-	timestampGranularityNone            = "none"
-	timestampGranularityWord            = "word"
-	timestampGranularityCharacter       = "character"
-	transcriptionFileFormatOther        = "other"
-	transcriptionFileFormatPCM16LE16KHz = "pcm_s16le_16"
+	minimumTranscriptionSpeakers    = 1
+	maximumTranscriptionSpeakers    = 32
+	minimumDiarizationThreshold     = 0.1
+	maximumDiarizationThreshold     = 0.4
+	minimumTranscriptionTemperature = 0.0
+	maximumTranscriptionTemperature = 2.0
+	minimumTranscriptionSeed        = 0
+	maximumKeyterms                 = 1000
 )
+
+type timestampGranularity string
+
+const (
+	timestampGranularityNone      timestampGranularity = "none"
+	timestampGranularityWord      timestampGranularity = "word"
+	timestampGranularityCharacter timestampGranularity = "character"
+)
+
+// valid admits the documented granularities; empty leaves the service default.
+func (t timestampGranularity) valid() bool {
+	switch t {
+	case "", timestampGranularityNone, timestampGranularityWord, timestampGranularityCharacter:
+		return true
+	default:
+		return false
+	}
+}
+
+type transcriptionFileFormat string
+
+const (
+	transcriptionFileFormatOther        transcriptionFileFormat = "other"
+	transcriptionFileFormatPCM16LE16KHz transcriptionFileFormat = "pcm_s16le_16"
+)
+
+// valid admits the documented formats; empty leaves the service default.
+func (t transcriptionFileFormat) valid() bool {
+	return t == "" || t == transcriptionFileFormatOther || t == transcriptionFileFormatPCM16LE16KHz
+}
 
 type apiConfig struct {
 	APIKey     string
@@ -155,20 +180,20 @@ func (a *api) buildAudioRequest(ctx context.Context, outputFormat string, body *
 
 // Asynchronous and multi-result options cannot honor Core's transcription contract.
 type transcriptionRequest struct {
-	ModelID               string   `json:"model_id,omitempty"`
-	LanguageCode          string   `json:"language_code,omitempty"`
-	Diarize               *bool    `json:"diarize,omitzero"`
-	NumSpeakers           *int     `json:"num_speakers,omitzero"`
-	TagAudioEvents        *bool    `json:"tag_audio_events,omitzero"`
-	TimestampsGranularity string   `json:"timestamps_granularity,omitempty"`
-	DiarizationThreshold  *float64 `json:"diarization_threshold,omitzero"`
-	FileFormat            string   `json:"file_format,omitempty"`
-	Temperature           *float64 `json:"temperature,omitzero"`
-	Seed                  *int     `json:"seed,omitzero"`
-	NoVerbatim            *bool    `json:"no_verbatim,omitzero"`
-	UseSpeakerLibrary     *bool    `json:"use_speaker_library,omitzero"`
-	DetectSpeakerRoles    *bool    `json:"detect_speaker_roles,omitzero"`
-	Keyterms              []string `json:"keyterms,omitzero"`
+	ModelID               string                  `json:"model_id,omitempty"`
+	LanguageCode          string                  `json:"language_code,omitempty"`
+	Diarize               *bool                   `json:"diarize,omitzero"`
+	NumSpeakers           *int                    `json:"num_speakers,omitzero"`
+	TagAudioEvents        *bool                   `json:"tag_audio_events,omitzero"`
+	TimestampsGranularity timestampGranularity    `json:"timestamps_granularity,omitempty"`
+	DiarizationThreshold  *float64                `json:"diarization_threshold,omitzero"`
+	FileFormat            transcriptionFileFormat `json:"file_format,omitempty"`
+	Temperature           *float64                `json:"temperature,omitzero"`
+	Seed                  *int                    `json:"seed,omitzero"`
+	NoVerbatim            *bool                   `json:"no_verbatim,omitzero"`
+	UseSpeakerLibrary     *bool                   `json:"use_speaker_library,omitzero"`
+	DetectSpeakerRoles    *bool                   `json:"detect_speaker_roles,omitzero"`
+	Keyterms              []string                `json:"keyterms,omitzero"`
 }
 
 func (t *transcriptionRequest) UnmarshalJSON(data []byte) error {
@@ -202,13 +227,13 @@ func (t *transcriptionRequest) form() url.Values {
 		form.Set("tag_audio_events", strconv.FormatBool(*t.TagAudioEvents))
 	}
 	if t.TimestampsGranularity != "" {
-		form.Set("timestamps_granularity", t.TimestampsGranularity)
+		form.Set("timestamps_granularity", string(t.TimestampsGranularity))
 	}
 	if t.DiarizationThreshold != nil {
 		form.Set("diarization_threshold", strconv.FormatFloat(*t.DiarizationThreshold, 'f', -1, 64))
 	}
 	if t.FileFormat != "" {
-		form.Set("file_format", t.FileFormat)
+		form.Set("file_format", string(t.FileFormat))
 	}
 	if t.Temperature != nil {
 		form.Set("temperature", strconv.FormatFloat(*t.Temperature, 'f', -1, 64))
@@ -231,23 +256,35 @@ func (t *transcriptionRequest) form() url.Values {
 	return form
 }
 
-func (t *transcriptionRequest) validate() error {
-	if t.NumSpeakers != nil && (*t.NumSpeakers < minimumTranscriptionSpeakers || *t.NumSpeakers > maximumTranscriptionSpeakers) {
+func (t *transcriptionRequest) validateRanges() error {
+	if outsideRange(t.NumSpeakers, minimumTranscriptionSpeakers, maximumTranscriptionSpeakers) {
 		return fmt.Errorf("elevenlabs: num_speakers must be between %d and %d, got %d", minimumTranscriptionSpeakers, maximumTranscriptionSpeakers, *t.NumSpeakers)
 	}
-	if t.DiarizationThreshold != nil && (*t.DiarizationThreshold < minimumDiarizationThreshold || *t.DiarizationThreshold > maximumDiarizationThreshold) {
+	if outsideRange(t.DiarizationThreshold, minimumDiarizationThreshold, maximumDiarizationThreshold) {
 		return fmt.Errorf("elevenlabs: diarization_threshold must be between %g and %g, got %g", minimumDiarizationThreshold, maximumDiarizationThreshold, *t.DiarizationThreshold)
 	}
-	if t.Temperature != nil && (*t.Temperature < minimumTranscriptionTemperature || *t.Temperature > maximumTranscriptionTemperature) {
+	if outsideRange(t.Temperature, minimumTranscriptionTemperature, maximumTranscriptionTemperature) {
 		return fmt.Errorf("elevenlabs: transcription temperature must be between %g and %g, got %g", minimumTranscriptionTemperature, maximumTranscriptionTemperature, *t.Temperature)
 	}
 	if t.Seed != nil && *t.Seed < minimumTranscriptionSeed {
 		return fmt.Errorf("elevenlabs: transcription seed must be non-negative, got %d", *t.Seed)
 	}
-	if t.TimestampsGranularity != "" && t.TimestampsGranularity != timestampGranularityNone && t.TimestampsGranularity != timestampGranularityWord && t.TimestampsGranularity != timestampGranularityCharacter {
+	return nil
+}
+
+// outsideRange reports a set option outside its documented inclusive bounds.
+func outsideRange[N int | float64](value *N, minimum, maximum N) bool {
+	return value != nil && (*value < minimum || *value > maximum)
+}
+
+func (t *transcriptionRequest) validate() error {
+	if err := t.validateRanges(); err != nil {
+		return err
+	}
+	if !t.TimestampsGranularity.valid() {
 		return fmt.Errorf("elevenlabs: timestamps_granularity must be %s, %s, or %s, got %q", timestampGranularityNone, timestampGranularityWord, timestampGranularityCharacter, t.TimestampsGranularity)
 	}
-	if t.FileFormat != "" && t.FileFormat != transcriptionFileFormatOther && t.FileFormat != transcriptionFileFormatPCM16LE16KHz {
+	if !t.FileFormat.valid() {
 		return fmt.Errorf("elevenlabs: file_format must be %s or %s, got %q", transcriptionFileFormatOther, transcriptionFileFormatPCM16LE16KHz, t.FileFormat)
 	}
 	if len(t.Keyterms) > maximumKeyterms {
