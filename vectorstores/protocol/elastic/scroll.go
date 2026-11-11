@@ -81,52 +81,18 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 			selected = nil
 		}
 	}()
-	selected = make(map[string]Version)
-	seen := make(map[string]struct{})
-	var total *int64
+	selection := scrollSelection{scroll: s, predicate: predicate, meter: meter, seen: make(map[string]struct{}), selected: make(map[string]Version)}
 	for {
 		page, decodeErr := cursor.decodePage(raw)
 		if err = errors.Join(callErr, decodeErr); err != nil {
 			return nil, err
 		}
-		if err = meter.ChargePage(0, int64(len(raw))); err != nil {
-			return nil, err
+		done, foldErr := selection.fold(raw, page)
+		if foldErr != nil {
+			return nil, foldErr
 		}
-		if err = page.Validate(s.index); err != nil {
-			return nil, err
-		}
-		// The declared total is charged once, before any hit is decoded.
-		if total == nil {
-			total = page.Hits.Total.Value
-			if err = meter.ChargePage(int(*total), 0); err != nil {
-				return nil, err
-			}
-		}
-		if *total != *page.Hits.Total.Value || page.ScrollID == "" {
-			return nil, errors.New("elastic: native scroll lost its total or cursor")
-		}
-		hits := *page.Hits.Hits
-		if len(hits) == 0 {
-			if int64(len(seen)) != *total {
-				return nil, errors.New("elastic: native scroll ended before every document")
-			}
-			return selected, nil
-		}
-		for _, hit := range hits {
-			if _, duplicate := seen[hit.ID]; duplicate {
-				return nil, errors.New("elastic: native scroll repeated a document ID")
-			}
-			seen[hit.ID] = struct{}{}
-			version, matched, memberErr := s.member(hit, predicate)
-			if memberErr != nil {
-				return nil, memberErr
-			}
-			if matched {
-				selected[hit.ID] = version
-			}
-		}
-		if int64(len(seen)) > *total {
-			return nil, errors.New("elastic: native scroll exceeded its declared total")
+		if done {
+			return selection.selected, nil
 		}
 		payload, encodeErr := jsonv2.Marshal(struct {
 			ID       string `json:"scroll_id"`
@@ -141,6 +107,69 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 		}
 		raw, callErr = s.client.Read(ctx, http.MethodPost, scrollPath, nil, payload, remaining)
 	}
+}
+
+// scrollSelection folds scroll pages into the selected membership. The
+// declared total is charged once, before any hit is decoded, and every later
+// page must repeat it.
+type scrollSelection struct {
+	scroll    *Scroll
+	predicate filter.Predicate
+	meter     *vectorstore.ScanMeter
+	total     *int64
+	seen      map[string]struct{}
+	selected  map[string]Version
+}
+
+// fold charges and admits one page; done reports the empty page that ends a
+// scroll which returned every declared document.
+func (s *scrollSelection) fold(raw []byte, page SearchResponse) (bool, error) {
+	if err := s.meter.ChargePage(0, int64(len(raw))); err != nil {
+		return false, err
+	}
+	if err := page.Validate(s.scroll.index); err != nil {
+		return false, err
+	}
+	if s.total == nil {
+		s.total = page.Hits.Total.Value
+		if err := s.meter.ChargePage(int(*s.total), 0); err != nil {
+			return false, err
+		}
+	}
+	if *s.total != *page.Hits.Total.Value || page.ScrollID == "" {
+		return false, errors.New("elastic: native scroll lost its total or cursor")
+	}
+	hits := *page.Hits.Hits
+	if len(hits) == 0 {
+		if int64(len(s.seen)) != *s.total {
+			return false, errors.New("elastic: native scroll ended before every document")
+		}
+		return true, nil
+	}
+	for _, hit := range hits {
+		if err := s.admit(hit); err != nil {
+			return false, err
+		}
+	}
+	if int64(len(s.seen)) > *s.total {
+		return false, errors.New("elastic: native scroll exceeded its declared total")
+	}
+	return false, nil
+}
+
+func (s *scrollSelection) admit(hit Hit) error {
+	if _, duplicate := s.seen[hit.ID]; duplicate {
+		return errors.New("elastic: native scroll repeated a document ID")
+	}
+	s.seen[hit.ID] = struct{}{}
+	version, matched, err := s.scroll.member(hit, s.predicate)
+	if err != nil {
+		return err
+	}
+	if matched {
+		s.selected[hit.ID] = version
+	}
+	return nil
 }
 
 // member decodes one scrolled record and reports whether it satisfies the
