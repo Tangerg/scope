@@ -245,7 +245,7 @@ func TestOutputValidatesCompletedPlanningFacts(t *testing.T) {
 	}
 }
 
-func mustCondition(t *testing.T, key string, truth Truth) Condition {
+func mustCondition(t testing.TB, key string, truth Truth) Condition {
 	t.Helper()
 	condition, err := NewCondition(key, truth)
 	if err != nil {
@@ -254,7 +254,7 @@ func mustCondition(t *testing.T, key string, truth Truth) Condition {
 	return condition
 }
 
-func mustWorldState(t *testing.T, conditions ...Condition) WorldState {
+func mustWorldState(t testing.TB, conditions ...Condition) WorldState {
 	t.Helper()
 	state, err := NewWorldState(conditions...)
 	if err != nil {
@@ -263,7 +263,7 @@ func mustWorldState(t *testing.T, conditions ...Condition) WorldState {
 	return state
 }
 
-func mustGoal(t *testing.T, conditions ...Condition) Goal {
+func mustGoal(t testing.TB, conditions ...Condition) Goal {
 	t.Helper()
 	goal, err := NewGoal(GoalConfig{
 		Name: "goal.test", Description: "Reach the test target.", Conditions: conditions,
@@ -274,7 +274,7 @@ func mustGoal(t *testing.T, conditions ...Condition) Goal {
 	return goal
 }
 
-func mustAction(t *testing.T, config ActionConfig) Action {
+func mustAction(t testing.TB, config ActionConfig) Action {
 	t.Helper()
 	action, err := NewAction(config)
 	if err != nil {

@@ -119,7 +119,7 @@ func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 	}
 }
 
-func mustDefinition(t *testing.T, name string, stages ...Stage) *definition {
+func mustDefinition(t testing.TB, name string, stages ...Stage) *definition {
 	t.Helper()
 	definition, err := newDefinition(Config{
 		Name: name, Description: "Execute a deterministic managed Workflow.",
@@ -131,7 +131,7 @@ func mustDefinition(t *testing.T, name string, stages ...Stage) *definition {
 	return definition
 }
 
-func mustTransform[I, O any](t *testing.T, id string, transform TransformFunc[I, O]) Stage {
+func mustTransform[I, O any](t testing.TB, id string, transform TransformFunc[I, O]) Stage {
 	t.Helper()
 	stage, err := Transform(id, transform)
 	if err != nil {

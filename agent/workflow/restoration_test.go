@@ -89,7 +89,7 @@ func TestEveryStageRestoresAtItsCommittedMessageBoundaries(t *testing.T) {
 	})
 }
 
-func mustPayload(t *testing.T, value any) run.Payload {
+func mustPayload(t testing.TB, value any) run.Payload {
 	t.Helper()
 	payload, err := run.EncodePayload(value)
 	if err != nil {

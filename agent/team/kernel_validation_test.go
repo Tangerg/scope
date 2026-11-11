@@ -12,7 +12,7 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-func validationPrograms(t *testing.T) (*run.Runtime, Config) {
+func validationPrograms(t testing.TB) (*run.Runtime, Config) {
 	t.Helper()
 	runtime := conformancetest.Runtime(t, run.Config{})
 	coordinator := transformed(t, runtime, "test.validation.coordinator", func(_ context.Context, turn Turn) (Decision, error) {

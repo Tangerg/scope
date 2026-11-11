@@ -33,7 +33,7 @@ func (v validationFixture) definition() (*definition, error) {
 	return newDefinition(v.Config, planningValue(jsonschema.For[string]()), v.actions)
 }
 
-func validationConfig(t *testing.T) validationFixture {
+func validationConfig(t testing.TB) validationFixture {
 	t.Helper()
 	done := mustCondition(t, "world.done", TruthTrue)
 	action := mustAction(t, ActionConfig{Name: "action.finish", Description: "Finish ready work.",
@@ -57,7 +57,7 @@ func validationTurn(step uint64, messages ...run.Message) run.Turn {
 	return run.Turn{Process: planningValue(run.ParseProcessID("planning-validation")), Step: step, Messages: messages}
 }
 
-func validationWorld(t *testing.T) WorldState {
+func validationWorld(t testing.TB) WorldState {
 	t.Helper()
 	return mustWorldState(t, mustCondition(t, "world.ready", TruthTrue))
 }

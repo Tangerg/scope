@@ -27,6 +27,14 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 				AppliedSteerSignalIDs: []run.SignalID{signalID},
 			},
 		},
+		{
+			Preparation: &modelCall{
+				ModelCallSequence: 2,
+				Request: Input{Messages: []chat.Message{
+					chat.NewUserMessage(chat.NewTextPart("prepare")),
+				}},
+			},
+		},
 		{ToolCall: &toolDispatchRequest{Call: call}},
 		{
 			ToolCall: &toolDispatchRequest{

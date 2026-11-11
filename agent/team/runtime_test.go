@@ -28,7 +28,7 @@ func request(key, worker string, value any) TaskRequest {
 	return TaskRequest{Key: require(run.ParseChildKey(key)), Worker: worker, Input: input(value)}
 }
 
-func transformed[I, O any](t *testing.T, runtime *run.Runtime, name string, transform func(context.Context, I) (O, error)) run.Program[run.Payload, run.Payload] {
+func transformed[I, O any](t testing.TB, runtime *run.Runtime, name string, transform func(context.Context, I) (O, error)) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	stage := require(workflow.Transform("transform", transform))
 	return require(workflow.Compile[I, O](runtime.Compiler(), workflow.Config{Name: name, Description: "Execute the configured transformation.", Revision: "test", Stages: []workflow.Stage{stage}})).Erase()

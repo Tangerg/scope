@@ -109,7 +109,7 @@ func TestCallAcceptsUnlimitedChildAllocation(t *testing.T) {
 	}
 }
 
-func mustProgram(t *testing.T, definition run.Definition, identity string) run.Program[run.Payload, run.Payload] {
+func mustProgram(t testing.TB, definition run.Definition, identity string) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	program, err := run.Bind[run.Payload, run.Payload](conformancetest.Compiler(t), run.BindingConfig{
 		Definition:    definition,
