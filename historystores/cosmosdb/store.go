@@ -170,49 +170,11 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	if len(body) > maximumAppendDocumentBytes {
 		return history.Receipt{}, fmt.Errorf("cosmosdb: append document exceeds %d bytes", maximumAppendDocumentBytes)
 	}
-	partition := azcosmos.NewPartitionKeyString(batch.ConversationID().String())
 	for {
 		if err := ctx.Err(); err != nil {
 			return history.Receipt{}, err
 		}
-		conversation, etag, exists, err := s.readConversation(ctx, batch.ConversationID())
-		if err != nil {
-			return history.Receipt{}, err
-		}
-		if conversation.closed() {
-			return history.Receipt{}, history.ErrConversationClosed
-		}
-		stored, duplicate, err := s.readAppend(ctx, batch, id)
-		if err != nil {
-			return history.Receipt{}, err
-		}
-		if !duplicate {
-			conversation, err = conversation.advance()
-			if err != nil {
-				return history.Receipt{}, err
-			}
-		}
-		gate, err := jsonv2.Marshal(conversation)
-		if err != nil {
-			return history.Receipt{}, fmt.Errorf("cosmosdb: encode conversation: %w", err)
-		}
-		transaction := s.container.NewTransactionalBatch(partition)
-		if exists {
-			transaction.ReplaceItem(conversation.ID, gate, &azcosmos.TransactionalBatchItemOptions{IfMatchETag: &etag})
-		} else {
-			transaction.CreateItem(gate, nil)
-		}
-		operations := 1
-		if !duplicate {
-			payload.Sequence = conversation.LastSequence
-			body, err = jsonv2.Marshal(payload)
-			if err != nil {
-				return history.Receipt{}, fmt.Errorf("cosmosdb: encode append: %w", err)
-			}
-			transaction.CreateItem(body, nil)
-			operations++
-		}
-		applied, err := s.apply(ctx, transaction, operations)
+		stored, duplicate, applied, err := s.appendAttempt(ctx, batch, payload)
 		if err != nil {
 			return history.Receipt{}, err
 		}
@@ -224,6 +186,51 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 		}
 		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
 	}
+}
+
+// appendAttempt commits one optimistic append: it fences the conversation at
+// the ETag it read and creates the append document unless that identity is
+// already stored. applied is false when another writer moved the conversation
+// first, so the caller reads again.
+func (s *Store) appendAttempt(ctx context.Context, batch history.Batch, payload appendDocument) (stored appendDocument, duplicate, applied bool, err error) {
+	conversation, etag, exists, err := s.readConversation(ctx, batch.ConversationID())
+	if err != nil {
+		return appendDocument{}, false, false, err
+	}
+	if conversation.closed() {
+		return appendDocument{}, false, false, history.ErrConversationClosed
+	}
+	stored, duplicate, err = s.readAppend(ctx, batch, payload.ID)
+	if err != nil {
+		return appendDocument{}, false, false, err
+	}
+	if !duplicate {
+		if conversation, err = conversation.advance(); err != nil {
+			return appendDocument{}, false, false, err
+		}
+	}
+	gate, err := jsonv2.Marshal(conversation)
+	if err != nil {
+		return appendDocument{}, false, false, fmt.Errorf("cosmosdb: encode conversation: %w", err)
+	}
+	transaction := s.container.NewTransactionalBatch(azcosmos.NewPartitionKeyString(batch.ConversationID().String()))
+	if exists {
+		transaction.ReplaceItem(conversation.ID, gate, &azcosmos.TransactionalBatchItemOptions{IfMatchETag: &etag})
+	} else {
+		transaction.CreateItem(gate, nil)
+	}
+	operations := 1
+	if !duplicate {
+		payload.Sequence = conversation.LastSequence
+		body, encodeErr := jsonv2.Marshal(payload)
+		if encodeErr != nil {
+			return appendDocument{}, false, false, fmt.Errorf("cosmosdb: encode append: %w", encodeErr)
+		}
+		transaction.CreateItem(body, nil)
+		operations++
+	}
+	applied, err = s.apply(ctx, transaction, operations)
+	return stored, duplicate, applied, err
 }
 
 func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Message, error) {
