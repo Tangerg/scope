@@ -78,14 +78,7 @@ func (c collectionSchema) validateVector(vector []float32) error {
 	if len(vector) != c.dimensions {
 		return fmt.Errorf("typesense: vector dimension %d differs from native dimension %d", len(vector), c.dimensions)
 	}
-	nonzero := false
-	for _, value := range vector {
-		nonzero = nonzero || value != 0
-	}
-	if !nonzero {
-		return errors.New("typesense: cosine vector became all zero in float32")
-	}
-	return nil
+	return corevector.Coordinates[float32](vector).ValidateDirection()
 }
 
 func (c collectionSchema) decodeDocument(raw []byte) (storedRecord, *document.Document, error) {

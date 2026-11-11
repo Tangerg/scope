@@ -48,12 +48,8 @@ func (n nativeSchema) validateVector(vector []float32) error {
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("redis: vector dimension %d differs from native dimension %d", len(vector), n.dimensions)
 	}
-	nonzero := false
-	for _, value := range vector {
-		nonzero = nonzero || value != 0
-	}
-	if n.metric == metricCosine && !nonzero {
-		return errors.New("redis: cosine vector became all zero in float32")
+	if n.metric == metricCosine {
+		return corevector.Coordinates[float32](vector).ValidateDirection()
 	}
 	return nil
 }

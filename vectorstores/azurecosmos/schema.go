@@ -77,12 +77,8 @@ func (c containerSchema) validateVector(vector []float32) error {
 	if len(vector) != c.dimensions {
 		return fmt.Errorf("azurecosmos: vector dimension %d differs from native dimension %d", len(vector), c.dimensions)
 	}
-	nonzero := false
-	for _, value := range vector {
-		nonzero = nonzero || value != 0
-	}
-	if c.function == azcosmos.VectorDistanceFunctionCosine && !nonzero {
-		return errors.New("azurecosmos: cosine vector became all zero in float32")
+	if c.function == azcosmos.VectorDistanceFunctionCosine {
+		return corevector.Coordinates[float32](vector).ValidateDirection()
 	}
 	return nil
 }

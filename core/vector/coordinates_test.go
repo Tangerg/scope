@@ -40,3 +40,14 @@ func testCoordinateJSON[T float32 | float64](t *testing.T) {
 		}
 	}
 }
+
+func TestCoordinatesWithoutDirectionAreRejected(t *testing.T) {
+	for _, zero := range []vector.Coordinates[float32]{{0}, {0, 0, 0}, {float32(math.Copysign(0, -1)), 0}} {
+		if err := zero.ValidateDirection(); !errors.Is(err, vector.ErrInvalidCoordinates) {
+			t.Fatalf("%v.ValidateDirection() = %v, want invalid coordinates", zero, err)
+		}
+	}
+	if err := (vector.Coordinates[float32]{0, math.SmallestNonzeroFloat32}).ValidateDirection(); err != nil {
+		t.Fatalf("a vector with one nonzero component has a direction: %v", err)
+	}
+}

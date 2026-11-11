@@ -25,6 +25,17 @@ func (c Coordinates[T]) Validate() error {
 	return nil
 }
 
+// ValidateDirection rejects a vector whose components are all zero. Cosine
+// compares directions, and a zero vector has none.
+func (c Coordinates[T]) ValidateDirection() error {
+	for _, value := range c {
+		if value != 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: a zero vector has no direction", ErrInvalidCoordinates)
+}
+
 func (c Coordinates[T]) MarshalJSON() ([]byte, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err

@@ -249,12 +249,10 @@ func (s *Store) narrow(values []float64) ([]float32, error) {
 	if err := corevector.Coordinates[float32](v).Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
 	}
-	nonzero := false
-	for i := range v {
-		nonzero = nonzero || v[i] != 0
-	}
-	if !nonzero && s.distanceMetric == DistanceCosine {
-		return nil, fmt.Errorf("%w: cosine requires a nonzero vector", vectorstore.ErrInvalidRequest)
+	if s.distanceMetric == DistanceCosine {
+		if err := corevector.Coordinates[float32](v).ValidateDirection(); err != nil {
+			return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
+		}
 	}
 	return v, nil
 }

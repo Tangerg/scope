@@ -188,12 +188,8 @@ func (n nativeSchema) ValidateQueryVector(vector []float32) error {
 	if len(vector) != n.dimensions {
 		return fmt.Errorf("opensearch: vector dimension %d differs from native dimension %d", len(vector), n.dimensions)
 	}
-	zero := true
-	for _, value := range vector {
-		zero = zero && value == 0
-	}
-	if n.similarity == simCosine && zero {
-		return errors.New("opensearch: native cosine space does not accept a zero FLOAT32 vector")
+	if n.similarity == simCosine {
+		return corevector.Coordinates[float32](vector).ValidateDirection()
 	}
 	return nil
 }

@@ -64,16 +64,15 @@ func (d DistanceMetric) Vector(values []float64, width int) (pgvec.Vector, error
 	if err := corevector.Coordinates[float32](narrowed).Validate(); err != nil {
 		return pgvec.Vector{}, err
 	}
-	nonzero := false
 	for index, value := range values {
-		converted := float64(narrowed[index])
-		if value != 0 && converted == 0 {
+		if value != 0 && narrowed[index] == 0 {
 			return pgvec.Vector{}, errors.New("postgres: vector is not representable in float32")
 		}
-		nonzero = nonzero || converted != 0
 	}
-	if d == DistanceCosine && !nonzero {
-		return pgvec.Vector{}, errors.New("postgres: cosine requires a nonzero float32 vector")
+	if d == DistanceCosine {
+		if err := corevector.Coordinates[float32](narrowed).ValidateDirection(); err != nil {
+			return pgvec.Vector{}, err
+		}
 	}
 	return pgvec.NewVector(narrowed), nil
 }

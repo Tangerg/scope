@@ -97,12 +97,8 @@ func (n nativePolicy) validateVector(values []float32) error {
 	if len(values) != n.dimensions {
 		return errors.New("milvus: native vector width is inconsistent")
 	}
-	nonzero := false
-	for _, value := range values {
-		nonzero = nonzero || value != 0
-	}
-	if n.metric == entity.COSINE && !nonzero {
-		return errors.New("milvus: cosine vector must be nonzero")
+	if n.metric == entity.COSINE {
+		return corevector.Coordinates[float32](values).ValidateDirection()
 	}
 	return nil
 }

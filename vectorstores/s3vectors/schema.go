@@ -50,14 +50,8 @@ func (i indexSchema) validateVector(vector []float32) error {
 	if len(vector) != i.dimensions {
 		return fmt.Errorf("s3vectors: vector dimension %d differs from native dimension %d", len(vector), i.dimensions)
 	}
-	nonzero := false
-	for _, component := range vector {
-		if component != 0 {
-			nonzero = true
-		}
-	}
-	if i.metric == types.DistanceMetricCosine && !nonzero {
-		return errors.New("s3vectors: cosine vector became all zero in native float32")
+	if i.metric == types.DistanceMetricCosine {
+		return corevector.Coordinates[float32](vector).ValidateDirection()
 	}
 	return nil
 }
