@@ -74,7 +74,11 @@ func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, erro
 		}
 		return run.Complete(1, answer.Payload)
 	case e.Text == "slow" && e.Phase == 0:
-		effect, err := run.NewDispatcherEffect(json.RawMessage(`"blocked"`))
+		blocked, err := run.EncodePayload("blocked")
+		if err != nil {
+			return run.Transition{}, err
+		}
+		effect, err := run.NewDispatcherEffect(blocked)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -102,7 +106,11 @@ func (d *dispatch) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.Delt
 	d.calls.Add(1)
 	close(d.entered)
 	<-d.release
-	return run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"returned"`))
+	returned, err := run.EncodePayload("returned")
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	return run.NewSettlement(run.SettlementStatusSucceeded, returned)
 }
 
 func program(t *testing.T, compiler *run.Compiler, d *dispatch) run.Program[run.Payload, run.Payload] {

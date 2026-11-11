@@ -2,7 +2,6 @@ package planning
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
@@ -99,7 +98,7 @@ func NewActionSettlement(result ActionResult) (run.Settlement, error) {
 	if !result.Succeeded() {
 		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningActionFailed, result.Diagnostic())
 	}
-	payload, err := jsonv2.Marshal(actionCompleted{})
+	payload, err := run.EncodePayload(actionCompleted{})
 	if err != nil {
 		return run.Settlement{}, err
 	}

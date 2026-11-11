@@ -127,7 +127,11 @@ func resolveRetainedUnknown(t *testing.T, recovered *run.Handle[run.Payload], ro
 	if !ok || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
 		t.Fatalf("unacknowledged external result did not remain unknown: %+v", process)
 	}
-	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, []byte(`"result"`))
+	result, err := run.EncodePayload("result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +511,11 @@ func (r *recoveryExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 	case recoveryEffect:
 		if !r.state.Waiting {
 			r.state.Waiting = true
-			effect, err := run.NewDispatcherEffect([]byte(`"call"`))
+			call, err := run.EncodePayload("call")
+			if err != nil {
+				return run.Transition{}, err
+			}
+			effect, err := run.NewDispatcherEffect(call)
 			if err != nil {
 				return run.Transition{}, err
 			}

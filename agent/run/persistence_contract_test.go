@@ -162,14 +162,14 @@ func TestLogRejectsFactsWithoutTheirOwningProcess(t *testing.T) {
 	log := integrityInitialLog(t)
 	started := log.Entries[0].Record.(Started)
 	missing := controlValue(log.Root.Child(controlValue(ParseChildKey("missing"))))
-	effect := controlValue(NewDispatcherEffect(started.Input.JSON()))
+	effect := controlValue(NewDispatcherEffect(started.Input))
 	id := EffectID{Process: missing, Step: 1}
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failure", "missing process"))
 	for _, record := range []Record{
 		SignalAdmitted{Process: missing, Signal: Signal{ID: controlValue(ParseSignalID("signal")), Payload: started.Input}, At: started.At},
 		Stepped{Process: missing, Step: 1, Transition: controlValue(Continue(0))},
 		EffectIntent{ID: id, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At},
-		EffectSettled{ID: id, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, started.Input.JSON())), At: started.At},
+		EffectSettled{ID: id, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, started.Input)), At: started.At},
 		Exited{Process: missing, Termination: Termination{output: started.Input}, At: started.At},
 		ExecutionFailed{Process: missing, Failure: failure, At: started.At},
 		Reaped{Process: missing},
@@ -190,11 +190,11 @@ func TestLogRejectsProgressThatDoesNotFollowItsPrefix(t *testing.T) {
 	signal := SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("signal")), Payload: started.Input}, At: started.At}
 	conflict := signal
 	conflict.Signal.Payload = controlValue(EncodePayload("changed"))
-	effect := controlValue(NewDispatcherEffect(started.Input.JSON()))
+	effect := controlValue(NewDispatcherEffect(started.Input))
 	step := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}))}
 	intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
 	changedIntent := intent
-	changedIntent.Effect = controlValue(NewDispatcherEffect([]byte(`"changed"`)))
+	changedIntent.Effect = controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`"changed"`)))))
 	escalated := intent
 	escalated.Policy.RequiredCapabilities = controlValue(NewCapabilitySet(controlValue(ParseCapability("files.write"))))
 	complete := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Complete(0, started.Input))}
@@ -283,7 +283,7 @@ func TestPersistedWorkCannotSpendUnfundedBudgets(t *testing.T) {
 		started := log.Entries[0].Record.(Started)
 		started.Budget = budget
 		log.Entries[0].Record = started
-		effect := controlValue(NewDispatcherEffect(started.Input.JSON()))
+		effect := controlValue(NewDispatcherEffect(started.Input))
 		step := Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}))}
 		intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: started.At}
 		if err := integrityAppend(log, step, intent).Validate(); !errors.Is(err, ErrResourceLimitExceeded) {

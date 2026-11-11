@@ -3,7 +3,6 @@ package interaction
 import (
 	"bytes"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -104,7 +103,7 @@ func TestOneProviderCallCannotAcquireTwoInitialEffectOwners(t *testing.T) {
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	for _, resume := range []*toolResume{nil, {Reference: intents[0].ID, InputRequest: question, InputResponse: []byte(`true`)}} {
 		envelope := mustValue(newToolEffect(toolDispatchRequest{Invocation: toolCall{Call: requested("echo", "first")}, Resume: resume}))
-		changed := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(envelope))))
+		changed := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
 		corrupt := replaceLoggedEffect(t, log, intents[1].ID, changed)
 		assertProjectionRejection(t, program, corrupt)
 	}
@@ -161,7 +160,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 	} {
 		envelope := mustValue(decodeEffect(intent.Effect.Payload().JSON()))
 		change(envelope.ToolCall)
-		effect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(envelope))))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
 		assertProjectionRejection(t, program, replaceLoggedEffect(t, log, intent.ID, effect))
 	}
 }
@@ -301,7 +300,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 			t.Fatal("investigated result bypassed the captured tool contract", err)
 		}
 	}
-	malformed := mustValue(run.NewDispatcherEffect([]byte(`{"unknown_operation":true}`)))
+	malformed := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(`{"unknown_operation":true}`)))))
 	malformedLog := replaceLoggedEffect(t, log, invocation.ID, malformed)
 	assertProjectionRejection(t, program, malformedLog)
 	malformedRequest := requestFromIntentPrefix(t, malformedLog, invocation.ID)
@@ -331,12 +330,12 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		`{"tool_result":{"completion":{"disposition":"succeeded","output":{"content":[{"kind":"invalid"}]}}}}`,
 		`{"prepared_context":{"messages":[{"role":"user","parts":[{"kind":"text","text":"wrong operation"}]}]}}`,
 	} {
-		outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(wire)))
+		outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(wire)))))
 		assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, invocation.ID, outcome))
 	}
 	// The encoder rejects duplicate call IDs, so the log is forged at the wire.
 	distinct := mustValue((modelCallResult{Response: callResponse(requested("echo", "same"), requested("echo", "other"))}).settlement())
 	forged := bytes.ReplaceAll(distinct.Payload().JSON(), []byte(`"other"`), []byte(`"same"`))
-	duplicate := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, forged))
+	duplicate := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload(forged))))
 	assertProjectionRejection(t, program, replaceLoggedOutcome(t, log, model.ID, duplicate))
 }

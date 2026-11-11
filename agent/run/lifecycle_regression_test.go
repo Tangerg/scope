@@ -9,9 +9,9 @@ import (
 
 func TestDrainingProcessDoesNotAdvertiseUnanswerableWait(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
-	effect := controlValue(NewDispatcherEffect([]byte(`0`)))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
-		return NewSettlement(SettlementStatusUnknown, []byte(`null`))
+		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
 	}}
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.draining_wait"), step: func(context.Context, Turn) (Transition, error) {
 		return Yield(0, []Effect{effect}, kernelWait())

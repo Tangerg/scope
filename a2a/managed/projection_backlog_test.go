@@ -100,7 +100,11 @@ func (p *pendingProjectionExecution) Snapshot() (run.ExecutionState, error) {
 func (p *pendingProjectionExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !p.Started {
 		p.Started = true
-		effect, err := run.NewDispatcherEffect([]byte(`null`))
+		null, err := run.ParsePayload([]byte(`null`))
+		if err != nil {
+			return run.Transition{}, err
+		}
+		effect, err := run.NewDispatcherEffect(null)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -126,7 +130,11 @@ func (p pendingProjectionDispatcher) Dispatch(ctx context.Context, _ run.EffectR
 	close(p.entered)
 	select {
 	case <-p.release:
-		return run.NewSettlement(run.SettlementStatusSucceeded, []byte(`null`))
+		null, err := run.ParsePayload([]byte(`null`))
+		if err != nil {
+			return run.Settlement{}, err
+		}
+		return run.NewSettlement(run.SettlementStatusSucceeded, null)
 	case <-ctx.Done():
 		return run.Settlement{}, ctx.Err()
 	}

@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -33,7 +32,11 @@ func TestUnknownResolutionEndsOneLogicalEffectSpan(t *testing.T) {
 	if unknown.Failure == nil {
 		t.Fatal("runtime failure not persisted")
 	}
-	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"secret-investigated-result"`))
+	result, err := run.EncodePayload("secret-investigated-result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, result)
 	if err != nil {
 		t.Fatal(err)
 	}

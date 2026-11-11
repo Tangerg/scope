@@ -26,7 +26,7 @@ func turn(step uint64, messages ...run.Message) run.Turn {
 }
 
 func settled(value any) run.Settlement {
-	return require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.EncodePayload(value)).JSON()))
+	return require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.EncodePayload(value))))
 }
 
 func ended(value any) run.Termination {

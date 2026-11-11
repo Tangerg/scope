@@ -45,7 +45,7 @@ func TestDefinitionStartRejectsNonProtocolInput(t *testing.T) {
 
 func TestExternalGuidanceAndDispatcherOutcomesHaveDisjointAdmission(t *testing.T) {
 	guidance := steer(t, "guidance")
-	outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, guidance.Payload.JSON()))
+	outcome := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, guidance.Payload))
 	if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("external guidance became a model outcome", err)
 	}
@@ -98,7 +98,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 			return run.Completion{Effect: effect, Outcome: wrongOutcome}
 		}, ErrInvalidProtocol},
 		{"malformed completion", false, func(effect run.EffectID, _ run.WaitKey) run.Message {
-			return run.Completion{Effect: effect, Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`)))}
+			return run.Completion{Effect: effect, Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`)))))}
 		}, ErrInvalidProtocol},
 		{"unrequested child exit", false, func(_ run.EffectID, _ run.WaitKey) run.Message {
 			return run.Exit{Child: mustValue(testTurn(1).Process.Child(mustValue(run.ParseChildKey("foreign")))), Termination: mustValue(mustValue(run.ParsePayload([]byte(`{"output":null}`))).Decode[run.Termination]())}

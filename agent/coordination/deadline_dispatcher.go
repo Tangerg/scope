@@ -2,7 +2,6 @@ package coordination
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"time"
@@ -28,7 +27,7 @@ type timerRequest struct {
 type timerReached struct{}
 
 func newTimerEffect(deadline time.Time) (run.Effect, error) {
-	payload, err := jsonv2.Marshal(timerRequest{Deadline: deadline})
+	payload, err := run.EncodePayload(timerRequest{Deadline: deadline})
 	if err != nil {
 		return run.Effect{}, err
 	}
@@ -73,7 +72,7 @@ func (deadlineDispatcher) Dispatch(ctx context.Context, request run.EffectReques
 		}
 		return timerFailureSettlement(ctx.Err())
 	}
-	payload, err := jsonv2.Marshal(timerReached{})
+	payload, err := run.EncodePayload(timerReached{})
 	if err != nil {
 		return run.Settlement{}, err
 	}

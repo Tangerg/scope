@@ -1,7 +1,6 @@
 package run
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -51,7 +50,7 @@ type Settlement struct {
 	failure Failure
 }
 
-func NewSettlement(status SettlementStatus, payload json.RawMessage) (Settlement, error) {
+func NewSettlement(status SettlementStatus, payload Payload) (Settlement, error) {
 	if status == SettlementStatusFailed {
 		return Settlement{}, fmt.Errorf("%w: failed settlements require a Failure", ErrInvalidSettlement)
 	}
@@ -65,19 +64,11 @@ func NewFailedSettlement(failure Failure, details Payload) (Settlement, error) {
 	return Settlement{status: SettlementStatusFailed, payload: details, failure: failure}, nil
 }
 
-func admitSettlement(status SettlementStatus, payload json.RawMessage, failure *Failure) (Settlement, error) {
+func admitSettlement(status SettlementStatus, payload Payload, failure *Failure) (Settlement, error) {
 	if !status.Valid() {
 		return Settlement{}, fmt.Errorf("%w: status is required", ErrInvalidSettlement)
 	}
-	var value Payload
-	if status != SettlementStatusFailed || len(payload) != 0 {
-		var err error
-		value, err = ParsePayload(payload)
-		if err != nil {
-			return Settlement{}, fmt.Errorf("%w: payload: %w", ErrInvalidSettlement, err)
-		}
-	}
-	settlement := Settlement{status: status, payload: value}
+	settlement := Settlement{status: status, payload: payload}
 	if failure != nil {
 		settlement.failure = *failure
 	}
@@ -111,7 +102,7 @@ func (s Settlement) MarshalJSON() ([]byte, error) {
 	if !s.Valid() {
 		return nil, ErrInvalidSettlement
 	}
-	wire := settlementWire{Status: s.status, Payload: s.payload.JSON()}
+	wire := settlementWire{Status: s.status, Payload: s.payload}
 	if s.status == SettlementStatusFailed {
 		wire.Failure = new(s.failure)
 	}
@@ -138,7 +129,7 @@ func (Settlement) JSONSchemaModel() any { return settlementWire{} }
 
 type settlementWire struct {
 	Status  SettlementStatus `json:"status"`
-	Payload json.RawMessage  `json:"payload,omitzero"`
+	Payload Payload          `json:"payload,omitzero"`
 	Failure *Failure         `json:"failure,omitzero"`
 }
 

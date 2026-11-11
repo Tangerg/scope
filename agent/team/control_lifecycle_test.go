@@ -24,13 +24,13 @@ func TestTeamControlsTaskThatExitedDuringCoordinatorTurn(t *testing.T) {
 			coordinatorID := require(testTurn(1).Process.Child(childStart(t, first.Effects()[0]).Key))
 			firstDecision := Decision{Mode: ModeContinue, State: input("working"), Tasks: []TaskRequest{request("task", "test.worker", "value")}}
 			second := testTurn(2,
-				run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(coordinatorID).JSON()))},
+				run.Completion{Effect: testTurn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(coordinatorID)))},
 				run.Exit{Child: coordinatorID, Termination: completed(firstDecision)},
 			)
 			started := require(execution.Step(t.Context(), second))
 			taskSpec := childStart(t, started.Effects()[0])
 			taskID := require(testTurn(1).Process.Child(taskSpec.Key))
-			third := testTurn(3, run.Completion{Effect: second.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(taskID).JSON()))})
+			third := testTurn(3, run.Completion{Effect: second.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(taskID)))})
 			next := require(execution.Step(t.Context(), third))
 			nextSpec := childStart(t, next.Effects()[0])
 			visible := require(nextSpec.Input.Decode[Turn]())
@@ -50,7 +50,7 @@ func TestTeamControlsTaskThatExitedDuringCoordinatorTurn(t *testing.T) {
 			}
 			decision := Decision{Mode: ModeContinue, State: input("working"), Controls: []Control{control}}
 			fourth := testTurn(4,
-				run.Completion{Effect: third.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(nextCoordinator).JSON()))},
+				run.Completion{Effect: third.EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, input(nextCoordinator)))},
 				run.Exit{Child: taskID, Termination: completed("finished")},
 				run.Exit{Child: nextCoordinator, Termination: completed(decision)},
 			)

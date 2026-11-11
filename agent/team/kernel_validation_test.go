@@ -59,7 +59,7 @@ func TestTeamRestoreRejectsContradictoryProgress(t *testing.T) {
 	taskKey := require(run.ParseChildKey("task"))
 	taskProcess := require(root.Child(taskKey))
 	controlEffect := testTurn(2).EffectID(0)
-	controlOutcome := require(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`null`)))
+	controlOutcome := require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.ParsePayload([]byte(`null`)))))
 	reason := "stop task"
 	newState := func() executionState {
 		return executionState{WorkingState: input("working"), TurnNumber: 1,
@@ -115,7 +115,7 @@ func TestTeamRestoreRejectsContradictoryProgress(t *testing.T) {
 		{"control two result owners", func(s *executionState) { s.Controls[0].Result = &controlOutcome }},
 		{"control uncertain result", func(s *executionState) {
 			s.Controls[0].Effect = nil
-			s.Controls[0].Result = new(require(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`))))
+			s.Controls[0].Result = new(require(run.NewSettlement(run.SettlementStatusUnknown, require(run.ParsePayload([]byte(`null`))))))
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -189,7 +189,7 @@ func TestTeamSignalControlKeepsReceiptSeparateFromTaskExit(t *testing.T) {
 		t.Fatalf("control changed its recipient or signal: %s", actual)
 	}
 	restored := require(definition.Restore(t.Context(), require(execution.Snapshot())))
-	receipt := run.Completion{Effect: testTurn(2).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`null`)))}
+	receipt := run.Completion{Effect: testTurn(2).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.ParsePayload([]byte(`null`)))))}
 	waiting := require(restored.Step(t.Context(), testTurn(3, receipt)))
 	if waiting.Kind() != run.TransitionKindYield || len(waiting.Effects()) != 0 {
 		t.Fatal("control receipt was mistaken for drained task completion")
@@ -293,7 +293,7 @@ func TestTeamCoordinatorFailureRetainsItsClassification(t *testing.T) {
 			if test.termination != nil {
 				spec := childStart(t, started.Effects()[0])
 				process := require(testTurn(1).Process.Child(spec.Key))
-				completion.Outcome = require(run.NewSettlement(run.SettlementStatusSucceeded, input(process).JSON()))
+				completion.Outcome = require(run.NewSettlement(run.SettlementStatusSucceeded, input(process)))
 				messages = []run.Message{completion, run.Exit{Child: process, Termination: *test.termination}}
 			}
 			transition := require(execution.Step(t.Context(), testTurn(2, messages...)))

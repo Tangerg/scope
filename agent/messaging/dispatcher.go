@@ -2,7 +2,6 @@ package messaging
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 
 	"github.com/samber/lo"
@@ -89,7 +88,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ 
 	if deliveryErr := d.port.Deliver(ctx, request.ID().Process, message.Recipient, signal); deliveryErr != nil {
 		return run.Settlement{}, deliveryErr
 	}
-	payload, err := jsonv2.Marshal(Receipt{SignalID: signal.ID})
+	payload, err := run.EncodePayload(Receipt{SignalID: signal.ID})
 	if err != nil {
 		return run.Settlement{}, err
 	}

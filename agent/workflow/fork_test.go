@@ -358,10 +358,13 @@ type managedBranchExecution struct {
 func (m *managedBranchExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	switch m.Phase {
 	case 0:
-		payload, _ := jsonv2.Marshal(struct {
+		payload, err := run.EncodePayload(struct {
 			Branch string `json:"branch"`
 			Value  int    `json:"value"`
 		}{Branch: m.Branch, Value: m.Value})
+		if err != nil {
+			return run.Transition{}, err
+		}
 		effect, err := run.NewDispatcherEffect(payload)
 		if err != nil {
 			return run.Transition{}, err
@@ -408,7 +411,10 @@ func (m managedBranchDispatcher) Dispatch(
 	case <-ctx.Done():
 		return run.Settlement{}, ctx.Err()
 	}
-	payload, _ := jsonv2.Marshal(branchOutput{Branch: call.Branch, Value: call.Value})
+	payload, err := run.EncodePayload(branchOutput{Branch: call.Branch, Value: call.Value})
+	if err != nil {
+		return run.Settlement{}, err
+	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
 }
 

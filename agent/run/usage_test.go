@@ -12,7 +12,7 @@ func TestLogUsageRetainsReapedWorkAndCountsOnlyDefiniteMessages(t *testing.T) {
 	key := controlValue(ParseChildKey("child"))
 	child := Started{Process: controlValue(log.Root.Child(key)), Program: parent.Program, Input: parent.Input, At: parent.At}
 	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
-	external := controlValue(NewDispatcherEffect(parent.Input.JSON()))
+	external := controlValue(NewDispatcherEffect(parent.Input))
 	spawnIntent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: spawn, Policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, At: parent.At}
 	externalIntent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1, Index: 1}, Effect: external, Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: parent.At}
 	signal := SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("input")), Payload: parent.Input}, At: parent.At}
@@ -22,12 +22,12 @@ func TestLogUsageRetainsReapedWorkAndCountsOnlyDefiniteMessages(t *testing.T) {
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{state.processes[log.Root].materialize(controlValue(ParseExecutionState("fixture", parent.Input.JSON())))}}
 	checkpointIndex := len(log.Entries)
 	log = integrityAppend(log, checkpoint, child,
-		EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)).JSON())), At: parent.At},
+		EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At},
 		EffectSettled{ID: externalIntent.ID, Outcome: unknownSettlement(), At: parent.At})
 	if got := controlValue(log.Usage()); got != (Usage{CommittedSteps: 1, PreparedEffects: 2, AcceptedMessages: 2}) {
 		t.Fatalf("unknown outcome counted as a message: %+v", got)
 	}
-	settled := EffectSettled{ID: externalIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, parent.Input.JSON())), At: parent.At}
+	settled := EffectSettled{ID: externalIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, parent.Input)), At: parent.At}
 	log = integrityAppend(log, settled,
 		Stepped{Process: child.Process, Step: 1, Transition: controlValue(Complete(0, child.Input))},
 		Exited{Process: child.Process, Termination: Termination{output: child.Input}, At: child.At},

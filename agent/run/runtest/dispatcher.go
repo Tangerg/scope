@@ -103,20 +103,20 @@ func freezeCall(source ScriptedCall) (frozenCall, error) {
 		}
 		return call, nil
 	}
+	var payload run.Payload
 	var err error
-	if source.SettlementStatus == run.SettlementStatusFailed {
-		var details run.Payload
-		if len(source.SettlementPayload) != 0 {
-			details, err = run.ParsePayload(source.SettlementPayload)
-			if err != nil {
-				return frozenCall{}, err
-			}
+	if len(source.SettlementPayload) != 0 {
+		payload, err = run.ParsePayload(source.SettlementPayload)
+		if err != nil {
+			return frozenCall{}, err
 		}
-		call.settlement, err = run.NewFailedSettlement(source.Failure, details)
+	}
+	if source.SettlementStatus == run.SettlementStatusFailed {
+		call.settlement, err = run.NewFailedSettlement(source.Failure, payload)
 	} else if source.Failure.Valid() {
 		return frozenCall{}, errors.New("only a failed settlement carries a Failure")
 	} else {
-		call.settlement, err = run.NewSettlement(source.SettlementStatus, source.SettlementPayload)
+		call.settlement, err = run.NewSettlement(source.SettlementStatus, payload)
 	}
 	if err != nil {
 		return frozenCall{}, err

@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
@@ -70,7 +69,11 @@ func (t *testExecution) Snapshot() (run.ExecutionState, error) {
 func (t *testExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !t.Called {
 		t.Called = true
-		effect, err := run.NewDispatcherEffect(json.RawMessage(`{"private":"secret-prompt"}`))
+		prompt, err := run.EncodePayload(map[string]string{"private": "secret-prompt"})
+		if err != nil {
+			return run.Transition{}, err
+		}
+		effect, err := run.NewDispatcherEffect(prompt)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -97,7 +100,11 @@ func (t testDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEm
 	if t.err != nil {
 		return run.Settlement{}, t.err
 	}
-	return run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"secret-result"`))
+	result, err := run.EncodePayload("secret-result")
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	return run.NewSettlement(run.SettlementStatusSucceeded, result)
 }
 
 func startObservedExecution(t *testing.T, h observerHarness, next run.Dispatcher) (*run.Handle[string], *run.MemoryStore) {

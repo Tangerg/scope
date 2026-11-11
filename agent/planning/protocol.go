@@ -2,7 +2,6 @@ package planning
 
 import (
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -54,7 +53,7 @@ const (
 )
 
 func newSenseEffect(input run.Payload) (run.Effect, error) {
-	payload, err := jsonv2.Marshal(effectEnvelope{Input: input}, jsonv2.Deterministic(true))
+	payload, err := run.EncodePayload(effectEnvelope{Input: input})
 	if err != nil {
 		return run.Effect{}, err
 	}
@@ -64,12 +63,12 @@ func newSenseEffect(input run.Payload) (run.Effect, error) {
 // newActionEffect declares a dispatcher Action the Planner selected. Its plan
 // passed EvaluatePlan against the current state, so the Action applies.
 func newActionEffect(input run.Payload, binding actionDeclaration, state WorldState) (run.Effect, error) {
-	payload, err := jsonv2.Marshal(effectEnvelope{
+	payload, err := run.EncodePayload(effectEnvelope{
 		Input: input,
 		Action: &actionCall{
 			Name: binding.action.name, WorldState: state,
 		},
-	}, jsonv2.Deterministic(true))
+	})
 	if err != nil {
 		return run.Effect{}, err
 	}
@@ -98,7 +97,7 @@ func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	if cause != nil {
 		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningSensingFailed, cause.Error())
 	}
-	payload, err := jsonv2.Marshal(senseResult{WorldState: state}, jsonv2.Deterministic(true))
+	payload, err := run.EncodePayload(senseResult{WorldState: state})
 	if err != nil {
 		return run.Settlement{}, err
 	}

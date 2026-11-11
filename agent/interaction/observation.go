@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -93,11 +92,11 @@ func (d dispatchUncertainty) settlement() (run.Settlement, error) {
 	if _, err := d.diagnostic(); err != nil {
 		return run.Settlement{}, err
 	}
-	encoded, err := jsonv2.Marshal(d)
+	payload, err := run.EncodePayload(d)
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusUnknown, encoded)
+	return run.NewSettlement(run.SettlementStatusUnknown, payload)
 }
 
 // A failed model call can still own completed generation and usage. The run

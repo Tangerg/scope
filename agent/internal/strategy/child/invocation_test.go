@@ -20,7 +20,7 @@ func TestInvocationRetainsOnlyOutstandingObligation(t *testing.T) {
 	process := value(parent.Child(value(run.ParseChildKey("worker"))))
 	id := run.EffectID{Process: parent, Step: 3, Index: 1}
 	invocation := Invocation{Request: &id}
-	other := run.Completion{Effect: run.EffectID{Process: parent, Step: 3, Index: 0}, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.EncodePayload(process)).JSON()))}
+	other := run.Completion{Effect: run.EffectID{Process: parent, Step: 3, Index: 0}, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.EncodePayload(process))))}
 	if matched, err := invocation.Accept(other); matched || err != nil {
 		t.Fatalf("unrelated completion=%t %v", matched, err)
 	}
@@ -54,7 +54,7 @@ func TestInvocationRejectsContradictoryStateAndForeignParent(t *testing.T) {
 		}
 	}
 	invocation := Invocation{Request: &id}
-	completion := run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.EncodePayload(process)).JSON()))}
+	completion := run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.EncodePayload(process))))}
 	if matched, err := invocation.Accept(completion); matched || err == nil {
 		t.Fatal("foreign child was accepted")
 	}
@@ -75,8 +75,8 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	}
 	for _, message := range []run.Message{
 		run.Completion{Effect: id},
-		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`3`)))},
-		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))},
+		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.ParsePayload([]byte(`3`)))))},
+		run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusUnknown, value(run.ParsePayload([]byte(`null`)))))},
 	} {
 		invocation := Invocation{Request: &id}
 		if accepted, err := invocation.Accept(message); accepted || err == nil {
@@ -104,7 +104,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 func TestInvalidMessageCarriesOneContractClassification(t *testing.T) {
 	id := run.EffectID{Process: value(run.ParseProcessID("root")), Step: 1}
 	invocation := Invocation{Request: &id}
-	_, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{"not":"a spawn result"}`)))})
+	_, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, value(run.ParsePayload([]byte(`{"not":"a spawn result"}`)))))})
 	failure, classified := run.StepFailure(fmt.Errorf("strategy context: %w", err))
 	if !classified || failure.Kind() != run.FailureKindContract || failure.Code() != "strategy.child.message_invalid" {
 		t.Fatalf("StepFailure = %+v, %t", failure, classified)

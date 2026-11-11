@@ -28,7 +28,7 @@ func lifecycleEchoProgram(t testing.TB, runtime *Runtime, name string) Program[i
 
 func lifecycleCallProgram(t testing.TB, runtime *Runtime, dispatcher Dispatcher) Program[int, int] {
 	t.Helper()
-	effect := controlValue(NewDispatcherEffect([]byte(`0`)))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.lifecycle.call"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
 			return Yield(0, []Effect{effect})
@@ -58,7 +58,7 @@ func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
 	var calls atomic.Int32
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		calls.Add(1)
-		return NewSettlement(SettlementStatusUnknown, []byte(`null`))
+		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
 	}}
 	program := lifecycleCallProgram(t, runtime, dispatcher)
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -79,7 +79,7 @@ func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
 	if err := handle.ReplayUnknownEffect(ctx, effect); !errors.Is(err, ErrEffectReplayForbidden) {
 		t.Fatalf("killed process replayed external work: %v", err)
 	}
-	if err := handle.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusUnknown, []byte(`null`)))); !errors.Is(err, ErrEffectNotPending) {
+	if err := handle.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`)))))); !errors.Is(err, ErrEffectNotPending) {
 		t.Fatalf("uncertainty resolved itself: %v", err)
 	}
 	if err := runtime.Close(ctx); err != nil {
@@ -95,7 +95,7 @@ func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
 	if recovered.Epoch() != handle.Epoch()+1 || calls.Load() != 1 {
 		t.Fatal("recovery changed the pending effect identity or replayed killed work")
 	}
-	if err := recovered.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`7`)))); err != nil {
+	if err := recovered.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 		t.Fatal(err)
 	}
 	result := controlValue(recovered.Await(ctx))
@@ -525,7 +525,7 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 			var calls atomic.Int32
 			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				calls.Add(1)
-				return NewSettlement(SettlementStatusSucceeded, []byte(`7`))
+				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
 			}}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -559,7 +559,7 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 			recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, dispatcher), handle.ID()))
 			if !commitFirst {
 				id := lifecycleUnknown(t, ctx, recovered)
-				if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`7`)))); err != nil {
+				if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -618,9 +618,9 @@ func TestRejectedSignalDoesNotClaimAcceptanceWhileTheWriterDrains(t *testing.T) 
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		close(entered)
 		<-release
-		return NewSettlement(SettlementStatusSucceeded, []byte(`0`))
+		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`0`))))
 	}}
-	effect := controlValue(NewDispatcherEffect([]byte(`0`)))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.admission_failure"), step: func(context.Context, Turn) (Transition, error) {
 		return Yield(0, []Effect{effect}, kernelWait())
 	}}

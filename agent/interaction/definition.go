@@ -245,14 +245,14 @@ func (d *definition) settlePreparedContext(req run.EffectRequest, messages []cha
 	if err = effective.Validate(); err != nil {
 		return run.Settlement{}, err
 	}
-	payload, err := run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: effective.Messages}})
+	outcome, err := resultEnvelope{Prepared: &preparedContext{Messages: effective.Messages}}.settlement()
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	if err := d.validateResponsePayload(payload); err != nil {
+	if err := d.validateResponsePayload(outcome.Payload()); err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
+	return outcome, nil
 }
 
 // Admission examines the complete model proposal before any child can execute.

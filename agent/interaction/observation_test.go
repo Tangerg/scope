@@ -29,7 +29,7 @@ func TestCommittedEvidenceRejectsContradictoryOpaqueOutcomes(t *testing.T) {
 				failure := mustValue(run.NewFailure(run.FailureKindContract, failureCodeDispatchRejected, "rejected"))
 				outcome = mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(row.wire)))))
 			} else {
-				outcome = mustValue(run.NewSettlement(row.status, []byte(row.wire)))
+				outcome = mustValue(run.NewSettlement(row.status, mustValue(run.ParsePayload([]byte(row.wire)))))
 			}
 			var err error
 			if row.model {
@@ -48,7 +48,7 @@ func TestCommittedEvidenceRejectsContradictoryOpaqueOutcomes(t *testing.T) {
 // Failure and a null payload; the projections own that committed shape too.
 func TestSettlementProjectionsReadRuntimeRecordedUncertainty(t *testing.T) {
 	failure := mustValue(run.NewFailure(run.FailureKindExternal, "runtime.dispatch.failed", "connection reset"))
-	outcome := mustValue(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))
+	outcome := mustValue(run.NewSettlement(run.SettlementStatusUnknown, mustValue(run.ParsePayload([]byte(`null`)))))
 	record := run.EffectSettled{Outcome: outcome, Failure: &failure}
 	model := mustValue(ModelSettlementFromRecord(record))
 	if model.Outcome != ModelOutcomeUnknown || model.Failure != "connection reset" {
@@ -58,7 +58,7 @@ func TestSettlementProjectionsReadRuntimeRecordedUncertainty(t *testing.T) {
 	if tool.Outcome != ToolOutcomeUnknown || tool.Failure != "connection reset" {
 		t.Fatalf("tool settlement = %+v", tool)
 	}
-	succeeded := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`)))
+	succeeded := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`)))))
 	if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: succeeded, Failure: &failure}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatalf("runtime failure beside a definite outcome: %v", err)
 	}

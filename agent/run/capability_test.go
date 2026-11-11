@@ -114,7 +114,7 @@ type capabilityTestExecution struct {
 
 func (c *capabilityTestExecution) Step(context.Context, Turn) (Transition, error) {
 	if c.phase == 0 {
-		effect, err := NewDispatcherEffect(json.RawMessage(`{}`))
+		effect, err := NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{}`))))
 		if err != nil {
 			return Transition{}, err
 		}
@@ -143,7 +143,7 @@ func (c *capabilityTestDispatcher) Dispatch(
 	_ DeltaEmitter,
 ) (Settlement, error) {
 	c.calls.Add(1)
-	return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`{}`))
+	return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`{}`))))
 }
 
 func (c *capabilityTestDispatcher) Policy(Effect) EffectPolicy {

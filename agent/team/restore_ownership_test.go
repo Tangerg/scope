@@ -52,7 +52,7 @@ func TestTeamRestoreAdmitsOneOwnerPerPendingOperation(t *testing.T) {
 		}},
 		{"partially settled controls", func(s *executionState) {
 			s.Controls[0].Effect = nil
-			s.Controls[0].Result = new(require(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`null`))))
+			s.Controls[0].Result = new(require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.ParsePayload([]byte(`null`))))))
 		}},
 		{"task completed before control receipt", func(s *executionState) {
 			s.Tasks[0].Invocation = child.Invocation{Termination: new(completed("done"))}

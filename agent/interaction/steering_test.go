@@ -76,7 +76,7 @@ func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
 	}
 	advance(t, execution, 3, steer(t, "correction"))
 	execution = mustValue(definition.Restore(t.Context(), mustValue(execution.Snapshot())))
-	prepared := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("retrieved"))}}})).JSON()))
+	prepared := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("retrieved"))}}}))))
 	transition := advance(t, execution, 4, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: prepared})
 	model := mustValue(decodeEffect(transition.Effects()[0].Payload().JSON())).ModelCall
 	if model == nil || len(model.Request.Messages) != 2 || model.Request.Messages[0].Text() != "retrieved" || model.Request.Messages[1].Text() != "correction" || len(model.AppliedSteerSignalIDs) != 1 {
@@ -92,8 +92,8 @@ func TestSteeringAndOutcomeMessagesCannotCrossProtocolBoundaries(t *testing.T) {
 		{run.Exit{}},
 		{run.Completion{Effect: testTurn(9).EffectID(0), Outcome: final}},
 		{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: final}, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: final}},
-		{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`)))}},
-		{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: testInput().Messages}})).JSON()))}},
+		{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`)))))}},
+		{run.Completion{Effect: testTurn(1).EffectID(0), Outcome: mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: testInput().Messages}}))))}},
 		{run.Signal{ID: mustValue(run.ParseSignalID("wrong")), Payload: mustValue(run.EncodePayload("not steering"))}},
 	} {
 		execution := mustValue(definition.Start(input))

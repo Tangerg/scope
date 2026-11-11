@@ -2,7 +2,6 @@ package trajectory_test
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"iter"
@@ -172,7 +171,11 @@ func TestInvalidSemanticSettlementIsRejectedWithoutAlternativeDecoding(t *testin
 		if !ok || settled.ID != target {
 			continue
 		}
-		outcome, err := run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`{"other_protocol":true}`))
+		other, err := run.EncodePayload(map[string]bool{"other_protocol": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		outcome, err := run.NewSettlement(run.SettlementStatusSucceeded, other)
 		if err != nil {
 			t.Fatal(err)
 		}

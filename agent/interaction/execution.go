@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -114,7 +113,7 @@ func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSte
 	if prepare {
 		envelope.Preparation, envelope.ModelCall = envelope.ModelCall, nil
 	}
-	payload, err := jsonv2.Marshal(envelope, jsonv2.Deterministic(true))
+	payload, err := run.EncodePayload(envelope)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -477,7 +476,7 @@ func toolEffect(request toolDispatchRequest) (run.Effect, error) {
 	if err != nil {
 		return run.Effect{}, err
 	}
-	payload, err := jsonv2.Marshal(envelope, jsonv2.Deterministic(true))
+	payload, err := run.EncodePayload(envelope)
 	if err != nil {
 		return run.Effect{}, err
 	}

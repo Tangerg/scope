@@ -25,8 +25,8 @@ func TestCheckpointPriorityDoesNotDependOnAnEmptyMailbox(t *testing.T) {
 			store := NewMemoryStore()
 			runtime := kernelRuntime(t, Config{Store: store, CheckpointInterval: 1})
 			input := controlValue(EncodePayload(0))
-			effect := controlValue(NewDispatcherEffect(input.JSON()))
-			settlement := controlValue(NewSettlement(SettlementStatusSucceeded, input.JSON()))
+			effect := controlValue(NewDispatcherEffect(input))
+			settlement := controlValue(NewSettlement(SettlementStatusSucceeded, input))
 			transition := controlValue(Yield(0, []Effect{effect}))
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{
 				Definition: &boundaryDefinition{descriptor: kernelDescriptor(t, "test.checkpoint_priority"), step: func(context.Context, Turn) (Transition, error) {
@@ -127,10 +127,10 @@ func TestCheckpointDrainsRunningStepsBeforeStartingMore(t *testing.T) {
 						case <-slowEntered:
 						}
 						close(fastEntered)
-						return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(EncodePayload(0)).JSON()))})
+						return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(EncodePayload(0))))})
 					}},
 					Dispatcher: boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
-						return NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(0)).JSON())
+						return NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(0)))
 					}}, Revision: "checkpoint",
 				}))
 				parent := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{

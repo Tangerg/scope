@@ -89,7 +89,11 @@ func TestScriptedDispatcherKeepsCancellationAndUnknownOutcomeDistinct(t *testing
 
 func TestScriptedDispatcherRejectsWrongEffect(t *testing.T) {
 	request := scriptedRequest(t)
-	other, err := run.NewDispatcherEffect([]byte(`"other"`))
+	payload, err := run.EncodePayload("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := run.NewDispatcherEffect(payload)
 	if err != nil {
 		t.Fatal(err)
 	}

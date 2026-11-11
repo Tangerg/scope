@@ -124,14 +124,20 @@ func (m modelCallResult) validate() error {
 }
 
 func (m modelCallResult) settlement() (run.Settlement, error) {
-	if err := m.validate(); err != nil {
+	return resultEnvelope{ModelResult: &m}.settlement()
+}
+
+// settlement encodes a definite successful dispatcher result; every success
+// the Interaction protocol records is one of these envelopes.
+func (r resultEnvelope) settlement() (run.Settlement, error) {
+	if err := r.validate(); err != nil {
 		return run.Settlement{}, err
 	}
-	payload, err := run.EncodePayload(resultEnvelope{ModelResult: &m})
+	payload, err := run.EncodePayload(r)
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
+	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
 }
 
 type toolDispatchResult struct {
@@ -252,14 +258,7 @@ func (r resultEnvelope) validate() error {
 }
 
 func (t toolDispatchResult) settlement() (run.Settlement, error) {
-	if err := t.validate(); err != nil {
-		return run.Settlement{}, err
-	}
-	payload, err := run.EncodePayload(resultEnvelope{ToolResult: &t})
-	if err != nil {
-		return run.Settlement{}, err
-	}
-	return run.NewSettlement(run.SettlementStatusSucceeded, payload.JSON())
+	return resultEnvelope{ToolResult: &t}.settlement()
 }
 
 func (t toolDispatchResult) validate() error {

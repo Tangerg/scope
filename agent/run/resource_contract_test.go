@@ -20,12 +20,12 @@ func TestExhaustedWorkBudgetsFailBeforeDispatch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{Budget: test.budget})
 			definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.budget"), step: func(context.Context, Turn) (Transition, error) {
-				return Yield(0, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+				return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
 			}}
 			var calls atomic.Int32
 			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				calls.Add(1)
-				return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
 			}}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -43,14 +43,14 @@ func TestExternalSignalCannotConsumeAReservedCompletionSlot(t *testing.T) {
 	release := make(chan struct{})
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.reservation"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
-			return Yield(0, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+			return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
 		}
 		return Complete(1, controlValue(EncodePayload(1)))
 	}}
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(ctx context.Context, _ EffectRequest, _ DeltaEmitter) (Settlement, error) {
 		select {
 		case <-release:
-			return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+			return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
 		case <-ctx.Done():
 			return Settlement{}, ctx.Err()
 		}

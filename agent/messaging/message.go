@@ -1,7 +1,6 @@
 package messaging
 
 import (
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -29,7 +28,7 @@ func (m Message) Effect() (run.Effect, error) {
 	if !m.Valid() {
 		return run.Effect{}, ErrInvalidMessage
 	}
-	payload, err := jsonv2.Marshal(m)
+	payload, err := run.EncodePayload(m)
 	if err != nil {
 		return run.Effect{}, err
 	}

@@ -264,7 +264,7 @@ func TestMessageEffectFreezesRecipientAndWait(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, raw := range []string{`null`, `{}`, `{"recipient":"recipient","payload":null,"unknown":true}`} {
-		effect := require(run.NewDispatcherEffect([]byte(raw)))
+		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
 		if _, err := decodeMessage(effect); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}

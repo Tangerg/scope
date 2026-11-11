@@ -83,7 +83,7 @@ func TestLogicalKeysHaveOneStrictTextRepresentation(t *testing.T) {
 func TestInboxPersistsClosedMessageVariants(t *testing.T) {
 	root := controlValue(ParseProcessID("root"))
 	child := controlValue(root.Child(controlValue(ParseChildKey("child"))))
-	outcome := controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`)))
+	outcome := controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`null`)))))
 	inbox := Inbox{
 		Signal{ID: controlValue(ParseSignalID("application:ordinary-user-id")), Payload: controlValue(EncodePayload("wait_opened"))},
 		Completion{Effect: EffectID{Process: root, Step: 1}, Outcome: outcome},
@@ -119,7 +119,7 @@ func TestEffectsAndTransitionsUseOneCurrentWireSchema(t *testing.T) {
 	child := controlValue(root.Child(controlValue(ParseChildKey("child"))))
 	signal := Signal{ID: controlValue(ParseSignalID("input")), Payload: controlValue(EncodePayload(1))}
 	effects := []Effect{
-		controlValue(NewDispatcherEffect([]byte(`{}`))),
+		controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{}`))))),
 		controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("child")), ProgramRef: program.ProgramRef(), Input: controlValue(EncodePayload(0))})),
 		controlValue(NewChildSignalEffect(child, signal)),
 		controlValue(NewChildCancelEffect(child, "parent completed")),

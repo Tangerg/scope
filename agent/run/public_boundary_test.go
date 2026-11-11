@@ -129,7 +129,7 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 				failure := controlValue(NewFailure(FailureKindExternal, "test.operation.failed", "operation failed"))
 				settlement = controlValue(NewFailedSettlement(failure, controlValue(ParsePayload(raw))))
 			} else {
-				settlement = controlValue(NewSettlement(status, raw))
+				settlement = controlValue(NewSettlement(status, controlValue(ParsePayload(raw))))
 			}
 			raw[0] = '['
 			returned := settlement.Payload().JSON()
@@ -150,16 +150,14 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 	if SettlementStatusInvalid.Valid() || SettlementStatusInvalid.String() != invalidEnumName {
 		t.Fatal("absent settlement status appears valid")
 	}
-	if settlement, err := NewSettlement(SettlementStatusInvalid, json.RawMessage(`null`)); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
+	if settlement, err := NewSettlement(SettlementStatusInvalid, controlValue(ParsePayload(json.RawMessage(`null`)))); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
 		t.Fatalf("missing status accepted: %v", err)
 	}
-	if _, err := NewSettlement(SettlementStatusFailed, json.RawMessage(`null`)); !errors.Is(err, ErrInvalidSettlement) {
+	if _, err := NewSettlement(SettlementStatusFailed, controlValue(ParsePayload(json.RawMessage(`null`)))); !errors.Is(err, ErrInvalidSettlement) {
 		t.Fatalf("untyped failure constructor accepted: %v", err)
 	}
-	for _, raw := range []json.RawMessage{nil, json.RawMessage(`{`), json.RawMessage(`null null`), json.RawMessage(`{"value":1,"value":2}`)} {
-		if settlement, err := NewSettlement(SettlementStatusSucceeded, raw); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
-			t.Fatalf("malformed settlement payload admitted: %s, %v", raw, err)
-		}
+	if settlement, err := NewSettlement(SettlementStatusSucceeded, Payload{}); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
+		t.Fatalf("absent settlement payload admitted: %v", err)
 	}
 	diagnostic := controlValue(NewFailure(FailureKindExternal, "test.operation.failed", "operation failed"))
 	accepted := controlValue(NewFailedSettlement(diagnostic, Payload{}))
@@ -395,7 +393,7 @@ func publicBoundaryLog(t *testing.T, completed bool) Log {
 			Exited{Process: log.Root, Termination: termination, At: started.At},
 		)
 	} else {
-		effect := controlValue(NewDispatcherEffect(json.RawMessage(`{"operation":"inspect"}`)))
+		effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`{"operation":"inspect"}`)))))
 		wait := kernelWait()
 		remaining := wait
 		remaining.Key = controlValue(ParseWaitKey("confirmation"))
@@ -404,7 +402,7 @@ func publicBoundaryLog(t *testing.T, completed bool) Log {
 		log = integrityAppend(log,
 			Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{effect}, wait, remaining))},
 			intent,
-			EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusUnknown, json.RawMessage(`null`))), Failure: &failure, At: started.At},
+			EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))), Failure: &failure, At: started.At},
 			SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("answer")), Wait: wait.Key, Payload: controlValue(EncodePayload(1))}, At: started.At},
 		)
 		state = controlValue(ParseExecutionState("fixture", started.Input.JSON()))
@@ -461,7 +459,7 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 	runtime := kernelRuntime(t, Config{Store: store, Deltas: deltas})
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.delta-boundary"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
-			return Yield(0, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+			return Yield(0, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
 		}
 		return Complete(uint32(len(turn.Messages)), controlValue(EncodePayload(7)))
 	}}
@@ -475,7 +473,7 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 		payload[0] = '['
 		emit(json.RawMessage(`"dropped by full channel"`))
 		emit(json.RawMessage(`"` + strings.Repeat("x", maxDeltaBytes) + `"`))
-		return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`7`))
+		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`7`))))
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
@@ -756,7 +754,7 @@ func TestCanceledHandleCommandsCannotPublishAdmission(t *testing.T) {
 	canceled, stop := context.WithCancel(ctx)
 	stop()
 	signal := Signal{ID: controlValue(ParseSignalID("canceled-input")), Payload: controlValue(EncodePayload(42))}
-	outcome := controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`42`)))
+	outcome := controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`42`)))))
 	for _, handle := range []*Handle[int]{active, cold} {
 		if accepted, err := handle.DeliverSignals(canceled, signal); accepted || !errors.Is(err, context.Canceled) {
 			t.Fatalf("canceled delivery claimed admission: accepted=%t, %v", accepted, err)
@@ -801,7 +799,7 @@ func TestFailedSettlementRequiresDiagnosticAndKeepsDomainEvidenceSeparate(t *tes
 		t.Fatal(err)
 	}
 	for _, status := range []SettlementStatus{SettlementStatusSucceeded, SettlementStatusUnknown} {
-		settlement := controlValue(NewSettlement(status, []byte(`{"failure":"domain data"}`)))
+		settlement := controlValue(NewSettlement(status, controlValue(ParsePayload([]byte(`{"failure":"domain data"}`)))))
 		if failure, present := settlement.Failure(); present || failure.Valid() {
 			t.Fatal("domain payload was mistaken for a definite-failure diagnostic")
 		}

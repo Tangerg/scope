@@ -120,7 +120,7 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 	for _, messages := range [][]run.Message{
 		nil, {external}, {run.Completion{Effect: turn(1).EffectID(1), Outcome: settled(timerReached{})}},
 		{run.Completion{Effect: turn(1).EffectID(0)}},
-		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusUnknown, []byte(`null`)))}},
+		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusUnknown, require(run.ParsePayload([]byte(`null`)))))}},
 		{run.Completion{Effect: turn(1).EffectID(0), Outcome: settled("not a reached receipt")}},
 	} {
 		restored := require(definition.Restore(t.Context(), waiting))
@@ -155,7 +155,7 @@ func TestTimerProtocolRejectionAndCancellationAreDefinite(t *testing.T) {
 		t.Fatal("invalid timer authorized replay")
 	}
 	for _, raw := range []string{`null`, `{}`, `{"deadline":"not a date"}`, `{"deadline":"2027-01-02T03:04:05Z","unexpected":true}`} {
-		effect := require(run.NewDispatcherEffect([]byte(raw)))
+		effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
 		if dispatcher.Policy(effect).Replay != run.ReplayPolicyNever {
 			t.Fatal("malformed timer authorized replay")
 		}

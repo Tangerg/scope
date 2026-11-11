@@ -66,12 +66,12 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		{"foreign completion owner", func(p *ProcessCheckpoint) {
 			pending := checkpointPending(p)
 			pending.Intent.ID.Process = controlValue(ParseProcessID("foreign"))
-			p.Inbox = Inbox{Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`)))}}
+			p.Inbox = Inbox{Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`null`)))))}}
 			p.Usage.AcceptedMessages = 1
 		}},
 		{"duplicate inbox completion", func(p *ProcessCheckpoint) {
 			pending := checkpointPending(p)
-			completion := Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`)))}
+			completion := Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`null`)))))}
 			p.Inbox, p.Usage.AcceptedMessages = Inbox{completion, completion}, 2
 		}},
 		{"foreign exit owner", func(p *ProcessCheckpoint) {
@@ -97,7 +97,7 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		}},
 		{"successful settlement pending", func(p *ProcessCheckpoint) {
 			pending := checkpointPending(p)
-			pending.Outcome = new(controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`))))
+			pending.Outcome = new(controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`null`))))))
 			p.Pending = []PendingCheckpoint{pending}
 		}},
 		{"ungranted effect capability", func(p *ProcessCheckpoint) {
@@ -108,7 +108,7 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		{"pending completion", func(p *ProcessCheckpoint) {
 			pending := checkpointPending(p)
 			p.Pending = []PendingCheckpoint{pending}
-			p.Inbox = Inbox{Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`null`)))}}
+			p.Inbox = Inbox{Completion{Effect: pending.Intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`null`)))))}}
 			p.Usage.AcceptedMessages = 1
 		}},
 		{"used step exceeds grant", func(p *ProcessCheckpoint) {
@@ -185,7 +185,7 @@ func checkpointPending(p *ProcessCheckpoint) PendingCheckpoint {
 	p.Usage.CommittedSteps, p.Usage.PreparedEffects = 1, 1
 	return PendingCheckpoint{Intent: EffectIntent{
 		ID:     EffectID{Process: p.Started.Process, Step: 1},
-		Effect: controlValue(NewDispatcherEffect([]byte(`null`))),
+		Effect: controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`null`))))),
 		Policy: EffectPolicy{Replay: ReplayPolicyNever}, At: p.Started.At,
 	}}
 }

@@ -43,7 +43,7 @@ func TestMalformedMessageIsDefinitelyRejectedWithoutDeliveryOrReplay(t *testing.
 		`{"payload":"answer"}`, `{"recipient":"peer"}`,
 	} {
 		t.Run(raw, func(t *testing.T) {
-			effect := require(run.NewDispatcherEffect([]byte(raw)))
+			effect := require(run.NewDispatcherEffect(require(run.ParsePayload([]byte(raw)))))
 			if policy := dispatcher.Policy(effect); policy.Replay != run.ReplayPolicyNever {
 				t.Fatalf("invalid message authorized replay: %+v", policy)
 			}

@@ -1,9 +1,9 @@
 package run
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -36,12 +36,11 @@ type Effect struct {
 	cancel *childCancellation
 }
 
-func NewDispatcherEffect(payload json.RawMessage) (Effect, error) {
-	value, err := ParsePayload(payload)
-	if err != nil {
-		return Effect{}, err
+func NewDispatcherEffect(payload Payload) (Effect, error) {
+	if !payload.Valid() {
+		return Effect{}, fmt.Errorf("%w: a dispatcher Effect requires a payload", ErrInvalidPayload)
 	}
-	return Effect{call: value}, nil
+	return Effect{call: payload}, nil
 }
 
 func (e Effect) Target() EffectTarget {

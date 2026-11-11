@@ -108,7 +108,7 @@ func (hostileStore) Read(context.Context, ProcessID, LSN) iter.Seq2[Entry, error
 func TestDeltaSequenceSurvivesSameEpochReplay(t *testing.T) {
 	deltas := make(chan Delta, 4)
 	runtime := kernelRuntime(t, Config{Deltas: deltas})
-	effect := controlValue(NewDispatcherEffect(json.RawMessage(`0`)))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.delta"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
 			return Yield(0, []Effect{effect})
@@ -119,9 +119,9 @@ func TestDeltaSequenceSurvivesSameEpochReplay(t *testing.T) {
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(_ context.Context, _ EffectRequest, emit DeltaEmitter) (Settlement, error) {
 		emit(json.RawMessage(`"increment"`))
 		if calls.Add(1) == 1 {
-			return NewSettlement(SettlementStatusUnknown, json.RawMessage(`null`))
+			return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))
 		}
-		return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`1`))
+		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`1`))))
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -156,7 +156,7 @@ func TestContinueDoesNotWaitForUnrelatedPendingWork(t *testing.T) {
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.continue"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		switch turn.Step {
 		case 1:
-			return Continue(0, controlValue(NewDispatcherEffect(json.RawMessage(`0`))))
+			return Continue(0, controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`))))))
 		case 2:
 			close(continued)
 			return Yield(0, nil, kernelWait())
@@ -167,7 +167,7 @@ func TestContinueDoesNotWaitForUnrelatedPendingWork(t *testing.T) {
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(ctx context.Context, _ EffectRequest, _ DeltaEmitter) (Settlement, error) {
 		select {
 		case <-continued:
-			return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+			return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
 		case <-ctx.Done():
 			return Settlement{}, ctx.Err()
 		}

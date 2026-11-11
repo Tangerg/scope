@@ -142,7 +142,7 @@ func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
 	spawn := controlValue(NewChildStartEffect(ChildSpec{Key: key, ProgramRef: child.Program, Input: child.Input}))
 	intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: spawn, Policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, At: parent.At}
 	prepared := integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{spawn}))}, intent)
-	settled := EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)).JSON())), At: parent.At}
+	settled := EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At}
 	if err := integrityAppend(prepared, child).Validate(); !errors.Is(err, ErrInvalidLog) {
 		t.Fatalf("child Started became visible without its Spawn receipt: %v", err)
 	}
@@ -173,13 +173,13 @@ func TestChildStartedRequiresItsExactCommittedSpawn(t *testing.T) {
 	}{
 		{"different effect", func(s *EffectSettled) { s.ID.Index++ }},
 		{"different process", func(s *EffectSettled) {
-			s.Outcome = controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(log.Root)).JSON()))
+			s.Outcome = controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(log.Root))))
 		}},
 		{"failed admission", func(s *EffectSettled) {
 			s.Outcome = controlValue(NewFailedSettlement(controlValue(NewFailure(FailureKindContract, "test.child.rejected", "rejected")), Payload{}))
 		}},
 		{"unknown admission", func(s *EffectSettled) {
-			s.Outcome = controlValue(NewSettlement(SettlementStatusUnknown, []byte(`"uncertain"`)))
+			s.Outcome = controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`"uncertain"`)))))
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -204,7 +204,7 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 	spawnIntent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: spawn, Policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, At: parent.At}
 	spawned := integrityAppend(log,
 		Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{spawn}))}, spawnIntent,
-		child, EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)).JSON())), At: parent.At})
+		child, EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At})
 	signal := Signal{ID: controlValue(ParseSignalID("message")), Payload: controlValue(EncodePayload("delivered"))}
 	for _, test := range []struct {
 		name   string
@@ -222,7 +222,7 @@ func TestFrameworkAcknowledgmentRequiresTheCommittedRecipientChange(t *testing.T
 			effect := test.effect(child.Process)
 			intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 2}, Effect: effect, Policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, At: parent.At}
 			prepared := integrityAppend(spawned, Stepped{Process: log.Root, Step: 2, Delivered: 1, Transition: controlValue(Yield(1, []Effect{effect}))}, intent)
-			receipt := EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`{}`))), At: parent.At}
+			receipt := EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`{}`))))), At: parent.At}
 			if err := integrityAppend(prepared, test.change(child.Process), receipt).Validate(); err != nil {
 				t.Fatalf("valid framework operation rejected: %v", err)
 			}
@@ -282,7 +282,7 @@ func TestFrameworkIntentHasOneKernelOwnedPolicy(t *testing.T) {
 			}
 		})
 	}
-	call := controlValue(NewDispatcherEffect(started.Input.JSON()))
+	call := controlValue(NewDispatcherEffect(started.Input))
 	intent := EffectIntent{ID: EffectID{Process: log.Root, Step: 1}, Effect: call, Policy: EffectPolicy{Replay: ReplayPolicyNever, RequiredCapabilities: capabilities}, At: started.At}
 	if err := integrityAppend(log, Stepped{Process: log.Root, Step: 1, Transition: controlValue(Yield(0, []Effect{call}))}, intent).Validate(); err != nil {
 		t.Fatalf("dispatcher-owned policy was rejected: %v", err)

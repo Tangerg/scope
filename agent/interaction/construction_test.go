@@ -171,11 +171,11 @@ func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
 		return nil, errors.New("must not run")
 	}))}))
 	for _, payload := range []string{`{}`, `{"model_call":{}}`, `{"tool_call":{"invocation":{"call":{"id":"call","name":"absent","arguments":"{}"}}}}`, `{"prepare_context":{"model_call_sequence":1,"request":{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}]}]}}}`} {
-		effect := mustValue(run.NewDispatcherEffect([]byte(payload)))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload)))))
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 	}
 	for _, payload := range []string{`{}`, `{"model_call":{}}`} {
-		conformancetest.CheckDispatcherRejection(t, rejectingToolDispatcher{dispatcher: newToolDispatcher()}, mustValue(run.NewDispatcherEffect([]byte(payload))))
+		conformancetest.CheckDispatcherRejection(t, rejectingToolDispatcher{dispatcher: newToolDispatcher()}, mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload))))))
 	}
 }
 

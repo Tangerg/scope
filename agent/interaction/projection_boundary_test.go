@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
 
@@ -18,7 +17,7 @@ import (
 
 func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	model := mustValue(newModelEffect(new(testInput()), 41, []tool.Definition{scriptTool{name: "echo"}.Definition()}, nil))
-	modelEffect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(model))))
+	modelEffect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(model))))
 	request, recognized, err := ModelCallFromEffect(modelEffect)
 	if err != nil || !recognized || request.Sequence != 41 || len(request.Request.Tools) != 1 || request.Request.Tools[0].Name != "echo" {
 		t.Fatalf("model intent=%+v recognized=%t error=%v", request, recognized, err)
@@ -41,7 +40,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	reference := testTurn(1).EffectID(1)
 	for _, resume := range []*toolResume{nil, {InputRequest: question, Reference: reference, InputResponse: []byte(`true`)}} {
 		envelope := mustValue(newToolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: resume}))
-		effect := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(envelope))))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
 		observed, present, decodeErr := ToolCallFromEffect(effect)
 		origin := observed.ContinuationOf
 		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {
@@ -52,7 +51,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		}
 	}
 	child := mustValue(testTurn(1).Process.Child(mustValue(run.ParseChildKey("child"))))
-	preparation := mustValue(run.NewDispatcherEffect(mustValue(jsonv2.Marshal(effectEnvelope{Preparation: model.ModelCall}))))
+	preparation := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(effectEnvelope{Preparation: model.ModelCall}))))
 	for _, effect := range []run.Effect{{}, mustValue(run.NewChildCancelEffect(child, "finished")), preparation} {
 		if value, found, decodeErr := ModelCallFromEffect(effect); decodeErr != nil || found || value.Request != nil || value.Sequence != 0 {
 			t.Fatal("kernel effect acquired model semantics", decodeErr)
@@ -62,7 +61,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{`null`, `{}`, `{"model_call":{}}`, `{"tool_call":{}}`, `{"model_call":{},"tool_call":{}}`} {
-		effect := mustValue(run.NewDispatcherEffect([]byte(raw)))
+		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(raw)))))
 		if _, _, decodeErr := ModelCallFromEffect(effect); decodeErr == nil {
 			t.Fatal("malformed model protocol admitted", raw)
 		}
@@ -78,12 +77,12 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	toolResult := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("echo")}}).settlement())
 	failure := mustValue(run.NewFailure(run.FailureKindExternal, failureCodeModelFailed, "rejected"))
 	nullDetails := mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(`null`)))))
-	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
+	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`))))), nullDetails} {
 		if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("model decoder admitted another or missing outcome")
 		}
 	}
-	for _, outcome := range []run.Settlement{{}, model, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{}`))), nullDetails} {
+	for _, outcome := range []run.Settlement{{}, model, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`))))), nullDetails} {
 		if _, err := ToolSettlementFromRecord(call, run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("tool decoder admitted another or missing outcome")
 		}
@@ -105,7 +104,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 		if sample.status == run.SettlementStatusFailed {
 			outcome = mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(sample.wire)))))
 		} else {
-			outcome = mustValue(run.NewSettlement(sample.status, []byte(sample.wire)))
+			outcome = mustValue(run.NewSettlement(sample.status, mustValue(run.ParsePayload([]byte(sample.wire)))))
 		}
 		if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); err == nil {
 			t.Fatal("invalid failure became model evidence", sample.wire)
@@ -277,7 +276,7 @@ func TestLogProjectionsFilterExactProgramAndRejectInvalidEvidence(t *testing.T) 
 		broken := mustValue(log.Clone())
 		for index, entry := range broken.Entries {
 			if result, ok := entry.Record.(run.EffectSettled); ok && result.Outcome.Status() == run.SettlementStatusSucceeded {
-				result.Outcome = mustValue(run.NewSettlement(run.SettlementStatusSucceeded, raw))
+				result.Outcome = mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload(raw))))
 				broken.Entries[index].Record = result
 				break
 			}

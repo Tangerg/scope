@@ -77,7 +77,7 @@ func TestInvalidEffectPolicyRejectsTheWholeStepBeforeDispatch(t *testing.T) {
 			if test.dispatcher {
 				dispatcher = policyProbe{policy: test.policy, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 					calls.Add(1)
-					return NewSettlement(SettlementStatusSucceeded, []byte(`7`))
+					return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
 				}}
 			}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
@@ -124,7 +124,7 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 			if err := handle.ReplayUnknownEffect(ctx, id); !errors.Is(err, ErrEffectReplayForbidden) {
 				t.Fatalf("Never effect was replayed: %v", err)
 			}
-			if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`7`)))); err != nil {
+			if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 				t.Fatal(err)
 			}
 			result := controlValue(handle.Await(ctx))
@@ -150,7 +150,7 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 				return EffectPolicy{Replay: replay}
 			}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				dispatches.Add(1)
-				return NewSettlement(SettlementStatusSucceeded, []byte(`7`))
+				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
 			}}
 			program := lifecycleCallProgram(t, runtime, dispatcher)
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -165,7 +165,7 @@ func TestRecoveryUsesTheCommittedReplayPolicy(t *testing.T) {
 			if replay == ReplayPolicyNever {
 				wantDispatches = 1
 				id := lifecycleUnknown(t, ctx, recovered)
-				if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`7`)))); err != nil {
+				if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -181,7 +181,7 @@ func TestRepeatedUnknownReplayDoesNotResolveItself(t *testing.T) {
 	var calls atomic.Int32
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 		calls.Add(1)
-		return NewSettlement(SettlementStatusUnknown, []byte(`null`))
+		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
 	}}
 	program := lifecycleCallProgram(t, runtime, dispatcher)
 	handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -191,7 +191,7 @@ func TestRepeatedUnknownReplayDoesNotResolveItself(t *testing.T) {
 	if err := handle.ReplayUnknownEffect(ctx, id); !errors.Is(err, ErrEffectOutcomeUnknown) || calls.Load() != 2 {
 		t.Fatalf("unknown replay acknowledgment=%v calls=%d", err, calls.Load())
 	}
-	if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`7`)))); err != nil {
+	if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 		t.Fatal(err)
 	}
 	if result := controlValue(handle.Await(ctx)); result.Usage().PreparedEffects != 1 || result.Usage().AcceptedMessages != 1 {
@@ -236,12 +236,12 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 		}
 		select {
 		case <-allStarted:
-			return NewSettlement(SettlementStatusSucceeded, []byte(`1`))
+			return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`1`))))
 		case <-ctx.Done():
 			return Settlement{}, ctx.Err()
 		}
 	}}
-	effect := controlValue(NewDispatcherEffect([]byte(`0`)))
+	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.writer_failure"), step: func(_ context.Context, turn Turn) (Transition, error) {
 		if turn.Step == 1 {
 			return Yield(0, []Effect{effect, effect})
@@ -285,7 +285,7 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 		}
 	}
 	for _, id := range runtimeError.UnresolvedEffectIDs() {
-		if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, []byte(`1`)))); err != nil {
+		if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`1`)))))); err != nil {
 			t.Fatal(err)
 		}
 	}

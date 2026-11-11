@@ -304,7 +304,11 @@ func checkUnresolvedCancellation(t *testing.T, store run.Store) {
 	if !found || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
 		t.Fatal("cancellation discarded the unknown effect")
 	}
-	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, []byte(`"confirmed"`))
+	confirmed, err := run.EncodePayload("confirmed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, confirmed)
 	if err != nil {
 		t.Fatal(err)
 	}

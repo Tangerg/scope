@@ -127,7 +127,7 @@ func BenchmarkLongRunEffectCommit(b *testing.B) {
 			if step >= benchmarkEffectCount-benchmarkSampleWindow {
 				late = append(late, elapsed)
 			}
-			return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+			return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
 		}}
 		program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
 		b.StartTimer()
@@ -191,7 +191,7 @@ func (e *effectCommitExecution) Step(_ context.Context, turn Turn) (Transition, 
 		return Complete(consumed, controlValue(EncodePayload(e.completed)))
 	}
 	e.marks <- time.Now()
-	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
 }
 
 func durationMedian(samples []time.Duration) time.Duration {
@@ -211,7 +211,7 @@ func BenchmarkRecoveryCutIsBoundedByTheCheckpointInterval(b *testing.B) {
 			definition := &boundedEffectDefinition{effectCommitDefinition: effectCommitDefinition{descriptor: kernelDescriptor(b, "benchmark.recovery_cut"), marks: marks}, effects: effects}
 			dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
 				<-marks
-				return NewSettlement(SettlementStatusSucceeded, json.RawMessage(`0`))
+				return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`0`))))
 			}}
 			program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "benchmark"}))
 			handle := controlValue(runtime.Start(b.Context(), program, StartRequest[int]{ID: hostStartID()}))
@@ -272,5 +272,5 @@ func (b *boundedEffectExecution) Step(_ context.Context, turn Turn) (Transition,
 		return Complete(consumed, controlValue(EncodePayload(b.completed)))
 	}
 	b.marks <- time.Now()
-	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(json.RawMessage(`0`)))})
+	return Yield(consumed, []Effect{controlValue(NewDispatcherEffect(controlValue(ParsePayload(json.RawMessage(`0`)))))})
 }

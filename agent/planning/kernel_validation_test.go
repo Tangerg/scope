@@ -243,7 +243,7 @@ func TestPlanningDispatcherRejectsLocalContractErrorsBeforeExternalWork(t *testi
 		{"inapplicable action", mustJSON(t, effectEnvelope{Input: planningValue(run.EncodePayload("task")), Action: &actionCall{Name: definition.bindings[0].action.Name()}})},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			conformancetest.CheckDispatcherRejection(t, dispatcher, planningValue(run.NewDispatcherEffect(test.payload)))
+			conformancetest.CheckDispatcherRejection(t, dispatcher, planningValue(run.NewDispatcherEffect(planningValue(run.ParsePayload(test.payload)))))
 		})
 	}
 }
