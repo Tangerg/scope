@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -140,69 +141,11 @@ func projectBehavior(trajectory Trajectory, project eval.Projection[run.Payload,
 		return behaviorProjection{}, err
 	}
 	projection := behaviorProjection{Termination: behaviorTerminationOf(trajectory.Termination())}
-	if output, ok := trajectory.Termination().Output(); ok {
-		encoded, projectErr := project(output)
-		if projectErr != nil {
-			return behaviorProjection{}, fmt.Errorf("project output: %w", projectErr)
-		}
-		value := jsontext.Value(encoded).Clone()
-		if formatErr := value.Format(jsontext.ReorderRawObjects(true)); formatErr != nil {
-			return behaviorProjection{}, fmt.Errorf("%w: output projection must return JSON: %w", ErrInvalidSample, formatErr)
-		}
-		projection.Output = json.RawMessage(value)
+	if projection.Output, err = projectOutput(trajectory.Termination(), project); err != nil {
+		return behaviorProjection{}, err
 	}
-	processes := make(map[run.ProcessID]behaviorProcess)
-	effects := make(map[run.EffectID]behaviorEffect)
-	controlCounts := make(map[run.ProcessID]uint64)
-	for _, entry := range trajectory.log.Entries {
-		switch record := entry.Record.(type) {
-		case run.Started:
-			processes[record.Process] = behaviorProcess{Path: paths[record.Process], Program: record.Program.Name()}
-		case run.Exited:
-			process := processes[record.Process]
-			process.Termination = behaviorTerminationOf(record.Termination)
-			processes[record.Process] = process
-		case run.Stepped:
-			projection.Steps = append(projection.Steps, behaviorStep{Process: paths[record.Process], Step: record.Step, Kind: record.Transition.Kind()})
-		case run.EffectIntent:
-			effects[record.ID] = behaviorEffect{Process: paths[record.ID.Process], Step: record.ID.Step, Index: record.ID.Index, Target: record.Effect.Target()}
-		case run.EffectSettled:
-			effect := effects[record.ID]
-			effect.Status = record.Outcome.Status()
-			effects[record.ID] = effect
-		case run.ControlRequested:
-			controlCounts[record.Process]++
-			projection.Controls = append(projection.Controls, behaviorControl{Process: paths[record.Process], Sequence: controlCounts[record.Process], Kind: record.Kind})
-		}
-	}
-	for _, process := range processes {
-		projection.Processes = append(projection.Processes, process)
-	}
-	for _, effect := range effects {
-		projection.Effects = append(projection.Effects, effect)
-	}
-	slices.SortFunc(projection.Processes, func(left, right behaviorProcess) int { return cmp.Compare(left.Path, right.Path) })
-	slices.SortFunc(projection.Steps, func(left, right behaviorStep) int {
-		if order := cmp.Compare(left.Process, right.Process); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.Step, right.Step)
-	})
-	slices.SortFunc(projection.Effects, func(left, right behaviorEffect) int {
-		if order := cmp.Compare(left.Process, right.Process); order != 0 {
-			return order
-		}
-		if order := cmp.Compare(left.Step, right.Step); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.Index, right.Index)
-	})
-	slices.SortFunc(projection.Controls, func(left, right behaviorControl) int {
-		if order := cmp.Compare(left.Process, right.Process); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.Sequence, right.Sequence)
-	})
+	projection.foldLog(trajectory.log, paths)
+	projection.sortRecords()
 	slices.SortFunc(models, func(left, right ModelCall) int { return compareSemanticEffects(left.EffectID, right.EffectID, paths) })
 	for _, call := range models {
 		value, projectionErr := behaviorModelOf(call, paths[call.EffectID.Process])
@@ -223,6 +166,69 @@ func projectBehavior(trajectory Trajectory, project eval.Projection[run.Payload,
 		projection.Tools = append(projection.Tools, value)
 	}
 	return projection, nil
+}
+
+// projectOutput renders a completed output through the sample projection in
+// object-key order, so equal outputs compare equal.
+func projectOutput(termination run.Termination, project eval.Projection[run.Payload, json.RawMessage]) (json.RawMessage, error) {
+	output, ok := termination.Output()
+	if !ok {
+		return nil, nil
+	}
+	encoded, err := project(output)
+	if err != nil {
+		return nil, fmt.Errorf("project output: %w", err)
+	}
+	value := jsontext.Value(encoded).Clone()
+	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
+		return nil, fmt.Errorf("%w: output projection must return JSON: %w", ErrInvalidSample, err)
+	}
+	return json.RawMessage(value), nil
+}
+
+// foldLog projects processes, steps, effects and controls from the log by
+// semantic process path.
+func (b *behaviorProjection) foldLog(log run.Log, paths map[run.ProcessID]string) {
+	processes := make(map[run.ProcessID]behaviorProcess)
+	effects := make(map[run.EffectID]behaviorEffect)
+	controlCounts := make(map[run.ProcessID]uint64)
+	for _, entry := range log.Entries {
+		switch record := entry.Record.(type) {
+		case run.Started:
+			processes[record.Process] = behaviorProcess{Path: paths[record.Process], Program: record.Program.Name()}
+		case run.Exited:
+			process := processes[record.Process]
+			process.Termination = behaviorTerminationOf(record.Termination)
+			processes[record.Process] = process
+		case run.Stepped:
+			b.Steps = append(b.Steps, behaviorStep{Process: paths[record.Process], Step: record.Step, Kind: record.Transition.Kind()})
+		case run.EffectIntent:
+			effects[record.ID] = behaviorEffect{Process: paths[record.ID.Process], Step: record.ID.Step, Index: record.ID.Index, Target: record.Effect.Target()}
+		case run.EffectSettled:
+			effect := effects[record.ID]
+			effect.Status = record.Outcome.Status()
+			effects[record.ID] = effect
+		case run.ControlRequested:
+			controlCounts[record.Process]++
+			b.Controls = append(b.Controls, behaviorControl{Process: paths[record.Process], Sequence: controlCounts[record.Process], Kind: record.Kind})
+		}
+	}
+	b.Processes = slices.Collect(maps.Values(processes))
+	b.Effects = slices.Collect(maps.Values(effects))
+}
+
+// sortRecords puts every folded record set in its canonical order.
+func (b *behaviorProjection) sortRecords() {
+	slices.SortFunc(b.Processes, func(left, right behaviorProcess) int { return cmp.Compare(left.Path, right.Path) })
+	slices.SortFunc(b.Steps, func(left, right behaviorStep) int {
+		return cmp.Or(cmp.Compare(left.Process, right.Process), cmp.Compare(left.Step, right.Step))
+	})
+	slices.SortFunc(b.Effects, func(left, right behaviorEffect) int {
+		return cmp.Or(cmp.Compare(left.Process, right.Process), cmp.Compare(left.Step, right.Step), cmp.Compare(left.Index, right.Index))
+	})
+	slices.SortFunc(b.Controls, func(left, right behaviorControl) int {
+		return cmp.Or(cmp.Compare(left.Process, right.Process), cmp.Compare(left.Sequence, right.Sequence))
+	})
 }
 
 func canonicalArguments(arguments string) (json.RawMessage, error) {
