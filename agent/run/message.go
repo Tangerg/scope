@@ -25,6 +25,8 @@ type Signal struct {
 
 func (Signal) message()         {}
 func (s Signal) Valid() bool    { return s.ID.Valid() && s.Payload.Valid() }
+// digest is taken only of admitted or validated Signals, and a valid Signal
+// always encodes, so the encoding error cannot occur.
 func (s Signal) digest() Digest { encoded, _ := jsonv2.Marshal(s); return ComputeDigest(encoded) }
 
 func (s Signal) receipt() SignalReceipt {
