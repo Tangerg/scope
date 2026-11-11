@@ -56,48 +56,24 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error) {
+func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
 	raw, err := s.client.Do(ctx, "FT.INFO", s.indexName).Result()
 	if err != nil {
-		return schema, err
+		return nativeSchema{}, err
 	}
 	info, err := parseIndexInfo(raw)
 	if err != nil {
-		return schema, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
+		return nativeSchema{}, fmt.Errorf("%w: %w", ErrIncompatibleIndex, err)
 	}
 	if info.name != s.indexName || info.keyType != nativeHashKeyType || len(info.prefixes) != 1 || info.prefixes[0] == "" || info.filtered {
-		return schema, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
+		return nativeSchema{}, fmt.Errorf("%w: requires one concrete HASH namespace without FILTER", ErrIncompatibleIndex)
 	}
 	if !strings.HasSuffix(info.prefixes[0], s.space.StorageKey()+":") {
-		return schema, vectorstore.ErrIncompatibleSpace
+		return nativeSchema{}, vectorstore.ErrIncompatibleSpace
 	}
-	var vectorFound bool
-	for _, attribute := range info.attributes {
-		if attribute.Identifier != attribute.Attribute {
-			return schema, fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
-		}
-		if attribute.Attribute == termsField && attribute.Type == goredis.SearchFieldTypeTag.String() {
-			schema.indexedTerms = true
-			continue
-		}
-		if attribute.Attribute == contentField && attribute.Type == goredis.SearchFieldTypeText.String() {
-			continue
-		}
-		if vectorFound || attribute.Attribute != embeddingField || attribute.Type != goredis.SearchFieldTypeVector.String() || attribute.DataType != vectorElementTypeFloat32 || attribute.Dim <= 0 {
-			return schema, fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
-		}
-		switch nativeMetric(attribute.DistanceMetric) {
-		case metricCosine, metricL2, metricIP:
-		default:
-			return schema, fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
-		}
-		schema.prefix = info.prefixes[0]
-		schema.dimensions = attribute.Dim
-		schema.metric = nativeMetric(attribute.DistanceMetric)
-		vectorFound = true
-	}
-	if !vectorFound {
-		return schema, fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
+	schema := nativeSchema{prefix: info.prefixes[0]}
+	if err := schema.readAttributes(info.attributes); err != nil {
+		return nativeSchema{}, err
 	}
 	return schema, nil
 }
@@ -135,27 +111,9 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	rows := make([]hashRecord, len(b.Records))
-	ids := make([]string, len(rows))
-	for i, r := range b.Records {
-		doc := r.Document
-		if doc.Media != nil {
-			return vectorstore.ErrInvalidDocument
-		}
-		facts, err := doc.MarshalStoredMetadata()
-		if err != nil {
-			return err
-		}
-		terms, err := tagValues(doc.Metadata)
-		if err != nil {
-			return err
-		}
-		vector, err := s.schema.vector(r.Values)
-		if err != nil {
-			return err
-		}
-		ids[i] = doc.ID
-		rows[i] = hashRecord{key: s.schema.prefix + doc.ID, content: doc.Text, metadata: string(facts), terms: terms, vector: vector}
+	ids, rows, err := s.hashRecords(b.Records)
+	if err != nil {
+		return err
 	}
 	if err := s.verify(ctx); err != nil {
 		return err
@@ -166,39 +124,71 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 		for _, r := range group {
 			pipe.Eval(ctx, replaceDocumentHash, []string{r.key}, contentField, r.content, embeddingField, r.vector, metadataField, r.metadata, termsField, r.terms)
 		}
-		commands, err := pipe.Exec(ctx)
-		var w vectorstore.WriteOutcome
-		if len(commands) != len(group) {
-			err = errors.Join(err, errors.New("redis: incomplete pipeline reply"))
-		}
-		for i := range group {
-			var confirmed bool
-			if i < len(commands) {
-				if c, ok := commands[i].(*goredis.Cmd); ok && c != nil {
-					n, e := c.Int64()
-					confirmed = e == nil && n == 1
-					if e != nil {
-						err = errors.Join(err, e)
-					}
-				}
-			}
-			if confirmed {
-				w.Acknowledged = append(w.Acknowledged, ids[offset+i])
-			} else {
-				w.Unconfirmed = append(w.Unconfirmed, ids[offset+i])
-			}
-		}
-		if err != nil || len(w.Unconfirmed) != 0 {
-			if err == nil {
-				err = errors.New("redis: HASH replacement not acknowledged")
-			}
-			w.Acknowledged = append(slices.Clone(ids[:offset]), w.Acknowledged...)
-			w.Unattempted = ids[offset+len(group):]
-			return vectorstore.NewWriteError(err, w)
+		commands, execErr := pipe.Exec(ctx)
+		outcome, writeErr := acknowledgeReplacements(commands, ids[offset:offset+len(group)], execErr)
+		if writeErr != nil {
+			outcome.Acknowledged = append(slices.Clone(ids[:offset]), outcome.Acknowledged...)
+			outcome.Unattempted = ids[offset+len(group):]
+			return vectorstore.NewWriteError(writeErr, outcome)
 		}
 		offset += len(group)
 	}
 	return nil
+}
+
+func (s *Store) hashRecords(records []vectorstore.Record) ([]string, []hashRecord, error) {
+	ids := make([]string, len(records))
+	rows := make([]hashRecord, len(records))
+	for i, r := range records {
+		doc := r.Document
+		if doc.Media != nil {
+			return nil, nil, vectorstore.ErrInvalidDocument
+		}
+		facts, err := doc.MarshalStoredMetadata()
+		if err != nil {
+			return nil, nil, err
+		}
+		terms, err := tagValues(doc.Metadata)
+		if err != nil {
+			return nil, nil, err
+		}
+		vector, err := s.schema.vector(r.Values)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids[i] = doc.ID
+		rows[i] = hashRecord{key: s.schema.prefix + doc.ID, content: doc.Text, metadata: string(facts), terms: terms, vector: vector}
+	}
+	return ids, rows, nil
+}
+
+// acknowledgeReplacements splits one pipelined group by its replies: the
+// replacement script answers 1 for each HASH it wrote, and any other or
+// missing reply leaves that document unconfirmed.
+func acknowledgeReplacements(commands []goredis.Cmder, ids []string, err error) (vectorstore.WriteOutcome, error) {
+	var outcome vectorstore.WriteOutcome
+	if len(commands) != len(ids) {
+		err = errors.Join(err, errors.New("redis: incomplete pipeline reply"))
+	}
+	for i, id := range ids {
+		confirmed := false
+		if i < len(commands) {
+			if c, ok := commands[i].(*goredis.Cmd); ok && c != nil {
+				n, replyErr := c.Int64()
+				confirmed = replyErr == nil && n == 1
+				err = errors.Join(err, replyErr)
+			}
+		}
+		if confirmed {
+			outcome.Acknowledged = append(outcome.Acknowledged, id)
+		} else {
+			outcome.Unconfirmed = append(outcome.Unconfirmed, id)
+		}
+	}
+	if err == nil && len(outcome.Unconfirmed) != 0 {
+		err = errors.New("redis: HASH replacement not acknowledged")
+	}
+	return outcome, err
 }
 
 func (s *Store) queryPrefix(p filter.Predicate) (string, error) {

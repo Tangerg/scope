@@ -8,6 +8,8 @@ import (
 	"math"
 	"strings"
 
+	goredis "github.com/redis/go-redis/v9"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
 	corevector "github.com/Tangerg/scope/core/vector"
@@ -31,6 +33,37 @@ type nativeSchema struct {
 	prefix       string
 	dimensions   int
 	metric       nativeMetric
+}
+
+func (n nativeMetric) valid() bool {
+	return n == metricCosine || n == metricL2 || n == metricIP
+}
+
+// readAttributes admits exactly the fields this store writes: an optional
+// terms TAG, the content TEXT, and one FLOAT32 embedding, which sets the
+// dimension and metric.
+func (n *nativeSchema) readAttributes(attributes []goredis.FTAttribute) error {
+	vectorFound := false
+	for _, attribute := range attributes {
+		if attribute.Identifier != attribute.Attribute {
+			return fmt.Errorf("%w: native aliases are unsupported", ErrIncompatibleIndex)
+		}
+		switch {
+		case attribute.Attribute == termsField && attribute.Type == goredis.SearchFieldTypeTag.String():
+			n.indexedTerms = true
+		case attribute.Attribute == contentField && attribute.Type == goredis.SearchFieldTypeText.String():
+		case vectorFound || attribute.Attribute != embeddingField || attribute.Type != goredis.SearchFieldTypeVector.String() || attribute.DataType != vectorElementTypeFloat32 || attribute.Dim <= 0:
+			return fmt.Errorf("%w: requires one FLOAT32 embedding field", ErrIncompatibleIndex)
+		case !nativeMetric(attribute.DistanceMetric).valid():
+			return fmt.Errorf("%w: unsupported distance %q", ErrIncompatibleIndex, attribute.DistanceMetric)
+		default:
+			n.dimensions, n.metric, vectorFound = attribute.Dim, nativeMetric(attribute.DistanceMetric), true
+		}
+	}
+	if !vectorFound {
+		return fmt.Errorf("%w: embedding field is missing", ErrIncompatibleIndex)
+	}
+	return nil
 }
 
 func (n nativeSchema) vector(values []float64) ([]byte, error) {
