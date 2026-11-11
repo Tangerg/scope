@@ -526,8 +526,9 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 	query := fmt.Sprintf("DELETE FROM %s WHERE %s=? IF EXISTS", s.fullTable, quoteIdentifier(s.idColumn))
 	for _, id := range ids {

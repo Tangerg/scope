@@ -703,6 +703,10 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	args := make([]any, len(ids))
 	for index, id := range ids {
 		args[index] = []byte(id)

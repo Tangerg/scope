@@ -9,7 +9,6 @@ import (
 	"math"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	v2 "github.com/amikos-tech/chroma-go/pkg/api/v2"
 	chromaEmbed "github.com/amikos-tech/chroma-go/pkg/embeddings"
@@ -367,22 +366,15 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(ids) == 0 {
-		return nil
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
 	nativeIDs := make([]v2.DocumentID, 0, len(ids))
-	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		if !utf8.ValidString(id) || strings.TrimSpace(id) == "" {
-			return vectorstore.ErrInvalidDocument
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
 		nativeIDs = append(nativeIDs, v2.DocumentID(id))
 	}
 	if err := s.collection.Delete(ctx, v2.WithIDs(nativeIDs...)); err != nil {

@@ -376,17 +376,17 @@ func (s *Store) searchParameters(request *vectorstore.Query, vector []float32) *
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	var keys []string
-	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		key, err := encodeKey(id)
 		if err != nil {
 			return err
 		}
-		if _, duplicate := seen[key]; !duplicate {
-			keys = append(keys, key)
-			seen[key] = struct{}{}
-		}
+		keys = append(keys, key)
 	}
 	if len(keys) == 0 {
 		return nil

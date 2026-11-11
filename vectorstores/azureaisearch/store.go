@@ -389,16 +389,15 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	seen := make(map[string]struct{}, len(ids))
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	var actions []indexingAction
 	for _, id := range ids {
 		if err := validateID(id); err != nil {
 			return err
 		}
-		if _, duplicate := seen[id]; duplicate {
-			continue
-		}
-		seen[id] = struct{}{}
 		actions = append(actions, indexingAction{operation: actionDelete, id: id})
 	}
 	return s.writeActions(ctx, actions)

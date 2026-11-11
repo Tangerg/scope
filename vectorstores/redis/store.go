@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	goredis "github.com/redis/go-redis/v9"
 
@@ -370,17 +369,13 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scan
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	var keys []string
-	seen := make(map[string]struct{})
 	for _, id := range ids {
-		if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
-			return vectorstore.ErrMissingDocumentID
-		}
-		key := s.schema.prefix + id
-		if _, duplicate := seen[key]; !duplicate {
-			seen[key] = struct{}{}
-			keys = append(keys, key)
-		}
+		keys = append(keys, s.schema.prefix+id)
 	}
 	if len(keys) == 0 {
 		return nil

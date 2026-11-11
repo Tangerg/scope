@@ -167,15 +167,13 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	keys := make([]string, 0, len(ids))
-	seen := make(map[string]bool, len(ids))
-	for _, id := range ids {
+	keys, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
+	for _, id := range keys {
 		if err := validateID(id); err != nil {
 			return err
-		}
-		if !seen[id] {
-			keys = append(keys, id)
-			seen[id] = true
 		}
 	}
 	if len(keys) == 0 {

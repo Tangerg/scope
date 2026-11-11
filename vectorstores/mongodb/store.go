@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -485,21 +484,11 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	var selected []string
-	seen := make(map[string]struct{})
-	for _, id := range ids {
-		if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
-			return vectorstore.ErrMissingDocumentID
-		}
-		if _, duplicate := seen[id]; !duplicate {
-			seen[id] = struct{}{}
-			selected = append(selected, id)
-		}
+	selected, err := vectorstore.DistinctIDs(ids)
+	if err != nil || len(selected) == 0 {
+		return err
 	}
-	if len(selected) == 0 {
-		return nil
-	}
-	if err := s.verify(ctx); err != nil {
+	if err = s.verify(ctx); err != nil {
 		return err
 	}
 	result, err := s.collection.DeleteMany(ctx, bson.M{idField: bson.M{"$in": selected}, s.schema.vectorPath: bson.M{"$exists": true}}, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))

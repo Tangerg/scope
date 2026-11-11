@@ -262,6 +262,10 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	for _, id := range ids {
 		if err := validateObjectID(id); err != nil {
 			return err
@@ -273,12 +277,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	seen := make(map[string]struct{})
 	for _, id := range ids {
-		if _, duplicate := seen[id]; duplicate {
-			continue
-		}
-		seen[id] = struct{}{}
 		if err := s.client.delete(ctx, s.collection, id); err != nil {
 			return err
 		}

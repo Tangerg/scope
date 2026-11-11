@@ -455,15 +455,13 @@ func (s *Store) selectMatches(ctx context.Context, predicate filter.Predicate, b
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	seen := make(map[string]struct{})
-	var unique []string
-	for _, id := range ids {
-		if err := DocumentID(id).Validate(); err != nil {
+	unique, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
+	for _, id := range unique {
+		if err = DocumentID(id).Validate(); err != nil {
 			return err
-		}
-		if _, duplicate := seen[id]; !duplicate {
-			seen[id] = struct{}{}
-			unique = append(unique, id)
 		}
 	}
 	if len(unique) == 0 {

@@ -237,15 +237,13 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	seen := make(map[string]struct{})
-	var unique []string
-	for _, id := range ids {
+	unique, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
+	for _, id := range unique {
 		if err := validateNativeIdentifier(id, false); err != nil {
 			return err
-		}
-		if _, duplicate := seen[id]; !duplicate {
-			seen[id] = struct{}{}
-			unique = append(unique, id)
 		}
 	}
 	if len(unique) == 0 {

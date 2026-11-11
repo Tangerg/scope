@@ -62,6 +62,14 @@ func Run(t *testing.T, store any, expected Capabilities) {
 				t.Fatalf("DeleteIDs(nil) error = %v, want nil", err)
 			}
 		})
+		t.Run("DeleteIDsRejectsInvalidIdentityBeforeIO", func(t *testing.T) {
+			if err := deleter.DeleteIDs(t.Context(), []string{"fixture", " "}); !errors.Is(err, vectorstore.ErrMissingDocumentID) {
+				t.Fatalf("DeleteIDs(blank) error = %v, want %v", err, vectorstore.ErrMissingDocumentID)
+			}
+			if err := deleter.DeleteIDs(t.Context(), []string{"\xff"}); !errors.Is(err, vectorstore.ErrInvalidDocument) {
+				t.Fatalf("DeleteIDs(invalid UTF-8) error = %v, want %v", err, vectorstore.ErrInvalidDocument)
+			}
+		})
 	}
 	if deleter, ok := store.(vectorstore.FilterDeleter); ok && expected.FilterDeleter {
 		t.Run("DeleteWhereRejectsMissingFilterBeforeIO", func(t *testing.T) {

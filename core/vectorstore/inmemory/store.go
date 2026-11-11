@@ -243,6 +243,10 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("inmemory: delete by ID: %w", err)
 	}
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return fmt.Errorf("inmemory: delete by ID: %w", err)
+	}
 	if len(ids) == 0 {
 		return nil
 	}

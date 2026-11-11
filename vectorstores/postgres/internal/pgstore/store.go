@@ -248,8 +248,9 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 			err = fmt.Errorf("%s.Store.DeleteIDs: %w", s.provider, err)
 		}
 	}()
-	if len(ids) == 0 {
-		return nil
+	ids, err = vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 	nativeIDs := make([][]byte, len(ids))
 	for index, id := range ids {

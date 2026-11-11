@@ -735,8 +735,9 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
-		return nil
+	ids, err = vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 
 	placeholders := make([]string, len(ids))

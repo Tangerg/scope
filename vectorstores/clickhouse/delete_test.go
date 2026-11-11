@@ -2,6 +2,7 @@ package clickhouse
 
 import (
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -55,7 +56,7 @@ func TestLaterDeleteFailureRollsBackAllPages(t *testing.T) {
 	mock.ExpectExec("ROLLBACK").WillReturnResult(sqlmock.NewResult(0, 0))
 	ids := make([]string, metadataPageSize+1)
 	for i := range ids {
-		ids[i] = "id"
+		ids[i] = "id" + strconv.Itoa(i)
 	}
 	if err := store.DeleteIDs(t.Context(), ids); !errors.Is(err, failure) {
 		t.Fatal(err)

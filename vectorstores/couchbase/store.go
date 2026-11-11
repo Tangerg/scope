@@ -329,6 +329,10 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	for _, id := range ids {
 		if err := validateKey(id); err != nil {
 			return err

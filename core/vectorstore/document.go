@@ -3,6 +3,7 @@ package vectorstore
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/document"
 )
@@ -20,13 +21,42 @@ func validatePresentDocument(doc *document.Document) error {
 	if err := doc.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
-	if strings.TrimSpace(doc.ID) == "" {
-		return ErrMissingDocumentID
+	if err := ValidateDocumentID(doc.ID); err != nil {
+		return err
 	}
 	if err := document.ValidateStoredMetadata(doc.Metadata); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
 	}
 	return nil
+}
+
+// ValidateDocumentID checks the identity every stored document carries:
+// nonblank, valid UTF-8 text. Stores apply their native key rules after it.
+func ValidateDocumentID(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return ErrMissingDocumentID
+	}
+	if !utf8.ValidString(id) {
+		return fmt.Errorf("%w: ID is not valid UTF-8", ErrInvalidDocument)
+	}
+	return nil
+}
+
+// DistinctIDs validates every identity before any native call and returns
+// the IDs without repeats, in first-occurrence order.
+func DistinctIDs(ids []string) ([]string, error) {
+	distinct := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for index, id := range ids {
+		if err := ValidateDocumentID(id); err != nil {
+			return nil, fmt.Errorf("%w: ids[%d]: %w", ErrInvalidRequest, index, err)
+		}
+		if _, repeated := seen[id]; !repeated {
+			seen[id] = struct{}{}
+			distinct = append(distinct, id)
+		}
+	}
+	return distinct, nil
 }
 
 // ValidateDocuments additionally rejects empty input and duplicate identities.

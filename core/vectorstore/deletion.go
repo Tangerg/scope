@@ -13,7 +13,9 @@ type FilterDeleter interface {
 }
 
 type IDDeleter interface {
-	// DeleteIDs removes the documents with the given ids. Unknown ids
-	// are ignored (idempotent); an empty slice is a no-op.
+	// DeleteIDs removes the documents with the given ids. It rejects an id
+	// that [ValidateDocumentID] rejects before any native call. Unknown ids
+	// are ignored (idempotent), a repeated id acts once and an empty slice
+	// is a no-op.
 	DeleteIDs(ctx context.Context, ids []string) error
 }

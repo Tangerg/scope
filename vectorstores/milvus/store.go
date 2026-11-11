@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/milvus-io/milvus/client/v3/entity"
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
@@ -339,25 +337,17 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	for _, id := range ids {
-		if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
-			return vectorstore.ErrInvalidDocument
-		}
+	unique, err := vectorstore.DistinctIDs(ids)
+	if err != nil || len(unique) == 0 {
+		return err
 	}
 	policy, err := s.readPolicy(ctx)
 	if err != nil {
 		return err
 	}
-	unique := make([]string, 0, len(ids))
-	for _, id := range ids {
+	for _, id := range unique {
 		if len(id) > policy.idBytes {
 			return ErrDocumentIDTooLong
-		}
-		if !slices.Contains(unique, id) {
-			unique = append(unique, id)
 		}
 	}
 	for start := 0; start < len(unique); start += identityGroupSize {

@@ -375,15 +375,13 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	seen := make(map[string]struct{}, len(ids))
-	keys := make([]string, 0, len(ids))
-	for _, id := range ids {
+	keys, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
+	for _, id := range keys {
 		if err := validateKey(id); err != nil {
 			return err
-		}
-		if _, duplicate := seen[id]; !duplicate {
-			seen[id] = struct{}{}
-			keys = append(keys, id)
 		}
 	}
 	if len(keys) == 0 {

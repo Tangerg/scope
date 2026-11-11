@@ -22,7 +22,10 @@ func (validatingCapabilities) Query(_ context.Context, q *vectorstore.Query) (*v
 	return &vectorstore.SearchResponse{}, nil
 }
 
-func (validatingCapabilities) DeleteIDs(context.Context, []string) error { return nil }
+func (validatingCapabilities) DeleteIDs(_ context.Context, ids []string) error {
+	_, err := vectorstore.DistinctIDs(ids)
+	return err
+}
 
 func (validatingCapabilities) DeleteWhere(context.Context, filter.Predicate) error {
 	return vectorstore.ErrMissingFilter

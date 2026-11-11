@@ -425,8 +425,9 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 
 // DeleteIDs removes the IDs visible in one native snapshot. Empty input is a no-op.
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
-	if len(ids) == 0 {
-		return nil
+	ids, err = vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 	transaction, err := newNativeTransaction(ctx, s.db)
 	if err != nil {

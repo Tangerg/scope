@@ -251,22 +251,22 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	seen := make(map[string]struct{})
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil {
+		return err
+	}
 	var points []*qdrantclient.PointId
 	for _, id := range ids {
-		point, err := parsePointID(id)
-		if err != nil {
-			return err
+		point, parseErr := parsePointID(id)
+		if parseErr != nil {
+			return parseErr
 		}
-		if _, duplicate := seen[id]; !duplicate {
-			seen[id] = struct{}{}
-			points = append(points, point)
-		}
+		points = append(points, point)
 	}
 	if len(points) == 0 {
 		return nil
 	}
-	if err := s.verifyCollection(ctx); err != nil {
+	if err = s.verifyCollection(ctx); err != nil {
 		return err
 	}
 	result, err := s.client.Delete(ctx, s.buildDeletePoints(qdrantclient.NewPointsSelector(points...)))

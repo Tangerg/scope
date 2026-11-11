@@ -556,14 +556,15 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
+	ids, err := vectorstore.DistinctIDs(ids)
+	if err != nil || len(ids) == 0 {
+		return err
 	}
 	query := fmt.Sprintf("MATCH (n:%s) WHERE n.%s IN $ids DETACH DELETE n", quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
-	_, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
-		result, err := tx.Run(ctx, query, map[string]any{"ids": ids})
-		if err != nil {
-			return nil, err
+	_, err = s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
+		result, runErr := tx.Run(ctx, query, map[string]any{"ids": ids})
+		if runErr != nil {
+			return nil, runErr
 		}
 		return result.Consume(ctx)
 	})
