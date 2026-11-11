@@ -234,8 +234,7 @@ func TestInputValidatorDefectCannotExecuteOrLeakToModelFeedback(t *testing.T) {
 			if !ok || called.Load() || strings.Contains(failure.Message(), "private-validator-detail") {
 				t.Fatalf("validator defect lost its boundary: %+v called=%v", failure, called.Load())
 			}
-			prepared := tools.dispatcher.prepareToolCall(requested("checked", "call"), tool.Admission{})
-			if prepared.defect == nil || prepared.rejection != nil {
+			if _, rejection, err := tools.dispatcher.prepareToolCall(requested("checked", "call"), tool.Admission{}); err == nil || rejection != nil {
 				t.Fatal("dispatch validator defect became model-correctable feedback")
 			}
 		})

@@ -18,8 +18,6 @@ type preparedToolCall struct {
 	call       chat.ToolCall
 	binding    tool.Binding
 	invocation tool.Invocation
-	rejection  *toolCallResult
-	defect     error
 }
 
 // toolDispatcher executes bound Tools. Its manifest is the one index of each
@@ -49,13 +47,16 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 	if err != nil {
 		return failedSettlement(err)
 	}
-	ctx = tool.WithProgressReporter(ctx, deltaProgress{emit: emit})
-	prepared := t.prepareToolCall(invocation.ToolCall(), admission)
-	if prepared.defect != nil {
+	prepared, rejection, err := t.prepareToolCall(invocation.ToolCall(), admission)
+	if err != nil {
 		// A validator defect is settled before Tool.Call runs, as a definite
 		// failure that propagates to the parent, never a model-visible result.
 		return failedSettlement(errToolInputValidatorDefect)
 	}
+	if rejection != nil {
+		return toolDispatchResult{Completion: rejection}.settlement()
+	}
+	ctx = tool.WithProgressReporter(ctx, deltaProgress{emit: emit})
 	outcome, err := t.callTool(ctx, prepared)
 	if err != nil {
 		failure := toolUncertainty{Diagnostic: run.NormalizeDiagnostic(err.Error())}
@@ -108,9 +109,6 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool, middlewar
 // the outcome is unknown; a completed call whose advertisement then fails keeps
 // its result and records the failure beside it.
 func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall) (outcome toolDispatchResult, err error) {
-	if prepared.rejection != nil {
-		return toolDispatchResult{Completion: prepared.rejection}, nil
-	}
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			outcome, err = toolDispatchResult{}, &run.CallbackPanicError{Operation: "Tool.Call", Value: recovered}
@@ -121,7 +119,7 @@ func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall
 	if err != nil || outcome.Completion == nil || outcome.Completion.Disposition != ResultSucceeded {
 		return outcome, err
 	}
-	names, err := t.adviseDeferred(ctx, prepared.call.Name, prepared.invocation, result)
+	names, err := t.advertisedNames(ctx, prepared.call.Name, prepared.invocation, result)
 	if err != nil {
 		outcome.AdvertisementFailure = run.NormalizeDiagnostic(err.Error())
 		return outcome, nil
@@ -130,11 +128,11 @@ func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall
 	return outcome, nil
 }
 
-// adviseDeferred collects the deferred Tool names a successful call reveals.
+// advertisedNames collects the deferred Tool names a successful call reveals.
 // Because it runs only after a successful result, a rejected, failed, or
 // input-pending call can never commit a declaration. The returned names must be
 // bound deferred Tools; a declaration of anything else is a Tool defect.
-func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
+func (t *toolDispatcher) advertisedNames(ctx context.Context, name string, invocation tool.Invocation, output tool.Result) (names []string, err error) {
 	advertiser, found := t.advertisers[name]
 	if !found {
 		return nil, nil
@@ -159,30 +157,28 @@ func (t *toolDispatcher) adviseDeferred(ctx context.Context, name string, invoca
 	return canonical, nil
 }
 
-func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admission) preparedToolCall {
-	prepared := preparedToolCall{call: call}
+// prepareToolCall admits call for its bound Tool. A rejection is the
+// model-visible result of a call that never runs; an error is a defect of the
+// Tool's input validator.
+func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admission) (preparedToolCall, *toolCallResult, error) {
 	binding, found := t.bindings[call.Name]
 	if !found {
-		prepared.rejection = new(rejectedCallResult(fmt.Sprintf("tool %q is not available", call.Name)))
-		return prepared
+		return preparedToolCall{}, new(rejectedCallResult(fmt.Sprintf("tool %q is not available", call.Name))), nil
 	}
-	prepared.binding = binding
 	invocation, err := t.manifest.entries[call.Name].prepare(call, admission)
 	if err != nil {
 		rejection, public := tool.ClassifyInputRejection(err)
 		if !public {
-			prepared.defect = err
-			return prepared
+			return preparedToolCall{}, nil, err
 		}
-		prepared.rejection = new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(rejection.Message())))
-		return prepared
+		return preparedToolCall{}, new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(rejection.Message()))), nil
 	}
-	prepared.invocation = invocation
-	return prepared
+	return preparedToolCall{call: call, binding: binding, invocation: invocation}, nil, nil
 }
 
-// toolCapability reads a consumer-owned declaration directly from the Tool. Declarations are read once at binding, so a panic there is a defect of
-// the Tool that must reject construction rather than surface during recovery.
+// toolCapability reads a consumer-owned declaration directly from the Tool.
+// Declarations are read once at binding, so a panic there is a defect of the
+// Tool that must reject construction rather than surface during recovery.
 func toolCapability[C, V any](executable tool.Tool, declaration string, read func(C) V) (value V, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {

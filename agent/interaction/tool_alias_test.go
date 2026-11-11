@@ -30,17 +30,16 @@ func TestModelAliasBindsOneExactToolIdentity(t *testing.T) {
 		t.Fatal("ambiguous alias admitted")
 	}
 	for _, name := range []string{"report.write", "unseen"} {
-		prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: name}, tool.Admission{})
-		if prepared.rejection == nil {
-			t.Fatalf("unadvertised name %q accepted", name)
+		if _, rejection, err := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: name}, tool.Admission{}); rejection == nil || err != nil {
+			t.Fatalf("unadvertised name %q accepted: %v", name, err)
 		}
 	}
-	prepared := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: "report_write", Arguments: "{}"}, tool.Admission{})
-	if prepared.rejection != nil || prepared.defect != nil {
-		t.Fatalf("alias rejected: %+v", prepared)
+	prepared, rejection, err := dispatcher.prepareToolCall(chat.ToolCall{ID: "correlation", Name: "report_write", Arguments: "{}"}, tool.Admission{})
+	if rejection != nil || err != nil {
+		t.Fatalf("alias rejected: %+v, %v", rejection, err)
 	}
-	if _, err := prepared.binding.Call(t.Context(), prepared.invocation); err != nil {
-		t.Fatal(err)
+	if _, callErr := prepared.binding.Call(t.Context(), prepared.invocation); callErr != nil {
+		t.Fatal(callErr)
 	}
 	other, err := tool.Bind(makeTool("report.write"))
 	if err != nil {
