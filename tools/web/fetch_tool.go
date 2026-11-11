@@ -7,7 +7,6 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 const webFetchToolName = "web_fetch"
@@ -40,18 +39,7 @@ func NewFetchTool(fetcher Fetcher) (*FetchTool, error) {
 }
 
 func (f *FetchTool) fetch(ctx context.Context, request FetchRequest) (*FetchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, toolresult.Correctable(err.Error(), err)
-	}
-	response, err := f.fetcher.Fetch(ctx, prepared)
-	if err != nil {
-		return nil, fmt.Errorf("web.fetch: %w", err)
-	}
-	if validationErr := response.ValidateFor(prepared); validationErr != nil {
-		return nil, fmt.Errorf("web: validate fetch response: %w", validationErr)
-	}
-	return response, nil
+	return invokePort[FetchRequest](ctx, &request, "fetch", f.fetcher.Fetch)
 }
 
 const webFetchDescription = `Fetch a fully formed HTTP(S) URL. Returns page content in markdown (default), html, or text format.

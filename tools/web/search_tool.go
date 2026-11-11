@@ -7,7 +7,6 @@ import (
 	"github.com/samber/lo"
 
 	toolcontract "github.com/Tangerg/scope/core/tool"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
 )
 
 const webSearchToolName = "web_search"
@@ -40,18 +39,7 @@ func NewSearchTool(searcher Searcher) (*SearchTool, error) {
 }
 
 func (s *SearchTool) search(ctx context.Context, request SearchRequest) (*SearchResponse, error) {
-	prepared, err := request.Prepare()
-	if err != nil {
-		return nil, toolresult.Correctable(err.Error(), err)
-	}
-	response, err := s.searcher.Search(ctx, prepared)
-	if err != nil {
-		return nil, fmt.Errorf("web.search: %w", err)
-	}
-	if validationErr := response.ValidateFor(prepared); validationErr != nil {
-		return nil, fmt.Errorf("web: validate search response: %w", validationErr)
-	}
-	return response, nil
+	return invokePort[SearchRequest](ctx, &request, "search", s.searcher.Search)
 }
 
 const webSearchDescription = `Search the web for current information. Results include titles, URLs, and snippets.
