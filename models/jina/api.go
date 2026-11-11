@@ -124,34 +124,25 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 		return nil, errors.New("jina: input must not be empty")
 	}
 
-	var out embeddingResponse
-	resp, err := a.http.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&out).
-		Post(embeddingEndpointPath)
-	if err != nil {
-		if errors.Is(err, corevector.ErrInvalidCoordinates) {
-			return nil, fmt.Errorf("%w: jina: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
-		}
-		return nil, fmt.Errorf("jina: request failed: %w", err)
+	out, err := a.postJSON[embeddingResponse](ctx, embeddingEndpointPath, req)
+	if errors.Is(err, corevector.ErrInvalidCoordinates) {
+		return nil, fmt.Errorf("%w: jina: decode embedding coordinates: %w", embedding.ErrInvalidResponse, err)
 	}
-	if !resp.IsSuccess() {
-		return nil, fmt.Errorf("jina: %w", httpclient.NewResponseError(resp.StatusCode(), resp.Header()))
-	}
-	return &out, nil
+	return out, err
 }
 
 func (a *api) rerank(ctx context.Context, req *rerankRequest) (*rerankResponse, error) {
 	if req == nil {
 		return nil, errors.New("jina: request must not be nil")
 	}
-	var out rerankResponse
-	resp, err := a.http.R().
-		SetContext(ctx).
-		SetBody(req).
-		SetResult(&out).
-		Post(rerankEndpointPath)
+	return a.postJSON[rerankResponse](ctx, rerankEndpointPath, req)
+}
+
+// postJSON sends one JSON request and decodes a successful JSON reply; any
+// other status is a response error that keeps the status and headers.
+func (a *api) postJSON[R any](ctx context.Context, path string, body any) (*R, error) {
+	var out R
+	resp, err := a.http.R().SetContext(ctx).SetBody(body).SetResult(&out).Post(path)
 	if err != nil {
 		return nil, fmt.Errorf("jina: request failed: %w", err)
 	}
