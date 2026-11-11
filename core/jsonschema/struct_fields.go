@@ -118,22 +118,11 @@ func (w wireField) validateTag(tags []string) error {
 	if w.embedded && !slices.Contains(tags[1:], embedTagOption) {
 		tags = append(tags, embedTagOption)
 	}
-	fieldType := w.field.Type
-	if w.embedded {
-		child := fieldType
-		if child.Kind() == reflect.Pointer && child.Name() == "" {
-			child = child.Elem()
-		}
-		if child.Kind() == reflect.Struct && !hasCustomEncoding(child) && !hasCustomDecoding(child) {
-			// Nested fields enter this same admission boundary when visited.
-			fieldType = reflect.TypeFor[struct{}]()
-		}
-	}
 	// The codec owns tag syntax. An empty object checks its field metadata
 	// without invoking user codecs, validators, or IsZero methods. A named
 	// synthetic field prevents method promotion onto this inspection type.
 	inspection := reflect.StructOf([]reflect.StructField{{
-		Name: "Field", Type: fieldType,
+		Name: "Field", Type: w.inspectedType(),
 		Tag: reflect.StructTag(jsonFieldTag + ":" + strconv.Quote(strings.Join(tags, ","))),
 	}})
 	if err := jsonv2.Unmarshal([]byte(`{}`), reflect.New(inspection).Interface()); err != nil {
@@ -143,16 +132,40 @@ func (w wireField) validateTag(tags []string) error {
 	for member.Kind() == reflect.Pointer {
 		member = member.Elem()
 	}
-	if !w.field.IsExported() && !w.embedded &&
-		(hasCustomEncoding(member) || hasCustomDecoding(member) ||
-			(slices.Contains(tags[1:], omitZeroTagOption) &&
-				(member.Implements(reflect.TypeFor[interface{ IsZero() bool }]()) || reflect.PointerTo(member).Implements(reflect.TypeFor[interface{ IsZero() bool }]())))) {
+	if !w.field.IsExported() && !w.embedded && exposesMethods(member, slices.Contains(tags[1:], omitZeroTagOption)) {
 		return errors.New("unexported embedded field cannot expose codec or IsZero methods")
 	}
 	if !w.hidden && w.stringified && (!member.Implements(reflect.TypeFor[Modeler]()) || !hasCustomEncoding(member)) {
 		return ErrUnsupportedStringTag
 	}
 	return nil
+}
+
+// inspectedType is the type the codec checks the tag against. An embedded
+// ordinary struct stands in as an empty one: its own fields enter this same
+// admission boundary when they are visited.
+func (w wireField) inspectedType() reflect.Type {
+	if !w.embedded {
+		return w.field.Type
+	}
+	child := w.field.Type
+	if child.Kind() == reflect.Pointer && child.Name() == "" {
+		child = child.Elem()
+	}
+	if child.Kind() == reflect.Struct && !hasCustomEncoding(child) && !hasCustomDecoding(child) {
+		return reflect.TypeFor[struct{}]()
+	}
+	return w.field.Type
+}
+
+// exposesMethods reports whether member carries a method the codec would call
+// through an unexported field: a codec, or IsZero when omitzero asks for it.
+func exposesMethods(member reflect.Type, omitZero bool) bool {
+	if hasCustomEncoding(member) || hasCustomDecoding(member) {
+		return true
+	}
+	zeroer := reflect.TypeFor[interface{ IsZero() bool }]()
+	return omitZero && (member.Implements(zeroer) || reflect.PointerTo(member).Implements(zeroer))
 }
 
 func (w wireField) projection(position int) reflect.StructField {
@@ -272,17 +285,11 @@ func collectWireFields(typeOf reflect.Type) ([]wireField, error) {
 				return nil, fmt.Errorf("%w: %v.%s: %w", ErrUnsupportedFieldLayout, visit.typeOf, field.Name, err)
 			}
 			if member.embedded {
-				child := field.Type
-				if child.Kind() == reflect.Pointer && child.Name() == "" {
-					child = child.Elem()
-					member.optional = true
+				child, throughPointer, err := visit.embeddedChild(field)
+				if err != nil {
+					return nil, err
 				}
-				if child.Kind() != reflect.Struct || hasCustomEncoding(child) || hasCustomDecoding(child) {
-					return nil, fmt.Errorf("%w: %v.%s must embed an ordinary struct", ErrUnsupportedFieldLayout, visit.typeOf, field.Name)
-				}
-				if ownsSchema(child) {
-					return nil, fmt.Errorf("%w: %v.%s embeds a schema owner; use a named JSON field or an explicit enclosing wire model", ErrUnsupportedFieldLayout, visit.typeOf, field.Name)
-				}
+				member.optional = member.optional || throughPointer
 				if visit.children {
 					queue = append(queue, wireFieldVisit{typeOf: child, index: index, children: !seen[child], optional: member.optional, hidden: member.hidden})
 				}
@@ -300,6 +307,23 @@ func collectWireFields(typeOf reflect.Type) ([]wireField, error) {
 		}
 	}
 	return fields, nil
+}
+
+// embeddedChild admits the struct an embedded field inlines and reports
+// whether it is embedded through an unnamed pointer, which makes every inlined
+// member optional.
+func (w wireFieldVisit) embeddedChild(field reflect.StructField) (reflect.Type, bool, error) {
+	child, throughPointer := field.Type, false
+	if child.Kind() == reflect.Pointer && child.Name() == "" {
+		child, throughPointer = child.Elem(), true
+	}
+	if child.Kind() != reflect.Struct || hasCustomEncoding(child) || hasCustomDecoding(child) {
+		return nil, false, fmt.Errorf("%w: %v.%s must embed an ordinary struct", ErrUnsupportedFieldLayout, w.typeOf, field.Name)
+	}
+	if ownsSchema(child) {
+		return nil, false, fmt.Errorf("%w: %v.%s embeds a schema owner; use a named JSON field or an explicit enclosing wire model", ErrUnsupportedFieldLayout, w.typeOf, field.Name)
+	}
+	return child, throughPointer, nil
 }
 
 func ownsSchema(typeOf reflect.Type) bool {

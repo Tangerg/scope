@@ -368,69 +368,90 @@ func constraintObjectShape(shape *reflection.Schema, definitions reflection.Defi
 }
 
 func reflectWireType(typeOf reflect.Type) *reflection.Schema {
-	switch typeOf {
-	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time]():
-		return nil
-	case reflect.TypeFor[net.IP]():
-		return &reflection.Schema{Type: schemaTypeString, OneOf: []*reflection.Schema{
-			{Format: ipv4Format},
-			{Format: ipv6Format},
-			{Enum: []any{""}},
-		}}
-	case reflect.TypeFor[time.Duration]():
-		panic("time.Duration has no default encoding/json/v2 representation; use an explicit wire model and codec")
-	case reflect.TypeFor[json.Number]():
-		return &reflection.Schema{Type: schemaTypeNumber}
-	case reflect.TypeFor[Schema]():
-		return &reflection.Schema{OneOf: []*reflection.Schema{
-			{Type: schemaTypeBoolean},
-			{Type: schemaTypeObject},
-		}}
+	if definition, known := standardWireType(typeOf); known {
+		return definition
 	}
 	stringModel := typeOf.Kind() == reflect.String && (typeOf.Implements(reflect.TypeFor[Enumerator]()) || typeOf.Implements(reflect.TypeFor[Patterned]()))
 	if !stringModel && hasCustomEncoding(typeOf) {
 		panic(fmt.Sprintf("%v: custom encoding requires JSONSchemaModel", typeOf))
 	}
-	if typeOf.Kind() == reflect.Array && typeOf.Elem() == reflect.TypeFor[byte]() {
-		return constrainedWireType(typeOf, byteStringSchema(typeOf))
-	}
-	if typeOf.Kind() == reflect.Slice && typeOf.Elem() == reflect.TypeFor[byte]() {
-		return &reflection.Schema{OneOf: []*reflection.Schema{
-			{Type: schemaTypeNull},
-			constrainedWireType(typeOf, byteStringSchema(typeOf)),
-		}}
-	}
-	if typeOf.Kind() == reflect.Float32 || typeOf.Kind() == reflect.Float64 {
+	byteSequence := typeOf.Kind() == reflect.Array || typeOf.Kind() == reflect.Slice
+	switch {
+	case byteSequence && typeOf.Elem() == reflect.TypeFor[byte]():
+		return byteSequenceWireType(typeOf)
+	case typeOf.Kind() == reflect.Float32 || typeOf.Kind() == reflect.Float64:
 		return constrainedWireType(typeOf, floatSchema(typeOf))
 	}
-	var minimum, maximum string
+	if minimum, maximum, integer := integerBounds(typeOf); integer {
+		// The reflector writes field tags onto the outer schema. Keeping machine
+		// bounds in an intersection lets tags narrow them without widening the type.
+		definition := &reflection.Schema{Type: schemaTypeInteger, AllOf: []*reflection.Schema{{Minimum: json.Number(minimum), Maximum: json.Number(maximum)}}}
+		return constrainedWireType(typeOf, definition)
+	}
+	return scalarWireType(typeOf)
+}
+
+// standardWireType decides the standard-library and package types reflection
+// must not treat as ordinary values; a nil schema leaves one to the reflector.
+func standardWireType(typeOf reflect.Type) (*reflection.Schema, bool) {
+	switch typeOf {
+	case reflect.TypeFor[json.RawMessage](), reflect.TypeFor[time.Time]():
+		return nil, true
+	case reflect.TypeFor[net.IP]():
+		return &reflection.Schema{Type: schemaTypeString, OneOf: []*reflection.Schema{
+			{Format: ipv4Format},
+			{Format: ipv6Format},
+			{Enum: []any{""}},
+		}}, true
+	case reflect.TypeFor[time.Duration]():
+		panic("time.Duration has no default encoding/json/v2 representation; use an explicit wire model and codec")
+	case reflect.TypeFor[json.Number]():
+		return &reflection.Schema{Type: schemaTypeNumber}, true
+	case reflect.TypeFor[Schema]():
+		return &reflection.Schema{OneOf: []*reflection.Schema{
+			{Type: schemaTypeBoolean},
+			{Type: schemaTypeObject},
+		}}, true
+	default:
+		return nil, false
+	}
+}
+
+// byteSequenceWireType is base64 text; a slice may also be null.
+func byteSequenceWireType(typeOf reflect.Type) *reflection.Schema {
+	definition := constrainedWireType(typeOf, byteStringSchema(typeOf))
+	if typeOf.Kind() == reflect.Array {
+		return definition
+	}
+	return &reflection.Schema{OneOf: []*reflection.Schema{{Type: schemaTypeNull}, definition}}
+}
+
+func integerBounds(typeOf reflect.Type) (minimum, maximum string, integer bool) {
 	switch typeOf.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		bound := int64(^uint64(0) >> (65 - typeOf.Bits()))
-		minimum = strconv.FormatInt(-bound-1, 10)
-		maximum = strconv.FormatInt(bound, 10)
+		return strconv.FormatInt(-bound-1, 10), strconv.FormatInt(bound, 10), true
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		minimum = "0"
-		maximum = strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10)
+		return "0", strconv.FormatUint(^uint64(0)>>(64-typeOf.Bits()), 10), true
 	default:
-		value := reflect.Zero(typeOf).Interface()
-		if _, ok := value.(Constrained); ok && typeOf.Kind() != reflect.Struct {
-			definition := stringConstraint(value)
-			if definition == nil {
-				switch typeOf.Kind() {
-				case reflect.String:
-					definition = &reflection.Schema{Type: schemaTypeString}
-				default:
-					panic("constraints require a supported scalar or struct")
-				}
-			}
-			return constrainedWireType(typeOf, definition)
-		}
+		return "", "", false
+	}
+}
+
+// scalarWireType leaves an unconstrained type to the reflector and requires a
+// constrained non-struct type to be a string-like scalar.
+func scalarWireType(typeOf reflect.Type) *reflection.Schema {
+	value := reflect.Zero(typeOf).Interface()
+	if _, ok := value.(Constrained); !ok || typeOf.Kind() == reflect.Struct {
 		return stringConstraint(value)
 	}
-	// The reflector writes field tags onto the outer schema. Keeping machine
-	// bounds in an intersection lets tags narrow them without widening the type.
-	definition := &reflection.Schema{Type: schemaTypeInteger, AllOf: []*reflection.Schema{{Minimum: json.Number(minimum), Maximum: json.Number(maximum)}}}
+	definition := stringConstraint(value)
+	if definition == nil {
+		if typeOf.Kind() != reflect.String {
+			panic("constraints require a supported scalar or struct")
+		}
+		definition = &reflection.Schema{Type: schemaTypeString}
+	}
 	return constrainedWireType(typeOf, definition)
 }
 
