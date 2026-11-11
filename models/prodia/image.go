@@ -1,6 +1,7 @@
 package prodia
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -67,53 +68,10 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
-	if decodeErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
-	}
-	for _, field := range []string{fieldType} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)}
-		}
-	}
-
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[jobRequest](ImageRequestExtensionKey)
-	apiReq := &apiReqValue
+	apiReq, err := newJobRequest(req.Prompt, effectiveOptions)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	apiReq.Type = effectiveOptions.Model
-	if !strings.Contains(apiReq.Type, textToImageJobSegment) {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("prodia: image model requires a text-to-image job type containing .txt2img")}
-	}
-	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldWidth, fieldHeight, fieldSeed} {
-		if _, exists := apiReq.Config[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("prodia: config field %q is owned by Core", field)}
-		}
-	}
-	var configErr error
-	setConfig := func(field string, value any) {
-		if configErr == nil {
-			configErr = apiReq.setConfig(field, value)
-		}
-	}
-	setConfig(fieldPrompt, req.Prompt)
-	if effectiveOptions.NegativePrompt != "" {
-		setConfig(fieldNegativePrompt, effectiveOptions.NegativePrompt)
-	}
-	if effectiveOptions.Width != nil {
-		setConfig(fieldWidth, *effectiveOptions.Width)
-	}
-	if effectiveOptions.Height != nil {
-		setConfig(fieldHeight, *effectiveOptions.Height)
-	}
-	if effectiveOptions.Seed != nil {
-		setConfig(fieldSeed, *effectiveOptions.Seed)
-	}
-	if configErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: configErr}
-	}
-
 	accept := effectiveOptions.OutputFormat
 	switch accept {
 	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
@@ -124,26 +82,52 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
+	return newJobResponse(apiReq.Type, body, hdr.Get(headerContentType), accept)
+}
 
-	mimeType := hdr.Get(headerContentType)
-	if mimeType == "" {
-		mimeType = accept
-	}
-	if mimeType == "" {
-		mimeType = mediaTypeBinary
-	}
-	value, err := media.NewBytes(mimeType, body)
+// newJobRequest merges the caller's native job extension with the Core
+// prompt, model and options, rejecting extension fields Core owns.
+func newJobRequest(prompt string, options image.Options) (*jobRequest, error) {
+	nativeFields, _, err := options.Extensions.Decode[map[string]any](ImageRequestExtensionKey)
 	if err != nil {
 		return nil, err
 	}
+	if _, exists := nativeFields[fieldType]; exists {
+		return nil, fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, fieldType)
+	}
+	request, _, err := options.Extensions.Decode[jobRequest](ImageRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	request.Type = options.Model
+	if !strings.Contains(request.Type, textToImageJobSegment) {
+		return nil, errors.New("prodia: image model requires a text-to-image job type containing .txt2img")
+	}
+	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldWidth, fieldHeight, fieldSeed} {
+		if _, exists := request.Config[field]; exists {
+			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
+		}
+	}
+	if err := request.setConfig(fieldPrompt, prompt); err != nil {
+		return nil, err
+	}
+	if err := request.setCoreOptions(options); err != nil {
+		return nil, err
+	}
+	return &request, nil
+}
 
+func newJobResponse(jobType string, body []byte, contentType, accept string) (*image.Response, error) {
+	value, err := media.NewBytes(cmp.Or(contentType, accept, mediaTypeBinary), body)
+	if err != nil {
+		return nil, err
+	}
 	output, err := image.NewOutput(value, nil)
 	if err != nil {
 		return nil, err
 	}
-
 	metadata := &image.ResponseMetadata{}
-	if err := metadata.Extra.Set(metadataJobType, apiReq.Type); err != nil {
+	if err := metadata.Extra.Set(metadataJobType, jobType); err != nil {
 		return nil, err
 	}
 	return image.NewResponse([]*image.Output{output}, metadata)

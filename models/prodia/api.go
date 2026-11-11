@@ -12,6 +12,7 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/image"
 )
 
 const defaultMaxOutputBytes = 32 << 20
@@ -81,6 +82,29 @@ func (j *jobRequest) setConfig(field string, value any) error {
 	}
 	j.Config[field] = raw
 	return nil
+}
+
+// setCoreOptions encodes the Core image options the job config carries.
+func (j *jobRequest) setCoreOptions(options image.Options) error {
+	if options.NegativePrompt != "" {
+		if err := j.setConfig(fieldNegativePrompt, options.NegativePrompt); err != nil {
+			return err
+		}
+	}
+	if err := j.setOptionalConfig(fieldWidth, options.Width); err != nil {
+		return err
+	}
+	if err := j.setOptionalConfig(fieldHeight, options.Height); err != nil {
+		return err
+	}
+	return j.setOptionalConfig(fieldSeed, options.Seed)
+}
+
+func (j *jobRequest) setOptionalConfig(field string, value *int64) error {
+	if value == nil {
+		return nil
+	}
+	return j.setConfig(field, *value)
 }
 
 // Prodia's synchronous endpoint returns binary output when Accept selects an
