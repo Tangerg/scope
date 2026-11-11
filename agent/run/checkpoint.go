@@ -114,13 +114,9 @@ func (p ProcessCheckpoint) waitsAndReceiptsValid() bool {
 		}
 		if receipt.Wait.Valid() {
 			wait, exists := waits[receipt.Wait]
-			if !exists || wait.Pending {
+			if !exists || wait.Pending || !claim(answered, receipt.Wait) {
 				return false
 			}
-			if _, duplicate := answered[receipt.Wait]; duplicate {
-				return false
-			}
-			answered[receipt.Wait] = struct{}{}
 		}
 	}
 	return true
@@ -143,47 +139,58 @@ func (p ProcessCheckpoint) inboxValid() bool {
 	for _, message := range p.Inbox {
 		switch value := message.(type) {
 		case Signal:
-			index, found := slices.BinarySearchFunc(p.Receipts, value.ID, func(receipt SignalReceipt, id SignalID) int { return strings.Compare(receipt.ID.String(), id.String()) })
-			if !value.Valid() || !found || p.Receipts[index] != value.receipt() {
+			if !p.signalAdmitted(value) || !claim(signals, value.ID) {
 				return false
 			}
-			if value.Wait.Valid() {
-				index, found := slices.BinarySearchFunc(p.Waits, value.Wait, func(wait WaitCheckpoint, key WaitKey) int {
-					return strings.Compare(wait.Wait.Key.String(), key.String())
-				})
-				if !found || p.Waits[index].Wait.Admits(value.Payload) != nil {
-					return false
-				}
-			}
-			if _, duplicate := signals[value.ID]; duplicate {
-				return false
-			}
-			signals[value.ID] = struct{}{}
 		case Completion:
-			if !value.Valid() || value.Effect.Process != p.Started.Process || value.Effect.Step > p.Usage.CommittedSteps || uint64(value.Effect.Index) >= p.Usage.PreparedEffects {
+			if !p.completionOwed(value) || !claim(effects, value.Effect) {
 				return false
 			}
-			if _, duplicate := effects[value.Effect]; duplicate {
-				return false
-			}
-			if _, pending := slices.BinarySearchFunc(p.Pending, value.Effect, func(pending PendingCheckpoint, id EffectID) int { return pending.Intent.ID.compare(id) }); pending {
-				return false
-			}
-			effects[value.Effect] = struct{}{}
 		case Exit:
-			parent, child := value.Child.Parent()
-			if !value.Valid() || !child || parent != p.Started.Process {
+			if parent, child := value.Child.Parent(); !value.Valid() || !child || parent != p.Started.Process || !claim(children, value.Child) {
 				return false
 			}
-			if _, duplicate := children[value.Child]; duplicate {
-				return false
-			}
-			children[value.Child] = struct{}{}
 		default:
 			return false
 		}
 	}
 	return resourceQuantitiesFit(p.Usage.AcceptedMessages, uint64(len(p.Receipts)), uint64(len(effects)), uint64(len(children))) && resourceQuantitiesFit(p.Usage.PreparedEffects, uint64(len(p.Pending)), uint64(len(effects)))
+}
+
+// claim records key and reports whether it was not already present.
+func claim[K comparable](seen map[K]struct{}, key K) bool {
+	if _, duplicate := seen[key]; duplicate {
+		return false
+	}
+	seen[key] = struct{}{}
+	return true
+}
+
+// signalAdmitted requires an undelivered signal to match its receipt and,
+// when it answers a wait, the wait's admission rule.
+func (p ProcessCheckpoint) signalAdmitted(signal Signal) bool {
+	index, found := slices.BinarySearchFunc(p.Receipts, signal.ID, func(receipt SignalReceipt, id SignalID) int { return strings.Compare(receipt.ID.String(), id.String()) })
+	if !signal.Valid() || !found || p.Receipts[index] != signal.receipt() {
+		return false
+	}
+	if !signal.Wait.Valid() {
+		return true
+	}
+	index, found = slices.BinarySearchFunc(p.Waits, signal.Wait, func(wait WaitCheckpoint, key WaitKey) int {
+		return strings.Compare(wait.Wait.Key.String(), key.String())
+	})
+	return found && p.Waits[index].Wait.Admits(signal.Payload) == nil
+}
+
+// completionOwed requires an undelivered completion to settle an Effect this
+// process prepared and no longer holds as pending.
+func (p ProcessCheckpoint) completionOwed(completion Completion) bool {
+	id := completion.Effect
+	if !completion.Valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects {
+		return false
+	}
+	_, pending := slices.BinarySearchFunc(p.Pending, id, func(pending PendingCheckpoint, id EffectID) int { return pending.Intent.ID.compare(id) })
+	return !pending
 }
 
 func (p ProcessCheckpoint) resourcesValid() bool {
