@@ -61,7 +61,7 @@ func newLiveHTTPClient(t *testing.T, baseURL string, budget int64) *http.Client 
 	if err != nil {
 		t.Fatal(err)
 	}
-	origin, err := httpclient.NewOrigin(t.Context(), endpoint)
+	origin, err := httpclient.NewOrigin(endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}

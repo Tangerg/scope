@@ -1,11 +1,9 @@
 package luma
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"slices"
 
 	"github.com/samber/lo"
@@ -27,20 +25,13 @@ type outputPolicy struct {
 	origins []httpclient.Origin
 }
 
-func newOutputPolicy(ctx context.Context, origins []string) (outputPolicy, error) {
+func newOutputPolicy(origins []string) (outputPolicy, error) {
 	if len(origins) == 0 {
 		return outputPolicy{}, errors.New("luma: OutputOrigins must authorize at least one output origin")
 	}
-	policy := outputPolicy{origins: make([]httpclient.Origin, 0, len(origins))}
+	policy := outputPolicy{origins: make(httpclient.Origins, 0, len(origins))}
 	for index, raw := range origins {
-		endpoint, err := url.Parse(raw)
-		if err != nil {
-			return outputPolicy{}, fmt.Errorf("luma: OutputOrigins[%d]: %w", index, err)
-		}
-		if (endpoint.Path != "" && endpoint.Path != "/") || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" {
-			return outputPolicy{}, fmt.Errorf("luma: OutputOrigins[%d] must contain only an HTTP origin", index)
-		}
-		origin, err := httpclient.NewOrigin(ctx, endpoint)
+		origin, err := httpclient.ParseOrigin(raw)
 		if err != nil {
 			return outputPolicy{}, fmt.Errorf("luma: OutputOrigins[%d]: %w", index, err)
 		}

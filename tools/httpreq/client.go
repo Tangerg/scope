@@ -53,11 +53,11 @@ func NewClient(config ClientConfig) (*Client, error) {
 		if len(via) == 0 {
 			return nil
 		}
-		origin, err := httpclient.NewOrigin(req.Context(), via[0].URL)
+		origin, err := httpclient.NewOrigin(via[0].URL)
 		if err != nil {
 			return err
 		}
-		destination, err := httpclient.NewOrigin(req.Context(), req.URL)
+		destination, err := httpclient.NewOrigin(req.URL)
 		if err != nil {
 			return err
 		}

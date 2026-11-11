@@ -1,7 +1,6 @@
 package blackforestlabs
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -21,19 +20,19 @@ type pollingURLPolicy struct {
 	configuredOrigin httpclient.Origin
 }
 
-func (p pollingURLPolicy) parse(ctx context.Context, raw string) (*url.URL, error) {
+func (p pollingURLPolicy) parse(raw string) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
-	if _, admissionErr := p.origin(ctx, endpoint); admissionErr != nil {
+	if _, admissionErr := p.origin(endpoint); admissionErr != nil {
 		return nil, admissionErr
 	}
 	return endpoint, nil
 }
 
-func (p pollingURLPolicy) origin(ctx context.Context, endpoint *url.URL) (httpclient.Origin, error) {
-	origin, err := httpclient.NewOrigin(ctx, endpoint)
+func (p pollingURLPolicy) origin(endpoint *url.URL) (httpclient.Origin, error) {
+	origin, err := httpclient.NewOrigin(endpoint)
 	if err != nil {
 		return httpclient.Origin{}, err
 	}

@@ -2,7 +2,6 @@ package bedrockkb
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -61,7 +60,7 @@ type Config struct {
 
 func (c Config) Validate() error {
 	endpoint, err := url.Parse(c.Endpoint)
-	_, originErr := httpclient.NewOrigin(context.Background(), endpoint)
+	_, originErr := httpclient.NewOrigin(endpoint)
 	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
 		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
 	}

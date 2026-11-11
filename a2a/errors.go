@@ -23,7 +23,6 @@ var (
 	ErrInvalidCardTimeout  = errors.New("a2a: card timeout must not be negative")
 	ErrInvalidCardMaxBytes = errors.New("a2a: card maximum bytes must not be negative")
 	ErrInvalidRPCOrigin    = errors.New("a2a: invalid allowed RPC origin")
-	ErrOriginNotAllowed    = errors.New("a2a: origin not allowed")
 
 	ErrInvalidRPCInterface = errors.New("a2a: invalid RPC interface")
 

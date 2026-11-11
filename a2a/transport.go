@@ -10,6 +10,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -86,11 +87,10 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 	if err != nil {
 		return nil, nil, err
 	}
-	baseClient := endpoint.HTTPClient
-	if baseClient == nil {
-		baseClient = http.DefaultClient
+	cardClient, err := httpclient.Restrict(endpoint.HTTPClient, policy.cardOrigins)
+	if err != nil {
+		return nil, nil, err
 	}
-	cardClient := policy.cardOrigins.restrict(baseClient)
 	cardMaxBytes := endpoint.CardMaxBytes
 	if cardMaxBytes == 0 {
 		cardMaxBytes = defaultCardMaxBytes
@@ -118,7 +118,10 @@ func dial(ctx context.Context, endpoint Endpoint) (*a2aclient.Client, *sdka2a.Ag
 		return nil, nil, exchangeErr
 	}
 
-	rpcClient := policy.rpcOrigins.restrict(baseClient)
+	rpcClient, err := httpclient.Restrict(endpoint.HTTPClient, policy.rpcOrigins)
+	if err != nil {
+		return nil, nil, err
+	}
 	client, err := a2aclient.NewFromCard(ctx, card,
 		// The selected AgentInterface owns the remote tenant. A host context's
 		// tenant belongs to another boundary and must not retarget this binding.

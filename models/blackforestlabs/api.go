@@ -54,11 +54,11 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL %q", baseURL)
 	}
-	origin, err := httpclient.NewOrigin(ctx, parsedBaseURL)
+	origin, err := httpclient.NewOrigin(parsedBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL: %w", err)
 	}
-	outputs, err := newOutputURLPolicy(ctx, config.OutputOrigins)
+	outputs, err := newOutputURLPolicy(config.OutputOrigins)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 // getResult fetches the current task state through the exact polling URL
 // returned by the generation endpoint.
 func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, error) {
-	endpoint, err := a.polling.parse(ctx, pollingURL)
+	endpoint, err := a.polling.parse(pollingURL)
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid polling URL: %w", err)
 	}
@@ -209,7 +209,7 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 // downloadOutput retrieves a short-lived BFL delivery URL without forwarding
 // the x-key credential to the delivery host.
 func (a *api) downloadOutput(ctx context.Context, outputURL string) ([]byte, string, error) {
-	endpoint, err := a.outputs.parse(ctx, outputURL)
+	endpoint, err := a.outputs.parse(outputURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("blackforestlabs: invalid output URL: %w", err)
 	}

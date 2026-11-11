@@ -29,6 +29,6 @@ func New(_ context.Context, config Config) (*http.Client, error) {
 	if config.HTTPClient != nil {
 		owned = *config.HTTPClient
 	}
-	origin.restrict(&owned, config.RejectRedirects)
+	Origins{origin}.restrict(&owned, config.RejectRedirects)
 	return &owned, nil
 }

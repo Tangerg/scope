@@ -1,7 +1,6 @@
 package replicate
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,8 +16,8 @@ type outputPolicy struct {
 	apiOrigin httpclient.Origin
 }
 
-func (o outputPolicy) originFor(ctx context.Context, endpoint *url.URL) (httpclient.Origin, error) {
-	origin, err := httpclient.NewOrigin(ctx, endpoint)
+func (o outputPolicy) originFor(endpoint *url.URL) (httpclient.Origin, error) {
+	origin, err := httpclient.NewOrigin(endpoint)
 	if err != nil {
 		return httpclient.Origin{}, fmt.Errorf("replicate: invalid output URL: %w: %w", httpclient.ErrOriginNotAllowed, err)
 	}
@@ -29,7 +28,7 @@ func (o outputPolicy) originFor(ctx context.Context, endpoint *url.URL) (httpcli
 	if host != deliveryHost && !strings.HasSuffix(host, deliverySubdomainSuffix) {
 		return httpclient.Origin{}, fmt.Errorf("replicate: untrusted output host %q: %w", host, httpclient.ErrOriginNotAllowed)
 	}
-	delivery, err := httpclient.NewOrigin(ctx, &url.URL{Scheme: schemeHTTPS, Host: host})
+	delivery, err := httpclient.NewOrigin(&url.URL{Scheme: schemeHTTPS, Host: host})
 	if err != nil {
 		return httpclient.Origin{}, fmt.Errorf("replicate: invalid delivery origin: %w", err)
 	}
@@ -43,7 +42,7 @@ func (o outputPolicy) authorizeRequest(request *http.Request) (httpclient.Origin
 	if request == nil {
 		return httpclient.Origin{}, fmt.Errorf("replicate: nil output request: %w", httpclient.ErrOriginNotAllowed)
 	}
-	origin, err := o.originFor(request.Context(), request.URL)
+	origin, err := o.originFor(request.URL)
 	if err != nil {
 		return httpclient.Origin{}, err
 	}
@@ -87,7 +86,7 @@ func (o outputPolicy) authorizeRedirect(request *http.Request, via []*http.Reque
 	if previous.Scheme == schemeHTTPS && request.URL.Scheme != schemeHTTPS {
 		return fmt.Errorf("replicate: HTTPS redirect downgrade is forbidden: %w", httpclient.ErrOriginNotAllowed)
 	}
-	previousOrigin, err := httpclient.NewOrigin(request.Context(), previous)
+	previousOrigin, err := httpclient.NewOrigin(previous)
 	if err != nil {
 		return fmt.Errorf("replicate: invalid previous redirect origin: %w", err)
 	}

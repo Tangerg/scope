@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type originBoundaryTransport struct {
@@ -43,7 +45,7 @@ func TestOriginPolicyChecksRequestAuthorityAndClosesRejectedBodies(t *testing.T)
 				t.Fatal(err)
 			}
 			transport := &originBoundaryTransport{}
-			client := policy.rpcOrigins.restrict(&http.Client{Transport: transport})
+			client := mustRestrict(t, policy.rpcOrigins, &http.Client{Transport: transport})
 			closeErr := errors.New("request body close failed")
 			body := &rejectedRequestBody{cause: closeErr}
 			request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, test.endpoint, body)
@@ -54,7 +56,7 @@ func TestOriginPolicyChecksRequestAuthorityAndClosesRejectedBodies(t *testing.T)
 				request.Host = test.host
 			}
 			_, err = client.Transport.RoundTrip(request)
-			if !errors.Is(err, ErrOriginNotAllowed) || !errors.Is(err, closeErr) {
+			if !errors.Is(err, httpclient.ErrOriginNotAllowed) || !errors.Is(err, closeErr) {
 				t.Fatalf("RoundTrip error = %v; want origin rejection and close failure", err)
 			}
 			if transport.calls != 0 || !body.closed {
@@ -69,7 +71,7 @@ func TestOriginPolicyRechecksRedirectCallbackAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := policy.rpcOrigins.restrict(&http.Client{CheckRedirect: func(request *http.Request, _ []*http.Request) error {
+	client := mustRestrict(t, policy.rpcOrigins, &http.Client{CheckRedirect: func(request *http.Request, _ []*http.Request) error {
 		request.Host = "other.example"
 		return nil
 	}})
@@ -77,7 +79,7 @@ func TestOriginPolicyRechecksRedirectCallbackAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.CheckRedirect(request, nil); !errors.Is(err, ErrOriginNotAllowed) {
+	if err := client.CheckRedirect(request, nil); !errors.Is(err, httpclient.ErrOriginNotAllowed) {
 		t.Fatalf("redirect error = %v; want origin rejection", err)
 	}
 }
@@ -99,7 +101,7 @@ func TestOriginPolicyPreservesTransportLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := &originBoundaryTransport{}
-	client := policy.rpcOrigins.restrict(&http.Client{Transport: transport})
+	client := mustRestrict(t, policy.rpcOrigins, &http.Client{Transport: transport})
 	client.CloseIdleConnections()
 	if !transport.closed {
 		t.Fatal("restricted client hid its transport's idle-connection cleanup")
@@ -115,4 +117,13 @@ func TestOriginPolicyPreservesTransportLifecycle(t *testing.T) {
 	if transport.calls != 1 {
 		t.Fatalf("allowed origin calls = %d", transport.calls)
 	}
+}
+
+func mustRestrict(t *testing.T, allowed httpclient.Origins, client *http.Client) *http.Client {
+	t.Helper()
+	restricted, err := httpclient.Restrict(client, allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return restricted
 }

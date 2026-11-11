@@ -196,7 +196,7 @@ func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: parse URL: %w", ErrInvalidRPCInterface, err)
 	}
-	if _, err := httpclient.NewOrigin(context.Background(), endpoint); err != nil {
+	if _, err := httpclient.NewOrigin(endpoint); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidRPCInterface, err)
 	}
 	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||

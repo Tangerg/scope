@@ -13,6 +13,8 @@ import (
 	"time"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 func TestDialBoundsAgentCardResolution(t *testing.T) {
@@ -127,8 +129,8 @@ func TestDialRejectsCrossOriginAgentCardRedirect(t *testing.T) {
 	t.Cleanup(source.Close)
 
 	_, _, err := dial(t.Context(), Endpoint{CardURL: source.URL})
-	if !errors.Is(err, ErrOriginNotAllowed) {
-		t.Fatalf("dial error = %v, want ErrOriginNotAllowed", err)
+	if !errors.Is(err, httpclient.ErrOriginNotAllowed) {
+		t.Fatalf("dial error = %v, want httpclient.ErrOriginNotAllowed", err)
 	}
 	if targetHit.Load() {
 		t.Fatal("cross-origin Agent Card redirect reached target")
@@ -142,8 +144,8 @@ func TestDialRequiresExplicitTrustForCrossOriginRPC(t *testing.T) {
 	cardServer := serveAgentCard(t, card)
 
 	_, _, err := dial(t.Context(), Endpoint{CardURL: cardServer.URL})
-	if !errors.Is(err, ErrOriginNotAllowed) {
-		t.Fatalf("strict dial error = %v, want ErrOriginNotAllowed", err)
+	if !errors.Is(err, httpclient.ErrOriginNotAllowed) {
+		t.Fatalf("strict dial error = %v, want httpclient.ErrOriginNotAllowed", err)
 	}
 
 	client, _, err := dial(t.Context(), Endpoint{CardURL: cardServer.URL, AllowedRPCOrigins: []string{rpc.URL}})
@@ -165,19 +167,19 @@ func TestRestrictedHTTPClientDoesNotMutateCallerClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newEndpointOriginPolicy: %v", err)
 	}
-	restricted := policy.cardOrigins.restrict(base)
+	restricted := mustRestrict(t, policy.cardOrigins, base)
 	if restricted == base {
-		t.Fatal("originSet.restrict returned caller-owned client")
+		t.Fatal("httpclient.Restrict returned caller-owned client")
 	}
 	if base.Transport != nil || base.CheckRedirect == nil {
-		t.Fatal("originSet.restrict mutated caller-owned client")
+		t.Fatal("httpclient.Restrict mutated caller-owned client")
 	}
 	req, err := http.NewRequest(http.MethodGet, "https://other.example/card", nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	if _, err := restricted.Do(req); !errors.Is(err, ErrOriginNotAllowed) {
-		t.Fatalf("Do error = %v, want ErrOriginNotAllowed", err)
+	if _, err := restricted.Do(req); !errors.Is(err, httpclient.ErrOriginNotAllowed) {
+		t.Fatalf("Do error = %v, want httpclient.ErrOriginNotAllowed", err)
 	}
 	if redirectCalls.Load() != 0 {
 		t.Fatalf("caller redirect policy invoked %d time(s) for blocked initial request", redirectCalls.Load())

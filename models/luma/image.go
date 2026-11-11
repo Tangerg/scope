@@ -66,7 +66,7 @@ func (i ImageModelConfig) Validate() error {
 	if i.MaxOutputBytes < 0 {
 		return errors.New("luma: MaxOutputBytes must not be negative")
 	}
-	_, err := newOutputPolicy(context.Background(), i.OutputOrigins)
+	_, err := newOutputPolicy(i.OutputOrigins)
 	return err
 }
 
@@ -91,7 +91,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	outputs, err := newOutputPolicy(ctx, config.OutputOrigins)
+	outputs, err := newOutputPolicy(config.OutputOrigins)
 	if err != nil {
 		return nil, err
 	}

@@ -50,7 +50,7 @@ type ClientConfig struct {
 
 func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 	u, err := url.Parse(c.Endpoint)
-	_, originErr := httpclient.NewOrigin(ctx, u)
+	_, originErr := httpclient.NewOrigin(u)
 	if err != nil || originErr != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.EscapedPath() != "" && u.EscapedPath() != "/" {
 		return nil, errors.New("weaviate: endpoint must be an HTTP(S) origin")
 	}

@@ -1,12 +1,12 @@
 package httpclient
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/samber/lo"
@@ -32,7 +32,23 @@ type Origin struct {
 	host   string
 }
 
-func NewOrigin(_ context.Context, endpoint *url.URL) (Origin, error) {
+// NewOrigin takes the origin of an absolute, hierarchical HTTP(S) URL. Its
+// path, query, and fragment name a resource and do not affect the origin.
+func NewOrigin(endpoint *url.URL) (Origin, error) {
+	return originFromURL(endpoint)
+}
+
+// ParseOrigin admits a configured origin: an absolute HTTP(S) URL with no path
+// beyond "/", query, or fragment, so a value that names a resource cannot be
+// mistaken for the authority it grants.
+func ParseOrigin(raw string) (Origin, error) {
+	endpoint, err := url.Parse(raw)
+	if err != nil {
+		return Origin{}, fmt.Errorf("origin must be an absolute HTTP(S) URL: %w", err)
+	}
+	if (endpoint.Path != "" && endpoint.Path != "/") || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" {
+		return Origin{}, errors.New("origin must contain only a scheme, host, and port")
+	}
 	return originFromURL(endpoint)
 }
 
@@ -90,14 +106,47 @@ func (o Origin) ValidateRequest(request *http.Request) error {
 	return nil
 }
 
+// Origins is a set of authorized origins. A request is authorized when its
+// destination, including the authority written to the wire, is one of them.
+type Origins []Origin
+
+func (o Origins) ValidateRequest(request *http.Request) error {
+	if request == nil {
+		return fmt.Errorf("%w: request is nil", ErrOriginNotAllowed)
+	}
+	destination, err := originFromURL(request.URL)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrOriginNotAllowed, err)
+	}
+	if !slices.Contains(o, destination) {
+		return fmt.Errorf("%w: %s://%s", ErrOriginNotAllowed, destination.scheme, destination.host)
+	}
+	return destination.ValidateRequest(request)
+}
+
+// Restrict returns a copy of client whose requests, including every redirect,
+// reach only allowed origins. A nil client is an empty client on the default
+// transport. The host keeps ownership of the shared transport and cookie jar.
+func Restrict(client *http.Client, allowed Origins) (*http.Client, error) {
+	if len(allowed) == 0 || slices.Contains(allowed, Origin{}) {
+		return nil, errors.New("httpclient: restriction requires at least one valid origin")
+	}
+	owned := http.Client{}
+	if client != nil {
+		owned = *client
+	}
+	allowed.restrict(&owned, false)
+	return &owned, nil
+}
+
 // restrict chains the host's redirect policy, then the origin check, then the
 // optional refusal to follow, so no setting replaces another.
-func (o Origin) restrict(client *http.Client, rejectRedirects bool) {
+func (o Origins) restrict(client *http.Client, rejectRedirects bool) {
 	transport := client.Transport
 	if lo.IsNil(transport) {
 		transport = http.DefaultTransport
 	}
-	client.Transport = &originTransport{next: transport, origin: o}
+	client.Transport = &originTransport{next: transport, allowed: o}
 	previous := client.CheckRedirect
 	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if previous != nil {
@@ -119,12 +168,12 @@ func (o Origin) restrict(client *http.Client, rejectRedirects bool) {
 
 // The final transport check covers URL changes made by host redirect callbacks.
 type originTransport struct {
-	next   http.RoundTripper
-	origin Origin
+	next    http.RoundTripper
+	allowed Origins
 }
 
 func (o *originTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if err := o.origin.ValidateRequest(request); err != nil {
+	if err := o.allowed.ValidateRequest(request); err != nil {
 		if request != nil && request.Body != nil {
 			err = errors.Join(err, request.Body.Close())
 		}

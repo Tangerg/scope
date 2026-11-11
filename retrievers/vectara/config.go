@@ -2,7 +2,6 @@ package vectara
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -51,7 +50,7 @@ func (c Config) Validate() error {
 }
 func (c Config) validateConnection() error {
 	address, err := url.Parse(cmp.Or(c.Endpoint, DefaultEndpoint))
-	_, originErr := httpclient.NewOrigin(context.Background(), address)
+	_, originErr := httpclient.NewOrigin(address)
 	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") {
 		return errors.New("vectara: Endpoint must be an HTTP origin or base path without user info, query or fragment")
 	}

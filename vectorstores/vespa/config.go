@@ -2,7 +2,6 @@ package vespa
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -44,7 +43,7 @@ type StoreConfig struct {
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	endpoint, err := url.Parse(s.Endpoint)
-	_, originErr := httpclient.NewOrigin(context.Background(), endpoint)
+	_, originErr := httpclient.NewOrigin(endpoint)
 	if err != nil || originErr != nil || strings.ContainsAny(s.Endpoint, "?#") {
 		return errors.New("vespa: Endpoint must be an absolute HTTP URL without credentials, query, or fragment")
 	}

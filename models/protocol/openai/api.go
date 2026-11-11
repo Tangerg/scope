@@ -69,7 +69,7 @@ func (a apiConfig) endpoint() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
-	if _, err := httpclient.NewOrigin(context.Background(), endpoint); err != nil {
+	if _, err := httpclient.NewOrigin(endpoint); err != nil {
 		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
 

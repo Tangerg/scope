@@ -124,7 +124,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	client.SetBaseURL(baseURL).
 		SetAuthToken(config.APIKey).
 		SetHeader(headerContentType, mediaTypeJSON)
-	origin, err := httpclient.NewOrigin(ctx, parsedBaseURL)
+	origin, err := httpclient.NewOrigin(parsedBaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("replicate: output origin: %w", err)
 	}
@@ -283,7 +283,7 @@ func (a *api) downloadOutput(ctx context.Context, rawURL string) ([]byte, string
 	if err != nil {
 		return nil, "", fmt.Errorf("replicate: parse output URL: %w", err)
 	}
-	origin, err := a.policy.originFor(ctx, parsed)
+	origin, err := a.policy.originFor(parsed)
 	if err != nil {
 		return nil, "", err
 	}

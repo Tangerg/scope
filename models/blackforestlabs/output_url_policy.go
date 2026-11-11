@@ -1,7 +1,6 @@
 package blackforestlabs
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -26,17 +25,10 @@ type outputURLPolicy struct {
 	origins []httpclient.Origin
 }
 
-func newOutputURLPolicy(ctx context.Context, configured []string) (outputURLPolicy, error) {
+func newOutputURLPolicy(configured []string) (outputURLPolicy, error) {
 	policy := outputURLPolicy{origins: make([]httpclient.Origin, 0, len(configured)+1)}
 	for index, raw := range append([]string{defaultOutputOrigin}, configured...) {
-		endpoint, err := url.Parse(raw)
-		if err != nil {
-			return outputURLPolicy{}, fmt.Errorf("blackforestlabs: output origin %d: %w", index, err)
-		}
-		if (endpoint.Path != "" && endpoint.Path != "/") || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" {
-			return outputURLPolicy{}, fmt.Errorf("blackforestlabs: output origin %d must contain only an HTTP origin", index)
-		}
-		origin, err := httpclient.NewOrigin(ctx, endpoint)
+		origin, err := httpclient.ParseOrigin(raw)
 		if err != nil {
 			return outputURLPolicy{}, fmt.Errorf("blackforestlabs: output origin %d: %w", index, err)
 		}
@@ -47,8 +39,8 @@ func newOutputURLPolicy(ctx context.Context, configured []string) (outputURLPoli
 	return policy, nil
 }
 
-func (o outputURLPolicy) origin(ctx context.Context, endpoint *url.URL) (httpclient.Origin, error) {
-	origin, err := httpclient.NewOrigin(ctx, endpoint)
+func (o outputURLPolicy) origin(endpoint *url.URL) (httpclient.Origin, error) {
+	origin, err := httpclient.NewOrigin(endpoint)
 	if err != nil {
 		return httpclient.Origin{}, err
 	}
@@ -58,19 +50,19 @@ func (o outputURLPolicy) origin(ctx context.Context, endpoint *url.URL) (httpcli
 	return httpclient.Origin{}, fmt.Errorf("blackforestlabs: output origin is not authorized: %w", httpclient.ErrOriginNotAllowed)
 }
 
-func (o outputURLPolicy) parse(ctx context.Context, raw string) (*url.URL, error) {
+func (o outputURLPolicy) parse(raw string) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := o.origin(ctx, endpoint); err != nil {
+	if _, err := o.origin(endpoint); err != nil {
 		return nil, err
 	}
 	return endpoint, nil
 }
 
 func (o outputURLPolicy) validateRequest(request *http.Request) error {
-	origin, err := o.origin(request.Context(), request.URL)
+	origin, err := o.origin(request.URL)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package pinecone
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -43,7 +42,7 @@ func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
 		host = "https://" + host
 	}
 	parsed, err := url.Parse(host)
-	_, originErr := httpclient.NewOrigin(context.Background(), parsed)
+	_, originErr := httpclient.NewOrigin(parsed)
 	if err != nil || originErr != nil || strings.TrimSpace(host) != host || strings.ContainsAny(host, "?#") || parsed.Path != "" {
 		return fmt.Errorf("%w: native index has an invalid host", ErrIncompatibleIndex)
 	}
