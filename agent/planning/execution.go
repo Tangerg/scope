@@ -2,8 +2,6 @@ package planning
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -15,7 +13,7 @@ import (
 
 const (
 	failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
-	actionChildKeyPrefix                = "planning.action."
+	actionChildKeyNamespace             = "planning.action"
 )
 
 type execution struct {
@@ -226,15 +224,7 @@ func (e *execution) complete(ctx context.Context, consumedMessages uint32) (run.
 }
 
 func planningChildKey(action string, attempt uint64) (run.ChildKey, error) {
-	return run.ParseChildKey(actionChildKeyPrefix + planningIdentity(action, attempt))
-}
-
-func planningIdentity(action string, attempt uint64) string {
-	hash := sha256.New()
-	hash.Write([]byte(action))
-	hash.Write([]byte{0})
-	hash.Write([]byte(strconv.FormatUint(attempt, 10)))
-	return hex.EncodeToString(hash.Sum(nil))
+	return run.DeriveChildKey(actionChildKeyNamespace, action, strconv.FormatUint(attempt, 10))
 }
 
 const (

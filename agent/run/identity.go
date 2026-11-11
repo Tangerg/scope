@@ -2,6 +2,8 @@ package run
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -172,6 +174,22 @@ func ParseChildKey(value string) (ChildKey, error) {
 	id, err := parseIdentity("child key", value)
 	return ChildKey{id}, err
 }
+
+// DeriveChildKey names the child a Strategy starts at one logical position of
+// its own progress, so every replay of that Step addresses the same child.
+// Each part is length-prefixed before hashing: distinct part lists can never
+// derive one key, whatever bytes a part contains.
+func DeriveChildKey(namespace string, parts ...string) (ChildKey, error) {
+	hash := sha256.New()
+	for _, part := range parts {
+		hash.Write([]byte(strconv.Itoa(len(part))))
+		hash.Write([]byte{childKeyPartSeparator})
+		hash.Write([]byte(part))
+	}
+	return ParseChildKey(namespace + string(childKeyPartSeparator) + hex.EncodeToString(hash.Sum(nil)))
+}
+
+const childKeyPartSeparator = ':'
 
 func (c *ChildKey) UnmarshalText(data []byte) error {
 	if c == nil {

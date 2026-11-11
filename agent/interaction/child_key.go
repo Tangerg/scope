@@ -1,8 +1,6 @@
 package interaction
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strconv"
 
@@ -10,7 +8,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-const delegateChildKeyPrefix = "interaction.delegate.child."
+const delegateChildKeyNamespace = "interaction.delegate"
 
 func DelegateChildKey(modelCallSequence uint64, toolCall chat.ToolCall) (run.ChildKey, error) {
 	if modelCallSequence == 0 {
@@ -19,11 +17,5 @@ func DelegateChildKey(modelCallSequence uint64, toolCall chat.ToolCall) (run.Chi
 	if err := toolCall.Validate(); err != nil {
 		return run.ChildKey{}, fmt.Errorf("%w: ToolCall: %w", ErrInvalidDelegate, err)
 	}
-	hash := sha256.New()
-	hash.Write([]byte(strconv.FormatUint(modelCallSequence, 10)))
-	hash.Write([]byte{0})
-	hash.Write([]byte(toolCall.ID))
-	hash.Write([]byte{0})
-	hash.Write([]byte(toolCall.Name))
-	return run.ParseChildKey(delegateChildKeyPrefix + hex.EncodeToString(hash.Sum(nil)))
+	return run.DeriveChildKey(delegateChildKeyNamespace, strconv.FormatUint(modelCallSequence, 10), toolCall.ID, toolCall.Name)
 }
