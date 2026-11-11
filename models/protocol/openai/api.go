@@ -170,7 +170,7 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 	}
 	ids := make([]string, 0, len(page.Data))
 	for _, model := range page.Data {
-		if !model.JSON.ID.Valid() || jsontext.Value(model.JSON.ID.Raw()).Kind() != '"' || model.ID == "" {
+		if !model.JSON.ID.Valid() || jsontext.Value(model.JSON.ID.Raw()).Kind() != jsontext.KindString || model.ID == "" {
 			return nil, errors.New("openai: model list response contains an invalid model ID")
 		}
 		ids = append(ids, model.ID)
