@@ -279,7 +279,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		}
 		return false
 	})
-	if firstWait.ProcessID() != recovered.ID() || string(firstWait.Prompt()) != `"Approve?"` {
+	if firstWait.ProcessID() != recovered.ID() || string(firstWait.Prompt().JSON()) != `"Approve?"` {
 		t.Fatal("recovered question changed its process or prompt")
 	}
 	if err := recovered.Answer(ctx, firstWait.WaitKey(), true); err != nil {
@@ -293,7 +293,7 @@ func TestLostToolQuestionCanBeResolvedWithoutRepeatingTheCall(t *testing.T) {
 		}
 		return false
 	})
-	if secondWait.ProcessID() != recovered.ID() || string(secondWait.Prompt()) != `"Give a reason."` {
+	if secondWait.ProcessID() != recovered.ID() || string(secondWait.Prompt().JSON()) != `"Give a reason."` {
 		t.Fatal("continuation question lost its own identity")
 	}
 	if err := recovered.Answer(ctx, firstWait.WaitKey(), true); err != nil {

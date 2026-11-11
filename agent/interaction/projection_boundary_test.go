@@ -1,10 +1,10 @@
 package interaction
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/agent/internal/conformancetest"
@@ -159,26 +159,24 @@ func TestPendingInputBoundaryDoesNotExposeContinuationState(t *testing.T) {
 		if value.Valid() {
 			t.Fatal("incomplete question acquired an answer authority")
 		}
-		if _, err := value.ResponseSignal(mustValue(run.ParseSignalID("answer")), []byte(`true`)); !errors.Is(err, ErrInvalidPendingToolInput) {
+		if _, err := value.ResponseSignal(mustValue(run.ParseSignalID("answer")), mustValue(run.EncodePayload(true))); !errors.Is(err, ErrInvalidPendingToolInput) {
 			t.Fatal("invalid question accepted an answer", err)
 		}
 	}
-	if _, err := pending.ResponseSignal(run.SignalID{}, []byte(`true`)); !errors.Is(err, ErrInvalidPendingToolInput) {
+	if _, err := pending.ResponseSignal(run.SignalID{}, mustValue(run.EncodePayload(true))); !errors.Is(err, ErrInvalidPendingToolInput) {
 		t.Fatal("answer without identity admitted", err)
 	}
-	for _, response := range []json.RawMessage{nil, []byte(`{`), []byte(`"not a boolean"`), bytes.Repeat([]byte(" "), tool.MaxInputBytes+1)} {
+	for _, response := range []run.Payload{{}, mustValue(run.EncodePayload("not a boolean")), mustValue(run.EncodePayload(strings.Repeat("x", tool.MaxInputBytes)))} {
 		if _, err := pending.ResponseSignal(mustValue(run.ParseSignalID("answer")), response); err == nil {
 			t.Fatal("malformed or oversized answer admitted")
 		}
 	}
-	prompt, contract := pending.Prompt(), pending.ResponseSchema()
-	prompt[0], contract[0] = '[', '['
-	if string(pending.Prompt()) != `"Approve?"` || !bytes.Equal(pending.ResponseSchema(), schema.JSON()) {
-		t.Fatal("question projection aliases its caller")
+	if !pending.Prompt().Equal(question) || !pending.ResponseSchema().Equal(schema) {
+		t.Fatal("question projection changed the committed Wait")
 	}
-	answer := mustValue(pending.ResponseSignal(mustValue(run.ParseSignalID("answer")), []byte(` true `)))
+	answer := mustValue(pending.ResponseSignal(mustValue(run.ParseSignalID("answer")), mustValue(run.EncodePayload(true))))
 	if !answer.Valid() || answer.Wait != key || string(answer.Payload.JSON()) != "true" {
-		t.Fatal("answer changed its exact address or normalized value")
+		t.Fatal("answer changed its exact address or value")
 	}
 }
 

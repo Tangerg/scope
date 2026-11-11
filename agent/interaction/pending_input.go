@@ -1,9 +1,8 @@
 package interaction
 
 import (
-	"encoding/json"
-
 	"github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/core/jsonschema"
 )
 
 // Continuation state remains private to the dispatcher; only the committed
@@ -13,10 +12,10 @@ type PendingToolInput struct {
 	wait      run.Wait
 }
 
-func (p PendingToolInput) ProcessID() run.ProcessID        { return p.processID }
-func (p PendingToolInput) WaitKey() run.WaitKey            { return p.wait.Key }
-func (p PendingToolInput) Prompt() json.RawMessage         { return p.wait.Question.JSON() }
-func (p PendingToolInput) ResponseSchema() json.RawMessage { return p.wait.AnswerSchema.JSON() }
+func (p PendingToolInput) ProcessID() run.ProcessID          { return p.processID }
+func (p PendingToolInput) WaitKey() run.WaitKey              { return p.wait.Key }
+func (p PendingToolInput) Prompt() run.Payload               { return p.wait.Question }
+func (p PendingToolInput) ResponseSchema() jsonschema.Schema { return p.wait.AnswerSchema }
 
 func (p PendingToolInput) Valid() bool {
 	return p.processID.Valid() && p.wait.Valid() && p.wait.Question.Valid() && p.wait.AnswerSchema.Valid()
@@ -24,18 +23,14 @@ func (p PendingToolInput) Valid() bool {
 
 // ResponseSignal addresses response to this question after checking it with
 // the committed Wait's own admission rule.
-func (p PendingToolInput) ResponseSignal(id run.SignalID, response json.RawMessage) (run.Signal, error) {
+func (p PendingToolInput) ResponseSignal(id run.SignalID, response run.Payload) (run.Signal, error) {
 	if !p.Valid() || !id.Valid() {
 		return run.Signal{}, ErrInvalidPendingToolInput
 	}
-	payload, err := run.ParsePayload(response)
-	if err != nil {
+	if err := p.wait.Admits(response); err != nil {
 		return run.Signal{}, err
 	}
-	if err := p.wait.Admits(payload); err != nil {
-		return run.Signal{}, err
-	}
-	return run.Signal{ID: id, Wait: p.wait.Key, Payload: payload}, nil
+	return run.Signal{ID: id, Wait: p.wait.Key, Payload: response}, nil
 }
 
 // PendingToolInputs lists the tool questions awaiting an answer. Every Wait an

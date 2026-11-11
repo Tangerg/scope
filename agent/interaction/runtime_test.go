@@ -289,17 +289,17 @@ func TestContinuationsUseFreshWaitKeysAndOneLogicalReference(t *testing.T) {
 			pending = inputs[0]
 			return true
 		})
-		if string(pending.Prompt()) != `"question"` || string(pending.ResponseSchema()) != `{"type":"string"}` {
+		if string(pending.Prompt().JSON()) != `"question"` || string(pending.ResponseSchema().JSON()) != `{"type":"string"}` {
 			t.Fatal("input projection lost its question contract")
 		}
-		response := mustValue(pending.ResponseSignal(mustValue(run.ParseSignalID("valid-answer")), []byte(`"answer"`)))
+		response := mustValue(pending.ResponseSignal(mustValue(run.ParseSignalID("valid-answer")), mustValue(run.EncodePayload("answer"))))
 		if response.Wait != pending.WaitKey() || string(response.Payload.JSON()) != `"answer"` {
 			t.Fatal("answer lost wait ownership")
 		}
 		if pending.ProcessID() != handle.ID() {
 			t.Fatal("input belongs to a synthetic tool process")
 		}
-		if _, err := pending.ResponseSignal(mustValue(run.ParseSignalID("invalid")), []byte(`4`)); err == nil {
+		if _, err := pending.ResponseSignal(mustValue(run.ParseSignalID("invalid")), mustValue(run.EncodePayload(4))); err == nil {
 			t.Fatal("wrong answer schema admitted")
 		}
 		if err := handle.Answer(t.Context(), pending.WaitKey(), "answer"); err != nil {

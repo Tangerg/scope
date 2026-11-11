@@ -188,11 +188,11 @@ func TestInputResponseRequiresPresentJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	pending := PendingToolInput{processID: processID, wait: run.Wait{Key: waitKey, Question: question, AnswerSchema: schema, MaxAnswerBytes: tool.MaxInputBytes}}
-	if _, err := pending.ResponseSignal(id, nil); err == nil {
+	if _, err := pending.ResponseSignal(id, run.Payload{}); err == nil {
 		t.Fatal("accepted a missing answer")
 	}
 	for _, raw := range []string{`null`, `""`, `{}`, `[]`, `false`, `0`} {
-		signal, err := pending.ResponseSignal(id, json.RawMessage(raw))
+		signal, err := pending.ResponseSignal(id, mustValue(run.ParsePayload(json.RawMessage(raw))))
 		if err != nil {
 			t.Fatal(err)
 		}

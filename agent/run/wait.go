@@ -37,7 +37,7 @@ func (w Wait) Admits(payload Payload) error {
 	if limit == 0 {
 		limit = MaxPayloadBytes
 	}
-	if !payload.Valid() || len(payload.data) > limit {
+	if !payload.Valid() || payload.Size() > limit {
 		return fmt.Errorf("%w: answer size", ErrSignalRejected)
 	}
 	if w.AnswerSchema.Valid() {
