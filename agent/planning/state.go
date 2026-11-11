@@ -91,7 +91,7 @@ func (a awaitedAction) validate(definition *definition, attempt uint64) error {
 		}
 		return nil
 	}
-	if a.Effect.Valid() || a.Child == nil || !a.Child.Valid() || a.Child.Done() {
+	if a.Effect.Valid() || a.Child == nil || a.Child.Done() {
 		return fmt.Errorf("%w: child Action requires exactly its running child", ErrInvalidExecutionState)
 	}
 	if _, err := (child.Batch{*a.Child}).Parent(func(int) (run.ChildKey, error) { return planningChildKey(a.Name, attempt) }); err != nil {

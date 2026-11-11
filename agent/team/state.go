@@ -23,9 +23,6 @@ func (t taskState) validate(definition *definition) error {
 	if err := definition.validateRequest(t.Request); err != nil {
 		return err
 	}
-	if !t.Invocation.Valid() {
-		return ErrInvalidExecutionState
-	}
 	if t.Invocation.Process != nil {
 		if key, _ := t.Invocation.Process.Key(); key != t.Request.Key {
 			return ErrInvalidExecutionState
@@ -209,7 +206,7 @@ func (e executionState) coordinatorValid() bool {
 	if e.Coordinator == nil {
 		return true
 	}
-	if !e.Coordinator.Valid() || e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask || e.unapplied() {
+	if e.Coordinator.Done() || e.TurnNumber == 0 || e.WaitForTask || e.unapplied() {
 		return false
 	}
 	if e.Coordinator.Request != nil && e.Coordinator.Request.Index != 0 {

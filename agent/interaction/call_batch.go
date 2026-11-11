@@ -175,7 +175,7 @@ func (c callInvocation) validateToolObligation(kind callKind, effect run.EffectI
 
 // validateChild requires an unfinished child started by this call's own Spawn.
 func (c callInvocation) validateChild(kind callKind) error {
-	if kind != callDelegate || !c.Child.Valid() || c.Child.Done() || c.Child.Request != nil && *c.Child.Request != c.Reference {
+	if kind != callDelegate || c.Child.Done() || c.Child.Request != nil && *c.Child.Request != c.Reference {
 		return ErrInvalidExecutionState
 	}
 	if c.Child.Process == nil {

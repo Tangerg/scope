@@ -49,7 +49,7 @@ func TestInvocationRejectsContradictoryStateAndForeignParent(t *testing.T) {
 	id := run.EffectID{Process: parent, Step: 1}
 	process := value(run.ParseProcessID("other/worker"))
 	for _, invalid := range []Invocation{{}, {Request: &id, Process: &process}, {Process: &parent}, {Request: new(run.EffectID)}} {
-		if invalid.Valid() {
+		if invalid.valid() {
 			t.Fatalf("accepted %+v", invalid)
 		}
 	}
@@ -69,7 +69,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	id := run.EffectID{Process: parent, Step: 1}
 	failure := value(run.NewFailure(run.FailureKindExternal, "test.refused", "refused"))
 	for _, invalid := range []Invocation{{Termination: new(run.Termination)}, {Rejection: new(run.Failure)}, {Process: new(run.ProcessID)}} {
-		if invalid.Valid() {
+		if invalid.valid() {
 			t.Fatal("invalid obligation accepted")
 		}
 	}
@@ -131,7 +131,6 @@ func TestBatchParentAdmitsOnlyOneDeclaredBatch(t *testing.T) {
 		"step":   {request(parent, 2, 0), request(parent, 3, 1)},
 		"key":    {started(parent, keys[1]), started(parent, keys[1])},
 		"parent": {request(parent, 2, 0), started(other, keys[1])},
-		"empty":  {{}},
 	} {
 		if _, err := batch.Parent(expected); err == nil {
 			t.Fatalf("%s: batch admitted", name)

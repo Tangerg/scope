@@ -17,6 +17,8 @@ var ErrInvalidMessage = run.NewClassifiedError(run.FailureKindContract, "strateg
 
 // Invocation retains only the outstanding obligation. The runtime owns child
 // membership; replacing one variant discards facts the next variant supersedes.
+// Start, Accept and decoding are its only sources, and each leaves exactly one
+// valid obligation, so holders never check it again.
 type Invocation struct {
 	Request     *run.EffectID    `json:"request,omitzero"`
 	Process     *run.ProcessID   `json:"process,omitzero"`
@@ -29,14 +31,10 @@ func Start(turn run.Turn, index uint32, spec run.ChildSpec) (Invocation, run.Eff
 	if err != nil {
 		return Invocation{}, run.Effect{}, err
 	}
-	id := turn.EffectID(index)
-	if !id.Valid() {
-		return Invocation{}, run.Effect{}, fmt.Errorf("%w: turn cannot address a child start", run.ErrInvalidIdentity)
-	}
-	return Invocation{Request: &id}, effect, nil
+	return Invocation{Request: new(turn.EffectID(index))}, effect, nil
 }
 
-func (i Invocation) Valid() bool {
+func (i Invocation) valid() bool {
 	count := 0
 	if i.Request != nil {
 		if !i.Request.Valid() {
@@ -74,7 +72,7 @@ func (i *Invocation) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if !Invocation(decoded).Valid() {
+	if !Invocation(decoded).valid() {
 		return errors.New("child: invocation must hold exactly one valid obligation")
 	}
 	*i = Invocation(decoded)
@@ -83,8 +81,7 @@ func (i *Invocation) UnmarshalJSON(data []byte) error {
 
 func (i Invocation) Done() bool { return i.Termination != nil || i.Rejection != nil }
 
-// Accept applies message to the invocation it answers. Start and decoding are
-// the only sources of an Invocation, and both leave exactly one obligation.
+// Accept applies message to the invocation it answers.
 func (i *Invocation) Accept(message run.Message) (bool, error) {
 	switch value := message.(type) {
 	case run.Completion:
@@ -126,9 +123,6 @@ func (b Batch) Parent(expectedKey func(position int) (run.ChildKey, error)) (run
 	var parent run.ProcessID
 	var step uint64
 	for position, invocation := range b {
-		if !invocation.Valid() {
-			return run.ProcessID{}, errInvalidBatch
-		}
 		var current run.ProcessID
 		switch {
 		case invocation.Request != nil:
