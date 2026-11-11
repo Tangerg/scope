@@ -19,10 +19,13 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
+// The column types this store creates and later admits from the catalog.
 const (
 	documentIDBytes     = 2000
 	contentCharacterSet = "AL32UTF8"
+	documentIDType      = "RAW"
 	contentColumnType   = "CLOB"
+	metadataColumnType  = "BLOB"
 )
 
 const Provider = "Oracle"
@@ -232,12 +235,12 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 
 func (s *Store) createTableStatement() string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		%s RAW(%d) NOT NULL PRIMARY KEY,
+		%s %s(%d) NOT NULL PRIMARY KEY,
 		%s %s NOT NULL,
-		%s BLOB NOT NULL,
+		%s %s NOT NULL,
 		%s VECTOR(%d, FLOAT32) NOT NULL,
 CONSTRAINT %s CHECK (1=1)
-	)`, s.tableSQL(), s.idColumn.sql(), documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), s.embeddingColumn.sql(), s.dimensions, identifier(s.space.StorageKey()).sql())
+	)`, s.tableSQL(), s.idColumn.sql(), documentIDType, documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), metadataColumnType, s.embeddingColumn.sql(), s.dimensions, identifier(s.space.StorageKey()).sql())
 }
 
 // Oracle catalog vocabulary for the admitted table shape.
@@ -277,15 +280,15 @@ func (s *Store) validateColumns(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if id.dataType != "RAW" || id.length != documentIDBytes || id.nullable != columnNotNullable {
-		return fmt.Errorf("document ID column must be RAW(%d) NOT NULL; rebuild the table", documentIDBytes)
+	if id.dataType != documentIDType || id.length != documentIDBytes || id.nullable != columnNotNullable {
+		return fmt.Errorf("document ID column must be %s(%d) NOT NULL; rebuild the table", documentIDType, documentIDBytes)
 	}
 	facts, err := s.readColumn(ctx, s.metadataColumn)
 	if err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
-	if facts.dataType != "BLOB" || facts.nullable != columnNotNullable {
-		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
+	if facts.dataType != metadataColumnType || facts.nullable != columnNotNullable {
+		return fmt.Errorf("metadata column must be %s NOT NULL to retain encoded JSON; rebuild the table", metadataColumnType)
 	}
 	content, err := s.readColumn(ctx, s.contentColumn)
 	if err != nil {
