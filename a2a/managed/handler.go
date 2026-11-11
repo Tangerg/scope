@@ -229,8 +229,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 	if err != nil {
 		return nil, err
 	}
-	root := rootProcess(head)
-	if root.Status.Terminal() {
+	if terminalRoot(head) {
 		return nil, sdk.ErrTaskNotCancelable
 	}
 	local, ok := h.runtime.Process(head.Root)
@@ -242,7 +241,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 			return nil, sdk.ErrTaskNotCancelable
 		}
 		if errors.Is(err, run.ErrClosed) || errors.Is(err, run.ErrInvalidProcessControl) {
-			if current, readErr := h.load(ctx, k); readErr == nil && rootProcess(current).Status.Terminal() {
+			if current, readErr := h.load(ctx, k); readErr == nil && terminalRoot(current) {
 				return nil, sdk.ErrTaskNotCancelable
 			}
 		}

@@ -67,14 +67,14 @@ func (p pendingQuestion) message(root run.ProcessID, task *sdk.Task, content con
 	}, nil
 }
 
-func rootProcess(head run.TreeInspection) run.ProcessInspection {
-	root, _ := head.Process(head.Root)
-	return root
+func terminalRoot(head run.TreeInspection) bool {
+	root, found := head.Process(head.Root)
+	return found && root.Status.Terminal()
 }
 
 func projectTask(k taskKey, head run.TreeInspection, content contentPolicy) (*sdk.Task, error) {
-	root := rootProcess(head)
-	if !root.ID.Valid() {
+	root, found := head.Process(head.Root)
+	if !found {
 		return nil, sdk.ErrInternalError
 	}
 	task := &sdk.Task{ID: k.id, ContextID: k.context, Status: sdk.TaskStatus{State: sdk.TaskStateWorking}, Metadata: map[string]any{
