@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"fmt"
 	"sync"
 
@@ -363,8 +362,7 @@ func (p *projectedCall) resume(request toolDispatchRequest, effect run.EffectID)
 	if resume == nil || !resume.precedes(effect) || p.input == nil || p.round.references[p.index] != resume.Reference || p.toolCall() != request.Invocation.Call {
 		return ErrInvalidResult
 	}
-	question := p.input.Request
-	if !question.ResponseSchema().Equal(resume.InputRequest.ResponseSchema()) || !bytes.Equal(question.Prompt(), resume.InputRequest.Prompt()) || !bytes.Equal(question.State(), resume.InputRequest.State()) {
+	if !p.input.Request.Equal(resume.InputRequest) {
 		return ErrInvalidResult
 	}
 	p.input = nil

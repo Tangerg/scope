@@ -103,6 +103,13 @@ func (i InputRequest) Continuation(response json.RawMessage) (Continuation, erro
 	return Continuation{state: bytes.Clone(i.continuationState), response: validated}, nil
 }
 
+// Equal reports whether both requests ask the same question of the same call.
+// Construction normalizes every member, so equal requests have equal bytes.
+func (i InputRequest) Equal(other InputRequest) bool {
+	return i.responseSchema.Equal(other.responseSchema) && bytes.Equal(i.prompt, other.prompt) &&
+		bytes.Equal(i.continuationState, other.continuationState)
+}
+
 func (i InputRequest) Prompt() json.RawMessage           { return bytes.Clone(i.prompt) }
 func (i InputRequest) ResponseSchema() jsonschema.Schema { return i.responseSchema }
 func (i InputRequest) State() json.RawMessage            { return bytes.Clone(i.continuationState) }

@@ -120,3 +120,25 @@ func TestInputRequestAdmissionRejectsInvalidWireWithoutReplacingValue(t *testing
 		}
 	}
 }
+
+func TestInputRequestEqualityComparesNormalizedMembers(t *testing.T) {
+	schema, err := jsonschema.Parse([]byte(`{"type":"string"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(prompt, state string) tool.InputRequest {
+		t.Helper()
+		value, err := tool.NewInputRequest(tool.InputRequestConfig{Prompt: []byte(prompt), ResponseSchema: schema, ContinuationState: []byte(state)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	base := request(`{"a":1,"b":2}`, `{"step":1}`)
+	if !base.Equal(request(` { "b": 2, "a": 1 } `, `{"step":1}`)) {
+		t.Fatal("equivalent prompts compared unequal")
+	}
+	if base.Equal(request(`{"a":1,"b":3}`, `{"step":1}`)) || base.Equal(request(`{"a":1,"b":2}`, `{"step":2}`)) || base.Equal(tool.InputRequest{}) {
+		t.Fatal("different requests compared equal")
+	}
+}
