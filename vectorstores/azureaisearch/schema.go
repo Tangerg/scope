@@ -65,6 +65,26 @@ type indexField struct {
 	VectorSearchProfile string `json:"vectorSearchProfile"`
 }
 
+// identifiesDocuments reports a string key whose values stay exactly as written
+// and can be filtered and ordered for scans.
+func (i indexField) identifiesDocuments() bool {
+	return i.Type == fieldTypeString && i.Key && i.Filterable && i.Sortable && i.Normalizer == ""
+}
+
+func (i indexField) holdsSearchableText() bool {
+	return i.Type == fieldTypeString && !i.Key && i.Searchable
+}
+
+// holdsOpaqueText reports a string the engine stores but never interprets, so
+// Core JSON keeps its exact meaning.
+func (i indexField) holdsOpaqueText() bool {
+	return i.Type == fieldTypeString && !i.Key && !i.Searchable && !i.Filterable && !i.Sortable && !i.Facetable
+}
+
+func (i indexField) holdsStoredVector() bool {
+	return i.Type == fieldTypeSingleCollection && !i.Key && i.Searchable && i.Dimensions > 0 && i.VectorSearchProfile != "" && (i.Stored == nil || *i.Stored)
+}
+
 type indexSchema struct {
 	Fields       []indexField `json:"fields"`
 	VectorSearch struct {
@@ -77,49 +97,65 @@ type indexSchema struct {
 }
 
 func (i indexSchema) bind(idField, contentField, embeddingField, metadataField string) (nativeMetric, int, error) {
-	if len(i.Fields) != 4 {
-		return "", 0, fmt.Errorf("%w: exactly four native storage fields are required", ErrIncompatibleIndex)
+	fields, err := i.fieldsByName()
+	if err != nil {
+		return "", 0, err
 	}
-	fields := make(map[string]indexField, 4)
-	for _, field := range i.Fields {
-		if _, duplicate := fields[field.Name]; duplicate {
-			return "", 0, fmt.Errorf("%w: duplicate field %q", ErrIncompatibleIndex, field.Name)
-		}
-		if field.Retrievable != nil && !*field.Retrievable {
-			return "", 0, fmt.Errorf("%w: field %q is not retrievable", ErrIncompatibleIndex, field.Name)
-		}
-		fields[field.Name] = field
-	}
-	id, exists := fields[idField]
-	if !exists || id.Type != fieldTypeString || !id.Key || !id.Filterable || !id.Sortable || id.Normalizer != "" {
+	if id, exists := fields[idField]; !exists || !id.identifiesDocuments() {
 		return "", 0, fmt.Errorf("%w: ID must be a retrievable, filterable, sortable string key without a normalizer", ErrIncompatibleIndex)
 	}
-	content, exists := fields[contentField]
-	if !exists || content.Type != fieldTypeString || content.Key || !content.Searchable {
+	if content, exists := fields[contentField]; !exists || !content.holdsSearchableText() {
 		return "", 0, fmt.Errorf("%w: content must be a searchable string", ErrIncompatibleIndex)
 	}
-	facts, exists := fields[metadataField]
-	if !exists || facts.Type != fieldTypeString || facts.Key || facts.Searchable || facts.Filterable || facts.Sortable || facts.Facetable {
+	if facts, exists := fields[metadataField]; !exists || !facts.holdsOpaqueText() {
 		return "", 0, fmt.Errorf("%w: metadata must be an unindexed string containing Core JSON", ErrIncompatibleIndex)
 	}
 	vector, exists := fields[embeddingField]
-	if !exists || vector.Type != fieldTypeSingleCollection || vector.Key || !vector.Searchable || vector.Dimensions <= 0 || vector.VectorSearchProfile == "" || (vector.Stored != nil && !*vector.Stored) {
+	if !exists || !vector.holdsStoredVector() {
 		return "", 0, fmt.Errorf("%w: vector must have a searchable, stored single-precision profile and positive dimensions", ErrIncompatibleIndex)
 	}
+	metric, err := i.profileMetric(vector.VectorSearchProfile)
+	if err != nil {
+		return "", 0, err
+	}
+	return metric, vector.Dimensions, nil
+}
+
+// fieldsByName admits exactly four uniquely named, retrievable storage fields.
+func (i indexSchema) fieldsByName() (map[string]indexField, error) {
+	if len(i.Fields) != 4 {
+		return nil, fmt.Errorf("%w: exactly four native storage fields are required", ErrIncompatibleIndex)
+	}
+	fields := make(map[string]indexField, len(i.Fields))
+	for _, field := range i.Fields {
+		if _, duplicate := fields[field.Name]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate field %q", ErrIncompatibleIndex, field.Name)
+		}
+		if field.Retrievable != nil && !*field.Retrievable {
+			return nil, fmt.Errorf("%w: field %q is not retrievable", ErrIncompatibleIndex, field.Name)
+		}
+		fields[field.Name] = field
+	}
+	return fields, nil
+}
+
+// profileMetric resolves a vector profile through its single algorithm to the
+// native metric; duplicate or dangling names are incompatible.
+func (i indexSchema) profileMetric(profileName string) (nativeMetric, error) {
 	algorithmName := ""
 	foundProfile := false
 	for _, profile := range i.VectorSearch.Profiles {
-		if profile.Name != vector.VectorSearchProfile {
+		if profile.Name != profileName {
 			continue
 		}
 		if foundProfile {
-			return "", 0, fmt.Errorf("%w: duplicate vector profile", ErrIncompatibleIndex)
+			return "", fmt.Errorf("%w: duplicate vector profile", ErrIncompatibleIndex)
 		}
 		foundProfile = true
 		algorithmName = profile.Algorithm
 	}
 	if algorithmName == "" {
-		return "", 0, fmt.Errorf("%w: native vector profile resolves to no algorithm", ErrIncompatibleIndex)
+		return "", fmt.Errorf("%w: native vector profile resolves to no algorithm", ErrIncompatibleIndex)
 	}
 	var metric nativeMetric
 	foundAlgorithm := false
@@ -128,19 +164,18 @@ func (i indexSchema) bind(idField, contentField, embeddingField, metadataField s
 			continue
 		}
 		if foundAlgorithm {
-			return "", 0, fmt.Errorf("%w: duplicate native vector algorithm", ErrIncompatibleIndex)
+			return "", fmt.Errorf("%w: duplicate native vector algorithm", ErrIncompatibleIndex)
 		}
 		foundAlgorithm = true
 		var err error
-		metric, err = algorithm.metric()
-		if err != nil {
-			return "", 0, err
+		if metric, err = algorithm.metric(); err != nil {
+			return "", err
 		}
 	}
 	if !foundAlgorithm {
-		return "", 0, fmt.Errorf("%w: native vector algorithm is absent", ErrIncompatibleIndex)
+		return "", fmt.Errorf("%w: native vector algorithm is absent", ErrIncompatibleIndex)
 	}
-	return metric, vector.Dimensions, nil
+	return metric, nil
 }
 
 func validIndexName(name string) bool {
