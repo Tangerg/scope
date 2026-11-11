@@ -15,6 +15,10 @@ import (
 
 const maxIdentityBytes = 256
 
+// pathSeparator joins a ProcessID's segments and appends an EffectID's step
+// and index; validIdentity admits no segment that contains it.
+const pathSeparator = "/"
+
 var ErrInvalidIdentity = errors.New("run: invalid identity")
 
 type identity struct{ value string }
@@ -55,7 +59,7 @@ func (identity) JSONSchemaModel() any { return "" }
 type ProcessID struct{ path string }
 
 func ParseProcessID(value string) (ProcessID, error) {
-	parts := strings.Split(value, "/")
+	parts := strings.Split(value, pathSeparator)
 	for _, part := range parts {
 		if !validIdentity(part) {
 			return ProcessID{}, ErrInvalidIdentity
@@ -72,7 +76,7 @@ func (p ProcessID) Valid() bool                 { return p.path != "" }
 func (p ProcessID) IsZero() bool                { return !p.Valid() }
 
 func (p ProcessID) Root() ProcessID {
-	root, _, _ := strings.Cut(p.path, "/")
+	root, _, _ := strings.Cut(p.path, pathSeparator)
 	return ProcessID{path: root}
 }
 
@@ -92,13 +96,13 @@ func (p ProcessID) Key() (ChildKey, bool) {
 	return ChildKey{identity{p.path[index+1:]}}, true
 }
 
-func (p ProcessID) Depth() uint32 { return uint32(strings.Count(p.path, "/")) }
+func (p ProcessID) Depth() uint32 { return uint32(strings.Count(p.path, pathSeparator)) }
 
 func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
 	if !p.Valid() || !key.Valid() {
 		return ProcessID{}, ErrInvalidIdentity
 	}
-	return ProcessID{path: p.path + "/" + key.String()}, nil
+	return ProcessID{path: p.path + pathSeparator + key.String()}, nil
 }
 
 func (p ProcessID) Contains(other ProcessID) bool {
@@ -232,23 +236,35 @@ func (e EffectID) String() string {
 	if !e.Valid() {
 		return ""
 	}
-	return e.Process.String() + "/" + strconv.FormatUint(e.Step, 10) + "/" + strconv.FormatUint(uint64(e.Index), 10)
+	return e.Process.String() + pathSeparator + strconv.FormatUint(e.Step, 10) + pathSeparator + strconv.FormatUint(uint64(e.Index), 10)
+}
+
+func cutLast(value, separator string) (before, after string, found bool) {
+	index := strings.LastIndex(value, separator)
+	if index < 0 {
+		return value, "", false
+	}
+	return value[:index], value[index+len(separator):], true
 }
 
 func ParseEffectID(value string) (EffectID, error) {
-	parts := strings.Split(value, "/")
-	if len(parts) < 3 {
+	rest, encodedIndex, found := cutLast(value, pathSeparator)
+	if !found {
 		return EffectID{}, ErrInvalidIdentity
 	}
-	process, err := ParseProcessID(strings.Join(parts[:len(parts)-2], "/"))
+	encodedProcess, encodedStep, found := cutLast(rest, pathSeparator)
+	if !found {
+		return EffectID{}, ErrInvalidIdentity
+	}
+	process, err := ParseProcessID(encodedProcess)
 	if err != nil {
 		return EffectID{}, err
 	}
-	step, err := strconv.ParseUint(parts[len(parts)-2], 10, 64)
+	step, err := strconv.ParseUint(encodedStep, 10, 64)
 	if err != nil || step == 0 {
 		return EffectID{}, ErrInvalidIdentity
 	}
-	index, err := strconv.ParseUint(parts[len(parts)-1], 10, 32)
+	index, err := strconv.ParseUint(encodedIndex, 10, 32)
 	if err != nil {
 		return EffectID{}, ErrInvalidIdentity
 	}
