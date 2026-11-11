@@ -347,7 +347,7 @@ func (s Sample) outcomeReport() (eval.Report, error) {
 	}
 	if passed && !s.Expected.Output.IsZero() {
 		output, completed := s.Actual.Termination().Output()
-		passed = completed && bytes.Equal(output.JSON(), s.Expected.Output.JSON())
+		passed = completed && output.Equal(s.Expected.Output)
 		if passed {
 			feedback = "terminal status and output matched"
 		} else {

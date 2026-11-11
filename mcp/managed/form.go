@@ -14,8 +14,8 @@ import (
 // Project only the flat primitive form vocabulary. The admitted schema itself
 // is forwarded intact, so projection cannot erase an answer constraint.
 func form(q run.Wait) (*sdk.ElicitParams, error) {
-	var message string
-	if jsonv2.Unmarshal(q.Question.JSON(), &message) != nil || strings.TrimSpace(message) == "" {
+	message, err := q.Question.Decode[string]()
+	if err != nil || strings.TrimSpace(message) == "" {
 		return nil, errForm
 	}
 	encoded := q.AnswerSchema.JSON()
