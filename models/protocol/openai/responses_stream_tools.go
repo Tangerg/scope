@@ -8,13 +8,21 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 )
 
+// responsesToolPhase is a function-call item's stream lifecycle.
+type responsesToolPhase uint8
+
+const (
+	responsesToolStreaming responsesToolPhase = iota
+	responsesToolArgumentsDone
+	responsesToolClosed
+)
+
 type responsesStreamTool struct {
-	itemID        string
-	callID        string
-	name          string
-	open          bool
-	arguments     []byte
-	argumentsDone bool
+	itemID    string
+	callID    string
+	name      string
+	phase     responsesToolPhase
+	arguments []byte
 }
 
 func (r responsesStreamTool) matchesCall(call responses.ResponseFunctionToolCall) bool {
@@ -39,7 +47,7 @@ func (r responsesStreamTools) add(event responses.ResponseOutputItemAddedEvent) 
 			return nil, fmt.Errorf("openai responses: %w: tool identity reused at output index %d", corechat.ErrInvalidResponse, event.OutputIndex)
 		}
 	}
-	tool, err := r.bindItemID(event.OutputIndex, responsesStreamTool{callID: call.CallID, name: call.Name, arguments: []byte(call.Arguments), open: true}, call.ID)
+	tool, err := r.bindItemID(event.OutputIndex, responsesStreamTool{callID: call.CallID, name: call.Name, arguments: []byte(call.Arguments), phase: responsesToolStreaming}, call.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +58,7 @@ func (r responsesStreamTools) add(event responses.ResponseOutputItemAddedEvent) 
 
 func (r responsesStreamTools) appendArguments(event responses.ResponseFunctionCallArgumentsDeltaEvent) (*corechat.PartDelta, error) {
 	tool, exists := r[event.OutputIndex]
-	if !event.JSON.OutputIndex.Valid() || !exists || !tool.open || tool.argumentsDone || event.ItemID == "" {
+	if !event.JSON.OutputIndex.Valid() || !exists || tool.phase != responsesToolStreaming || event.ItemID == "" {
 		return nil, fmt.Errorf("openai responses: %w: arguments delta for closed, unknown, or unidentified tool item %q at index %d", corechat.ErrInvalidResponse, event.ItemID, event.OutputIndex)
 	}
 	tool, err := r.bindItemID(event.OutputIndex, tool, event.ItemID)
@@ -68,14 +76,14 @@ func (r responsesStreamTools) appendArguments(event responses.ResponseFunctionCa
 
 func (r responsesStreamTools) finishArguments(event responses.ResponseFunctionCallArgumentsDoneEvent) error {
 	tool, exists := r[event.OutputIndex]
-	if !event.JSON.OutputIndex.Valid() || !event.JSON.Arguments.Valid() || !exists || !tool.open || tool.argumentsDone || event.ItemID == "" || string(tool.arguments) != event.Arguments {
+	if !event.JSON.OutputIndex.Valid() || !event.JSON.Arguments.Valid() || !exists || tool.phase != responsesToolStreaming || event.ItemID == "" || string(tool.arguments) != event.Arguments {
 		return fmt.Errorf("%w: openai responses: arguments completion changed, duplicated, or omitted tool arguments", corechat.ErrInvalidResponse)
 	}
 	tool, err := r.bindItemID(event.OutputIndex, tool, event.ItemID)
 	if err != nil {
 		return err
 	}
-	tool.argumentsDone = true
+	tool.phase = responsesToolArgumentsDone
 	r[event.OutputIndex] = tool
 	return nil
 }
@@ -83,14 +91,14 @@ func (r responsesStreamTools) finishArguments(event responses.ResponseFunctionCa
 func (r responsesStreamTools) finishItem(event responses.ResponseOutputItemDoneEvent) error {
 	call := event.Item.AsFunctionCall()
 	tool, exists := r[event.OutputIndex]
-	if !event.JSON.OutputIndex.Valid() || !exists || !tool.open || !tool.matchesCall(call) {
+	if !event.JSON.OutputIndex.Valid() || !exists || tool.phase == responsesToolClosed || !tool.matchesCall(call) {
 		return fmt.Errorf("openai responses: %w: completion of closed, unknown, or changed tool item at index %d", corechat.ErrInvalidResponse, event.OutputIndex)
 	}
 	tool, err := r.bindItemID(event.OutputIndex, tool, call.ID)
 	if err != nil {
 		return err
 	}
-	tool.open = false
+	tool.phase = responsesToolClosed
 	r[event.OutputIndex] = tool
 	return nil
 }
@@ -113,7 +121,7 @@ func (r responsesStreamTools) bindItemID(index int64, tool responsesStreamTool, 
 
 func (r responsesStreamTools) validateTerminal(response responses.Response) error {
 	for index, tool := range r {
-		if response.Status == responses.ResponseStatusCompleted && tool.open {
+		if response.Status == responses.ResponseStatusCompleted && tool.phase != responsesToolClosed {
 			return fmt.Errorf("openai responses: %w: tool item %d is still open at response.completed", corechat.ErrInvalidResponse, index)
 		}
 		if index >= int64(len(response.Output)) || response.Output[index].Type != responsesItemTypeFunctionCall {

@@ -217,36 +217,32 @@ func (r *responsesStreamContent) finishMessage(event responses.ResponseOutputIte
 }
 
 func (r *responsesStreamContent) addText(event responses.ResponseTextDeltaEvent) (*corechat.PartDelta, error) {
-	if !event.JSON.OutputIndex.Valid() || !event.JSON.ContentIndex.Valid() || !event.JSON.Delta.Valid() {
-		return nil, fmt.Errorf("%w: openai responses: text delta requires output index, content index, and delta", corechat.ErrInvalidResponse)
-	}
-	position := responsesContentPosition{output: event.OutputIndex, content: event.ContentIndex}
-	if err := r.append(position, event.ItemID, responsesContentTypeText, event.Delta); err != nil {
-		return nil, err
-	}
-	if event.Delta == "" {
-		return nil, nil
-	}
-	part := corechat.NewTextDelta(event.Delta)
-	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex].identity); err != nil {
-		return nil, err
-	}
-	return &part, nil
+	reported := event.JSON.OutputIndex.Valid() && event.JSON.ContentIndex.Valid() && event.JSON.Delta.Valid()
+	return r.addContent(responsesContentTypeText, reported, event.OutputIndex, event.ContentIndex, event.ItemID, event.Delta)
 }
 
 func (r *responsesStreamContent) addRefusal(event responses.ResponseRefusalDeltaEvent) (*corechat.PartDelta, error) {
-	if !event.JSON.OutputIndex.Valid() || !event.JSON.ContentIndex.Valid() || !event.JSON.Delta.Valid() {
-		return nil, fmt.Errorf("%w: openai responses: refusal delta requires output index, content index, and delta", corechat.ErrInvalidResponse)
+	reported := event.JSON.OutputIndex.Valid() && event.JSON.ContentIndex.Valid() && event.JSON.Delta.Valid()
+	return r.addContent(responsesContentTypeRefusal, reported, event.OutputIndex, event.ContentIndex, event.ItemID, event.Delta)
+}
+
+// addContent appends one text or refusal increment to its message content
+// entry; reported is false when the event omitted a position or the delta.
+func (r *responsesStreamContent) addContent(kind string, reported bool, output, content int64, itemID, text string) (*corechat.PartDelta, error) {
+	if !reported {
+		return nil, fmt.Errorf("%w: openai responses: %s delta requires output index, content index, and delta", corechat.ErrInvalidResponse, kind)
 	}
-	position := responsesContentPosition{output: event.OutputIndex, content: event.ContentIndex}
-	if err := r.append(position, event.ItemID, responsesContentTypeRefusal, event.Delta); err != nil {
+	if err := r.append(responsesContentPosition{output: output, content: content}, itemID, kind, text); err != nil {
 		return nil, err
 	}
-	if event.Delta == "" {
+	if text == "" {
 		return nil, nil
 	}
-	part := corechat.NewRefusalDelta(event.Delta)
-	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[event.OutputIndex].identity); err != nil {
+	part := corechat.NewTextDelta(text)
+	if kind == responsesContentTypeRefusal {
+		part = corechat.NewRefusalDelta(text)
+	}
+	if err := part.Metadata.Set(responsesMessageIdentityKey, r.messages[output].identity); err != nil {
 		return nil, err
 	}
 	return &part, nil

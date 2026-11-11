@@ -27,30 +27,40 @@ func (c CallerFunc) Call(ctx context.Context, invocation Invocation) (Result, er
 // leave the lifetime of shared resources with its constructor or host.
 type CallMiddleware func(Caller) Caller
 
+// forwardPhase is the single forward a middleware may make.
+type forwardPhase uint8
+
+const (
+	forwardPending forwardPhase = iota
+	forwardRunning
+	forwardReturned
+)
+
 type callContinuation struct {
 	mu         sync.Mutex
 	invocation Invocation
 	next       Caller
-	called     bool
-	closed     bool
-	running    bool
-	input      *InputRequest
-	violation  error
+	phase      forwardPhase
+	// closed records that the middleware returned; a forward it started may
+	// still be running.
+	closed    bool
+	input     *InputRequest
+	violation error
 }
 
 func (c *callContinuation) Call(ctx context.Context, invocation Invocation) (Result, error) {
 	c.mu.Lock()
-	if c.closed || c.called || invocation.provenance != c.invocation.provenance || invocation.contract != c.invocation.contract {
+	if c.closed || c.phase != forwardPending || invocation.provenance != c.invocation.provenance || invocation.contract != c.invocation.contract {
 		c.violation = fmt.Errorf("%w: middleware must forward the admitted invocation at most once", ErrInvalidInvocation)
 		err := c.violation
 		c.mu.Unlock()
 		return Result{}, err
 	}
-	c.called, c.running = true, true
+	c.phase = forwardRunning
 	c.mu.Unlock()
 	result, err := c.next.Call(ctx, invocation)
 	c.mu.Lock()
-	c.running = false
+	c.phase = forwardReturned
 	if err == nil && result.InputRequest != nil {
 		c.input = new(*result.InputRequest)
 	}
@@ -67,7 +77,7 @@ func (c *callContinuation) validate(result Result) error {
 	if c.violation != nil {
 		return c.violation
 	}
-	if c.running {
+	if c.phase == forwardRunning {
 		return fmt.Errorf("%w: middleware returned before its forwarded call", ErrInvalidResult)
 	}
 	if result.InputRequest == nil {
