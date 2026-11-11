@@ -10,6 +10,7 @@ import (
 
 	"github.com/weaviate/weaviate-go-client/v6/collections"
 	"github.com/weaviate/weaviate-go-client/v6/collections/vectorindex"
+	"github.com/weaviate/weaviate-go-client/v6/modules/selfprovided"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -66,57 +67,86 @@ func (n *nativeSchema) read(c *collectionWire, name string, space vectorstore.Sp
 		return vectorstore.ErrIncompatibleSpace
 	}
 	v, found := c.Vectors[vectorName]
-	none, explicit := v.Vectorizer["none"]
-	if !found || len(v.Vectorizer) != 1 || !explicit || len(none) == 0 || none[0] != '{' {
+	if !found {
 		return fmt.Errorf("%w: expected a self-provided dense vector named %q", ErrIncompatibleCollection, vectorName)
+	}
+	metric, err := v.metric()
+	if err != nil {
+		return err
+	}
+	if err := admitProperties(c.Properties); err != nil {
+		return err
+	}
+	n.metric = metric
+	return nil
+}
+
+// metric admits a self-provided dense vector under a supported index and
+// returns its native distance.
+func (v vectorWire) metric() (string, error) {
+	module, explicit := v.Vectorizer[selfprovided.Vectorizer.Name()]
+	if len(v.Vectorizer) != 1 || !explicit || len(module) == 0 || module[0] != '{' {
+		return "", fmt.Errorf("%w: expected a self-provided dense vector named %q", ErrIncompatibleCollection, vectorName)
 	}
 	idx := v.Index
 	if idx.Skip || idx.Multi.Enabled {
-		return fmt.Errorf("%w: disabled or multivector index", ErrIncompatibleCollection)
+		return "", fmt.Errorf("%w: disabled or multivector index", ErrIncompatibleCollection)
 	}
 	switch vectorindex.Type(v.IndexType) {
 	case (vectorindex.Flat{}).Name(), (vectorindex.HNSW{}).Name():
 	case (vectorindex.Dynamic{}).Name():
 		for _, sub := range []indexWire{idx.HNSW, idx.Flat} {
 			if sub.Skip || sub.Multi.Enabled || sub.Distance != "" && sub.Distance != idx.Distance {
-				return fmt.Errorf("%w: inconsistent dynamic index", ErrIncompatibleCollection)
+				return "", fmt.Errorf("%w: inconsistent dynamic index", ErrIncompatibleCollection)
 			}
 		}
 	default:
-		return fmt.Errorf("%w: unsupported index %q", ErrIncompatibleCollection, v.IndexType)
+		return "", fmt.Errorf("%w: unsupported index %q", ErrIncompatibleCollection, v.IndexType)
 	}
 	switch idx.Distance {
 	case distanceCosine, distanceDot, distanceL2Squared, distanceHamming, distanceManhattan:
+		return idx.Distance, nil
 	default:
-		return fmt.Errorf("%w: invalid distance %q", ErrIncompatibleCollection, idx.Distance)
+		return "", fmt.Errorf("%w: invalid distance %q", ErrIncompatibleCollection, idx.Distance)
 	}
-	if len(c.Properties) != 3 {
+}
+
+func admitProperties(properties []propertyWire) error {
+	if len(properties) != 3 {
 		return fmt.Errorf("%w: expected three document properties", ErrIncompatibleCollection)
 	}
-	seen := make(map[string]bool, 3)
-	for _, p := range c.Properties {
+	seen := make(map[string]bool, len(properties))
+	for _, p := range properties {
 		if seen[p.Name] || len(p.DataType) != 1 {
 			return fmt.Errorf("%w: invalid property %q", ErrIncompatibleCollection, p.Name)
 		}
 		seen[p.Name] = true
-		switch p.Name {
-		case fieldContent:
-			if p.DataType[0] != string(collections.DataTypeText) || p.Tokenization != string(collections.TokenizationWord) || p.IndexSearchable != nil && !*p.IndexSearchable {
-				return fmt.Errorf("%w: content must be searchable word text", ErrIncompatibleCollection)
-			}
-		case fieldMetadata, fieldTerms:
-			want := string(collections.DataTypeText)
-			if p.Name == fieldTerms {
-				want = string(collections.DataTypeTextArray)
-			}
-			if p.DataType[0] != want || p.Tokenization != string(collections.TokenizationField) || p.IndexFilterable != nil && !*p.IndexFilterable {
-				return fmt.Errorf("%w: property %q must be filterable field %s", ErrIncompatibleCollection, p.Name, want)
-			}
-		default:
-			return fmt.Errorf("%w: unexpected property %q", ErrIncompatibleCollection, p.Name)
+		if err := p.admit(); err != nil {
+			return err
 		}
 	}
-	n.metric = idx.Distance
+	return nil
+}
+
+// admit checks one property against its role: content is searchable word
+// text, while metadata and terms are filterable whole-field values.
+func (p propertyWire) admit() error {
+	switch p.Name {
+	case fieldContent:
+		if p.DataType[0] != string(collections.DataTypeText) || p.Tokenization != string(collections.TokenizationWord) || p.IndexSearchable != nil && !*p.IndexSearchable {
+			return fmt.Errorf("%w: content must be searchable word text", ErrIncompatibleCollection)
+		}
+	case fieldMetadata, fieldTerms:
+		want := string(collections.DataTypeText)
+		if p.Name == fieldTerms {
+			want = string(collections.DataTypeTextArray)
+		}
+		if p.DataType[0] != want || p.Tokenization != string(collections.TokenizationField) || p.IndexFilterable != nil && !*p.IndexFilterable {
+			return fmt.Errorf("%w: property %q must be filterable field %s", ErrIncompatibleCollection, p.Name, want)
+		}
+	default:
+		return fmt.Errorf("%w: unexpected property %q", ErrIncompatibleCollection, p.Name)
+	}
 	return nil
 }
 

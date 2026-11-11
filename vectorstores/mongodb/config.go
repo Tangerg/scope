@@ -25,6 +25,7 @@ const (
 	termsField             = "metadata_terms"
 	scoreField             = "score"
 	filterPageSize         = 128
+	binaryCollationLocale  = "simple"
 )
 
 // DocumentCollection contains native data-plane operations. The host owns the

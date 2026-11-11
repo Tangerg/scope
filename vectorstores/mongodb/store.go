@@ -128,7 +128,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 			return err
 		}
 		ids[i] = doc.ID
-		writes[i] = mongo.NewReplaceOneModel().SetFilter(bson.M{idField: doc.ID, s.schema.vectorPath: bson.M{"$exists": true}}).SetReplacement(bson.Raw(raw)).SetUpsert(true).SetCollation(&options.Collation{Locale: "simple"})
+		writes[i] = mongo.NewReplaceOneModel().SetFilter(s.schema.scoped(bson.M{idField: doc.ID})).SetReplacement(bson.Raw(raw)).SetUpsert(true).SetCollation(binaryCollation())
 	}
 	if err := s.verify(ctx); err != nil {
 		return err
@@ -270,75 +270,39 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		}
 		nativeWhere = bson.M{termsField: bson.M{"$in": []string{term}}}
 	}
-	if verifyErr := s.verify(ctx); verifyErr != nil {
-		return nil, verifyErr
+	if err = s.verify(ctx); err != nil {
+		return nil, err
 	}
-	var selected []selectedDocument
-	if budget != nil {
-		selected, err = s.selectDocuments(ctx, request.Options.Filter, *budget)
-		if err != nil {
-			return nil, err
-		}
-		if len(selected) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-	}
-	var ids []string
-	for _, record := range selected {
-		ids = append(ids, record.id)
-	}
-	groups := [][]string{nil}
-	if budget != nil {
-		groups = slices.Collect(slices.Chunk(ids, filterPageSize))
+	groups, err := s.idGroups(ctx, request.Options.Filter, budget)
+	if err != nil {
+		return nil, err
 	}
 	var matches []*vectorstore.SearchResult
 	seen := make(map[string]struct{})
 	for _, group := range groups {
-		native := bson.M{"index": s.vectorIndexName, "path": s.schema.vectorPath, "queryVector": query, "numCandidates": candidates, "limit": request.Options.ResultLimit()}
-		if nativeWhere != nil {
-			native["filter"] = nativeWhere
-		}
+		where := nativeWhere
 		if group != nil {
-			native["filter"] = bson.M{idField: bson.M{"$in": group}}
+			where = bson.M{idField: bson.M{"$in": group}}
 		}
-		pipeline := mongo.Pipeline{{{Key: "$vectorSearch", Value: native}}, {{Key: "$addFields", Value: bson.M{scoreField: bson.M{"$meta": "vectorSearchScore"}}}}}
-		hits, queryErr := s.queryMatches(ctx, pipeline)
-		if queryErr != nil {
-			return nil, queryErr
+		hits, err := s.queryMatches(ctx, s.searchPipeline(query, candidates, request.Options.ResultLimit(), where))
+		if err != nil {
+			return nil, err
 		}
 		if len(hits) > request.Options.ResultLimit() {
 			return nil, errors.New("mongodb: native query exceeded its result limit")
 		}
 		for _, hit := range hits {
-			id := hit.Document.ID
-			if _, duplicate := seen[id]; duplicate {
-				return nil, errors.New("mongodb: native query repeated an identity")
+			if err := admitHit(hit, group, request.Options.Filter, seen); err != nil {
+				return nil, err
 			}
-			seen[id] = struct{}{}
-			if group != nil {
-				if !slices.Contains(group, id) {
-					return nil, errors.New("mongodb: hit is outside selected identities")
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, hit.Document.Metadata)
-				if matchErr != nil {
-					return nil, matchErr
-				}
-				if !matched {
-					return nil, errors.New("mongodb: native hit changed Core membership")
-				}
-			}
-			matches = append(matches, hit)
 		}
+		matches = append(matches, hits...)
 	}
 	slices.SortFunc(matches, func(left, right *vectorstore.SearchResult) int {
-		if order := cmp.Compare(right.Score, left.Score); order != 0 {
-			return order
-		}
-		return strings.Compare(left.Document.ID, right.Document.ID)
+		return cmp.Or(cmp.Compare(right.Score, left.Score), strings.Compare(left.Document.ID, right.Document.ID))
 	})
-	matches = matches[:min(len(matches), request.Options.ResultLimit())]
 	response = &vectorstore.SearchResponse{}
-	for _, hit := range matches {
+	for _, hit := range matches[:min(len(matches), request.Options.ResultLimit())] {
 		if hit.Score >= request.Options.MinScore {
 			response.Results = append(response.Results, hit)
 		}
@@ -346,8 +310,63 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	return response, nil
 }
 
+// idGroups bounds each native search: one unrestricted group for a native
+// query, otherwise the scanned identities in groups one $in can carry.
+func (s *Store) idGroups(ctx context.Context, predicate filter.Predicate, budget *vectorstore.ScanBudget) ([][]string, error) {
+	if budget == nil {
+		return [][]string{nil}, nil
+	}
+	selected, err := s.selectDocuments(ctx, predicate, *budget)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(selected))
+	for index, record := range selected {
+		ids[index] = record.id
+	}
+	return slices.Collect(slices.Chunk(ids, filterPageSize)), nil
+}
+
+func (s *Store) searchPipeline(query []float32, candidates, limit int, where bson.M) mongo.Pipeline {
+	search := bson.M{"index": s.vectorIndexName, "path": s.schema.vectorPath, "queryVector": query, "numCandidates": candidates, "limit": limit}
+	if where != nil {
+		search["filter"] = where
+	}
+	return mongo.Pipeline{{{Key: "$vectorSearch", Value: search}}, {{Key: "$addFields", Value: bson.M{scoreField: bson.M{"$meta": "vectorSearchScore"}}}}}
+}
+
+// admitHit rejects a repeated identity and rechecks a scanned hit against
+// Core membership, because the collection may have changed since the scan.
+func admitHit(hit *vectorstore.SearchResult, group []string, predicate filter.Predicate, seen map[string]struct{}) error {
+	id := hit.Document.ID
+	if _, duplicate := seen[id]; duplicate {
+		return errors.New("mongodb: native query repeated an identity")
+	}
+	seen[id] = struct{}{}
+	if group == nil {
+		return nil
+	}
+	if !slices.Contains(group, id) {
+		return errors.New("mongodb: hit is outside selected identities")
+	}
+	matched, err := filter.Match(predicate, hit.Document.Metadata)
+	if err != nil {
+		return err
+	}
+	if !matched {
+		return errors.New("mongodb: native hit changed Core membership")
+	}
+	return nil
+}
+
+// binaryCollation compares identities and terms byte for byte, matching Core
+// string equality rather than a locale's collation.
+func binaryCollation() *options.Collation {
+	return &options.Collation{Locale: binaryCollationLocale}
+}
+
 func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matches []*vectorstore.SearchResult, err error) {
-	cursor, err := s.collection.Aggregate(ctx, pipeline, options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
+	cursor, err := s.collection.Aggregate(ctx, pipeline, options.Aggregate().SetCollation(binaryCollation()))
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +398,7 @@ func (s *Store) queryMatches(ctx context.Context, pipeline mongo.Pipeline) (matc
 }
 
 func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) (selected []selectedDocument, err error) {
-	cursor, err := s.collection.Aggregate(ctx, scanPipeline(s.schema.vectorPath, budget), options.Aggregate().SetCollation(&options.Collation{Locale: "simple"}))
+	cursor, err := s.collection.Aggregate(ctx, scanPipeline(s.schema, budget), options.Aggregate().SetCollation(binaryCollation()))
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +460,7 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	if verifyErr := s.verify(ctx); verifyErr != nil {
 		return verifyErr
 	}
-	result, err := s.collection.DeleteMany(ctx, bson.M{s.schema.vectorPath: bson.M{"$exists": true}, termsField: term}, options.DeleteMany().SetHint(bson.D{{Key: termsField, Value: 1}}).SetCollation(&options.Collation{Locale: "simple"}))
+	result, err := s.collection.DeleteMany(ctx, s.schema.scoped(bson.M{termsField: term}), options.DeleteMany().SetHint(bson.D{{Key: termsField, Value: 1}}).SetCollation(binaryCollation()))
 	if err != nil {
 		return err
 	}
@@ -471,8 +490,8 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		return err
 	}
 	for _, record := range records {
-		constraint := bson.M{s.schema.vectorPath: bson.M{"$exists": true}, idField: record.id, "$expr": bson.M{"$eq": bson.A{"$" + metadataField, bson.M{"$literal": record.metadataJSON}}}}
-		result, deleteErr := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
+		constraint := s.schema.scoped(bson.M{idField: record.id, "$expr": bson.M{"$eq": bson.A{"$" + metadataField, bson.M{"$literal": record.metadataJSON}}}})
+		result, deleteErr := s.collection.DeleteMany(ctx, constraint, options.DeleteMany().SetCollation(binaryCollation()))
 		if deleteErr != nil {
 			return deleteErr
 		}
@@ -491,7 +510,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err = s.verify(ctx); err != nil {
 		return err
 	}
-	result, err := s.collection.DeleteMany(ctx, bson.M{idField: bson.M{"$in": selected}, s.schema.vectorPath: bson.M{"$exists": true}}, options.DeleteMany().SetCollation(&options.Collation{Locale: "simple"}))
+	result, err := s.collection.DeleteMany(ctx, s.schema.scoped(bson.M{idField: bson.M{"$in": selected}}), options.DeleteMany().SetCollation(binaryCollation()))
 	if err != nil {
 		return err
 	}

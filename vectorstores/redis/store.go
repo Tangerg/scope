@@ -22,6 +22,8 @@ import (
 const (
 	redisSearchDialectVersion = 2
 	filterPageSize            = 256
+	// allDocumentsPrefix is the KNN pre-filter that admits every document.
+	allDocumentsPrefix = "*"
 )
 
 var ErrIncompatibleIndex = errors.New("redis: native index is incompatible")
@@ -201,7 +203,7 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 
 func (s *Store) queryPrefix(p filter.Predicate) (string, error) {
 	if p == nil {
-		return "*", nil
+		return allDocumentsPrefix, nil
 	}
 	if !s.schema.indexedTerms {
 		return "", vectorstore.ErrUnsupportedFilter
@@ -267,105 +269,142 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scan
 	if err != nil {
 		return nil, err
 	}
-	prefix := "*"
+	prefix := allDocumentsPrefix
 	if scan == nil {
-		prefix, err = s.queryPrefix(request.Options.Filter)
-		if err != nil {
+		if prefix, err = s.queryPrefix(request.Options.Filter); err != nil {
 			return nil, err
 		}
 	}
-	if err := s.verify(ctx); err != nil {
+	if err = s.verify(ctx); err != nil {
 		return nil, err
 	}
-	groups := [][]string{nil}
-	if scan != nil {
-		records, err := scan.selectRecords(ctx, s, request.Options.Filter)
-		if err != nil {
-			return nil, err
-		}
-		if len(records) == 0 {
-			return &vectorstore.SearchResponse{}, nil
-		}
-		groups = slices.Collect(slices.Chunk(slices.Sorted(maps.Keys(records)), filterPageSize))
+	groups, err := s.keyGroups(ctx, request.Options.Filter, scan)
+	if err != nil {
+		return nil, err
 	}
+	search := groupSearch{store: s, options: request.Options, prefix: prefix, query: query, scanned: scan != nil, seen: make(map[string]struct{})}
 	var ranked []rankedHit
-	seen := make(map[string]struct{})
 	for _, group := range groups {
-		args := []any{"FT.SEARCH", s.indexName, fmt.Sprintf("%s=>[KNN %d @%s $%s AS %s]", prefix, request.Options.ResultLimit(), embeddingField, vectorParamName, distanceFieldName)}
-		if len(group) > 0 {
-			args = append(args, "INKEYS", len(group))
-			for _, key := range group {
-				args = append(args, key)
-			}
-		}
-		args = append(args, "RETURN", 5, contentField, embeddingField, metadataField, termsField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, request.Options.ResultLimit(), "PARAMS", 2, vectorParamName, query, "DIALECT", redisSearchDialectVersion)
-		raw, err := s.client.Do(ctx, args...).Result()
+		hits, err := search.rank(ctx, group)
 		if err != nil {
 			return nil, err
 		}
-		result, err := parseSearchResult(raw)
-		if err != nil {
-			return nil, err
-		}
-		if len(result.Docs) != min(result.Total, request.Options.ResultLimit()) {
-			return nil, errors.New("redis: native result count does not acknowledge complete hits")
-		}
-		for _, hit := range result.Docs {
-			if _, duplicate := seen[hit.ID]; duplicate {
-				return nil, errors.New("redis: native search repeated a document key")
-			}
-			seen[hit.ID] = struct{}{}
-			fields := maps.Clone(hit.Fields)
-			raw, ok := fields[distanceFieldName]
-			if !ok {
-				return nil, errors.New("redis: native hit is missing its distance")
-			}
-			delete(fields, distanceFieldName)
-			doc, err := s.schema.decode(hit.ID, fields)
-			if err != nil {
-				return nil, err
-			}
-			if request.Options.Filter != nil {
-				if scan != nil && !slices.Contains(group, hit.ID) {
-					return nil, errors.New("redis: native hit is outside Core membership")
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, doc.Metadata)
-				if matchErr != nil {
-					return nil, matchErr
-				}
-				if !matched {
-					return nil, errors.New("redis: native hit changed Core membership")
-				}
-			}
-			distance, err := strconv.ParseFloat(raw, 64)
-			if err != nil {
-				return nil, err
-			}
-			score, err := s.schema.score(distance)
-			if err != nil {
-				return nil, err
-			}
-			match, err := vectorstore.NewSearchResult(doc, score)
-			if err != nil {
-				return nil, err
-			}
-			ranked = append(ranked, rankedHit{result: match, distance: distance})
-		}
+		ranked = append(ranked, hits...)
 	}
 	slices.SortFunc(ranked, func(left, right rankedHit) int {
-		if order := cmp.Compare(left.distance, right.distance); order != 0 {
-			return order
-		}
-		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
+		return cmp.Or(cmp.Compare(left.distance, right.distance), strings.Compare(left.result.Document.ID, right.result.Document.ID))
 	})
-	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
 	var results []*vectorstore.SearchResult
-	for _, hit := range ranked {
+	for _, hit := range ranked[:min(len(ranked), request.Options.ResultLimit())] {
 		if hit.result.Score >= request.Options.MinScore {
 			results = append(results, hit.result)
 		}
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// keyGroups bounds each native search: one unrestricted group for a native
+// query, otherwise the scanned members in groups INKEYS can carry.
+func (s *Store) keyGroups(ctx context.Context, predicate filter.Predicate, scan *scanGrant) ([][]string, error) {
+	if scan == nil {
+		return [][]string{nil}, nil
+	}
+	records, err := scan.selectRecords(ctx, s, predicate)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Collect(slices.Chunk(slices.Sorted(maps.Keys(records)), filterPageSize)), nil
+}
+
+// groupSearch runs one query's KNN searches. seen spans every group, so a key
+// returned twice is rejected even across groups.
+type groupSearch struct {
+	store   *Store
+	options vectorstore.SearchOptions
+	prefix  string
+	query   []byte
+	scanned bool
+	seen    map[string]struct{}
+}
+
+func (g groupSearch) rank(ctx context.Context, keys []string) ([]rankedHit, error) {
+	raw, err := g.store.client.Do(ctx, g.command(keys)...).Result()
+	if err != nil {
+		return nil, err
+	}
+	result, err := parseSearchResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Docs) != min(result.Total, g.options.ResultLimit()) {
+		return nil, errors.New("redis: native result count does not acknowledge complete hits")
+	}
+	ranked := make([]rankedHit, 0, len(result.Docs))
+	for _, hit := range result.Docs {
+		if _, duplicate := g.seen[hit.ID]; duplicate {
+			return nil, errors.New("redis: native search repeated a document key")
+		}
+		g.seen[hit.ID] = struct{}{}
+		admitted, err := g.admit(hit, keys)
+		if err != nil {
+			return nil, err
+		}
+		ranked = append(ranked, admitted)
+	}
+	return ranked, nil
+}
+
+// command is one FT.SEARCH KNN query, restricted to keys when it has any.
+func (g groupSearch) command(keys []string) []any {
+	limit := g.options.ResultLimit()
+	args := []any{"FT.SEARCH", g.store.indexName, fmt.Sprintf("%s=>[KNN %d @%s $%s AS %s]", g.prefix, limit, embeddingField, vectorParamName, distanceFieldName)}
+	if len(keys) > 0 {
+		args = append(args, "INKEYS", len(keys))
+		for _, key := range keys {
+			args = append(args, key)
+		}
+	}
+	return append(args, "RETURN", 5, contentField, embeddingField, metadataField, termsField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, limit, "PARAMS", 2, vectorParamName, g.query, "DIALECT", redisSearchDialectVersion)
+}
+
+// admit decodes one hit and rechecks a filtered hit against Core membership,
+// because the native index may have changed since the scan selected it.
+func (g groupSearch) admit(hit goredis.Document, keys []string) (rankedHit, error) {
+	fields := maps.Clone(hit.Fields)
+	raw, ok := fields[distanceFieldName]
+	if !ok {
+		return rankedHit{}, errors.New("redis: native hit is missing its distance")
+	}
+	delete(fields, distanceFieldName)
+	doc, err := g.store.schema.decode(hit.ID, fields)
+	if err != nil {
+		return rankedHit{}, err
+	}
+	if g.options.Filter != nil {
+		if g.scanned && !slices.Contains(keys, hit.ID) {
+			return rankedHit{}, errors.New("redis: native hit is outside Core membership")
+		}
+		matched, matchErr := filter.Match(g.options.Filter, doc.Metadata)
+		if matchErr != nil {
+			return rankedHit{}, matchErr
+		}
+		if !matched {
+			return rankedHit{}, errors.New("redis: native hit changed Core membership")
+		}
+	}
+	distance, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return rankedHit{}, err
+	}
+	score, err := g.store.schema.score(distance)
+	if err != nil {
+		return rankedHit{}, err
+	}
+	match, err := vectorstore.NewSearchResult(doc, score)
+	if err != nil {
+		return rankedHit{}, err
+	}
+	return rankedHit{result: match, distance: distance}, nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {

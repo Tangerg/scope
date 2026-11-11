@@ -8,6 +8,16 @@ import (
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 )
 
+// Template parameters keep caller identities out of expression text.
+const (
+	identitiesParam = "ids"
+	cursorParam     = "after"
+	identityFilter  = fieldID + " in {" + identitiesParam + "}"
+	cursorFilter    = fieldID + " > {" + cursorParam + "}"
+	// reduceStopForBestKey is the iterator flag the SDK sets as a literal.
+	reduceStopForBestKey = "reduce_stop_for_best"
+)
+
 // The SDK iterator interpolates VARCHAR cursors without escaping. Native
 // iterator ordering with a typed template cursor preserves literal identities.
 type sourcePage struct {
@@ -19,13 +29,13 @@ func (s sourcePage) Request() (*milvuspb.QueryRequest, error) {
 	options := milvusclient.NewQueryOption(s.collection).WithLimit(sourcePageSize).
 		WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).WithConsistencyLevel(entity.ClStrong)
 	if s.after != "" {
-		options.WithFilter("id > {after}").WithTemplateParam("after", s.after)
+		options.WithFilter(cursorFilter).WithTemplateParam(cursorParam, s.after)
 	}
 	request, err := options.Request()
 	if err != nil {
 		return nil, err
 	}
-	request.QueryParams = append(request.QueryParams, &commonpb.KeyValuePair{Key: milvusclient.IteratorKey, Value: "true"}, &commonpb.KeyValuePair{Key: "reduce_stop_for_best", Value: "true"})
+	request.QueryParams = append(request.QueryParams, &commonpb.KeyValuePair{Key: milvusclient.IteratorKey, Value: "true"}, &commonpb.KeyValuePair{Key: reduceStopForBestKey, Value: "true"})
 	return request, nil
 }
 
@@ -35,13 +45,13 @@ type nativeDeletion struct {
 }
 
 func (n nativeDeletion) Request() (*milvuspb.DeleteRequest, error) {
-	request, err := milvusclient.NewDeleteOption(n.collection).WithExpr("id in {ids}").Request()
+	request, err := milvusclient.NewDeleteOption(n.collection).WithExpr(identityFilter).Request()
 	if err != nil {
 		return nil, err
 	}
 	request.ConsistencyLevel = commonpb.ConsistencyLevel_Strong
 	request.ExprTemplateValues = map[string]*schemapb.TemplateValue{
-		"ids": {Val: &schemapb.TemplateValue_ArrayVal{ArrayVal: &schemapb.TemplateArrayValue{Data: &schemapb.TemplateArrayValue_StringData{StringData: &schemapb.StringArray{Data: n.ids}}}}},
+		identitiesParam: {Val: &schemapb.TemplateValue_ArrayVal{ArrayVal: &schemapb.TemplateArrayValue{Data: &schemapb.TemplateArrayValue_StringData{StringData: &schemapb.StringArray{Data: n.ids}}}}},
 	}
 	return request, nil
 }

@@ -240,43 +240,72 @@ CONSTRAINT %s CHECK (1=1)
 	)`, s.tableSQL(), s.idColumn.sql(), documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), s.embeddingColumn.sql(), s.dimensions, identifier(s.space.StorageKey()).sql())
 }
 
-func (s *Store) validateSchema(ctx context.Context) (err error) {
-	const (
-		columnNotNullable       = "N"
-		constraintStatusEnabled = "ENABLED"
-		constraintValidated     = "VALIDATED"
-	)
-	var dataType, nullable string
-	var length int
-	const columns = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = :1 AND TABLE_NAME = :2 AND COLUMN_NAME = :3"
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.idColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
+// Oracle catalog vocabulary for the admitted table shape.
+const (
+	columnNotNullable       = "N"
+	constraintStatusEnabled = "ENABLED"
+	constraintValidated     = "VALIDATED"
+	constraintPrimaryKey    = "P"
+)
+
+func (s *Store) validateSchema(ctx context.Context) error {
+	if err := s.validateColumns(ctx); err != nil {
+		return err
+	}
+	if err := s.requireIdentityConstraints(ctx); err != nil {
+		return err
+	}
+	return s.requireIdentityIndexes(ctx)
+}
+
+// catalogColumn is one column as ALL_TAB_COLUMNS reports it.
+type catalogColumn struct {
+	dataType string
+	length   int
+	nullable string
+}
+
+func (s *Store) readColumn(ctx context.Context, column identifier) (catalogColumn, error) {
+	const query = "SELECT DATA_TYPE, DATA_LENGTH, NULLABLE FROM ALL_TAB_COLUMNS WHERE OWNER = :1 AND TABLE_NAME = :2 AND COLUMN_NAME = :3"
+	var c catalogColumn
+	err := s.db.QueryRowContext(ctx, query, s.schemaName.name(), s.tableName.name(), column.name()).Scan(&c.dataType, &c.length, &c.nullable)
+	return c, err
+}
+
+func (s *Store) validateColumns(ctx context.Context) error {
+	id, err := s.readColumn(ctx, s.idColumn)
+	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if dataType != "RAW" || length != documentIDBytes || nullable != columnNotNullable {
+	if id.dataType != "RAW" || id.length != documentIDBytes || id.nullable != columnNotNullable {
 		return fmt.Errorf("document ID column must be RAW(%d) NOT NULL; rebuild the table", documentIDBytes)
 	}
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.metadataColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
+	facts, err := s.readColumn(ctx, s.metadataColumn)
+	if err != nil {
 		return fmt.Errorf("read metadata schema: %w", err)
 	}
-	if dataType != "BLOB" || nullable != columnNotNullable {
+	if facts.dataType != "BLOB" || facts.nullable != columnNotNullable {
 		return errors.New("metadata column must be BLOB NOT NULL to retain encoded JSON; rebuild the table")
 	}
-	if err = s.db.QueryRowContext(ctx, columns, s.schemaName.name(), s.tableName.name(), s.contentColumn.name()).Scan(&dataType, &length, &nullable); err != nil {
+	content, err := s.readColumn(ctx, s.contentColumn)
+	if err != nil {
 		return fmt.Errorf("read content schema: %w", err)
 	}
-	if dataType != contentColumnType || nullable != columnNotNullable {
+	if content.dataType != contentColumnType || content.nullable != columnNotNullable {
 		return fmt.Errorf("content column must be %s NOT NULL; rebuild the table", contentColumnType)
 	}
+	return nil
+}
+
+// requireIdentityConstraints admits only enabled, validated primary or unique
+// constraints on the full ID, and requires the primary key among them.
+func (s *Store) requireIdentityConstraints(ctx context.Context) (err error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT c.CONSTRAINT_TYPE, c.STATUS, c.VALIDATED, cc.COLUMN_NAME, cc.POSITION FROM ALL_CONSTRAINTS c JOIN ALL_CONS_COLUMNS cc ON cc.OWNER = c.OWNER AND cc.CONSTRAINT_NAME = c.CONSTRAINT_NAME WHERE c.OWNER = :1 AND c.TABLE_NAME = :2 AND c.CONSTRAINT_TYPE IN ('P', 'U')", s.schemaName.name(), s.tableName.name())
 	if err != nil {
 		return fmt.Errorf("read document identity constraints: %w", err)
 	}
-	defer func(constraints *sql.Rows) {
-		if closeErr := constraints.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}(rows)
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	primary := false
 	for rows.Next() {
 		var kind, status, validated, column string
@@ -287,27 +316,24 @@ func (s *Store) validateSchema(ctx context.Context) (err error) {
 		if column != s.idColumn.name() || position != 1 || status != constraintStatusEnabled || validated != constraintValidated {
 			return errors.New("uniqueness constraints must identify a document solely by its full ID; rebuild the table")
 		}
-		primary = primary || kind == "P"
+		primary = primary || kind == constraintPrimaryKey
 	}
 	if err = rows.Err(); err != nil {
 		return fmt.Errorf("read document identity constraints: %w", err)
 	}
-	if err = rows.Close(); err != nil {
-		return fmt.Errorf("close document identity constraints: %w", err)
-	}
 	if !primary {
 		return errors.New("document ID must be the sole primary key; rebuild the table")
 	}
-	rows, err = s.db.QueryContext(ctx,
+	return nil
+}
+
+func (s *Store) requireIdentityIndexes(ctx context.Context) (err error) {
+	rows, err := s.db.QueryContext(ctx,
 		"SELECT cc.COLUMN_NAME, cc.COLUMN_POSITION FROM ALL_INDEXES i JOIN ALL_IND_COLUMNS cc ON cc.INDEX_OWNER = i.OWNER AND cc.INDEX_NAME = i.INDEX_NAME WHERE i.TABLE_OWNER = :1 AND i.TABLE_NAME = :2 AND i.UNIQUENESS = 'UNIQUE'", s.schemaName.name(), s.tableName.name())
 	if err != nil {
 		return fmt.Errorf("read document identity indexes: %w", err)
 	}
-	defer func() {
-		if closeErr := rows.Close(); closeErr != nil {
-			err = errors.Join(err, closeErr)
-		}
-	}()
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	for rows.Next() {
 		var column string
 		var position int

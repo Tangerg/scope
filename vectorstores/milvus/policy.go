@@ -1,6 +1,7 @@
 package milvus
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -27,31 +28,15 @@ type nativePolicy struct {
 }
 
 func decodePolicy(collection *entity.Collection, name string) (nativePolicy, error) {
-	if collection == nil || collection.Schema == nil {
-		return nativePolicy{}, fmt.Errorf("%w: missing collection", ErrSchemaMismatch)
-	}
-	schema := collection.Schema
-	if collection.Name != name || schema.CollectionName != name || schema.AutoID || schema.EnableDynamicField || len(schema.Functions) != 0 || len(schema.Fields) != 4 {
-		return nativePolicy{}, fmt.Errorf("%w: collection must have exactly the four current fields and caller-supplied IDs and vectors", ErrSchemaMismatch)
-	}
-	fields := make(map[string]*entity.Field, 4)
-	for _, field := range schema.Fields {
-		if field == nil || fields[field.Name] != nil || field.Nullable || field.AutoID || field.IsDynamic || field.IsPartitionKey || field.IsClusteringKey || field.DefaultValue != nil || field.StructSchema != nil || field.PrimaryKey != (field.Name == fieldID) {
-			return nativePolicy{}, fmt.Errorf("%w: invalid field policy", ErrSchemaMismatch)
-		}
-		fields[field.Name] = field
+	fields, err := currentFields(collection, name)
+	if err != nil {
+		return nativePolicy{}, err
 	}
 	policy := nativePolicy{}
-	for name, target := range map[string]*int{fieldID: &policy.idBytes, fieldContent: &policy.contentBytes, fieldMeta: &policy.metadataBytes} {
-		field := fields[name]
-		if field == nil || field.DataType != entity.FieldTypeVarChar {
-			return nativePolicy{}, fmt.Errorf("%w: %s must be VARCHAR", ErrSchemaMismatch, name)
+	for field, target := range map[string]*int{fieldID: &policy.idBytes, fieldContent: &policy.contentBytes, fieldMeta: &policy.metadataBytes} {
+		if *target, err = varCharCapacity(fields[field], field); err != nil {
+			return nativePolicy{}, err
 		}
-		capacity, err := strconv.Atoi(field.TypeParams[entity.TypeParamMaxLength])
-		if err != nil || capacity < 1 || capacity > nativeMaxVarCharBytes {
-			return nativePolicy{}, fmt.Errorf("%w: invalid %s capacity", ErrSchemaMismatch, name)
-		}
-		*target = capacity
 	}
 	vector := fields[fieldVector]
 	if vector == nil || vector.DataType != entity.FieldTypeFloatVector {
@@ -63,6 +48,44 @@ func decodePolicy(collection *entity.Collection, name string) (nativePolicy, err
 	}
 	policy.dimensions = int(width)
 	return policy, nil
+}
+
+// currentFields admits exactly the four current fields with caller-supplied
+// IDs and vectors, keyed by name.
+func currentFields(collection *entity.Collection, name string) (map[string]*entity.Field, error) {
+	if collection == nil || collection.Schema == nil {
+		return nil, fmt.Errorf("%w: missing collection", ErrSchemaMismatch)
+	}
+	schema := collection.Schema
+	if collection.Name != name || schema.CollectionName != name || schema.AutoID || schema.EnableDynamicField || len(schema.Functions) != 0 || len(schema.Fields) != 4 {
+		return nil, fmt.Errorf("%w: collection must have exactly the four current fields and caller-supplied IDs and vectors", ErrSchemaMismatch)
+	}
+	fields := make(map[string]*entity.Field, len(schema.Fields))
+	for _, field := range schema.Fields {
+		if field == nil || fields[field.Name] != nil || !plainField(field) {
+			return nil, fmt.Errorf("%w: invalid field policy", ErrSchemaMismatch)
+		}
+		fields[field.Name] = field
+	}
+	return fields, nil
+}
+
+// plainField rejects every native field behavior that would let Milvus
+// originate or reinterpret a value Core supplies.
+func plainField(field *entity.Field) bool {
+	return !field.Nullable && !field.AutoID && !field.IsDynamic && !field.IsPartitionKey && !field.IsClusteringKey &&
+		field.DefaultValue == nil && field.StructSchema == nil && field.PrimaryKey == (field.Name == fieldID)
+}
+
+func varCharCapacity(field *entity.Field, name string) (int, error) {
+	if field == nil || field.DataType != entity.FieldTypeVarChar {
+		return 0, fmt.Errorf("%w: %s must be VARCHAR", ErrSchemaMismatch, name)
+	}
+	capacity, err := strconv.Atoi(field.TypeParams[entity.TypeParamMaxLength])
+	if err != nil || capacity < 1 || capacity > nativeMaxVarCharBytes {
+		return 0, fmt.Errorf("%w: invalid %s capacity", ErrSchemaMismatch, name)
+	}
+	return capacity, nil
 }
 
 func (n *nativePolicy) readMetric(description milvusclient.IndexDescription) error {
@@ -101,6 +124,15 @@ func (n nativePolicy) validateVector(values []float32) error {
 		return corevector.Coordinates[float32](values).ValidateDirection()
 	}
 	return nil
+}
+
+// compareRaw orders native scores best first: L2 is a distance, while cosine
+// and inner product are similarities.
+func (n nativePolicy) compareRaw(left, right float64) int {
+	if n.metric == entity.L2 {
+		return cmp.Compare(left, right)
+	}
+	return cmp.Compare(right, left)
 }
 
 func (n nativePolicy) score(raw float64) (vectorstore.Score, error) {

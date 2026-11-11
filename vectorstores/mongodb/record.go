@@ -96,6 +96,13 @@ func (n *nativeSchema) read(raw bson.Raw, name string, space vectorstore.SpaceID
 	return nil
 }
 
+// scoped restricts a native filter to this store's namespace: a document
+// belongs to it only when it carries the store's vector path.
+func (n nativeSchema) scoped(where bson.M) bson.M {
+	where[n.vectorPath] = bson.M{"$exists": true}
+	return where
+}
+
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
 	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {

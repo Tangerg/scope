@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/milvus-io/milvus/client/v3/entity"
+	"github.com/milvus-io/milvus/client/v3/index"
 	"github.com/milvus-io/milvus/client/v3/milvusclient"
 	"google.golang.org/grpc"
 
@@ -235,7 +236,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 	if err := s.checkOptions(request.Options, meter != nil); err != nil {
 		return nil, err
 	}
-	limit := request.Options.ResultLimit()
 	policy, err := s.readPolicy(ctx)
 	if err != nil {
 		return nil, err
@@ -244,96 +244,114 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 	if err != nil {
 		return nil, err
 	}
-	response := &vectorstore.SearchResponse{}
-	groups := [][]nativeRecord{nil}
-	if request.Options.Filter != nil {
-		var candidates []nativeRecord
-		candidates, err = s.selectDocuments(ctx, policy, request.Options.Filter, meter)
-		if err != nil {
-			return nil, err
-		}
-		if len(candidates) == 0 {
-			return response, request.ValidateResponse(response)
-		}
-		groups = slices.Collect(slices.Chunk(candidates, identityGroupSize))
+	groups, err := s.identityGroups(ctx, policy, request.Options.Filter, meter)
+	if err != nil {
+		return nil, err
 	}
 	var ranked []rankedDocument
 	for _, group := range groups {
-		var ids []string
-		for _, record := range group {
-			ids = append(ids, record.doc.ID)
-		}
-		queryLimit := limit
-		if group != nil {
-			queryLimit = min(limit, len(group))
-		}
-		options := milvusclient.NewSearchOption(s.collectionName, queryLimit, []entity.Vector{entity.FloatVector(query)}).
-			WithANNSField(fieldVector).WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).
-			WithConsistencyLevel(entity.ClStrong).
-			WithSearchParam("metric_type", string(policy.metric))
-		if ids != nil {
-			options = options.WithFilter("id in {ids}").WithTemplateParam("ids", ids)
-		}
-		results, err := s.client.Search(ctx, options)
+		hits, err := s.searchGroup(ctx, policy, query, group, request.Options)
 		if err != nil {
 			return nil, err
 		}
-		if len(results) != 1 {
-			return nil, errors.New("milvus: search must return exactly one query result")
-		}
-		rows := results[0]
-		records, err := decodeRows(rows, policy)
-		if err != nil {
-			return nil, err
-		}
-		if len(rows.Scores) != len(records) || len(records) > queryLimit || len(records) != 0 && rows.IDs == nil || rows.IDs != nil && rows.IDs.Len() != len(records) {
-			return nil, errors.New("milvus: search result shape is inconsistent")
-		}
-		seen := make(map[string]bool, len(records))
-		for position, record := range records {
-			nativeID, err := rows.IDs.GetAsString(position)
-			if err != nil {
-				return nil, err
-			}
-			if nativeID != record.doc.ID || ids != nil && !slices.Contains(ids, record.doc.ID) || seen[record.doc.ID] {
-				return nil, errors.New("milvus: search identity is inconsistent")
-			}
-			seen[record.doc.ID] = true
-			matches, err := matchesMetadata(request.Options.Filter, record.doc)
-			if err != nil {
-				return nil, err
-			}
-			if !matches {
-				return nil, errors.New("milvus: selected metadata changed before search")
-			}
-			raw := float64(rows.Scores[position])
-			score, err := policy.score(raw)
-			if err != nil {
-				return nil, err
-			}
-			if score < request.Options.MinScore {
-				continue
-			}
-			ranked = append(ranked, rankedDocument{result: &vectorstore.SearchResult{Document: record.doc, Score: score}, raw: raw})
-		}
+		ranked = append(ranked, hits...)
 	}
 	slices.SortFunc(ranked, func(left, right rankedDocument) int {
-		order := cmp.Compare(right.raw, left.raw)
-		if policy.metric == entity.L2 {
-			order = -order
-		}
-		if order != 0 {
-			return order
-		}
-		return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
+		return cmp.Or(policy.compareRaw(left.raw, right.raw), cmp.Compare(left.result.Document.ID, right.result.Document.ID))
 	})
-	for _, hit := range ranked[:min(limit, len(ranked))] {
+	response := &vectorstore.SearchResponse{}
+	for _, hit := range ranked[:min(request.Options.ResultLimit(), len(ranked))] {
 		response.Results = append(response.Results, hit.result)
 	}
 	if err := request.ValidateResponse(response); err != nil {
 		return nil, err
 	}
 	return response, nil
+}
+
+// identityGroups bounds each native search: one unrestricted group without a
+// filter, otherwise the selected identities in groups the filter template admits.
+func (s *Store) identityGroups(ctx context.Context, policy nativePolicy, predicate filter.Predicate, meter *vectorstore.ScanMeter) ([][]string, error) {
+	if predicate == nil {
+		return [][]string{nil}, nil
+	}
+	candidates, err := s.selectDocuments(ctx, policy, predicate, meter)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(candidates))
+	for index, record := range candidates {
+		ids[index] = record.doc.ID
+	}
+	return slices.Collect(slices.Chunk(ids, identityGroupSize)), nil
+}
+
+// searchGroup ranks one identity group natively and admits each hit only when
+// its identity, membership and metadata still agree with the selection.
+func (s *Store) searchGroup(ctx context.Context, policy nativePolicy, query []float32, ids []string, options vectorstore.SearchOptions) ([]rankedDocument, error) {
+	limit := options.ResultLimit()
+	if ids != nil {
+		limit = min(limit, len(ids))
+	}
+	search := milvusclient.NewSearchOption(s.collectionName, limit, []entity.Vector{entity.FloatVector(query)}).
+		WithANNSField(fieldVector).WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).
+		WithConsistencyLevel(entity.ClStrong).
+		WithSearchParam(index.MetricTypeKey, string(policy.metric))
+	if ids != nil {
+		search = search.WithFilter(identityFilter).WithTemplateParam(identitiesParam, ids)
+	}
+	results, err := s.client.Search(ctx, search)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) != 1 {
+		return nil, errors.New("milvus: search must return exactly one query result")
+	}
+	rows := results[0]
+	records, err := decodeRows(rows, policy)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows.Scores) != len(records) || len(records) > limit || len(records) != 0 && rows.IDs == nil || rows.IDs != nil && rows.IDs.Len() != len(records) {
+		return nil, errors.New("milvus: search result shape is inconsistent")
+	}
+	var ranked []rankedDocument
+	seen := make(map[string]bool, len(records))
+	for position, record := range records {
+		nativeID, err := rows.IDs.GetAsString(position)
+		if err != nil {
+			return nil, err
+		}
+		if nativeID != record.doc.ID || ids != nil && !slices.Contains(ids, record.doc.ID) || seen[record.doc.ID] {
+			return nil, errors.New("milvus: search identity is inconsistent")
+		}
+		seen[record.doc.ID] = true
+		hit, admitted, err := admitHit(policy, options, record, float64(rows.Scores[position]))
+		if err != nil {
+			return nil, err
+		}
+		if admitted {
+			ranked = append(ranked, hit)
+		}
+	}
+	return ranked, nil
+}
+
+// admitHit rechecks the filter against the returned metadata and drops a hit
+// below the minimum score.
+func admitHit(policy nativePolicy, options vectorstore.SearchOptions, record nativeRecord, raw float64) (rankedDocument, bool, error) {
+	matches, err := matchesMetadata(options.Filter, record.doc)
+	if err != nil {
+		return rankedDocument{}, false, err
+	}
+	if !matches {
+		return rankedDocument{}, false, errors.New("milvus: selected metadata changed before search")
+	}
+	score, err := policy.score(raw)
+	if err != nil {
+		return rankedDocument{}, false, err
+	}
+	return rankedDocument{result: &vectorstore.SearchResult{Document: record.doc, Score: score}, raw: raw}, score >= options.MinScore, nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {

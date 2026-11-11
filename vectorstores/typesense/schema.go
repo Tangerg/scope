@@ -23,44 +23,74 @@ func newCollectionSchema(schema *api.CollectionResponse, name string, space vect
 	if schema == nil || schema.Name != name {
 		return collectionSchema{}, fmt.Errorf("%w: native collection identity is invalid", ErrIncompatibleCollection)
 	}
-	fields := make(map[string]api.Field, len(schema.Fields))
-	for _, field := range schema.Fields {
-		if _, duplicate := fields[field.Name]; duplicate {
-			return collectionSchema{}, fmt.Errorf("%w: duplicate field %s", ErrIncompatibleCollection, field.Name)
-		}
-		if field.Name == space.StorageKey() {
-			if field.Type != fieldTypeString || field.Optional == nil || !*field.Optional || field.Index == nil || *field.Index || field.Embed != nil {
-				return collectionSchema{}, ErrIncompatibleCollection
-			}
-			fields[field.Name] = field
-			continue
-		}
-		switch field.Name {
-		case fieldID, fieldContent, fieldMetadata, fieldEmbedding:
-		default:
-			return collectionSchema{}, fmt.Errorf("%w: unexpected field %s", ErrIncompatibleCollection, field.Name)
-		}
-		if field.Store != nil && !*field.Store {
-			return collectionSchema{}, fmt.Errorf("%w: field %s is not stored", ErrIncompatibleCollection, field.Name)
-		}
-		if field.Embed != nil {
-			return collectionSchema{}, fmt.Errorf("%w: native auto-embedding would create a second vector owner", ErrIncompatibleCollection)
-		}
-		fields[field.Name] = field
-	}
-	if _, ok := fields[space.StorageKey()]; !ok {
-		return collectionSchema{}, fmt.Errorf("%w: invalid coordinate space", ErrIncompatibleCollection)
+	fields, err := documentFields(schema.Fields, space)
+	if err != nil {
+		return collectionSchema{}, err
 	}
 	content, contentOK := fields[fieldContent]
 	facts, factsOK := fields[fieldMetadata]
 	vector, vectorOK := fields[fieldEmbedding]
-	if !contentOK || content.Type != fieldTypeString || (content.Index != nil && !*content.Index) || !factsOK || facts.Type != fieldTypeString || !vectorOK || vector.Type != fieldTypeFloatArray || vector.NumDim == nil || *vector.NumDim <= 0 || (vector.Index != nil && !*vector.Index) || (vector.VecDist != nil && *vector.VecDist != distanceCosine) {
+	if !contentOK || !indexedString(content) || !factsOK || facts.Type != fieldTypeString || !vectorOK || !cosineEmbedding(vector) {
 		return collectionSchema{}, fmt.Errorf("%w: requires stored content and Core JSON strings plus an indexed cosine float[] embedding", ErrIncompatibleCollection)
 	}
 	if id, ok := fields[fieldID]; ok && id.Type != fieldTypeString {
 		return collectionSchema{}, fmt.Errorf("%w: id is not a string", ErrIncompatibleCollection)
 	}
 	return collectionSchema{dimensions: *vector.NumDim}, nil
+}
+
+// documentFields admits exactly the space binding and the current document
+// fields, keyed by name. No field may be unstored or natively embedded.
+func documentFields(native []api.Field, space vectorstore.SpaceID) (map[string]api.Field, error) {
+	fields := make(map[string]api.Field, len(native))
+	for _, field := range native {
+		if _, duplicate := fields[field.Name]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate field %s", ErrIncompatibleCollection, field.Name)
+		}
+		if err := admitField(field, space); err != nil {
+			return nil, err
+		}
+		fields[field.Name] = field
+	}
+	if _, ok := fields[space.StorageKey()]; !ok {
+		return nil, fmt.Errorf("%w: invalid coordinate space", ErrIncompatibleCollection)
+	}
+	return fields, nil
+}
+
+func admitField(field api.Field, space vectorstore.SpaceID) error {
+	if field.Name == space.StorageKey() {
+		if !spaceBinding(field) {
+			return ErrIncompatibleCollection
+		}
+		return nil
+	}
+	switch field.Name {
+	case fieldID, fieldContent, fieldMetadata, fieldEmbedding:
+	default:
+		return fmt.Errorf("%w: unexpected field %s", ErrIncompatibleCollection, field.Name)
+	}
+	if field.Store != nil && !*field.Store {
+		return fmt.Errorf("%w: field %s is not stored", ErrIncompatibleCollection, field.Name)
+	}
+	if field.Embed != nil {
+		return fmt.Errorf("%w: native auto-embedding would create a second vector owner", ErrIncompatibleCollection)
+	}
+	return nil
+}
+
+// spaceBinding is an optional, unindexed string that only names the space.
+func spaceBinding(field api.Field) bool {
+	return field.Type == fieldTypeString && field.Optional != nil && *field.Optional && field.Index != nil && !*field.Index && field.Embed == nil
+}
+
+func indexedString(field api.Field) bool {
+	return field.Type == fieldTypeString && (field.Index == nil || *field.Index)
+}
+
+func cosineEmbedding(field api.Field) bool {
+	return field.Type == fieldTypeFloatArray && field.NumDim != nil && *field.NumDim > 0 &&
+		(field.Index == nil || *field.Index) && (field.VecDist == nil || *field.VecDist == distanceCosine)
 }
 
 func (c collectionSchema) narrow(vector []float64) ([]float32, error) {
