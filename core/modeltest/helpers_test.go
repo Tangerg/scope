@@ -237,16 +237,27 @@ func TestRunEmbeddingContractAllowsUnspecifiedPath(t *testing.T) {
 	})
 }
 
-type probeRerank struct{ baseURL string }
+// probeRerank is the smallest provider the rerank contract accepts: it sends
+// the effective limit only when one applies and admits the response against
+// the resolved request.
+type probeRerank struct {
+	baseURL  string
+	defaults rerank.Options
+}
 
 func (p probeRerank) Call(ctx context.Context, request *rerank.Request) (*rerank.Response, error) {
+	options, err := p.defaults.Resolve(request.Options)
+	if err != nil {
+		return nil, err
+	}
 	wireRequest := struct {
 		Model     string   `json:"model"`
 		Query     string   `json:"query"`
 		Documents []string `json:"documents"`
-		TopN      int      `json:"top_n"`
-	}{
-		Model: "rerank-model", Query: request.Query, Documents: request.Documents, TopN: request.Options.ResultLimit(len(request.Documents)),
+		TopN      *int     `json:"top_n,omitzero"`
+	}{Model: options.Model, Query: request.Query, Documents: request.Documents}
+	if options.TopK != nil && *options.TopK != 0 {
+		wireRequest.TopN = new(options.ResultLimit(len(request.Documents)))
 	}
 	payload, err := jsonv2.Marshal(wireRequest)
 	if err != nil {
@@ -261,21 +272,44 @@ func (p probeRerank) Call(ctx context.Context, request *rerank.Request) (*rerank
 		return nil, err
 	}
 	defer httpResponse.Body.Close()
-	return rerank.NewResponse([]*rerank.Result{{Index: 0, Score: 0.9}, {Index: 1, Score: 0.8}}, nil)
+	var wireResponse struct {
+		Results []struct {
+			Index int     `json:"index"`
+			Score float64 `json:"relevance_score"`
+		} `json:"results"`
+	}
+	if decodeErr := jsonv2.UnmarshalRead(httpResponse.Body, &wireResponse); decodeErr != nil {
+		return nil, decodeErr
+	}
+	var results []*rerank.Result
+	for _, item := range wireResponse.Results {
+		results = append(results, &rerank.Result{Index: item.Index, Score: rerank.Score(item.Score)})
+	}
+	response, err := rerank.NewResponse(results, nil)
+	if err != nil {
+		return nil, err
+	}
+	resolved := &rerank.Request{Query: request.Query, Documents: request.Documents, Options: options}
+	if validateErr := response.ValidateFor(resolved); validateErr != nil {
+		return nil, validateErr
+	}
+	return response, nil
 }
 
 func TestRunRerankContract(t *testing.T) {
 	built := false
 	modeltest.RunRerankContract(t, modeltest.RerankContract{
 		ModelID:      "rerank-model",
-		Response:     `{"results":[]}`,
+		Response:     `{"results":[{"index":0,"relevance_score":0.9},{"index":1,"relevance_score":0.8}]}`,
 		ExpectedPath: "/rerank",
-		Build: func(t *testing.T, baseURL string) rerank.Model {
+		LimitField:   "top_n",
+		ResultsField: "results",
+		Build: func(t *testing.T, baseURL string, defaults rerank.Options) rerank.Model {
 			built = true
 			if baseURL == "" {
 				t.Fatal("contract passed an empty base URL")
 			}
-			return probeRerank{baseURL: baseURL}
+			return probeRerank{baseURL: baseURL, defaults: defaults}
 		},
 	})
 	if !built {

@@ -23,11 +23,13 @@ func TestRerankModel(t *testing.T) {
 		ModelID:      jina.ModelRerankerV3,
 		Response:     jinaRerankResponseJSON,
 		ExpectedPath: "/rerank",
-		Build: func(t *testing.T, baseURL string) rerank.Model {
+		LimitField:   "top_n",
+		ResultsField: "results",
+		Build: func(t *testing.T, baseURL string, defaults rerank.Options) rerank.Model {
 			t.Helper()
 			model, err := jina.NewRerankModel(t.Context(), jina.RerankModelConfig{
 				APIKey:         "test-key",
-				DefaultOptions: rerank.Options{Model: jina.ModelRerankerV3},
+				DefaultOptions: defaults,
 				BaseURL:        baseURL,
 			})
 			if err != nil {

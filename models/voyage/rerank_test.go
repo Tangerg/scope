@@ -24,11 +24,13 @@ func TestRerankModel(t *testing.T) {
 		ModelID:      voyage.ModelRerank25,
 		Response:     voyageRerankResponseJSON,
 		ExpectedPath: "/rerank",
-		Build: func(t *testing.T, baseURL string) rerank.Model {
+		LimitField:   "top_k",
+		ResultsField: "data",
+		Build: func(t *testing.T, baseURL string, defaults rerank.Options) rerank.Model {
 			t.Helper()
 			model, err := voyage.NewRerankModel(t.Context(), voyage.RerankModelConfig{
 				APIKey:         "test-key",
-				DefaultOptions: rerank.Options{Model: voyage.ModelRerank25},
+				DefaultOptions: defaults,
 				BaseURL:        baseURL,
 			})
 			if err != nil {

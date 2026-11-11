@@ -22,11 +22,13 @@ func TestRerankModel(t *testing.T) {
 		ModelID:      cohere.ModelRerankV35,
 		Response:     cohereRerankResponseJSON,
 		ExpectedPath: "/v2/rerank",
-		Build: func(t *testing.T, baseURL string) rerank.Model {
+		LimitField:   "top_n",
+		ResultsField: "results",
+		Build: func(t *testing.T, baseURL string, defaults rerank.Options) rerank.Model {
 			t.Helper()
 			model, err := cohere.NewRerankModel(t.Context(), cohere.RerankModelConfig{
 				APIKey:         "test-key",
-				DefaultOptions: rerank.Options{Model: cohere.ModelRerankV35},
+				DefaultOptions: defaults,
 				BaseURL:        baseURL,
 			})
 			if err != nil {
