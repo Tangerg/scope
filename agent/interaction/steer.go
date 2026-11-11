@@ -42,9 +42,6 @@ func (s steerBatch) validate() error {
 }
 
 func (s *steerBatch) appendSignal(signal run.Signal, messages []chat.Message) error {
-	if s == nil || !signal.ID.Valid() {
-		return ErrInvalidSteer
-	}
 	if signal.Wait.Valid() {
 		return fmt.Errorf("%w: steer Signal must not address a wait", ErrInvalidSteer)
 	}

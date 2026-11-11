@@ -56,7 +56,6 @@ func TestExternalGuidanceAndDispatcherOutcomesHaveDisjointAdmission(t *testing.T
 	for _, signal := range []run.Signal{
 		{ID: guidance.ID, Payload: mustValue(run.ParsePayload([]byte(`{"steer":{"messages":[]}}`)))},
 		{ID: guidance.ID, Wait: mustValue(run.ParseWaitKey("question")), Payload: guidance.Payload},
-		{Payload: guidance.Payload},
 	} {
 		execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 		advance(t, execution, 1)
