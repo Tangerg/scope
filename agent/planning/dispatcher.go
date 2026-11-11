@@ -12,12 +12,6 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-type dispatcherConfig struct {
-	Definition *definition
-	Sensor     Sensor
-	Executors  []ActionExecutor
-}
-
 // Executor slots use the definition's immutable action index; a separate name
 // registry could bind different authority and execution to the same Action.
 // Concurrent processes require concurrency-safe host implementations.
@@ -27,16 +21,16 @@ type dispatcher struct {
 	executors  []ActionExecutor
 }
 
-func newDispatcher(config dispatcherConfig) (*dispatcher, error) {
-	if !config.Definition.valid() || lo.IsNil(config.Sensor) || len(config.Executors) != len(config.Definition.bindings) {
-		return nil, ErrInvalidDispatcherConfig
+func newDispatcher(definition *definition, sensor Sensor, executors []ActionExecutor) (*dispatcher, error) {
+	if !definition.valid() || lo.IsNil(sensor) || len(executors) != len(definition.bindings) {
+		return nil, ErrInvalidConfig
 	}
-	for index, binding := range config.Definition.bindings {
-		if binding.delegatesToChild() != lo.IsNil(config.Executors[index]) {
-			return nil, fmt.Errorf("%w: Action %q execution owner", ErrInvalidDispatcherConfig, binding.action.name)
+	for index, binding := range definition.bindings {
+		if binding.delegatesToChild() != lo.IsNil(executors[index]) {
+			return nil, fmt.Errorf("%w: Action %q execution owner", ErrInvalidConfig, binding.action.name)
 		}
 	}
-	return &dispatcher{definition: config.Definition, sensor: config.Sensor, executors: slices.Clone(config.Executors)}, nil
+	return &dispatcher{definition: definition, sensor: sensor, executors: slices.Clone(executors)}, nil
 }
 
 // Dispatch executes one validated Planning protocol operation. Sensor errors
@@ -57,7 +51,7 @@ func (d *dispatcher) Dispatch(
 		return run.Settlement{}, ErrInvalidProtocol
 	}
 	if d == nil || d.definition == nil || lo.IsNil(d.sensor) {
-		return planningFailureSettlement(ErrInvalidDispatcherConfig)
+		return planningFailureSettlement(ErrInvalidConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {

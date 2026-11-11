@@ -7,16 +7,25 @@ import (
 
 // Config grants the coordinator and workers their exact programs and resource
 // authority. Input and output schemas come from Compile's type parameters.
+// The coordinator and worker bindings enter the Program identity through
+// ChildPrograms; every other field enters its configuration digest.
 type Config struct {
 	Name        string
 	Description string
+	// Coordinator must accept Turn and return Decision with exactly their
+	// core/jsonschema.For contracts. It may itself be any Strategy.
 	Coordinator run.ChildBinding
 	Workers     []run.ChildBinding
 	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
 	MaxTurns run.Quota
-	// MaxTasks is unlimited by default; finite zero forbids worker startups.
-	MaxTasks           run.Quota
+	// MaxTasks counts every task attempt, including rejected starts. It is
+	// unlimited by default; a finite zero forbids worker starts.
+	MaxTasks run.Quota
+	// MaxConcurrentTasks counts admitted tasks until their drained outcomes
+	// have been observed.
 	MaxConcurrentTasks uint32
+	// MaxControlsPerTurn bounds each Decision's controls independently of
+	// cumulative work.
 	MaxControlsPerTurn uint32
 }
 
@@ -31,7 +40,7 @@ func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], e
 	if err != nil {
 		return zero, err
 	}
-	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, StateSchema: in, OutputSchema: out, Coordinator: cfg.Coordinator, Workers: cfg.Workers, MaxTurns: cfg.MaxTurns, MaxTasks: cfg.MaxTasks, MaxConcurrentTasks: cfg.MaxConcurrentTasks, MaxControlsPerTurn: cfg.MaxControlsPerTurn})
+	def, err := newDefinition(cfg, in, out)
 	if err != nil {
 		return zero, err
 	}

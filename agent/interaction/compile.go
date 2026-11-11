@@ -17,7 +17,7 @@ type Config struct {
 	CompletionValidator CompletionValidator
 	ContextPolicy       ContextPolicy
 	// ContextProcessor, when set, prepares every model context as an external
-	// Effect before the model call.
+	// Effect before the model call. Nil sends WorkingContext unchanged.
 	ContextProcessor ContextProcessor
 	Name             string
 	Description      string
@@ -52,12 +52,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	if err != nil {
 		return zero, err
 	}
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{
-		Tools:                    cfg.Tools,
-		RequiredToolCapabilities: cfg.RequiredToolCapabilities,
-		ContextProcessor:         cfg.ContextProcessor,
-		Model:                    cfg.Model,
-	})
+	dispatcher, err := newDispatcher(definition, cfg)
 	if err != nil {
 		return zero, err
 	}

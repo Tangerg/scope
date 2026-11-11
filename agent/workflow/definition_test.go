@@ -40,11 +40,11 @@ func TestDefinitionRequiresUniqueConnectedStages(t *testing.T) {
 		"disconnected": {first, disconnected},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := newDefinition(definitionConfig{
+			_, err := newDefinition(Config{
 				Name: "test.invalid", Description: "Reject an invalid Workflow definition.",
 				Stages: stages,
 			})
-			if !errors.Is(err, ErrInvalidDefinitionConfig) {
+			if !errors.Is(err, ErrInvalidConfig) {
 				t.Fatalf("newDefinition error = %v", err)
 			}
 		})
@@ -121,7 +121,7 @@ func TestRuntimeOwnsExactRestoreBindingForCompatibleWorkflows(t *testing.T) {
 
 func mustDefinition(t *testing.T, name string, stages ...Stage) *definition {
 	t.Helper()
-	definition, err := newDefinition(definitionConfig{
+	definition, err := newDefinition(Config{
 		Name: name, Description: "Execute a deterministic managed Workflow.",
 		Stages: stages,
 	})

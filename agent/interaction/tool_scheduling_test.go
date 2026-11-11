@@ -312,7 +312,7 @@ func TestToolPanicRequiresReconciliationOfTheSameDirectEffect(t *testing.T) {
 func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 	tools := toolSetTest(t, scriptTool{name: "read", idempotent: true}, scriptTool{name: "write"})
 	definition := mustValue(newDefinition(Config{Name: "test.replay", Description: "Mix replayable and unreplayable tools.", Tools: tools}))
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return nil, errors.New("must not call the model")
 	}))}))
 	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever} {

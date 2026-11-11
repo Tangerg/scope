@@ -14,16 +14,6 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 )
 
-type dispatcherConfig struct {
-	Tools                    ToolSet
-	RequiredToolCapabilities run.CapabilitySet
-	Model                    ModelSource
-
-	// ContextProcessor optionally replaces the message context immediately
-	// before each model call. Nil sends WorkingContext unchanged.
-	ContextProcessor ContextProcessor
-}
-
 // dispatcher executes model calls emitted by an Interaction Execution. It is
 // immutable after construction and may serve Processes concurrently when the
 // supplied model capability supports concurrent use.
@@ -36,25 +26,23 @@ type dispatcher struct {
 	contextProcessor ContextProcessor
 }
 
-func (d dispatcherConfig) validate() error {
-	switch {
-	case lo.IsNil(d.Model):
-		return fmt.Errorf("%w: Model is required", ErrInvalidDispatcherConfig)
-	case d.ContextProcessor != nil && lo.IsNil(d.ContextProcessor):
-		return fmt.Errorf("%w: ContextProcessor is typed nil", ErrInvalidDispatcherConfig)
-	}
-	return d.Model.validate()
-}
-
-func newDispatcher(definition *definition, config dispatcherConfig) (*dispatcher, error) {
+// newDispatcher takes the executable half of config; definition already holds
+// its declarations.
+func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
 	if !definition.valid() {
-		return nil, fmt.Errorf("%w: definition is required", ErrInvalidDispatcherConfig)
+		return nil, fmt.Errorf("%w: definition is required", ErrInvalidConfig)
 	}
-	if err := config.validate(); err != nil {
+	switch {
+	case lo.IsNil(config.Model):
+		return nil, fmt.Errorf("%w: Model is required", ErrInvalidConfig)
+	case config.ContextProcessor != nil && lo.IsNil(config.ContextProcessor):
+		return nil, fmt.Errorf("%w: ContextProcessor is typed nil", ErrInvalidConfig)
+	}
+	if err := config.Model.validate(); err != nil {
 		return nil, err
 	}
 	if definition.prepareContext != (config.ContextProcessor != nil) {
-		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidDispatcherConfig)
+		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidConfig)
 	}
 	dispatcher := &dispatcher{
 		tools: config.Tools, requiredToolCapabilities: config.RequiredToolCapabilities,
@@ -77,7 +65,7 @@ func (d *dispatcher) Dispatch(
 ) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
 	if d == nil || lo.IsNil(d.model) {
-		return failedSettlement(ErrInvalidDispatcherConfig)
+		return failedSettlement(ErrInvalidConfig)
 	}
 	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
@@ -123,7 +111,7 @@ func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit ru
 
 func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, call *modelCall) (run.Settlement, error) {
 	if d.contextProcessor == nil {
-		return failedSettlement(ErrInvalidDispatcherConfig)
+		return failedSettlement(ErrInvalidConfig)
 	}
 	original := call.request()
 	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, original.Clone())

@@ -35,7 +35,7 @@ func BenchmarkActionHistory(b *testing.B) {
 				bindings[index] = actionDeclaration{action: action, policy: run.EffectPolicy{Replay: run.ReplayPolicyNever}}
 				attempts[index] = Attempt{ActionName: run.QualifiedName(name), Status: AttemptFailed, Diagnostic: "operation failed"}
 			}
-			definition, err := newDefinition(definitionConfig{Name: "benchmark.planning", Description: "Measure action history admission.", InputSchema: schema, Goal: goal, Actions: bindings, MaxActionAttempts: run.NewQuota(uint64(count)), Planner: PlannerFunc(func(context.Context, Problem) (Plan, bool, error) { return Plan{}, false, nil })})
+			definition, err := newDefinition(Config{Name: "benchmark.planning", Description: "Measure action history admission.", Goal: goal, MaxActionAttempts: run.NewQuota(uint64(count)), Planner: PlannerFunc(func(context.Context, Problem) (Plan, bool, error) { return Plan{}, false, nil })}, schema, bindings)
 			if err != nil {
 				b.Fatal(err)
 			}

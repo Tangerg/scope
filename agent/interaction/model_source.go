@@ -38,7 +38,7 @@ func (c callModel) respond(ctx context.Context, request *chat.Request, _ run.Del
 
 func (c callModel) validate() error {
 	if lo.IsNil(c.model) {
-		return fmt.Errorf("%w: model is nil", ErrInvalidDispatcherConfig)
+		return fmt.Errorf("%w: model is nil", ErrInvalidConfig)
 	}
 	return nil
 }
@@ -71,10 +71,10 @@ func StreamModel(config StreamModelConfig) ModelSource {
 
 func (s streamModel) validate() error {
 	if lo.IsNil(s.streamer) {
-		return fmt.Errorf("%w: streamer is nil", ErrInvalidDispatcherConfig)
+		return fmt.Errorf("%w: streamer is nil", ErrInvalidConfig)
 	}
 	if s.maxDeltaBytes < 0 {
-		return fmt.Errorf("%w: MaxDeltaBytes must not be negative", ErrInvalidDispatcherConfig)
+		return fmt.Errorf("%w: MaxDeltaBytes must not be negative", ErrInvalidConfig)
 	}
 	return nil
 }

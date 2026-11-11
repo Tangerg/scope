@@ -69,7 +69,7 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 		}
 		return callResponse(requested("hidden", "use-evidence")), nil
 	})
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model), Tools: tools, ContextProcessor: processor})
+	dispatcher, err := newDispatcher(definition, Config{Model: CallModel(model), Tools: tools, ContextProcessor: processor})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	models := 0
-	dispatcher, err := newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	dispatcher, err := newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(requested("direct", "evidence")), nil

@@ -14,7 +14,7 @@ func recoveryDefinition[I, O any](program run.Program[I, O], request run.EffectR
 	}
 	definition, bound := program.Definition().(*definition)
 	if !bound || !definition.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	return definition, nil
 }

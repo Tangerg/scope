@@ -37,13 +37,13 @@ func newDefinition(config Config) (*definition, error) {
 		return nil, err
 	}
 	if !config.MaxModelCalls.Allows(1) {
-		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidDefinitionConfig)
+		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidConfig)
 	}
 	if config.MaxConcurrentToolCalls < 0 {
-		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidDefinitionConfig)
+		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidConfig)
 	}
 	if !config.Tools.Configured() && (len(config.RequiredToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {
-		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidDefinitionConfig)
+		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidConfig)
 	}
 	descriptor, err := newDescriptor(config.Name, config.Description)
 	if err != nil {
@@ -69,7 +69,7 @@ func newDefinition(config Config) (*definition, error) {
 // complete model response fits would otherwise fail every model call alike.
 func responseLimit(configured int) (int, error) {
 	if configured < 0 || configured > run.MaxPayloadBytes {
-		return 0, fmt.Errorf("%w: invalid MaxResponseBytes", ErrInvalidDefinitionConfig)
+		return 0, fmt.Errorf("%w: invalid MaxResponseBytes", ErrInvalidConfig)
 	}
 	if configured == 0 {
 		return run.MaxPayloadBytes, nil
@@ -81,7 +81,7 @@ func responseLimit(configured int) (int, error) {
 		return 0, err
 	}
 	if len(minimum.Payload().JSON()) > configured {
-		return 0, fmt.Errorf("%w: MaxResponseBytes %d cannot hold the smallest model response", ErrInvalidDefinitionConfig, configured)
+		return 0, fmt.Errorf("%w: MaxResponseBytes %d cannot hold the smallest model response", ErrInvalidConfig, configured)
 	}
 	return configured, nil
 }
@@ -89,15 +89,15 @@ func responseLimit(configured int) (int, error) {
 func newDescriptor(name, description string) (run.Descriptor, error) {
 	inputSchema, err := jsonschema.For[Input]()
 	if err != nil {
-		return run.Descriptor{}, fmt.Errorf("%w: input schema: %w", ErrInvalidDefinitionConfig, err)
+		return run.Descriptor{}, fmt.Errorf("%w: input schema: %w", ErrInvalidConfig, err)
 	}
 	outputSchema, err := jsonschema.For[Output]()
 	if err != nil {
-		return run.Descriptor{}, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
+		return run.Descriptor{}, fmt.Errorf("%w: output schema: %w", ErrInvalidConfig, err)
 	}
 	signalSchema, err := jsonschema.For[steerSignal]()
 	if err != nil {
-		return run.Descriptor{}, fmt.Errorf("%w: signal schema: %w", ErrInvalidDefinitionConfig, err)
+		return run.Descriptor{}, fmt.Errorf("%w: signal schema: %w", ErrInvalidConfig, err)
 	}
 	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name:         name,
@@ -107,7 +107,7 @@ func newDescriptor(name, description string) (run.Descriptor, error) {
 		SignalSchema: signalSchema,
 	})
 	if err != nil {
-		return run.Descriptor{}, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
+		return run.Descriptor{}, fmt.Errorf("%w: descriptor: %w", ErrInvalidConfig, err)
 	}
 	return descriptor, nil
 }
@@ -116,14 +116,14 @@ func indexDelegates(delegates []Delegate, tools toolManifest) (map[string]int, e
 	names := make(map[string]int, len(delegates))
 	for index, delegate := range delegates {
 		if !delegate.Valid() {
-			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidDelegate)
+			return nil, fmt.Errorf("%w: Delegates[%d]: %w", ErrInvalidConfig, index, ErrInvalidDelegate)
 		}
 		name := delegate.definition.Name
 		if _, duplicate := tools.entries[name]; duplicate {
-			return nil, fmt.Errorf("%w: Delegate name %q collides with a Tool", ErrInvalidDefinitionConfig, name)
+			return nil, fmt.Errorf("%w: Delegate name %q collides with a Tool", ErrInvalidConfig, name)
 		}
 		if _, duplicate := names[name]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate Delegate name %q", ErrInvalidDefinitionConfig, name)
+			return nil, fmt.Errorf("%w: duplicate Delegate name %q", ErrInvalidConfig, name)
 		}
 		names[name] = index
 	}
@@ -160,7 +160,7 @@ func (d *definition) Descriptor() run.Descriptor {
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	decoded, err := input.Decode[Input]()
 	if err != nil {
@@ -179,7 +179,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 // the current Interaction state schema and rejects unknown fields.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)
@@ -248,7 +248,7 @@ func (d *definition) validateResponsePayload(payload run.Payload) error {
 
 func (d *definition) settlePreparedContext(req run.EffectRequest, messages []chat.Message) (run.Settlement, error) {
 	if !d.valid() || !d.prepareContext {
-		return run.Settlement{}, ErrInvalidDispatcherConfig
+		return run.Settlement{}, ErrInvalidConfig
 	}
 	if !req.Valid() {
 		return run.Settlement{}, ErrInvalidProtocol

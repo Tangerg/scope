@@ -24,7 +24,7 @@ func TestModelFailureResponseCannotBypassSettlementBudget(t *testing.T) {
 		t.Run(string(kind), func(t *testing.T) {
 			definition := mustValue(newDefinition(Config{Name: "test.failed.response", Description: "Bound failed generation evidence.", MaxResponseBytes: limit}))
 			calls := 0
-			dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			dispatcher := mustValue(newDispatcher(definition, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				calls++
 				return finalResponse(strings.Repeat("x", limit)), &invocation.Failure{Kind: kind, Cause: errors.New("postprocessing failed")}
 			}))}))
@@ -44,7 +44,7 @@ func TestModelFailureBudgetMeasuresCanonicalEvidenceWithoutDroppingUsage(t *test
 			cause := &invocation.Failure{Kind: kind, Cause: errors.New("postprocessing failed")}
 			settle := func(limit int) (run.Settlement, error) {
 				definition := mustValue(newDefinition(Config{Name: "test.failure.boundary", Description: "Bound canonical evidence bytes.", MaxResponseBytes: limit}))
-				dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response.Clone(), cause }))}))
+				dispatcher := mustValue(newDispatcher(definition, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return response.Clone(), cause }))}))
 				return dispatcher.dispatchModel(t.Context(), &modelCall{ModelCallSequence: 1, Request: testInput()}, nil)
 			}
 			encoded := mustValue(settle(0))

@@ -34,7 +34,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 		return CompletionDecision{Accepted: true}, nil
 	}}))
 	models := 0
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			return callResponse(chat.ToolCall{ID: "first", Name: "worker", Arguments: `{"value":1}`}, chat.ToolCall{ID: "second", Name: "worker", Arguments: `{"value":2}`}), nil

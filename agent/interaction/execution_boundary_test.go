@@ -21,7 +21,7 @@ func TestTruncatedProposalIsRejectedAsOneAtomicRound(t *testing.T) {
 	}})
 	definition := mustValue(newDefinition(Config{Name: "test.truncated", Description: "Reject incomplete proposals atomically.", Tools: tools}))
 	models := 0
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		if models == 1 {
 			response := callResponse(requested("write", "first"), requested("write", "second"))

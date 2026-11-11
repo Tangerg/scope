@@ -12,40 +12,30 @@ import (
 
 const executionStateKind = "workflow"
 
-// definitionConfig contains one immutable managed Workflow behavior. Stages
-// execute in declaration order and must have exactly matching adjacent schemas.
-type definitionConfig struct {
-	Name string
-
-	Description string
-
-	Stages []Stage
-}
-
 // definition is an immutable managed Workflow Strategy.
 type definition struct {
 	descriptor run.Descriptor
 	stages     []Stage
 }
 
-func newDefinition(config definitionConfig) (*definition, error) {
+func newDefinition(config Config) (*definition, error) {
 	if len(config.Stages) == 0 || uint64(len(config.Stages)) > math.MaxUint32 {
-		return nil, fmt.Errorf("%w: Stages must contain 1 to %d entries", ErrInvalidDefinitionConfig, uint64(math.MaxUint32))
+		return nil, fmt.Errorf("%w: Stages must contain 1 to %d entries", ErrInvalidConfig, uint64(math.MaxUint32))
 	}
 	stages := slices.Clone(config.Stages)
 	identities := make(map[string]struct{}, len(stages))
 	for index, stage := range stages {
 		if !stage.Valid() {
-			return nil, fmt.Errorf("%w: Stages[%d]: %w", ErrInvalidDefinitionConfig, index, ErrInvalidStage)
+			return nil, fmt.Errorf("%w: Stages[%d]: %w", ErrInvalidConfig, index, ErrInvalidStage)
 		}
 		if _, duplicate := identities[stage.id]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate Stage ID %q", ErrInvalidDefinitionConfig, stage.id)
+			return nil, fmt.Errorf("%w: duplicate Stage ID %q", ErrInvalidConfig, stage.id)
 		}
 		identities[stage.id] = struct{}{}
 		if index > 0 && !stage.hasIdenticalInputSchema(stages[index-1].outputSchema) {
 			return nil, fmt.Errorf(
 				"%w: Stage %q input schema does not exactly match Stage %q output schema",
-				ErrInvalidDefinitionConfig, stage.id, stages[index-1].id,
+				ErrInvalidConfig, stage.id, stages[index-1].id,
 			)
 		}
 	}
@@ -54,7 +44,7 @@ func newDefinition(config definitionConfig) (*definition, error) {
 		InputSchema: stages[0].inputSchema, OutputSchema: stages[len(stages)-1].outputSchema,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
+		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidConfig, err)
 	}
 	return &definition{descriptor: descriptor, stages: stages}, nil
 }
@@ -68,7 +58,7 @@ func (d *definition) Descriptor() run.Descriptor {
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -80,7 +70,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 // Restore rejects progress inconsistent with the exact definition bindings.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)

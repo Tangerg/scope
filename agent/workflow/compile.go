@@ -7,8 +7,10 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// Revision identifies callbacks that cannot be inspected. Configuration records
-// their captured settings; structural stage settings belong to the graph.
+// Config declares one Workflow. Stages execute in declaration order and must
+// have exactly matching adjacent schemas. Revision identifies callbacks that
+// cannot be inspected. Configuration records their captured settings;
+// structural stage settings belong to the graph.
 type Config struct {
 	Name          string
 	Description   string
@@ -20,7 +22,7 @@ type Config struct {
 func Compile[I, O any](compiler *run.Compiler, cfg Config) (run.Program[I, O], error) {
 	var zero run.Program[I, O]
 
-	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, Stages: cfg.Stages})
+	def, err := newDefinition(cfg)
 	if err != nil {
 		return zero, err
 	}

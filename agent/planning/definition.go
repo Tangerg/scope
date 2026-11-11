@@ -14,32 +14,6 @@ import (
 
 const executionStateKind = "planning"
 
-// definitionConfig contains one immutable managed Planning behavior. Goal,
-// Planner, and Action bindings are fixed for the exact Program; only Input
-// varies per Process.
-type definitionConfig struct {
-	Name string
-
-	Description string
-
-	// InputSchema is the authoritative schema for opaque task input passed to
-	// Sensor, ActionExecutor, and child input functions.
-	InputSchema jsonschema.Schema
-
-	Goal Goal
-
-	Actions []actionDeclaration
-
-	Planner Planner
-
-	// MaxActionAttempts bounds external Action attempts. Its zero value is
-	// unlimited; a finite zero is rejected because Planning must admit an Action.
-	// This is an execution limit, not a Planner path-length constraint. A lowest-cost
-	// plan may exceed the remaining attempts and finish Exhausted even when a more
-	// expensive shorter plan could reach the Goal within that limit.
-	MaxActionAttempts run.Quota
-}
-
 // definition is an immutable Planning Strategy definition. It contains no
 // Sensor or ActionExecutor; those I/O capabilities belong to its
 // Program-bound dispatcher.
@@ -55,38 +29,40 @@ type definition struct {
 	maxActionAttempts run.Quota
 }
 
-func newDefinition(config definitionConfig) (*definition, error) {
+// newDefinition retains only the declarations of config.Actions; their
+// executors and the Sensor belong to the dispatcher.
+func newDefinition(config Config, inputSchema jsonschema.Schema, declarations []actionDeclaration) (*definition, error) {
 	if !config.MaxActionAttempts.Allows(1) {
-		return nil, fmt.Errorf("%w: MaxActionAttempts must admit one Action", ErrInvalidDefinitionConfig)
+		return nil, fmt.Errorf("%w: MaxActionAttempts must admit one Action", ErrInvalidConfig)
 	}
-	if !config.InputSchema.Valid() || !config.Goal.Valid() || lo.IsNil(config.Planner) {
-		return nil, ErrInvalidDefinitionConfig
+	if !inputSchema.Valid() || !config.Goal.Valid() || lo.IsNil(config.Planner) {
+		return nil, ErrInvalidConfig
 	}
-	bindings := slices.Clone(config.Actions)
+	bindings := slices.Clone(declarations)
 	names := make(map[string]int, len(bindings))
 	for index, binding := range bindings {
 		if !binding.valid() {
-			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
+			return nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidConfig, index)
 		}
 		name := binding.action.name
-		if binding.delegatesToChild() && binding.childInput == nil && !config.InputSchema.Equal(binding.child.Program.Descriptor().InputSchema()) {
-			return nil, fmt.Errorf("%w: Action %q passes the planning input to a child with a different input schema", ErrInvalidDefinitionConfig, name)
+		if binding.delegatesToChild() && binding.childInput == nil && !inputSchema.Equal(binding.child.Program.Descriptor().InputSchema()) {
+			return nil, fmt.Errorf("%w: Action %q passes the planning input to a child with a different input schema", ErrInvalidConfig, name)
 		}
 		if _, duplicate := names[name]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate Action %q", ErrInvalidDefinitionConfig, name)
+			return nil, fmt.Errorf("%w: duplicate Action %q", ErrInvalidConfig, name)
 		}
 		names[name] = index
 	}
 	outputSchema, err := jsonschema.For[Output]()
 	if err != nil {
-		return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidDefinitionConfig, err)
+		return nil, fmt.Errorf("%w: output schema: %w", ErrInvalidConfig, err)
 	}
 	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
 		Name: config.Name, Description: config.Description,
-		InputSchema: config.InputSchema, OutputSchema: outputSchema,
+		InputSchema: inputSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidDefinitionConfig, err)
+		return nil, fmt.Errorf("%w: descriptor: %w", ErrInvalidConfig, err)
 	}
 	return &definition{
 		descriptor: descriptor, goal: config.Goal, bindings: bindings, bindingsByName: names,
@@ -117,7 +93,7 @@ func (d *definition) Descriptor() run.Descriptor {
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -130,7 +106,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 // exact definition.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if !d.valid() {
-		return nil, ErrInvalidDefinitionConfig
+		return nil, ErrInvalidConfig
 	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)

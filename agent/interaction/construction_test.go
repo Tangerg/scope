@@ -86,18 +86,18 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		if definition.Descriptor().Valid() || len(definition.ChildPrograms()) != 0 {
 			t.Fatal("invalid definition exposes authority")
 		}
-		if _, err := definition.Start(run.Payload{}); !errors.Is(err, ErrInvalidDefinitionConfig) {
+		if _, err := definition.Start(run.Payload{}); !errors.Is(err, ErrInvalidConfig) {
 			t.Fatal(err)
 		}
-		if _, err := definition.Restore(t.Context(), run.ExecutionState{}); !errors.Is(err, ErrInvalidDefinitionConfig) {
+		if _, err := definition.Restore(t.Context(), run.ExecutionState{}); !errors.Is(err, ErrInvalidConfig) {
 			t.Fatal(err)
 		}
-		if _, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model)}); !errors.Is(err, ErrInvalidDispatcherConfig) {
+		if _, err := newDispatcher(definition, Config{Model: CallModel(model)}); !errors.Is(err, ErrInvalidConfig) {
 			t.Fatal(err)
 		}
 	}
 	definition := mustValue(newDefinition(Config{Name: "test.context", Description: "Require the declared processor.", ContextProcessor: contextProcessorFunc(nil)}))
-	if _, err := newDispatcher(definition, dispatcherConfig{Model: CallModel(model)}); !errors.Is(err, ErrInvalidDispatcherConfig) {
+	if _, err := newDispatcher(definition, Config{Model: CallModel(model)}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal("processor capability did not match compiled execution", err)
 	}
 }
@@ -177,7 +177,7 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 
 func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
 	definition := mustValue(newDefinition(Config{Name: "test.rejection", Description: "Reject malformed dispatch requests."}))
-	dispatcher := mustValue(newDispatcher(definition, dispatcherConfig{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	dispatcher := mustValue(newDispatcher(definition, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		t.Error("malformed request invoked a model")
 		return nil, errors.New("must not run")
 	}))}))

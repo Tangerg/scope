@@ -22,15 +22,25 @@ func planningValue[T any](value T, err error) T {
 	return value
 }
 
-func validationConfig(t *testing.T) definitionConfig {
+// validationFixture is a Config together with the declarations newDefinition
+// receives once Compile has split the executors away from the Actions.
+type validationFixture struct {
+	Config
+	actions []actionDeclaration
+}
+
+func (v validationFixture) definition() (*definition, error) {
+	return newDefinition(v.Config, planningValue(jsonschema.For[string]()), v.actions)
+}
+
+func validationConfig(t *testing.T) validationFixture {
 	t.Helper()
 	done := mustCondition(t, "world.done", TruthTrue)
 	action := mustAction(t, ActionConfig{Name: "action.finish", Description: "Finish ready work.",
 		Preconditions: []Condition{mustCondition(t, "world.ready", TruthTrue)}, Effects: []Condition{done}})
-	return definitionConfig{
+	return validationFixture{Config: Config{
 		Name: "test.planning.validation", Description: "Validate planning ownership and recovery.",
-		InputSchema: planningValue(jsonschema.For[string]()), Goal: mustGoal(t, done),
-		Actions:           []actionDeclaration{{action: action, policy: run.EffectPolicy{Replay: run.ReplayPolicyNever}}},
+		Goal:              mustGoal(t, done),
 		MaxActionAttempts: run.NewQuota(3),
 		Planner: PlannerFunc(func(_ context.Context, problem Problem) (Plan, bool, error) {
 			actions := problem.Actions()
@@ -40,7 +50,7 @@ func validationConfig(t *testing.T) definitionConfig {
 			plan, err := NewPlan([]PlannedAction{planningValue(NewPlannedAction(actions[0].Name()))})
 			return plan, true, err
 		}),
-	}
+	}, actions: []actionDeclaration{{action: action, policy: run.EffectPolicy{Replay: run.ReplayPolicyNever}}}}
 }
 
 func validationTurn(step uint64, messages ...run.Message) run.Turn {
@@ -54,10 +64,10 @@ func validationWorld(t *testing.T) WorldState {
 
 func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 	config := validationConfig(t)
-	definition := planningValue(newDefinition(config))
+	definition := planningValue(config.definition())
 	newState := func() executionState {
 		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")).JSON(),
-			WorldState: validationWorld(t), CurrentActionName: config.Actions[0].action.Name(),
+			WorldState: validationWorld(t), CurrentActionName: config.actions[0].action.Name(),
 			PendingEffect: new(validationTurn(2).EffectID(0))}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {
@@ -115,12 +125,12 @@ func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 	runtime := conformancetest.Runtime(t, run.Config{})
 	stage := planningValue(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.child", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
-	config.Actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.Actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
-	definition := planningValue(newDefinition(config))
-	key := planningValue(planningChildKey(config.Actions[0].action.Name(), 1))
+	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
+	definition := planningValue(config.definition())
+	key := planningValue(planningChildKey(config.actions[0].action.Name(), 1))
 	newState := func() executionState {
 		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")).JSON(), WorldState: validationWorld(t),
-			CurrentActionName: config.Actions[0].action.Name(), Child: &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(key)))}}
+			CurrentActionName: config.actions[0].action.Name(), Child: &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(key)))}}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {
 		t.Fatalf("valid child ownership rejected: %v", err)
@@ -173,7 +183,7 @@ func TestPlanningClassifiesPlannerFailureAndCancellation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			config := validationConfig(t)
 			config.Planner = test.planner
-			definition := planningValue(newDefinition(config))
+			definition := planningValue(config.definition())
 			execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 			planningValue(execution.Step(t.Context(), validationTurn(1)))
 			completion := run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))}
@@ -203,7 +213,7 @@ func TestPlanningSensingFailuresRemainDefiniteAndClassified(t *testing.T) {
 		{"host rejection", planningValue(planningFailureSettlement(ErrInvalidProtocol)), failureCodePlanningDispatchRejected, run.FailureKindContract},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			definition := planningValue(newDefinition(validationConfig(t)))
+			definition := planningValue(validationConfig(t).definition())
 			execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 			planningValue(execution.Step(t.Context(), validationTurn(1)))
 			transition := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: test.outcome})))
@@ -221,13 +231,11 @@ func TestPlanningDispatcherRejectsLocalContractErrorsBeforeExternalWork(t *testi
 		t.Error("invalid request reached executor")
 		return ActionSucceeded(), nil
 	})
-	definition := planningValue(newDefinition(config))
-	dispatcher := planningValue(newDispatcher(dispatcherConfig{Definition: definition, Executors: []ActionExecutor{executor},
-		Sensor: SensorFunc(func(context.Context, SenseRequest) (WorldState, error) {
-			t.Error("invalid request reached sensor")
-			return WorldState{}, nil
-		}),
-	}))
+	definition := planningValue(config.definition())
+	dispatcher := planningValue(newDispatcher(definition, SensorFunc(func(context.Context, SenseRequest) (WorldState, error) {
+		t.Error("invalid request reached sensor")
+		return WorldState{}, nil
+	}), []ActionExecutor{executor}))
 	for _, test := range []struct {
 		name    string
 		payload []byte
@@ -260,8 +268,8 @@ func TestPlanningChildInputFailureDeclaresNoSpawn(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := validationConfig(t)
-			config.Actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.Actions[0].action, Child: run.ChildBinding{Program: program.Erase()}, Input: test.input})).declaration
-			definition := planningValue(newDefinition(config))
+			config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}, Input: test.input})).declaration
+			definition := planningValue(config.definition())
 			execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 			planningValue(execution.Step(t.Context(), validationTurn(1)))
 			transition := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
@@ -280,9 +288,9 @@ func TestPlanningRejectsChildWhoseSchemaCannotAcceptThePlanningInput(t *testing.
 	stage := planningValue(workflow.Transform("count", func(_ context.Context, value int) (int, error) { return value, nil }))
 	program := planningValue(workflow.Compile[int, int](runtime.Compiler(), workflow.Config{Name: "test.planning.int-child", Description: "Accept a number.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	config := validationConfig(t)
-	config.Actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.Actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
-	if _, err := newDefinition(config); !errors.Is(err, ErrInvalidDefinitionConfig) {
-		t.Fatalf("newDefinition error = %v, want ErrInvalidDefinitionConfig", err)
+	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
+	if _, err := config.definition(); !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("newDefinition error = %v, want ErrInvalidConfig", err)
 	}
 }
 
@@ -291,8 +299,8 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	stage := planningValue(workflow.Transform("identity", func(_ context.Context, value string) (string, error) { return value, nil }))
 	program := planningValue(workflow.Compile[string, string](runtime.Compiler(), workflow.Config{Name: "test.planning.rejected-child", Description: "Perform one planning action.", Revision: "one", Stages: []workflow.Stage{stage}}))
 	config := validationConfig(t)
-	config.Actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.Actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
-	definition := planningValue(newDefinition(config))
+	config.actions[0] = planningValue(NewChildBinding(ChildBindingConfig{Action: config.actions[0].action, Child: run.ChildBinding{Program: program.Erase()}})).declaration
+	definition := planningValue(config.definition())
 	execution := planningValue(definition.Start(planningValue(run.EncodePayload("task"))))
 	planningValue(execution.Step(t.Context(), validationTurn(1)))
 	spawn := planningValue(execution.Step(t.Context(), validationTurn(2, run.Completion{Effect: validationTurn(1).EffectID(0), Outcome: planningValue(senseSettlement(validationWorld(t), nil))})))
@@ -321,18 +329,18 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 func TestPlanningDefinitionRejectsUnboundOrAmbiguousActions(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		change func(*definitionConfig)
+		change func(*validationFixture)
 	}{
-		{"finite zero attempts", func(c *definitionConfig) { c.MaxActionAttempts = run.NewQuota(0) }},
-		{"missing planner", func(c *definitionConfig) { c.Planner = PlannerFunc(nil) }},
-		{"invalid action", func(c *definitionConfig) { c.Actions = []actionDeclaration{{}} }},
-		{"duplicate action", func(c *definitionConfig) { c.Actions = append(c.Actions, c.Actions[0]) }},
-		{"invalid name", func(c *definitionConfig) { c.Name = "invalid name" }},
+		{"finite zero attempts", func(c *validationFixture) { c.MaxActionAttempts = run.NewQuota(0) }},
+		{"missing planner", func(c *validationFixture) { c.Planner = PlannerFunc(nil) }},
+		{"invalid action", func(c *validationFixture) { c.actions = []actionDeclaration{{}} }},
+		{"duplicate action", func(c *validationFixture) { c.actions = append(c.actions, c.actions[0]) }},
+		{"invalid name", func(c *validationFixture) { c.Name = "invalid name" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := validationConfig(t)
 			test.change(&config)
-			if _, err := newDefinition(config); !errors.Is(err, ErrInvalidDefinitionConfig) {
+			if _, err := config.definition(); !errors.Is(err, ErrInvalidConfig) {
 				t.Fatalf("invalid planning declaration accepted: %v", err)
 			}
 		})
@@ -412,7 +420,7 @@ func TestPlanningDecodersPreserveThePreviousValueOnInvalidFacts(t *testing.T) {
 
 func TestPlanningBindingsRequireOneExecutionOwner(t *testing.T) {
 	config := validationConfig(t)
-	action := config.Actions[0].action
+	action := config.actions[0].action
 	executor := ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) { return ActionSucceeded(), nil })
 	for _, invalid := range []DispatcherBindingConfig{
 		{}, {Action: action}, {Action: action, Executor: ActionExecutorFunc(nil)},
@@ -426,16 +434,16 @@ func TestPlanningBindingsRequireOneExecutionOwner(t *testing.T) {
 	if _, err := NewChildBinding(ChildBindingConfig{Action: action}); !errors.Is(err, ErrInvalidAction) {
 		t.Fatalf("missing child program was bound: %v", err)
 	}
-	definition := planningValue(newDefinition(config))
-	if _, err := newDispatcher(dispatcherConfig{Definition: definition, Executors: []ActionExecutor{executor}}); !errors.Is(err, ErrInvalidDispatcherConfig) {
+	definition := planningValue(config.definition())
+	if _, err := newDispatcher(definition, nil, []ActionExecutor{executor}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("missing sensor was admitted: %v", err)
 	}
 	for _, replay := range []run.ReplayPolicy{run.ReplayPolicyNever, run.ReplayPolicySameIdentity} {
 		binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: action, Executor: executor, Replay: replay}))
-		config.Actions[0] = binding.declaration
-		dispatcher := planningValue(newDispatcher(dispatcherConfig{Definition: planningValue(newDefinition(config)), Executors: []ActionExecutor{executor},
-			Sensor: SensorFunc(func(context.Context, SenseRequest) (WorldState, error) { return validationWorld(t), nil }),
-		}))
+		config.actions[0] = binding.declaration
+		dispatcher := planningValue(newDispatcher(planningValue(config.definition()),
+			SensorFunc(func(context.Context, SenseRequest) (WorldState, error) { return validationWorld(t), nil }),
+			[]ActionExecutor{executor}))
 		effect := planningValue(newActionEffect(planningValue(run.EncodePayload("task")), binding.declaration, validationWorld(t)))
 		if dispatcher.Policy(effect).Replay != replay {
 			t.Fatal("dispatcher did not preserve the action's replay declaration")
@@ -443,16 +451,16 @@ func TestPlanningBindingsRequireOneExecutionOwner(t *testing.T) {
 	}
 }
 
-func TestPlanningCompileRetainsDeclarationAndDispatcherErrors(t *testing.T) {
+func TestPlanningCompileRejectsMissingExecutionAuthorityAndInvalidDomain(t *testing.T) {
 	config := validationConfig(t)
-	binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: config.Actions[0].action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) { return ActionSucceeded(), nil })}))
+	binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: config.actions[0].action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) { return ActionSucceeded(), nil })}))
 	base := Config{Name: config.Name, Description: config.Description, Goal: config.Goal, Actions: []ActionBinding{binding}, Planner: config.Planner, Revision: "one"}
 	compiler := conformancetest.Compiler(t)
-	if _, err := Compile[string](compiler, base); !errors.Is(err, ErrInvalidDispatcherConfig) {
+	if _, err := Compile[string](compiler, base); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("compilation obscured missing execution authority: %v", err)
 	}
 	base.Goal = Goal{}
-	if _, err := Compile[string](compiler, base); !errors.Is(err, ErrInvalidDefinitionConfig) {
+	if _, err := Compile[string](compiler, base); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("compilation obscured invalid domain: %v", err)
 	}
 	base.Goal = config.Goal
@@ -464,7 +472,7 @@ func TestPlanningCompileRetainsDeclarationAndDispatcherErrors(t *testing.T) {
 
 func TestPlanningInvalidExecutorResultRemainsUnknownUntilResolved(t *testing.T) {
 	config := validationConfig(t)
-	binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: config.Actions[0].action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) {
+	binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: config.actions[0].action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) {
 		return ActionResult{}, nil
 	})}))
 	runtime := conformancetest.Runtime(t, run.Config{})

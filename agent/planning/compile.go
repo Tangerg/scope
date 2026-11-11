@@ -7,9 +7,11 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-// Config binds a planner, its world sensor and executable actions.
-// Revision identifies their opaque settings, including cost functions
-// and child input conversion. The compiler hashes the declared planning domain.
+// Config binds a planner, its world sensor and executable actions. Compile's
+// input type parameter supplies the schema of the opaque task input passed to
+// the Sensor, ActionExecutors, and child input functions. Revision identifies
+// their opaque settings, including cost functions and child input conversion.
+// The compiler hashes the declared planning domain.
 type Config struct {
 	Name        string
 	Description string
@@ -17,7 +19,11 @@ type Config struct {
 	Actions     []ActionBinding
 	Planner     Planner
 	Sensor      Sensor
-	// MaxActionAttempts is unlimited by default; a finite zero cannot admit an action.
+	// MaxActionAttempts bounds external Action attempts. Its zero value is
+	// unlimited; a finite zero is rejected because Planning must admit an Action.
+	// This is an execution limit, not a Planner path-length constraint: a
+	// lowest-cost plan may exceed the remaining attempts and finish Exhausted
+	// even when a more expensive shorter plan could reach the Goal.
 	MaxActionAttempts run.Quota
 	Revision          string
 }
@@ -36,11 +42,11 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 	if err != nil {
 		return zero, err
 	}
-	def, err := newDefinition(definitionConfig{Name: cfg.Name, Description: cfg.Description, InputSchema: in, Goal: cfg.Goal, Actions: declarations, Planner: cfg.Planner, MaxActionAttempts: cfg.MaxActionAttempts})
+	def, err := newDefinition(cfg, in, declarations)
 	if err != nil {
 		return zero, err
 	}
-	dispatch, err := newDispatcher(dispatcherConfig{Definition: def, Sensor: cfg.Sensor, Executors: executors})
+	dispatch, err := newDispatcher(def, cfg.Sensor, executors)
 	if err != nil {
 		return zero, err
 	}
@@ -78,7 +84,7 @@ func splitActionBindings(bindings []ActionBinding) ([]actionDeclaration, []Actio
 	executors := make([]ActionExecutor, len(bindings))
 	for index, binding := range bindings {
 		if !binding.Valid() {
-			return nil, nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidDefinitionConfig, index)
+			return nil, nil, fmt.Errorf("%w: Actions[%d]", ErrInvalidConfig, index)
 		}
 		declarations[index], executors[index] = binding.declaration, binding.executor
 	}

@@ -11,7 +11,7 @@ import (
 var (
 	ErrInvalidStage = errors.New("workflow: invalid stage")
 
-	ErrInvalidDefinitionConfig = errors.New("workflow: invalid definition configuration")
+	ErrInvalidConfig = errors.New("workflow: invalid configuration")
 )
 
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping

@@ -28,30 +28,6 @@ func validateCoordinatorContract(binding run.ChildBinding) error {
 	return nil
 }
 
-// definitionConfig binds the coordinator, permitted workers, schemas, and
-// finite collaboration bounds. Coordinator must accept Turn and return Decision
-// with exactly their core/jsonschema.For contracts. It may itself be any Strategy.
-// MaxTasks counts all attempts, including rejected starts. MaxConcurrentTasks
-// counts admitted tasks until their drained outcomes have been observed.
-// The Program configuration digest must cover every field; the coordinator
-// and worker bindings enter the Program identity through ChildPrograms.
-type definitionConfig struct {
-	Name         string
-	Description  string
-	Coordinator  run.ChildBinding
-	Workers      []run.ChildBinding
-	StateSchema  jsonschema.Schema
-	OutputSchema jsonschema.Schema
-	// MaxTurns is unlimited by default; a finite zero cannot admit the first turn.
-	MaxTurns run.Quota
-	// MaxTasks is unlimited by default; a finite zero forbids worker starts.
-	MaxTasks           run.Quota
-	MaxConcurrentTasks uint32
-	// MaxControlsPerTurn bounds each Decision's controls independently of
-	// cumulative work.
-	MaxControlsPerTurn uint32
-}
-
 // definition coordinates background tasks through ordinary child Effects.
 // It owns decision policy, not a scheduler, mailbox, model client, or session.
 type definition struct {
@@ -64,12 +40,12 @@ type definition struct {
 	maxControlsPerTurn uint32
 }
 
-func newDefinition(config definitionConfig) (*definition, error) {
+func newDefinition(config Config, stateSchema, outputSchema jsonschema.Schema) (*definition, error) {
 	if !config.MaxTurns.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxTurns must admit one coordinator turn", ErrInvalidConfig)
 	}
-	if !config.Coordinator.Valid() || len(config.Workers) == 0 || !config.StateSchema.Valid() ||
-		!config.OutputSchema.Valid() ||
+	if !config.Coordinator.Valid() || len(config.Workers) == 0 || !stateSchema.Valid() ||
+		!outputSchema.Valid() ||
 		config.MaxConcurrentTasks == 0 || config.MaxControlsPerTurn == 0 {
 		return nil, ErrInvalidConfig
 	}
@@ -82,7 +58,7 @@ func newDefinition(config definitionConfig) (*definition, error) {
 		return nil, err
 	}
 	descriptor, err := run.NewDescriptor(run.DescriptorConfig{
-		Name: config.Name, Description: config.Description, InputSchema: config.StateSchema, OutputSchema: config.OutputSchema,
+		Name: config.Name, Description: config.Description, InputSchema: stateSchema, OutputSchema: outputSchema,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
