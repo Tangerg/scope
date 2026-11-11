@@ -59,6 +59,7 @@ func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error)
 	err = schema.read(&class, s.collection, s.space)
 	return schema, err
 }
+
 func (s *Store) verify(ctx context.Context) error {
 	schema, err := s.readSchema(ctx)
 	if err != nil {
@@ -69,6 +70,7 @@ func (s *Store) verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -86,6 +88,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 	if err := b.ValidateFor(s.space); err != nil {
 		return err
@@ -176,10 +179,12 @@ func (s *Store) prepareQuery(ctx context.Context, space vectorstore.SpaceID, o v
 	}
 	return where, s.verify(ctx)
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, o vectorstore.SearchOptions) error {
 	_, err := s.prepareQuery(ctx, space, o)
 	return err
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

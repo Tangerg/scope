@@ -157,6 +157,7 @@ func (t textProjection) task(task *sdka2a.Task) (string, error) {
 	}
 	return t.status(task)
 }
+
 func (t textProjection) artifacts(task *sdka2a.Task) (string, error) {
 	var b strings.Builder
 	for _, a := range task.Artifacts {
@@ -171,6 +172,7 @@ func (t textProjection) artifacts(task *sdka2a.Task) (string, error) {
 	}
 	return b.String(), nil
 }
+
 func (t textProjection) status(task *sdka2a.Task) (string, error) {
 	if task.Status.Message == nil {
 		return "", nil

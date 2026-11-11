@@ -68,6 +68,7 @@ func (l *loseSecondAck) PutVectors(ctx context.Context, in *awss3.PutVectorsInpu
 	}
 	return out, err
 }
+
 func TestLostWriteAckKeepsEarlierEvidenceAndStops(t *testing.T) {
 	f := newProtocolFixture(t)
 	cfg := f.config()

@@ -225,12 +225,15 @@ type checkpointFailureDefinition struct {
 }
 
 func (c *checkpointFailureDefinition) Descriptor() Descriptor { return c.descriptor }
+
 func (*checkpointFailureDefinition) ChildPrograms() []Program[Payload, Payload] {
 	return nil
 }
+
 func (c *checkpointFailureDefinition) Start(Payload) (Execution, error) {
 	return &checkpointFailureExecution{failure: c.failure}, nil
 }
+
 func (c *checkpointFailureDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
 	advanced, err := state.Decode[bool](checkpointFailureStateKind)
 	if err != nil {
@@ -248,6 +251,7 @@ func (c *checkpointFailureExecution) Step(context.Context, Turn) (Transition, er
 	c.advanced = true
 	return Continue(0)
 }
+
 func (c *checkpointFailureExecution) Snapshot() (ExecutionState, error) {
 	if c.advanced {
 		return ExecutionState{}, c.failure
@@ -261,9 +265,11 @@ type checkpointParentDefinition struct {
 }
 
 func (c *checkpointParentDefinition) Descriptor() Descriptor { return c.fixture.Descriptor() }
+
 func (c *checkpointParentDefinition) ChildPrograms() []Program[Payload, Payload] {
 	return c.fixture.ChildPrograms()
 }
+
 func (c *checkpointParentDefinition) Start(input Payload) (Execution, error) {
 	fixture, err := c.fixture.Start(input)
 	if err != nil {
@@ -271,6 +277,7 @@ func (c *checkpointParentDefinition) Start(input Payload) (Execution, error) {
 	}
 	return &checkpointParentExecution{fixture: fixture, fastEntered: c.fastEntered}, nil
 }
+
 func (c *checkpointParentDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	fixture, err := c.fixture.Restore(ctx, state)
 	if err != nil {
@@ -285,6 +292,7 @@ type checkpointParentExecution struct {
 }
 
 func (c *checkpointParentExecution) Snapshot() (ExecutionState, error) { return c.fixture.Snapshot() }
+
 func (c *checkpointParentExecution) Step(ctx context.Context, turn Turn) (Transition, error) {
 	if turn.Step > 1 {
 		select {

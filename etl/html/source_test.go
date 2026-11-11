@@ -61,6 +61,7 @@ func TestPreCanceledSourceCanBeReadWithoutChangingTheOriginalRevision(t *testing
 		t.Fatalf("rendered page claimed different evidence: %+v", p)
 	}
 }
+
 func TestFrozenPageAndSiblingFragmentsOwnIndependentData(t *testing.T) {
 	const raw = `<head><title>Original</title></head><body><p>a</p><p> </p><p>b</p></body>`
 	facts := mustMetadata(t, map[string]any{"tenant": "blue"})
@@ -84,6 +85,7 @@ func TestFrozenPageAndSiblingFragmentsOwnIndependentData(t *testing.T) {
 		t.Fatalf("editing a sibling changed text, metadata, or lineage: %+v", second)
 	}
 }
+
 func TestEmptyInputAndPagesWithoutVisibleTextReturnNoDocuments(t *testing.T) {
 	for _, raw := range []string{" \t\n", `<head><title>Only metadata</title></head><script>unseen</script>`} {
 		for _, sel := range []string{"", "article"} {

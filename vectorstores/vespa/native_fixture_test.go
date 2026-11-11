@@ -29,6 +29,7 @@ func fixtureVector(text string) []float64 {
 	}
 	return []float64{1, 0}
 }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, d := range docs {
@@ -36,6 +37,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func fixtureMeter(t *testing.T, ctx context.Context) *vectorstore.ScanMeter {
 	t.Helper()
 	m, err := fixtureBudget.Begin(ctx)
@@ -45,6 +47,7 @@ func fixtureMeter(t *testing.T, ctx context.Context) *vectorstore.ScanMeter {
 	t.Cleanup(m.Close)
 	return m
 }
+
 func fixtureNamespace() string {
 	return (StoreConfig{Namespace: "scope", Space: fixtureSpace, Dimensions: 2}).DocumentNamespace()
 }

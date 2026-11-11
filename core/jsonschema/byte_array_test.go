@@ -13,6 +13,7 @@ import (
 type digestInput struct {
 	Data [2]byte `json:"data"`
 }
+
 type digestAlias [2]byte
 type octet uint8
 type encodedOctet uint8

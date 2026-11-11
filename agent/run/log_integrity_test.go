@@ -385,6 +385,7 @@ func (i *integrityStore) Load(context.Context, ProcessID) (Log, bool, error) {
 	entries, err := cloneEntries(i.log.Entries)
 	return Log{Root: i.log.Root, Entries: entries}, true, err
 }
+
 func (i *integrityStore) Read(_ context.Context, _ ProcessID, after LSN) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
 		for _, entry := range i.log.Entries {
@@ -394,6 +395,7 @@ func (i *integrityStore) Read(_ context.Context, _ ProcessID, after LSN) iter.Se
 		}
 	}
 }
+
 func (i *integrityStore) Append(context.Context, Batch) error {
 	i.appends++
 	return errors.New("unexpected append while validating a corrupt log")

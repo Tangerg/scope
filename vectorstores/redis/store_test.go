@@ -33,6 +33,7 @@ func fixtureVector(text string) []float64 {
 	}
 	return []float64{1, 0}
 }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -40,9 +41,11 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func fixtureQuery(ctx context.Context, store *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
 		return store.QueryByScan(ctx, q, fixtureBudget())
@@ -81,8 +84,10 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	})
 	return fixture
 }
+
 func (p *protocolFixture) DialHook(next goredis.DialHook) goredis.DialHook       { return next }
 func (p *protocolFixture) ProcessHook(_ goredis.ProcessHook) goredis.ProcessHook { return p.process }
+
 func (p *protocolFixture) ProcessPipelineHook(_ goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
 	return func(ctx context.Context, commands []goredis.Cmder) error {
 		for _, command := range commands {
@@ -94,6 +99,7 @@ func (p *protocolFixture) ProcessPipelineHook(_ goredis.ProcessPipelineHook) gor
 		return nil
 	}
 }
+
 func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -284,6 +290,7 @@ func (p *protocolFixture) process(ctx context.Context, command goredis.Cmder) er
 	}
 	return nil
 }
+
 func (p *protocolFixture) scanNodes(ctx context.Context, visit func(context.Context, *goredis.Client) error) error {
 	return visit(ctx, p.client)
 }
@@ -524,6 +531,7 @@ func TestNativeTagQueryNeedsNoScanGrant(t *testing.T) {
 		t.Fatalf("unsupported=%v err=%v scans=%d", r, err, f.scans)
 	}
 }
+
 func TestPipelineEvidenceSeparatesSentAndUnsent(t *testing.T) {
 	f := newProtocolFixture(t)
 	s := f.store(2)
@@ -535,6 +543,7 @@ func TestPipelineEvidenceSeparatesSentAndUnsent(t *testing.T) {
 		t.Fatalf("evidence=%+v writes=%d", w, f.writes)
 	}
 }
+
 func TestGrantDebitedBeforeTransferringHashPayload(t *testing.T) {
 	f := newProtocolFixture(t)
 	s := f.store(1)
@@ -550,6 +559,7 @@ func TestGrantDebitedBeforeTransferringHashPayload(t *testing.T) {
 		t.Fatalf("deleted=%d err=%v", f.deleted, err)
 	}
 }
+
 func TestSameWidthSpaceRebindingPreventsMutation(t *testing.T) {
 	f := newProtocolFixture(t)
 	s := f.store(1)

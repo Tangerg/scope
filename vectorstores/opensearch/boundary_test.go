@@ -213,6 +213,7 @@ func (c *countedBody) Read(buffer []byte) (int, error) {
 	c.read += n
 	return n, err
 }
+
 func (c *countedBody) Close() error { c.closed = true; return nil }
 
 type nativeBodyTransport struct{ body *countedBody }

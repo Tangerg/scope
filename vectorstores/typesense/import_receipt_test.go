@@ -24,6 +24,7 @@ func (r *receiptBody) Read(p []byte) (int, error) {
 	}
 	return n, err
 }
+
 func (r *receiptBody) Close() error { return r.closeErr }
 
 func TestImportPreservesReceivedEvidenceWithTransportFailure(t *testing.T) {

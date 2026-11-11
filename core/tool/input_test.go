@@ -97,6 +97,7 @@ type markedTool struct{}
 func (markedTool) Definition() tool.Definition {
 	return tool.Definition{Name: "marked", InputSchema: []byte(`{"type":"object"}`)}
 }
+
 func (markedTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{}, nil
 }

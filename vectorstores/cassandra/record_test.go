@@ -29,6 +29,7 @@ func TestStoredRecordPreservesCoreFacts(t *testing.T) {
 		}
 	}
 }
+
 func TestStoredRecordRejectsMalformedData(t *testing.T) {
 	cases := []storedRecord{{id: "id", content: "content", metadata: "", vector: []float32{1, 0}}, {id: "id", content: "content", metadata: `{"a":1,"a":2}`, vector: []float32{1, 0}}, {id: "id", content: "content", metadata: `[]`, vector: []float32{1, 0}}, {id: " ", content: "content", metadata: `null`, vector: []float32{1, 0}}, {id: "id", content: "", metadata: `null`, vector: []float32{1, 0}}, {id: "id", content: "content", metadata: `null`, vector: []float32{}}, {id: "id", content: "content", metadata: `null`, vector: []float32{float32(math.Inf(1))}}}
 	for i, record := range cases {
@@ -45,6 +46,7 @@ func TestStoredRecordRejectsMalformedData(t *testing.T) {
 		t.Fatal("accepted invalid metadata")
 	}
 }
+
 func TestSimilarityProjectsNativeScores(t *testing.T) {
 	tests := []struct {
 		metric SimilarityFunction

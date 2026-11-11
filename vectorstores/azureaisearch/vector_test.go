@@ -54,6 +54,7 @@ func TestSpaceFilterAndScanBudget(t *testing.T) {
 		t.Fatalf("admin change accepted: %v", err)
 	}
 }
+
 func TestPerKeyWriteEvidence(t *testing.T) {
 	f := newProtocolFixture(t)
 	s := f.store()

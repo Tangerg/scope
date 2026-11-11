@@ -109,9 +109,11 @@ type capabilityPanicTool struct {
 func (c capabilityPanicTool) Definition() tool.Definition {
 	return tool.Definition{Name: "panic", Description: "Expose an invalid capability declaration.", InputSchema: json.RawMessage(objectToolSchema)}
 }
+
 func (c capabilityPanicTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{}, errors.New("must not run")
 }
+
 func (c capabilityPanicTool) ReturnsDirectResult() bool {
 	if c.mode == "direct" {
 		panic("invalid direct-result declaration")
@@ -125,6 +127,7 @@ func (c capabilityPanicTool) ConcurrencyPolicy() func(tool.Invocation) (string, 
 	}
 	return nil
 }
+
 func (c capabilityPanicTool) InputValidator() func([]byte) error { return nil }
 
 func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
@@ -195,6 +198,7 @@ type rejectingToolDispatcher struct{ dispatcher *toolDispatcher }
 func (r rejectingToolDispatcher) Policy(run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
+
 func (r rejectingToolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	return r.dispatcher.Dispatch(ctx, request, emit)
 }

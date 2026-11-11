@@ -650,12 +650,15 @@ type childControlDefinition struct {
 }
 
 func (c *childControlDefinition) Descriptor() Descriptor { return c.descriptor }
+
 func (c *childControlDefinition) ChildPrograms() []Program[Payload, Payload] {
 	return []Program[Payload, Payload]{c.child.Erase()}
 }
+
 func (c *childControlDefinition) Start(Payload) (Execution, error) {
 	return &childControlExecution{definition: c}, nil
 }
+
 func (c *childControlDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -683,6 +686,7 @@ const (
 func (c *childControlExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.child_control", c.phase)
 }
+
 func (c *childControlExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	consumed := uint32(len(turn.Messages))
 	switch c.phase {

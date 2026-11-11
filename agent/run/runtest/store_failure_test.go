@@ -19,9 +19,11 @@ type storeProbe struct {
 func (s *storeProbe) Append(ctx context.Context, batch run.Batch) error {
 	return s.append(ctx, batch)
 }
+
 func (s *storeProbe) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return s.load(ctx, root)
 }
+
 func (s *storeProbe) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return s.read(ctx, root, after)
 }

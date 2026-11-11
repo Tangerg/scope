@@ -15,6 +15,7 @@ type stubTool struct {
 }
 
 func (s *stubTool) Definition() tool.Definition { return s.definition }
+
 func (s *stubTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{Output: s.result.Clone()}, nil
 }

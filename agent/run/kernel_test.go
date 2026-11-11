@@ -13,6 +13,7 @@ func controlValue[T any](value T, err error) T {
 	}
 	return value
 }
+
 func observeOutcome(ctx context.Context, runtime *Runtime, program Program[Payload, Payload], input Payload) (Result[Payload], error) {
 	handle, err := runtime.Start(ctx, program, StartRequest[Payload]{ID: hostStartID(), Input: input})
 	if err != nil {
@@ -20,6 +21,7 @@ func observeOutcome(ctx context.Context, runtime *Runtime, program Program[Paylo
 	}
 	return handle.Await(ctx)
 }
+
 func frameworkProductionGoFiles(t *testing.T) []string {
 	t.Helper()
 	paths, err := filepath.Glob("../run/*.go")

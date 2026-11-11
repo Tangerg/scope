@@ -101,6 +101,7 @@ type rejectionDispatcher struct {
 func (r *rejectionDispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return r.next.Policy(effect)
 }
+
 func (r *rejectionDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
 	settlement, err := r.next.Dispatch(ctx, request, emit)
 	r.outcome <- dispatchOutcome{settlement: settlement, err: err}
@@ -117,9 +118,11 @@ func (r rejectionDefinition) Descriptor() run.Descriptor { return r.descriptor }
 func (rejectionDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
+
 func (r rejectionDefinition) Start(_ run.Payload) (run.Execution, error) {
 	return &rejectionExecution{effect: r.effect}, nil
 }
+
 func (r rejectionDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -139,6 +142,7 @@ type rejectionExecution struct {
 func (r *rejectionExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(rejectionStateKind, r.sent)
 }
+
 func (r *rejectionExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !r.sent {
 		r.sent = true

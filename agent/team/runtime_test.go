@@ -21,15 +21,19 @@ func require[T any](value T, err error) T {
 	}
 	return value
 }
+
 func input(value any) run.Payload { return require(run.EncodePayload(value)) }
+
 func request(key, worker string, value any) TaskRequest {
 	return TaskRequest{Key: require(run.ParseChildKey(key)), Worker: worker, Input: input(value)}
 }
+
 func transformed[I, O any](t *testing.T, runtime *run.Runtime, name string, transform func(context.Context, I) (O, error)) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	stage := require(workflow.Transform("transform", transform))
 	return require(workflow.Compile[I, O](runtime.Compiler(), workflow.Config{Name: name, Description: "Execute the configured transformation.", Revision: "test", Stages: []workflow.Stage{stage}})).Erase()
 }
+
 func compileTeam(t *testing.T, runtime *run.Runtime, coordinator run.Program[run.Payload, run.Payload], workers ...run.Program[run.Payload, run.Payload]) run.Program[string, string] {
 	t.Helper()
 	config := Config{Name: "test.team", Description: "Coordinate declared workers.", Coordinator: run.ChildBinding{Program: coordinator}, MaxTurns: run.NewQuota(8), MaxTasks: run.NewQuota(8), MaxConcurrentTasks: 4, MaxControlsPerTurn: 4}
@@ -42,6 +46,7 @@ func compileTeam(t *testing.T, runtime *run.Runtime, coordinator run.Program[run
 	}
 	return program
 }
+
 func startTeam(t *testing.T, runtime *run.Runtime, program run.Program[string, string]) *run.Handle[string] {
 	t.Helper()
 	handle, err := runtime.Start(t.Context(), program, run.StartRequest[string]{ID: run.StartID{Scope: "test", Key: t.Name()}, Input: "initial"})
@@ -50,6 +55,7 @@ func startTeam(t *testing.T, runtime *run.Runtime, program run.Program[string, s
 	}
 	return handle
 }
+
 func awaitTeam(t *testing.T, handle *run.Handle[string]) run.Result[string] {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -60,6 +66,7 @@ func awaitTeam(t *testing.T, handle *run.Handle[string]) run.Result[string] {
 	}
 	return result
 }
+
 func completed(value any) run.Termination {
 	data := require(jsonv2.Marshal(struct {
 		Output run.Payload `json:"output"`
@@ -70,6 +77,7 @@ func completed(value any) run.Termination {
 	}
 	return termination
 }
+
 func testTurn(step uint64, messages ...run.Message) run.Turn {
 	return run.Turn{Process: require(run.ParseProcessID("team-test")), Step: step, Messages: messages}
 }

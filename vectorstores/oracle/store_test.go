@@ -18,6 +18,7 @@ import (
 const fixtureSpace vectorstore.SpaceID = "native-test-space"
 
 func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -25,9 +26,11 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 32 << 20, Timeout: time.Minute}
 }
+
 func closedDatabase(t *testing.T) (*sql.DB, error) {
 	t.Helper()
 	connector := go_ora.NewConnector("oracle://unused:unused@invalid.invalid:1/unused")
@@ -67,6 +70,7 @@ func TestClosedDatabaseFailuresPreserveEffectsAndCause(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestInvalidLaterRecordOrSpaceDoesNotReachDatabase(t *testing.T) {
 	s := offlineStore(t, nil)
 	b := fixtureBatch([]*document.Document{{ID: "valid", Text: "text"}, {ID: strings.Repeat("a", documentIDBytes+1), Text: "last"}})
@@ -78,6 +82,7 @@ func TestInvalidLaterRecordOrSpaceDoesNotReachDatabase(t *testing.T) {
 		t.Fatalf("%v %v", res, err)
 	}
 }
+
 func TestConstructionPreservesNativeErrors(t *testing.T) {
 	db, closedErr := closedDatabase(t)
 	for _, initialize := range []bool{false, true} {

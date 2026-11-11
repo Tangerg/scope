@@ -69,6 +69,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	s.schema = schema
 	return s, nil
 }
+
 func (s *Store) binding(ctx context.Context) (containerSchema, error) {
 	response, err := s.container.Read(ctx, nil)
 	if err != nil {
@@ -76,6 +77,7 @@ func (s *Store) binding(ctx context.Context) (containerSchema, error) {
 	}
 	return newContainerSchema(response.ContainerProperties, s.container.ID(), s.partitionKey)
 }
+
 func (s *Store) verify(ctx context.Context) error {
 	schema, err := s.binding(ctx)
 	if err != nil {
@@ -86,6 +88,7 @@ func (s *Store) verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -103,6 +106,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -158,6 +162,7 @@ func (s *Store) writeItems(ctx context.Context, ids []string, write func(int) er
 	}
 	return nil
 }
+
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -235,6 +240,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

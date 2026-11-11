@@ -26,6 +26,7 @@ type projectionCountingStore struct {
 func (p *projectionCountingStore) Append(ctx context.Context, b run.Batch) error {
 	return p.store.Append(ctx, b)
 }
+
 func (p *projectionCountingStore) Read(ctx context.Context, id run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		p.mu.Lock()
@@ -52,6 +53,7 @@ func (p *projectionCountingStore) Read(ctx context.Context, id run.ProcessID, af
 		}
 	}
 }
+
 func (p *projectionCountingStore) Load(ctx context.Context, id run.ProcessID) (run.Log, bool, error) {
 	log, found, err := p.store.Load(ctx, id)
 	p.mu.Lock()
@@ -59,6 +61,7 @@ func (p *projectionCountingStore) Load(ctx context.Context, id run.ProcessID) (r
 	p.mu.Unlock()
 	return log, found, err
 }
+
 func (p *projectionCountingStore) maximumRepeatedHead() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -72,12 +75,15 @@ func (p *projectionCountingStore) maximumRepeatedHead() int {
 type pendingProjectionDefinition struct{ descriptor run.Descriptor }
 
 func (p pendingProjectionDefinition) Descriptor() run.Descriptor { return p.descriptor }
+
 func (p pendingProjectionDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
+
 func (p pendingProjectionDefinition) Start(run.Payload) (run.Execution, error) {
 	return &pendingProjectionExecution{}, nil
 }
+
 func (p pendingProjectionDefinition) Restore(_ context.Context, s run.ExecutionState) (run.Execution, error) {
 	v, err := s.Decode[pendingProjectionExecution](pendingProjectionKind)
 	return &v, err
@@ -90,6 +96,7 @@ type pendingProjectionExecution struct {
 func (p *pendingProjectionExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(pendingProjectionKind, p)
 }
+
 func (p *pendingProjectionExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !p.Started {
 		p.Started = true
@@ -114,6 +121,7 @@ type pendingProjectionDispatcher struct {
 func (p pendingProjectionDispatcher) Policy(run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
+
 func (p pendingProjectionDispatcher) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	close(p.entered)
 	select {

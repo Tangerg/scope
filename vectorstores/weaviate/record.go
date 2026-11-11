@@ -29,6 +29,7 @@ type indexWire struct {
 		Enabled bool `json:"enabled"`
 	} `json:"multivector"`
 }
+
 type propertyWire struct {
 	Name            string   `json:"name"`
 	DataType        []string `json:"dataType"`
@@ -36,6 +37,7 @@ type propertyWire struct {
 	IndexSearchable *bool    `json:"indexSearchable"`
 	IndexFilterable *bool    `json:"indexFilterable"`
 }
+
 type vectorWire struct {
 	Vectorizer map[string]json.RawMessage `json:"vectorizer"`
 	IndexType  string                     `json:"vectorIndexType"`
@@ -45,6 +47,7 @@ type vectorWire struct {
 		Flat indexWire `json:"flat"`
 	} `json:"vectorIndexConfig"`
 }
+
 type collectionWire struct {
 	Name         string `json:"class"`
 	Description  string `json:"description"`

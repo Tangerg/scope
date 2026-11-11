@@ -49,6 +49,7 @@ func (r *RequestOptions) UnmarshalJSON(data []byte) error {
 	*r = RequestOptions(value)
 	return nil
 }
+
 func (r RequestOptions) Validate() error {
 	if r.Effort != "" {
 		name, version, versioned := strings.Cut(r.Effort, agentEffortVersionSeparator)
@@ -66,6 +67,7 @@ func (r RequestOptions) Validate() error {
 	}
 	return (openai.CompatibleResponsesRequest{BuiltInTools: r.Tools}).Validate()
 }
+
 func prepareRequest(source *corechat.Request, target *openai.CompatibleResponsesRequest) error {
 	options, _, err := source.Options.Extensions.Decode[RequestOptions](RequestExtensionKey)
 	if err != nil {

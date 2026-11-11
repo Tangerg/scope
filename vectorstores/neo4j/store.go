@@ -46,6 +46,7 @@ const (
 func (s SimilarityFunction) Valid() bool {
 	return s == SimilarityCosine || s == SimilarityEuclidean
 }
+
 func (s SimilarityFunction) String() string { return string(s) }
 
 // StoreConfig selects an exclusively owned document label and its four properties.

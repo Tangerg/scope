@@ -265,9 +265,11 @@ type postgresDefinition struct{ descriptor run.Descriptor }
 
 func (p *postgresDefinition) Descriptor() run.Descriptor                             { return p.descriptor }
 func (p *postgresDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (p *postgresDefinition) Start(input run.Payload) (run.Execution, error) {
 	return &postgresExecution{input: input}, nil
 }
+
 func (p *postgresDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[string]("postgres.fixture")
 	if err != nil {
@@ -282,6 +284,7 @@ type postgresExecution struct{ input run.Payload }
 func (p *postgresExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	return run.Complete(uint32(len(turn.Messages)), p.input)
 }
+
 func (p *postgresExecution) Snapshot() (run.ExecutionState, error) {
 	return run.ParseExecutionState("postgres.fixture", p.input.JSON())
 }

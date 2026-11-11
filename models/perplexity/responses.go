@@ -18,6 +18,7 @@ type ResponsesConfig struct {
 }
 
 func (r ResponsesConfig) Validate() error { return r.protocol().Validate() }
+
 func (r ResponsesConfig) protocol() openai.ResponsesConfig {
 	return openai.ResponsesConfig{APIKey: r.APIKey, DefaultOptions: r.DefaultOptions, BaseURL: cmp.Or(r.BaseURL, BaseURL), HTTPClient: r.HTTPClient}
 }
@@ -39,12 +40,15 @@ func NewResponses(ctx context.Context, config ResponsesConfig) (*Responses, erro
 	}
 	return &Responses{protocol: protocol}, nil
 }
+
 func (r *Responses) Call(ctx context.Context, request *corechat.Request) (*corechat.Response, error) {
 	return r.protocol.Call(ctx, request)
 }
+
 func (r *Responses) Stream(ctx context.Context, request *corechat.Request) iter.Seq2[*corechat.ResponseDelta, error] {
 	return r.protocol.Stream(ctx, request)
 }
+
 func (r *Responses) ListModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
 	return r.protocol.ListModels(ctx, maxModels, maxResponseBytes)
 }

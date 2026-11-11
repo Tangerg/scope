@@ -19,9 +19,11 @@ type policyClient struct {
 }
 
 func (p *policyClient) ListCollections(context.Context) ([]string, error) { return p.names, p.failure }
+
 func (p *policyClient) GetCollectionInfo(context.Context, string) (*qdrantclient.CollectionInfo, error) {
 	return p.info, p.failure
 }
+
 func (p *policyClient) ScrollAndOffset(context.Context, *qdrantclient.ScrollPoints) ([]*qdrantclient.RetrievedPoint, *qdrantclient.PointId, error) {
 	return nil, nil, p.failure
 }

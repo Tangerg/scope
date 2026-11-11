@@ -31,6 +31,7 @@ import (
 const testSpace vectorstore.SpaceID = "test-encoder-v1"
 
 func testPartition() string { return testSpace.StorageKey() + ":library" }
+
 func testBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: testSpace}
 	for _, d := range docs {
@@ -38,6 +39,7 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 	return vectorstore.ScanRequest{Filter: p, Budget: testScanBudget()}
 }
@@ -45,6 +47,7 @@ func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 func testScanBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: 5 * time.Second}
 }
+
 func scanIDs(ctx context.Context, s *Store, p filter.Predicate) ([]string, error) {
 	docs, err := s.Scan(ctx, testScanRequest(p))
 	if err != nil {
@@ -61,6 +64,7 @@ type queryWire struct {
 	Query      string                    `json:"query"`
 	Parameters []azcosmos.QueryParameter `json:"parameters"`
 }
+
 type queryPage struct {
 	items  []json.RawMessage
 	token  string
@@ -290,6 +294,7 @@ func (p *protocolFixture) nativeScore(id, function string) float64 {
 	}
 	return 1
 }
+
 func (p *protocolFixture) respond(w http.ResponseWriter, value any) {
 	if err := jsonv2.MarshalWrite(w, value); err != nil {
 		p.t.Error(err)

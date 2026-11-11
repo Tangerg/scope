@@ -376,6 +376,7 @@ func (s *Store) checkDocument(d *document.Document) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -399,6 +400,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return nil
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error) {
 	if batchErr := batch.ValidateFor(s.space); batchErr != nil {
 		return batchErr
@@ -490,6 +492,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	_, err := s.binding(ctx)
 	return err
 }
+
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -499,6 +502,7 @@ func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.S
 	}
 	return s.rank(ctx, q, nil)
 }
+
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -513,6 +517,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	defer cancel()
 	return s.rank(ctx, q, &budget)
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, fmt.Errorf("tidb: rank query: %w", err)

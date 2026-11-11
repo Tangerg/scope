@@ -260,6 +260,7 @@ func (f *faultyBody) Read(p []byte) (int, error) {
 	}
 	return f.reader.Read(p)
 }
+
 func (f *faultyBody) Close() error { f.closed++; return f.closeErr }
 
 func TestResponseBoundaryOwnsBudgetClosureAndErrors(t *testing.T) {

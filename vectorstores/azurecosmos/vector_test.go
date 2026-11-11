@@ -56,6 +56,7 @@ func TestSpaceRoutesReadsWritesAndDeletes(t *testing.T) {
 		t.Fatalf("cross-partition response: %v %v", got, err)
 	}
 }
+
 func TestSequentialWriteEvidence(t *testing.T) {
 	for _, status := range []int{http.StatusBadRequest, http.StatusInternalServerError} {
 		f := newProtocolFixture(t, azcosmos.VectorDistanceFunctionCosine)

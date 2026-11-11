@@ -33,14 +33,17 @@ func newInputGate(name, description string, policy InputGate) (*inputGateDefinit
 	}
 	return &inputGateDefinition{descriptor: descriptor, wait: wait}, nil
 }
+
 func (i *inputGateDefinition) Descriptor() run.Descriptor                           { return i.descriptor }
 func (*inputGateDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (i *inputGateDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err := i.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
 	return &inputGateExecution{definition: i, state: inputGateState{Request: input, Phase: inputGateReady}}, nil
 }
+
 func (i *inputGateDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := restore.Decode(ctx, state, inputGateStateKind, ErrInvalidExecutionState, func(ctx context.Context, value inputGateState) error { return value.validate(ctx, i) })
 	if err != nil {
@@ -82,6 +85,7 @@ type inputGateExecution struct {
 func (i *inputGateExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(inputGateStateKind, i.state)
 }
+
 func (i *inputGateExecution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err

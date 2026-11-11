@@ -85,6 +85,7 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 	return vectorstore.ScanRequest{Filter: p, Budget: testScanBudget()}
 }
@@ -92,6 +93,7 @@ func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 func testScanBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func TestNativeStoreSchemaAndDistances(t *testing.T) {
 	for _, metric := range []storeclickhouse.DistanceMetric{storeclickhouse.DistanceCosine, storeclickhouse.DistanceL2} {
 		t.Run(metric.String(), func(t *testing.T) {
@@ -398,6 +400,7 @@ func (f *faultConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	}
 	return &faultConnection{Conn: conn, beforeExec: f.beforeExec}, nil
 }
+
 func (f *faultConnector) Driver() driver.Driver { return f.inner.Driver() }
 
 type faultConnection struct {
@@ -411,18 +414,22 @@ func (f *faultConnection) ExecContext(ctx context.Context, query string, args []
 	}
 	return f.Conn.(driver.ExecerContext).ExecContext(ctx, query, args)
 }
+
 func (f *faultConnection) QueryContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	if err := f.beforeExec(ctx, query); err != nil {
 		return nil, err
 	}
 	return f.Conn.(driver.QueryerContext).QueryContext(ctx, query, args)
 }
+
 func (f *faultConnection) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
 	return f.Conn.(driver.ConnPrepareContext).PrepareContext(ctx, query)
 }
+
 func (f *faultConnection) BeginTx(ctx context.Context, options driver.TxOptions) (driver.Tx, error) {
 	return f.Conn.(driver.ConnBeginTx).BeginTx(ctx, options)
 }
+
 func (f *faultConnection) CheckNamedValue(value *driver.NamedValue) error {
 	return f.Conn.(driver.NamedValueChecker).CheckNamedValue(value)
 }

@@ -27,6 +27,7 @@ type transactionConnector struct{ fixture *transactionFixture }
 func (t transactionConnector) Connect(context.Context) (driver.Conn, error) {
 	return &transactionConnection{fixture: t.fixture}, nil
 }
+
 func (t transactionConnector) Driver() driver.Driver { return resultDriver{} }
 
 type transactionConnection struct{ fixture *transactionFixture }
@@ -34,13 +35,17 @@ type transactionConnection struct{ fixture *transactionFixture }
 func (t *transactionConnection) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("unexpected prepare")
 }
+
 func (t *transactionConnection) Close() error { return nil }
+
 func (t *transactionConnection) Begin() (driver.Tx, error) {
 	return &transactionOutcome{fixture: t.fixture}, nil
 }
+
 func (t *transactionConnection) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
 	return t.Begin()
 }
+
 func (t *transactionConnection) QueryContext(ctx context.Context, statement string, args []driver.NamedValue) (driver.Rows, error) {
 	if strings.Contains(statement, "SELECT CASE WHEN COUNT(*)") {
 		if t.fixture.prepareErr != nil {
@@ -53,6 +58,7 @@ func (t *transactionConnection) QueryContext(ctx context.Context, statement stri
 	}
 	return &resultRows{cols: []string{"id", "facts"}, values: [][]driver.Value{{[]byte("victim"), []byte(`{"tenant":"alpha"}`)}}}, nil
 }
+
 func (t *transactionConnection) ExecContext(_ context.Context, statement string, _ []driver.NamedValue) (driver.Result, error) {
 	if strings.HasPrefix(statement, "DELETE FROM ") {
 		t.fixture.deletions++
@@ -72,6 +78,7 @@ func (t *transactionOutcome) Commit() error {
 	t.fixture.commits++
 	return t.fixture.commitErr
 }
+
 func (t *transactionOutcome) Rollback() error {
 	t.fixture.rollbacks++
 	return t.fixture.rollbackErr

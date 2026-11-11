@@ -333,6 +333,7 @@ func (s *Store) query(meter *vectorstore.ScanMeter, body searchRequest) ([]query
 func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, int, error) {
 	return s.wire(ctx, method, path, body, nil)
 }
+
 func (s *Store) wire(ctx context.Context, method, path string, body any, meter *vectorstore.ScanMeter) ([]byte, int, error) {
 	maximum := cmp.Or(s.maxResponseBytes, DefaultMaxResponseBytes)
 	if meter != nil {
@@ -397,6 +398,7 @@ func (s *Store) mutationAcknowledgment(raw []byte, status int, id string) error 
 func (s *Store) nativeID(id string) string {
 	return "id:" + s.namespace + ":" + s.schemaName + "::" + id
 }
+
 func (s *Store) documentPath(id string) string {
 	segment := url.PathEscape(id)
 	if segment == "." || segment == ".." {
@@ -404,6 +406,7 @@ func (s *Store) documentPath(id string) string {
 	}
 	return "/document/v1/" + url.PathEscape(s.namespace) + "/" + url.PathEscape(s.schemaName) + "/docid/" + segment
 }
+
 func (s *Store) documentID(raw string) (string, error) {
 	id, present := strings.CutPrefix(raw, s.nativeID(""))
 	if !present || id == "" {
@@ -419,15 +422,18 @@ type visitDocument struct {
 	ID     string       `json:"id"`
 	Fields metadata.Map `json:"fields"`
 }
+
 type visitResponse struct {
 	DocumentCount *int            `json:"documentCount"`
 	Documents     []visitDocument `json:"documents"`
 	Continuation  string          `json:"continuation"`
 }
+
 type queryHit struct {
 	Relevance *float64     `json:"relevance"`
 	Fields    metadata.Map `json:"fields"`
 }
+
 type queryResponse struct {
 	Root struct {
 		Errors   []queryError   `json:"errors"`
@@ -435,11 +441,13 @@ type queryResponse struct {
 		Children []queryHit     `json:"children"`
 	} `json:"root"`
 }
+
 type queryError struct {
 	Code    int    `json:"code"`
 	Summary string `json:"summary"`
 	Message string `json:"message"`
 }
+
 type queryCoverage struct {
 	Coverage int             `json:"coverage"`
 	Full     bool            `json:"full"`

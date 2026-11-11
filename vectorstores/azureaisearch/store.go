@@ -258,6 +258,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := ctx.Err(); err != nil {
 		return err

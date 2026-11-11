@@ -26,6 +26,7 @@ func (m ModelCall) Clone() ModelCall {
 	}
 	return m
 }
+
 func (m ModelCall) toolDecisions() []chat.ToolCall {
 	if m.Settlement == nil || m.Settlement.Response == nil || m.Settlement.Response.Output.Message == nil {
 		return nil
@@ -111,6 +112,7 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 	}
 	return projection, nil
 }
+
 func (c *callProjection) intent(record run.EffectIntent, role effectRole) error {
 	switch role {
 	case effectRoleModel:
@@ -134,6 +136,7 @@ func (c *callProjection) intent(record run.EffectIntent, role effectRole) error 
 	}
 	return nil
 }
+
 func (c *callProjection) settle(record run.EffectSettled) error {
 	if call, ok := c.models[record.ID]; ok {
 		settlement, err := interaction.ModelSettlementFromRecord(record)

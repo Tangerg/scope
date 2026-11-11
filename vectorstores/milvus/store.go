@@ -136,6 +136,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	_, err = encodeDocuments(docs, policy)
 	return err
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err
@@ -185,6 +186,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -195,6 +197,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	_, err := s.readPolicy(ctx)
 	return err
 }
+
 func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
 	if err := opts.Validate(); err != nil {
 		return err
@@ -210,9 +213,11 @@ func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) e
 	}
 	return nil
 }
+
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.rank(ctx, q, nil)
 }
+
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	meter, err := budget.Begin(ctx)
 	if err != nil {
@@ -221,6 +226,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	defer meter.Close()
 	return s.rank(meter.Context(), q, meter)
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vectorstore.ScanMeter) (*vectorstore.SearchResponse, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

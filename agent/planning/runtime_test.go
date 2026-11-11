@@ -34,6 +34,7 @@ func (o *observedWorld) Sense(context.Context, planning.SenseRequest) (planning.
 	o.observations++
 	return o.state, nil
 }
+
 func (o *observedWorld) apply(effect planning.Condition) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -46,6 +47,7 @@ func domain() (planning.Condition, planning.Goal, planning.Action) {
 	action := require(planning.NewAction(planning.ActionConfig{Name: "finish", Description: "Attempt to finish the work.", Effects: []planning.Condition{done}}))
 	return done, goal, action
 }
+
 func baseConfig(goal planning.Goal, world planning.Sensor, bindings ...planning.ActionBinding) planning.Config {
 	return planning.Config{Name: "test.planning", Description: "Plan against observed truth.", Revision: "test-planning", Goal: goal, Actions: bindings, Planner: goap.New(goap.Config{}), Sensor: world, MaxActionAttempts: run.NewQuota(3)}
 }

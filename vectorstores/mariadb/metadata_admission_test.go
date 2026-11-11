@@ -19,6 +19,7 @@ type metadataSchemaConnector struct{ connection *metadataSchemaConnection }
 func (m metadataSchemaConnector) Connect(context.Context) (driver.Conn, error) {
 	return m.connection, nil
 }
+
 func (m metadataSchemaConnector) Driver() driver.Driver { return resultDriver{} }
 
 type metadataSchemaConnection struct {

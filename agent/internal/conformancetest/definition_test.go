@@ -15,9 +15,11 @@ func (r recordingFailureDefinition) Descriptor() run.Descriptor { return run.Des
 func (recordingFailureDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
+
 func (r recordingFailureDefinition) Start(run.Payload) (run.Execution, error) {
 	return nil, r.cause
 }
+
 func (r recordingFailureDefinition) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
 	return nil, r.cause
 }
@@ -31,6 +33,7 @@ type recordingFailureExecution struct {
 func (r recordingFailureExecution) Snapshot() (run.ExecutionState, error) {
 	return r.state, r.snapshotErr
 }
+
 func (r recordingFailureExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err

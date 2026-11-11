@@ -26,6 +26,7 @@ func typedHandle[O any](h *Handle[Payload]) *Handle[O] {
 func (h *Handle[O]) ID() ProcessID          { return h.id }
 func (h *Handle[O]) ProgramRef() ProgramRef { return h.program }
 func (h *Handle[O]) Epoch() Epoch           { return h.epoch }
+
 func (h *Handle[O]) Inspect(ctx context.Context) (TreeInspection, error) {
 	return h.runtime.Inspect(ctx, h.id.Root())
 }
@@ -370,6 +371,7 @@ func (r Result[O]) StartedAt() time.Time     { return r.startedAt }
 func (r Result[O]) FinishedAt() time.Time    { return r.finishedAt }
 func (r Result[O]) Termination() Termination { return r.termination }
 func (r Result[O]) Usage() Usage             { return r.usage }
+
 func (r Result[O]) Valid() bool {
 	return r.process.Valid() && !r.startedAt.IsZero() && !r.finishedAt.IsZero() && r.termination.Valid()
 }

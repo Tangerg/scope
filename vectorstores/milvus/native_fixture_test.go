@@ -278,8 +278,10 @@ const fixtureSpace vectorstore.SpaceID = "test-v1"
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func fixtureVector(_ string) []float64                          { return []float64{1, 0} }
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch { return fixtureBatchWith(docs, nil) }
+
 func fixtureBatchWith(docs []*document.Document, coords func(string) []float64) *vectorstore.Batch {
 	if coords == nil {
 		coords = fixtureVector
@@ -290,6 +292,7 @@ func fixtureBatchWith(docs []*document.Document, coords func(string) []float64) 
 	}
 	return &vectorstore.Batch{Space: fixtureSpace, Records: records}
 }
+
 func nativeStore(t *testing.T, metric entity.MetricType) (*Store, *nativeService) {
 	t.Helper()
 	service := newNativeService(metric)

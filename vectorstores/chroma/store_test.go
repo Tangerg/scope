@@ -35,6 +35,7 @@ type boundaryCollection struct {
 func (b *boundaryCollection) Metadata() v2.CollectionMetadata { return b.identity }
 func (b *boundaryCollection) Dimension() int                  { return b.dimension }
 func (b *boundaryCollection) Schema() *v2.Schema              { return b.schema }
+
 func (b *boundaryCollection) Get(ctx context.Context, options ...v2.GetOption) (v2.GetResult, error) {
 	b.gets++
 	if b.getErr != nil {
@@ -52,6 +53,7 @@ func (b *boundaryCollection) Get(ctx context.Context, options ...v2.GetOption) (
 	}
 	return b.rows, nil
 }
+
 func (b *boundaryCollection) Query(_ context.Context, options ...v2.QueryOption) (v2.QueryResult, error) {
 	b.queries++
 	op, err := v2.NewCollectionQueryOp(options...)
@@ -61,6 +63,7 @@ func (b *boundaryCollection) Query(_ context.Context, options ...v2.QueryOption)
 	b.queryOp = op
 	return b.query, b.queryErr
 }
+
 func (b *boundaryCollection) Upsert(_ context.Context, options ...v2.AddOption) error {
 	b.upserts++
 	op, err := v2.NewCollectionAddOp(options...)
@@ -70,6 +73,7 @@ func (b *boundaryCollection) Upsert(_ context.Context, options ...v2.AddOption) 
 	b.addOp = op
 	return b.upsertErr
 }
+
 func (b *boundaryCollection) Delete(_ context.Context, options ...v2.DeleteOption) error {
 	b.deletes++
 	op, err := v2.NewCollectionDeleteOp(options...)
@@ -91,21 +95,27 @@ func boundaryConfig(t *testing.T, metric v2.Space) (StoreConfig, *boundaryCollec
 	b := &boundaryCollection{schema: schema, identity: v2.NewMetadata(v2.NewStringAttribute(SpaceMetadataKey, string(testSpace))), dimension: 2, rows: &v2.GetResultImpl{}}
 	return StoreConfig{Collection: b, Space: testSpace}, b
 }
+
 func query(options vectorstore.SearchOptions) *vectorstore.Query {
 	return &vectorstore.Query{Space: testSpace, Values: []float64{1, 0}, Options: options}
 }
+
 func record(doc *document.Document, coords ...float64) *vectorstore.Batch {
 	return &vectorstore.Batch{Space: testSpace, Records: []vectorstore.Record{{Document: doc, Values: coords}}}
 }
+
 func budget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 16, MaxBytes: 4096, Timeout: time.Second}
 }
+
 func oneRecord(raw string) *v2.GetResultImpl {
 	return &v2.GetResultImpl{Ids: v2.DocumentIDs{"id"}, Documents: v2.Documents{v2.NewTextDocument("text")}, Metadatas: v2.DocumentMetadatas{v2.NewDocumentMetadata(v2.NewStringAttribute(metadataField, raw))}, Embeddings: ce.Embeddings{ce.NewEmbeddingFromFloat32([]float32{1, 0})}}
 }
+
 func queryRecords(rows *v2.GetResultImpl, distances ...ce.Distance) *v2.QueryResultImpl {
 	return &v2.QueryResultImpl{IDLists: []v2.DocumentIDs{slices.Clone(rows.Ids)}, DocumentsLists: []v2.Documents{slices.Clone(rows.Documents)}, MetadatasLists: []v2.DocumentMetadatas{slices.Clone(rows.Metadatas)}, EmbeddingsLists: []ce.Embeddings{slices.Clone(rows.Embeddings)}, DistancesLists: []ce.Distances{distances}}
 }
+
 func parseBoundaryPredicate(t *testing.T, source string) filter.Predicate {
 	t.Helper()
 	predicate, err := filter.Parse(source)
@@ -156,6 +166,7 @@ func TestPublicConstructionOwnsNoNativeLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestCoreJSONRoundtripAndStrictRecords(t *testing.T) {
 	for _, raw := range []string{`null`, `{}`, `{"nested":{"array":[null,1e1000]},"precise":1.00000000000000001,"value":9007199254740993}`} {
 		rows := oneRecord(raw)
@@ -212,6 +223,7 @@ func TestQueryRejectsNonNativePredicateWithoutReadingSource(t *testing.T) {
 		t.Fatal("source scan was replaced with approximate ranking")
 	}
 }
+
 func TestMalformedNativeResponseReturnsNoPartialResults(t *testing.T) {
 	cfg, b := boundaryConfig(t, v2.SpaceCosine)
 	s, err := NewStore(t.Context(), cfg)
@@ -236,6 +248,7 @@ func TestMalformedNativeResponseReturnsNoPartialResults(t *testing.T) {
 		t.Fatal(got, e)
 	}
 }
+
 func TestUpsertPreflightsWholeBatchAndClassifiesUnknownRPC(t *testing.T) {
 	cfg, b := boundaryConfig(t, v2.SpaceL2)
 	s, err := NewStore(t.Context(), cfg)
@@ -276,6 +289,7 @@ func TestUpsertPreflightsWholeBatchAndClassifiesUnknownRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestBoundedScanRefusesPartialSubset(t *testing.T) {
 	cfg, b := boundaryConfig(t, v2.SpaceCosine)
 	s, err := NewStore(t.Context(), cfg)
@@ -318,6 +332,7 @@ func TestBoundedScanRefusesPartialSubset(t *testing.T) {
 		t.Fatal(out, e)
 	}
 }
+
 func TestSpaceAndDimensionGuardEveryDataPath(t *testing.T) {
 	cfg, b := boundaryConfig(t, v2.SpaceCosine)
 	s, err := NewStore(t.Context(), cfg)
@@ -348,6 +363,7 @@ func TestSpaceAndDimensionGuardEveryDataPath(t *testing.T) {
 		t.Fatal("incompatible request reached native data")
 	}
 }
+
 func TestDeleteIDsAndNativeDistanceProjection(t *testing.T) {
 	config, b := boundaryConfig(t, v2.SpaceIP)
 	store, err := NewStore(t.Context(), config)

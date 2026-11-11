@@ -20,9 +20,11 @@ func (r recoveryResolver) Resolve(reference ProgramRef) (Program[Payload, Payloa
 
 func (d *dynamicChildDefinition) Descriptor() Descriptor                   { return d.descriptor }
 func (*dynamicChildDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
+
 func (d *dynamicChildDefinition) Start(Payload) (Execution, error) {
 	return &dynamicChildExecution{definition: d}, nil
 }
+
 func (d *dynamicChildDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
 	exited, err := state.Decode[bool]("test.dynamic_child")
 	if err != nil {
@@ -39,6 +41,7 @@ type dynamicChildExecution struct {
 func (d *dynamicChildExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.dynamic_child", d.exited)
 }
+
 func (d *dynamicChildExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	if turn.Step == 1 {
 		spawn := controlValue(NewChildStartEffect(ChildSpec{Key: controlValue(ParseChildKey("temporary")), ProgramRef: d.definition.child, Input: controlValue(EncodePayload(0))}))
@@ -113,6 +116,7 @@ type contextDefinition struct{ descriptor Descriptor }
 func (c contextDefinition) Descriptor() Descriptor                   { return c.descriptor }
 func (contextDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
 func (contextDefinition) Start(Payload) (Execution, error)           { return contextExecution{}, nil }
+
 func (contextDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
 	if ctx.Value(contextValueKey{}) != nil {
 		return nil, errors.New("host context leaked into restoration")
@@ -128,6 +132,7 @@ type contextExecution struct{}
 func (contextExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.context", true)
 }
+
 func (contextExecution) Step(ctx context.Context, turn Turn) (Transition, error) {
 	if ctx.Value(contextValueKey{}) != nil {
 		return Transition{}, errors.New("host context became an unrecorded Step input")
@@ -176,9 +181,11 @@ type simultaneousStartStore struct {
 func (s *simultaneousStartStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	return s.store.Load(ctx, root)
 }
+
 func (s *simultaneousStartStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
 	return s.store.Read(ctx, root, after)
 }
+
 func (s *simultaneousStartStore) Append(ctx context.Context, batch Batch) error {
 	if batch.After == 0 {
 		s.arrived <- struct{}{}
@@ -287,9 +294,11 @@ type publicationStore struct {
 func (p publicationStore) Load(ctx context.Context, root ProcessID) (Log, bool, error) {
 	return p.store.Load(ctx, root)
 }
+
 func (p publicationStore) Read(ctx context.Context, root ProcessID, after LSN) iter.Seq2[Entry, error] {
 	return p.store.Read(ctx, root, after)
 }
+
 func (p publicationStore) Append(ctx context.Context, batch Batch) error {
 	if err := p.store.Append(ctx, batch); err != nil {
 		return err

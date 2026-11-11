@@ -36,6 +36,7 @@ func (p ProgramRef) Name() string   { return p.name }
 func (p ProgramRef) Build() string  { return p.build }
 func (p ProgramRef) Digest() Digest { return p.digest }
 func (p ProgramRef) Valid() bool    { return p.digest.Valid() }
+
 func (p ProgramRef) String() string {
 	if !p.Valid() {
 		return "<invalid-program-ref>"

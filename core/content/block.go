@@ -55,6 +55,7 @@ func (b Block) Validate() error {
 	}
 	return nil
 }
+
 func (b Block) Clone() Block {
 	b.Media = b.Media.Clone()
 	b.Citations = slices.Clone(b.Citations)

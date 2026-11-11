@@ -115,6 +115,7 @@ func (s *Store) readSchema(ctx context.Context) (collectionSchema, error) {
 	}
 	return newCollectionSchema(&schema, s.collectionName, s.space)
 }
+
 func (s *Store) checkBinding(ctx context.Context) error {
 	schema, err := s.readSchema(ctx)
 	if err != nil {
@@ -278,6 +279,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	defer cancel()
 	return s.rank(ctx, q, &budget)
 }
+
 func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
 	if err := opts.Validate(); err != nil {
 		return err
@@ -293,6 +295,7 @@ func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) e
 	}
 	return nil
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -302,6 +305,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.checkBinding(ctx)
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

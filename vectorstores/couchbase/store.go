@@ -47,6 +47,7 @@ type StoreConfig struct {
 func (s StoreConfig) CollectionName() string {
 	return s.Space.StorageKey() + "_" + strconv.Itoa(s.Dimensions)
 }
+
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
 	if s.Cluster == nil {
@@ -167,6 +168,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	return nil
 }
+
 func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := request.ValidateFor(s.space); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.QueryByScan: %w", err)

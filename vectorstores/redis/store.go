@@ -26,6 +26,7 @@ const (
 )
 
 var ErrIncompatibleIndex = errors.New("redis: native index is incompatible")
+
 var (
 	_ vectorstore.Upserter  = (*Store)(nil)
 	_ vectorstore.Querier   = (*Store)(nil)
@@ -53,6 +54,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	return s, nil
 }
+
 func (s *Store) readSchema(ctx context.Context) (schema nativeSchema, err error) {
 	raw, err := s.client.Do(ctx, "FT.INFO", s.indexName).Result()
 	if err != nil {
@@ -109,6 +111,7 @@ func (s *Store) verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -123,6 +126,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 	if err := b.ValidateFor(s.space); err != nil {
 		return err
@@ -195,6 +199,7 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 	}
 	return nil
 }
+
 func (s *Store) queryPrefix(p filter.Predicate) (string, error) {
 	if p == nil {
 		return "*", nil
@@ -208,6 +213,7 @@ func (s *Store) queryPrefix(p filter.Predicate) (string, error) {
 	}
 	return "(@" + termsField + ":{" + hex.EncodeToString([]byte(t)) + "})", nil
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -220,9 +226,11 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.rank(ctx, q, nil)
 }
+
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, b vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -237,6 +245,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, b vectors
 	defer meter.Close()
 	return s.rank(meter.Context(), q, &scanGrant{meter: meter, grant: b})
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scanGrant) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

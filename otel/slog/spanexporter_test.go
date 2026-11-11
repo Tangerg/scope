@@ -21,12 +21,14 @@ type captureHandler struct {
 }
 
 func (c *captureHandler) Enabled(context.Context, stdslog.Level) bool { return true }
+
 func (c *captureHandler) Handle(_ context.Context, r stdslog.Record) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.records = append(c.records, r.Clone())
 	return nil
 }
+
 func (c *captureHandler) WithAttrs([]stdslog.Attr) stdslog.Handler { return c }
 func (c *captureHandler) WithGroup(string) stdslog.Handler         { return c }
 

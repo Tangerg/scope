@@ -157,9 +157,11 @@ type staleDeleteHook struct {
 }
 
 func (s *staleDeleteHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
 func (s *staleDeleteHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
 	return next
 }
+
 func (s *staleDeleteHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
 	return func(ctx context.Context, command goredis.Cmder) error {
 		if command.Name() == "eval" && command.Args()[1] == deleteObservedMetadata && s.once.CompareAndSwap(false, true) {

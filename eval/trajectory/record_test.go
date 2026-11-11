@@ -28,6 +28,7 @@ func TestToolOutcomeReadsTheCommittedSettlement(t *testing.T) {
 type approvalWeatherTool struct{}
 
 func (approvalWeatherTool) Definition() tool.Definition { return fixtureWeatherTool{}.Definition() }
+
 func (approvalWeatherTool) Call(_ context.Context, input tool.Invocation) (tool.Result, error) {
 	if continuation, present := input.Continuation(); present {
 		if string(continuation.Response()) != "true" {
@@ -99,6 +100,7 @@ func TestInputRequiredContinuationUsesTheOriginalEffectIdentity(t *testing.T) {
 type uncertainWeatherTool struct{}
 
 func (uncertainWeatherTool) Definition() tool.Definition { return fixtureWeatherTool{}.Definition() }
+
 func (uncertainWeatherTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	failure, err := tool.NewCallError(tool.CallErrorConfig{Cause: errors.New("tool acknowledgment lost"), Evidence: tool.NewTextOutput("unconfirmed weather evidence")})
 	if err != nil {

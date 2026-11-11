@@ -14,16 +14,20 @@ type validatingCapabilities struct{}
 func (validatingCapabilities) Upsert(_ context.Context, b *vectorstore.Batch) error {
 	return b.ValidateFor("fixture")
 }
+
 func (validatingCapabilities) Query(_ context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor("fixture"); err != nil {
 		return nil, err
 	}
 	return &vectorstore.SearchResponse{}, nil
 }
+
 func (validatingCapabilities) DeleteIDs(context.Context, []string) error { return nil }
+
 func (validatingCapabilities) DeleteWhere(context.Context, filter.Predicate) error {
 	return vectorstore.ErrMissingFilter
 }
+
 func TestRun(t *testing.T) {
 	storetest.Run(t, validatingCapabilities{}, storetest.Capabilities{
 		Upserter: true, Querier: true, IDDeleter: true, FilterDeleter: true,

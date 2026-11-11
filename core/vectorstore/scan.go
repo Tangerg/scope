@@ -69,6 +69,7 @@ func (s ScanBudget) Begin(ctx context.Context) (*ScanMeter, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.Timeout)
 	return &ScanMeter{ctx: ctx, cancel: cancel, records: s.MaxRecords, bytes: s.MaxBytes}, nil
 }
+
 func (s *ScanMeter) Context() context.Context { return s.ctx }
 func (s *ScanMeter) Close()                   { s.cancel() }
 

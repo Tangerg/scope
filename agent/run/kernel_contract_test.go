@@ -96,9 +96,11 @@ func (hostileError) Unwrap() error { panic("host error traversal") }
 type hostileStore struct{}
 
 func (hostileStore) Append(context.Context, Batch) error { return hostileError{} }
+
 func (hostileStore) Load(context.Context, ProcessID) (Log, bool, error) {
 	return Log{}, false, nil
 }
+
 func (hostileStore) Read(context.Context, ProcessID, LSN) iter.Seq2[Entry, error] {
 	return func(func(Entry, error) bool) {}
 }

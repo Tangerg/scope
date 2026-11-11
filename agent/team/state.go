@@ -119,6 +119,7 @@ func (e executionState) unapplied() bool {
 	}
 	return false
 }
+
 func (e executionState) taskIndex() map[run.ChildKey]*taskState {
 	tasks := make(map[run.ChildKey]*taskState, len(e.Tasks))
 	for index := range e.Tasks {
@@ -127,6 +128,7 @@ func (e executionState) taskIndex() map[run.ChildKey]*taskState {
 	}
 	return tasks
 }
+
 func (e executionState) validate(ctx context.Context, definition *definition) error {
 	if err := ctx.Err(); err != nil {
 		return err

@@ -64,6 +64,7 @@ func validID(id string) error {
 	}
 	return nil
 }
+
 func (b *boundScope) authorize(id string) error {
 	if err := validID(id); err != nil {
 		return err

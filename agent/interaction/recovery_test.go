@@ -63,12 +63,15 @@ func (t *toolSettlementBarrier) Append(ctx context.Context, batch run.Batch) err
 		return ctx.Err()
 	}
 }
+
 func (t *toolSettlementBarrier) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return t.store.Load(ctx, root)
 }
+
 func (t *toolSettlementBarrier) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return t.store.Read(ctx, root, after)
 }
+
 func (t *toolSettlementBarrier) stop() { t.once.Do(func() { close(t.release) }) }
 
 func TestToolSettlementCrashRespectsCommittedOutcomeAndIdempotency(t *testing.T) {

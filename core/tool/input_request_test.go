@@ -16,6 +16,7 @@ type confirmingTool struct{}
 func (confirmingTool) Definition() tool.Definition {
 	return tool.Definition{Name: "confirm", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
+
 func (confirmingTool) Call(_ context.Context, invocation tool.Invocation) (tool.Result, error) {
 	if continuation, resumed := invocation.Continuation(); resumed {
 		return tool.Result{Output: tool.NewTextOutput(string(continuation.State()) + ":" + string(continuation.Response()))}, nil

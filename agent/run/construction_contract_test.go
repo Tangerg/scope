@@ -92,6 +92,7 @@ type defectiveDefinition struct {
 
 func (d *defectiveDefinition) Descriptor() Descriptor                   { return d.descriptor }
 func (*defectiveDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
+
 func (d *defectiveDefinition) Start(Payload) (Execution, error) {
 	switch d.mode {
 	case startReturnsNil:
@@ -102,6 +103,7 @@ func (d *defectiveDefinition) Start(Payload) (Execution, error) {
 		return &defectiveExecution{mode: d.mode}, nil
 	}
 }
+
 func (d *defectiveDefinition) Restore(context.Context, ExecutionState) (Execution, error) {
 	switch d.mode {
 	case restoreReturnsNil:
@@ -120,6 +122,7 @@ type defectiveExecution struct{ mode initializationDefect }
 func (*defectiveExecution) Step(context.Context, Turn) (Transition, error) {
 	return Complete(0, controlValue(EncodePayload(0)))
 }
+
 func (d *defectiveExecution) Snapshot() (ExecutionState, error) {
 	switch d.mode {
 	case snapshotInvalid:

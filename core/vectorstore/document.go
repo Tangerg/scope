@@ -15,6 +15,7 @@ func ValidateDocument(doc *document.Document) error {
 	}
 	return validatePresentDocument(doc)
 }
+
 func validatePresentDocument(doc *document.Document) error {
 	if err := doc.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDocument, err)
@@ -44,6 +45,7 @@ func ValidateDocuments(docs []*document.Document) error {
 	}
 	return nil
 }
+
 func uniqueID(seen map[string]int, id string, i int) error {
 	if first, ok := seen[id]; ok {
 		return fmt.Errorf("%w: %w %q at positions %d and %d", ErrInvalidRequest, ErrDuplicateDocumentID, id, first, i)

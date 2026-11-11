@@ -25,6 +25,7 @@ func TestPricingThresholdIsExclusive(t *testing.T) {
 		}
 	}
 }
+
 func TestGeminiPricingBoundary(t *testing.T) {
 	model, ok := catalog.LookupModel("google", "gemini-2.5-pro")
 	if !ok {

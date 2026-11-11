@@ -23,6 +23,7 @@ func (d Delta) Epoch() Epoch             { return d.epoch }
 func (d Delta) EffectSequence() uint64   { return d.sequence }
 func (d Delta) EmittedAt() time.Time     { return d.emittedAt }
 func (d Delta) Payload() json.RawMessage { return d.payload.JSON() }
+
 func (d Delta) Valid() bool {
 	return d.effect.Valid() && d.epoch > 0 && d.sequence > 0 && d.payload.Valid()
 }

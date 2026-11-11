@@ -52,6 +52,7 @@ func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *tr
 }
 
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }
+
 func (t *treeRuntime) failureError() error {
 	t.mu.RLock()
 	cause := t.failure

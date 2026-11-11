@@ -240,6 +240,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return nil
 }
+
 func (s *Store) narrow(values []float64) ([]float32, error) {
 	if len(values) != s.dimensions {
 		return nil, fmt.Errorf("%w: %d coordinates for ClickHouse width %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
@@ -354,6 +355,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return nil
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -447,6 +449,7 @@ func (s *Store) deleteSelected(transaction *nativeTransaction, ids []string) err
 	}
 	return nil
 }
+
 func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
 	if len(ids) == 0 {
 		return nil

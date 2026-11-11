@@ -42,6 +42,7 @@ func validIdentity(value string) bool {
 func (i identity) String() string { return i.value }
 func (i identity) Valid() bool    { return i.value != "" }
 func (i identity) IsZero() bool   { return !i.Valid() }
+
 func (i identity) MarshalText() ([]byte, error) {
 	if !i.Valid() {
 		return nil, ErrInvalidIdentity
@@ -69,6 +70,7 @@ func (p ProcessID) String() string { return p.path }
 func (p ProcessID) compare(other ProcessID) int { return strings.Compare(p.path, other.path) }
 func (p ProcessID) Valid() bool                 { return p.path != "" }
 func (p ProcessID) IsZero() bool                { return !p.Valid() }
+
 func (p ProcessID) Root() ProcessID {
 	root, _, _ := strings.Cut(p.path, "/")
 	return ProcessID{path: root}
@@ -91,6 +93,7 @@ func (p ProcessID) Key() (ChildKey, bool) {
 }
 
 func (p ProcessID) Depth() uint32 { return uint32(strings.Count(p.path, "/")) }
+
 func (p ProcessID) Child(key ChildKey) (ProcessID, error) {
 	if !p.Valid() || !key.Valid() {
 		return ProcessID{}, ErrInvalidIdentity
@@ -224,6 +227,7 @@ func (e EffectID) Precedes(other EffectID) bool {
 	}
 	return e.Step < other.Step || e.Step == other.Step && e.Index < other.Index
 }
+
 func (e EffectID) String() string {
 	if !e.Valid() {
 		return ""

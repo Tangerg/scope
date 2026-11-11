@@ -94,6 +94,7 @@ func (s *Store) readSchema(ctx context.Context) (indexSchema, error) {
 	}
 	return newIndexSchema(output.Index, s.vectorBucketName, s.indexName, s.space)
 }
+
 func (s *Store) checkBinding(ctx context.Context) error {
 	got, err := s.readSchema(ctx)
 	if err != nil {
@@ -275,6 +276,7 @@ func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) e
 	}
 	return nil
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -284,6 +286,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.checkBinding(ctx)
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

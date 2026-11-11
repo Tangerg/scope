@@ -77,6 +77,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(wireRecord(r))
 }
+
 func (r *Record) UnmarshalJSON(data []byte) error {
 	if r == nil {
 		return ErrInvalidRequest
@@ -178,6 +179,7 @@ func (b Batch) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(wireBatch(b))
 }
+
 func (b *Batch) UnmarshalJSON(data []byte) error {
 	if b == nil {
 		return ErrInvalidRequest
@@ -200,6 +202,7 @@ func (q Query) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(wireQuery(q))
 }
+
 func (q *Query) UnmarshalJSON(data []byte) error {
 	if q == nil {
 		return ErrInvalidRequest

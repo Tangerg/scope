@@ -73,6 +73,7 @@ func (t Trajectory) MarshalJSON() ([]byte, error) {
 	}
 	return jsonv2.Marshal(Config{Log: t.log, Coverage: t.coverage})
 }
+
 func (t *Trajectory) UnmarshalJSON(data []byte) error {
 	if t == nil {
 		return ErrInvalidTrajectory
@@ -95,12 +96,15 @@ func (t Trajectory) Log() (run.Log, error) {
 	}
 	return t.log.Clone()
 }
+
 func (t Trajectory) RootProcessID() run.ProcessID { return t.log.Root }
 func (t Trajectory) Coverage() *Coverage          { return t.coverage.clone() }
+
 func (t Trajectory) Termination() run.Termination {
 	root, _ := t.inspection.Process(t.log.Root)
 	return root.Termination
 }
+
 func (t Trajectory) Elapsed() (time.Duration, bool) {
 	root, ok := t.inspection.Process(t.log.Root)
 	if !ok || root.StartedAt.IsZero() || root.FinishedAt.IsZero() || root.FinishedAt.Before(root.StartedAt) {
@@ -108,10 +112,12 @@ func (t Trajectory) Elapsed() (time.Duration, bool) {
 	}
 	return root.FinishedAt.Sub(root.StartedAt), true
 }
+
 func (t Trajectory) RootUsage() run.Usage {
 	root, _ := t.inspection.Process(t.log.Root)
 	return root.Usage
 }
+
 func (t Trajectory) ModelCalls() []ModelCall {
 	calls := make([]ModelCall, 0, len(t.calls.models))
 	for _, call := range t.calls.models {
@@ -120,6 +126,7 @@ func (t Trajectory) ModelCalls() []ModelCall {
 	slices.SortFunc(calls, func(left, right ModelCall) int { return compareEffects(left.EffectID, right.EffectID) })
 	return calls
 }
+
 func (t Trajectory) ToolCalls() []ToolCall {
 	calls := make([]ToolCall, 0, len(t.calls.tools))
 	for _, call := range t.calls.tools {

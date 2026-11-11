@@ -24,6 +24,7 @@ type Grant struct {
 	StartID run.StartID
 	Session string
 }
+
 type Config[I, O any] struct {
 	Runtime       *run.Runtime
 	Program       run.Program[I, O]

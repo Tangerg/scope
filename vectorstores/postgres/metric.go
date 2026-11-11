@@ -22,6 +22,7 @@ func (d DistanceMetric) Valid() bool {
 	operator, _ := d.nativeProjection()
 	return operator != ""
 }
+
 func (d DistanceMetric) String() string { return string(d) }
 
 // Operator returns the pgwire distance operator and panics for an invalid metric.
@@ -32,6 +33,7 @@ func (d DistanceMetric) Operator() string {
 	}
 	return operator
 }
+
 func (d DistanceMetric) Score(value float64) (vectorstore.Score, error) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, errors.New("postgres: non-finite native distance")
@@ -50,6 +52,7 @@ func (d DistanceMetric) Score(value float64) (vectorstore.Score, error) {
 	}
 	return 0, errors.New("postgres: invalid native distance metric")
 }
+
 func (d DistanceMetric) Vector(values []float64, width int) (pgvec.Vector, error) {
 	if !d.Valid() {
 		return pgvec.Vector{}, errors.New("postgres: invalid native distance metric")

@@ -31,6 +31,7 @@ func (r *responseTransportProbe) RoundTrip(request *http.Request) (*http.Respons
 	r.calls++
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: r.body, Request: request}, nil
 }
+
 func TestNativeValidationKeepsSDKBodyOwnership(t *testing.T) {
 	body := &responseBodyProbe{Reader: bytes.NewReader([]byte(`{"embeddings":{"float":[[null,1]]}}`))}
 	transport := &responseTransportProbe{body: body}
@@ -44,6 +45,7 @@ func TestNativeValidationKeepsSDKBodyOwnership(t *testing.T) {
 		t.Fatalf("error=%v requests=%d closes=%d", err, transport.calls, body.closed)
 	}
 }
+
 func TestNativeBodyCloseDelegatesBeforeRead(t *testing.T) {
 	body := &responseBodyProbe{Reader: bytes.NewReader(nil)}
 	wrapped := &nativeResponseBody{source: body, embedding: true}

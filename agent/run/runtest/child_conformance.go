@@ -252,13 +252,17 @@ func newChildDefinition(t *testing.T, child run.Program[run.Payload, run.Payload
 	}
 	return &childDefinition{descriptor: descriptor, child: child, duplicate: duplicate}
 }
+
 func (c *childDefinition) Descriptor() run.Descriptor { return c.descriptor }
+
 func (c *childDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return []run.Program[run.Payload, run.Payload]{c.child}
 }
+
 func (c *childDefinition) Start(input run.Payload) (run.Execution, error) {
 	return &childExecution{definition: c, state: childState{Input: input}}, nil
 }
+
 func (c *childDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[childState]("runtest.child")
 	if err != nil {
@@ -334,6 +338,7 @@ func (c *childExecution) Step(_ context.Context, turn run.Turn) (run.Transition,
 	}
 	return run.Yield(consumed, nil)
 }
+
 func (c *childExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("runtest.child", c.state)
 }

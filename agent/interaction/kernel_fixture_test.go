@@ -12,6 +12,7 @@ func testTurn(step uint64) run.Turn {
 	process, _ := run.ParseProcessID("interaction-test")
 	return run.Turn{Process: process, Step: step}
 }
+
 func newInputRequest(prompt, schema, state json.RawMessage) (tool.InputRequest, error) {
 	contract, err := jsonschema.Parse(schema)
 	if err != nil {

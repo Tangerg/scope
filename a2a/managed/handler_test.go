@@ -27,10 +27,12 @@ type definition struct{ descriptor run.Descriptor }
 
 func (d definition) Descriptor() run.Descriptor                             { return d.descriptor }
 func (d definition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (d definition) Start(p run.Payload) (run.Execution, error) {
 	text, err := p.Decode[string]()
 	return &execution{Text: text}, err
 }
+
 func (d definition) Restore(_ context.Context, s run.ExecutionState) (run.Execution, error) {
 	v, err := s.Decode[execution](d.descriptor.Name())
 	return &v, err
@@ -44,6 +46,7 @@ type execution struct {
 func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.remote", e)
 }
+
 func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	switch {
 	case e.Text == "ask" && e.Phase == 0:
@@ -94,12 +97,14 @@ type dispatch struct {
 func (d *dispatch) Policy(run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
+
 func (d *dispatch) Dispatch(ctx context.Context, _ run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
 	d.calls.Add(1)
 	close(d.entered)
 	<-d.release
 	return run.NewSettlement(run.SettlementStatusSucceeded, json.RawMessage(`"returned"`))
 }
+
 func program(t *testing.T, compiler *run.Compiler, d *dispatch) run.Program[run.Payload, run.Payload] {
 	t.Helper()
 	s, err := jsonschema.For[string]()
@@ -167,9 +172,11 @@ func rpc(t *testing.T, s *httptest.Server, scope, method string, params any) env
 	}
 	return e
 }
+
 func message(id, text string) map[string]any {
 	return map[string]any{"messageId": id, "role": "ROLE_USER", "parts": []any{map[string]string{"text": text}}}
 }
+
 func send(t *testing.T, s *httptest.Server, m map[string]any, now bool) *sdk.Task {
 	t.Helper()
 	e := rpc(t, s, "alice", "SendMessage", map[string]any{"message": m, "configuration": map[string]bool{"returnImmediately": now}})
@@ -184,6 +191,7 @@ func send(t *testing.T, s *httptest.Server, m map[string]any, now bool) *sdk.Tas
 	}
 	return result.Task
 }
+
 func read(t *testing.T, s *httptest.Server, method string, id sdk.TaskID) *sdk.Task {
 	t.Helper()
 	e := rpc(t, s, "alice", method, map[string]any{"id": id})
@@ -196,6 +204,7 @@ func read(t *testing.T, s *httptest.Server, method string, id sdk.TaskID) *sdk.T
 	}
 	return &task
 }
+
 func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 	store := run.NewMemoryStore()
 	owner, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
@@ -269,6 +278,7 @@ func TestWireTaskReadsAndWaitRepliesDoNotAcquireAnotherWriter(t *testing.T) {
 		}
 	}
 }
+
 func TestWireCancellationIsAnIntentUntilExternalCallReturns(t *testing.T) {
 	store := run.NewMemoryStore()
 	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: store})
@@ -419,6 +429,7 @@ func TestWireStreamingReconnectDoesNotReplayAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestRejectedMediaPrecedesDurableAdmission(t *testing.T) {
 	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: run.NewMemoryStore()})
 	if err != nil {
@@ -452,6 +463,7 @@ func (s signed) RoundTrip(req *http.Request) (*http.Response, error) {
 	r.Header.Set("X-Test-Principal", "alice")
 	return s.base.RoundTrip(r)
 }
+
 func TestScopeRemoteToolCompletesTheManagedProtocolWait(t *testing.T) {
 	rt, err := run.New(t.Context(), run.Config{Build: "managed-test", Store: run.NewMemoryStore()})
 	if err != nil {

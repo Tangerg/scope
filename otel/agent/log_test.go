@@ -53,6 +53,7 @@ type testDefinition struct{ descriptor run.Descriptor }
 func (t testDefinition) Descriptor() run.Descriptor                             { return t.descriptor }
 func (t testDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 func (t testDefinition) Start(run.Payload) (run.Execution, error)               { return &testExecution{}, nil }
+
 func (t testDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[testExecution](t.descriptor.Name())
 	return &value, err
@@ -65,6 +66,7 @@ type testExecution struct {
 func (t *testExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.otel", t)
 }
+
 func (t *testExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !t.Called {
 		t.Called = true
@@ -90,6 +92,7 @@ type testDispatcher struct{ err error }
 func (t testDispatcher) Policy(run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }
+
 func (t testDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	if t.err != nil {
 		return run.Settlement{}, t.err
@@ -217,6 +220,7 @@ type recordedSource struct {
 }
 
 func (r recordedSource) ID() run.ProcessID { return r.root }
+
 func (r recordedSource) Observe(_ context.Context, after run.LSN) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		for _, entry := range r.entries {
@@ -273,6 +277,7 @@ type blockedSource struct {
 }
 
 func (b blockedSource) ID() run.ProcessID { return b.root }
+
 func (b blockedSource) Observe(ctx context.Context, _ run.LSN) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) { close(b.entered); <-ctx.Done(); yield(run.Entry{}, ctx.Err()) }
 }
@@ -301,10 +306,12 @@ type rejectedStore struct {
 }
 
 func (r *rejectedStore) Append(context.Context, run.Batch) error { r.appends++; return r.cause }
+
 func (r *rejectedStore) Load(context.Context, run.ProcessID) (run.Log, bool, error) {
 	r.loads++
 	return run.Log{}, false, r.cause
 }
+
 func (r *rejectedStore) Read(context.Context, run.ProcessID, run.LSN) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		r.reads++

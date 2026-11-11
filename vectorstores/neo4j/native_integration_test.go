@@ -86,9 +86,11 @@ func fixtureVector(text string) []float64 {
 	}
 	return vector
 }
+
 func (n *nativeFixture) config(metric SimilarityFunction, initialize bool) StoreConfig {
 	return StoreConfig{Driver: n.driver, Label: n.label, Space: fixtureSpace, Dimensions: 2, Similarity: metric, InitializeSchema: initialize}
 }
+
 func (n *nativeFixture) store(t *testing.T, metric SimilarityFunction) *Store {
 	t.Helper()
 	store, err := NewStore(t.Context(), n.config(metric, true))
@@ -97,6 +99,7 @@ func (n *nativeFixture) store(t *testing.T, metric SimilarityFunction) *Store {
 	}
 	return store
 }
+
 func (n *nativeFixture) query(ctx context.Context, query string, params map[string]any) (records []*native.Record, err error) {
 	session := n.driver.NewSession(ctx, native.SessionConfig{})
 	defer func() {
@@ -110,12 +113,14 @@ func (n *nativeFixture) query(ctx context.Context, query string, params map[stri
 	}
 	return result.Collect(ctx)
 }
+
 func (n *nativeFixture) clear(t *testing.T) {
 	t.Helper()
 	if _, err := n.query(t.Context(), "MATCH (n:"+quoteIdentifier(n.label)+") DETACH DELETE n", nil); err != nil {
 		t.Fatal(err)
 	}
 }
+
 func (n *nativeFixture) ids(t *testing.T) []string {
 	t.Helper()
 	records, err := n.query(t.Context(), "MATCH (n:"+quoteIdentifier(n.label)+") RETURN n.id AS id", nil)
@@ -146,6 +151,7 @@ func nativeIndex(t *testing.T, store *Store, docs ...*document.Document) {
 		t.Fatal(err)
 	}
 }
+
 func nativePredicate(t *testing.T, source string) filter.Predicate {
 	t.Helper()
 	predicate, err := filter.Parse(source)

@@ -34,6 +34,7 @@ func Runtime(t testing.TB, config run.Config) *run.Runtime {
 	})
 	return runtime
 }
+
 func Compiler(t testing.TB) *run.Compiler { t.Helper(); return Runtime(t, run.Config{}).Compiler() }
 
 func Run(t *testing.T, binding run.BindingConfig, config run.Config, input run.Payload) run.Result[run.Payload] {
@@ -72,9 +73,11 @@ type recordingDefinition struct {
 }
 
 func (r *recordingDefinition) Descriptor() run.Descriptor { return r.definition.Descriptor() }
+
 func (r *recordingDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return r.definition.ChildPrograms()
 }
+
 func (r *recordingDefinition) Start(input run.Payload) (run.Execution, error) {
 	execution, err := r.definition.Start(input)
 	if err != nil {
@@ -82,6 +85,7 @@ func (r *recordingDefinition) Start(input run.Payload) (run.Execution, error) {
 	}
 	return &recordingExecution{execution: execution, recorder: r}, nil
 }
+
 func (r *recordingDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	execution, err := r.definition.Restore(ctx, state)
 	if err != nil {
@@ -89,12 +93,14 @@ func (r *recordingDefinition) Restore(ctx context.Context, state run.ExecutionSt
 	}
 	return &recordingExecution{execution: execution, recorder: r}, nil
 }
+
 func (r *recordingDefinition) record(state run.ExecutionState, turn run.Turn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	turn.Messages = slices.Clone(turn.Messages)
 	r.cases = append(r.cases, runtest.ExecutionConformanceCase{Name: fmt.Sprintf("step_%d", turn.Step), State: state, Turn: turn})
 }
+
 func (r *recordingDefinition) recordedCases() []runtest.ExecutionConformanceCase {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -107,6 +113,7 @@ type recordingExecution struct {
 }
 
 func (r *recordingExecution) Snapshot() (run.ExecutionState, error) { return r.execution.Snapshot() }
+
 func (r *recordingExecution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	state, err := r.execution.Snapshot()
 	if err != nil {

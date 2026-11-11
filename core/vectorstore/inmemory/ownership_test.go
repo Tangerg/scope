@@ -23,6 +23,7 @@ func TestIndexSnapshot(t *testing.T) {
 		t.Fatalf("stored text changed without Index: %q", r.Results[0].Document.Text)
 	}
 }
+
 func TestSearchSnapshot(t *testing.T) {
 	s := newStore(t)
 	d := &document.Document{ID: "one", Text: "original"}
@@ -43,6 +44,7 @@ func TestSearchSnapshot(t *testing.T) {
 		t.Fatalf("stored text changed through result: %q", next.Results[0].Document.Text)
 	}
 }
+
 func TestStableTies(t *testing.T) {
 	s := newStore(t)
 	ds := make([]*document.Document, 16)

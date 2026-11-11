@@ -19,6 +19,7 @@ func (d DelegateAttribution) ToolCall() chat.ToolCall         { return d.toolCal
 func (d DelegateAttribution) ChildKey() run.ChildKey          { key, _ := d.processID.Key(); return key }
 func (d DelegateAttribution) ProcessID() run.ProcessID        { return d.processID }
 func (d DelegateAttribution) Reference() (run.EffectID, bool) { return d.reference, d.Valid() }
+
 func (d DelegateAttribution) Valid() bool {
 	parent, child := d.processID.Parent()
 	return child && parent == d.reference.Process && d.reference.Valid() && d.modelCallSequence > 0 && d.toolCall.Validate() == nil

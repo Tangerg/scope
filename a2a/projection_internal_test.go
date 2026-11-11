@@ -16,6 +16,7 @@ func requireText(t *testing.T, parts sdka2a.ContentParts) string {
 	}
 	return s
 }
+
 func TestTextBoundaryRejectsLossyConversions(t *testing.T) {
 	for _, part := range []*sdka2a.Part{sdka2a.NewDataPart(map[string]any{"cost": 42}), sdka2a.NewFileURLPart("https://example.com/a", "image/png"), sdka2a.NewRawPart([]byte{0xff}), {Content: sdka2a.Text("body"), Filename: "header"}} {
 		parts := sdka2a.ContentParts{sdka2a.NewTextPart("prefix"), part}

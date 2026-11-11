@@ -28,10 +28,13 @@ func (i *identifierConnection) Prepare(statement string) (driver.Stmt, error) {
 	i.statements = append(i.statements, statement)
 	return &writeStmt{}, nil
 }
+
 func (i *identifierConnection) Close() error { return nil }
+
 func (i *identifierConnection) Begin() (driver.Tx, error) {
 	return &transactionOutcome{fixture: &transactionFixture{}}, nil
 }
+
 func (i *identifierConnection) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
 	return i.Begin()
 }
@@ -40,6 +43,7 @@ func (i *identifierConnection) ExecContext(_ context.Context, statement string, 
 	i.statements = append(i.statements, statement)
 	return driver.RowsAffected(1), nil
 }
+
 func (i *identifierConnection) QueryContext(_ context.Context, statement string, args []driver.NamedValue) (driver.Rows, error) {
 	rows := func(columns []string, values ...driver.Value) driver.Rows {
 		return &resultRows{cols: columns, values: [][]driver.Value{values}}
@@ -68,6 +72,7 @@ func (i *identifierConnection) QueryContext(_ context.Context, statement string,
 		return rows([]string{"id", "metadata"}, []byte("one"), []byte(`{"tenant":"alpha"}`)), nil
 	}
 }
+
 func (i *identifierConnection) requireCatalogArguments(args []driver.NamedValue, want ...string) {
 	i.t.Helper()
 	var got []string
@@ -82,6 +87,7 @@ func (i *identifierConnection) requireCatalogArguments(args []driver.NamedValue,
 		i.t.Fatalf("catalog names = %q, want %q", got, want)
 	}
 }
+
 func (i *identifierConnection) assertStatements(want ...string) {
 	i.t.Helper()
 	got := make([]string, len(i.statements))

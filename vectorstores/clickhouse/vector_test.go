@@ -35,6 +35,7 @@ func TestVectorAdmissionNeedsNoDatabaseCall(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func TestLostInsertReceiptIsUnconfirmed(t *testing.T) {
 	s, m := mockStore(t)
 	m.ExpectBegin()
@@ -50,6 +51,7 @@ func TestLostInsertReceiptIsUnconfirmed(t *testing.T) {
 		t.Fatalf("evidence=%#v error=%v", failure, err)
 	}
 }
+
 func TestBudgetStopsAtomicDeleteBeforeMutation(t *testing.T) {
 	for _, bytes := range []bool{false, true} {
 		s, m := mockStore(t)

@@ -30,9 +30,11 @@ func (c conversationKeyspace) tagged(id history.ConversationID) string {
 func (c conversationKeyspace) messages(id history.ConversationID) string {
 	return c.tagged(id) + messagesSuffix
 }
+
 func (c conversationKeyspace) ledger(id history.ConversationID) string {
 	return c.tagged(id) + ledgerSuffix
 }
+
 func (c conversationKeyspace) pattern() string {
 	return scanPatternEscaper.Replace(c.prefix) + "{*}" + messagesSuffix
 }

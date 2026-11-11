@@ -68,6 +68,7 @@ func TestFormDoesNotReinterpretUnsupportedQuestions(t *testing.T) {
 		}
 	}
 }
+
 func TestExpiryAndOpaqueTokenAuthentication(t *testing.T) {
 	key := [32]byte{7}
 	signer, err := newIssuer(key, time.Minute)

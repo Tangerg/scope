@@ -16,6 +16,7 @@ import (
 )
 
 func revision(raw string) string { return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(raw))) }
+
 func TestNamedWholeTextAndMarkdownBindOriginalBytes(t *testing.T) {
 	raw := "  α\r\n"
 	for _, parse := range []func(context.Context) ([]*document.Document, error){
@@ -44,6 +45,7 @@ func TestNamedWholeTextAndMarkdownBindOriginalBytes(t *testing.T) {
 		}
 	}
 }
+
 func TestJSONUsesActualOffsetsForRepeatedValues(t *testing.T) {
 	raw := " \t[  \"同\" , \"同\", 1e400 ]\n"
 	r, err := etljson.NewReader(strings.NewReader(raw), etljson.ReaderConfig{SourceName: "data.json"})
@@ -63,6 +65,7 @@ func TestJSONUsesActualOffsetsForRepeatedValues(t *testing.T) {
 		last = p.Bytes.End
 	}
 }
+
 func TestMarkdownSectionsDoNotClaimRenderedByteOffsets(t *testing.T) {
 	raw := "# First\n\none\n\n# Second\n\ntwo\n"
 	facts := metadata.Map{}

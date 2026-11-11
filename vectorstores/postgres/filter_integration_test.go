@@ -89,6 +89,7 @@ func (n *nativeFixture) install(ctx context.Context, docs []*document.Document) 
 	}
 	return n.upsert(ctx, docs)
 }
+
 func (n *nativeFixture) upsert(ctx context.Context, docs []*document.Document) error {
 	records := make([]vectorstore.Record, len(docs))
 	for i, doc := range docs {
@@ -178,6 +179,7 @@ func TestLiveMetadataFilters(t *testing.T) {
 		})
 	}
 }
+
 func nativeDocuments(t *testing.T, values []any) []*document.Document {
 	t.Helper()
 	docs := make([]*document.Document, len(values))

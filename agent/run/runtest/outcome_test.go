@@ -22,9 +22,11 @@ type outcomeStore struct {
 func (o *outcomeStore) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, error) {
 	return o.store.Load(ctx, root)
 }
+
 func (o *outcomeStore) Read(ctx context.Context, root run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return o.store.Read(ctx, root, after)
 }
+
 func (o *outcomeStore) Append(ctx context.Context, batch run.Batch) error {
 	for _, record := range batch.Records {
 		if _, control := record.(run.ControlRequested); control && o.cancelError != nil {

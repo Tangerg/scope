@@ -40,13 +40,16 @@ func (c *contractResolver) Resolve(reference run.ProgramRef) (run.Program[run.Pa
 	}
 	return run.Program[run.Payload, run.Payload]{}, fmt.Errorf("unresolved test program: %v", reference)
 }
+
 func contractInteraction(compiler *run.Compiler, config interaction.Config, model chat.Model) run.Program[interaction.Input, interaction.Output] {
 	config.Model, config.Revision = interaction.CallModel(model), "contract"
 	return contractValue(interaction.Compile(compiler, config))
 }
+
 func contractText(text string) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart(text))), FinishReason: chat.FinishReasonStop}}
 }
+
 func contractToolCall(name, arguments string) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: "call", Name: name, Arguments: arguments}))), FinishReason: chat.FinishReasonToolCalls}}
 }

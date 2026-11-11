@@ -13,6 +13,7 @@ import (
 type costFunc func(context.Context, string) (int, error)
 
 func (c costFunc) CountText(ctx context.Context, text string) (int, error) { return c(ctx, text) }
+
 func TestBatchLimitsNeverWrapOrLoseAnItem(t *testing.T) {
 	input := []string{"A", "B", "zero", "C"}
 	cost := costFunc(func(_ context.Context, s string) (int, error) {

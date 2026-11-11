@@ -251,6 +251,7 @@ type panickingDispatcher struct{}
 func (panickingDispatcher) Dispatch(context.Context, run.EffectRequest, run.DeltaEmitter) (run.Settlement, error) {
 	panic("private dispatcher panic")
 }
+
 func (panickingDispatcher) Policy(run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicyNever}
 }

@@ -175,6 +175,7 @@ func codecProgram[I, O any](t *testing.T) run.Program[run.Payload, run.Payload] 
 	}
 	return mustProgram(t, codecDefinition{descriptor: descriptor}, "codec-child")
 }
+
 func codecBranches[I, O any](t *testing.T) []ForkBranch {
 	t.Helper()
 	return []ForkBranch{{ID: "child", Child: run.ChildBinding{Program: codecProgram[I, O](t), Budget: mustBudget(t)}}}
@@ -184,9 +185,11 @@ type codecDefinition struct{ descriptor run.Descriptor }
 
 func (c codecDefinition) Descriptor() run.Descriptor                           { return c.descriptor }
 func (codecDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (codecDefinition) Start(input run.Payload) (run.Execution, error) {
 	return codecExecution{input: input}, nil
 }
+
 func (codecDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -203,6 +206,7 @@ type codecExecution struct{ input run.Payload }
 func (c codecExecution) Snapshot() (run.ExecutionState, error) {
 	return run.ParseExecutionState("codec_child", c.input.JSON())
 }
+
 func (c codecExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err

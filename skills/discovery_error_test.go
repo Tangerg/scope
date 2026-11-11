@@ -26,7 +26,9 @@ func (f fixtureClosingFS) Open(name string) (fs.File, error) {
 	}
 	return file, nil
 }
+
 func (f fixtureClosingFile) Close() error { return errors.Join(f.File.Close(), errFixtureClose) }
+
 func TestListPreservesIOError(t *testing.T) {
 	fsys := fixtureClosingFS{testfs.FS{"demo/SKILL.md": &fstest.MapFile{Data: []byte("not frontmatter\n")}}}
 	r, err := skills.NewRepository(fsys, skills.RepositoryConfig{})

@@ -52,6 +52,7 @@ type policyProbe struct {
 }
 
 func (p policyProbe) Policy(effect Effect) EffectPolicy { return p.policy(effect) }
+
 func (p policyProbe) Dispatch(ctx context.Context, request EffectRequest, emitter DeltaEmitter) (Settlement, error) {
 	return p.dispatch(ctx, request, emitter)
 }

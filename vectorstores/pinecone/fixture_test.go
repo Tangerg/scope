@@ -181,6 +181,7 @@ func clonePoint(point *pineconesdk.Vector) *pineconesdk.Vector {
 const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
 func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -188,6 +189,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func (n *nativeFixture) DescribeIndex(context.Context, string) (*pineconesdk.Index, error) {
 	n.describes++
 	if n.describe != nil {
@@ -197,6 +199,7 @@ func (n *nativeFixture) DescribeIndex(context.Context, string) (*pineconesdk.Ind
 	idx.Schema.Fields[vectorField].DenseVector.Metric = n.metric
 	return idx, nil
 }
+
 func fixtureStore(t *testing.T) (*Store, *nativeFixture) {
 	t.Helper()
 	native := &nativeFixture{points: make(map[string]*pineconesdk.Vector), scores: make(map[string]float32), metric: pineconesdk.IndexMetricCosine}

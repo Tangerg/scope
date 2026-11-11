@@ -39,11 +39,14 @@ func (s scriptTool) Definition() tool.Definition {
 	}
 	return tool.Definition{Effect: effect, Name: s.name, Description: "Run the scripted operation.", InputSchema: json.RawMessage(objectToolSchema)}
 }
+
 func (s scriptTool) Call(ctx context.Context, input tool.Invocation) (tool.Result, error) {
 	return s.invoke(ctx, input)
 }
+
 func (s scriptTool) ReturnsDirectResult() bool                               { return s.direct }
 func (s scriptTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) { return s.classify }
+
 func (s scriptTool) AdvertiseDeferred(ctx context.Context, input tool.Invocation, result tool.Result) ([]string, error) {
 	if s.advertise == nil {
 		return nil, nil
@@ -57,12 +60,15 @@ func mustValue[T any](value T, err error) T {
 	}
 	return value
 }
+
 func testInput() Input {
 	return Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("work"))}}
 }
+
 func finalResponse(text string) *chat.Response {
 	return &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart(text))), FinishReason: chat.FinishReasonStop}}
 }
+
 func callResponse(calls ...chat.ToolCall) *chat.Response {
 	parts := make([]chat.Part, len(calls))
 	for index, call := range calls {
@@ -98,6 +104,7 @@ func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[
 	}
 	return program
 }
+
 func toolSetTest(t testing.TB, tools ...tool.Tool) ToolSet {
 	t.Helper()
 	set, err := NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: tools})
@@ -106,6 +113,7 @@ func toolSetTest(t testing.TB, tools ...tool.Tool) ToolSet {
 	}
 	return set
 }
+
 func startInteraction(t *testing.T, runtime *run.Runtime, program run.Program[Input, Output]) *run.Handle[Output] {
 	t.Helper()
 	handle, err := runtime.Start(t.Context(), program, run.StartRequest[Input]{ID: run.StartID{Scope: "test", Key: strings.ReplaceAll(t.Name(), "/", "-")}, Input: testInput()})
@@ -114,6 +122,7 @@ func startInteraction(t *testing.T, runtime *run.Runtime, program run.Program[In
 	}
 	return handle
 }
+
 func awaitOutput(t *testing.T, handle *run.Handle[Output]) Output {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
@@ -128,6 +137,7 @@ func awaitOutput(t *testing.T, handle *run.Handle[Output]) Output {
 	}
 	return output
 }
+
 func awaitLog(t *testing.T, store run.Store, root run.ProcessID, accept func(run.Log) bool) run.Log {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), interactionTestTimeout)
@@ -150,6 +160,7 @@ func awaitLog(t *testing.T, store run.Store, root run.ProcessID, accept func(run
 		}
 	}
 }
+
 func completedLog(t *testing.T, store run.Store, root run.ProcessID) run.Log {
 	t.Helper()
 	log, found, err := readHistory(t.Context(), store, root)

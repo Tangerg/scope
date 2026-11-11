@@ -134,9 +134,11 @@ func TestStoreRejectsImplicitKeyspaceEnumeration(t *testing.T) {
 type scanHook struct{ scanner keyScanner }
 
 func (s scanHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
 func (s scanHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
 	return next
 }
+
 func (s scanHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
 	return func(ctx context.Context, command goredis.Cmder) error {
 		if command.Name() == "eval" && command.Args()[len(command.Args())-1] == operationVisible {

@@ -102,6 +102,7 @@ func TestContractNormalizesBlankArgumentsToEmptyObject(t *testing.T) {
 type definitionTool struct{ definition tool.Definition }
 
 func (d definitionTool) Definition() tool.Definition { return d.definition }
+
 func (definitionTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	return tool.Result{}, nil
 }

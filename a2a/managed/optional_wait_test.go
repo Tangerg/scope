@@ -24,12 +24,15 @@ type unconstrainedWaitDefinition struct {
 }
 
 func (u unconstrainedWaitDefinition) Descriptor() run.Descriptor { return u.descriptor }
+
 func (u unconstrainedWaitDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return nil
 }
+
 func (u unconstrainedWaitDefinition) Start(run.Payload) (run.Execution, error) {
 	return &unconstrainedWaitExecution{IncludeQuestion: u.includeQuestion}, nil
 }
+
 func (u unconstrainedWaitDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[unconstrainedWaitExecution](unconstrainedWaitKind)
 	return &value, err
@@ -43,6 +46,7 @@ type unconstrainedWaitExecution struct {
 func (u *unconstrainedWaitExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(unconstrainedWaitKind, u)
 }
+
 func (u *unconstrainedWaitExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if !u.Waiting {
 		u.Waiting = true

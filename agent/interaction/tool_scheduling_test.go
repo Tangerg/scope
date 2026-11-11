@@ -128,16 +128,19 @@ type inputValidatorTool struct {
 func (i inputValidatorTool) Definition() tool.Definition {
 	return tool.Definition{Name: "checked", Description: "Validate inputs before effects.", InputSchema: []byte(objectToolSchema)}
 }
+
 func (i inputValidatorTool) Call(context.Context, tool.Invocation) (tool.Result, error) {
 	i.called.Store(true)
 	return tool.Result{Output: tool.NewTextOutput("must not execute")}, nil
 }
+
 func (i inputValidatorTool) InputValidator() func([]byte) error {
 	if i.validate != nil {
 		return i.validate
 	}
 	return func([]byte) error { panic("private-validator-detail") }
 }
+
 func (i inputValidatorTool) ConcurrencyPolicy() func(tool.Invocation) (string, bool) {
 	return func(tool.Invocation) (string, bool) { return "", true }
 }

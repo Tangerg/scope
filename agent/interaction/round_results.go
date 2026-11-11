@@ -24,6 +24,7 @@ const (
 func (r ResultDisposition) Valid() bool {
 	return r == ResultSucceeded || r == ResultFailed || r == ResultRejected
 }
+
 func (r ResultDisposition) String() string {
 	if !r.Valid() {
 		return invalidEnumName
@@ -46,13 +47,16 @@ func (r RoundResults) ProcessID() run.ProcessID    { return r.model.Process }
 func (r RoundResults) ModelEffectID() run.EffectID { return r.model }
 func (r RoundResults) ModelCallSequence() uint64   { return r.sequence }
 func (r RoundResults) CallCount() uint32           { return uint32(len(r.calls)) }
+
 func (r RoundResults) Reference(index uint32) (run.EffectID, bool) {
 	reference, found := r.references[index]
 	return reference, found
 }
+
 func (r RoundResults) Complete() bool        { return len(r.calls) > 0 && len(r.entries) == len(r.calls) }
 func (r RoundResults) JSON() json.RawMessage { return bytes.Clone(r.data) }
 func (r RoundResults) Digest() run.Digest    { return run.ComputeDigest(r.data) }
+
 func (r RoundResults) Entries() []ResultEntry {
 	entries := slices.Clone(r.entries)
 	for index := range entries {
@@ -60,6 +64,7 @@ func (r RoundResults) Entries() []ResultEntry {
 	}
 	return entries
 }
+
 func (r *RoundResults) seal() error {
 	slices.SortFunc(r.entries, func(left, right ResultEntry) int { return int(left.ToolCallIndex) - int(right.ToolCallIndex) })
 	data, err := jsonv2.Marshal(roundResultsWire{Model: r.model, Sequence: r.sequence, CallCount: uint32(len(r.calls)), Entries: r.entries}, jsonv2.Deterministic(true))
@@ -69,6 +74,7 @@ func (r *RoundResults) seal() error {
 	r.data = data
 	return nil
 }
+
 func (r *RoundResults) result(index uint32, result toolCallResult) error {
 	if int(index) >= len(r.calls) {
 		return ErrInvalidResult
@@ -138,6 +144,7 @@ type ResultEntry struct {
 	Result        chat.ToolResult   `json:"result"`
 	Disposition   ResultDisposition `json:"disposition"`
 }
+
 type roundResultsWire struct {
 	Model     run.EffectID  `json:"model"`
 	Sequence  uint64        `json:"model_call_sequence"`

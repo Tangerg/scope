@@ -60,6 +60,7 @@ func (s *Store) readSchema(ctx context.Context) (nativeSchema, error) {
 	err = schema.read(info)
 	return schema, err
 }
+
 func (s *Store) verifyCollection(ctx context.Context) error {
 	schema, err := s.readSchema(ctx)
 	if err != nil {
@@ -128,6 +129,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err

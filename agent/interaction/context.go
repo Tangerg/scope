@@ -33,4 +33,5 @@ type ContextFailure struct{ Cause error }
 func (c *ContextFailure) Error() string {
 	return fmt.Sprintf("interaction: context preparation failed: %v", c.Cause)
 }
+
 func (c *ContextFailure) Unwrap() error { return c.Cause }

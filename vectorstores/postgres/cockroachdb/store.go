@@ -148,12 +148,15 @@ func initialize(ctx context.Context, config StoreConfig) error {
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	return s.engine.CheckDocuments(ctx, space, docs)
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
 	return s.engine.CheckQuery(ctx, space, options)
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	return s.engine.Upsert(ctx, batch)
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.engine.Query(ctx, request)
 }

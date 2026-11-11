@@ -14,6 +14,7 @@ import (
 type charsetSchemaConnector struct{ connection *charsetSchemaConnection }
 
 func (c charsetSchemaConnector) Driver() driver.Driver { return resultDriver{} }
+
 func (c charsetSchemaConnector) Connect(context.Context) (driver.Conn, error) {
 	return c.connection, nil
 }

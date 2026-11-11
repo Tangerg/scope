@@ -303,6 +303,7 @@ func TestFilteredSearchRejectsChangedSelection(t *testing.T) {
 const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
 func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -310,9 +311,11 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 32 << 20, Timeout: time.Minute}
 }
+
 func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
 		return s.QueryByScan(ctx, q, fixtureBudget())

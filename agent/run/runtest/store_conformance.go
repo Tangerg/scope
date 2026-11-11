@@ -503,9 +503,11 @@ func newStoreDefinition(t *testing.T) *storeDefinition {
 
 func (s *storeDefinition) Descriptor() run.Descriptor                             { return s.descriptor }
 func (s *storeDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (s *storeDefinition) Start(input run.Payload) (run.Execution, error) {
 	return &storeExecution{input: input}, nil
 }
+
 func (s *storeDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[string]("runtest.store")
 	if err != nil {
@@ -520,6 +522,7 @@ type storeExecution struct{ input run.Payload }
 func (s *storeExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	return run.Complete(uint32(len(turn.Messages)), s.input)
 }
+
 func (s *storeExecution) Snapshot() (run.ExecutionState, error) {
 	return run.ParseExecutionState("runtest.store", s.input.JSON())
 }

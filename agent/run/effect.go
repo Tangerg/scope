@@ -19,6 +19,7 @@ const (
 )
 
 func (e EffectTarget) Valid() bool { return e == EffectTargetFramework || e == EffectTargetDispatcher }
+
 func (e EffectTarget) String() string {
 	if !e.Valid() {
 		return invalidEnumName
@@ -69,6 +70,7 @@ func (e Effect) ChildStart() (ChildSpec, bool) {
 	}
 	return *e.spawn, true
 }
+
 func (e Effect) Valid() bool {
 	count := 0
 	if e.call.Valid() {

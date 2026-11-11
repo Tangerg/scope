@@ -28,6 +28,7 @@ func testBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 	return vectorstore.ScanRequest{Filter: p, Budget: testScanBudget()}
 }
@@ -35,6 +36,7 @@ func testScanRequest(p filter.Predicate) vectorstore.ScanRequest {
 func testScanBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func mockStore(t *testing.T) (*Store, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(testValueConverter{}))

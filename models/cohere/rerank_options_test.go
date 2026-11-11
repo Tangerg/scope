@@ -57,6 +57,7 @@ func TestRerankUsesEffectiveLimit(t *testing.T) {
 		})
 	}
 }
+
 func TestRerankCapsTheDefaultLimitAtTheDocumentCount(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any

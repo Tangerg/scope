@@ -30,9 +30,11 @@ func must[T any](v T, err error) T {
 type request struct {
 	Order string `json:"order"`
 }
+
 type decision struct {
 	City string `json:"city"`
 }
+
 type definition struct {
 	descriptor run.Descriptor
 	wait       run.Wait
@@ -41,10 +43,12 @@ type definition struct {
 
 func (d definition) Descriptor() run.Descriptor                             { return d.descriptor }
 func (d definition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (d definition) Start(in run.Payload) (run.Execution, error) {
 	d.starts.Add(1)
 	return &execution{wait: d.wait}, nil
 }
+
 func (d definition) Restore(_ context.Context, s run.ExecutionState) (run.Execution, error) {
 	v, err := s.Decode[state]("test.booking")
 	return &execution{wait: d.wait, state: v}, err
@@ -53,6 +57,7 @@ func (d definition) Restore(_ context.Context, s run.ExecutionState) (run.Execut
 type state struct {
 	Phase int `json:"phase"`
 }
+
 type execution struct {
 	wait  run.Wait
 	state state
@@ -61,6 +66,7 @@ type execution struct {
 func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.booking", e.state)
 }
+
 func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if e.state.Phase == 0 {
 		e.state.Phase++
@@ -76,6 +82,7 @@ func (e *execution) Step(_ context.Context, turn run.Turn) (run.Transition, erro
 	e.state.Phase++
 	return run.Complete(1, answer.Payload)
 }
+
 func program(compiler *run.Compiler, starts *atomic.Int64) run.Program[request, decision] {
 	input := must(jsonschema.For[request]())
 	answer := must(jsonschema.Parse([]byte(`{"type":"object","properties":{"city":{"type":"string"}},"required":["city"],"additionalProperties":false}`)))
@@ -161,6 +168,7 @@ type identifiedConnection struct {
 }
 
 func (i identifiedConnection) SessionID() string { return i.id }
+
 func (s *service) connect(t *testing.T, session string, forms bool, nativeID ...string) *sdk.ClientSession {
 	t.Helper()
 	st, ct := sdk.NewInMemoryTransports()
@@ -182,12 +190,15 @@ func (s *service) connect(t *testing.T, session string, forms bool, nativeID ...
 	t.Cleanup(func() { _ = cs.Close() })
 	return cs
 }
+
 func call(ctx context.Context, s *sdk.ClientSession, token string, replies sdk.InputResponseMap, order string) (*sdk.CallToolResult, error) {
 	return s.CallTool(ctx, &sdk.CallToolParams{Name: "test.booking", Arguments: request{Order: order}, RequestState: token, InputResponses: replies})
 }
+
 func answer(action string, fields map[string]any) sdk.InputResponseMap {
 	return sdk.InputResponseMap{"answer": &sdk.ElicitResult{Action: action, Content: fields}}
 }
+
 func wantCode(t *testing.T, err error, code int64) {
 	t.Helper()
 	var rpc *jsonrpc.Error
@@ -195,6 +206,7 @@ func wantCode(t *testing.T, err error, code int64) {
 		t.Fatalf("expected JSON-RPC %d, got %T: %v", code, err, err)
 	}
 }
+
 func TestManagedChildFormOverSDK(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
 	defer cancel()
@@ -309,6 +321,7 @@ func TestReadOnlyNodeDoesNotAcquireManagedChild(t *testing.T) {
 		t.Fatal("read-only reconciliation acquired or repeated work")
 	}
 }
+
 func TestScopeClientConsumesManagedServerForm(t *testing.T) {
 	s := newService(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -330,6 +343,7 @@ func TestScopeClientConsumesManagedServerForm(t *testing.T) {
 		t.Fatalf("text=%s starts=%d", got, s.starts.Load())
 	}
 }
+
 func TestNativeSessionsRemainIndependentOfHostDialog(t *testing.T) {
 	s := newService(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

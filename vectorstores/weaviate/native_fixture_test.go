@@ -85,6 +85,7 @@ func (n *nativeFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}
 }
+
 func (n *nativeFixture) checkGrant(ctx context.Context) {
 	var want []string
 	if n.apiKey != "" {
@@ -94,6 +95,7 @@ func (n *nativeFixture) checkGrant(ctx context.Context) {
 		n.t.Error("wrong gRPC authorization scope")
 	}
 }
+
 func (n *nativeFixture) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -121,6 +123,7 @@ func (n *nativeFixture) BatchObjects(ctx context.Context, req *pb.BatchObjectsRe
 	}
 	return reply, nil
 }
+
 func (n *nativeFixture) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -220,6 +223,7 @@ func (n *nativeFixture) Search(ctx context.Context, req *pb.SearchRequest) (*pb.
 	}
 	return &pb.SearchReply{Results: rows}, nil
 }
+
 func nativeClass(name, metric string) *collections.Collection {
 	return &collections.Collection{Name: name, Description: fixtureSpace.StorageKey(), Vectors: map[string]collections.VectorConfig{vectorName: {Vectorizer: selfprovided.Vectorizer, Index: vectorindex.HNSW{Distance: vectorindex.Distance(metric), FlatSearchCutoff: 1024}}}, Properties: []collections.Property{
 		{Name: fieldContent, DataType: collections.DataTypeText, Tokenization: collections.TokenizationWord},
@@ -227,6 +231,7 @@ func nativeClass(name, metric string) *collections.Collection {
 		{Name: fieldTerms, DataType: collections.DataTypeTextArray, Tokenization: collections.TokenizationField, IndexFilterable: new(true), IndexSearchable: new(false)},
 	}}
 }
+
 func newNativeStore(t *testing.T, n *nativeFixture) *Store {
 	t.Helper()
 	n.t = t
@@ -300,6 +305,7 @@ func testAdmin(t *testing.T, origin *url.URL, grpcPort string) *sdk.Client {
 const fixtureSpace vectorstore.SpaceID = "paired-v1"
 
 func fixtureVector(string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, doc := range docs {
@@ -307,6 +313,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Mode == vectorstore.SearchModeHybrid {
 		q.LexicalText = "native text"

@@ -143,9 +143,11 @@ func (t *testSession) ExecuteRead(ctx context.Context, work native.ManagedTransa
 	}
 	return work(&testTransaction{})
 }
+
 func (t *testSession) ExecuteWrite(ctx context.Context, work native.ManagedTransactionWork, _ ...func(*native.TransactionConfig)) (any, error) {
 	return t.ExecuteRead(ctx, work)
 }
+
 func (t *testSession) Close(ctx context.Context) error {
 	t.closed = ctx.Err() == nil
 	return t.closeErr

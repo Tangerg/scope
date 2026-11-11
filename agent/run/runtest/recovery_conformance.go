@@ -467,11 +467,14 @@ func newRecoveryDefinition(t *testing.T, mode recoveryMode) *recoveryDefinition 
 	}
 	return &recoveryDefinition{descriptor: descriptor, mode: mode}
 }
+
 func (r *recoveryDefinition) Descriptor() run.Descriptor                             { return r.descriptor }
 func (r *recoveryDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (r *recoveryDefinition) Start(input run.Payload) (run.Execution, error) {
 	return &recoveryExecution{definition: r, state: recoveryState{Input: input}}, nil
 }
+
 func (r *recoveryDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := state.Decode[recoveryState]("runtest.recovery")
 	if err != nil {
@@ -543,6 +546,7 @@ func (r *recoveryExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 		return run.Transition{}, run.ErrInvalidTransition
 	}
 }
+
 func (r *recoveryExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("runtest.recovery", r.state)
 }

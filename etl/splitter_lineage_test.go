@@ -61,6 +61,7 @@ func TestNestedSplitsPreserveLineageAndBusinessMetadata(t *testing.T) {
 		t.Fatal("source location was overwritten")
 	}
 }
+
 func TestAnonymousInputCanBeSplitWithoutClaimingAnOriginal(t *testing.T) {
 	splitter, err := etl.NewSplitter(etl.SplitterConfig{TextSplitter: etl.TextSplitterFunc(func(_ context.Context, s string) ([]string, error) { return []string{s}, nil })})
 	if err != nil {

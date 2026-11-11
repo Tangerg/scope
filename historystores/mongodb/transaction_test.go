@@ -51,17 +51,21 @@ func transactionStore(t *testing.T, responses ...bson.D) (*Store, *[]recordedCom
 }
 
 func commandOK() bson.D { return bson.D{{Key: "ok", Value: 1}} }
+
 func writeOK() bson.D {
 	return bson.D{{Key: "ok", Value: 1}, {Key: "n", Value: 1}, {Key: "nModified", Value: 1}}
 }
+
 func gateResponse(gate conversationGate) bson.D {
 	return bson.D{{Key: "ok", Value: 1}, {Key: "value", Value: gate}}
 }
+
 func cursorResponse(records ...any) bson.D {
 	documents := bson.A{}
 	documents = append(documents, records...)
 	return bson.D{{Key: "ok", Value: 1}, {Key: "cursor", Value: bson.D{{Key: "id", Value: int64(0)}, {Key: "ns", Value: "scope.history"}, {Key: "firstBatch", Value: documents}}}}
 }
+
 func appendBatch(t *testing.T) history.Batch {
 	t.Helper()
 	batch, err := history.NewBatch("conversation", "stable", chat.NewUserMessage(chat.NewTextPart("first")), chat.NewAssistantMessage(chat.NewTextPart("second")))

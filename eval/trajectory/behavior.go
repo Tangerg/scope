@@ -47,11 +47,13 @@ type behaviorProcess struct {
 	Program     string              `json:"program"`
 	Termination behaviorTermination `json:"termination"`
 }
+
 type behaviorStep struct {
 	Process string             `json:"process"`
 	Step    uint64             `json:"step"`
 	Kind    run.TransitionKind `json:"kind"`
 }
+
 type behaviorEffect struct {
 	Process string               `json:"process"`
 	Step    uint64               `json:"step"`
@@ -59,11 +61,13 @@ type behaviorEffect struct {
 	Target  run.EffectTarget     `json:"target"`
 	Status  run.SettlementStatus `json:"status"`
 }
+
 type behaviorControl struct {
 	Process  string          `json:"process"`
 	Sequence uint64          `json:"sequence"`
 	Kind     run.ControlKind `json:"kind"`
 }
+
 type behaviorModel struct {
 	Process   string                   `json:"process"`
 	Step      uint64                   `json:"step"`
@@ -71,6 +75,7 @@ type behaviorModel struct {
 	Outcome   interaction.ModelOutcome `json:"outcome"`
 	ToolCalls []behaviorToolDecision   `json:"tool_calls"`
 }
+
 type behaviorToolDecision struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitzero"`
@@ -98,10 +103,12 @@ type behaviorTool struct {
 	Outcome        interaction.ToolOutcome `json:"outcome,omitzero"`
 	Result         *behaviorToolResult     `json:"result,omitzero"`
 }
+
 type behaviorEffectPosition struct {
 	Step  uint64 `json:"step"`
 	Index uint32 `json:"index"`
 }
+
 type behaviorToolResult struct {
 	Output  toolcontract.Output `json:"output"`
 	IsError bool                `json:"is_error,omitzero"`

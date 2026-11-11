@@ -25,6 +25,7 @@ func (c *chatCompletionBody) Read(buffer []byte) (int, error) {
 	c.read += int64(n)
 	return n, err
 }
+
 func (c *chatCompletionBody) Close() error { c.closed++; return c.closeErr }
 
 type chatCompletionTransport struct {
@@ -58,6 +59,7 @@ func (c *cancelAtCompletion) Read(buffer []byte) (int, error) {
 func newCompletionChat(ctx context.Context, client *http.Client) (chat.Model, error) {
 	return ollama.NewChat(ctx, ollama.ChatConfig{BaseURL: "https://api.scope.test", HTTPClient: client, DefaultOptions: chat.Options{Model: "test-model"}})
 }
+
 func chatCompletionWire(t *testing.T) string {
 	t.Helper()
 	return "{\"model\":\"test-model\",\"message\":{\"role\":\"assistant\",\"content\":\"answer\"},\"done\":false}\n{\"model\":\"test-model\",\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true,\"done_reason\":\"stop\"}\n"

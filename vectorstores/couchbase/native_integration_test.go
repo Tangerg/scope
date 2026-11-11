@@ -421,6 +421,7 @@ func (r *removalTracer) RequestSpan(parent gocb.RequestSpanContext, name string)
 	}
 	return r.NoopTracer.RequestSpan(parent, name)
 }
+
 func (r *removalTracer) arm(before func()) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -523,12 +524,14 @@ var fixtureBudget = vectorstore.ScanBudget{MaxRecords: 5000, MaxBytes: 64 << 20,
 func fixtureCollection() string {
 	return (storecouchbase.StoreConfig{Space: fixtureSpace, Dimensions: 2}).CollectionName()
 }
+
 func fixtureVector(text string) []float64 {
 	if text == "far" {
 		return []float64{0, 1}
 	}
 	return []float64{1, 0}
 }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	b := &vectorstore.Batch{Space: fixtureSpace}
 	for _, d := range docs {

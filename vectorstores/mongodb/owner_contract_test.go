@@ -21,6 +21,7 @@ func TestIndexPreparesAllVectorsBeforeNativePublication(t *testing.T) {
 		}
 	}
 }
+
 func TestNativeScoresMustKeepTheirBoundedScaleEvenBelowMinScore(t *testing.T) {
 	for _, score := range []float64{-1, 1.01, math.NaN(), math.Inf(1)} {
 		store, collection := mongoFilterStore(t, []*document.Document{{ID: "one", Text: "text"}})

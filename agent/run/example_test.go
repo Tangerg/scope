@@ -41,9 +41,11 @@ type echoDefinition struct{ descriptor run.Descriptor }
 
 func (e echoDefinition) Descriptor() run.Descriptor                           { return e.descriptor }
 func (echoDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (echoDefinition) Start(input run.Payload) (run.Execution, error) {
 	return echoExecution{input: input}, nil
 }
+
 func (echoDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
 	input, err := state.Decode[string](echoStateKind)
 	if err != nil {
@@ -61,6 +63,7 @@ type echoExecution struct{ input run.Payload }
 func (e echoExecution) Snapshot() (run.ExecutionState, error) {
 	return run.ParseExecutionState(echoStateKind, e.input.JSON())
 }
+
 func (e echoExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	return run.Complete(uint32(len(turn.Messages)), e.input)
 }

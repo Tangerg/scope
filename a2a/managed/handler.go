@@ -40,6 +40,7 @@ type Config struct {
 	// MaxRequestBytes has the meaning of [a2a.ServerConfig.MaxRequestBytes].
 	MaxRequestBytes int64
 }
+
 type handler struct {
 	runtime   *run.Runtime
 	program   run.Program[run.Payload, run.Payload]
@@ -89,6 +90,7 @@ func (h *handler) scope(ctx context.Context, tenant string) (string, error) {
 	}
 	return authorityScopePrefix + key, nil
 }
+
 func (h *handler) load(ctx context.Context, k taskKey) (run.TreeInspection, error) {
 	head, err := h.runtime.Inspect(ctx, k.start.Root())
 	if errors.Is(err, run.ErrProcessNotFound) {
@@ -210,6 +212,7 @@ func (h *handler) GetTask(ctx context.Context, p *sdk.GetTaskRequest) (*sdk.Task
 	}
 	return projectTask(k, head, h.content)
 }
+
 func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sdk.Task, error) {
 	if p == nil {
 		return nil, sdk.ErrInvalidParams
@@ -251,6 +254,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 	}
 	return projectTask(k, head, h.content)
 }
+
 func (h *handler) SendMessage(ctx context.Context, p *sdk.SendMessageRequest) (sdk.SendMessageResult, error) {
 	k, err := h.admit(ctx, p)
 	if err != nil {
@@ -273,6 +277,7 @@ func (h *handler) SendMessage(ctx context.Context, p *sdk.SendMessageRequest) (s
 	}
 	return nil, sdk.ErrInternalError
 }
+
 func settlesTurn(s sdk.TaskState) bool {
 	return s == sdk.TaskStateCompleted || s == sdk.TaskStateFailed || s == sdk.TaskStateCanceled || s == sdk.TaskStateInputRequired
 }

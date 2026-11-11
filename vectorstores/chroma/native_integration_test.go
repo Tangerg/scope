@@ -35,10 +35,12 @@ type nativeCreateRequest struct {
 	Name          string              `json:"name"`
 	Configuration nativeConfiguration `json:"configuration"`
 }
+
 type nativeConfiguration struct {
 	HNSW              nativeHNSW `json:"hnsw"`
 	EmbeddingFunction *string    `json:"embedding_function"`
 }
+
 type nativeHNSW struct {
 	Space v2.Space `json:"space"`
 }
@@ -122,6 +124,7 @@ func newNativeFixture(t *testing.T, space v2.Space) *nativeFixture {
 	})
 	return &nativeFixture{Collection: bound}
 }
+
 func (n *nativeFixture) Query(ctx context.Context, options ...v2.QueryOption) (v2.QueryResult, error) {
 	if n.beforeQuery != nil {
 		if err := n.beforeQuery(ctx); err != nil {
@@ -130,6 +133,7 @@ func (n *nativeFixture) Query(ctx context.Context, options ...v2.QueryOption) (v
 	}
 	return n.Collection.Query(ctx, options...)
 }
+
 func (n *nativeFixture) store(t *testing.T) *Store {
 	t.Helper()
 	store, err := NewStore(t.Context(), StoreConfig{Collection: n, Space: testSpace})
@@ -138,6 +142,7 @@ func (n *nativeFixture) store(t *testing.T) *Store {
 	}
 	return store
 }
+
 func (n *nativeFixture) ids(t *testing.T) []string {
 	t.Helper()
 	result, err := n.Get(t.Context(), v2.WithLimit(5000))
@@ -150,6 +155,7 @@ func (n *nativeFixture) ids(t *testing.T) []string {
 	}
 	return ids
 }
+
 func (n *nativeFixture) clear(t *testing.T) {
 	t.Helper()
 	ids := n.ids(t)
@@ -164,6 +170,7 @@ func (n *nativeFixture) clear(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
 func (n *nativeFixture) replace(t *testing.T, id, raw, text string, vector []float32) {
 	t.Helper()
 	if err := n.Upsert(t.Context(), v2.WithIDs(v2.DocumentID(id)), v2.WithTexts(text), v2.WithEmbeddings(ce.NewEmbeddingFromFloat32(vector)), v2.WithMetadatas(v2.NewDocumentMetadata(v2.NewStringAttribute(metadataField, raw)))); err != nil {
@@ -185,6 +192,7 @@ func nativeVectors(text string) []float64 {
 		return []float64{1, 0}
 	}
 }
+
 func nativeBatch(docs []*document.Document) *vectorstore.Batch {
 	records := make([]vectorstore.Record, len(docs))
 	for i, d := range docs {
@@ -192,12 +200,14 @@ func nativeBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return &vectorstore.Batch{Space: testSpace, Records: records}
 }
+
 func nativeUpsert(t *testing.T, store *Store, docs ...*document.Document) {
 	t.Helper()
 	if err := store.Upsert(t.Context(), nativeBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 }
+
 func nativePredicate(t *testing.T, source string) filter.Predicate {
 	t.Helper()
 	p, err := filter.Parse(source)
@@ -206,6 +216,7 @@ func nativePredicate(t *testing.T, source string) filter.Predicate {
 	}
 	return p
 }
+
 func nativeBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 1000, MaxBytes: 16 << 20, Timeout: time.Minute}
 }
@@ -231,6 +242,7 @@ func TestNativeFilterConformance(t *testing.T) {
 		return ids, nil
 	}})
 }
+
 func TestNativeSchemaOwnsMetricAndCoreJSON(t *testing.T) {
 	for _, metric := range []v2.Space{v2.SpaceCosine, v2.SpaceL2, v2.SpaceIP} {
 		t.Run(string(metric), func(t *testing.T) {
@@ -272,6 +284,7 @@ func TestNativeSchemaOwnsMetricAndCoreJSON(t *testing.T) {
 		})
 	}
 }
+
 func TestNativeCompletePaginationAndPreflight(t *testing.T) {
 	f := newNativeFixture(t, v2.SpaceCosine)
 	s := f.store(t)
@@ -296,6 +309,7 @@ func TestNativeCompletePaginationAndPreflight(t *testing.T) {
 		t.Fatal("malformed last page silently omitted")
 	}
 }
+
 func TestNativeIPRankingAndWholeWriteValidation(t *testing.T) {
 	f := newNativeFixture(t, v2.SpaceIP)
 	s := f.store(t)
@@ -317,6 +331,7 @@ func TestNativeIPRankingAndWholeWriteValidation(t *testing.T) {
 		}
 	}
 }
+
 func TestNativeStrictRecordsAndCancellation(t *testing.T) {
 	f := newNativeFixture(t, v2.SpaceCosine)
 	s := f.store(t)

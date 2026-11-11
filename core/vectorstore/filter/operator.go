@@ -50,21 +50,28 @@ func (o Operator) Name() string {
 }
 
 func (o Operator) IsEqualityOperator() bool { return o == OpEqual || o == OpNotEqual }
+
 func (o Operator) IsOrderingOperator() bool {
 	return o == OpLess || o == OpLessEqual || o == OpGreater || o == OpGreaterEqual
 }
+
 func (o Operator) IsComparisonOperator() bool {
 	return o.IsEqualityOperator() || o.IsOrderingOperator()
 }
+
 func (o Operator) IsLogicalOperator() bool { return o == OpAnd || o == OpOr }
+
 func (o Operator) IsMembershipOperator() bool {
 	return o == OpIn || o == OpHas
 }
+
 func (o Operator) IsMatchingOperator() bool { return o.IsMembershipOperator() || o == OpLike }
 func (o Operator) IsNullOperator() bool     { return o == OpIs }
+
 func (o Operator) IsBinaryOperator() bool {
 	return o.IsComparisonOperator() || o.IsLogicalOperator() || o.IsMatchingOperator() || o.IsNullOperator()
 }
+
 func (o Operator) IsUnaryOperator() bool { return o == OpNot }
 
 // LogicalString returns the canonical uppercase form of a logical operator.

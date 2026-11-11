@@ -30,6 +30,7 @@ type inputWait struct {
 func (i inputWait) key() (run.WaitKey, error) {
 	return run.ParseWaitKey(toolInputWaitPrefix + strconv.FormatUint(i.Effect.Step, 10) + "." + strconv.FormatUint(uint64(i.Effect.Index), 10))
 }
+
 func (i inputWait) wait() (run.Wait, error) {
 	key, err := i.key()
 	if err != nil {
@@ -221,6 +222,7 @@ type callBatch struct {
 }
 
 func (c callBatch) phase() phase { return phaseAwaitingCalls }
+
 func (c callBatch) active() int {
 	count := 0
 	for _, invocation := range c.Invocations {
@@ -326,6 +328,7 @@ func (c callBatch) validateBindings(ctx context.Context, definition *definition,
 	}
 	return nil
 }
+
 func (c callBatch) waits() ([]run.Wait, error) {
 	var waits []run.Wait
 	for _, invocation := range c.Invocations {

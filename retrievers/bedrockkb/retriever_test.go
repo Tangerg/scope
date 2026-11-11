@@ -136,6 +136,7 @@ func TestInvalidBindingPrecedesIO(t *testing.T) {
 		t.Fatal("invalid policy reached HTTP")
 	}
 }
+
 func TestStaticScopeAndPageBudget(t *testing.T) {
 	good := `{"retrievalResults":[{"documentId":"one","content":{"type":"TEXT","text":"x"},"metadata":{"tenant":"a"},"score":1}],"nextToken":"more"}`
 	outside := strings.ReplaceAll(good, `"tenant":"a"`, `"tenant":"b"`)
@@ -161,6 +162,7 @@ func TestStaticScopeAndPageBudget(t *testing.T) {
 		}
 	}
 }
+
 func TestPagingOwnsCompletionAndPreflightBeforeTopK(t *testing.T) {
 	for _, test := range []string{"short pages", "empty advancing page", "bad late result", "repeated token", "missing array", "transport error"} {
 		t.Run(test, func(t *testing.T) {

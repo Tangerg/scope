@@ -25,6 +25,7 @@ func (c *chatCompletionBody) Read(buffer []byte) (int, error) {
 	c.read += int64(n)
 	return n, err
 }
+
 func (c *chatCompletionBody) Close() error { c.closed++; return c.closeErr }
 
 type chatCompletionTransport struct {
@@ -58,6 +59,7 @@ func (c *cancelAtCompletion) Read(buffer []byte) (int, error) {
 func newCompletionChat(ctx context.Context, client *http.Client) (chat.Model, error) {
 	return mistral.NewChat(ctx, mistral.ChatConfig{APIKey: "test", BaseURL: "https://api.scope.test", HTTPClient: client, DefaultOptions: chat.Options{Model: "test-model"}})
 }
+
 func chatCompletionWire(t *testing.T) string {
 	t.Helper()
 	return "data: {\"id\":\"m\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"}}]}\n\ndata: {\"id\":\"m\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"

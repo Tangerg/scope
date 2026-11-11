@@ -67,6 +67,7 @@ func (s *steerBatch) collectSignal(message run.Message) (bool, error) {
 	}
 	return true, s.collectInput(signal)
 }
+
 func (s *steerBatch) collectInput(signal run.Signal) error {
 	envelope, err := jsonwire.Decode[steerSignal](signal.Payload.JSON())
 	if err != nil {

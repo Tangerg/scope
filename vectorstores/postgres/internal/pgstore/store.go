@@ -149,6 +149,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, optio
 	_, err := s.readSchema(ctx, s.pool)
 	return err
 }
+
 func (s *Store) validateQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -164,6 +165,7 @@ func (s *Store) validateQuery(ctx context.Context, space vectorstore.SpaceID, op
 	}
 	return nil
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err

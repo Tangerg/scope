@@ -19,6 +19,7 @@ type StartID struct {
 func (s StartID) Valid() bool { return s.wellFormed() && s.Scope != foregroundStartScope }
 
 func (s StartID) wellFormed() bool { return validIdentity(s.Scope) && validIdentity(s.Key) }
+
 func (s StartID) Root() ProcessID {
 	if !s.wellFormed() {
 		return ProcessID{}

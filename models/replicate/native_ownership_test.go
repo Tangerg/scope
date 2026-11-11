@@ -62,6 +62,7 @@ func TestImageRejectsBoundNativeInputBeforeIO(t *testing.T) {
 		})
 	}
 }
+
 func TestSpeechRejectsBoundNativeInputBeforeIO(t *testing.T) {
 	for _, field := range []string{"text", "speaker", "speed"} {
 		t.Run(field, func(t *testing.T) {

@@ -16,6 +16,7 @@ type embeddingBodyProbe struct {
 }
 
 func (e *embeddingBodyProbe) Close() error { e.closed++; return nil }
+
 func TestEmbeddingBodyOwnsNoTransportOrClosePolicy(t *testing.T) {
 	for _, raw := range []string{`{"embeddings":[{"values":[null,1]}]}`, `{"embeddings":[{"values":[0,1]}]}`} {
 		t.Run(raw, func(t *testing.T) {

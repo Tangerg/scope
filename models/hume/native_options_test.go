@@ -47,6 +47,7 @@ func TestSpeechRejectsNativeCoreInputsBeforeIO(t *testing.T) {
 		}
 	}
 }
+
 func TestSpeechPreservesProviderSpecificControls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -91,6 +92,7 @@ func TestSpeechPreservesProviderSpecificControls(t *testing.T) {
 		t.Fatalf("Call = %#v, %v; want the wav encoding Hume reported", response, err)
 	}
 }
+
 func TestSpeechRejectsDuplicateResponseMembers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -124,6 +124,7 @@ func TestScopeAndMalformedNativeEvidenceFailClosed(t *testing.T) {
 		}
 	}
 }
+
 func TestCreateIsAcknowledgedNeverDeletesToReplace(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -163,6 +164,7 @@ func TestCreateIsAcknowledgedNeverDeletesToReplace(t *testing.T) {
 		})
 	}
 }
+
 func TestDeleteAddressesOnlyOneEscapedIdentity(t *testing.T) {
 	var paths []string
 	c, _ := fixture(t, []string{"..", "a/b"}, func(w http.ResponseWriter, r *http.Request, _ string) {

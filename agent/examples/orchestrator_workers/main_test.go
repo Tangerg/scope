@@ -357,6 +357,7 @@ func TestOrchestrationRefusesAnUnusablePlanAndPartialWorkerEvidence(t *testing.T
 		t.Fatal("published an incomplete task finding", result, err)
 	}
 }
+
 func TestMissingStageBindingsNeverPublishPartialOrchestration(t *testing.T) {
 	c, err := newOrchestratorChildren(conformancetest.Compiler(t))
 	if err != nil {

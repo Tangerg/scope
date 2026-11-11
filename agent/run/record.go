@@ -46,6 +46,7 @@ type Started struct {
 }
 
 func (Started) recordKind() RecordKind { return RecordKindStarted }
+
 func (s Started) valid() bool {
 	return s.Process.Valid() && s.Program.Valid() && s.Input.Valid() && !s.At.IsZero() && (s.Process.Depth() > 0 && s.Limits == (TreeLimits{}) || s.Process.Depth() == 0 && s.Limits.Valid())
 }
@@ -100,6 +101,7 @@ type Stepped struct {
 }
 
 func (Stepped) recordKind() RecordKind { return RecordKindStepped }
+
 func (s Stepped) valid() bool {
 	return s.Process.Valid() && s.Step > 0 && s.Transition.Valid() && s.Transition.Consumed() <= s.Delivered
 }
@@ -112,6 +114,7 @@ type EffectIntent struct {
 }
 
 func (EffectIntent) recordKind() RecordKind { return RecordKindEffectIntent }
+
 func (e EffectIntent) valid() bool {
 	if intrinsic, owned := e.Effect.intrinsicPolicy(); owned && !e.Policy.equal(intrinsic) {
 		return false
@@ -127,6 +130,7 @@ type EffectSettled struct {
 }
 
 func (EffectSettled) recordKind() RecordKind { return RecordKindEffectSettled }
+
 func (e EffectSettled) valid() bool {
 	return e.ID.Valid() && e.Outcome.Valid() && !e.At.IsZero() && (e.Failure == nil || e.Failure.Valid() && e.Outcome.Status() == SettlementStatusUnknown && e.Outcome.payload.Equal(nullPayload))
 }
@@ -138,6 +142,7 @@ type Exited struct {
 }
 
 func (Exited) recordKind() RecordKind { return RecordKindExited }
+
 func (e Exited) valid() bool {
 	return e.Process.Valid() && e.Termination.Valid() && !e.At.IsZero()
 }
@@ -149,6 +154,7 @@ type ExecutionFailed struct {
 }
 
 func (ExecutionFailed) recordKind() RecordKind { return RecordKindExecutionFailed }
+
 func (e ExecutionFailed) valid() bool {
 	return e.Process.Valid() && e.Failure.Valid() && !e.At.IsZero()
 }
@@ -217,6 +223,7 @@ type ControlRequested struct {
 }
 
 func (ControlRequested) recordKind() RecordKind { return RecordKindControlRequested }
+
 func (c ControlRequested) valid() bool {
 	if !c.Process.Valid() || !c.Kind.Valid() || !c.Origin.Valid() || c.At.IsZero() {
 		return false

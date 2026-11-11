@@ -53,6 +53,7 @@ func (s *sink) CheckDocuments(_ context.Context, space vectorstore.SpaceID, _ []
 	}
 	return nil
 }
+
 func (s *sink) Upsert(_ context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err

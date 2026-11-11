@@ -264,6 +264,7 @@ func (p *protocolFixture) store() *Store {
 const fixtureSpace vectorstore.SpaceID = "test-v1"
 
 func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	records := make([]vectorstore.Record, len(docs))
 	for i, d := range docs {
@@ -271,9 +272,11 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return &vectorstore.Batch{Space: fixtureSpace, Records: records}
 }
+
 func scanBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func TestFilterConformanceAtNativeSDKBoundary(t *testing.T) {
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		fixture := newProtocolFixture(t, docs...)

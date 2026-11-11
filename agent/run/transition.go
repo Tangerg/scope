@@ -83,6 +83,7 @@ func (t Transition) Effects() []Effect        { return cloneEffects(t.effects) }
 func (t Transition) Waits() []Wait            { return slices.Clone(t.waits) }
 func (t Transition) Output() (Payload, bool)  { return t.output, t.output.Valid() }
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.failure.Valid() }
+
 func (t Transition) Valid() bool {
 	for _, effect := range t.effects {
 		if !effect.Valid() {

@@ -22,6 +22,7 @@ type capturedSource struct {
 
 func (c capturedSource) ID() run.ProcessID                                   { return c.head.Root }
 func (c capturedSource) Inspect(context.Context) (run.TreeInspection, error) { return c.head, nil }
+
 func (c capturedSource) Observe(ctx context.Context, after run.LSN) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		for _, entry := range c.entries {

@@ -11,16 +11,21 @@ import (
 type panickingCallbacks struct{ cause error }
 
 func (p panickingCallbacks) Descriptor() run.Descriptor { panic(p.cause) }
+
 func (p panickingCallbacks) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	panic(p.cause)
 }
+
 func (p panickingCallbacks) Start(run.Payload) (run.Execution, error) { panic(p.cause) }
+
 func (p panickingCallbacks) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
 	panic(p.cause)
 }
+
 func (p panickingCallbacks) Step(context.Context, run.Turn) (run.Transition, error) {
 	panic(p.cause)
 }
+
 func (p panickingCallbacks) Snapshot() (run.ExecutionState, error) { panic(p.cause) }
 
 func TestDefinitionConformancePreservesTypedPanicEvidence(t *testing.T) {

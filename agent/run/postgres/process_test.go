@@ -259,4 +259,5 @@ func (a *appendProcess) awaitReady(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 }
+
 func (a *appendProcess) wait() error { a.waited = true; return a.command.Wait() }

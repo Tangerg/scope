@@ -33,7 +33,9 @@ const fixtureSpace vectorstore.SpaceID = "typesense-fixture"
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 64 << 20, Timeout: time.Minute}
 }
+
 func fixtureVector(_ string) []float64 { return []float64{1, 0} }
+
 func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	r := make([]vectorstore.Record, len(docs))
 	for i, doc := range docs {
@@ -41,6 +43,7 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return &vectorstore.Batch{Space: fixtureSpace, Records: r}
 }
+
 func fixtureQuery(text string, opts vectorstore.SearchOptions) *vectorstore.Query {
 	q := &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector(text), Options: opts}
 	if opts.Mode == vectorstore.SearchModeHybrid {
@@ -242,6 +245,7 @@ func (p *protocolFixture) respond(w http.ResponseWriter, value any) {
 		p.t.Error(err)
 	}
 }
+
 func mustJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	raw, err := jsonv2.Marshal(value)
@@ -250,6 +254,7 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 	}
 	return raw
 }
+
 func nativeRecord(t *testing.T, doc *document.Document) json.RawMessage {
 	t.Helper()
 	record, err := encodeDocument(doc)
@@ -339,6 +344,7 @@ func TestUpsertPreflightsAllRecords(t *testing.T) {
 		})
 	}
 }
+
 func TestImportRequiresIdentifiedNativeAcknowledgments(t *testing.T) {
 	for _, tc := range []struct {
 		body                   string

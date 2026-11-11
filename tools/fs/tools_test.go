@@ -17,18 +17,23 @@ type typedNilBackend struct{}
 func (*typedNilBackend) Read(context.Context, ReadInput) (ReadOutput, error) {
 	panic("typed nil backend was used")
 }
+
 func (*typedNilBackend) Write(context.Context, WriteRequest) (WriteResponse, error) {
 	panic("typed nil backend was used")
 }
+
 func (*typedNilBackend) Edit(context.Context, EditRequest) (EditResponse, error) {
 	panic("typed nil backend was used")
 }
+
 func (*typedNilBackend) ApplyPatch(context.Context, ApplyPatchRequest) (ApplyPatchResponse, error) {
 	panic("typed nil backend was used")
 }
+
 func (*typedNilBackend) Glob(context.Context, GlobRequest) (GlobResponse, error) {
 	panic("typed nil backend was used")
 }
+
 func (*typedNilBackend) Grep(context.Context, GrepRequest) (GrepResponse, error) {
 	panic("typed nil backend was used")
 }

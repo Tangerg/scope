@@ -19,6 +19,7 @@ import (
 )
 
 const Provider = "Cassandra"
+
 const (
 	DefaultKeyspaceName     = "scope"
 	DefaultTableName        = "vector_store"
@@ -48,7 +49,9 @@ const (
 func (s SimilarityFunction) Valid() bool {
 	return s == SimilarityCosine || s == SimilarityDotProduct || s == SimilarityEuclidean
 }
+
 func (s SimilarityFunction) String() string { return string(s) }
+
 func (s SimilarityFunction) score(raw float64) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) {
 		return 0, fmt.Errorf("cassandra: %w: non-finite native similarity", vectorstore.ErrInvalidScore)
@@ -108,6 +111,7 @@ func (s StoreConfig) Validate() error {
 	}
 	return s.validateIdentifiers()
 }
+
 func (s StoreConfig) validateIdentifiers() error {
 	if err := identifier(s.KeyspaceName).validate("KeyspaceName"); err != nil {
 		return err
@@ -128,6 +132,7 @@ func (s StoreConfig) validateIdentifiers() error {
 	}
 	return nil
 }
+
 func (s *StoreConfig) applyDefaults() {
 	s.KeyspaceName = cmp.Or(s.KeyspaceName, DefaultKeyspaceName)
 	s.TableName = cmp.Or(s.TableName, DefaultTableName)
@@ -181,9 +186,11 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	return store, nil
 }
+
 func (s *Store) tableBinding() string {
 	return paxosTableBindingPrefix + s.space.StorageKey()
 }
+
 func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 	var binding string
 	if err := s.session.Query("SELECT comment FROM system_schema.tables WHERE keyspace_name=? AND table_name=?", keyspace, table).ScanContext(ctx, &binding); err != nil {
@@ -228,6 +235,7 @@ func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 	_, err := s.nativeSimilarity(ctx, probe, probe)
 	return err
 }
+
 func (s *Store) verifyPrimaryKey(ctx context.Context, keyspace, table string) (err error) {
 	iter := s.session.Query("SELECT column_name,kind FROM system_schema.columns WHERE keyspace_name=? AND table_name=?", keyspace, table).IterContext(ctx)
 	defer func() { err = errors.Join(err, iter.Close()) }()
@@ -268,6 +276,7 @@ func encodeStoredRecord(doc *document.Document, vector []float64) (storedRecord,
 	}
 	return storedRecord{id: doc.ID, content: doc.Text, metadata: string(encoded), vector: narrowed}, nil
 }
+
 func decodeStoredRecord(record storedRecord) (*document.Document, error) {
 	doc := new(document.Document)
 	if err := doc.UnmarshalStoredMetadata([]byte(record.metadata)); err != nil {
@@ -290,6 +299,7 @@ type storedCandidate struct {
 	record   storedRecord
 	document *document.Document
 }
+
 type rankedResult struct {
 	result           *vectorstore.SearchResult
 	nativeSimilarity float64
@@ -307,6 +317,7 @@ func (s *Store) nativeSimilarity(ctx context.Context, left, right []float32) (fl
 	}
 	return raw, nil
 }
+
 func (s *Store) validateNativeVector(ctx context.Context, vector []float32) error {
 	// Cosine rejects zero vectors. For dot product, self-similarity can overflow
 	// despite finite components, so a zero operand validates the vector instead.
@@ -317,6 +328,7 @@ func (s *Store) validateNativeVector(ctx context.Context, vector []float32) erro
 	_, err := s.nativeSimilarity(ctx, vector, right)
 	return err
 }
+
 func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 	if err := request.ValidateFor(s.space); err != nil {
 		return err
@@ -357,6 +369,7 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 	}
 	return nil
 }
+
 func (s *Store) upsertRecord(ctx context.Context, record storedRecord) (bool, error) {
 	insert := fmt.Sprintf("INSERT INTO %s (%s,%s,%s,%s) VALUES (?,?,?,?) IF NOT EXISTS", s.fullTable, quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn))
 	applied, err := s.applyConditional(ctx, insert, record.id, record.content, record.metadata, record.vector)
@@ -368,11 +381,13 @@ func (s *Store) upsertRecord(ctx context.Context, record storedRecord) (bool, er
 	update := fmt.Sprintf("UPDATE %s SET %s=?,%s=?,%s=? WHERE %s=? IF EXISTS", s.fullTable, quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), quoteIdentifier(s.idColumn))
 	return s.applyConditional(ctx, update, record.content, record.metadata, record.vector, record.id)
 }
+
 func (s *Store) applyConditional(ctx context.Context, statement string, values ...any) (bool, error) {
 	// Mixing ordinary timestamps with Paxos can acknowledge a deletion that
 	// loses to an older write. All row mutations use the same quorum and clock.
 	return s.session.Query(statement, values...).Consistency(gocql.Quorum).SerialConsistency(gocql.Serial).DefaultTimestamp(false).MapScanCASContext(ctx, map[string]any{})
 }
+
 func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.Predicate) (selected []storedCandidate, err error) {
 	ctx := meter.Context()
 	query := fmt.Sprintf("SELECT %s,%s,%s,%s FROM %s", quoteIdentifier(s.idColumn), quoteIdentifier(s.contentColumn), quoteIdentifier(s.metadataColumn), quoteIdentifier(s.embeddingColumn), s.fullTable)
@@ -415,6 +430,7 @@ func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.
 	}
 	return selected, nil
 }
+
 func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, budget vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -481,6 +497,7 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
 }
+
 func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if predicate == nil {
 		return vectorstore.ErrMissingFilter
@@ -511,6 +528,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 	}
 	return nil
 }
+
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil

@@ -29,9 +29,11 @@ func batch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return r
 }
+
 func queryFor(s string) *vectorstore.Query {
 	return &vectorstore.Query{Space: testSpace, Values: vectorFor(s)}
 }
+
 func vectorFor(text string) []float64 {
 	v := []float64{0, 0, 0, 0}
 	for i, r := range text {

@@ -157,9 +157,11 @@ type effectCommitDefinition struct {
 
 func (e *effectCommitDefinition) Descriptor() Descriptor                   { return e.descriptor }
 func (*effectCommitDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
+
 func (e *effectCommitDefinition) Start(Payload) (Execution, error) {
 	return &effectCommitExecution{marks: e.marks}, nil
 }
+
 func (e *effectCommitDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
 	completed, err := state.Decode[int]("benchmark.effects")
 	if err != nil {
@@ -176,6 +178,7 @@ type effectCommitExecution struct {
 func (e *effectCommitExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("benchmark.effects", e.completed)
 }
+
 func (e *effectCommitExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	for _, message := range turn.Messages {
 		if _, ok := message.(Completion); !ok {

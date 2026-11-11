@@ -14,6 +14,7 @@ func value[T any](result T, err error) T {
 	}
 	return result
 }
+
 func TestInvocationRetainsOnlyOutstandingObligation(t *testing.T) {
 	parent := value(run.ParseProcessID("root"))
 	process := value(parent.Child(value(run.ParseChildKey("worker"))))

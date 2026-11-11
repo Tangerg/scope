@@ -332,6 +332,7 @@ func errUnacknowledged(operation string) error {
 func gateID(id history.ConversationID) bson.Binary {
 	return bson.Binary{Data: []byte(kindConversation + ":" + base64.RawURLEncoding.EncodeToString([]byte(id)))}
 }
+
 func batchID(batch history.Batch) bson.Binary {
 	return bson.Binary{Data: []byte(kindAppend + ":" + base64.RawURLEncoding.EncodeToString([]byte(batch.ConversationID())) + ":" + base64.RawURLEncoding.EncodeToString([]byte(batch.ID())))}
 }

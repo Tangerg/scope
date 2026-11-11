@@ -121,6 +121,7 @@ func (c Config) nativePolicy() (nativeConfiguration, error) {
 type nativeFilter struct {
 	Equals MetadataScope `json:"equals"`
 }
+
 type nativeConfiguration struct {
 	Filter    *nativeFilter                 `json:"filter,omitzero"`
 	Count     int                           `json:"numberOfResults"`

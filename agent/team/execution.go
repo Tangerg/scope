@@ -20,6 +20,7 @@ type execution struct {
 func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(stateKind, e.state)
 }
+
 func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
@@ -60,6 +61,7 @@ func (e *execution) followCoordinator(ctx context.Context, turn run.Turn, consum
 	}
 	return e.applyDecision(ctx, turn, decision, consumed)
 }
+
 func (e *execution) accept(message run.Message) error {
 	if e.state.Coordinator != nil && !e.state.Coordinator.Done() {
 		matched, err := e.state.Coordinator.Accept(message)
@@ -98,12 +100,14 @@ func (e *execution) accept(message run.Message) error {
 	}
 	return fmt.Errorf("%w: message answers no outstanding team operation", ErrInvalidProtocol)
 }
+
 func (e *execution) advance(turn run.Turn, consumed uint32) (run.Transition, error) {
 	if !e.state.nextTurnDue() {
 		return run.Yield(consumed, nil)
 	}
 	return e.startTurn(turn, consumed)
 }
+
 func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transition, error) {
 	if !e.definition.maxTurns.Allows(e.state.TurnNumber, 1) {
 		return run.Transition{}, ErrTurnLimit
@@ -144,6 +148,7 @@ func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transi
 	e.state.OutcomeArrived = false
 	return run.Yield(consumed, []run.Effect{effect})
 }
+
 func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision Decision, consumed uint32) (run.Transition, error) {
 	if err := e.state.validateDecision(ctx, e.definition, turn.Process, decision); err != nil {
 		return run.Transition{}, err

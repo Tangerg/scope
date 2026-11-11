@@ -90,6 +90,7 @@ func TestAgentResponsesPreservesNativeSearchAndUsage(t *testing.T) {
 		t.Fatal("unsupported token count capability")
 	}
 }
+
 func TestAgentResponsesRejectsSonarAndDuplicateOwnersBeforeIO(t *testing.T) {
 	for _, options := range []json.RawMessage{json.RawMessage(`{"search_mode":"web"}`), json.RawMessage(`{"reasoning_effort":"high"}`), json.RawMessage(`{"model":"sonar"}`), json.RawMessage(`{"models":["openai/gpt-6-sol"]}`), json.RawMessage(`{"tools":[{"type":"function","name":"local"}]}`), json.RawMessage(`{"effort":"unknown"}`)} {
 		t.Run(string(options), func(t *testing.T) {

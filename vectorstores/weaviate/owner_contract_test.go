@@ -40,6 +40,7 @@ func TestLaterInvalidCoordinatesPreventEveryWrite(t *testing.T) {
 		}
 	}
 }
+
 func TestNativeHitsAreCheckedAgainstTheirOriginalMetadata(t *testing.T) {
 	for _, corrupt := range []func(*pb.BatchObject){
 		func(o *pb.BatchObject) {
@@ -61,6 +62,7 @@ func TestNativeHitsAreCheckedAgainstTheirOriginalMetadata(t *testing.T) {
 		}
 	}
 }
+
 func TestNativeHybridScoresAndInvalidHitsNeverReturnPartialSuccess(t *testing.T) {
 	for _, fault := range []string{"score range", "missing score", "score NaN", "wrong vector", "duplicate", "surplus", "query failure"} {
 		t.Run(fault, func(t *testing.T) {

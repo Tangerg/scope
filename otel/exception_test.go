@@ -286,5 +286,6 @@ func (e *exceptionLogExporter) Export(ctx context.Context, records []sdklog.Reco
 	}
 	return nil
 }
+
 func (*exceptionLogExporter) Shutdown(context.Context) error   { return nil }
 func (*exceptionLogExporter) ForceFlush(context.Context) error { return nil }

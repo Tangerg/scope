@@ -30,6 +30,7 @@ func (f *fixtureRows) Next() bool {
 	f.position++
 	return true
 }
+
 func (f *fixtureRows) Scan(destinations ...any) error {
 	if f.scanErr != nil {
 		return f.scanErr
@@ -43,6 +44,7 @@ func (f *fixtureRows) Scan(destinations ...any) error {
 	}
 	return nil
 }
+
 func (f *fixtureRows) Err() error { return f.readErr }
 func (f *fixtureRows) Close()     {}
 
@@ -66,6 +68,7 @@ type fixtureTransaction struct {
 func (f *fixtureTransaction) Query(_ context.Context, statement string, _ ...any) (pgx.Rows, error) {
 	return f.query(statement)
 }
+
 func (f *fixtureTransaction) Commit(context.Context) error   { f.commits++; return f.commitErr }
 func (f *fixtureTransaction) Rollback(context.Context) error { f.rollbacks++; return f.rollbackErr }
 

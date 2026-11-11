@@ -33,6 +33,7 @@ type surface struct {
 func (s surface) active() bool {
 	return s.upsert || s.query || s.queryByScan || s.retrieve
 }
+
 func (s surface) state() string {
 	switch {
 	case s.upsert && s.query:

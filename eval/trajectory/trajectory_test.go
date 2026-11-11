@@ -179,10 +179,12 @@ func newRuntime(t *testing.T, store run.Store) *run.Runtime {
 	})
 	return runtime
 }
+
 func runTrajectory(t *testing.T) trajectory.Trajectory {
 	t.Helper()
 	return runTrajectoryInput(t, fixtureInput{Value: "done"})
 }
+
 func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory {
 	t.Helper()
 	runtime := newRuntime(t, run.NewMemoryStore())
@@ -225,6 +227,7 @@ func runTrajectoryInput(t *testing.T, value fixtureInput) trajectory.Trajectory 
 	}
 	return recorded
 }
+
 func startInteraction(t *testing.T, model chat.Model, tools []tool.Tool, store run.Store) (*run.Handle[interaction.Output], *run.Runtime, run.Program[interaction.Input, interaction.Output]) {
 	t.Helper()
 	runtime := newRuntime(t, store)
@@ -246,6 +249,7 @@ func startInteraction(t *testing.T, model chat.Model, tools []tool.Tool, store r
 	}
 	return handle, runtime, program
 }
+
 func interactionCoverage(t *testing.T, log run.Log) *trajectory.Coverage {
 	t.Helper()
 	coverage := new(trajectory.Coverage)
@@ -274,6 +278,7 @@ func interactionCoverage(t *testing.T, log run.Log) *trajectory.Coverage {
 	}
 	return coverage
 }
+
 func captureInteraction(t *testing.T, handle *run.Handle[interaction.Output]) trajectory.Trajectory {
 	t.Helper()
 	raw, err := trajectory.Capture(t.Context(), handle, nil)
@@ -290,6 +295,7 @@ func captureInteraction(t *testing.T, handle *run.Handle[interaction.Output]) tr
 	}
 	return recorded
 }
+
 func coveredInteraction(t *testing.T) trajectory.Trajectory {
 	t.Helper()
 	client := &fixtureInteractionClient{usage: &chat.Usage{InputTokens: 3, OutputTokens: 2}}
@@ -299,6 +305,7 @@ func coveredInteraction(t *testing.T) trajectory.Trajectory {
 	}
 	return captureInteraction(t, handle)
 }
+
 func trajectoryConfig(t *testing.T, recorded trajectory.Trajectory) trajectory.Config {
 	t.Helper()
 	log, err := recorded.Log()
@@ -307,6 +314,7 @@ func trajectoryConfig(t *testing.T, recorded trajectory.Trajectory) trajectory.C
 	}
 	return trajectory.Config{Log: log, Coverage: recorded.Coverage()}
 }
+
 func recordedOutput(t *testing.T, recorded trajectory.Trajectory) run.Payload {
 	t.Helper()
 	output, ok := recorded.Termination().Output()
@@ -315,7 +323,9 @@ func recordedOutput(t *testing.T, recorded trajectory.Trajectory) run.Payload {
 	}
 	return output
 }
+
 func rawOutputProjection(output run.Payload) (json.RawMessage, error) { return output.JSON(), nil }
+
 func semanticInteractionOutput(output run.Payload) (json.RawMessage, error) {
 	value, err := output.Decode[interaction.Output]()
 	if err != nil {

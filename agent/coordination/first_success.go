@@ -41,8 +41,10 @@ func newFirstSuccess(name, description string, policy FirstSuccess) (*firstSucce
 	}
 	return &firstSuccessDefinition{descriptor: descriptor, policy: policy}, nil
 }
+
 func (f *firstSuccessDefinition) Descriptor() run.Descriptor                           { return f.descriptor }
 func (*firstSuccessDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (f *firstSuccessDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err := f.descriptor.ValidateInput(input); err != nil {
 		return nil, err
@@ -57,6 +59,7 @@ func (f *firstSuccessDefinition) Start(input run.Payload) (run.Execution, error)
 	}
 	return &firstSuccessExecution{definition: f, state: state}, nil
 }
+
 func (f *firstSuccessDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	value, err := restore.Decode(ctx, state, firstSuccessStateKind, ErrInvalidExecutionState, func(ctx context.Context, value firstSuccessState) error {
 		return value.validate(ctx, f.policy.MaxCandidates)
@@ -75,6 +78,7 @@ type firstSuccessExecution struct {
 func (f *firstSuccessExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState(firstSuccessStateKind, f.state)
 }
+
 func (f *firstSuccessExecution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
@@ -108,6 +112,7 @@ func (f *firstSuccessExecution) Step(ctx context.Context, turn run.Turn) (run.Tr
 	}
 	return f.complete(consumed)
 }
+
 func (f *firstSuccessExecution) start(turn run.Turn) (run.Transition, error) {
 	if len(turn.Messages) != 0 {
 		return run.Transition{}, ErrInvalidProtocol
@@ -124,6 +129,7 @@ func (f *firstSuccessExecution) start(turn run.Turn) (run.Transition, error) {
 	f.state.Calls = calls
 	return run.Yield(0, effects)
 }
+
 func (f *firstSuccessExecution) accept(message run.Message) error {
 	if completion, ok := message.(run.Completion); ok {
 		if index := slices.Index(f.state.Cancellations, completion.Effect); index >= 0 {
@@ -148,6 +154,7 @@ func (f *firstSuccessExecution) accept(message run.Message) error {
 	}
 	return ErrInvalidProtocol
 }
+
 func (f *firstSuccessExecution) cancelRemaining(turn run.Turn, consumed uint32) (run.Transition, error) {
 	var effects []run.Effect
 	for _, call := range f.state.Calls {
@@ -166,6 +173,7 @@ func (f *firstSuccessExecution) cancelRemaining(turn run.Turn, consumed uint32) 
 	}
 	return run.Yield(consumed, effects)
 }
+
 func (f *firstSuccessExecution) complete(consumed uint32) (run.Transition, error) {
 	result := f.state.result()
 	if !result.Valid() {

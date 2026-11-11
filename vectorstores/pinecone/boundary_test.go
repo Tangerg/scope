@@ -66,6 +66,7 @@ func TestUnsupportedPredicatesDoNotQueryOrDelete(t *testing.T) {
 		t.Fatal("unsupported predicate reached native ranking or deletion")
 	}
 }
+
 func TestSearchDoesNotHideMalformedLowScoreHits(t *testing.T) {
 	for _, failure := range []string{"nil response", "query error", "wrong namespace", "too many hits", "nil hit", "nil vector", "duplicate hit", "bad metadata", "changed membership", "NaN score", "negative distance"} {
 		t.Run(failure, func(t *testing.T) {

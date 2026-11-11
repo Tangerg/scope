@@ -76,6 +76,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.binding.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.binding.space); err != nil {
 		return err
@@ -134,6 +135,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.binding.verify(ctx)
 }
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if contextErr := ctx.Err(); contextErr != nil {
 		return nil, contextErr

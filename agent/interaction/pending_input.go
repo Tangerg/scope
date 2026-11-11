@@ -17,6 +17,7 @@ func (p PendingToolInput) ProcessID() run.ProcessID        { return p.processID 
 func (p PendingToolInput) WaitKey() run.WaitKey            { return p.wait.Key }
 func (p PendingToolInput) Prompt() json.RawMessage         { return p.wait.Question.JSON() }
 func (p PendingToolInput) ResponseSchema() json.RawMessage { return p.wait.AnswerSchema.JSON() }
+
 func (p PendingToolInput) Valid() bool {
 	return p.processID.Valid() && p.wait.Valid() && p.wait.Question.Valid() && p.wait.AnswerSchema.Valid()
 }

@@ -25,6 +25,7 @@ type senderDefinition struct{ descriptor run.Descriptor }
 
 func (s senderDefinition) Descriptor() run.Descriptor                           { return s.descriptor }
 func (senderDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
+
 func (s senderDefinition) Start(input run.Payload) (run.Execution, error) {
 	message, err := input.Decode[Message]()
 	if err != nil {
@@ -32,6 +33,7 @@ func (s senderDefinition) Start(input run.Payload) (run.Execution, error) {
 	}
 	return &senderExecution{message: &message}, nil
 }
+
 func (s senderDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -45,6 +47,7 @@ type senderExecution struct {
 	pending *run.EffectID
 	done    bool
 }
+
 type senderWire struct {
 	Message *Message      `json:"message,omitzero"`
 	Pending *run.EffectID `json:"pending,omitzero"`
@@ -55,6 +58,7 @@ func (s senderExecution) MarshalJSON() ([]byte, error) {
 	payload, err := run.EncodePayload(senderWire{Message: s.message, Pending: s.pending, Done: s.done})
 	return payload.JSON(), err
 }
+
 func (s *senderExecution) UnmarshalJSON(data []byte) error {
 	payload, err := run.ParsePayload(data)
 	if err != nil {
@@ -67,9 +71,11 @@ func (s *senderExecution) UnmarshalJSON(data []byte) error {
 	*s = senderExecution{message: wire.Message, pending: wire.Pending, done: wire.Done}
 	return nil
 }
+
 func (s *senderExecution) Snapshot() (run.ExecutionState, error) {
 	return run.EncodeExecutionState("test.sender", s)
 }
+
 func (s *senderExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
 	if s.done {
 		return run.Transition{}, ErrInvalidMessage
@@ -154,6 +160,7 @@ func (r *recipientPort) Deliver(ctx context.Context, sender, recipient run.Proce
 	}
 	return nil
 }
+
 func (r *recipientPort) recorded() []run.Signal {
 	r.mu.Lock()
 	defer r.mu.Unlock()

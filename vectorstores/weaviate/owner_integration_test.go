@@ -153,6 +153,7 @@ func TestLiveNativeFilterAcrossModesAndMetrics(t *testing.T) {
 		})
 	}
 }
+
 func TestLiveExactMetadata(t *testing.T) {
 	store, admin := liveWeaviateStore(t, distanceCosine)
 	var docs []*document.Document

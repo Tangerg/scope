@@ -41,6 +41,7 @@ type InputValidationPanicError struct{ Value any }
 func (i *InputValidationPanicError) Error() string {
 	return fmt.Sprintf("tool: input validation panicked: %v", i.Value)
 }
+
 func (i *InputValidationPanicError) Unwrap() error {
 	cause, _ := i.Value.(error)
 	return cause

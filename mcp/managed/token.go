@@ -30,6 +30,7 @@ type issuer struct {
 	cipher   cipher.AEAD
 	lifetime time.Duration
 }
+
 type target struct {
 	Owner run.ProcessID
 	Wait  run.WaitKey
@@ -78,6 +79,7 @@ func newIssuer(key [resumeKeyBytes]byte, lifetime time.Duration) (issuer, error)
 	}
 	return issuer{cipher: aead, lifetime: lifetime}, nil
 }
+
 func (i issuer) seal(t target, auth []byte) (string, error) {
 	if !t.Owner.Valid() || !t.Wait.Valid() {
 		return "", errContinuation
@@ -92,6 +94,7 @@ func (i issuer) seal(t target, auth []byte) (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(i.cipher.Seal(nil, nil, raw, auth)), nil
 }
+
 func (i issuer) open(token string, auth []byte) (continuation, error) {
 	var c continuation
 	if len(token) == 0 || len(token) > maximumTokenBytes {

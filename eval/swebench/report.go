@@ -153,6 +153,7 @@ func (c CaseResult) Status() Status {
 		return StatusError
 	}
 }
+
 func (c CaseResult) Completed() bool         { return c.completed }
 func (c CaseResult) CandidateDigest() string { return c.candidateDigest }
 func (c CaseResult) ReportDigest() string    { return c.reportDigest }

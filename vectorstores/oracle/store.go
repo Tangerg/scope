@@ -373,12 +373,14 @@ func (s *Store) requireContentCharacterSet(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) checkDocument(d *document.Document) error {
 	if len(d.ID) > documentIDBytes || d.Media != nil {
 		return fmt.Errorf("%w: unsupported document identity or media", vectorstore.ErrInvalidDocument)
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -394,6 +396,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	_, err := s.binding(ctx)
 	return err
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error) {
 	if batchErr := batch.ValidateFor(s.space); batchErr != nil {
 		return batchErr
@@ -495,6 +498,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	_, err := s.binding(ctx)
 	return err
 }
+
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -504,6 +508,7 @@ func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.S
 	}
 	return s.rank(ctx, q, nil)
 }
+
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -518,6 +523,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	defer cancel()
 	return s.rank(ctx, q, &budget)
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, fmt.Errorf("oracle: rank query: %w", err)

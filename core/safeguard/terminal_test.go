@@ -57,6 +57,7 @@ type nilScanMatcher struct{}
 func (n nilScanMatcher) Match(context.Context, string) (safeguard.Match, error) {
 	return safeguard.Match{}, nil
 }
+
 func (n nilScanMatcher) NewScan() safeguard.Scan { return (*nilScan)(nil) }
 
 type nilScan struct{}

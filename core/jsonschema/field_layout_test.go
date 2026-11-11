@@ -27,9 +27,11 @@ type shallowLast struct {
 }
 
 type untaggedName struct{ Value string }
+
 type taggedName struct {
 	Text int `json:"Value"`
 }
+
 type recursiveEmbedding struct {
 	*recursiveEmbedding
 	Value string `json:"value"`

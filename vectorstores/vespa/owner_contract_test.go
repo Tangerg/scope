@@ -351,6 +351,7 @@ func TestUpsertSkipsVisitsAndReportsUnknownNativeWrite(t *testing.T) {
 		t.Fatalf("write evidence: %+v; writes %d", err, fixture.writes)
 	}
 }
+
 func TestScanBudgetAppliesEvenToEmptyContinuationPages(t *testing.T) {
 	store, fixture := newFixtureStore(t, StoreConfig{})
 	reads := 0

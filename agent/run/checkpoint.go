@@ -16,6 +16,7 @@ type Checkpoint struct {
 }
 
 func (Checkpoint) recordKind() RecordKind { return RecordKindCheckpoint }
+
 func (c Checkpoint) valid() bool {
 	if len(c.Processes) == 0 || c.StartedProcesses < uint64(len(c.Processes)) {
 		return false

@@ -41,6 +41,7 @@ func TestNativeSelectionDoesNotEnumerateOrCoerceArrays(t *testing.T) {
 		}
 	}
 }
+
 func TestSemanticGroupsMergeRawDistanceAndHybridUsesOneFusion(t *testing.T) {
 	var docs []*document.Document
 	for i := range 257 {

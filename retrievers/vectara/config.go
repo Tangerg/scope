@@ -48,6 +48,7 @@ func (c Config) Validate() error {
 	_, err := bindScope(c.AllowedDocumentIDs)
 	return err
 }
+
 func (c Config) validateConnection() error {
 	address, err := url.Parse(cmp.Or(c.Endpoint, DefaultEndpoint))
 	_, originErr := httpclient.NewOrigin(address)

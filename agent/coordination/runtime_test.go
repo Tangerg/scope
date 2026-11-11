@@ -20,12 +20,15 @@ func require[T any](value T, err error) T {
 	}
 	return value
 }
+
 func turn(step uint64, messages ...run.Message) run.Turn {
 	return run.Turn{Process: require(run.ParseProcessID("coordination-test")), Step: step, Messages: messages}
 }
+
 func settled(value any) run.Settlement {
 	return require(run.NewSettlement(run.SettlementStatusSucceeded, require(run.EncodePayload(value)).JSON()))
 }
+
 func ended(value any) run.Termination {
 	wire := require(jsonv2.Marshal(struct {
 		Output run.Payload `json:"output"`
@@ -36,6 +39,7 @@ func ended(value any) run.Termination {
 	}
 	return result
 }
+
 func waitFor[O any](t *testing.T, handle *run.Handle[O]) run.Wait {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

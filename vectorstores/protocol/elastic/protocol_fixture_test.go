@@ -26,6 +26,7 @@ func (p *protocolBody) Read(raw []byte) (int, error) {
 	}
 	return n, err
 }
+
 func (p *protocolBody) Close() error { p.closed = true; return p.closeErr }
 
 type wireReply struct {

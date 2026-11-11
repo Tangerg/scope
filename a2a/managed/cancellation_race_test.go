@@ -23,9 +23,11 @@ type cancellationReadStore struct {
 func (c *cancellationReadStore) Append(ctx context.Context, batch run.Batch) error {
 	return c.store.Append(ctx, batch)
 }
+
 func (c *cancellationReadStore) Read(ctx context.Context, id run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return c.store.Read(ctx, id, after)
 }
+
 func (c *cancellationReadStore) Load(ctx context.Context, id run.ProcessID) (run.Log, bool, error) {
 	c.mu.Lock()
 	loadError := c.loadError
@@ -41,11 +43,13 @@ func (c *cancellationReadStore) Load(ctx context.Context, id run.ProcessID) (run
 	}
 	return log, found, err
 }
+
 func (c *cancellationReadStore) afterNextSnapshot(callback func()) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.afterSnapshot = callback
 }
+
 func (c *cancellationReadStore) failReads(err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

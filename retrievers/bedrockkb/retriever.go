@@ -252,6 +252,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	slices.SortStableFunc(ranked, func(a, b rag.Candidate) int { return cmp.Compare(b.Score, a.Score) })
 	return ranked[:min(len(ranked), config.Count)], nil
 }
+
 func (r *Retriever) retrieve(ctx context.Context, body retrievalRequest, remaining int64) ([]byte, error) {
 	encoded, err := jsonv2.Marshal(body)
 	if err != nil {

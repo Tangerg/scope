@@ -85,6 +85,7 @@ func (s *Store) verify(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -102,6 +103,7 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err
@@ -141,6 +143,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	}
 	return writeEvidence(ids, result, err)
 }
+
 func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) error {
 	var w vectorstore.WriteOutcome
 	// Ordered writes stop at the first write error. A write concern or transport
@@ -176,6 +179,7 @@ func writeEvidence(ids []string, result *mongo.BulkWriteResult, cause error) err
 	}
 	return vectorstore.NewWriteError(cause, w)
 }
+
 func checkBulkAcknowledgment(result *mongo.BulkWriteResult, sent int) error {
 	if result == nil {
 		return errors.New("mongodb: bulk write returned no result")
@@ -195,6 +199,7 @@ func (s *Store) nativeTerm(p filter.Predicate) (string, error) {
 	}
 	return keyword.EqualString(p)
 }
+
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts vectorstore.SearchOptions) error {
 	if err := space.Require(s.space); err != nil {
 		return err
@@ -212,9 +217,11 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	}
 	return s.verify(ctx)
 }
+
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	return s.rank(ctx, q, nil)
 }
+
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
 	if err := q.ValidateFor(s.space); err != nil {
 		return nil, err
@@ -229,6 +236,7 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	defer cancel()
 	return s.rank(ctx, q, &budget)
 }
+
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -451,6 +459,7 @@ func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) err
 	}
 	return nil
 }
+
 func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {
 	if err := budget.Validate(); err != nil {
 		return err

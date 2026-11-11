@@ -53,12 +53,15 @@ type treeFixtureDefinition struct {
 }
 
 func (t *treeFixtureDefinition) Descriptor() Descriptor { return t.descriptor }
+
 func (t *treeFixtureDefinition) ChildPrograms() []Program[Payload, Payload] {
 	return t.children
 }
+
 func (t *treeFixtureDefinition) Start(Payload) (Execution, error) {
 	return &treeFixtureExecution{definition: t}, nil
 }
+
 func (t *treeFixtureDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
 	value, err := state.Decode[treeFixtureState]("test.tree")
 	if err != nil {
@@ -80,6 +83,7 @@ type treeFixtureExecution struct {
 func (t *treeFixtureExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.tree", t.state)
 }
+
 func (t *treeFixtureExecution) Step(_ context.Context, turn Turn) (Transition, error) {
 	consumed := uint32(len(turn.Messages))
 	if !t.state.Spawned && len(t.definition.children) > 0 {
@@ -125,9 +129,11 @@ type boundaryDefinition struct {
 
 func (b *boundaryDefinition) Descriptor() Descriptor                   { return b.descriptor }
 func (*boundaryDefinition) ChildPrograms() []Program[Payload, Payload] { return nil }
+
 func (b *boundaryDefinition) Start(Payload) (Execution, error) {
 	return &boundaryExecution{step: b.step}, nil
 }
+
 func (b *boundaryDefinition) Restore(_ context.Context, state ExecutionState) (Execution, error) {
 	if _, err := state.Decode[int]("test.boundary"); err != nil {
 		return nil, err
@@ -142,6 +148,7 @@ type boundaryExecution struct {
 func (b *boundaryExecution) Step(ctx context.Context, turn Turn) (Transition, error) {
 	return b.step(ctx, turn)
 }
+
 func (*boundaryExecution) Snapshot() (ExecutionState, error) {
 	return EncodeExecutionState("test.boundary", 0)
 }
@@ -152,6 +159,7 @@ type boundaryDispatcher struct {
 }
 
 func (b boundaryDispatcher) Policy(Effect) EffectPolicy { return b.policy }
+
 func (b boundaryDispatcher) Dispatch(ctx context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
 	return b.dispatch(ctx, request, emit)
 }

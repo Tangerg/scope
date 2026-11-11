@@ -35,6 +35,7 @@ func (c *countingCollection) BulkWrite(
 func (*countingCollection) Aggregate(context.Context, any, ...options.Lister[options.AggregateOptions]) (*mongo.Cursor, error) {
 	return mongo.NewCursorFromDocuments([]any{nativeIndexPolicy(DefaultVectorIndexName, "cosine", 2)}, nil, nil)
 }
+
 func upsertStore(t *testing.T, collection DocumentCollection) *Store {
 	t.Helper()
 	s, err := NewStore(t.Context(), StoreConfig{Collection: collection, Space: fixtureSpace})

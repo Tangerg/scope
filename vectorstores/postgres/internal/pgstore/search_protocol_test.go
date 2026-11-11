@@ -172,6 +172,7 @@ type queryPanicTracer struct {
 func (q queryPanicTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
 	return context.WithValue(ctx, queryPanicKey{}, strings.HasPrefix(data.SQL, q.prefix))
 }
+
 func (q queryPanicTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
 	if ctx.Value(queryPanicKey{}) == true {
 		panic(q.value)

@@ -23,6 +23,7 @@ type resultConnector struct {
 func (r resultConnector) Connect(context.Context) (driver.Conn, error) {
 	return &resultConnection{rows: r.rows, stmt: r.stmt}, nil
 }
+
 func (r resultConnector) Driver() driver.Driver { return resultDriver{} }
 
 type resultDriver struct{}
@@ -40,10 +41,13 @@ func (r *resultConnection) Prepare(string) (driver.Stmt, error) {
 	}
 	return nil, errors.New("unexpected preparation")
 }
+
 func (r *resultConnection) Close() error { return nil }
+
 func (r *resultConnection) Begin() (driver.Tx, error) {
 	return nil, errors.New("unexpected transaction")
 }
+
 func (r *resultConnection) QueryContext(_ context.Context, stmt string, _ []driver.NamedValue) (driver.Rows, error) {
 	if strings.Contains(stmt, "NLS_DATABASE_PARAMETERS") {
 		return &resultRows{cols: []string{"VALUE"}, values: [][]driver.Value{{"AL32UTF8"}}}, nil
@@ -74,7 +78,9 @@ func (r *resultRows) Columns() []string {
 	}
 	return []string{"id", "content", "metadata", "distance"}
 }
+
 func (r *resultRows) Close() error { r.closed = true; return nil }
+
 func (r *resultRows) Next(destinations []driver.Value) error {
 	if r.position == len(r.values) {
 		return io.EOF
@@ -147,9 +153,11 @@ type writeStmt struct {
 
 func (w *writeStmt) Close() error  { return nil }
 func (w *writeStmt) NumInput() int { return 4 }
+
 func (w *writeStmt) Query([]driver.Value) (driver.Rows, error) {
 	return nil, errors.New("unexpected query")
 }
+
 func (w *writeStmt) Exec(args []driver.Value) (driver.Result, error) {
 	id := string(args[0].([]byte))
 	w.ids = append(w.ids, id)
@@ -158,6 +166,7 @@ func (w *writeStmt) Exec(args []driver.Value) (driver.Result, error) {
 	}
 	return driver.RowsAffected(1), nil
 }
+
 func TestSingleRecordWritesRetainConfirmedAndUnknownIDs(t *testing.T) {
 	stmt := &writeStmt{fail: errors.New("response lost")}
 	db := sql.OpenDB(resultConnector{rows: &resultRows{}, stmt: stmt})

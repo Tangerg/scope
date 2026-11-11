@@ -78,6 +78,7 @@ func (n *nativeFixture) vector(text string) []float64 {
 	}
 	return fixtureVector(text)
 }
+
 func (n *nativeFixture) batch(docs []*document.Document) *vectorstore.Batch {
 	b := fixtureBatch(docs)
 	for i, d := range docs {
@@ -85,12 +86,14 @@ func (n *nativeFixture) batch(docs []*document.Document) *vectorstore.Batch {
 	}
 	return b
 }
+
 func (n *nativeFixture) read(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
 		return n.store.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return n.store.Query(ctx, q)
 }
+
 func (n *nativeFixture) install(ctx context.Context, docs []*document.Document) error {
 	if _, err := n.db.ExecContext(ctx, "DELETE FROM "+n.table); err != nil {
 		return err

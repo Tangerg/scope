@@ -369,6 +369,7 @@ type terminalDefinition struct{ descriptor run.Descriptor }
 func (t terminalDefinition) Descriptor() run.Descriptor                           { return t.descriptor }
 func (terminalDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 func (terminalDefinition) Start(run.Payload) (run.Execution, error)               { return &terminalExecution{}, nil }
+
 func (terminalDefinition) Restore(context.Context, run.ExecutionState) (run.Execution, error) {
 	return &terminalExecution{}, nil
 }

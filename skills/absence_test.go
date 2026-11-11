@@ -18,7 +18,9 @@ type failingLookupSource struct {
 func (f failingLookupSource) Lookup(context.Context, string) (Summary, error) {
 	return Summary{}, f.err
 }
+
 func (f failingLookupSource) Load(context.Context, string) (*Skill, error) { return nil, f.err }
+
 func (f failingLookupSource) OpenResource(context.Context, string, string) (fs.File, error) {
 	return nil, f.err
 }

@@ -21,6 +21,7 @@ func (f *frameBody) Read(buffer []byte) (int, error) {
 	f.read += n
 	return n, err
 }
+
 func (f *frameBody) Close() error { f.closed = true; return nil }
 
 type frameTransport struct{ body *frameBody }

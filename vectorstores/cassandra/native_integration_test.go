@@ -67,6 +67,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 
 	return f
 }
+
 func fixtureVector(text string) []float64 {
 	vector := []float64{1, 0}
 	switch text {
@@ -87,6 +88,7 @@ func fixtureVector(text string) []float64 {
 	}
 	return vector
 }
+
 func (n *nativeFixture) Query(statement string, values ...any) *gocql.Query {
 	if n.beforeQuery != nil {
 		n.beforeQuery(statement, values)
@@ -97,6 +99,7 @@ func (n *nativeFixture) Query(statement string, values ...any) *gocql.Query {
 	}
 	return query
 }
+
 func (n *nativeFixture) config(metric SimilarityFunction, create bool) StoreConfig {
 	dimensions := 0
 	if create {
@@ -104,6 +107,7 @@ func (n *nativeFixture) config(metric SimilarityFunction, create bool) StoreConf
 	}
 	return StoreConfig{Session: n, KeyspaceName: n.keyspace, TableName: "docs", Space: fixtureSpace, Similarity: metric, InitializeSchema: create, CreateDimensions: dimensions}
 }
+
 func (n *nativeFixture) store(t *testing.T, metric SimilarityFunction) *Store {
 	t.Helper()
 	store, err := NewStore(t.Context(), n.config(metric, true))
@@ -112,13 +116,16 @@ func (n *nativeFixture) store(t *testing.T, metric SimilarityFunction) *Store {
 	}
 	return store
 }
+
 func (n *nativeFixture) table() string { return quoteIdentifier(n.keyspace) + `."docs"` }
+
 func (n *nativeFixture) clear(t *testing.T) {
 	t.Helper()
 	if err := n.session.Query("TRUNCATE " + n.table()).ExecContext(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }
+
 func (n *nativeFixture) ids(t *testing.T) []string {
 	t.Helper()
 	iter := n.session.Query("SELECT id FROM " + n.table()).IterContext(t.Context())
@@ -143,12 +150,14 @@ func (nativeBatcher) Batch(_ context.Context, docs []*document.Document) ([][]*d
 	}
 	return out, nil
 }
+
 func nativeIndex(t *testing.T, store *Store, docs ...*document.Document) {
 	t.Helper()
 	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
 }
+
 func nativePredicate(t *testing.T, source string) filter.Predicate {
 	t.Helper()
 	predicate, err := filter.Parse(source)
@@ -194,6 +203,7 @@ func TestNativeFilterConformance(t *testing.T) {
 		})
 	}
 }
+
 func TestNativeCanonicalMetadataAndTopK(t *testing.T) {
 	for _, metric := range []SimilarityFunction{SimilarityCosine, SimilarityEuclidean, SimilarityDotProduct} {
 		t.Run(metric.String(), func(t *testing.T) {
@@ -230,6 +240,7 @@ func TestNativeCanonicalMetadataAndTopK(t *testing.T) {
 		})
 	}
 }
+
 func TestNativePredicatePreflightBeforeThresholdAndDeletion(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityCosine)
@@ -258,6 +269,7 @@ func TestNativePredicatePreflightBeforeThresholdAndDeletion(t *testing.T) {
 		t.Fatal("paged delete left rows")
 	}
 }
+
 func TestNativeCASPreservesConcurrentReplacement(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityCosine)
@@ -283,6 +295,7 @@ func TestNativeCASPreservesConcurrentReplacement(t *testing.T) {
 		t.Fatalf("replacement=%s metadata=%s", content, raw)
 	}
 }
+
 func TestNativeSearchUsesCapturedVectorsAndMetadata(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityCosine)
@@ -310,6 +323,7 @@ func TestNativeSearchUsesCapturedVectorsAndMetadata(t *testing.T) {
 		t.Fatalf("current response=%v err=%v", response, err)
 	}
 }
+
 func TestNativeDotRetainsRawRanking(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityDotProduct)
@@ -324,6 +338,7 @@ func TestNativeDotRetainsRawRanking(t *testing.T) {
 		t.Fatalf("large finite dot response=%v err=%v", response, err)
 	}
 }
+
 func TestNativeStrictMetadataAndVectorPreflight(t *testing.T) {
 	f := newNativeFixture(t)
 	store := f.store(t, SimilarityCosine)
@@ -354,6 +369,7 @@ func TestNativeStrictMetadataAndVectorPreflight(t *testing.T) {
 		}
 	}
 }
+
 func TestNativeSchemaAndCancellation(t *testing.T) {
 	f := newNativeFixture(t)
 	if store, err := NewStore(t.Context(), f.config(SimilarityCosine, false)); store != nil || err == nil {

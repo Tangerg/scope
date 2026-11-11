@@ -267,9 +267,11 @@ type redirectedStore struct {
 func (r redirectedStore) Append(ctx context.Context, batch run.Batch) error {
 	return r.store.Append(ctx, batch)
 }
+
 func (r redirectedStore) Load(ctx context.Context, _ run.ProcessID) (run.Log, bool, error) {
 	return r.store.Load(ctx, r.target)
 }
+
 func (r redirectedStore) Read(ctx context.Context, _ run.ProcessID, after run.LSN) iter.Seq2[run.Entry, error] {
 	return r.store.Read(ctx, r.target, after)
 }

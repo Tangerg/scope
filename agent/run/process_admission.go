@@ -23,6 +23,7 @@ func (p ProcessAdmission) ProgramRef() ProgramRef      { return p.program }
 func (p ProcessAdmission) Descriptor() Descriptor      { return p.descriptor }
 func (p ProcessAdmission) Budget() Budget              { return p.budget }
 func (p ProcessAdmission) Capabilities() CapabilitySet { return p.capabilities }
+
 func (p ProcessAdmission) Valid() bool {
 	return p.process.Valid() && p.program.Valid() && p.descriptor.Valid()
 }
