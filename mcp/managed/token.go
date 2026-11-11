@@ -80,10 +80,9 @@ func newIssuer(key [resumeKeyBytes]byte, lifetime time.Duration) (issuer, error)
 	return issuer{cipher: aead, lifetime: lifetime}, nil
 }
 
+// seal issues a token for a target projected from a committed wait, whose
+// owner and key the Runtime already admitted.
 func (i issuer) seal(t target, auth []byte) (string, error) {
-	if !t.Owner.Valid() || !t.Wait.Valid() {
-		return "", errContinuation
-	}
 	raw, err := jsonv2.Marshal(continuation{
 		OwnerHash: sha256.Sum256([]byte(t.Owner.String())),
 		Wait:      t.Wait,
