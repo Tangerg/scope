@@ -7,21 +7,28 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+const (
+	presencePrefix = "p:"
+	stringPrefix   = "s:"
+	separator      = ":"
+	// formatTerm keeps the field present even when no metadata exists.
+	formatTerm = "terms"
+)
+
 // Presence is emitted only for a present, non-null top-level value.
-func Presence(key string) string { return "p:" + base64.RawURLEncoding.EncodeToString([]byte(key)) }
+func Presence(key string) string { return presencePrefix + encode(key) }
 
 // String identifies one complete scalar string at an exact top-level key.
-func String(key, value string) string {
-	return "s:" + base64.RawURLEncoding.EncodeToString([]byte(key)) + ":" + base64.RawURLEncoding.EncodeToString([]byte(value))
-}
+func String(key, value string) string { return stringPrefix + encode(key) + separator + encode(value) }
+
+func encode(text string) string { return base64.RawURLEncoding.EncodeToString([]byte(text)) }
 
 func Project(facts metadata.Map) ([]string, error) {
 	values, err := facts.Values()
 	if err != nil {
 		return nil, err
 	}
-	// A static format term keeps the field present even when no metadata exists.
-	terms := []string{"terms"}
+	terms := []string{formatTerm}
 	for k, v := range values {
 		if v != nil {
 			terms = append(terms, Presence(k))

@@ -231,11 +231,7 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 			}
 			remaining -= weight
 			if predicate != nil {
-				values, err := doc.Metadata.Values()
-				if err != nil {
-					return nil, err
-				}
-				matched, err := filter.Match(predicate, values)
+				matched, err := filter.Match(predicate, doc.Metadata)
 				if err != nil {
 					return nil, fmt.Errorf("s3vectors: evaluate Core predicate: %w", err)
 				}

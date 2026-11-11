@@ -330,11 +330,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scan
 				if scan != nil && !slices.Contains(group, hit.ID) {
 					return nil, errors.New("redis: native hit is outside Core membership")
 				}
-				values, decodeErr := doc.Metadata.Values()
-				if decodeErr != nil {
-					return nil, decodeErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, values)
+				matched, matchErr := filter.Match(request.Options.Filter, doc.Metadata)
 				if matchErr != nil {
 					return nil, matchErr
 				}

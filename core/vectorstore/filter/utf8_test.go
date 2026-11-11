@@ -61,7 +61,7 @@ func TestReplacementRuneRemainsValidUTF8(t *testing.T) {
 	if !constructed.Equal(parsed) {
 		t.Fatalf("constructed %v differs from parsed %v", constructed, parsed)
 	}
-	matched, err := filter.Match(parsed, map[string]any{"name": value})
+	matched, err := filter.Match(parsed, facts(t, map[string]any{"name": value}))
 	if err != nil || !matched {
 		t.Fatalf("Match() = %v, %v", matched, err)
 	}

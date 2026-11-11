@@ -152,8 +152,8 @@ func TestComparisonInverseIncludesNullDomain(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, values := range []map[string]any{{}, {"x": nil}, {"x": 4}, {"x": 5}, {"x": 6}, {"x": "invalid"}} {
-			got, gotErr := filter.Match(inverse, values)
-			want, wantErr := filter.Match(filter.Not(predicate), values)
+			got, gotErr := filter.Match(inverse, facts(t, values))
+			want, wantErr := filter.Match(filter.Not(predicate), facts(t, values))
 			if got != want || (gotErr == nil) != (wantErr == nil) {
 				t.Fatalf("%s on %v: got %v %v, want %v %v", predicate, values, got, gotErr, want, wantErr)
 			}

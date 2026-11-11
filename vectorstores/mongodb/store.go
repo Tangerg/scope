@@ -320,11 +320,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 				if !slices.Contains(group, id) {
 					return nil, errors.New("mongodb: hit is outside selected identities")
 				}
-				values, decodeErr := hit.Document.Metadata.Values()
-				if decodeErr != nil {
-					return nil, decodeErr
-				}
-				matched, matchErr := filter.Match(request.Options.Filter, values)
+				matched, matchErr := filter.Match(request.Options.Filter, hit.Document.Metadata)
 				if matchErr != nil {
 					return nil, matchErr
 				}
@@ -420,11 +416,7 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate,
 		seen[doc.ID] = struct{}{}
 		matched := true
 		if predicate != nil {
-			values, valuesErr := doc.Metadata.Values()
-			if valuesErr != nil {
-				return nil, valuesErr
-			}
-			matched, err = filter.Match(predicate, values)
+			matched, err = filter.Match(predicate, doc.Metadata)
 			if err != nil {
 				return nil, err
 			}

@@ -134,9 +134,5 @@ func matchesMetadata(predicate filter.Predicate, doc *document.Document) (bool, 
 	if predicate == nil {
 		return true, nil
 	}
-	values, err := doc.Metadata.Values()
-	if err != nil {
-		return false, err
-	}
-	return filter.Match(predicate, values)
+	return filter.Match(predicate, doc.Metadata)
 }

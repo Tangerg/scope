@@ -5,8 +5,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
+
+// facts encodes test values the way a stored document carries them.
+func facts(t testing.TB, values map[string]any) metadata.Map {
+	t.Helper()
+	encoded, err := metadata.FromValues(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
 
 func TestParse_ProducesCanonicalPredicates(t *testing.T) {
 	tests := []struct {

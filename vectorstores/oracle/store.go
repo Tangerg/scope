@@ -789,11 +789,7 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 		if err := fields.UnmarshalStoredMetadata(raw); err != nil {
 			return page, fmt.Errorf("oracle: decode filter metadata: %w", err)
 		}
-		values, err := fields.Metadata.Values()
-		if err != nil {
-			return page, fmt.Errorf("oracle: decode filter values: %w", err)
-		}
-		match, err := filter.Match(predicate, values)
+		match, err := filter.Match(predicate, fields.Metadata)
 		if err != nil {
 			return page, fmt.Errorf("oracle: evaluate filter: %w", err)
 		}

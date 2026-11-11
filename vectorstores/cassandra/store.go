@@ -414,11 +414,7 @@ func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.
 			return nil, vectorErr
 		}
 		if predicate != nil {
-			values, valueErr := doc.Metadata.Values()
-			if valueErr != nil {
-				return nil, valueErr
-			}
-			match, matchErr := filter.Match(predicate, values)
+			match, matchErr := filter.Match(predicate, doc.Metadata)
 			if matchErr != nil {
 				return nil, fmt.Errorf("cassandra: filter document %q: %w", doc.ID, matchErr)
 			}

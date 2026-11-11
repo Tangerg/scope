@@ -177,11 +177,7 @@ func matches(doc *document.Document, predicate filter.Predicate) (bool, error) {
 	if predicate == nil {
 		return true, nil
 	}
-	values, err := doc.Metadata.Values()
-	if err != nil {
-		return false, err
-	}
-	return filter.Match(predicate, values)
+	return filter.Match(predicate, doc.Metadata)
 }
 
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {

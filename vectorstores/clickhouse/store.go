@@ -570,11 +570,7 @@ func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filt
 					return err
 				}
 				if p != nil {
-					m, err := d.Metadata.Values()
-					if err != nil {
-						return err
-					}
-					ok, err := filter.Match(p, m)
+					ok, err := filter.Match(p, d.Metadata)
 					if err != nil {
 						return err
 					}

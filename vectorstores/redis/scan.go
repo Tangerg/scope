@@ -128,11 +128,7 @@ func (s *scanGrant) selectRecords(ctx context.Context, store *Store, p filter.Pr
 				if err != nil {
 					return err
 				}
-				facts, err := doc.Metadata.Values()
-				if err != nil {
-					return err
-				}
-				accept, err := filter.Match(p, facts)
+				accept, err := filter.Match(p, doc.Metadata)
 				if err != nil {
 					return err
 				}

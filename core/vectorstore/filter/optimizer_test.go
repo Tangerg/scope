@@ -90,8 +90,8 @@ func TestParseOptimizerBooleanIdentities(t *testing.T) {
 				for _, b := range []int{0, 2} {
 					for _, c := range []int{0, 3} {
 						values := map[string]any{"a": a, "b": b, "c": c, "active": true}
-						got, err := filter.Match(actual, values)
-						want, wantErr := filter.Match(tt.expect, values)
+						got, err := filter.Match(actual, facts(t, values))
+						want, wantErr := filter.Match(tt.expect, facts(t, values))
 						if err != nil || wantErr != nil || got != want {
 							t.Fatalf("%s: got %v, %v; want %v, %v", tt.input, got, err, want, wantErr)
 						}
@@ -128,8 +128,8 @@ func TestParseOptimizerCollapsesNestedDoubleNegation(t *testing.T) {
 				values[key] = index + 100
 			}
 		}
-		got, gotErr := filter.Match(nested, values)
-		want, wantErr := filter.Match(flat, values)
+		got, gotErr := filter.Match(nested, facts(t, values))
+		want, wantErr := filter.Match(flat, facts(t, values))
 		if got != want || (gotErr == nil) != (wantErr == nil) {
 			t.Fatalf("mask %d: nested=%v,%v flat=%v,%v", mask, got, gotErr, want, wantErr)
 		}
@@ -176,8 +176,8 @@ func TestFilterRoundTripPreservesEvaluationErrors(t *testing.T) {
 		}
 		for _, a := range []int{0, 1} {
 			values := map[string]any{"a": a, "b": 2, "bad": "invalid"}
-			before, beforeErr := filter.Match(predicate, values)
-			after, afterErr := filter.Match(options.Filter, values)
+			before, beforeErr := filter.Match(predicate, facts(t, values))
+			after, afterErr := filter.Match(options.Filter, facts(t, values))
 			if before != after || beforeErr == nil || afterErr == nil || beforeErr.Error() != afterErr.Error() {
 				t.Fatalf("roundtrip: %v %v -> %v %v", before, beforeErr, after, afterErr)
 			}

@@ -47,11 +47,7 @@ func (r record) matches(predicate filter.Predicate) (bool, error) {
 	if lo.IsNil(predicate) {
 		return true, nil
 	}
-	values, err := r.doc.Metadata.Values()
-	if err != nil {
-		return false, fmt.Errorf("metadata: %w", err)
-	}
-	return filter.Match(predicate, values)
+	return filter.Match(predicate, r.doc.Metadata)
 }
 
 var (

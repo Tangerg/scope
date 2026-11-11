@@ -285,17 +285,14 @@ func nativeTypeErrors(t *testing.T, f *nativeFixture) {
 			t.Run(fmt.Sprintf("%T/%s", value, source), func(t *testing.T) {
 				docs := nativeDocuments(t, []any{value})
 				predicate := nativePredicate(t, source)
-				values, err := docs[0].Metadata.Values()
-				if err != nil {
-					t.Fatal(err)
-				}
-				match, expectedErr := filter.Match(predicate, values)
+				match, expectedErr := filter.Match(predicate, docs[0].Metadata)
 				for _, operation := range []string{"search", "delete"} {
 					if err := f.install(t.Context(), docs); err != nil {
 						t.Fatal(err)
 					}
 
 					var got []string
+					var err error
 					if operation == "search" {
 						got, err = f.search(t.Context(), predicate, 1)
 					} else {

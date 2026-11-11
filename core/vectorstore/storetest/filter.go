@@ -104,11 +104,7 @@ func (f filterCase) reference(t *testing.T, predicate filter.Predicate, docs []*
 		want = append(want, docs[index].ID)
 	}
 	for _, doc := range docs {
-		values, err := doc.Metadata.Values()
-		if err != nil {
-			t.Fatal(err)
-		}
-		match, err := filter.Match(predicate, values)
+		match, err := filter.Match(predicate, doc.Metadata)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -17,7 +17,7 @@ func mustParse(t *testing.T, source string) Predicate {
 
 func mustMatch(t *testing.T, predicate Predicate, metadata map[string]any) bool {
 	t.Helper()
-	matched, err := Match(predicate, metadata)
+	matched, err := match(predicate, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestEvaluatorReportsMalformedPredicates(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := Match(testCase.predicate, metadata)
+			_, err := match(testCase.predicate, metadata)
 			if err == nil {
 				t.Fatal("malformed predicate evaluated without error")
 			}
@@ -195,7 +195,7 @@ func TestEvaluatorTreatsNaNAsUnordered(t *testing.T) {
 }
 
 func TestEvaluatorRejectsNumericStringCoercion(t *testing.T) {
-	if _, err := Match(mustParse(t, `n < 9`), map[string]any{"n": "12"}); err == nil {
+	if _, err := match(mustParse(t, `n < 9`), map[string]any{"n": "12"}); err == nil {
 		t.Fatal("numeric string was silently coerced")
 	}
 }
@@ -214,7 +214,7 @@ func TestEvaluatorArrayIndexBounds(t *testing.T) {
 		"too large":  1 << 63,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Match(EQ(Index("list", index), 2), metadata); err == nil {
+			if _, err := match(EQ(Index("list", index), 2), metadata); err == nil {
 				t.Fatalf("index %v was accepted", index)
 			}
 		})

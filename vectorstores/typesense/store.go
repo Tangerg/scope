@@ -248,11 +248,7 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, bu
 			return nil, vectorstore.ErrScanBudget
 		}
 		if predicate != nil {
-			values, valueErr := doc.Metadata.Values()
-			if valueErr != nil {
-				return nil, valueErr
-			}
-			matched, matchErr := filter.Match(predicate, values)
+			matched, matchErr := filter.Match(predicate, doc.Metadata)
 			if matchErr != nil {
 				return nil, matchErr
 			}

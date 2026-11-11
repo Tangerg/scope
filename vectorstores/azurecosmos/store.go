@@ -355,11 +355,7 @@ func (s *Store) selectItems(ctx context.Context, request vectorstore.ScanRequest
 		}
 		seen[doc.ID] = true
 		if request.Filter != nil {
-			values, valueErr := doc.Metadata.Values()
-			if valueErr != nil {
-				return valueErr
-			}
-			matched, matchErr := filter.Match(request.Filter, values)
+			matched, matchErr := filter.Match(request.Filter, doc.Metadata)
 			if matchErr != nil || !matched {
 				return matchErr
 			}

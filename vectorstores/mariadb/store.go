@@ -770,11 +770,7 @@ func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predica
 				return page, fmt.Errorf("mariadb: decode filter metadata: %w", err)
 			}
 		}
-		values, err := fields.Metadata.Values()
-		if err != nil {
-			return page, fmt.Errorf("mariadb: decode filter values: %w", err)
-		}
-		match, err := filter.Match(predicate, values)
+		match, err := filter.Match(predicate, fields.Metadata)
 		if err != nil {
 			return page, fmt.Errorf("mariadb: evaluate filter: %w", err)
 		}

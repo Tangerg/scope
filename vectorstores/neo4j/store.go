@@ -383,11 +383,7 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 			selected = append(selected, node)
 			continue
 		}
-		values, err := node.document.Metadata.Values()
-		if err != nil {
-			return nil, err
-		}
-		match, err := filter.Match(predicate, values)
+		match, err := filter.Match(predicate, node.document.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("neo4j: filter node %q: %w", node.document.ID, err)
 		}

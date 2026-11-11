@@ -13,7 +13,7 @@ func TestEvaluatorUsesCompleteMetadataPath(t *testing.T) {
 	metadata := map[string]any{
 		"profile": map[string]any{"name": "scope"},
 	}
-	matched, err := Match(predicate, metadata)
+	matched, err := match(predicate, metadata)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestEvaluatorUsesCompleteMetadataPath(t *testing.T) {
 
 func TestEvaluatorComparesLargeIntegersExactly(t *testing.T) {
 	predicate := EQ("sequence", uint64(math.MaxUint64))
-	matched, err := Match(predicate, map[string]any{
+	matched, err := match(predicate, map[string]any{
 		"sequence": uint64(math.MaxUint64 - 1),
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func TestEvaluatorTreatsMissingFieldsAsNonMatches(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			matched, err := Match(predicate, map[string]any{"other": true})
+			matched, err := match(predicate, map[string]any{"other": true})
 			if err != nil {
 				t.Fatalf("missing field returned error: %v", err)
 			}
@@ -79,12 +79,12 @@ func TestEvaluatorCollectionMembership(t *testing.T) {
 		{name: "scalar does not masquerade as collection", predicate: Has("scalar", "go")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := Match(test.predicate, metadata)
+			got, err := match(test.predicate, metadata)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != test.want {
-				t.Fatalf("Match() = %t, want %t", got, test.want)
+				t.Fatalf("match() = %t, want %t", got, test.want)
 			}
 		})
 	}

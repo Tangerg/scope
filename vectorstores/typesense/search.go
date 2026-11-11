@@ -122,11 +122,7 @@ func (s *searchSession) validateMembership(key string, doc *document.Document) e
 	if _, member := s.allowed[key]; !member {
 		return errors.New("typesense: native hit is outside Core membership")
 	}
-	values, err := doc.Metadata.Values()
-	if err != nil {
-		return err
-	}
-	matched, err := filter.Match(s.options.Filter, values)
+	matched, err := filter.Match(s.options.Filter, doc.Metadata)
 	if err != nil {
 		return err
 	}

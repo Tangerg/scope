@@ -472,9 +472,5 @@ func matchesMetadata(predicate filter.Predicate, facts metadata.Map) (bool, erro
 	if predicate == nil {
 		return true, nil
 	}
-	values, err := facts.Values()
-	if err != nil {
-		return false, err
-	}
-	return filter.Match(predicate, values)
+	return filter.Match(predicate, facts)
 }

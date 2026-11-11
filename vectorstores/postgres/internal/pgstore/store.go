@@ -497,11 +497,7 @@ func selectRecords(ctx context.Context, docs []*document.Document, predicate fil
 			return nil, err
 		}
 		if predicate != nil {
-			values, err := doc.Metadata.Values()
-			if err != nil {
-				return nil, err
-			}
-			matches, err := filter.Match(predicate, values)
+			matches, err := filter.Match(predicate, doc.Metadata)
 			if err != nil {
 				return nil, err
 			}

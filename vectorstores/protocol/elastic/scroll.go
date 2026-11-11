@@ -155,11 +155,7 @@ func (s *Scroll) member(hit Hit, predicate filter.Predicate) (Version, bool, err
 		return Version{}, false, errors.New("elastic: decoded document changed native identity")
 	}
 	if !lo.IsNil(predicate) {
-		values, valuesErr := doc.Metadata.Values()
-		if valuesErr != nil {
-			return Version{}, false, valuesErr
-		}
-		matched, matchErr := filter.Match(predicate, values)
+		matched, matchErr := filter.Match(predicate, doc.Metadata)
 		if matchErr != nil || !matched {
 			return Version{}, false, matchErr
 		}

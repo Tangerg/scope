@@ -110,11 +110,7 @@ func TestNativeRESTPreservesExactCoreMetadata(t *testing.T) {
 				t.Fatalf("native metadata = %v, want %v", got, expected)
 			}
 			if len(got) > 1 {
-				values, decodeErr := got.Values()
-				if decodeErr != nil {
-					t.Fatal(decodeErr)
-				}
-				equal, matchErr := filter.Match(filter.EQ("n", int64(9007199254740993)), values)
+				equal, matchErr := filter.Match(filter.EQ("n", int64(9007199254740993)), got)
 				if matchErr != nil || !equal {
 					t.Fatalf("numeric fact changed kind or digits: %v, %v", equal, matchErr)
 				}

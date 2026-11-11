@@ -406,11 +406,7 @@ func (s *Store) checkMembership(predicate filter.Predicate, candidates []string,
 	if !slices.Contains(candidates, id) {
 		return s.failure("native hit is outside Core membership")
 	}
-	values, err := doc.Metadata.Values()
-	if err != nil {
-		return err
-	}
-	matched, err := filter.Match(predicate, values)
+	matched, err := filter.Match(predicate, doc.Metadata)
 	if err != nil {
 		return err
 	}

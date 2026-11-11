@@ -3,6 +3,8 @@ package filter
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 type evaluator struct {
@@ -25,10 +27,19 @@ func (e *evaluator) Visit(predicate Predicate) error {
 	return nil
 }
 
-// Match evaluates a predicate against decoded metadata. json.Number values are
-// compared exactly without conversion through float64. Invalid predicates and
-// type mismatches return errors rather than silently omitting matching documents.
-func Match(expr Predicate, values map[string]any) (bool, error) {
+// Match reports whether a document's metadata facts satisfy a predicate.
+// Numbers are compared exactly without conversion through float64. Invalid
+// predicates, undecodable facts and type mismatches return errors rather than
+// silently omitting matching documents.
+func Match(expr Predicate, facts metadata.Map) (bool, error) {
+	values, err := facts.Values()
+	if err != nil {
+		return false, fmt.Errorf("filter: decode metadata: %w", err)
+	}
+	return match(expr, values)
+}
+
+func match(expr Predicate, values map[string]any) (bool, error) {
 	visitor := evaluator{values: values}
 	if err := accept(expr, &visitor); err != nil {
 		return false, err
