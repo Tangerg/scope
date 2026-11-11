@@ -29,17 +29,17 @@ func TestResponseBudgetBoundsEveryResponseTogether(t *testing.T) {
 	if content, _ := io.ReadAll(response.Body); string(content) != `{"page":1}` {
 		t.Fatalf("body = %q", content)
 	}
-	if _, err := budget.Apply(&http.Request{}, page(`{"p":2}`, http.StatusOK)); err == nil {
+	if _, overErr := budget.Apply(&http.Request{}, page(`{"p":2}`, http.StatusOK)); overErr == nil {
 		t.Fatal("a second page exceeded the shared budget")
 	}
 	fresh, err := httpclient.NewResponseBudget(64)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fresh.Apply(&http.Request{}, page(`{`, http.StatusOK)); err == nil {
+	if _, truncatedErr := fresh.Apply(&http.Request{}, page(`{`, http.StatusOK)); truncatedErr == nil {
 		t.Fatal("a truncated successful body was admitted")
 	}
-	if response, err := fresh.Apply(&http.Request{}, page(`not json`, http.StatusBadGateway)); err != nil || response.StatusCode != http.StatusBadGateway {
-		t.Fatalf("an error envelope lost its status: %v", err)
+	if envelope, envelopeErr := fresh.Apply(&http.Request{}, page(`not json`, http.StatusBadGateway)); envelopeErr != nil || envelope.StatusCode != http.StatusBadGateway {
+		t.Fatalf("an error envelope lost its status: %v", envelopeErr)
 	}
 }
