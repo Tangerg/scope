@@ -15,6 +15,8 @@ import (
 
 	anthropicsdk "github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/pagination"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/respjson"
 	"github.com/anthropics/anthropic-sdk-go/v2/packages/ssestream"
 )
 
@@ -152,30 +154,21 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 		if err != nil {
 			return nil, a.wrapError(err)
 		}
-		if page == nil || !page.JSON.Data.Valid() {
-			return nil, errors.New("anthropic: model list response must contain a data array")
+		pageIDs, pageErr := modelPageIDs(page)
+		if pageErr != nil {
+			return nil, pageErr
 		}
-		switch jsontext.Value(page.JSON.HasMore.Raw()).Kind() {
-		case 't', 'f':
-		default:
-			return nil, errors.New("anthropic: model list response must contain a boolean has_more")
-		}
-		if len(page.Data) > maxModels-len(ids) {
+		if len(pageIDs) > maxModels-len(ids) {
 			return nil, fmt.Errorf("anthropic: model list exceeds %d-model limit", maxModels)
 		}
-		for _, model := range page.Data {
-			if !model.JSON.ID.Valid() || jsontext.Value(model.JSON.ID.Raw()).Kind() != '"' || model.ID == "" {
-				return nil, errors.New("anthropic: model list response contains an invalid model ID")
-			}
-			ids = append(ids, model.ID)
-		}
+		ids = append(ids, pageIDs...)
 		if contextErr := ctx.Err(); contextErr != nil {
 			return nil, contextErr
 		}
 		if !page.HasMore {
 			return ids, nil
 		}
-		if len(page.Data) == 0 || !page.JSON.LastID.Valid() || jsontext.Value(page.JSON.LastID.Raw()).Kind() != '"' || page.LastID == "" {
+		if len(pageIDs) == 0 || !jsonString(page.JSON.LastID) || page.LastID == "" {
 			return nil, errors.New("anthropic: incomplete model list has no next-page cursor")
 		}
 		if _, repeated := cursors[page.LastID]; repeated {
@@ -187,6 +180,39 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 		cursors[page.LastID] = struct{}{}
 		page, err = page.GetNextPage()
 	}
+}
+
+// modelPageIDs admits one model list page: a data array, a boolean has_more,
+// and a non-empty string ID for every model.
+func modelPageIDs(page *pagination.Page[anthropicsdk.ModelInfo]) ([]string, error) {
+	if page == nil || !page.JSON.Data.Valid() {
+		return nil, errors.New("anthropic: model list response must contain a data array")
+	}
+	if !jsonBoolean(page.JSON.HasMore) {
+		return nil, errors.New("anthropic: model list response must contain a boolean has_more")
+	}
+	ids := make([]string, len(page.Data))
+	for index, model := range page.Data {
+		if !jsonString(model.JSON.ID) || model.ID == "" {
+			return nil, errors.New("anthropic: model list response contains an invalid model ID")
+		}
+		ids[index] = model.ID
+	}
+	return ids, nil
+}
+
+// The SDK decodes a mistyped member into its zero value, so the raw member
+// decides whether the response actually carried the declared JSON type.
+func jsonString(field respjson.Field) bool {
+	return field.Valid() && jsontext.Value(field.Raw()).Kind() == jsontext.KindString
+}
+
+func jsonBoolean(field respjson.Field) bool {
+	if !field.Valid() {
+		return false
+	}
+	kind := jsontext.Value(field.Raw()).Kind()
+	return kind == jsontext.KindTrue || kind == jsontext.KindFalse
 }
 
 func (a *api) chatCompletionStream(ctx context.Context, req *anthropicsdk.MessageNewParams, opts ...option.RequestOption) *ssestream.Stream[anthropicsdk.MessageStreamEventUnion] {

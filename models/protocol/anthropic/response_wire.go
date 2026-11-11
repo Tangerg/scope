@@ -79,7 +79,7 @@ type responseEventWire struct {
 }
 
 func validateResponseWire[T any](raw string) error {
-	if jsontext.Value(raw).Kind() != '{' {
+	if jsontext.Value(raw).Kind() != jsontext.KindBeginObject {
 		return errors.New("response must be a JSON object")
 	}
 	var event T
