@@ -557,7 +557,15 @@ func okayV4(encrypt dict) bool {
 	return true
 }
 
-func (r *Reader) Page(num int) Page {
+// Page resolves page num, counting from 1. The parser reports malformed
+// objects by panicking; Page, like every exported entry point, returns that
+// as an error so callers never recover.
+func (r *Reader) Page(num int) (page Page, err error) {
+	defer recoverTo(&err, func() { page = Page{} })
+	return r.page(num), nil
+}
+
+func (r *Reader) page(num int) Page {
 	num--
 	page := r.Trailer().Key("Root").Key("Pages")
 Search:
@@ -590,6 +598,7 @@ Search:
 	return Page{}
 }
 
-func (r *Reader) NumPage() int {
-	return int(r.Trailer().Key("Root").Key("Pages").Key("Count").Int64())
+func (r *Reader) NumPage() (count int, err error) {
+	defer recoverTo(&err, func() { count = 0 })
+	return int(r.Trailer().Key("Root").Key("Pages").Key("Count").Int64()), nil
 }

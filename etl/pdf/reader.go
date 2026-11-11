@@ -120,22 +120,10 @@ func NewReader(source io.ReaderAt, size int64, config ReaderConfig) (*Reader, er
 // Read skips pages that fail to parse and reports them through
 // [ErrPartialRead] alongside the documents that were decoded. A document-level
 // parse failure, cancellation or exhausted ParseBudget returns no documents.
-func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error) {
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return nil, ctxErr
+func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	// The parser reports malformed trailers and xref tables by panicking, and
-	// only PlainText recovers internally, so a corrupt PDF would otherwise
-	// crash the caller.
-	defer func() {
-		if rec := recover(); rec != nil {
-			if cause, ok := rec.(error); ok {
-				docs, err = nil, fmt.Errorf("pdf: parse: %w", cause)
-			} else {
-				docs, err = nil, fmt.Errorf("pdf: malformed document: %v", rec)
-			}
-		}
-	}()
 	var p *document.Provenance
 	source := r.source
 	if r.sourceName != "" {
@@ -156,7 +144,10 @@ func (r *Reader) Read(ctx context.Context) (docs []*document.Document, err error
 		return nil, err
 	}
 
-	total := pdfReader.NumPage()
+	total, err := pdfReader.NumPage()
+	if err != nil {
+		return nil, fmt.Errorf("pdf: parse: %w", err)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -290,23 +281,16 @@ func (p pageErrors) err() error {
 	return fmt.Errorf("%w: %w", ErrPartialRead, errors.Join(p...))
 }
 
-// Page and object resolution panic on malformed content outside
-// PlainText's own recovery, so a bad page becomes a skippable error here.
-func (*Reader) pageText(pdfReader *parser.Reader, pageIndex int) (text string, err error) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			if cause, ok := rec.(error); ok {
-				text, err = "", fmt.Errorf("page %d: %w", pageIndex, cause)
-			} else {
-				text, err = "", fmt.Errorf("page %d: malformed page: %v", pageIndex, rec)
-			}
-		}
-	}()
-	page := pdfReader.Page(pageIndex)
+// pageText reads one page; a malformed page becomes a skippable error.
+func (*Reader) pageText(pdfReader *parser.Reader, pageIndex int) (string, error) {
+	page, err := pdfReader.Page(pageIndex)
+	if err != nil {
+		return "", fmt.Errorf("page %d: %w", pageIndex, err)
+	}
 	if page.V.IsNull() {
 		return "", fmt.Errorf("page %d: declared page is missing", pageIndex)
 	}
-	text, err = page.PlainText()
+	text, err := page.PlainText()
 	if err != nil {
 		return "", fmt.Errorf("page %d: %w", pageIndex, err)
 	}

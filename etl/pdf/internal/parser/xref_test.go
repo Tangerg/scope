@@ -68,10 +68,10 @@ func TestXrefStreamsAndCompressedObjectsSurviveIncrementalUpdates(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if reader.NumPage() != 1 {
-			t.Fatalf("pages=%d", reader.NumPage())
+		if pages, pagesErr := reader.NumPage(); pagesErr != nil || pages != 1 {
+			t.Fatalf("pages=%d error=%v", pages, pagesErr)
 		}
-		text, err := reader.Page(1).PlainText()
+		text, err := mustPage(t, reader, 1).PlainText()
 		if err != nil || strings.TrimSpace(text) != "stream page" {
 			t.Fatalf("text=%q error=%v", text, err)
 		}
@@ -114,7 +114,7 @@ func TestXrefStreamNullEntriesMaskHistoricalObjects(t *testing.T) {
 					t.Fatalf("historical object %d survived a newer null entry", id)
 				}
 			}
-			if text, err := reader.Page(1).PlainText(); err != nil || text != "" {
+			if text, err := mustPage(t, reader, 1).PlainText(); err != nil || text != "" {
 				t.Fatalf("deleted content=%q, error=%v", text, err)
 			}
 		})
@@ -248,7 +248,7 @@ func TestHybridReferencesApplyCurrentTableThenStreamThenPreviousRevision(t *test
 			} else if value.RawString() != owner {
 				t.Fatalf("resolved=%q; want %q", value.RawString(), owner)
 			}
-			if text, err := reader.Page(1).PlainText(); err != nil || strings.TrimSpace(text) != "stream page" {
+			if text, err := mustPage(t, reader, 1).PlainText(); err != nil || strings.TrimSpace(text) != "stream page" {
 				t.Fatalf("mixed table/stream Prev lost page: %q, %v", text, err)
 			}
 		})
@@ -265,4 +265,13 @@ func TestHybridReferencesRejectInvalidOffsetsAndCycles(t *testing.T) {
 			t.Fatalf("invalid xref links admitted: %s: %v", links, err)
 		}
 	}
+}
+
+func mustPage(t *testing.T, reader *Reader, num int) Page {
+	t.Helper()
+	page, err := reader.Page(num)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return page
 }
