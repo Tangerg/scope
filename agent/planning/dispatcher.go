@@ -22,7 +22,7 @@ type dispatcher struct {
 }
 
 func newDispatcher(definition *definition, sensor Sensor, executors []ActionExecutor) (*dispatcher, error) {
-	if !definition.valid() || lo.IsNil(sensor) || len(executors) != len(definition.bindings) {
+	if lo.IsNil(sensor) || len(executors) != len(definition.bindings) {
 		return nil, ErrInvalidConfig
 	}
 	for index, binding := range definition.bindings {
@@ -50,9 +50,6 @@ func (d *dispatcher) Dispatch(
 	if !request.Valid() {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
-	if d == nil || d.definition == nil || lo.IsNil(d.sensor) {
-		return planningFailureSettlement(ErrInvalidConfig)
-	}
 	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return planningFailureSettlement(err)
@@ -77,7 +74,7 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 		return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 	}
 	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	if err == nil && d != nil && d.definition != nil {
+	if err == nil {
 		if binding, bound := d.definition.binding(envelope.Action.Name); bound && !binding.delegatesToChild() {
 			policy = binding.policy
 		}

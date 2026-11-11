@@ -13,7 +13,7 @@ func recoveryDefinition[I, O any](program run.Program[I, O], request run.EffectR
 		return nil, fmt.Errorf("%w: exact bound program and captured effect required", ErrInvalidProtocol)
 	}
 	definition, bound := program.Definition().(*definition)
-	if !bound || !definition.valid() {
+	if !bound {
 		return nil, ErrInvalidConfig
 	}
 	return definition, nil

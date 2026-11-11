@@ -82,20 +82,6 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Revision: "model", Model: CallModel(model)}); err == nil || program.Valid() {
 		t.Fatal("compilation succeeded without build authority")
 	}
-	for _, definition := range []*definition{nil, {}} {
-		if definition.Descriptor().Valid() || len(definition.ChildPrograms()) != 0 {
-			t.Fatal("invalid definition exposes authority")
-		}
-		if _, err := definition.Start(run.Payload{}); !errors.Is(err, ErrInvalidConfig) {
-			t.Fatal(err)
-		}
-		if _, err := definition.Restore(t.Context(), run.ExecutionState{}); !errors.Is(err, ErrInvalidConfig) {
-			t.Fatal(err)
-		}
-		if _, err := newDispatcher(definition, Config{Model: CallModel(model)}); !errors.Is(err, ErrInvalidConfig) {
-			t.Fatal(err)
-		}
-	}
 	definition := mustValue(newDefinition(Config{Name: "test.context", Description: "Require the declared processor.", ContextProcessor: contextProcessorFunc(nil)}))
 	if _, err := newDispatcher(definition, Config{Model: CallModel(model)}); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatal("processor capability did not match compiled execution", err)

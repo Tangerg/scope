@@ -19,9 +19,6 @@ type execution struct {
 }
 
 func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, error) {
-	if e == nil || !e.definition.valid() {
-		return run.Transition{}, ErrInvalidExecutionState
-	}
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}

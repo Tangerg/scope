@@ -30,16 +30,10 @@ func newDeadline(name, description string) (*deadlineDefinition, error) {
 func (*deadlineDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (d *deadlineDefinition) Descriptor() run.Descriptor {
-	if d == nil {
-		return run.Descriptor{}
-	}
 	return d.descriptor
 }
 
 func (d *deadlineDefinition) Start(input run.Payload) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -55,9 +49,6 @@ func (d *deadlineDefinition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (d *deadlineDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := restore.Decode(ctx, state, deadlineStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded deadlineState) error {
 		if err := decoded.validate(); err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
@@ -68,10 +59,6 @@ func (d *deadlineDefinition) Restore(ctx context.Context, state run.ExecutionSta
 		return nil, err
 	}
 	return &deadlineExecution{state: decoded}, nil
-}
-
-func (d *deadlineDefinition) valid() bool {
-	return d != nil && d.descriptor.Valid()
 }
 
 type deadlinePhase string

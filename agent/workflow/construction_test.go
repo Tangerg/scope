@@ -72,15 +72,7 @@ func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 	}
 }
 
-func TestWorkflowRejectsUnconfiguredDefinitionsAndInputs(t *testing.T) {
-	for _, definition := range []*definition{nil, {}} {
-		if execution, err := definition.Start(run.Payload{}); execution != nil || !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("unconfigured Start = %v, %v", execution, err)
-		}
-		if execution, err := definition.Restore(t.Context(), run.ExecutionState{}); execution != nil || !errors.Is(err, ErrInvalidConfig) {
-			t.Fatalf("unconfigured Restore = %v, %v", execution, err)
-		}
-	}
+func TestWorkflowRejectsInvalidDefinitionsAndInputs(t *testing.T) {
 	stage := mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })
 	if definition, err := newDefinition(Config{Name: "invalid name", Description: "Run a ", Stages: []Stage{stage}}); definition != nil || !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid definition identity = %v, %v", definition, err)

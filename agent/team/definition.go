@@ -87,9 +87,6 @@ func newWorkerBindings(configs []run.ChildBinding) ([]run.ChildBinding, error) {
 
 // ChildPrograms reports the coordinator and every worker binding.
 func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
-	if d == nil {
-		return nil
-	}
 	children := []run.Program[run.Payload, run.Payload]{d.coordinator.Program}
 	for _, worker := range d.workers {
 		children = append(children, worker.Program)
@@ -98,16 +95,10 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 }
 
 func (d *definition) Descriptor() run.Descriptor {
-	if d == nil {
-		return run.Descriptor{}
-	}
 	return d.descriptor
 }
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -115,9 +106,6 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := restore.Decode(ctx, state, stateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)
 	})
@@ -125,10 +113,6 @@ func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil
-}
-
-func (d *definition) valid() bool {
-	return d != nil && d.descriptor.Valid()
 }
 
 func (d *definition) worker(name string) (run.ChildBinding, bool) {

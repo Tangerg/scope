@@ -231,13 +231,6 @@ func TestDefinitionTopologyOwnsProjectionSlices(t *testing.T) {
 	}
 }
 
-func TestNilDefinitionTopologyIsZero(t *testing.T) {
-	var definition *definition
-	if topology := definition.Topology(); topology.Descriptor.Valid() || len(topology.Stages) != 0 {
-		t.Fatalf("nil definition Topology=%+v", topology)
-	}
-}
-
 func mustTopologyProgram[I, O any](
 	t *testing.T,
 	name string,

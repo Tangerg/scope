@@ -141,9 +141,6 @@ func (d *definition) toolWindow(ctx context.Context, remaining []chat.ToolCall) 
 }
 
 func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
-	if d == nil {
-		return nil
-	}
 	var children []run.Program[run.Payload, run.Payload]
 	for _, delegate := range d.delegates {
 		children = append(children, delegate.child.Program)
@@ -152,16 +149,10 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 }
 
 func (d *definition) Descriptor() run.Descriptor {
-	if d == nil {
-		return run.Descriptor{}
-	}
 	return d.descriptor
 }
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := input.Decode[Input]()
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode: %w", ErrInvalidInput, err)
@@ -178,9 +169,6 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 // Restore recreates an Interaction solely from its opaque state. It accepts
 // the current Interaction state schema and rejects unknown fields.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)
 	})
@@ -190,14 +178,7 @@ func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run
 	return &execution{definition: d, state: decoded}, nil
 }
 
-func (d *definition) valid() bool {
-	return d != nil && d.descriptor.Valid()
-}
-
 func (d *definition) delegate(name string) (Delegate, bool) {
-	if d == nil {
-		return Delegate{}, false
-	}
 	index, found := d.delegatesByName[name]
 	if !found {
 		return Delegate{}, false
@@ -246,7 +227,7 @@ func (d *definition) validateResponsePayload(payload run.Payload) error {
 }
 
 func (d *definition) settlePreparedContext(req run.EffectRequest, messages []chat.Message) (run.Settlement, error) {
-	if !d.valid() || !d.prepareContext {
+	if !d.prepareContext {
 		return run.Settlement{}, ErrInvalidConfig
 	}
 	if !req.Valid() {

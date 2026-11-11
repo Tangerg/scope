@@ -50,16 +50,10 @@ func newDefinition(config Config) (*definition, error) {
 }
 
 func (d *definition) Descriptor() run.Descriptor {
-	if d == nil {
-		return run.Descriptor{}
-	}
 	return d.descriptor
 }
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -69,9 +63,6 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 
 // Restore rejects progress inconsistent with the exact definition bindings.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)
 	})
@@ -81,15 +72,8 @@ func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run
 	return &execution{definition: d, state: decoded}, nil
 }
 
-func (d *definition) valid() bool {
-	return d != nil && d.descriptor.Valid()
-}
-
 // ChildPrograms returns the exact child binding of every Stage.
 func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
-	if !d.valid() {
-		return nil
-	}
 	var children []run.Program[run.Payload, run.Payload]
 	for _, stage := range d.stages {
 		for _, binding := range stage.childBindings() {
@@ -99,12 +83,8 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 	return children
 }
 
-// Topology returns a fresh, function-free projection of this definition. An
-// invalid or nil definition returns the zero Topology.
+// Topology returns a fresh, function-free projection of this definition.
 func (d *definition) Topology() Topology {
-	if !d.valid() {
-		return Topology{}
-	}
 	stages := make([]StageTopology, len(d.stages))
 	for index, stage := range d.stages {
 		stages[index] = stage.topology()

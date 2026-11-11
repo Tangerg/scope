@@ -45,9 +45,6 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !definition.valid() {
-		return fmt.Errorf("%w: definition is invalid", ErrInvalidExecutionState)
-	}
 	// The Runtime never restores a completed Execution, so a restorable state
 	// always names a Stage that has yet to finish.
 	if uint64(e.StageIndex) >= uint64(len(definition.stages)) {

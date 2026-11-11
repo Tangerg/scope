@@ -72,9 +72,6 @@ func newDefinition(config Config, inputSchema jsonschema.Schema, declarations []
 
 // ChildPrograms reports the child binding of every child Action.
 func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
-	if d == nil {
-		return nil
-	}
 	var children []run.Program[run.Payload, run.Payload]
 	for _, binding := range d.bindings {
 		if binding.delegatesToChild() {
@@ -85,16 +82,10 @@ func (d *definition) ChildPrograms() []run.Program[run.Payload, run.Payload] {
 }
 
 func (d *definition) Descriptor() run.Descriptor {
-	if d == nil {
-		return run.Descriptor{}
-	}
 	return d.descriptor
 }
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	if err := d.descriptor.ValidateInput(input); err != nil {
 		return nil, err
 	}
@@ -105,9 +96,6 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 // Restore recreates a Planning Execution solely from its opaque state and this
 // exact definition.
 func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if !d.valid() {
-		return nil, ErrInvalidConfig
-	}
 	decoded, err := restore.Decode(ctx, state, executionStateKind, ErrInvalidExecutionState, func(ctx context.Context, decoded executionState) error {
 		return decoded.validate(ctx, d)
 	})
@@ -115,10 +103,6 @@ func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run
 		return nil, err
 	}
 	return &execution{definition: d, state: decoded}, nil
-}
-
-func (d *definition) valid() bool {
-	return d != nil && d.descriptor.Valid()
 }
 
 func (d *definition) binding(name string) (actionDeclaration, bool) {

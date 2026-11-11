@@ -87,9 +87,6 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !definition.valid() {
-		return fmt.Errorf("%w: valid definition is required", ErrInvalidExecutionState)
-	}
 	if !definition.maxModelCalls.Allows(e.ModelCallCount) {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
 	}

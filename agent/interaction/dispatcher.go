@@ -29,9 +29,6 @@ type dispatcher struct {
 // newDispatcher takes the executable half of config; definition already holds
 // its declarations.
 func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
-	if !definition.valid() {
-		return nil, fmt.Errorf("%w: definition is required", ErrInvalidConfig)
-	}
 	switch {
 	case lo.IsNil(config.Model):
 		return nil, fmt.Errorf("%w: Model is required", ErrInvalidConfig)
@@ -64,9 +61,6 @@ func (d *dispatcher) Dispatch(
 	emit run.DeltaEmitter,
 ) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
-	if d == nil || lo.IsNil(d.model) {
-		return failedSettlement(ErrInvalidConfig)
-	}
 	envelope, err := decodeEffect(request.Effect().Payload().JSON())
 	if err != nil {
 		return failedSettlement(err)
