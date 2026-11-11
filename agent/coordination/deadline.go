@@ -72,7 +72,7 @@ func (d deadlinePhase) valid() bool {
 type deadlineState struct {
 	Deadline time.Time     `json:"deadline"`
 	Phase    deadlinePhase `json:"phase"`
-	Effect   *run.EffectID `json:"effect,omitzero"`
+	Effect   run.EffectID  `json:"effect,omitzero"`
 }
 
 // validate states the rule without classifying it: Start reports a breach as
@@ -81,7 +81,7 @@ func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
 		return errors.New("absolute deadline is required")
 	}
-	if (d.Phase == deadlineAwaiting) != (d.Effect != nil) || d.Effect != nil && !d.Effect.Valid() {
+	if (d.Phase == deadlineAwaiting) != d.Effect.Valid() {
 		return errors.New("timer effect disagrees with the deadline phase")
 	}
 	if !d.Phase.valid() {
@@ -105,7 +105,7 @@ func (d *deadlineExecution) Step(ctx context.Context, turn run.Turn) (run.Transi
 		if err != nil {
 			return run.Transition{}, err
 		}
-		d.state.Effect = new(turn.EffectID(0))
+		d.state.Effect = turn.EffectID(0)
 		d.state.Phase = deadlineAwaiting
 		return run.Yield(0, []run.Effect{effect})
 	case deadlineAwaiting:
@@ -120,7 +120,7 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 		return run.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
 	}
 	completion, ok := messages[0].(run.Completion)
-	if !ok || d.state.Effect == nil || completion.Effect != *d.state.Effect {
+	if !ok || completion.Effect != d.state.Effect {
 		return run.Transition{}, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome

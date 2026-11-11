@@ -109,7 +109,7 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 		{Phase: deadlineReady},
 		{Deadline: deadline, Phase: "unknown"},
 		{Deadline: deadline, Phase: deadlineAwaiting},
-		{Deadline: deadline, Phase: deadlineReady, Effect: new(turn(1).EffectID(0))},
+		{Deadline: deadline, Phase: deadlineReady, Effect: turn(1).EffectID(0)},
 		{Deadline: deadline, Phase: "completed"},
 	} {
 		state := require(run.EncodeExecutionState(deadlineStateKind, sample))
