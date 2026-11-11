@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/internal/errscope"
 )
 
 var ErrInvalidFailure = errors.New("tool: invalid failure")
@@ -113,17 +115,10 @@ func (f *Failure) Output() Output {
 // require their enclosing owner to establish an outcome. Diagnostic traversal
 // with errors.As cannot distinguish those invocation boundaries.
 // Nil, invalid, and ambiguous failures establish no definite outcome.
-//
-//nolint:errorlint // errors.As would cross independent invocation boundaries.
 func ClassifyFailure(err error) (*Failure, bool) {
-	for !lo.IsNil(err) {
-		if failure, ok := err.(*Failure); ok {
-			if failure.Validate() != nil {
-				return nil, false
-			}
-			return failure, true
-		}
-		err = transparentCause(err)
+	failure, found := errscope.Find[*Failure](err)
+	if !found || failure.Validate() != nil {
+		return nil, false
 	}
-	return nil, false
+	return failure, true
 }

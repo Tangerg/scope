@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/internal/errscope"
 )
 
 var ErrInvalidFailure = errors.New("invocation: invalid call failure")
@@ -65,36 +67,9 @@ func ClassifyFailure(err error) FailureKind {
 	if err == nil {
 		return FailureNone
 	}
-	return classifyFailure(err)
-}
-
-//nolint:errorlint // Each node owns one scope; errors.As would skip invocation and join boundaries.
-func classifyFailure(err error) FailureKind {
-	if lo.IsNil(err) {
+	failure, found := errscope.Find[*Failure](err)
+	if !found || failure.Validate() != nil {
 		return FailureUnknown
 	}
-	if failure, scoped := err.(*Failure); scoped {
-		if failure.Validate() != nil {
-			return FailureUnknown
-		}
-		return failure.Kind
-	}
-	switch wrapped := err.(type) {
-	case interface{ Unwrap() error }:
-		return classifyFailure(wrapped.Unwrap())
-	case interface{ Unwrap() []error }:
-		var cause error
-		for _, candidate := range wrapped.Unwrap() {
-			if candidate == nil {
-				continue
-			}
-			if cause != nil {
-				return FailureUnknown
-			}
-			cause = candidate
-		}
-		return classifyFailure(cause)
-	default:
-		return FailureUnknown
-	}
+	return failure.Kind
 }

@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/samber/lo"
+
+	"github.com/Tangerg/scope/core/internal/errscope"
 )
 
 var ErrInvalidInputRejection = errors.New("tool: invalid input rejection")
@@ -70,19 +72,12 @@ func (i *InputRejection) Is(target error) bool {
 // ClassifyInputRejection finds one explicit rejection through transparent
 // wrapping. Joined independent errors require their owner to decide which
 // message is public; private diagnostic causes are never inspected.
-//
-//nolint:errorlint // errors.As would cross independent admission boundaries.
 func ClassifyInputRejection(err error) (*InputRejection, bool) {
-	for !lo.IsNil(err) {
-		if rejection, ok := err.(*InputRejection); ok {
-			if rejection.Validate() != nil {
-				return nil, false
-			}
-			return rejection, true
-		}
-		err = transparentCause(err)
+	rejection, found := errscope.Find[*InputRejection](err)
+	if !found || rejection.Validate() != nil {
+		return nil, false
 	}
-	return nil, false
+	return rejection, true
 }
 
 func rejectInput(message string, cause error) error {
