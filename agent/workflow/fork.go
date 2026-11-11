@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 
@@ -60,12 +59,8 @@ func newForkSource(stageID string, inputSchema, branchSchema jsonschema.Schema, 
 	return forkSource{branches: branches}, nil
 }
 
-func (f forkSource) prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error) {
+func (f forkSource) prepareInput(ctx context.Context, input run.Payload) (fanoutInput, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	input, err := run.ParsePayload(raw)
-	if err != nil {
 		return nil, err
 	}
 	return forkInputValue{payload: input, branchCount: uint32(len(f.branches))}, nil
@@ -148,22 +143,18 @@ func Fork[I, B, O any](config ForkConfig[I, B, O]) (Stage, error) {
 	}
 	reducer := config.Reduce
 	outputs := fanoutOutputs{kind: StageKindFork, stageID: config.ID, resultSchema: outputSchema}
-	reduce := func(ctx context.Context, rawInput json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
-		input, err := run.ParsePayload(rawInput)
-		if err != nil {
-			return nil, err
-		}
+	reduce := func(ctx context.Context, input run.Payload, branchOutputs []run.Payload) (run.Payload, error) {
 		value, err := input.Decode[I]()
 		if err != nil {
-			return nil, fmt.Errorf("Fork %q input: %w", config.ID, err)
+			return run.Payload{}, fmt.Errorf("Fork %q input: %w", config.ID, err)
 		}
-		values, err := outputs.decode[B](ctx, raw)
+		values, err := outputs.decode[B](ctx, branchOutputs)
 		if err != nil {
-			return nil, err
+			return run.Payload{}, err
 		}
 		result, err := reducer(ctx, value, values)
 		if err != nil {
-			return nil, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
+			return run.Payload{}, fmt.Errorf("Fork %q reducer: %w", config.ID, err)
 		}
 		return outputs.encodeResult(result)
 	}

@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -10,7 +9,7 @@ import (
 )
 
 type fanoutSource interface {
-	prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error)
+	prepareInput(ctx context.Context, input run.Payload) (fanoutInput, error)
 	member(index uint32) (fanoutMember, bool)
 	topology(inputSchema, outputSchema jsonschema.Schema) ([]BindingTopology, uint32)
 	bindings() []run.ChildBinding
@@ -41,14 +40,13 @@ type fanoutStage struct {
 	memberOutputSchema jsonschema.Schema
 	// complete receives the Stage input with the member outputs, so members
 	// never carry the input forward themselves.
-	complete func(ctx context.Context, input json.RawMessage, outputs []json.RawMessage) (json.RawMessage, error)
+	complete func(ctx context.Context, input run.Payload, outputs []run.Payload) (run.Payload, error)
 }
 
-func (f fanoutStage) validateMemberOutput(raw json.RawMessage) error {
-	output, err := run.ParsePayload(raw)
-	if err != nil {
-		return err
-	}
+// validateMemberOutput admits a member output restored from opaque state. A
+// live output needs no check: the Runtime held it to the member's Program,
+// whose output schema construction requires to equal memberOutputSchema.
+func (f fanoutStage) validateMemberOutput(output run.Payload) error {
 	return f.memberOutputSchema.Validate(output.JSON())
 }
 
@@ -58,7 +56,7 @@ type fanoutOutputs struct {
 	resultSchema jsonschema.Schema
 }
 
-func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.RawMessage) ([]T, error) {
+func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []run.Payload) ([]T, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -67,11 +65,7 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		output, err := run.ParsePayload(encoded)
-		if err != nil {
-			return nil, fmt.Errorf("%s %q %s %d output: %w", f.kind, f.stageID, f.kind.fanoutMemberNoun(), index, err)
-		}
-		decoded, err := output.Decode[T]()
+		decoded, err := encoded.Decode[T]()
 		if err != nil {
 			return nil, fmt.Errorf("%s %q %s %d decode output: %w", f.kind, f.stageID, f.kind.fanoutMemberNoun(), index, err)
 		}
@@ -83,13 +77,13 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []json.
 	return values, nil
 }
 
-func (f fanoutOutputs) encodeResult[O any](result O) (json.RawMessage, error) {
+func (f fanoutOutputs) encodeResult[O any](result O) (run.Payload, error) {
 	erased, err := run.EncodePayload(result)
 	if err != nil {
-		return nil, fmt.Errorf("%s %q encode result: %w", f.kind, f.stageID, err)
+		return run.Payload{}, fmt.Errorf("%s %q encode result: %w", f.kind, f.stageID, err)
 	}
 	if err := f.resultSchema.Validate(erased.JSON()); err != nil {
-		return nil, fmt.Errorf("%s %q result contract: %w", f.kind, f.stageID, err)
+		return run.Payload{}, fmt.Errorf("%s %q result contract: %w", f.kind, f.stageID, err)
 	}
-	return erased.JSON(), nil
+	return erased, nil
 }

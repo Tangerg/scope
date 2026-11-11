@@ -19,8 +19,11 @@ func TestMapInputWindowsDecodeOnlyTheirItems(t *testing.T) {
 		decoded = append(decoded, string(value))
 		return run.ParsePayload(value)
 	}}
-	raw := []byte("[ \n {\"value\": [1, 2]}, \"逗号,\\\"\", true , null ]")
-	input, err := source.prepareInput(t.Context(), raw)
+	payload, err := run.ParsePayload([]byte("[ \n {\"value\": [1, 2]}, \"逗号,\\\"\", true , null ]"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, err := source.prepareInput(t.Context(), payload)
 	if err != nil || input.count() != 4 || len(decoded) != 0 {
 		t.Fatalf("input validation decoded items: decoded=%v error=%v", decoded, err)
 	}
@@ -31,7 +34,7 @@ func TestMapInputWindowsDecodeOnlyTheirItems(t *testing.T) {
 	}{
 		{1, 2, []string{`"逗号,\""`, `true`}},
 		{3, 2, []string{`null`}},
-		{0, 1, []string{`{"value": [1, 2]}`}},
+		{0, 1, []string{`{"value":[1,2]}`}},
 		{4, 1, nil},
 	} {
 		decoded = nil
@@ -56,19 +59,23 @@ func TestMapInputWindowsDecodeOnlyTheirItems(t *testing.T) {
 	}
 }
 
-func TestMapInputRejectsMalformedOrExcessiveArraysBeforeDecoding(t *testing.T) {
+func TestMapInputRejectsNonArraysOrExcessiveArraysBeforeDecoding(t *testing.T) {
 	source := mapSource{codec: mapValueCodec{id: "test.input", maxItems: 2}, decodeItem: func(jsontext.Value) (run.Payload, error) {
 		t.Fatal("input validation decoded a typed item")
 		return run.Payload{}, nil
 	}}
-	for _, raw := range []string{`null`, `{}`, `[1,]`, `[1`, `[1,2] true`, `[{"a":1,"a":2}]`, `[1,2,3]`} {
-		if _, err := source.prepareInput(t.Context(), []byte(raw)); !errors.Is(err, ErrInvalidExecutionState) {
+	for _, raw := range []string{`null`, `{}`, `[1,2,3]`} {
+		payload, err := run.ParsePayload([]byte(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := source.prepareInput(t.Context(), payload); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatalf("invalid array %s: %v", raw, err)
 		}
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := source.prepareInput(canceled, []byte(`[1]`)); !errors.Is(err, context.Canceled) {
+	if _, err := source.prepareInput(canceled, mustPayload(t, []int{1})); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled indexing succeeded: %v", err)
 	}
 }
@@ -111,7 +118,10 @@ func TestConsecutiveMapsDeriveWindowsFromTheirOwnStageInput(t *testing.T) {
 func BenchmarkMapAllWindows(b *testing.B) {
 	for _, count := range []uint32{1000, 2000, 4000} {
 		b.Run(fmt.Sprintf("items_%d_window_1", count), func(b *testing.B) {
-			raw := []byte("[" + strings.Repeat("0,", int(count)-1) + "0]")
+			raw, err := run.ParsePayload([]byte("[" + strings.Repeat("0,", int(count)-1) + "0]"))
+			if err != nil {
+				b.Fatal(err)
+			}
 			source := mapSource{codec: mapValueCodec{id: "benchmark", maxItems: count}, decodeItem: func(value jsontext.Value) (run.Payload, error) { return run.ParsePayload(value) }}
 			b.ReportAllocs()
 			for b.Loop() {

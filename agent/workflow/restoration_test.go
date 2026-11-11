@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -112,16 +111,16 @@ func TestRestoreRejectsUnownedAndContradictoryWorkflowProgress(t *testing.T) {
 		name  string
 		state executionState
 	}{
-		{"past graph", executionState{StageIndex: 2}},
-		{"completed repeats output", executionState{StageIndex: 1, CurrentValue: json.RawMessage(`[1]`)}},
-		{"completed retains child", executionState{StageIndex: 1, Child: &child.Invocation{Request: &request}}},
-		{"wrong input schema", executionState{CurrentValue: json.RawMessage(`"bad"`)}},
-		{"single child on map", executionState{CurrentValue: json.RawMessage(`[1]`), Child: &child.Invocation{Request: &request}}},
-		{"fanout wrong length", executionState{CurrentValue: json.RawMessage(`[1,2]`), ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
-		{"fanout invalid invocation", executionState{CurrentValue: json.RawMessage(`[1]`), ActiveFanoutWindow: []child.Invocation{{}}}},
-		{"fanout repeated obligation", executionState{CurrentValue: json.RawMessage(`[1,2]`), ActiveFanoutWindow: []child.Invocation{{Request: &request}, {Request: &request}}}},
-		{"fanout invalid cursor", executionState{CurrentValue: json.RawMessage(`[1,2]`), CompletedFanoutOutputs: []json.RawMessage{json.RawMessage(`1`)}, ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
-		{"fanout finished still active", executionState{CurrentValue: json.RawMessage(`[1]`), CompletedFanoutOutputs: []json.RawMessage{json.RawMessage(`1`)}, ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
+		{"past graph", executionState{StageIndex: 2, CurrentValue: mustPayload(t, []int{1})}},
+		{"completed repeats output", executionState{StageIndex: 1, CurrentValue: mustPayload(t, []int{1})}},
+		{"completed retains child", executionState{StageIndex: 1, CurrentValue: mustPayload(t, []int{1}), Child: &child.Invocation{Request: &request}}},
+		{"wrong input schema", executionState{CurrentValue: mustPayload(t, "bad")}},
+		{"single child on map", executionState{CurrentValue: mustPayload(t, []int{1}), Child: &child.Invocation{Request: &request}}},
+		{"fanout wrong length", executionState{CurrentValue: mustPayload(t, []int{1, 2}), ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
+		{"fanout invalid invocation", executionState{CurrentValue: mustPayload(t, []int{1}), ActiveFanoutWindow: []child.Invocation{{}}}},
+		{"fanout repeated obligation", executionState{CurrentValue: mustPayload(t, []int{1, 2}), ActiveFanoutWindow: []child.Invocation{{Request: &request}, {Request: &request}}}},
+		{"fanout invalid cursor", executionState{CurrentValue: mustPayload(t, []int{1, 2}), CompletedFanoutOutputs: []run.Payload{mustPayload(t, 1)}, ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
+		{"fanout finished still active", executionState{CurrentValue: mustPayload(t, []int{1}), CompletedFanoutOutputs: []run.Payload{mustPayload(t, 1)}, ActiveFanoutWindow: []child.Invocation{{Request: &request}}}},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			state, err := row.state.snapshot()

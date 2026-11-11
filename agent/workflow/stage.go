@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
@@ -46,7 +45,7 @@ func (s StageKind) String() string {
 // stage that starts a child Process; ctx is not a source of domain input.
 type TransformFunc[I, O any] func(ctx context.Context, input I) (O, error)
 
-type transformStage func(context.Context, json.RawMessage) (json.RawMessage, error)
+type transformStage func(context.Context, run.Payload) (run.Payload, error)
 
 // Stage is an immutable operation in one Workflow definition. Values can only
 // be constructed by this package, keeping the execution algebra closed.
@@ -83,28 +82,24 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 	if err != nil {
 		return Stage{}, fmt.Errorf("%w: transform %q output schema: %w", ErrInvalidStage, id, err)
 	}
-	apply := func(ctx context.Context, raw json.RawMessage) (json.RawMessage, error) {
-		input, err := run.ParsePayload(raw)
-		if err != nil {
-			return nil, fmt.Errorf("transform %q input: %w", id, err)
-		}
+	apply := func(ctx context.Context, input run.Payload) (run.Payload, error) {
 		// The value's producer and Restore already hold it to this Stage's input.
 		decoded, err := input.Decode[I]()
 		if err != nil {
-			return nil, fmt.Errorf("transform %q decode input: %w", id, err)
+			return run.Payload{}, fmt.Errorf("transform %q decode input: %w", id, err)
 		}
 		output, err := transform(ctx, decoded)
 		if err != nil {
-			return nil, fmt.Errorf("transform %q: %w", id, err)
+			return run.Payload{}, fmt.Errorf("transform %q: %w", id, err)
 		}
 		erased, err := run.EncodePayload(output)
 		if err != nil {
-			return nil, fmt.Errorf("transform %q encode output: %w", id, err)
+			return run.Payload{}, fmt.Errorf("transform %q encode output: %w", id, err)
 		}
 		if err := outputSchema.Validate(erased.JSON()); err != nil {
-			return nil, fmt.Errorf("transform %q output contract: %w", id, err)
+			return run.Payload{}, fmt.Errorf("transform %q output contract: %w", id, err)
 		}
-		return erased.JSON(), nil
+		return erased, nil
 	}
 	return Stage{
 		id: id, kind: StageKindTransform,
@@ -172,17 +167,9 @@ func (s Stage) carriesCallbacks() bool {
 	return s.kind != StageKindCall && s.kind != StageKindMap
 }
 
-func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failure, json.RawMessage, error) {
+func (s Stage) fanoutOutcome(index uint32, outcome run.Termination) (*run.Failure, run.Payload, error) {
 	subject := string(s.kind) + " Stage " + s.id + " " + s.fanoutMemberLabel(index)
-	failure, output, err := childOutcome(outcome, s.fanoutFailureCode, subject)
-	if failure != nil || err != nil {
-		return failure, nil, err
-	}
-	raw := output.JSON()
-	if err := s.fanout.validateMemberOutput(raw); err != nil {
-		return nil, nil, fmt.Errorf("%s output: %w", subject, err)
-	}
-	return nil, raw, nil
+	return childOutcome(outcome, s.fanoutFailureCode, subject)
 }
 
 // childOutcome classifies a finished child that subject names: the Output it

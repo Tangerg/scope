@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -35,7 +34,7 @@ type switchCase struct {
 }
 
 type switchStage struct {
-	selectCase func(context.Context, json.RawMessage) (string, error)
+	selectCase func(context.Context, run.Payload) (string, error)
 	cases      []switchCase
 }
 
@@ -54,11 +53,7 @@ func Switch[I any](config SwitchConfig[I]) (Stage, error) {
 		return Stage{}, err
 	}
 	selector := config.Select
-	selectCase := func(ctx context.Context, raw json.RawMessage) (string, error) {
-		input, err := run.ParsePayload(raw)
-		if err != nil {
-			return "", err
-		}
+	selectCase := func(ctx context.Context, input run.Payload) (string, error) {
 		decoded, err := input.Decode[I]()
 		if err != nil {
 			return "", err

@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -23,11 +22,11 @@ const (
 type executionState struct {
 	StageIndex uint32 `json:"stage_index" jsonwire:"required"`
 	// CurrentValue feeds the current Stage.
-	CurrentValue           json.RawMessage    `json:"current_value,omitzero"`
+	CurrentValue           run.Payload        `json:"current_value" jsonwire:"required"`
 	SelectedCaseID         string             `json:"selected_case_id,omitempty"`
 	Child                  *child.Invocation  `json:"child,omitzero"`
 	ActiveFanoutWindow     []child.Invocation `json:"active_fanout_window,omitempty"`
-	CompletedFanoutOutputs []json.RawMessage  `json:"completed_fanout_outputs,omitempty"`
+	CompletedFanoutOutputs []run.Payload      `json:"completed_fanout_outputs,omitempty"`
 	LoopIteration          uint64             `json:"loop_iteration,omitzero"`
 }
 
@@ -54,11 +53,10 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if uint64(e.StageIndex) >= uint64(len(definition.stages)) {
 		return fmt.Errorf("%w: stage index %d is not a pending Stage", ErrInvalidExecutionState, e.StageIndex)
 	}
-	input, err := run.ParsePayload(e.CurrentValue)
-	if err != nil {
-		return fmt.Errorf("%w: current value: %w", ErrInvalidExecutionState, err)
+	if !e.CurrentValue.Valid() {
+		return fmt.Errorf("%w: current value is required", ErrInvalidExecutionState)
 	}
-	if err := definition.stages[e.StageIndex].inputSchema.Validate(input.JSON()); err != nil {
+	if err := definition.stages[e.StageIndex].inputSchema.Validate(e.CurrentValue.JSON()); err != nil {
 		return fmt.Errorf("%w: current value does not satisfy current Stage: %w", ErrInvalidExecutionState, err)
 	}
 	return e.validatePhaseState(ctx, definition)
@@ -148,7 +146,7 @@ func (e executionState) validateFanout(ctx context.Context, definition *definiti
 			continue
 		}
 		if output, completed := invocation.Termination.Output(); completed {
-			if err := stage.fanout.validateMemberOutput(output.JSON()); err != nil {
+			if err := stage.fanout.validateMemberOutput(output); err != nil {
 				return fmt.Errorf("%w: active fan-out output %d: %w", ErrInvalidExecutionState, index, err)
 			}
 		}

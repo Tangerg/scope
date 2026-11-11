@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -86,15 +85,11 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 }
 
 func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, binding run.ChildBinding) (run.Transition, error) {
-	input, err := run.ParsePayload(e.state.CurrentValue)
-	if err != nil {
-		return run.Transition{}, err
-	}
 	key, err := e.childKey()
 	if err != nil {
 		return run.Transition{}, err
 	}
-	spec, err := binding.Spec(key, input)
+	spec, err := binding.Spec(key, e.state.CurrentValue)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -149,18 +144,14 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 	if e.stage().kind == StageKindLoop {
 		return e.finishLoopIteration(ctx, turn, consumed, output)
 	}
-	e.state.CurrentValue = output.JSON()
+	e.state.CurrentValue = output
 	return e.finishStage(consumed)
 }
 
 func (e *execution) finishStage(consumedMessages uint32) (run.Transition, error) {
 	e.fanoutInput = nil
 	if uint64(e.state.StageIndex)+1 == uint64(len(e.definition.stages)) {
-		output, err := run.ParsePayload(e.state.CurrentValue)
-		if err != nil {
-			return run.Transition{}, err
-		}
-		return run.Complete(consumedMessages, output)
+		return run.Complete(consumedMessages, e.state.CurrentValue)
 	}
 	e.state.finishStage()
 	return run.Continue(consumedMessages)
@@ -181,11 +172,11 @@ func (e *execution) finishLoopIteration(
 	output run.Payload,
 ) (run.Transition, error) {
 	stage := e.stage()
-	satisfied, err := stage.loop.predicate(ctx, output.JSON())
+	satisfied, err := stage.loop.predicate(ctx, output)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.CurrentValue = output.JSON()
+	e.state.CurrentValue = output
 	if satisfied || !stage.loop.maxIterations.Allows(e.state.LoopIteration, 1) {
 		value, err := stage.loop.result(e.state.CurrentValue, e.state.LoopIteration, satisfied)
 		if err != nil {
@@ -287,7 +278,7 @@ func (e *execution) advanceFanout(ctx context.Context, turn run.Turn) (run.Trans
 			return run.Yield(consumed, nil)
 		}
 	}
-	outputs := make([]json.RawMessage, len(e.state.ActiveFanoutWindow))
+	outputs := make([]run.Payload, len(e.state.ActiveFanoutWindow))
 	for index, invocation := range e.state.ActiveFanoutWindow {
 		if invocation.Rejection != nil {
 			return run.Fail(consumed, *invocation.Rejection)

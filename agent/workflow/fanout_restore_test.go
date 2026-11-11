@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"testing"
@@ -65,7 +64,7 @@ func TestFanoutRestoreAdmitsSuccessAndFailureVariants(t *testing.T) {
 				{"rejected", child.Invocation{Rejection: &failure}},
 			} {
 				t.Run(row.name, func(t *testing.T) {
-					state := executionState{CurrentValue: input.JSON(), ActiveFanoutWindow: []child.Invocation{row.invocation, {Request: new(testTurn(2).EffectID(1))}}}
+					state := executionState{CurrentValue: input, ActiveFanoutWindow: []child.Invocation{row.invocation, {Request: new(testTurn(2).EffectID(1))}}}
 					snapshot, err := state.snapshot()
 					if err != nil {
 						t.Fatal(err)
@@ -89,11 +88,11 @@ func TestFanoutRecoveryRejectsInvalidOutputsBeforeActivation(t *testing.T) {
 				name  string
 				state executionState
 			}{
-				{"active", executionState{CurrentValue: input.JSON(), ActiveFanoutWindow: []child.Invocation{
+				{"active", executionState{CurrentValue: input, ActiveFanoutWindow: []child.Invocation{
 					{Termination: new(fanoutTermination(t, `{"output":"wrong schema"}`))},
 					{Termination: new(fanoutTermination(t, `{"output":2}`))},
 				}}},
-				{"archived", executionState{CurrentValue: input.JSON(), CompletedFanoutOutputs: []json.RawMessage{json.RawMessage(`"wrong schema"`), json.RawMessage(`2`)},
+				{"archived", executionState{CurrentValue: input, CompletedFanoutOutputs: []run.Payload{mustPayload(t, "wrong schema"), mustPayload(t, 2)},
 					ActiveFanoutWindow: []child.Invocation{{Request: new(testTurn(2).EffectID(0))}}}},
 			} {
 				t.Run(row.name, func(t *testing.T) {

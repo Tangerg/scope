@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -41,8 +40,8 @@ type LoopConfig[T any] struct {
 type loopStage struct {
 	binding       run.ChildBinding
 	maxIterations run.Quota
-	predicate     func(context.Context, json.RawMessage) (bool, error)
-	result        func(json.RawMessage, uint64, bool) (json.RawMessage, error)
+	predicate     func(context.Context, run.Payload) (bool, error)
+	result        func(run.Payload, uint64, bool) (run.Payload, error)
 }
 
 // Loop constructs one at-least-once managed iteration Stage. Body must accept
@@ -76,12 +75,8 @@ func Loop[T any](config LoopConfig[T]) (Stage, error) {
 	}, nil
 }
 
-func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(context.Context, json.RawMessage) (bool, error) {
-	return func(ctx context.Context, raw json.RawMessage) (bool, error) {
-		output, err := run.ParsePayload(raw)
-		if err != nil {
-			return false, err
-		}
+func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(context.Context, run.Payload) (bool, error) {
+	return func(ctx context.Context, output run.Payload) (bool, error) {
 		value, err := output.Decode[T]()
 		if err != nil {
 			return false, err
@@ -94,27 +89,23 @@ func loopPredicate[T any](stageID string, predicate LoopPredicate[T]) func(conte
 	}
 }
 
-func loopResult[T any](resultSchema jsonschema.Schema) func(json.RawMessage, uint64, bool) (json.RawMessage, error) {
-	return func(raw json.RawMessage, iterations uint64, satisfied bool) (json.RawMessage, error) {
-		output, err := run.ParsePayload(raw)
-		if err != nil {
-			return nil, err
-		}
+func loopResult[T any](resultSchema jsonschema.Schema) func(run.Payload, uint64, bool) (run.Payload, error) {
+	return func(output run.Payload, iterations uint64, satisfied bool) (run.Payload, error) {
 		value, err := output.Decode[T]()
 		if err != nil {
-			return nil, err
+			return run.Payload{}, err
 		}
 		result := LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied}
 		if !result.Valid() {
-			return nil, ErrInvalidExecutionState
+			return run.Payload{}, ErrInvalidExecutionState
 		}
 		erased, err := run.EncodePayload(result)
 		if err != nil {
-			return nil, err
+			return run.Payload{}, err
 		}
 		if err := resultSchema.Validate(erased.JSON()); err != nil {
-			return nil, err
+			return run.Payload{}, err
 		}
-		return erased.JSON(), nil
+		return erased, nil
 	}
 }

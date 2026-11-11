@@ -7,9 +7,9 @@ import (
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
-	"io"
 	"strconv"
 
+	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -38,7 +38,8 @@ type mapSource struct {
 	decodeItem func(jsontext.Value) (run.Payload, error)
 }
 
-func (m mapSource) prepareInput(ctx context.Context, raw json.RawMessage) (fanoutInput, error) {
+func (m mapSource) prepareInput(ctx context.Context, input run.Payload) (fanoutInput, error) {
+	raw := input.JSON()
 	spans, err := m.codec.index(ctx, raw)
 	if err != nil {
 		return nil, errors.Join(ErrInvalidExecutionState, err)
@@ -114,8 +115,8 @@ func Map[I, O any](config MapConfig[I, O]) (Stage, error) {
 		return Stage{}, fmt.Errorf("%w: Map %q child schema mismatch", ErrInvalidStage, config.ID)
 	}
 	codec := mapValueCodec{id: config.ID, maxItems: config.MaxItems, schemas: schemas}
-	collect := func(ctx context.Context, _ json.RawMessage, raw []json.RawMessage) (json.RawMessage, error) {
-		return codec.collect[O](ctx, raw)
+	collect := func(ctx context.Context, _ run.Payload, itemOutputs []run.Payload) (run.Payload, error) {
+		return codec.collect[O](ctx, itemOutputs)
 	}
 	return Stage{
 		id: config.ID, kind: StageKindMap,
@@ -160,9 +161,9 @@ type mapValueCodec struct {
 	schemas  mapSchemas
 }
 
-// index validates the entire array once and enforces the item limit before
-// reading another value. Decoder offsets refer to the immutable input, so
-// later windows need neither rescanning nor a second copy of item bytes.
+// index reads the canonical input array once and enforces the item limit
+// before reading another value. Decoder offsets refer to the immutable input,
+// so later windows need neither rescanning nor a second copy of item bytes.
 func (m mapValueCodec) index(ctx context.Context, raw json.RawMessage) ([]mapItemSpan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -193,20 +194,14 @@ func (m mapValueCodec) index(ctx context.Context, raw json.RawMessage) ([]mapIte
 	if _, err := decoder.ReadToken(); err != nil {
 		return nil, err
 	}
-	if _, err := decoder.ReadToken(); !errors.Is(err, io.EOF) {
-		return nil, errors.Join(ErrInvalidExecutionState, err)
-	}
 	return spans, nil
 }
 
 // Each child receives EncodePayload(I), including any typed codec behavior.
 // Forwarding the raw item would bypass that contract even for canonical JSON.
+// The item is a span of the canonical stage input, so it decodes in place.
 func (m mapValueCodec) item[I any](raw jsontext.Value) (run.Payload, error) {
-	input, err := run.ParsePayload(json.RawMessage(raw))
-	if err != nil {
-		return run.Payload{}, err
-	}
-	value, err := input.Decode[I]()
+	value, err := jsonwire.Decode[I](raw)
 	if err != nil {
 		return run.Payload{}, err
 	}
@@ -220,11 +215,11 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (run.Payload, error) {
 	return item, nil
 }
 
-func (m mapValueCodec) collect[O any](ctx context.Context, raw []json.RawMessage) (json.RawMessage, error) {
+func (m mapValueCodec) collect[O any](ctx context.Context, itemOutputs []run.Payload) (run.Payload, error) {
 	outputs := fanoutOutputs{kind: StageKindMap, stageID: m.id, resultSchema: m.schemas.output}
-	values, err := outputs.decode[O](ctx, raw)
+	values, err := outputs.decode[O](ctx, itemOutputs)
 	if err != nil {
-		return nil, err
+		return run.Payload{}, err
 	}
 	return outputs.encodeResult(values)
 }
