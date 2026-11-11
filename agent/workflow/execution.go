@@ -224,16 +224,11 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 		if err := ctx.Err(); err != nil {
 			return run.Transition{}, err
 		}
-		member, found := stage.fanout.source.member(index)
-		if !found {
-			return run.Transition{}, fmt.Errorf("%w: Stage %q has no fan-out member %d", ErrInvalidExecutionState, stage.id, index)
-		}
-		input := inputs[index-start]
-		key, err := e.stage().fanoutChildKey(index)
+		member, key, err := stage.fanoutChild(index)
 		if err != nil {
 			return run.Transition{}, err
 		}
-		spec, err := member.binding.Spec(key, input)
+		spec, err := member.binding.Spec(key, inputs[index-start])
 		if err != nil {
 			return run.Transition{}, err
 		}

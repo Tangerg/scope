@@ -119,7 +119,8 @@ func (e executionState) validateFanout(ctx context.Context, stage Stage) error {
 	}
 	windowStart := e.fanoutWindowStart()
 	if _, err := child.Batch(e.Fanout.Window).Parent(func(position int) (run.ChildKey, error) {
-		return stage.fanoutChildKey(windowStart + uint32(position))
+		_, key, err := stage.fanoutChild(windowStart + uint32(position))
+		return key, err
 	}); err != nil {
 		return fmt.Errorf("%w: active fan-out window: %w", ErrInvalidExecutionState, err)
 	}
