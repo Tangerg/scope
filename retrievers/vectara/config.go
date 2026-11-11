@@ -49,6 +49,20 @@ func (c Config) Validate() error {
 	return err
 }
 
+// validCorpusKey admits Vectara's corpus key alphabet within its length bound.
+func validCorpusKey(key string) bool {
+	if key == "" || len(key) > nativeCorpusKeyMaxBytes {
+		return false
+	}
+	for _, char := range key {
+		allowed := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '='
+		if !allowed {
+			return false
+		}
+	}
+	return true
+}
+
 func (c Config) validateConnection() error {
 	address, err := url.Parse(cmp.Or(c.Endpoint, DefaultEndpoint))
 	_, originErr := httpclient.NewOrigin(address)
@@ -58,14 +72,8 @@ func (c Config) validateConnection() error {
 	if strings.TrimSpace(c.APIKey) == "" {
 		return errors.New("vectara: APIKey is required")
 	}
-	if c.CorpusKey == "" || len(c.CorpusKey) > nativeCorpusKeyMaxBytes {
+	if !validCorpusKey(c.CorpusKey) {
 		return errors.New("vectara: invalid CorpusKey")
-	}
-	for _, char := range c.CorpusKey {
-		allowed := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '='
-		if !allowed {
-			return errors.New("vectara: invalid CorpusKey")
-		}
 	}
 	if c.Limit < 0 || c.Limit > maximumResults {
 		return fmt.Errorf("vectara: Limit must be in [0,%d]", maximumResults)
