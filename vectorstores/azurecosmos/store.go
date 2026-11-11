@@ -239,6 +239,12 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	return s.verify(ctx)
 }
 
+// The parameters of the ranked query; the statement refers to each by name.
+const (
+	queryVectorParam = "@queryVec"
+	topKParam        = "@topK"
+)
+
 func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
@@ -263,9 +269,9 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	}
 	var ranked []rankedResult
 	seen := make(map[string]struct{})
-	parameters := []azcosmos.QueryParameter{{Name: "@queryVec", Value: queryVector}, {Name: "@topK", Value: request.Options.ResultLimit()}}
-	distance := "VectorDistance(c.embedding, @queryVec)"
-	sql := "SELECT TOP @topK c AS item, " + distance + " AS score FROM c ORDER BY " + distance
+	parameters := []azcosmos.QueryParameter{{Name: queryVectorParam, Value: queryVector}, {Name: topKParam, Value: request.Options.ResultLimit()}}
+	distance := "VectorDistance(c.embedding, " + queryVectorParam + ")"
+	sql := "SELECT TOP " + topKParam + " c AS item, " + distance + " AS score FROM c ORDER BY " + distance
 	queryErr := s.query(ctx, sql, parameters, func(raw []byte) error {
 		var row struct {
 			Item  json.RawMessage `json:"item"`
@@ -303,14 +309,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, queryErr
 	}
 	slices.SortFunc(ranked, func(left, right rankedResult) int {
-		order := cmp.Compare(left.raw, right.raw)
-		if s.schema.function != azcosmos.VectorDistanceFunctionEuclidean {
-			order = -order
-		}
-		if order != 0 {
-			return order
-		}
-		return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
+		return cmp.Or(cmp.Compare(s.schema.nearness(right.raw), s.schema.nearness(left.raw)), cmp.Compare(left.result.Document.ID, right.result.Document.ID))
 	})
 	results := make([]*vectorstore.SearchResult, 0, min(len(ranked), request.Options.ResultLimit()))
 	for _, row := range ranked {

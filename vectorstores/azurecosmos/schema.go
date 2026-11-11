@@ -83,6 +83,15 @@ func (c containerSchema) validateVector(vector []float32) error {
 	return nil
 }
 
+// nearness orders native values so that larger is nearer: VectorDistance
+// reports a distance for Euclidean and a similarity for the other functions.
+func (c containerSchema) nearness(raw float64) float64 {
+	if c.function == azcosmos.VectorDistanceFunctionEuclidean {
+		return -raw
+	}
+	return raw
+}
+
 func (c containerSchema) score(raw float64) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) {
 		return 0, errors.New("azurecosmos: native score must be finite")
