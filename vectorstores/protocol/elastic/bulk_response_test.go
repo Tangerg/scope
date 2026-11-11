@@ -17,6 +17,7 @@ func TestBulkAcknowledgmentsCannotInventSuccess(t *testing.T) {
 		`{"errors":false,"items":[{"index":{"_index":"other","_id":"one","status":201}}]}`,
 		`{"errors":false,"items":[{"index":{"_index":"documents","_id":"one","status":400,"error":{"reason":"mapping"}}}]}`,
 		`{"errors":true,"items":[{"index":{"_index":"documents","_id":"one","status":201}}]}`,
+		`{"errors":false,"items":[{"index":{"_index":"documents","_id":"one","status":201},"update":{"_index":"documents","_id":"one","status":409}}]}`,
 	} {
 		var response bulkResponse
 		if err := jsonv2.Unmarshal([]byte(raw), &response); err != nil {

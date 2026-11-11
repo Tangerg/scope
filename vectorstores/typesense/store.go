@@ -418,8 +418,8 @@ func keyFilter(keys []string) string {
 }
 
 type searchQuery struct {
-	api.MultiSearchCollectionParameters `json:",inline"`
-	EnableCurations                     bool `json:"enable_curations"`
+	api.MultiSearchCollectionParameters
+	EnableCurations bool `json:"enable_curations"`
 }
 
 func formatVectorQuery(vector []float32, topK int, alpha *float32) string {

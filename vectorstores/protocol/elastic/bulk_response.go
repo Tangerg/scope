@@ -88,7 +88,7 @@ func (b bulkItemResult) accepted(allowMissing bool) bool {
 type bulkItem struct {
 	Index   *bulkItemResult `json:"index,omitzero"`
 	Delete  *bulkItemResult `json:"delete,omitzero"`
-	Unknown jsontext.Value  `json:",unknown"`
+	Unknown jsontext.Value  `json:",embed"`
 }
 
 // UnmarshalJSON commits only a complete item, so a truncated object cannot

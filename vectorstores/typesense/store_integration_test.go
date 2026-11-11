@@ -183,8 +183,8 @@ func TestNativePaginationPreservesRanking(t *testing.T) {
 			for page := 1; ; page++ {
 				params.Page = new(page)
 				query := struct {
-					api.MultiSearchCollectionParameters `json:",inline"`
-					EnableCurations                     bool `json:"enable_curations"`
+					api.MultiSearchCollectionParameters
+					EnableCurations bool `json:"enable_curations"`
 				}{MultiSearchCollectionParameters: params}
 				body := mustJSON(t, struct {
 					Searches []any `json:"searches"`
