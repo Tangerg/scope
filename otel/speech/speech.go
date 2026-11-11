@@ -54,10 +54,7 @@ func (m MiddlewareConfig) Validate() error {
 // Middleware observes synthesis metadata without recording input text, voice
 // names, or generated audio.
 type Middleware struct {
-	logger        log.Logger
-	provider      string
-	tracer        trace.Tracer
-	duration      genaiconv.ClientOperationDuration
+	client        instrument.Client
 	firstChunk    genaiconv.ClientOperationTimeToFirstChunk
 	chunkInterval genaiconv.ClientOperationTimePerOutputChunk
 }
@@ -68,30 +65,22 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	tracerProvider := instrument.TracerProvider(config.TracerProvider)
-	loggerProvider := instrument.LoggerProvider(config.LoggerProvider)
-	meterProvider := instrument.MeterProvider(config.MeterProvider)
-	meter := meterProvider.Meter(instrumentationName)
-	durationBuckets := genaimetric.DurationBuckets()
-	duration, err := genaiconv.NewClientOperationDuration(meter, durationBuckets)
+	client, err := instrument.NewClient(instrument.ClientConfig{
+		InstrumentationName: instrumentationName, Provider: config.Provider,
+		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+	})
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(meter, durationBuckets)
+	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(client.Meter, genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create first-chunk histogram: %w", ErrInvalidConfig, err)
 	}
-	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(meter, durationBuckets)
+	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(client.Meter, genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create chunk-interval histogram: %w", ErrInvalidConfig, err)
 	}
-	return Middleware{
-		firstChunk: firstChunk, chunkInterval: chunkInterval,
-		logger:   loggerProvider.Logger(instrumentationName),
-		provider: instrument.Dimension(config.Provider),
-		tracer:   tracerProvider.Tracer(instrumentationName),
-		duration: duration,
-	}, nil
+	return Middleware{client: client, firstChunk: firstChunk, chunkInterval: chunkInterval}, nil
 }
 
 // Call instruments next without changing its response or error.
@@ -146,7 +135,7 @@ func (m Middleware) Stream(next corespeech.Streamer) corespeech.Streamer {
 }
 
 func (m Middleware) validate() error {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
+	if !m.client.Ready() || lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
 	return nil
@@ -155,7 +144,7 @@ func (m Middleware) validate() error {
 func (m Middleware) start(ctx context.Context, request *corespeech.Request, streaming bool) (context.Context, observation) {
 	startedAt := time.Now()
 	attributes := append(m.requestAttributes(request), semconv.GenAIRequestStreamKey.Bool(streaming))
-	spanCtx, span := m.tracer.Start(ctx, m.spanName(request),
+	spanCtx, span := m.client.Tracer.Start(ctx, m.spanName(request),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),
@@ -179,7 +168,7 @@ func (m Middleware) spanName(request *corespeech.Request) string {
 func (m Middleware) requestAttributes(request *corespeech.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.provider),
+		semconv.GenAIProviderNameKey.String(m.client.Provider),
 		semconv.GenAIOutputTypeSpeech,
 	}
 	if request != nil && request.Options.Model != "" {
@@ -212,7 +201,7 @@ func (o *observation) observeChunk(response *corespeech.Response) {
 	o.observeResponse(response)
 	attributes := o.middleware.metricAttributes(o.request, o.responseModel)
 	operation := genaiconv.OperationNameAttr(operationName)
-	provider := genaiconv.ProviderNameAttr(o.middleware.provider)
+	provider := genaiconv.ProviderNameAttr(o.middleware.client.Provider)
 	if o.lastChunkAt.IsZero() {
 		elapsed := arrivedAt.Sub(o.startedAt).Seconds()
 		o.span.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
@@ -232,15 +221,15 @@ func (o observation) finish(err error) {
 	if err != nil {
 		errorType := errorTypeAttribute(err)
 		errortelemetry.Record(o.span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(o.ctx, o.middleware.logger, errorType, finishedAt)
+		errortelemetry.EmitGenAIException(o.ctx, o.middleware.client.Logger, errorType, finishedAt)
 		attributes = append(attributes, errorType)
 	}
 	o.span.End(trace.WithTimestamp(finishedAt))
-	o.middleware.duration.Record(
+	o.middleware.client.Duration.Record(
 		o.ctx,
 		finishedAt.Sub(o.startedAt).Seconds(),
 		genaiconv.OperationNameAttr(operationName),
-		genaiconv.ProviderNameAttr(o.middleware.provider),
+		genaiconv.ProviderNameAttr(o.middleware.client.Provider),
 		attributes...,
 	)
 }

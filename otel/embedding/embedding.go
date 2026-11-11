@@ -49,11 +49,8 @@ func (m MiddlewareConfig) Validate() error {
 
 // Middleware is an immutable embedding instrumentation decorator.
 type Middleware struct {
-	logger   log.Logger
-	provider string
-	tracer   trace.Tracer
-	duration genaiconv.ClientOperationDuration
-	tokens   genaiconv.ClientTokenUsage
+	client instrument.Client
+	tokens genaiconv.ClientTokenUsage
 }
 
 // NewMiddleware snapshots provider identity and resolves nil OTel providers to
@@ -62,25 +59,18 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	tracerProvider := instrument.TracerProvider(config.TracerProvider)
-	loggerProvider := instrument.LoggerProvider(config.LoggerProvider)
-	meterProvider := instrument.MeterProvider(config.MeterProvider)
-	meter := meterProvider.Meter(instrumentationName)
-	duration, err := genaiconv.NewClientOperationDuration(meter, genaimetric.DurationBuckets())
+	client, err := instrument.NewClient(instrument.ClientConfig{
+		InstrumentationName: instrumentationName, Provider: config.Provider,
+		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+	})
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter, genaimetric.TokenBuckets())
+	tokens, err := genaiconv.NewClientTokenUsage(client.Meter, genaimetric.TokenBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
-	return Middleware{
-		logger:   loggerProvider.Logger(instrumentationName),
-		provider: instrument.Dimension(config.Provider),
-		tracer:   tracerProvider.Tracer(instrumentationName),
-		duration: duration,
-		tokens:   tokens,
-	}, nil
+	return Middleware{client: client, tokens: tokens}, nil
 }
 
 // Call instruments next without changing its response or error.
@@ -88,12 +78,12 @@ func (m Middleware) Call(next coreembedding.Model) coreembedding.Model {
 	if lo.IsNil(next) {
 		return nil
 	}
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) {
+	if !m.client.Ready() || lo.IsNil(m.tokens.Inst()) {
 		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 		return coreembedding.ModelFunc(func(context.Context, *coreembedding.Request) (*coreembedding.Response, error) { return nil, err })
 	}
 	return coreembedding.ModelFunc(func(ctx context.Context, request *coreembedding.Request) (response *coreembedding.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.tracer, m.spanName(request), m.requestAttributes(request)...)
+		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
 			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
 		})
@@ -112,7 +102,7 @@ func (m Middleware) spanName(request *coreembedding.Request) string {
 func (m Middleware) requestAttributes(request *coreembedding.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameEmbeddings)),
-		semconv.GenAIProviderNameKey.String(m.provider),
+		semconv.GenAIProviderNameKey.String(m.client.Provider),
 	}
 	if request == nil {
 		return attributes
@@ -144,7 +134,7 @@ func (m Middleware) finish(
 		span.SetAttributes(semconv.GenAIUsageInputTokensKey.Int64(response.Metadata.Usage.InputTokens))
 		m.tokens.Record(ctx, response.Metadata.Usage.InputTokens,
 			genaiconv.OperationNameEmbeddings,
-			genaiconv.ProviderNameAttr(m.provider),
+			genaiconv.ProviderNameAttr(m.client.Provider),
 			genaiconv.TokenTypeInput,
 			attributes...,
 		)
@@ -153,12 +143,12 @@ func (m Middleware) finish(
 	if err != nil {
 		errorType := errorTypeAttribute(err)
 		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finishedAt)
+		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finishedAt)
 		attributes = append(attributes, errorType)
 	}
-	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
+	m.client.Duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
 		genaiconv.OperationNameEmbeddings,
-		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.ProviderNameAttr(m.client.Provider),
 		attributes...,
 	)
 }

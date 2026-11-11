@@ -18,7 +18,6 @@ import (
 
 	coremoderation "github.com/Tangerg/scope/core/moderation"
 	"github.com/Tangerg/scope/otel/errortelemetry"
-	"github.com/Tangerg/scope/otel/internal/genaimetric"
 	"github.com/Tangerg/scope/otel/internal/instrument"
 )
 
@@ -51,10 +50,7 @@ func (m MiddlewareConfig) Validate() error {
 // Middleware observes moderation metadata without recording classified text or
 // provider category names.
 type Middleware struct {
-	logger   log.Logger
-	provider string
-	tracer   trace.Tracer
-	duration genaiconv.ClientOperationDuration
+	client instrument.Client
 }
 
 // NewMiddleware snapshots provider identity and resolves nil OTel providers to
@@ -63,19 +59,14 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	tracerProvider := instrument.TracerProvider(config.TracerProvider)
-	loggerProvider := instrument.LoggerProvider(config.LoggerProvider)
-	meterProvider := instrument.MeterProvider(config.MeterProvider)
-	duration, err := genaiconv.NewClientOperationDuration(meterProvider.Meter(instrumentationName), genaimetric.DurationBuckets())
+	client, err := instrument.NewClient(instrument.ClientConfig{
+		InstrumentationName: instrumentationName, Provider: config.Provider,
+		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+	})
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	return Middleware{
-		logger:   loggerProvider.Logger(instrumentationName),
-		provider: instrument.Dimension(config.Provider),
-		tracer:   tracerProvider.Tracer(instrumentationName),
-		duration: duration,
-	}, nil
+	return Middleware{client: client}, nil
 }
 
 // Call instruments next without changing its response or error.
@@ -83,12 +74,12 @@ func (m Middleware) Call(next coremoderation.Model) coremoderation.Model {
 	if lo.IsNil(next) {
 		return nil
 	}
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) {
+	if !m.client.Ready() {
 		err := fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 		return coremoderation.ModelFunc(func(context.Context, *coremoderation.Request) (*coremoderation.Response, error) { return nil, err })
 	}
 	return coremoderation.ModelFunc(func(ctx context.Context, request *coremoderation.Request) (response *coremoderation.Response, err error) {
-		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.tracer, m.spanName(request), m.requestAttributes(request)...)
+		spanCtx, span, startedAt := instrument.StartClientSpan(ctx, m.client.Tracer, m.spanName(request), m.requestAttributes(request)...)
 		defer errortelemetry.Finish(&err, func(observedError error) {
 			m.finish(spanCtx, span, request, response, observedError, startedAt, time.Now())
 		})
@@ -107,7 +98,7 @@ func (m Middleware) spanName(request *coremoderation.Request) string {
 func (m Middleware) requestAttributes(request *coremoderation.Request) []attribute.KeyValue {
 	attributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(operationName),
-		semconv.GenAIProviderNameKey.String(m.provider),
+		semconv.GenAIProviderNameKey.String(m.client.Provider),
 	}
 	if request == nil {
 		return attributes
@@ -134,11 +125,11 @@ func (m Middleware) finish(
 	if err != nil {
 		errorType := errorTypeAttribute(err)
 		errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finishedAt)
+		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finishedAt)
 		attributes = append(attributes, errorType)
 	}
-	m.duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
-		genaiconv.OperationNameAttr(operationName), genaiconv.ProviderNameAttr(m.provider), attributes...,
+	m.client.Duration.Record(ctx, finishedAt.Sub(startedAt).Seconds(),
+		genaiconv.OperationNameAttr(operationName), genaiconv.ProviderNameAttr(m.client.Provider), attributes...,
 	)
 }
 

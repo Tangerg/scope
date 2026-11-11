@@ -64,10 +64,7 @@ func (m MiddlewareConfig) Validate() error {
 // streaming chat capabilities. It is immutable after construction and safe for
 // concurrent use.
 type Middleware struct {
-	logger        log.Logger
-	provider      string
-	tracer        trace.Tracer
-	duration      genaiconv.ClientOperationDuration
+	client        instrument.Client
 	tokens        genaiconv.ClientTokenUsage
 	firstChunk    genaiconv.ClientOperationTimeToFirstChunk
 	chunkInterval genaiconv.ClientOperationTimePerOutputChunk
@@ -77,36 +74,26 @@ func NewMiddleware(config MiddlewareConfig) (Middleware, error) {
 	if err := config.Validate(); err != nil {
 		return Middleware{}, err
 	}
-	provider := instrument.Dimension(config.Provider)
-
-	tracerProvider := instrument.TracerProvider(config.TracerProvider)
-	loggerProvider := instrument.LoggerProvider(config.LoggerProvider)
-	meterProvider := instrument.MeterProvider(config.MeterProvider)
-
-	meter := meterProvider.Meter(instrumentationName)
-	durationBuckets := genaimetric.DurationBuckets()
-	duration, err := genaiconv.NewClientOperationDuration(meter, durationBuckets)
+	client, err := instrument.NewClient(instrument.ClientConfig{
+		InstrumentationName: instrumentationName, Provider: config.Provider,
+		TracerProvider: config.TracerProvider, MeterProvider: config.MeterProvider, LoggerProvider: config.LoggerProvider,
+	})
 	if err != nil {
-		return Middleware{}, fmt.Errorf("%w: create duration histogram: %w", ErrInvalidConfig, err)
+		return Middleware{}, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
-	tokens, err := genaiconv.NewClientTokenUsage(meter, genaimetric.TokenBuckets())
+	tokens, err := genaiconv.NewClientTokenUsage(client.Meter, genaimetric.TokenBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create token histogram: %w", ErrInvalidConfig, err)
 	}
-	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(meter, durationBuckets)
+	firstChunk, err := genaiconv.NewClientOperationTimeToFirstChunk(client.Meter, genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create first-chunk histogram: %w", ErrInvalidConfig, err)
 	}
-	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(meter, durationBuckets)
+	chunkInterval, err := genaiconv.NewClientOperationTimePerOutputChunk(client.Meter, genaimetric.DurationBuckets())
 	if err != nil {
 		return Middleware{}, fmt.Errorf("%w: create chunk-interval histogram: %w", ErrInvalidConfig, err)
 	}
-
-	return Middleware{
-		logger:   loggerProvider.Logger(instrumentationName),
-		provider: provider, tracer: tracerProvider.Tracer(instrumentationName),
-		duration: duration, tokens: tokens, firstChunk: firstChunk, chunkInterval: chunkInterval,
-	}, nil
+	return Middleware{client: client, tokens: tokens, firstChunk: firstChunk, chunkInterval: chunkInterval}, nil
 }
 
 // Call is a [corechat.CallMiddleware]. It preserves the wrapped model's response
@@ -189,11 +176,11 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 						elapsed := receivedAt.Sub(started).Seconds()
 						span.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
 						m.firstChunk.Record(spanCtx, elapsed,
-							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.provider), attributes...,
+							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.client.Provider), attributes...,
 						)
 					} else {
 						m.chunkInterval.Record(spanCtx, receivedAt.Sub(previousChunk).Seconds(),
-							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.provider), attributes...,
+							genaiconv.OperationNameChat, genaiconv.ProviderNameAttr(m.client.Provider), attributes...,
 						)
 					}
 					previousChunk = receivedAt
@@ -212,7 +199,7 @@ func (m Middleware) Stream(next corechat.Streamer) corechat.Streamer {
 }
 
 func (m Middleware) validate() error {
-	if lo.IsNil(m.logger) || lo.IsNil(m.tracer) || lo.IsNil(m.duration.Inst()) || lo.IsNil(m.tokens.Inst()) ||
+	if !m.client.Ready() || lo.IsNil(m.tokens.Inst()) ||
 		lo.IsNil(m.firstChunk.Inst()) || lo.IsNil(m.chunkInterval.Inst()) {
 		return fmt.Errorf("%w: middleware must be constructed with NewMiddleware", ErrInvalidConfig)
 	}
@@ -236,9 +223,9 @@ func (m Middleware) start(
 	}
 	attrs = append(attrs,
 		semconv.GenAIOperationNameKey.String(string(genaiconv.OperationNameChat)),
-		semconv.GenAIProviderNameKey.String(m.provider),
+		semconv.GenAIProviderNameKey.String(m.client.Provider),
 	)
-	return m.tracer.Start(ctx, name,
+	return m.client.Tracer.Start(ctx, name,
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithTimestamp(started),
 		trace.WithAttributes(attrs...),
@@ -262,7 +249,7 @@ func (m Middleware) finish(
 	if err != nil {
 		errorType := errorTypeAttribute(err)
 		errortelemetry.Record(span, errorType, trace.WithTimestamp(finished))
-		errortelemetry.EmitGenAIException(ctx, m.logger, errorType, finished)
+		errortelemetry.EmitGenAIException(ctx, m.client.Logger, errorType, finished)
 	}
 	m.recordMetrics(ctx, request, observation, finished.Sub(started), err)
 }
@@ -279,9 +266,9 @@ func (m Middleware) recordMetrics(
 	if err != nil {
 		durationAttrs = append(durationAttrs, errorTypeAttribute(err))
 	}
-	m.duration.Record(ctx, elapsed.Seconds(),
+	m.client.Duration.Record(ctx, elapsed.Seconds(),
 		genaiconv.OperationNameChat,
-		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.ProviderNameAttr(m.client.Provider),
 		durationAttrs...,
 	)
 	if observation.usage == nil {
@@ -289,13 +276,13 @@ func (m Middleware) recordMetrics(
 	}
 	m.tokens.Record(ctx, observation.usage.InputTokens,
 		genaiconv.OperationNameChat,
-		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.ProviderNameAttr(m.client.Provider),
 		genaiconv.TokenTypeInput,
 		attrs...,
 	)
 	m.tokens.Record(ctx, observation.usage.OutputTokens,
 		genaiconv.OperationNameChat,
-		genaiconv.ProviderNameAttr(m.provider),
+		genaiconv.ProviderNameAttr(m.client.Provider),
 		genaiconv.TokenTypeOutput,
 		attrs...,
 	)
