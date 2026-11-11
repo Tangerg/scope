@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/skills
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/samber/lo v1.53.0

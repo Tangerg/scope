@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/eval/trajectory
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/Tangerg/scope/agent v0.61.0

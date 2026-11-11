@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/a2a/managed
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/Tangerg/scope/a2a v0.61.0

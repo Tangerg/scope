@@ -1,6 +1,6 @@
 module github.com/Tangerg/scope/mcp/managed
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/Tangerg/go-sdk v1.8.1-scope.5
