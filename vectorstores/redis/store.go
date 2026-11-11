@@ -229,6 +229,9 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 }
 
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+	if err := q.ValidateFor(s.space); err != nil {
+		return nil, err
+	}
 	return s.rank(ctx, q, nil)
 }
 
@@ -247,11 +250,9 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, b vectors
 	return s.rank(meter.Context(), q, &scanGrant{meter: meter, grant: b})
 }
 
+// rank expects a request its entry point already validated for this store.
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, scan *scanGrant) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
