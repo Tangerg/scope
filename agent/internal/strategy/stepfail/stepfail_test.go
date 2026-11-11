@@ -22,7 +22,7 @@ func TestTransitionNormalizesDynamicDiagnostics(t *testing.T) {
 }
 
 func TestFailureRejectsAnInvalidClassification(t *testing.T) {
-	if _, err := Failure(run.FailureKindInvalid, "strategy.test.failed", "failed"); !errors.Is(err, run.ErrInvalidFailure) {
+	if _, err := Transition(0, run.FailureKindInvalid, "strategy.test.failed", "failed"); !errors.Is(err, run.ErrInvalidFailure) {
 		t.Fatalf("invalid kind error = %v", err)
 	}
 	if _, err := Transition(0, run.FailureKindExecution, "Not A Code", "failed"); !errors.Is(err, run.ErrInvalidFailure) {

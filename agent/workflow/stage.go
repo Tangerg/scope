@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -180,7 +179,7 @@ func childOutcome(outcome run.Termination, code func(suffix string) string, subj
 		if failure, failed := outcome.Failure(); failed {
 			return &failure, run.Payload{}, nil
 		}
-		failure, err := stepfail.Failure(run.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+outcome.Status().String())
+		failure, err := run.NewFailure(run.FailureKindExternal, code(failureSuffixNotCompleted), subject+" terminated with status "+outcome.Status().String())
 		return &failure, run.Payload{}, err
 	}
 	// A validated Completed termination always carries Output.

@@ -82,8 +82,15 @@ type Failure struct {
 	message string
 }
 
-// NewFailure requires a trimmed UTF-8 message within MaxDiagnosticBytes.
+// NewFailure records message as NormalizeDiagnostic renders it, so any error's
+// text forms a valid Failure. Callers remain responsible for excluding secrets.
 func NewFailure(kind FailureKind, code, message string) (Failure, error) {
+	return newFailure(kind, code, NormalizeDiagnostic(message))
+}
+
+// newFailure is the strict form decoding uses: persisted text must already be
+// normalized, because normalizing it would change what the log recorded.
+func newFailure(kind FailureKind, code, message string) (Failure, error) {
 	if !(FailureClassification{kind: kind, code: code}).Valid() {
 		return Failure{}, fmt.Errorf("%w: kind is required and code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
 	}
@@ -121,7 +128,6 @@ func newRuntimeFailure(kind FailureKind, code string, err error) Failure {
 	if err != nil {
 		message = err.Error()
 	}
-	message = NormalizeDiagnostic(message)
 	failure, failureErr := NewFailure(kind, code, message)
 	if failureErr != nil {
 		panic(failureErr)
@@ -144,7 +150,7 @@ func (f *Failure) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidFailure, err)
 	}
-	value, err := NewFailure(wire.Kind, wire.Code, wire.Message)
+	value, err := newFailure(wire.Kind, wire.Code, wire.Message)
 	if err != nil {
 		return err
 	}

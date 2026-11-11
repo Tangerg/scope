@@ -39,9 +39,17 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 	}
 }
 
-func TestFailureRejectsInvalidUTF8(t *testing.T) {
-	if _, err := NewFailure(FailureKindExecution, "step.failed", "failure: \xff"); !errors.Is(err, ErrInvalidFailure) {
-		t.Fatalf("NewFailure = %v, want ErrInvalidFailure", err)
+func TestFailureNormalizesDynamicTextButDecodesStrictly(t *testing.T) {
+	failure, err := NewFailure(FailureKindExecution, "step.failed", " failure: \xff\n")
+	if err != nil || failure.Message() != "failure: \ufffd" {
+		t.Fatalf("NewFailure = %q, %v", failure.Message(), err)
+	}
+	for _, message := range []string{` failure`, `failure: \u0000\n`, ``} {
+		var decoded Failure
+		data := `{"kind":"execution","code":"step.failed","message":"` + message + `"}`
+		if err := jsonv2.Unmarshal([]byte(data), &decoded); !errors.Is(err, ErrInvalidFailure) {
+			t.Fatalf("decoded unnormalized message %q: %v", message, err)
+		}
 	}
 }
 

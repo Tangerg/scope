@@ -23,9 +23,9 @@ func TestNormalizedDiagnosticsSurviveFailurePersistence(t *testing.T) {
 			if message != test.want || !ValidDiagnostic(message) || NormalizeDiagnostic(message) != message {
 				t.Fatalf("diagnostic = %q, want %q", message, test.want)
 			}
-			failure, err := NewFailure(FailureKindExternal, "test.diagnostic", message)
-			if err != nil {
-				t.Fatal(err)
+			failure, err := NewFailure(FailureKindExternal, "test.diagnostic", test.input)
+			if err != nil || failure.Message() != test.want {
+				t.Fatalf("failure message = %q, error = %v", failure.Message(), err)
 			}
 			data, err := jsonv2.Marshal(failure)
 			if err != nil {
