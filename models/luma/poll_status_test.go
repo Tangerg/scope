@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/luma"
 )
@@ -43,10 +44,9 @@ func TestPollReportsAnUnrecognizedState(t *testing.T) {
 		DefaultOptions: options,
 		BaseURL:        server.URL,
 		OutputOrigins:  []string{server.URL},
-		PollInterval:   10 * time.Millisecond,
 		// Short enough that a regression to "keep waiting" fails as a timeout
 		// instead of hanging the suite.
-		PollTimeout: 300 * time.Millisecond,
+		Polling: invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 300 * time.Millisecond},
 	})
 	if err != nil {
 		t.Fatal(err)

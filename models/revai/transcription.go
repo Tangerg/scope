@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
@@ -20,8 +19,9 @@ type TranscriptionModelConfig struct {
 	DefaultOptions transcription.Options
 	BaseURL        string
 	HTTPClient     *http.Client
-	PollInterval   time.Duration
-	PollTimeout    time.Duration
+	// Polling bounds the wait for the async Rev.ai job; zero fields
+	// select DefaultPollInterval and DefaultPollTimeout.
+	Polling invocation.Polling
 }
 
 func (t TranscriptionModelConfig) apiConfig() apiConfig {
@@ -38,11 +38,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if t.PollInterval < 0 {
-		return errors.New("revai: PollInterval must not be negative")
-	}
-	if t.PollTimeout < 0 {
-		return errors.New("revai: PollTimeout must not be negative")
+	if err := t.Polling.Validate(); err != nil {
+		return fmt.Errorf("revai: Polling: %w", err)
 	}
 	return nil
 }
@@ -62,8 +59,7 @@ var _ transcription.Model = (*TranscriptionModel)(nil)
 type TranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
-	pollInterval   time.Duration
-	pollTimeout    time.Duration
+	polling        invocation.Polling
 }
 
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
@@ -74,15 +70,7 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	if err != nil {
 		return nil, err
 	}
-	pollInterval := config.PollInterval
-	if pollInterval == 0 {
-		pollInterval = DefaultPollInterval
-	}
-	pollTimeout := config.PollTimeout
-	if pollTimeout == 0 {
-		pollTimeout = DefaultPollTimeout
-	}
-	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pollInterval, pollTimeout: pollTimeout}, nil
+	return &TranscriptionModel{api: api, defaultOptions: config.DefaultOptions.Clone(), polling: config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultPollTimeout})}, nil
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
@@ -187,26 +175,18 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 }
 
 func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*job, error) {
-	deadline, cancel := context.WithTimeout(ctx, t.pollTimeout)
-	defer cancel()
-	ticker := time.NewTicker(t.pollInterval)
-	defer ticker.Stop()
-	for {
-		resp, err := t.api.getJob(deadline, id)
+	return t.polling.Poll(ctx, func(ctx context.Context) (*job, bool, error) {
+		resp, err := t.api.getJob(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		switch resp.Status {
 		case jobStatusTranscribed, jobStatusFailed:
-			return resp, nil
+			return resp, true, nil
 		case jobStatusInProgress:
+			return resp, false, nil
 		default:
-			return nil, fmt.Errorf("revai: job %s reports unrecognized status %q", id, resp.Status)
+			return nil, false, fmt.Errorf("revai: job %s reports unrecognized status %q", id, resp.Status)
 		}
-		select {
-		case <-deadline.Done():
-			return nil, deadline.Err()
-		case <-ticker.C:
-		}
-	}
+	})
 }

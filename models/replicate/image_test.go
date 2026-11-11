@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/replicate"
 )
@@ -72,8 +73,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		DefaultOptions: opts,
 		InputSchema:    replicate.FluxSchnellImageInputSchema(),
 		BaseURL:        srv.URL,
-		PollInterval:   10 * time.Millisecond,
-		PollTimeout:    5 * time.Second,
+		Polling:        invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 5 * time.Second},
 	})
 	if err != nil {
 		t.Fatal(err)

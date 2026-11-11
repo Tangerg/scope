@@ -189,7 +189,7 @@ func boundedJSONCalls() []responseBudgetCall {
 			return err
 		}},
 		{name: "luma create", attempts: 1, call: func(ctx context.Context, client *http.Client) error {
-			model, err := luma.NewImageModel(ctx, luma.ImageModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, OutputOrigins: []string{responseBudgetEndpoint}, DefaultOptions: image.Options{Model: luma.ModelUni1}, PollInterval: time.Nanosecond})
+			model, err := luma.NewImageModel(ctx, luma.ImageModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, OutputOrigins: []string{responseBudgetEndpoint}, DefaultOptions: image.Options{Model: luma.ModelUni1}, Polling: invocation.Polling{Interval: time.Nanosecond}})
 			if err != nil {
 				return err
 			}

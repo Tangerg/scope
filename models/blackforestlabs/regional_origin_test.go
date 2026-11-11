@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 )
 
@@ -128,7 +129,7 @@ func TestRegionalPollingAuthorizesOnlyItsIssuedOrigin(t *testing.T) {
 			model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{
 				APIKey: "sentinel", HTTPClient: &http.Client{Transport: transport},
 				DefaultOptions: image.Options{Model: blackforestlabs.ModelFlux11Pro},
-				PollInterval:   time.Nanosecond, PollTimeout: time.Second,
+				Polling:        invocation.Polling{Interval: time.Nanosecond, Timeout: time.Second},
 			})
 			if err != nil {
 				t.Fatal(err)

@@ -66,7 +66,7 @@ func TestImageOutcomeEvidence(t *testing.T) {
 				OutputOrigins: []string{"https://blackforestlabs.test"},
 
 				DefaultOptions: image.Options{Model: blackforestlabs.ModelFlux11Pro},
-				PollInterval:   time.Millisecond, PollTimeout: time.Second,
+				Polling:        invocation.Polling{Interval: time.Millisecond, Timeout: time.Second},
 			})
 			if err != nil {
 				t.Fatal(err)

@@ -24,11 +24,9 @@ type ImageModelConfig struct {
 	BaseURL        string
 	HTTPClient     *http.Client
 
-	// PollInterval / PollTimeout configure the synchronous wrapper
-	// around Replicate's async generation. Zero values fall back to
-	// the package defaults.
-	PollInterval time.Duration
-	PollTimeout  time.Duration
+	// Polling bounds the wait for Replicate's async generation; zero
+	// fields select DefaultPollInterval and DefaultImagePollTimeout.
+	Polling invocation.Polling
 }
 
 func (i ImageModelConfig) apiConfig() apiConfig {
@@ -37,10 +35,6 @@ func (i ImageModelConfig) apiConfig() apiConfig {
 		BaseURL:    i.BaseURL,
 		HTTPClient: i.HTTPClient,
 	}
-}
-
-func (i ImageModelConfig) pollingPolicy() pollingPolicy {
-	return pollingPolicy{interval: i.PollInterval, timeout: i.PollTimeout}
 }
 
 func (i ImageModelConfig) Validate() error {
@@ -59,7 +53,10 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.InputSchema.Validate(); err != nil {
 		return err
 	}
-	return i.pollingPolicy().validate()
+	if err := i.Polling.Validate(); err != nil {
+		return fmt.Errorf("replicate: Polling: %w", err)
+	}
+	return nil
 }
 
 // FileOutputKind identifies the exact file-output schema declared by a
@@ -245,7 +242,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	return &ImageModel{
 		predictions: predictionRunner{
 			api:             api,
-			polling:         config.pollingPolicy().resolve(DefaultImagePollTimeout),
+			polling:         config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultImagePollTimeout}),
 			invalidResponse: image.ErrInvalidResponse,
 		},
 		inputSchema:    config.InputSchema.Clone(),

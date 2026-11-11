@@ -9,7 +9,6 @@ import (
 	"mime"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
@@ -39,11 +38,9 @@ type ImageModelConfig struct {
 	HTTPClient     *http.Client
 	OutputOrigins  []string
 
-	// PollInterval / PollTimeout configure the synchronous wrapper
-	// around BFL's async generation. Zero values fall back to the
-	// package defaults.
-	PollInterval time.Duration
-	PollTimeout  time.Duration
+	// Polling bounds the wait for BFL's async generation; zero fields
+	// select DefaultPollInterval and DefaultPollTimeout.
+	Polling invocation.Polling
 }
 
 func (i ImageModelConfig) apiConfig() apiConfig {
@@ -65,11 +62,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if i.PollInterval < 0 {
-		return errors.New("blackforestlabs: PollInterval must not be negative")
-	}
-	if i.PollTimeout < 0 {
-		return errors.New("blackforestlabs: PollTimeout must not be negative")
+	if err := i.Polling.Validate(); err != nil {
+		return fmt.Errorf("blackforestlabs: Polling: %w", err)
 	}
 	return nil
 }
@@ -83,8 +77,7 @@ var _ image.Model = (*ImageModel)(nil)
 type ImageModel struct {
 	api            *api
 	defaultOptions image.Options
-	pollInterval   time.Duration
-	pollTimeout    time.Duration
+	polling        invocation.Polling
 }
 
 func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, error) {
@@ -95,15 +88,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	pollInterval := config.PollInterval
-	if pollInterval == 0 {
-		pollInterval = DefaultPollInterval
-	}
-	pollTimeout := config.PollTimeout
-	if pollTimeout == 0 {
-		pollTimeout = DefaultPollTimeout
-	}
-	return &ImageModel{api: api, defaultOptions: config.DefaultOptions.Clone(), pollInterval: pollInterval, pollTimeout: pollTimeout}, nil
+	return &ImageModel{api: api, defaultOptions: config.DefaultOptions.Clone(), polling: config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultPollTimeout})}, nil
 }
 
 func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Response, error) {
@@ -257,33 +242,23 @@ func mapImageResponse(value *media.Media, async *asyncResponse, final *pollResul
 }
 
 func (i *ImageModel) pollUntilDone(ctx context.Context, submitted *asyncResponse) (*pollResult, error) {
-	deadline, cancel := context.WithTimeout(ctx, i.pollTimeout)
-	defer cancel()
-
-	ticker := time.NewTicker(i.pollInterval)
-	defer ticker.Stop()
-
-	for {
-		resp, err := i.api.getResult(deadline, submitted.PollingURL)
+	return i.polling.Poll(ctx, func(ctx context.Context) (*pollResult, bool, error) {
+		resp, err := i.api.getResult(ctx, submitted.PollingURL)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if resp.ID != submitted.ID {
-			return nil, fmt.Errorf("%w: blackforestlabs: polled task id %q differs from submitted id %q", image.ErrInvalidResponse, resp.ID, submitted.ID)
+			return nil, false, fmt.Errorf("%w: blackforestlabs: polled task id %q differs from submitted id %q", image.ErrInvalidResponse, resp.ID, submitted.ID)
 		}
 		switch resp.Status {
 		case pollStatusReady, pollStatusError, pollStatusFailed, pollStatusContentModerated, pollStatusRequestModerated:
-			return resp, nil
+			return resp, true, nil
 		case pollStatusPending, pollStatusReasoning, pollStatusGenerating:
+			return resp, false, nil
 		case pollStatusTaskNotFound:
-			return nil, fmt.Errorf("blackforestlabs: submitted task %q was not found", submitted.ID)
+			return nil, false, fmt.Errorf("blackforestlabs: submitted task %q was not found", submitted.ID)
 		default:
-			return nil, fmt.Errorf("blackforestlabs: generation reports unrecognized status %q", resp.Status)
+			return nil, false, fmt.Errorf("blackforestlabs: generation reports unrecognized status %q", resp.Status)
 		}
-		select {
-		case <-deadline.Done():
-			return nil, deadline.Err()
-		case <-ticker.C:
-		}
-	}
+	})
 }

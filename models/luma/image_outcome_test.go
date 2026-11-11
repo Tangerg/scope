@@ -61,7 +61,7 @@ func TestImageOutcomeEvidence(t *testing.T) {
 				APIKey: "test", BaseURL: "https://luma.test", HTTPClient: client,
 				OutputOrigins:  []string{"https://luma.test"},
 				DefaultOptions: image.Options{Model: luma.ModelUni1},
-				PollInterval:   time.Millisecond, PollTimeout: time.Second,
+				Polling:        invocation.Polling{Interval: time.Millisecond, Timeout: time.Second},
 			})
 			if err != nil {
 				t.Fatal(err)

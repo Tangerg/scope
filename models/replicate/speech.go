@@ -20,12 +20,11 @@ type SpeechModelConfig struct {
 	BaseURL        string
 	HTTPClient     *http.Client
 
-	// PollInterval / PollTimeout configure the synchronous wrapper
-	// around Replicate's async generation. Zero values fall back to
-	// the package defaults; community TTS jobs can include cold-start
-	// latency, so PollTimeout defaults higher than image.
-	PollInterval time.Duration
-	PollTimeout  time.Duration
+	// Polling bounds the wait for Replicate's async generation; zero
+	// fields select DefaultPollInterval and DefaultSpeechPollTimeout.
+	// Community TTS jobs can include cold-start latency, so the speech
+	// timeout defaults higher than image.
+	Polling invocation.Polling
 }
 
 func (s SpeechModelConfig) apiConfig() apiConfig {
@@ -34,10 +33,6 @@ func (s SpeechModelConfig) apiConfig() apiConfig {
 		BaseURL:    s.BaseURL,
 		HTTPClient: s.HTTPClient,
 	}
-}
-
-func (s SpeechModelConfig) pollingPolicy() pollingPolicy {
-	return pollingPolicy{interval: s.PollInterval, timeout: s.PollTimeout}
 }
 
 func (s SpeechModelConfig) Validate() error {
@@ -56,7 +51,10 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.InputSchema.Validate(); err != nil {
 		return err
 	}
-	return s.pollingPolicy().validate()
+	if err := s.Polling.Validate(); err != nil {
+		return fmt.Errorf("replicate: Polling: %w", err)
+	}
+	return nil
 }
 
 // SpeechInputSchema explicitly binds Core speech fields to one Replicate
@@ -143,7 +141,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 	return &SpeechModel{
 		predictions: predictionRunner{
 			api:             api,
-			polling:         config.pollingPolicy().resolve(DefaultSpeechPollTimeout),
+			polling:         config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultSpeechPollTimeout}),
 			invalidResponse: speech.ErrInvalidResponse,
 		},
 		inputSchema:    config.InputSchema,

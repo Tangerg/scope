@@ -41,7 +41,7 @@ type api struct {
 
 type predictionRunner struct {
 	api             *api
-	polling         pollingPolicy
+	polling         invocation.Polling
 	invalidResponse error
 }
 
@@ -70,38 +70,33 @@ func (p predictionRunner) run(ctx context.Context, model modelReference, request
 	return response, nil
 }
 
+// poll returns a prediction that was already terminal on submission
+// without fetching it again.
 func (p predictionRunner) poll(ctx context.Context, submitted *predictionResponse) (*predictionResponse, error) {
-	deadline, cancel := context.WithTimeout(ctx, p.polling.timeout)
-	defer cancel()
-
-	ticker := time.NewTicker(p.polling.interval)
-	defer ticker.Stop()
-
-	response := submitted
-	for {
-		switch response.Status {
-		case predictionStatusSucceeded, predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
-			return response, nil
-		case predictionStatusStarting, predictionStatusProcessing:
-		default:
-			return nil, fmt.Errorf("replicate: prediction %s reports unrecognized status %q", submitted.ID, response.Status)
-		}
-		var err error
-		response, err = p.api.getPrediction(deadline, submitted.ID)
+	if terminal, err := predictionTerminal(submitted); err != nil || terminal {
+		return submitted, err
+	}
+	return p.polling.Poll(ctx, func(ctx context.Context) (*predictionResponse, bool, error) {
+		response, err := p.api.getPrediction(ctx, submitted.ID)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if response.ID != submitted.ID {
-			return nil, fmt.Errorf("%w: replicate: polled prediction id %q differs from submitted id %q", p.invalidResponse, response.ID, submitted.ID)
+			return nil, false, fmt.Errorf("%w: replicate: polled prediction id %q differs from submitted id %q", p.invalidResponse, response.ID, submitted.ID)
 		}
-		if response.Status != predictionStatusStarting && response.Status != predictionStatusProcessing {
-			continue
-		}
-		select {
-		case <-deadline.Done():
-			return nil, deadline.Err()
-		case <-ticker.C:
-		}
+		terminal, err := predictionTerminal(response)
+		return response, terminal, err
+	})
+}
+
+func predictionTerminal(response *predictionResponse) (bool, error) {
+	switch response.Status {
+	case predictionStatusSucceeded, predictionStatusFailed, predictionStatusCanceled, predictionStatusAborted:
+		return true, nil
+	case predictionStatusStarting, predictionStatusProcessing:
+		return false, nil
+	default:
+		return false, fmt.Errorf("replicate: prediction %s reports unrecognized status %q", response.ID, response.Status)
 	}
 }
 

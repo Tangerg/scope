@@ -1,10 +1,12 @@
 package providerconformance_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
 	"github.com/Tangerg/scope/models/assemblyai"
@@ -52,45 +54,45 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 		"assemblyai": func(interval, timeout time.Duration) error {
 			return (assemblyai.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["assemblyai"],
-				PollInterval: interval, PollTimeout: timeout,
+				Polling: invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"blackforestlabs": func(interval, timeout time.Duration) error {
 			return (blackforestlabs.ImageModelConfig{
 				APIKey: "key", DefaultOptions: imageOptions["blackforestlabs"],
-				PollInterval: interval, PollTimeout: timeout,
+				Polling: invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"gladia": func(interval, timeout time.Duration) error {
 			return (gladia.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["gladia"],
-				PollInterval: interval, PollTimeout: timeout,
+				Polling: invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"luma": func(interval, timeout time.Duration) error {
 			return (luma.ImageModelConfig{OutputOrigins: []string{"https://assets.example"},
 				APIKey: "key", DefaultOptions: imageOptions["luma"],
-				PollInterval: interval, PollTimeout: timeout,
+				Polling: invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"replicate-image": func(interval, timeout time.Duration) error {
 			return (replicate.ImageModelConfig{
 				APIKey: "key", DefaultOptions: imageOptions["replicate-image"],
-				InputSchema:  replicate.FluxSchnellImageInputSchema(),
-				PollInterval: interval, PollTimeout: timeout,
+				InputSchema: replicate.FluxSchnellImageInputSchema(),
+				Polling:     invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"replicate-speech": func(interval, timeout time.Duration) error {
 			return (replicate.SpeechModelConfig{
 				APIKey: "key", DefaultOptions: speechOptions,
-				InputSchema:  replicate.XTTSV2SpeechInputSchema(),
-				PollInterval: interval, PollTimeout: timeout,
+				InputSchema: replicate.XTTSV2SpeechInputSchema(),
+				Polling:     invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 		"revai": func(interval, timeout time.Duration) error {
 			return (revai.TranscriptionModelConfig{
 				APIKey: "key", DefaultOptions: transcriptionOptions["revai"],
-				PollInterval: interval, PollTimeout: timeout,
+				Polling: invocation.Polling{Interval: interval, Timeout: timeout},
 			}).Validate()
 		},
 	}
@@ -100,11 +102,11 @@ func TestAsyncProviderPollingDurationsShareOneContract(t *testing.T) {
 			if err := validate(0, 0); err != nil {
 				t.Fatalf("zero values must select defaults: %v", err)
 			}
-			if err := validate(-time.Second, 0); err == nil {
-				t.Fatal("negative PollInterval was accepted")
+			if err := validate(-time.Second, 0); !errors.Is(err, invocation.ErrInvalidPolling) {
+				t.Fatalf("negative interval = %v, want ErrInvalidPolling", err)
 			}
-			if err := validate(0, -time.Second); err == nil {
-				t.Fatal("negative PollTimeout was accepted")
+			if err := validate(0, -time.Second); !errors.Is(err, invocation.ErrInvalidPolling) {
+				t.Fatalf("negative timeout = %v, want ErrInvalidPolling", err)
 			}
 		})
 	}

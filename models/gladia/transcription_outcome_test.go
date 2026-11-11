@@ -58,7 +58,7 @@ func TestTranscriptionOutcomeEvidence(t *testing.T) {
 				model, err := gladia.NewTranscriptionModel(t.Context(), gladia.TranscriptionModelConfig{
 					APIKey: "test", BaseURL: "https://gladia.test", HTTPClient: client,
 					DefaultOptions: transcription.Options{Model: gladia.ModelSolaria1},
-					PollInterval:   time.Millisecond, PollTimeout: time.Second,
+					Polling:        invocation.Polling{Interval: time.Millisecond, Timeout: time.Second},
 				})
 				if err != nil {
 					t.Fatal(err)

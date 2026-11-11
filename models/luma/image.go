@@ -33,9 +33,10 @@ type ImageModelConfig struct {
 	HTTPClient     *http.Client
 	// OutputOrigins is the host-authorized set of origins for presigned assets.
 	// The output client never borrows API credentials or the HTTP client cookie jar.
-	OutputOrigins  []string
-	PollInterval   time.Duration
-	PollTimeout    time.Duration
+	OutputOrigins []string
+	// Polling bounds the wait for the async Luma generation; zero fields
+	// select DefaultPollInterval and DefaultPollTimeout.
+	Polling        invocation.Polling
 	MaxOutputBytes int64
 }
 
@@ -57,11 +58,8 @@ func (i ImageModelConfig) Validate() error {
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return fmt.Errorf("luma: DefaultOptions: %w", err)
 	}
-	if i.PollInterval < 0 {
-		return errors.New("luma: PollInterval must not be negative")
-	}
-	if i.PollTimeout < 0 {
-		return errors.New("luma: PollTimeout must not be negative")
+	if err := i.Polling.Validate(); err != nil {
+		return fmt.Errorf("luma: Polling: %w", err)
 	}
 	if i.MaxOutputBytes < 0 {
 		return errors.New("luma: MaxOutputBytes must not be negative")
@@ -78,8 +76,7 @@ type ImageModel struct {
 	api            *api
 	defaultOptions image.Options
 	httpClient     *http.Client
-	pollInterval   time.Duration
-	pollTimeout    time.Duration
+	polling        invocation.Polling
 	maxOutputBytes int64
 }
 
@@ -100,20 +97,11 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	pollInterval := config.PollInterval
-	if pollInterval == 0 {
-		pollInterval = DefaultPollInterval
-	}
-	pollTimeout := config.PollTimeout
-	if pollTimeout == 0 {
-		pollTimeout = DefaultPollTimeout
-	}
 	return &ImageModel{
 		api:            api,
 		defaultOptions: config.DefaultOptions.Clone(),
 		httpClient:     downloads,
-		pollInterval:   pollInterval,
-		pollTimeout:    pollTimeout,
+		polling:        config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultPollTimeout}),
 		maxOutputBytes: cmp.Or(config.MaxOutputBytes, DefaultMaxOutputBytes),
 	}, nil
 }
@@ -222,28 +210,20 @@ func rejectUnsupportedOptions(options image.Options) error {
 }
 
 func (i *ImageModel) pollUntilDone(ctx context.Context, generationID string) (*lumaagents.Generation, error) {
-	deadline, cancel := context.WithTimeout(ctx, i.pollTimeout)
-	defer cancel()
-	ticker := time.NewTicker(i.pollInterval)
-	defer ticker.Stop()
-	for {
-		generation, err := i.api.getGeneration(deadline, generationID)
+	return i.polling.Poll(ctx, func(ctx context.Context) (*lumaagents.Generation, bool, error) {
+		generation, err := i.api.getGeneration(ctx, generationID)
 		if err != nil {
-			return nil, fmt.Errorf("luma: get generation %q: %w", generationID, err)
+			return nil, false, fmt.Errorf("luma: get generation %q: %w", generationID, err)
 		}
 		switch generation.State {
 		case lumaagents.GenerationStateCompleted, lumaagents.GenerationStateFailed:
-			return generation, nil
+			return generation, true, nil
 		case lumaagents.GenerationStateQueued, lumaagents.GenerationStateProcessing:
+			return generation, false, nil
 		default:
-			return nil, fmt.Errorf("luma: generation %q reports unrecognized state %q", generationID, generation.State)
+			return nil, false, fmt.Errorf("luma: generation %q reports unrecognized state %q", generationID, generation.State)
 		}
-		select {
-		case <-deadline.Done():
-			return nil, deadline.Err()
-		case <-ticker.C:
-		}
-	}
+	})
 }
 
 func (i *ImageModel) mapResponse(ctx context.Context, generation *lumaagents.Generation) (*image.Response, error) {

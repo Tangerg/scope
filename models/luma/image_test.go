@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/luma"
 )
@@ -55,8 +56,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
 		OutputOrigins:  []string{server.URL},
-		PollInterval:   10 * time.Millisecond,
-		PollTimeout:    5 * time.Second,
+		Polling:        invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 5 * time.Second},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +76,7 @@ func TestImageModel_Call_Mock(t *testing.T) {
 		DefaultOptions: opts,
 		BaseURL:        server.URL,
 		OutputOrigins:  []string{server.URL},
-		PollInterval:   10 * time.Millisecond,
-		PollTimeout:    5 * time.Second,
+		Polling:        invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 5 * time.Second},
 		MaxOutputBytes: 2,
 	})
 	if err != nil {
@@ -110,7 +109,7 @@ func TestImageRejectsNullGenerationAtSubmissionAndPoll(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: image.Options{Model: luma.ModelUni1}, PollInterval: time.Millisecond})
+			model, err := luma.NewImageModel(t.Context(), luma.ImageModelConfig{APIKey: "test", BaseURL: server.URL, OutputOrigins: []string{server.URL}, DefaultOptions: image.Options{Model: luma.ModelUni1}, Polling: invocation.Polling{Interval: time.Millisecond}})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -92,10 +92,9 @@ func newAbortTestModel(t *testing.T, server *httptest.Server) *replicate.ImageMo
 		DefaultOptions: options,
 		InputSchema:    replicate.FluxSchnellImageInputSchema(),
 		BaseURL:        server.URL,
-		PollInterval:   10 * time.Millisecond,
 		// Short enough that a regression to "keep waiting" fails as a timeout
 		// instead of hanging the suite.
-		PollTimeout: 300 * time.Millisecond,
+		Polling: invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 300 * time.Millisecond},
 	})
 	if err != nil {
 		t.Fatal(err)

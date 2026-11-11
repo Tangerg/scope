@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/core/transcription"
@@ -52,8 +53,7 @@ func TestTranscriptionModel_Call_Mock(t *testing.T) {
 		APIKey:         "test-key",
 		DefaultOptions: opts,
 		BaseURL:        srv.URL,
-		PollInterval:   10 * time.Millisecond,
-		PollTimeout:    5 * time.Second,
+		Polling:        invocation.Polling{Interval: 10 * time.Millisecond, Timeout: 5 * time.Second},
 	})
 	if err != nil {
 		t.Fatal(err)

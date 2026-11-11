@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
@@ -20,11 +19,9 @@ type TranscriptionModelConfig struct {
 	BaseURL        string
 	HTTPClient     *http.Client
 
-	// PollInterval / PollTimeout configure the synchronous Call
-	// wrapper around AssemblyAI's async job model. Zero values fall
-	// back to [DefaultPollInterval] / [DefaultPollTimeout].
-	PollInterval time.Duration
-	PollTimeout  time.Duration
+	// Polling bounds the wait for AssemblyAI's async job; zero fields
+	// select DefaultPollInterval and DefaultPollTimeout.
+	Polling invocation.Polling
 }
 
 func (t TranscriptionModelConfig) apiConfig() apiConfig {
@@ -45,11 +42,8 @@ func (t TranscriptionModelConfig) Validate() error {
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if t.PollInterval < 0 {
-		return errors.New("assemblyai: PollInterval must not be negative")
-	}
-	if t.PollTimeout < 0 {
-		return errors.New("assemblyai: PollTimeout must not be negative")
+	if err := t.Polling.Validate(); err != nil {
+		return fmt.Errorf("assemblyai: Polling: %w", err)
 	}
 	return nil
 }
@@ -60,7 +54,7 @@ var _ transcription.Model = (*TranscriptionModel)(nil)
 // behind a synchronous [transcription.Model.Call] surface. One Call
 // uploads the audio, enqueues a job, and polls until the job reaches a
 // terminal state — callers don't see the polling unless their ctx
-// cancels or [PollTimeout] elapses.
+// cancels or the polling timeout elapses.
 //
 // Speaker labels, sentiment analysis, auto chapters, entity detection
 // and the rest of AssemblyAI's analysis features live on
@@ -71,8 +65,7 @@ var _ transcription.Model = (*TranscriptionModel)(nil)
 type TranscriptionModel struct {
 	api            *api
 	defaultOptions transcription.Options
-	pollInterval   time.Duration
-	pollTimeout    time.Duration
+	polling        invocation.Polling
 }
 
 func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig) (*TranscriptionModel, error) {
@@ -85,20 +78,10 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 		return nil, err
 	}
 
-	pollInterval := config.PollInterval
-	if pollInterval == 0 {
-		pollInterval = DefaultPollInterval
-	}
-	pollTimeout := config.PollTimeout
-	if pollTimeout == 0 {
-		pollTimeout = DefaultPollTimeout
-	}
-
 	return &TranscriptionModel{
 		api:            api,
 		defaultOptions: config.DefaultOptions.Clone(),
-		pollInterval:   pollInterval,
-		pollTimeout:    pollTimeout,
+		polling:        config.Polling.Or(invocation.Polling{Interval: DefaultPollInterval, Timeout: DefaultPollTimeout}),
 	}, nil
 }
 
@@ -167,33 +150,20 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 }
 
 func (t *TranscriptionModel) pollUntilDone(ctx context.Context, id string) (*transcriptResponse, error) {
-	deadlineCtx, cancel := context.WithTimeout(ctx, t.pollTimeout)
-	defer cancel()
-
-	ticker := time.NewTicker(t.pollInterval)
-	defer ticker.Stop()
-
-	// First fetch immediately rather than waiting one tick — short
-	// audio often finishes before our first poll.
-	for {
-		resp, err := t.api.get(deadlineCtx, id)
+	return t.polling.Poll(ctx, func(ctx context.Context) (*transcriptResponse, bool, error) {
+		resp, err := t.api.get(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		switch resp.Status {
 		case statusCompleted, statusErrored:
-			return resp, nil
+			return resp, true, nil
 		case statusQueued, statusProcessing:
+			return resp, false, nil
 		default:
-			return nil, fmt.Errorf("assemblyai: transcript %s reports unrecognized status %q", id, resp.Status)
+			return nil, false, fmt.Errorf("assemblyai: transcript %s reports unrecognized status %q", id, resp.Status)
 		}
-
-		select {
-		case <-deadlineCtx.Done():
-			return nil, deadlineCtx.Err()
-		case <-ticker.C:
-		}
-	}
+	})
 }
 
 func (t *TranscriptionModel) buildResponse(apiResp *transcriptResponse) (*transcription.Response, error) {

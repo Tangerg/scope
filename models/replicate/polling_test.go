@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -21,15 +22,13 @@ func TestModelConfigsRejectNegativePolling(t *testing.T) {
 				APIKey:         "test-key",
 				DefaultOptions: image.Options{Model: ModelFluxSchnell},
 				InputSchema:    FluxSchnellImageInputSchema(),
-				PollInterval:   test.interval,
-				PollTimeout:    test.timeout,
+				Polling:        invocation.Polling{Interval: test.interval, Timeout: test.timeout},
 			}
 			speechConfig := SpeechModelConfig{
 				APIKey:         "test-key",
 				DefaultOptions: speech.Options{Model: ModelXTTSV2},
 				InputSchema:    XTTSV2SpeechInputSchema(),
-				PollInterval:   test.interval,
-				PollTimeout:    test.timeout,
+				Polling:        invocation.Polling{Interval: test.interval, Timeout: test.timeout},
 			}
 			if err := imageConfig.Validate(); err == nil {
 				t.Fatal("image configuration accepted a negative polling duration")
@@ -62,8 +61,7 @@ func TestModelPollingDefaultsPreserveEndpointPolicy(t *testing.T) {
 				APIKey:         "test-key",
 				DefaultOptions: image.Options{Model: ModelFluxSchnell},
 				InputSchema:    FluxSchnellImageInputSchema(),
-				PollInterval:   test.interval,
-				PollTimeout:    test.timeout,
+				Polling:        invocation.Polling{Interval: test.interval, Timeout: test.timeout},
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -72,16 +70,15 @@ func TestModelPollingDefaultsPreserveEndpointPolicy(t *testing.T) {
 				APIKey:         "test-key",
 				DefaultOptions: speech.Options{Model: ModelXTTSV2},
 				InputSchema:    XTTSV2SpeechInputSchema(),
-				PollInterval:   test.interval,
-				PollTimeout:    test.timeout,
+				Polling:        invocation.Polling{Interval: test.interval, Timeout: test.timeout},
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if actual := imageModel.predictions.polling; actual.interval != test.wantInterval || actual.timeout != test.wantImageTimeout {
+			if actual := imageModel.predictions.polling; actual.Interval != test.wantInterval || actual.Timeout != test.wantImageTimeout {
 				t.Fatalf("image polling=%+v, want interval=%s timeout=%s", actual, test.wantInterval, test.wantImageTimeout)
 			}
-			if actual := speechModel.predictions.polling; actual.interval != test.wantInterval || actual.timeout != test.wantSpeechTimeout {
+			if actual := speechModel.predictions.polling; actual.Interval != test.wantInterval || actual.Timeout != test.wantSpeechTimeout {
 				t.Fatalf("speech polling=%+v, want interval=%s timeout=%s", actual, test.wantInterval, test.wantSpeechTimeout)
 			}
 		})

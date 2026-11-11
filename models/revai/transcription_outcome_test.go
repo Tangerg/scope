@@ -64,7 +64,7 @@ func TestTranscriptionOutcomeEvidence(t *testing.T) {
 				model, err := revai.NewTranscriptionModel(t.Context(), revai.TranscriptionModelConfig{
 					APIKey: "test", BaseURL: "https://revai.test", HTTPClient: client,
 					DefaultOptions: transcription.Options{Model: revai.ModelMachine},
-					PollInterval:   time.Millisecond, PollTimeout: time.Second,
+					Polling:        invocation.Polling{Interval: time.Millisecond, Timeout: time.Second},
 				})
 				if err != nil {
 					t.Fatal(err)

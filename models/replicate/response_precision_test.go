@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/replicate"
@@ -38,7 +39,7 @@ func TestPredictionResponsePreservesInputJSONNumbers(t *testing.T) {
 				var extra metadata.Map
 				var key string
 				if kind == "image" {
-					model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: "owner/model"}, InputSchema: replicate.ImageInputSchema{PromptKey: "prompt", OutputKind: replicate.FileOutputURI}, PollInterval: time.Millisecond})
+					model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: image.Options{Model: "owner/model"}, InputSchema: replicate.ImageInputSchema{PromptKey: "prompt", OutputKind: replicate.FileOutputURI}, Polling: invocation.Polling{Interval: time.Millisecond}})
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -53,7 +54,7 @@ func TestPredictionResponsePreservesInputJSONNumbers(t *testing.T) {
 					extra = response.Metadata.Extra
 					key = replicate.ImageResponseExtensionKey
 				} else {
-					model, err := replicate.NewSpeechModel(t.Context(), replicate.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speech.Options{Model: "owner/model"}, InputSchema: replicate.SpeechInputSchema{TextKey: "text", OutputKind: replicate.FileOutputURI}, PollInterval: time.Millisecond})
+					model, err := replicate.NewSpeechModel(t.Context(), replicate.SpeechModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: speech.Options{Model: "owner/model"}, InputSchema: replicate.SpeechInputSchema{TextKey: "text", OutputKind: replicate.FileOutputURI}, Polling: invocation.Polling{Interval: time.Millisecond}})
 					if err != nil {
 						t.Fatal(err)
 					}

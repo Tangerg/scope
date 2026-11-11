@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 )
@@ -54,7 +55,7 @@ func TestPromptUpsamplingPresenceSurvivesProjection(t *testing.T) {
 						}
 					}
 					model, err := blackforestlabs.NewImageModel(t.Context(), blackforestlabs.ImageModelConfig{
-						APIKey: "test", BaseURL: endpoint, OutputOrigins: []string{endpoint}, DefaultOptions: options, PollInterval: time.Millisecond,
+						APIKey: "test", BaseURL: endpoint, OutputOrigins: []string{endpoint}, DefaultOptions: options, Polling: invocation.Polling{Interval: time.Millisecond},
 					})
 					if err != nil {
 						t.Fatal(err)

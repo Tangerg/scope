@@ -58,7 +58,7 @@ func TestTranscriptionOutcomeEvidence(t *testing.T) {
 				model, err := assemblyai.NewTranscriptionModel(t.Context(), assemblyai.TranscriptionModelConfig{
 					APIKey: "test", BaseURL: "https://assemblyai.test", HTTPClient: client,
 					DefaultOptions: transcription.Options{Model: assemblyai.ModelUniversal3Point5Pro},
-					PollInterval:   time.Millisecond, PollTimeout: time.Second,
+					Polling:        invocation.Polling{Interval: time.Millisecond, Timeout: time.Second},
 				})
 				if err != nil {
 					t.Fatal(err)
