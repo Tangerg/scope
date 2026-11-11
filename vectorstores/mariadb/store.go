@@ -526,10 +526,8 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	return s.rank(ctx, q, &budget)
 }
 
+// rank expects a request its entry point already validated for this store.
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
-	if err = request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("mariadb: rank query: %w", err)
-	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("mariadb: rank query: %w", err)
 	}
