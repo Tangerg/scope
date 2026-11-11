@@ -19,3 +19,8 @@ func presentJSON(raw []byte) bool {
 	value := jsontext.Value(raw)
 	return len(value) != 0 && value.Kind() != jsontext.Null.Kind()
 }
+
+// falseJSON reports a raw member that holds the JSON literal false.
+func falseJSON(raw []byte) bool {
+	return jsontext.Value(raw).Kind() == jsontext.False.Kind()
+}

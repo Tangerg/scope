@@ -220,6 +220,14 @@ func (c chatDialect) ignores(option ChatOption) bool {
 	return slices.Contains(c.IgnoredOptions, option)
 }
 
+// admit refuses a set option the provider documents as discarded.
+func (c chatDialect) admit(option ChatOption, set bool) error {
+	if set && c.ignores(option) {
+		return newIgnoredOptionError(c.Provider, option)
+	}
+	return nil
+}
+
 // ChatOption names one Core chat option by the OpenAI request field it travels
 // as. It exists so a dialect can declare which of them its provider discards.
 type ChatOption string

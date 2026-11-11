@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	openaisdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
@@ -243,6 +244,20 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 	if options.Model == "" {
 		return errors.New("openai: model is required in defaults or request options")
 	}
+	for _, option := range []struct {
+		name ChatOption
+		set  bool
+	}{
+		{ChatOptionFrequencyPenalty, options.FrequencyPenalty != nil},
+		{ChatOptionPresencePenalty, options.PresencePenalty != nil},
+		{ChatOptionReasoningEffort, options.ReasoningEffort != ""},
+		{ChatOptionTemperature, options.Temperature != nil},
+		{ChatOptionTopP, options.TopP != nil},
+	} {
+		if err := c.dialect.admit(option.name, option.set); err != nil {
+			return err
+		}
+	}
 	if options.TopK != nil {
 		if !c.dialect.SupportsTopK {
 			return fmt.Errorf("openai: options.top_k is not supported by %s Chat Completions", c.dialect.Provider)
@@ -254,66 +269,55 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 		fields[chatFieldTopK] = *options.TopK
 		params.SetExtraFields(fields)
 	}
-	params.Model = openaisdk.ChatModel(options.Model)
-	if options.FrequencyPenalty != nil {
-		if c.dialect.ignores(ChatOptionFrequencyPenalty) {
-			return newIgnoredOptionError(c.dialect.Provider, ChatOptionFrequencyPenalty)
-		}
-		params.FrequencyPenalty = openaisdk.Float(*options.FrequencyPenalty)
+	if limit := c.dialect.MaxTemperature; options.Temperature != nil && limit != nil && *options.Temperature > *limit {
+		return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
+			c.dialect.Provider, *limit, *options.Temperature)
 	}
 	if err := c.applyTokenLimit(options.MaxOutputTokens, params); err != nil {
 		return err
-	}
-	if options.PresencePenalty != nil {
-		if c.dialect.ignores(ChatOptionPresencePenalty) {
-			return newIgnoredOptionError(c.dialect.Provider, ChatOptionPresencePenalty)
-		}
-		params.PresencePenalty = openaisdk.Float(*options.PresencePenalty)
-	}
-	if options.ReasoningEffort != "" && c.dialect.ignores(ChatOptionReasoningEffort) {
-		return newIgnoredOptionError(c.dialect.Provider, ChatOptionReasoningEffort)
 	}
 	reasoningEffort, err := mapReasoningEffort(options.ReasoningEffort)
 	if err != nil {
 		return err
 	}
+	params.Model = openaisdk.ChatModel(options.Model)
 	params.ReasoningEffort = reasoningEffort
+	params.FrequencyPenalty = optionalFloat(options.FrequencyPenalty)
+	params.PresencePenalty = optionalFloat(options.PresencePenalty)
+	params.Temperature = optionalFloat(options.Temperature)
+	params.TopP = optionalFloat(options.TopP)
 	if len(options.Stop) > 0 {
 		params.Stop.OfStringArray = slices.Clone(options.Stop)
 	}
-	if options.Temperature != nil {
-		if c.dialect.ignores(ChatOptionTemperature) {
-			return newIgnoredOptionError(c.dialect.Provider, ChatOptionTemperature)
-		}
-		if limit := c.dialect.MaxTemperature; limit != nil && *options.Temperature > *limit {
-			return fmt.Errorf("openai: %s documents a temperature range up to %g, so %v is refused rather than sent out of range",
-				c.dialect.Provider, *limit, *options.Temperature)
-		}
-		params.Temperature = openaisdk.Float(*options.Temperature)
-	}
-	if options.TopP != nil {
-		if c.dialect.ignores(ChatOptionTopP) {
-			return newIgnoredOptionError(c.dialect.Provider, ChatOptionTopP)
-		}
-		params.TopP = openaisdk.Float(*options.TopP)
-	}
 	if toolChoice != nil {
-		switch toolChoice.Mode {
-		case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
-			params.ToolChoice.OfAuto = openaisdk.String(string(toolChoice.Mode))
-		case corechat.ToolChoiceNamed:
-			params.ToolChoice = openaisdk.ToolChoiceOptionFunctionToolChoice(
-				openaisdk.ChatCompletionNamedToolChoiceFunctionParam{Name: toolChoice.Name},
-			)
-		}
-		switch toolChoice.Parallelism {
-		case corechat.ToolParallelismAllow:
-			params.ParallelToolCalls = openaisdk.Bool(true)
-		case corechat.ToolParallelismSingle:
-			params.ParallelToolCalls = openaisdk.Bool(false)
-		}
+		params.ToolChoice, params.ParallelToolCalls = mapToolChoice(*toolChoice)
 	}
 	return nil
+}
+
+func optionalFloat(value *float64) param.Opt[float64] {
+	if value == nil {
+		return param.Opt[float64]{}
+	}
+	return openaisdk.Float(*value)
+}
+
+func mapToolChoice(choice corechat.ToolChoice) (openaisdk.ChatCompletionToolChoiceOptionUnionParam, param.Opt[bool]) {
+	var mapped openaisdk.ChatCompletionToolChoiceOptionUnionParam
+	switch choice.Mode {
+	case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
+		mapped.OfAuto = openaisdk.String(string(choice.Mode))
+	case corechat.ToolChoiceNamed:
+		mapped = openaisdk.ToolChoiceOptionFunctionToolChoice(openaisdk.ChatCompletionNamedToolChoiceFunctionParam{Name: choice.Name})
+	}
+	var parallel param.Opt[bool]
+	switch choice.Parallelism {
+	case corechat.ToolParallelismAllow:
+		parallel = openaisdk.Bool(true)
+	case corechat.ToolParallelismSingle:
+		parallel = openaisdk.Bool(false)
+	}
+	return mapped, parallel
 }
 
 func (c *ChatCompletions) applyTokenLimit(limit *int64, params *openaisdk.ChatCompletionNewParams) error {

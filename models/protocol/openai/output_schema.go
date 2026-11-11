@@ -167,7 +167,7 @@ func (o outputSchema) intersect(other outputSchema) error {
 	if _, closed := other[outputSchemaAdditionalProperties]; closed && o.hasConstraints() {
 		return fmt.Errorf("allOf with an independently closed object is unsupported")
 	}
-	closed := bytes.Equal(bytes.TrimSpace(o[outputSchemaAdditionalProperties]), []byte("false"))
+	closed := falseJSON(o[outputSchemaAdditionalProperties])
 	for key, right := range other {
 		left, collision := o[key]
 		if !collision {
@@ -180,43 +180,55 @@ func (o outputSchema) intersect(other outputSchema) error {
 		if bytes.Equal(bytes.TrimSpace(left), bytes.TrimSpace(right)) {
 			continue
 		}
-		switch key {
-		case outputSchemaTitle, outputSchemaDescription:
-		case outputSchemaMinimum, outputSchemaExclusiveMinimum, outputSchemaMinItems,
-			outputSchemaMaximum, outputSchemaExclusiveMaximum, outputSchemaMaxItems:
-			leftNumber, leftOK := new(big.Rat).SetString(string(left))
-			rightNumber, rightOK := new(big.Rat).SetString(string(right))
-			if !leftOK || !rightOK {
-				return fmt.Errorf("allOf.%s requires numeric bounds", key)
-			}
-			comparison := leftNumber.Cmp(rightNumber)
-			lowerBound := key == outputSchemaMinimum || key == outputSchemaExclusiveMinimum || key == outputSchemaMinItems
-			if lowerBound && comparison < 0 || !lowerBound && comparison > 0 {
-				o[key] = right
-			}
-		case outputSchemaRequired:
-			var required, extra []string
-			if err := jsonv2.Unmarshal(left, &required); err != nil {
-				return err
-			}
-			if err := jsonv2.Unmarshal(right, &extra); err != nil {
-				return err
-			}
-			for _, name := range extra {
-				if !slices.Contains(required, name) {
-					required = append(required, name)
-				}
-			}
-			if err := o.set(key, required); err != nil {
-				return err
-			}
-		case outputSchemaProperties:
-			if err := o.intersectProperties(left, right); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("allOf has unsupported overlapping %s constraints", key)
+		if err := o.intersectKeyword(key, left, right); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// intersectKeyword merges two different values of one keyword: annotations
+// keep the first, bounds keep the tighter, required lists unite and property
+// maps intersect recursively.
+func (o outputSchema) intersectKeyword(key outputSchemaKeyword, left, right json.RawMessage) error {
+	switch key {
+	case outputSchemaTitle, outputSchemaDescription:
+		return nil
+	case outputSchemaMinimum, outputSchemaExclusiveMinimum, outputSchemaMinItems:
+		return o.tighten(key, left, right, 1)
+	case outputSchemaMaximum, outputSchemaExclusiveMaximum, outputSchemaMaxItems:
+		return o.tighten(key, left, right, -1)
+	case outputSchemaRequired:
+		var required, extra []string
+		if err := jsonv2.Unmarshal(left, &required); err != nil {
+			return err
+		}
+		if err := jsonv2.Unmarshal(right, &extra); err != nil {
+			return err
+		}
+		for _, name := range extra {
+			if !slices.Contains(required, name) {
+				required = append(required, name)
+			}
+		}
+		return o.set(key, required)
+	case outputSchemaProperties:
+		return o.intersectProperties(left, right)
+	default:
+		return fmt.Errorf("allOf has unsupported overlapping %s constraints", key)
+	}
+}
+
+// tighten keeps right when it is the tighter bound: larger for a lower bound
+// (tighter = 1) and smaller for an upper bound (tighter = -1).
+func (o outputSchema) tighten(key outputSchemaKeyword, left, right json.RawMessage, tighter int) error {
+	leftNumber, leftOK := new(big.Rat).SetString(string(left))
+	rightNumber, rightOK := new(big.Rat).SetString(string(right))
+	if !leftOK || !rightOK {
+		return fmt.Errorf("allOf.%s requires numeric bounds", key)
+	}
+	if rightNumber.Cmp(leftNumber) == tighter {
+		o[key] = right
 	}
 	return nil
 }
@@ -301,7 +313,7 @@ func (o outputSchema) validate(root bool) error {
 }
 
 func (o outputSchema) validateObject() error {
-	if !bytes.Equal(bytes.TrimSpace(o[outputSchemaAdditionalProperties]), []byte("false")) {
+	if !falseJSON(o[outputSchemaAdditionalProperties]) {
 		return fmt.Errorf("objects require additionalProperties:false")
 	}
 	var properties map[string]json.RawMessage

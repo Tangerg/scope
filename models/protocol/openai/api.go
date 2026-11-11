@@ -162,7 +162,7 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 	if page == nil || !page.JSON.Data.Valid() {
 		return nil, errors.New("openai: model list response must contain a data array")
 	}
-	if field, exists := page.JSON.ExtraFields["has_more"]; exists && field.Raw() != "false" {
+	if field, exists := page.JSON.ExtraFields["has_more"]; exists && !falseJSON([]byte(field.Raw())) {
 		return nil, errors.New("openai: model list response declares unsupported pagination")
 	}
 	if len(page.Data) > maxModels {
