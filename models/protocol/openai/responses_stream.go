@@ -47,15 +47,41 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	if err := admitResponsesEvent(event); err != nil {
 		return nil, err
 	}
+	switch typed := event.AsAny().(type) {
+	case responses.ResponseCreatedEvent:
+		return nil, r.bindResponseIdentity(typed.Response)
+	case responses.ResponseFunctionCallArgumentsDoneEvent:
+		return nil, r.tools.finishArguments(typed)
+	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
+		return nil, r.content.messages[event.OutputIndex].requireOpen()
+	case responses.ResponseOutputItemDoneEvent:
+		return r.finishItem(typed)
+	case responses.ResponseCompletedEvent:
+		return r.terminalDelta(typed.Response, responses.ResponseStatusCompleted)
+	case responses.ResponseIncompleteEvent:
+		return r.terminalDelta(typed.Response, responses.ResponseStatusIncomplete)
+	case responses.ResponseFailedEvent:
+		return r.terminalDelta(typed.Response, responses.ResponseStatusFailed)
+	case responses.ResponseErrorEvent:
+		return nil, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
+	}
+	part, key, err := r.partEvent(event)
+	if err != nil || part == nil {
+		return nil, err
+	}
+	return r.deltaResponse(key, *part)
+}
+
+// partEvent maps an event that opens or extends one Core part; any other
+// native event carries nothing the stream projects.
+func (r *responsesStreamState) partEvent(event responses.ResponseStreamEventUnion) (*corechat.PartDelta, responsesStreamPart, error) {
 	var part *corechat.PartDelta
 	var key responsesStreamPart
 	var err error
 	switch typed := event.AsAny().(type) {
-	case responses.ResponseCreatedEvent:
-		return nil, r.bindResponseIdentity(typed.Response)
 	case responses.ResponseOutputItemAddedEvent:
 		if typed.Item.Type == responsesItemTypeMessage {
-			return nil, r.content.startMessage(typed)
+			return nil, key, r.content.startMessage(typed)
 		}
 		part, err = r.tools.add(typed)
 		key = responsesStreamPart{output: typed.OutputIndex}
@@ -71,8 +97,6 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
 		part, err = r.tools.appendArguments(typed)
 		key = responsesStreamPart{output: typed.OutputIndex}
-	case responses.ResponseFunctionCallArgumentsDoneEvent:
-		return nil, r.tools.finishArguments(typed)
 	case responses.ResponseReasoningTextDeltaEvent:
 		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
@@ -87,31 +111,16 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		})
 	case responses.ResponseContentPartAddedEvent:
 		if stateErr := r.content.messages[typed.OutputIndex].requireOpen(); stateErr != nil {
-			return nil, stateErr
+			return nil, key, stateErr
 		}
 		if typed.Part.Type != responsesReasoningContentText {
-			return nil, nil
+			return nil, key, nil
 		}
 		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
-	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
-		return nil, r.content.messages[event.OutputIndex].requireOpen()
-	case responses.ResponseOutputItemDoneEvent:
-		return r.finishItem(typed)
-	case responses.ResponseCompletedEvent:
-		return r.terminalDelta(typed.Response, responses.ResponseStatusCompleted)
-	case responses.ResponseIncompleteEvent:
-		return r.terminalDelta(typed.Response, responses.ResponseStatusIncomplete)
-	case responses.ResponseFailedEvent:
-		return r.terminalDelta(typed.Response, responses.ResponseStatusFailed)
-	case responses.ResponseErrorEvent:
-		return nil, fmt.Errorf("openai responses: %s: %s", typed.Code, typed.Message)
 	}
-	if err != nil || part == nil {
-		return nil, err
-	}
-	return r.deltaResponse(key, *part)
+	return part, key, err
 }
 
 // admitResponsesEvent checks the wire shape of every event variant the stream
