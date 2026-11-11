@@ -3,7 +3,6 @@ package interaction
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
@@ -42,12 +41,6 @@ func (s steerBatch) validate() error {
 	return validateSteerSignalIDs(s.SignalIDs)
 }
 
-func (s steerBatch) clone() steerBatch {
-	return steerBatch{
-		Messages: cloneMessages(s.Messages), SignalIDs: slices.Clone(s.SignalIDs),
-	}
-}
-
 func (s *steerBatch) appendSignal(signal run.Signal, messages []chat.Message) error {
 	if s == nil || !signal.ID.Valid() {
 		return ErrInvalidSteer
@@ -55,7 +48,7 @@ func (s *steerBatch) appendSignal(signal run.Signal, messages []chat.Message) er
 	if signal.Wait.Valid() {
 		return fmt.Errorf("%w: steer Signal must not address a wait", ErrInvalidSteer)
 	}
-	s.Messages = append(s.Messages, cloneMessages(messages)...)
+	s.Messages = append(s.Messages, messages...)
 	s.SignalIDs = append(s.SignalIDs, signal.ID)
 	return nil
 }

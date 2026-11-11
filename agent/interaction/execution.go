@@ -36,7 +36,7 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	case phaseAwaitingModel:
 		return e.acceptModel(ctx, turn)
 	case phaseAwaitingCalls:
-		return e.advanceCalls(ctx, turn)
+		return e.advanceCalls(turn)
 	default:
 		return run.Transition{}, ErrInvalidExecutionState
 	}
@@ -70,9 +70,7 @@ func (e *execution) acceptSteer(signals []run.Message) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	if err := e.state.addSteer(steer); err != nil {
-		return 0, err
-	}
+	e.state.addSteer(steer)
 	return consumed, nil
 }
 
@@ -103,7 +101,7 @@ func (e *execution) requestModel(
 		if err != nil {
 			return stepfail.Transition(consumedMessages, run.FailureKindExecution, failureCodeInteractionContextPolicyFailed, err.Error())
 		}
-		if err := e.state.replaceModelContext(messages); err != nil {
+		if err := e.state.replaceModelContext(cloneMessages(messages)); err != nil {
 			return run.Transition{}, err
 		}
 	}
@@ -112,11 +110,7 @@ func (e *execution) requestModel(
 
 func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID, prepare bool) (run.Transition, error) {
 	modelCallSequence := e.state.ModelCallCount + 1
-	definitions, err := e.definition.modelDefinitions(e.state.AdvertisedToolNames)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	envelope, err := newModelEffect(e.state.WorkingContext, modelCallSequence, definitions, appliedSteerSignalIDs)
+	envelope, err := newModelEffect(e.state.WorkingContext, modelCallSequence, e.definition.modelDefinitions(e.state.AdvertisedToolNames), appliedSteerSignalIDs)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -157,9 +151,7 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 	}
 	applied := e.state.Preparation.Applied
 	e.state.Preparation = nil
-	if err = e.state.addSteer(arrival.steer); err != nil {
-		return run.Transition{}, err
-	}
+	e.state.addSteer(arrival.steer)
 	extra, err := e.state.applyPendingSteer()
 	if err != nil {
 		return run.Transition{}, err
@@ -169,9 +161,7 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 
 // awaitPendingEffect keeps steering that arrived before the awaited settlement.
 func (e *execution) awaitPendingEffect(arrival effectArrival) (run.Transition, error) {
-	if err := e.state.addSteer(arrival.steer); err != nil {
-		return run.Transition{}, err
-	}
+	e.state.addSteer(arrival.steer)
 	return run.Yield(arrival.consumed, nil)
 }
 
@@ -189,10 +179,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 		return run.Fail(consumedMessages, arrival.failure)
 	}
 	response := arrival.result.ModelResult.Response.Clone()
-	calls, err := validatedToolCalls(response)
-	if err != nil {
-		return run.Transition{}, fmt.Errorf("%w: %w", ErrInvalidModelResponse, err)
-	}
+	calls := proposedCalls(response)
 	if len(calls) > 0 && !opensToolRound(response.Output.FinishReason) {
 		return stepfail.Transition(
 			consumedMessages,
@@ -201,9 +188,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
 	}
-	if addSteerErr := e.state.addSteer(arrival.steer); addSteerErr != nil {
-		return run.Transition{}, addSteerErr
-	}
+	e.state.addSteer(arrival.steer)
 	if len(calls) == 0 {
 		return e.acceptFinalModelResponse(ctx, turn, consumedMessages, response)
 	}
@@ -323,14 +308,7 @@ func (e *execution) finishOrRetry(
 }
 
 func (e *execution) advanceToolCallBatch(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
-	calls, err := validatedToolCalls(e.state.ToolRound.Response)
-	if err != nil || uint64(len(calls)) > math.MaxUint32 ||
-		uint64(e.state.ToolRound.nextCallIndex()) >= uint64(len(calls)) {
-		return run.Transition{}, fmt.Errorf("%w: invalid pending ToolCall batch", ErrInvalidExecutionState)
-	}
-	if err := ctx.Err(); err != nil {
-		return run.Transition{}, err
-	}
+	calls := e.state.ToolRound.calls()
 	call := calls[e.state.ToolRound.nextCallIndex()]
 	if _, delegated := e.definition.delegate(call.Name); delegated {
 		effects, prepareErr := e.prepareDelegateCalls(ctx, turn, calls)
@@ -348,10 +326,7 @@ func (e *execution) finishToolCallBatch(
 	consumedMessages uint32,
 	assistant *chat.Message,
 ) (run.Transition, error) {
-	calls, err := validatedToolCalls(e.state.ToolRound.Response)
-	if err != nil {
-		return run.Transition{}, err
-	}
+	calls := e.state.ToolRound.calls()
 	results := make([]chat.ToolResult, len(e.state.ToolRound.Results))
 	direct := e.state.PendingSteer == nil
 	for index, result := range e.state.ToolRound.Results {
@@ -359,7 +334,7 @@ func (e *execution) finishToolCallBatch(
 		direct = direct && result.Disposition == ResultSucceeded && e.definition.tools.completesDirectly(calls[index].Name)
 	}
 	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
-	if err = e.state.recordRoundArtifacts(e.definition); err != nil {
+	if err := e.state.recordRoundArtifacts(e.definition); err != nil {
 		return run.Transition{}, err
 	}
 	e.state.ToolRound = nil
@@ -369,7 +344,7 @@ func (e *execution) finishToolCallBatch(
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)
 	}
-	if err = e.state.appendToContext("continuation request", completionContext...); err != nil {
+	if err := e.state.appendToContext("continuation request", completionContext...); err != nil {
 		return run.Transition{}, err
 	}
 	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
@@ -465,14 +440,11 @@ func (e *execution) startToolCalls(ctx context.Context, turn run.Turn, consumed 
 		return run.Transition{}, err
 	}
 	e.state.ToolRound.beginCalls(&callBatch{Kind: callTool, Invocations: make([]*callInvocation, count)})
-	return e.scheduleTools(ctx, turn, consumed, nil)
+	return e.scheduleTools(turn, consumed, nil)
 }
 
-func (e *execution) scheduleTools(ctx context.Context, turn run.Turn, consumed uint32, effects []run.Effect) (run.Transition, error) {
-	calls, err := e.state.ToolRound.activeCalls(ctx)
-	if err != nil {
-		return run.Transition{}, err
-	}
+func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.Effect) (run.Transition, error) {
+	calls := e.state.ToolRound.batchCalls()
 	batch := e.state.ToolRound.Batch
 	active := batch.active()
 	for index, invocation := range batch.Invocations {
@@ -515,11 +487,8 @@ func toolEffect(request toolDispatchRequest) (run.Effect, error) {
 	return run.NewDispatcherEffect(payload)
 }
 
-func (e *execution) advanceCalls(ctx context.Context, turn run.Turn) (run.Transition, error) {
-	calls, err := e.state.ToolRound.activeCalls(ctx)
-	if err != nil {
-		return run.Transition{}, err
-	}
+func (e *execution) advanceCalls(turn run.Turn) (run.Transition, error) {
+	calls := e.state.ToolRound.batchCalls()
 	var effects []run.Effect
 	var steer steerBatch
 	for offset, message := range turn.Messages {
@@ -549,12 +518,10 @@ func (e *execution) advanceCalls(ctx context.Context, turn run.Turn) (run.Transi
 			return run.Transition{}, ErrInvalidProtocol
 		}
 	}
-	if err = e.state.addSteer(steer); err != nil {
-		return run.Transition{}, err
-	}
+	e.state.addSteer(steer)
 	consumed := uint32(len(turn.Messages))
 	if e.state.ToolRound.Batch.Kind == callTool {
-		return e.scheduleTools(ctx, turn, consumed, effects)
+		return e.scheduleTools(turn, consumed, effects)
 	}
 	if e.state.ToolRound.Batch.active() != 0 {
 		return run.Yield(consumed, nil)

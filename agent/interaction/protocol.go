@@ -3,7 +3,6 @@ package interaction
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
@@ -152,13 +151,14 @@ func newModelEffect(
 	if request == nil {
 		return effectEnvelope{}, fmt.Errorf("%w: model request is nil", ErrInvalidProtocol)
 	}
-	// validateModelCall owns the rule set the decode path also enforces.
+	// validateModelCall owns the rule set the decode path also enforces. The
+	// envelope is encoded before the state changes again, so it borrows values.
 	envelope := effectEnvelope{
 		ModelCall: &modelCall{
 			ModelCallSequence:     modelCallSequence,
-			Request:               *request.clone(),
-			Tools:                 cloneToolDefinitions(tools),
-			AppliedSteerSignalIDs: slices.Clone(appliedSteerSignalIDs),
+			Request:               *request,
+			Tools:                 tools,
+			AppliedSteerSignalIDs: appliedSteerSignalIDs,
 		},
 	}
 	if err := envelope.validateModelCall(); err != nil {
@@ -195,7 +195,8 @@ func (e effectEnvelope) validateModelCall() error {
 	if e.ModelCall == nil || e.ToolCall != nil || e.ModelCall.ModelCallSequence == 0 {
 		return fmt.Errorf("%w: model_call effect has an invalid payload set", ErrInvalidProtocol)
 	}
-	if err := e.ModelCall.request().Validate(); err != nil {
+	request := chat.Request{Messages: e.ModelCall.Request.Messages, Options: e.ModelCall.Request.Options, Tools: e.ModelCall.Tools}
+	if err := request.Validate(); err != nil {
 		return fmt.Errorf("%w: model_call request: %w", ErrInvalidProtocol, err)
 	}
 	if len(e.ModelCall.AppliedSteerSignalIDs) > 0 {

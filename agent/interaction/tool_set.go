@@ -108,10 +108,9 @@ func (t toolManifest) completesDirectly(name string) bool {
 	return t.entries[name].direct
 }
 
+// mergeAdvertisements admits additions read from a settlement into the
+// current set the Interaction state already owns.
 func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string, error) {
-	if err := t.validateAdvertisements(current); err != nil {
-		return nil, err
-	}
 	if err := t.validateAdvertisements(additions); err != nil {
 		return nil, err
 	}

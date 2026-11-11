@@ -102,23 +102,35 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if err := e.validateArtifacts(ctx, definition); err != nil {
 		return err
 	}
-	if err := e.validatePhaseState(ctx, definition); err != nil {
+	if err := e.validateRound(ctx, definition); err != nil {
 		return err
 	}
-	if err := e.validateProposal(ctx, definition); err != nil {
-		return err
-	}
-	return e.validateRoundDelegateOutputs(ctx, definition)
+	return e.validatePhaseState(ctx, definition)
 }
 
-func (e executionState) validateProposal(ctx context.Context, definition *definition) error {
+// validateRound admits the open round once: its proposal, recorded results,
+// admission and Delegate outputs. Live Steps then read the round unchecked.
+func (e executionState) validateRound(ctx context.Context, definition *definition) error {
 	if e.ToolRound == nil {
 		return nil
 	}
-	calls, err := validatedToolCalls(e.ToolRound.Response)
-	if err != nil {
+	if e.ModelCallCount == 0 {
+		return fmt.Errorf("%w: a tool round requires a model call", ErrInvalidExecutionState)
+	}
+	if err := e.ToolRound.validateProposal(); err != nil {
 		return fmt.Errorf("%w: model proposal: %w", ErrInvalidExecutionState, err)
 	}
+	calls := e.ToolRound.calls()
+	if err := e.ToolRound.validateResults(ctx, calls); err != nil {
+		return err
+	}
+	if err := e.validateAdmission(ctx, definition, calls); err != nil {
+		return err
+	}
+	return e.validateRoundDelegateOutputs(definition, calls)
+}
+
+func (e executionState) validateAdmission(ctx context.Context, definition *definition, calls []chat.ToolCall) error {
 	if e.ToolRound.rejected() {
 		return nil
 	}
@@ -138,17 +150,7 @@ func (e executionState) validateProposal(ctx context.Context, definition *defini
 	return nil
 }
 
-func (e executionState) validateRoundDelegateOutputs(ctx context.Context, definition *definition) error {
-	if e.ToolRound == nil {
-		return nil
-	}
-	calls, err := validatedToolCalls(e.ToolRound.Response)
-	if err != nil {
-		return fmt.Errorf("%w: model proposal: %w", ErrInvalidExecutionState, err)
-	}
-	if err := e.ToolRound.validateResults(ctx, calls); err != nil {
-		return err
-	}
+func (e executionState) validateRoundDelegateOutputs(definition *definition, calls []chat.ToolCall) error {
 	for index, result := range e.ToolRound.Results {
 		delegate, delegated := definition.delegate(calls[index].Name)
 		if !delegated || result.Disposition != ResultSucceeded {
@@ -180,10 +182,10 @@ func (e executionState) validateEnvelope() error {
 	return nil
 }
 
+// validatePhaseState checks what each phase adds to the round validateRound
+// already admitted.
 func (e executionState) validatePhaseState(ctx context.Context, definition *definition) error {
 	switch e.phase() {
-	case phaseAdvancingTools, phaseRoundComplete:
-		return e.validateRoundBoundary(ctx)
 	case phaseAwaitingContext:
 		if !definition.prepareContext || e.ToolRound != nil || !definition.maxModelCalls.Allows(e.ModelCallCount, 1) {
 			return ErrInvalidExecutionState
@@ -200,23 +202,6 @@ func (e executionState) validatePhaseState(ctx context.Context, definition *defi
 	return nil
 }
 
-func (e executionState) validateRoundBoundary(ctx context.Context) error {
-	if e.ModelCallCount == 0 {
-		return fmt.Errorf("%w: invalid round boundary", ErrInvalidExecutionState)
-	}
-	if e.phase() == phaseRoundComplete {
-		return e.ToolRound.validateComplete(ctx)
-	}
-	calls, err := validatedToolCalls(e.ToolRound.Response)
-	if err != nil || len(calls) == 0 {
-		return fmt.Errorf("%w: round requires calls", ErrInvalidExecutionState)
-	}
-	if !opensToolRound(e.ToolRound.Response.Output.FinishReason) {
-		return ErrInvalidExecutionState
-	}
-	return e.ToolRound.validateResults(ctx, calls)
-}
-
 // Steering admitted during a model call waits for its outcome; before the
 // first request, the same Step applies all admitted steering immediately.
 func (e executionState) validateModelState() error {
@@ -227,85 +212,54 @@ func (e executionState) validateModelState() error {
 }
 
 func (e executionState) validateActiveCallState(ctx context.Context, definition *definition) error {
-	active, err := e.activeCalls(ctx)
-	if err != nil {
+	round := e.ToolRound
+	if err := round.validateBatchCursor(); err != nil {
 		return err
 	}
-	calls, err := validatedToolCalls(e.ToolRound.Response)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+	active := round.batchCalls()
+	if err := round.Batch.validate(ctx, active); err != nil {
+		return err
 	}
-	return e.ToolRound.Batch.validateBindings(ctx, definition, active, calls[e.ToolRound.nextCallIndex():], e.ModelCallCount)
+	return round.Batch.validateBindings(ctx, definition, active, round.calls()[round.nextCallIndex():], e.ModelCallCount)
 }
 
-func (e executionState) activeCalls(ctx context.Context) ([]chat.ToolCall, error) {
-	if e.ModelCallCount == 0 {
-		return nil, fmt.Errorf("%w: active calls require a model call", ErrInvalidExecutionState)
-	}
-	active, err := e.ToolRound.activeCalls(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := e.ToolRound.Batch.validate(ctx, active); err != nil {
-		return nil, err
-	}
-	return active, nil
-}
-
+// replaceModelContext and appendToContext take ownership of messages and keep
+// WorkingContext a valid model request. A failed check fails the Step, which
+// ends the Execution, so neither restores the previous context.
 func (e *executionState) replaceModelContext(messages []chat.Message) error {
-	effective := e.WorkingContext.clone()
-	effective.Messages = cloneMessages(messages)
-	if err := effective.Validate(); err != nil {
+	e.WorkingContext.Messages = messages
+	if err := e.WorkingContext.Validate(); err != nil {
 		return fmt.Errorf("%w: replacement model context: %w", ErrInvalidExecutionState, err)
 	}
-	e.WorkingContext = effective
 	return nil
 }
 
-// appendToContext keeps WorkingContext a valid model request: messages join
-// it only when the extended request still validates.
 func (e *executionState) appendToContext(purpose string, messages ...chat.Message) error {
-	request := e.WorkingContext.clone()
-	request.Messages = append(request.Messages, cloneMessages(messages)...)
-	if err := request.Validate(); err != nil {
+	e.WorkingContext.Messages = append(e.WorkingContext.Messages, messages...)
+	if err := e.WorkingContext.Validate(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrInvalidExecutionState, purpose, err)
 	}
-	e.WorkingContext = request
 	return nil
 }
 
-func (e *executionState) addSteer(batch steerBatch) error {
+// addSteer queues steering collected from delivered Signals. Collection
+// validated each message, and the Runtime admits a SignalID once per Process,
+// so the merged batch needs no further check; Restore validates a stored one.
+func (e *executionState) addSteer(batch steerBatch) {
 	if batch.empty() {
-		return nil
-	}
-	if err := batch.validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+		return
 	}
 	if e.PendingSteer == nil {
-		cloned := batch.clone()
-		e.PendingSteer = &cloned
-		return nil
+		e.PendingSteer = &batch
+		return
 	}
-	e.PendingSteer.Messages = append(
-		e.PendingSteer.Messages,
-		cloneMessages(batch.Messages)...,
-	)
-	e.PendingSteer.SignalIDs = append(
-		e.PendingSteer.SignalIDs,
-		batch.SignalIDs...,
-	)
-	if err := e.PendingSteer.validate(); err != nil {
-		return fmt.Errorf("%w: merged pending steer: %w", ErrInvalidExecutionState, err)
-	}
-	return nil
+	e.PendingSteer.Messages = append(e.PendingSteer.Messages, batch.Messages...)
+	e.PendingSteer.SignalIDs = append(e.PendingSteer.SignalIDs, batch.SignalIDs...)
 }
 
 func (e *executionState) applyPendingSteer() ([]run.SignalID, error) {
 	if e.PendingSteer == nil {
 		return nil, nil
-	}
-	if err := e.PendingSteer.validate(); err != nil {
-		return nil, fmt.Errorf("%w: pending steer: %w", ErrInvalidExecutionState, err)
 	}
 	if err := e.appendToContext("steered model request", e.PendingSteer.Messages...); err != nil {
 		return nil, err
@@ -351,19 +305,17 @@ func (e executionState) validateArtifacts(ctx context.Context, definition *defin
 // recordRoundArtifacts outlives the round its successful Delegate results
 // belong to. Until the round ends those results are the Artifacts, so a
 // record is created only as the round's results leave for the model context.
+// The Runtime held each output to its Delegate's Program and Restore admitted
+// the round, so the record only changes representation.
 func (e *executionState) recordRoundArtifacts(definition *definition) error {
-	calls, err := validatedToolCalls(e.ToolRound.Response)
-	if err != nil {
-		return err
-	}
+	calls := e.ToolRound.calls()
 	for index, result := range e.ToolRound.Results {
-		delegate, delegated := definition.delegate(calls[index].Name)
-		if !delegated || result.Disposition != ResultSucceeded {
+		if _, delegated := definition.delegate(calls[index].Name); !delegated || result.Disposition != ResultSucceeded {
 			continue
 		}
-		output, err := delegate.admitResultOutput(result.Output)
+		output, err := run.ParsePayload(result.Output.Details)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
+			return fmt.Errorf("%w: Delegate result output: %w", ErrInvalidExecutionState, err)
 		}
 		e.ArtifactRecords = append(e.ArtifactRecords, artifactRecord{
 			ModelCallSequence: e.ModelCallCount, ToolCallID: calls[index].ID, DelegateName: calls[index].Name, Output: output,
@@ -384,15 +336,11 @@ func cloneMessages(messages []chat.Message) []chat.Message {
 	return cloned
 }
 
-func validatedToolCalls(response *chat.Response) ([]chat.ToolCall, error) {
-	if response == nil {
-		return nil, errors.New("interaction: model returned a nil response")
+// proposedCalls reads the ToolCalls of a response its codec or the model
+// dispatcher already validated.
+func proposedCalls(response *chat.Response) []chat.ToolCall {
+	if response.Output.Message == nil {
+		return nil
 	}
-	if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("interaction: invalid model response: %w", err)
-	}
-	if response.Output == nil || response.Output.Message == nil {
-		return nil, nil
-	}
-	return response.Output.Message.ToolCalls(), nil
+	return response.Output.Message.ToolCalls()
 }

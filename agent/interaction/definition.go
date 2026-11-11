@@ -171,7 +171,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	}
 	return &execution{
 		definition: d,
-		state:      executionState{WorkingContext: decoded.clone()},
+		state:      executionState{WorkingContext: &decoded},
 	}, nil
 }
 
@@ -207,11 +207,10 @@ func (d *definition) delegate(name string) (Delegate, bool) {
 
 var _ run.Definition = (*definition)(nil)
 
-func (d *definition) modelDefinitions(advertisedToolNames []string) ([]tool.Definition, error) {
+// modelDefinitions reads advertisedToolNames as the state owns them: Restore
+// and every merge already admitted them against this manifest.
+func (d *definition) modelDefinitions(advertisedToolNames []string) []tool.Definition {
 	tools := d.tools
-	if err := tools.validateAdvertisements(advertisedToolNames); err != nil {
-		return nil, fmt.Errorf("interaction: advertised Tools: %w", err)
-	}
 	definitions := tools.initialDefinitions()
 	for _, delegate := range d.delegates {
 		definitions = append(definitions, delegate.definition.Clone())
@@ -219,7 +218,7 @@ func (d *definition) modelDefinitions(advertisedToolNames []string) ([]tool.Defi
 	for _, name := range advertisedToolNames {
 		definitions = append(definitions, tools.entries[name].modelDefinition())
 	}
-	return definitions, nil
+	return definitions
 }
 
 func (d *definition) settleModelResponse(response *chat.Response, cause error) (run.Settlement, error) {

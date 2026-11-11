@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 
@@ -15,6 +16,32 @@ type toolCallRound struct {
 }
 
 func (t *toolCallRound) nextCallIndex() uint32 { return uint32(len(t.Results)) }
+
+// calls are the round's proposed ToolCalls. Decoding validated the response
+// and validateProposal admitted its shape, so readers never check it again.
+func (t *toolCallRound) calls() []chat.ToolCall { return proposedCalls(t.Response) }
+
+// batchCalls are the calls the open batch executes, in proposal order.
+func (t *toolCallRound) batchCalls() []chat.ToolCall {
+	start := t.nextCallIndex()
+	return t.calls()[start : start+uint32(len(t.Batch.Invocations))]
+}
+
+// validateProposal admits a restored round's response: present, finishing as
+// a round, and proposing a bounded nonempty set of calls.
+func (t *toolCallRound) validateProposal() error {
+	if t.Response == nil {
+		return errors.New("a tool round requires its model response")
+	}
+	calls := t.calls()
+	if len(calls) == 0 || uint64(len(calls)) > math.MaxUint32 {
+		return errors.New("a tool round requires a bounded nonempty set of tool calls")
+	}
+	if !opensToolRound(t.Response.Output.FinishReason) {
+		return fmt.Errorf("finish reason %q does not open a tool round", t.Response.Output.FinishReason)
+	}
+	return nil
+}
 
 // answered reports whether every call in the response has a result. It only
 // counts calls; validation of the response and results is separate.
@@ -49,25 +76,16 @@ func (t *toolCallRound) truncated() bool {
 	return t.Response.Output.FinishReason == chat.FinishReasonLength
 }
 
-func (t *toolCallRound) activeCalls(ctx context.Context) ([]chat.ToolCall, error) {
-	if t == nil {
-		return nil, fmt.Errorf("%w: active call phase requires a tool round", ErrInvalidExecutionState)
+// validateBatchCursor admits a restored batch's position: only an executed
+// round opens batches, and the batch covers calls the results have not.
+func (t *toolCallRound) validateBatchCursor() error {
+	if t.truncated() {
+		return fmt.Errorf("%w: a truncated round only rejects its calls", ErrInvalidExecutionState)
 	}
-	calls, err := validatedToolCalls(t.Response)
-	if err != nil || len(calls) == 0 || uint64(len(calls)) > math.MaxUint32 {
-		return nil, fmt.Errorf("%w: tool round has no bounded unambiguous tool calls", ErrInvalidExecutionState)
+	if len(t.Batch.Invocations) == 0 || uint64(len(t.Results))+uint64(len(t.Batch.Invocations)) > uint64(len(t.calls())) {
+		return fmt.Errorf("%w: ToolCall cursor is inconsistent", ErrInvalidExecutionState)
 	}
-	if !opensToolRound(t.Response.Output.FinishReason) || t.truncated() {
-		return nil, fmt.Errorf("%w: tool round response must finish with tool_calls", ErrInvalidExecutionState)
-	}
-	if t.Batch == nil || len(t.Batch.Invocations) == 0 ||
-		uint64(len(t.Results))+uint64(len(t.Batch.Invocations)) > uint64(len(calls)) {
-		return nil, fmt.Errorf("%w: ToolCall cursor is inconsistent", ErrInvalidExecutionState)
-	}
-	if err := t.validateResults(ctx, calls); err != nil {
-		return nil, err
-	}
-	return calls[t.nextCallIndex() : t.nextCallIndex()+uint32(len(t.Batch.Invocations))], nil
+	return nil
 }
 
 func (t *toolCallRound) beginCalls(batch *callBatch) {
@@ -86,7 +104,7 @@ func (t *toolCallRound) finishCalls(tools toolManifest, advertisedNames []string
 		}
 		advertisedNames = names
 		// The Interaction's advertised set now owns these names.
-		result := invocation.Result.clone()
+		result := *invocation.Result
 		result.AdvertisedToolNames = nil
 		results = append(results, result)
 	}
@@ -118,21 +136,4 @@ func (t *toolCallRound) validateResults(ctx context.Context, calls []chat.ToolCa
 
 func (t *toolCallRound) reject(diagnostic string) {
 	t.Results = append(t.Results, rejectedCallResult(diagnostic))
-}
-
-func (t *toolCallRound) validateComplete(ctx context.Context) error {
-	if t == nil || t.Batch != nil || t.Response == nil || t.Response.Output == nil {
-		return ErrInvalidExecutionState
-	}
-	if !opensToolRound(t.Response.Output.FinishReason) {
-		return ErrInvalidExecutionState
-	}
-	calls, err := validatedToolCalls(t.Response)
-	if err != nil || len(calls) == 0 || len(calls) != len(t.Results) {
-		return fmt.Errorf("%w: round requires every call result", ErrInvalidExecutionState)
-	}
-	if err := t.validateResults(ctx, calls); err != nil {
-		return err
-	}
-	return ctx.Err()
 }

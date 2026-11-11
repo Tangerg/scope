@@ -293,11 +293,7 @@ func (h *historyProjector) settledModel(settled run.EffectSettled, sequence uint
 	if envelope.ModelResult == nil {
 		return ErrInvalidResult
 	}
-	proposed, err := validatedToolCalls(envelope.ModelResult.Response)
-	if err != nil {
-		return err
-	}
-	round := &RoundResults{model: settled.ID, sequence: sequence, calls: proposed, references: make(map[uint32]run.EffectID)}
+	round := &RoundResults{model: settled.ID, sequence: sequence, calls: proposedCalls(envelope.ModelResult.Response), references: make(map[uint32]run.EffectID)}
 	h.rounds[settled.ID.Process] = round
 	h.projection.rounds = append(h.projection.rounds, round)
 	return nil

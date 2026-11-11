@@ -12,6 +12,10 @@ type Definition interface {
 	Restore(ctx context.Context, state ExecutionState) (Execution, error)
 }
 
+// Execution is single-use past a failed Step: once Step returns an error, or
+// returns a Transition the Runtime rejects, the Runtime ends the Process and
+// never calls Step or Snapshot on that Execution again. Step may therefore
+// mutate its state before it fails; it needs no rollback.
 type Execution interface {
 	Step(ctx context.Context, turn Turn) (Transition, error)
 	Snapshot() (ExecutionState, error)
