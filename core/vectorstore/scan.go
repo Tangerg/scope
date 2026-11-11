@@ -3,6 +3,7 @@ package vectorstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -41,7 +42,7 @@ var ErrScanBudget = errors.New("vectorstore: complete scan exceeds the authorize
 
 func (s ScanBudget) Validate() error {
 	if s.MaxRecords <= 0 || s.MaxRecords == math.MaxInt || s.MaxBytes <= 0 || s.MaxBytes == math.MaxInt64 || s.Timeout <= 0 {
-		return errors.New("vectorstore: scan requires positive finite record, byte, and time budgets")
+		return fmt.Errorf("%w: scan requires positive finite record, byte, and time budgets", ErrInvalidOptions)
 	}
 	return nil
 }
