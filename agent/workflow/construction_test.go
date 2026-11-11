@@ -72,17 +72,10 @@ func TestForkRequiresUnambiguousExactBranchBindings(t *testing.T) {
 	}
 }
 
-func TestWorkflowRejectsInvalidDefinitionsAndInputs(t *testing.T) {
+func TestWorkflowRejectsInvalidDefinitions(t *testing.T) {
 	stage := mustTransform(t, "identity", func(_ context.Context, value int) (int, error) { return value, nil })
 	if definition, err := newDefinition(Config{Name: "invalid name", Description: "Run a ", Stages: []Stage{stage}}); definition != nil || !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("invalid definition identity = %v, %v", definition, err)
-	}
-	input, err := run.EncodePayload("wrong input type")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if execution, err := mustDefinition(t, "input", stage).Start(input); execution != nil || !errors.Is(err, run.ErrInvalidPayload) {
-		t.Fatalf("input outside the first stage contract = %v, %v", execution, err)
 	}
 }
 

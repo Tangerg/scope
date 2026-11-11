@@ -46,9 +46,6 @@ func (f *firstSuccessDefinition) Descriptor() run.Descriptor                    
 func (*firstSuccessDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (f *firstSuccessDefinition) Start(input run.Payload) (run.Execution, error) {
-	if err := f.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
 	candidates, err := input.Decode[[]run.ChildSpec]()
 	if err != nil {
 		return nil, err

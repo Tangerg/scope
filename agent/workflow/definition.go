@@ -54,9 +54,6 @@ func (d *definition) Descriptor() run.Descriptor {
 }
 
 func (d *definition) Start(input run.Payload) (run.Execution, error) {
-	if err := d.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
 	state := executionState{CurrentValue: input}
 	return &execution{definition: d, state: state}, nil
 }

@@ -34,9 +34,6 @@ func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 	schema := require(jsonschema.For[string]())
 	program := require(Compile[string, string](conformancetest.Compiler(t), Config{Name: "test.gate", Description: "Ask once.", Policy: InputGate{RequestSchema: schema, AnswerSchema: schema}}))
 	definition := program.Definition()
-	if _, err := definition.Start(require(run.EncodePayload(12))); err == nil {
-		t.Fatal("request violated its declared schema")
-	}
 	execution := require(definition.Start(require(run.EncodePayload("question"))))
 	initial := require(execution.Snapshot())
 	key := require(run.ParseWaitKey(inputGateWaitKey))

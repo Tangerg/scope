@@ -5,6 +5,8 @@ import "context"
 // Definition and Execution perform no external I/O. Their inputs contain every
 // fact needed to replay a Step; clocks, randomness and Host context values must
 // not influence a transition. Each restored transition is checked against its log.
+// The Runtime calls Start only with input that satisfies the Descriptor's input
+// schema, so Start validates only what that schema cannot express.
 type Definition interface {
 	Descriptor() Descriptor
 	ChildPrograms() []Program[Payload, Payload]

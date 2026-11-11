@@ -326,8 +326,4 @@ func TestTeamRestoredBoundsDoNotAdmitAnotherTurn(t *testing.T) {
 			}
 		})
 	}
-	definition := require(Compile[string, string](runtime.Compiler(), config)).Definition()
-	if _, err := definition.Start(input(42)); err == nil {
-		t.Fatal("team accepted working state outside its schema")
-	}
 }

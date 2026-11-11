@@ -115,9 +115,6 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 			}
 		})
 	}
-	if _, err := definition.Start(planningValue(run.EncodePayload(42))); err == nil {
-		t.Fatal("planning accepted input outside its declared contract")
-	}
 }
 
 func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {

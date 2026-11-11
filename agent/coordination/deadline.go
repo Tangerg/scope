@@ -34,9 +34,6 @@ func (d *deadlineDefinition) Descriptor() run.Descriptor {
 }
 
 func (d *deadlineDefinition) Start(input run.Payload) (run.Execution, error) {
-	if err := d.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
 	deadline, err := input.Decode[time.Time]()
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode deadline: %w", run.ErrInvalidPayload, err)

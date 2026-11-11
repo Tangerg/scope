@@ -91,9 +91,6 @@ func TestDefinitionsRejectInvalidBindingsAndBoundaryValues(t *testing.T) {
 		{local.Erase(), compositionValue(agentrun.EncodePayload(textInput{Text: "x"}))},
 		{composed.Erase(), compositionValue(agentrun.EncodePayload(compositionInput{Prompt: "x"}))},
 	} {
-		if _, err := row.program.Definition().Start(compositionValue(agentrun.ParsePayload([]byte(`{}`)))); err == nil {
-			t.Fatal("missing required input admitted")
-		}
 		execution := compositionValue(row.program.Definition().Start(row.input))
 		state := compositionValue(execution.Snapshot())
 		invalid := compositionValue(agentrun.ParseExecutionState(state.Kind(), append(bytes.TrimSuffix(state.Payload(), []byte("}")), []byte(`,"unknown":true}`)...)))

@@ -38,9 +38,6 @@ func (i *inputGateDefinition) Descriptor() run.Descriptor                       
 func (*inputGateDefinition) ChildPrograms() []run.Program[run.Payload, run.Payload] { return nil }
 
 func (i *inputGateDefinition) Start(input run.Payload) (run.Execution, error) {
-	if err := i.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
 	return &inputGateExecution{definition: i, state: inputGateState{Request: input, Phase: inputGateReady}}, nil
 }
 
