@@ -17,7 +17,6 @@ type ResponseAccumulator struct {
 	metadata        *ResponseMetadata
 	parts           []accumulatedPart
 	messageMetadata metadata.Map
-	outputMetadata  *OutputMetadata
 	finishReason    FinishReason
 	toolParts       map[string]int
 	seen            bool
@@ -117,9 +116,6 @@ func (r *ResponseAccumulator) Response() (*Response, error) {
 		}
 		output.Message = message
 	}
-	if r.outputMetadata != nil {
-		output.Metadata = r.outputMetadata.clone()
-	}
 	response := &Response{Output: output}
 	if r.metadata != nil {
 		response.Metadata = r.metadata.clone()
@@ -189,12 +185,6 @@ func (r *ResponseAccumulator) merge(delta *ResponseDelta) {
 			r.metadata = &ResponseMetadata{}
 		}
 		r.metadata.mergeValidated(*delta.Metadata)
-	}
-	if delta.OutputMetadata != nil {
-		if r.outputMetadata == nil {
-			r.outputMetadata = &OutputMetadata{}
-		}
-		mergeValidatedMetadata(&r.outputMetadata.Extra, delta.OutputMetadata.Extra)
 	}
 	r.finishReason = delta.FinishReason
 	if len(delta.Parts) == 0 && len(delta.MessageMetadata) == 0 {

@@ -130,7 +130,7 @@ func checkTerminalChatResponse(t *testing.T, provider string, response *corechat
 	if usage := response.Metadata.Usage; usage == nil || usage.InputTokens != 1 || usage.OutputTokens != 2 {
 		t.Errorf("usage = %#v, want 1 input and 2 output tokens", usage)
 	}
-	native, found, err := response.Output.Metadata.Extra.Decode[genai.FinishReason](provider + "/native_finish_reason")
+	native, found, err := response.Metadata.Extra.Decode[genai.FinishReason](provider + "/native_finish_reason")
 	if err != nil || !found || native != genai.FinishReasonStop {
 		t.Errorf("native finish = %s, found %v, error = %v; want STOP", native, found, err)
 	}

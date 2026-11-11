@@ -382,8 +382,7 @@ func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEve
 		p.finish = finish
 	}
 	if event.Delta.StopReason != "" {
-		response.OutputMetadata = &corechat.OutputMetadata{}
-		if err := response.OutputMetadata.Extra.Set(protocolNativeStopReasonKey, event.Delta.StopReason); err != nil {
+		if err := response.Metadata.Extra.Set(protocolNativeStopReasonKey, event.Delta.StopReason); err != nil {
 			return err
 		}
 	}

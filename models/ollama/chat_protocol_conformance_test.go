@@ -392,7 +392,7 @@ func assertProtocolResponse(t *testing.T, response *corechat.Response) {
 	if metrics["prompt_eval_count"] != 11 || metrics["eval_count"] != 5 {
 		t.Errorf("metrics = %#v", metrics)
 	}
-	nativeReason := decodeExtension[string](t, result.Metadata.Extra, "ollama/native_done_reason")
+	nativeReason := decodeExtension[string](t, response.Metadata.Extra, "ollama/native_done_reason")
 	if nativeReason != "stop" {
 		t.Errorf("native done reason = %q", nativeReason)
 	}

@@ -76,8 +76,7 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 	if response.Done {
 		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)
 		if response.DoneReason != "" {
-			mapped.OutputMetadata = &corechat.OutputMetadata{}
-			if err := mapped.OutputMetadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
+			if err := mapped.Metadata.Extra.Set(protocolNativeDoneReasonKey, response.DoneReason); err != nil {
 				return nil, err
 			}
 		}

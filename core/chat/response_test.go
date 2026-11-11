@@ -59,7 +59,6 @@ func TestResultValidate(t *testing.T) {
 	valid := []*chat.Output{
 		assistantResult("hello"),
 		{FinishReason: chat.FinishReasonStop},
-		{FinishReason: chat.FinishReasonStop, Metadata: &chat.OutputMetadata{}},
 	}
 	for i := range valid {
 		if err := valid[i].Validate(); err != nil {
@@ -81,7 +80,6 @@ func TestResultValidateRejectsInvalidValues(t *testing.T) {
 		{name: "invalid message", output: &chat.Output{Message: &invalidMessage, FinishReason: chat.FinishReasonStop}, also: chat.ErrInvalidMessage},
 		{name: "user message", output: &chat.Output{Message: &user, FinishReason: chat.FinishReasonStop}},
 		{name: "unknown finish", output: &chat.Output{FinishReason: "future"}},
-		{name: "invalid metadata", output: &chat.Output{FinishReason: chat.FinishReasonStop, Metadata: &chat.OutputMetadata{Extra: metadata.Map{"bad": json.RawMessage(`{`)}}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -98,12 +96,8 @@ func TestResultValidateRejectsInvalidValues(t *testing.T) {
 
 func TestResultHelpersAndJSON(t *testing.T) {
 	output := assistantResult("hello")
-	output.Metadata = &chat.OutputMetadata{}
 	if output.Text() != "hello" {
 		t.Fatalf("Text = %q", output.Text())
-	}
-	if err := output.Metadata.Extra.Set("openai/logprobs", []float64{-0.1}); err != nil {
-		t.Fatal(err)
 	}
 	encoded, err := jsonv2.Marshal(output)
 	if err != nil {
@@ -125,14 +119,14 @@ func TestResultHelpersAndJSON(t *testing.T) {
 
 func TestNewOutputEstablishesCompleteOutput(t *testing.T) {
 	message := chat.NewAssistantMessage(chat.NewTextPart("answer"))
-	output, err := chat.NewOutput(&message, chat.FinishReasonStop, &chat.OutputMetadata{})
+	output, err := chat.NewOutput(&message, chat.FinishReasonStop)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if output.Text() != "answer" || output.FinishReason != chat.FinishReasonStop {
 		t.Fatalf("output = %#v", output)
 	}
-	if _, err := chat.NewOutput(&message, "future", nil); !errors.Is(err, chat.ErrInvalidResponse) {
+	if _, err := chat.NewOutput(&message, "future"); !errors.Is(err, chat.ErrInvalidResponse) {
 		t.Fatalf("invalid finish reason error = %v", err)
 	}
 }

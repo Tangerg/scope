@@ -27,9 +27,8 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 				chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-1", Name: "search", Arguments: `scope"}`}),
 				chat.NewTextDelta("lo"),
 			},
-			FinishReason:   chat.FinishReasonToolCalls,
-			OutputMetadata: &chat.OutputMetadata{},
-			Metadata:       &chat.ResponseMetadata{Model: "model-final", Usage: &chat.Usage{InputTokens: 12, OutputTokens: 5}},
+			FinishReason: chat.FinishReasonToolCalls,
+			Metadata:     &chat.ResponseMetadata{Model: "model-final", Usage: &chat.Usage{InputTokens: 12, OutputTokens: 5}},
 		},
 	}
 	chunks[0].Metadata.Extra = metadata.Map{}
@@ -39,7 +38,7 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 	if err := chunks[2].Metadata.Extra.Set("test/value", "last"); err != nil {
 		t.Fatal(err)
 	}
-	if err := chunks[2].OutputMetadata.Extra.Set("test/finish", true); err != nil {
+	if err := chunks[2].Metadata.Extra.Set("test/finish", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -76,8 +75,8 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 	if got := decode[string](t, response.Metadata.Extra, "test/value"); got != "last" {
 		t.Errorf("response metadata = %q", got)
 	}
-	if got := decode[bool](t, response.Output.Metadata.Extra, "test/finish"); !got {
-		t.Error("output metadata was not merged")
+	if got := decode[bool](t, response.Metadata.Extra, "test/finish"); !got {
+		t.Error("terminal response metadata was not merged")
 	}
 }
 
@@ -294,7 +293,6 @@ func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 			Parts:           []chat.PartDelta{chat.NewTextDelta("before"), chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "{"})},
 			Metadata:        &chat.ResponseMetadata{ID: "original", Extra: metadata.Map{"value": []byte(`"original"`)}},
 			MessageMetadata: metadata.Map{"value": []byte(`"original"`)},
-			OutputMetadata:  &chat.OutputMetadata{Extra: metadata.Map{"value": []byte(`"original"`)}},
 		}
 		if err := accumulator.Add(initial); err != nil {
 			t.Fatal(err)
@@ -307,14 +305,12 @@ func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 			FinishReason:    chat.FinishReasonToolCalls,
 			Metadata:        &chat.ResponseMetadata{ID: "rejected", Extra: metadata.Map{"value": []byte(`"rejected"`)}},
 			MessageMetadata: metadata.Map{"value": []byte(`"rejected"`)},
-			OutputMetadata:  &chat.OutputMetadata{Extra: metadata.Map{"value": []byte(`"rejected"`)}},
 		}
 		if err := accumulator.Add(rejected); !errors.Is(err, chat.ErrInvalidResponse) {
 			t.Fatalf("Add error = %v", err)
 		}
 		initial.Metadata.Extra["value"][1] = 'X'
 		initial.MessageMetadata["value"][1] = 'X'
-		initial.OutputMetadata.Extra["value"][1] = 'X'
 		if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "}"})}, FinishReason: chat.FinishReasonToolCalls}); err != nil {
 			t.Fatal(err)
 		}
@@ -326,7 +322,7 @@ func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 		if len(parts) != 2 || parts[0].Text != "before" || parts[1].ToolCall.Arguments != "{}" || response.Metadata.ID != "original" {
 			t.Fatalf("response = %#v, parts = %#v", response, parts)
 		}
-		for _, extra := range []metadata.Map{response.Metadata.Extra, response.Output.Message.Metadata, response.Output.Metadata.Extra} {
+		for _, extra := range []metadata.Map{response.Metadata.Extra, response.Output.Message.Metadata} {
 			if got := decode[string](t, extra, "value"); got != "original" {
 				t.Fatalf("metadata = %q", got)
 			}

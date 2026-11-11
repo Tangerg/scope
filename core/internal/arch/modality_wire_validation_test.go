@@ -22,7 +22,6 @@ func TestModalityWireValuesValidateAtJSONBoundary(t *testing.T) {
 	}{
 		{"chat.Options", chat.Options{}, new(chat.Options)},
 		{"chat.Request", chat.Request{}, new(chat.Request)},
-		{"chat.OutputMetadata", chat.OutputMetadata{}, new(chat.OutputMetadata)},
 		{"chat.Output", chat.Output{}, new(chat.Output)},
 		{"chat.Usage", chat.Usage{}, new(chat.Usage)},
 		{"chat.ResponseMetadata", chat.ResponseMetadata{}, new(chat.ResponseMetadata)},

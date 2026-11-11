@@ -76,25 +76,12 @@ const (
 	finishReasonLength      finishReason = "length"
 	finishReasonModelLength finishReason = "model_length"
 	finishReasonToolCalls   finishReason = "tool_calls"
-	// finishReasonError is the fifth value Mistral's own client declares
-	// alongside the four above. It has no portable Core match, and reaching it
-	// through a default branch would have filed it under "not classified" —
-	// which is the one thing [corechat.FinishReasonOther] is documented not to
-	// mean.
-	finishReasonError finishReason = "error"
+	finishReasonError       finishReason = "error"
 )
 
-// normalized maps the five values Mistral's client declares —
-// stop, length, model_length, error and tool_calls — and answers anything else
-// with Other, because that client types the field as those literals or an
-// unrecognized string, so a value outside the set is something this adapter has
-// not seen rather than something it failed to classify.
-//
-// error and an unrecognized value both land on Other, which is what Core
-// reserves for a known terminal state with no portable match. Neither is
-// silently lost: finishReason.metadata keeps the provider's own word for
-// it on the output, the way this adapter's siblings do, so a caller can tell an
-// errored generation from a provider iteration limit.
+// normalized names error explicitly, though it lands on Other like an
+// unrecognized value: it is a value Mistral's client declares, not one this
+// adapter has failed to classify. preserveNative keeps both distinguishable.
 func (f finishReason) normalized() corechat.FinishReason {
 	switch f {
 	case "":
@@ -112,18 +99,16 @@ func (f finishReason) normalized() corechat.FinishReason {
 	}
 }
 
-// metadata records the provider's own finish reason
-// whenever the portable one is Other, so the distinction Other erases stays
-// available.
-func (f finishReason) metadata() (*corechat.OutputMetadata, error) {
+// preserveNative records the provider's own finish reason whenever the
+// portable one is Other, so the distinction Other erases stays available.
+func (f finishReason) preserveNative(metadata *corechat.ResponseMetadata) error {
 	if f.normalized() != corechat.FinishReasonOther {
-		return nil, nil
+		return nil
 	}
-	outputMetadata := &corechat.OutputMetadata{}
-	if err := outputMetadata.Extra.Set(nativeFinishReasonKey, string(f)); err != nil {
-		return nil, fmt.Errorf("mistral: record native finish reason: %w", err)
+	if err := metadata.Extra.Set(nativeFinishReasonKey, string(f)); err != nil {
+		return fmt.Errorf("mistral: record native finish reason: %w", err)
 	}
-	return outputMetadata, nil
+	return nil
 }
 
 type responseFormat struct {

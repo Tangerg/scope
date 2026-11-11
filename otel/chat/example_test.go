@@ -15,7 +15,7 @@ func ExampleMiddleware_Call() {
 	}
 	model := middleware.Call(corechat.ModelFunc(func(context.Context, *corechat.Request) (*corechat.Response, error) {
 		message := corechat.NewAssistantMessage(corechat.NewTextPart("instrumented"))
-		output, outputErr := corechat.NewOutput(&message, corechat.FinishReasonStop, nil)
+		output, outputErr := corechat.NewOutput(&message, corechat.FinishReasonStop)
 		if outputErr != nil {
 			return nil, outputErr
 		}

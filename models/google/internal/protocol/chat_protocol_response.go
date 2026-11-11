@@ -117,19 +117,18 @@ func (p *protocolResponseMapper) mapMetadata(requestModel string, response *gena
 }
 
 func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, response *corechat.ResponseDelta) error {
-	response.OutputMetadata = &corechat.OutputMetadata{}
 	if isProtocolStopReason(candidate.FinishReason) {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, nativeFinishReasonMetadataSuffix), candidate.FinishReason); err != nil {
+		if err := response.Metadata.Extra.Set(protocolKey(p.provider, nativeFinishReasonMetadataSuffix), candidate.FinishReason); err != nil {
 			return err
 		}
 	}
 	if len(candidate.SafetyRatings) > 0 {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, safetyRatingsMetadataSuffix), candidate.SafetyRatings); err != nil {
+		if err := response.Metadata.Extra.Set(protocolKey(p.provider, safetyRatingsMetadataSuffix), candidate.SafetyRatings); err != nil {
 			return err
 		}
 	}
 	if candidate.FinishMessage != "" {
-		if err := response.OutputMetadata.Extra.Set(protocolKey(p.provider, finishMessageMetadataSuffix), candidate.FinishMessage); err != nil {
+		if err := response.Metadata.Extra.Set(protocolKey(p.provider, finishMessageMetadataSuffix), candidate.FinishMessage); err != nil {
 			return err
 		}
 	}

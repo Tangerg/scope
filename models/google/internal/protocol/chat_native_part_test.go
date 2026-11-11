@@ -302,8 +302,8 @@ func TestProtocolToolCompletionPreservesProviderOutcome(t *testing.T) {
 			if streamed.Output.FinishReason != tc.want {
 				t.Fatalf("Stream finish = %s, want %s", streamed.Output.FinishReason, tc.want)
 			}
-			for _, output := range []*corechat.Output{response.Output, streamed.Output} {
-				native, found, err := output.Metadata.Extra.Decode[genai.FinishReason]("google/native_finish_reason")
+			for _, complete := range []*corechat.Response{response, streamed} {
+				native, found, err := complete.Metadata.Extra.Decode[genai.FinishReason]("google/native_finish_reason")
 				if err != nil || !found || native != tc.reason {
 					t.Fatalf("native reason = %s, found %v, error %v", native, found, err)
 				}

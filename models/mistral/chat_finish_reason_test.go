@@ -41,14 +41,11 @@ func TestNativeFinishReasonSurvivesOther(t *testing.T) {
 			if mapped != corechat.FinishReasonOther {
 				t.Fatalf("finishReason(%q).normalized() = %q, want %q", raw, mapped, corechat.FinishReasonOther)
 			}
-			outputMetadata, err := raw.metadata()
-			if err != nil {
-				t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
+			var metadata corechat.ResponseMetadata
+			if err := raw.preserveNative(&metadata); err != nil {
+				t.Fatalf("finishReason(%q).preserveNative() = %v, want nil", raw, err)
 			}
-			if outputMetadata == nil {
-				t.Fatalf("finishReason(%q).metadata() = nil metadata, want the provider value kept", raw)
-			}
-			native, found, err := outputMetadata.Extra.Decode[string](nativeFinishReasonKey)
+			native, found, err := metadata.Extra.Decode[string](nativeFinishReasonKey)
 			if err != nil || !found {
 				t.Fatalf("Decode(%q) = %q, %t, %v", nativeFinishReasonKey, native, found, err)
 			}
@@ -60,18 +57,18 @@ func TestNativeFinishReasonSurvivesOther(t *testing.T) {
 }
 
 // A portable reason carries everything the caller needs, so nothing is
-// attached: an output metadata block that only ever repeats "stop" would be
-// noise on every successful response.
+// attached: a metadata entry that only ever repeats "stop" would be noise on
+// every successful response.
 func TestNativeFinishReasonStaysAbsentForAPortableReason(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []finishReason{finishReasonStop, finishReasonLength, finishReasonToolCalls} {
-		outputMetadata, err := raw.metadata()
-		if err != nil {
-			t.Fatalf("finishReason(%q).metadata() = %v, want nil", raw, err)
+		var metadata corechat.ResponseMetadata
+		if err := raw.preserveNative(&metadata); err != nil {
+			t.Fatalf("finishReason(%q).preserveNative() = %v, want nil", raw, err)
 		}
-		if outputMetadata != nil {
-			t.Fatalf("finishReason(%q).metadata() = %#v, want nil", raw, outputMetadata)
+		if metadata.Extra != nil {
+			t.Fatalf("finishReason(%q).preserveNative() recorded %#v, want nothing", raw, metadata.Extra)
 		}
 	}
 }

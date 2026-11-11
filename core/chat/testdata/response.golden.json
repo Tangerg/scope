@@ -9,15 +9,7 @@
         }
       ]
     },
-    "finish_reason": "stop",
-    "metadata": {
-      "extra": {
-        "openai/logprobs": [
-          -0.1,
-          -0.2
-        ]
-      }
-    }
+    "finish_reason": "stop"
   },
   "metadata": {
     "id": "response-1",
@@ -29,6 +21,10 @@
       "cache_read_input_tokens": 8
     },
     "extra": {
+      "openai/logprobs": [
+        -0.1,
+        -0.2
+      ],
       "openai/system_fingerprint": "fp-1"
     }
   }

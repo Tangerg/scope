@@ -12,7 +12,7 @@ type echoModel struct{}
 
 func (echoModel) Call(_ context.Context, request *chat.Request) (*chat.Response, error) {
 	message := chat.NewAssistantMessage(chat.NewTextPart(request.Messages[0].Text()))
-	output, err := chat.NewOutput(&message, chat.FinishReasonStop, nil)
+	output, err := chat.NewOutput(&message, chat.FinishReasonStop)
 	if err != nil {
 		return nil, err
 	}

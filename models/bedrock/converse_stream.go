@@ -179,8 +179,7 @@ func (c *converseStream) complete(delta *corechat.ResponseDelta) (*corechat.Resp
 	}
 	delta.FinishReason = mapProtocolStopReason(c.stopReason)
 	if delta.FinishReason == corechat.FinishReasonOther {
-		delta.OutputMetadata = &corechat.OutputMetadata{}
-		if err := delta.OutputMetadata.Extra.Set(chatNativeFinishReasonKey, string(c.stopReason)); err != nil {
+		if err := delta.Metadata.Extra.Set(chatNativeFinishReasonKey, string(c.stopReason)); err != nil {
 			return nil, err
 		}
 	}

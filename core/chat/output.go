@@ -3,15 +3,14 @@ package chat
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-
-	"github.com/Tangerg/scope/core/metadata"
 )
 
 // FinishReason explains why generation stopped. Complete outputs require a
 // non-empty value; ResponseDelta uses the empty value before termination.
 type FinishReason string
 
-// Adapters classify the outcome using these reasons and preserve the native reason in OutputMetadata.Extra.
+// Adapters classify the outcome using these reasons and preserve the native
+// reason in ResponseMetadata.Extra.
 const (
 	// FinishReasonStop means the model reached a natural stop condition,
 	// including one of the caller's stop sequences. The output is complete.
@@ -40,58 +39,16 @@ func (f FinishReason) Valid() bool {
 	}
 }
 
-type OutputMetadata struct {
-	Extra metadata.Map `json:"extra,omitzero"`
-}
-
-func (o *OutputMetadata) validate() error {
-	if o == nil {
-		return nil
-	}
-	if err := o.Extra.Validate(); err != nil {
-		return fmt.Errorf("%w: output metadata: %w", ErrInvalidResponse, err)
-	}
-	return nil
-}
-
-func (o OutputMetadata) clone() *OutputMetadata {
-	return &OutputMetadata{Extra: o.Extra.Clone()}
-}
-
-func (o OutputMetadata) MarshalJSON() ([]byte, error) {
-	if err := (&o).validate(); err != nil {
-		return nil, err
-	}
-	return jsonv2.Marshal(wireOutputMetadata(o), jsonv2.Deterministic(true))
-}
-
-func (o *OutputMetadata) UnmarshalJSON(data []byte) error {
-	if o == nil {
-		return fmt.Errorf("%w: output metadata receiver is nil", ErrInvalidResponse)
-	}
-	var decoded wireOutputMetadata
-	if err := jsonv2.Unmarshal(data, &decoded, jsonv2.RejectUnknownMembers(true)); err != nil {
-		return fmt.Errorf("%w: decode output metadata: %w", ErrInvalidResponse, err)
-	}
-	candidate := OutputMetadata(decoded)
-	if err := candidate.validate(); err != nil {
-		return err
-	}
-	*o = candidate
-	return nil
-}
-
 // Output is the complete single provider generation produced by a chat call.
 // Message may be nil when the provider completed without a portable content
 // item, but FinishReason is always present.
 type Output struct {
-	Message      *Message        `json:"message,omitzero"`
-	FinishReason FinishReason    `json:"finish_reason,omitempty"`
-	Metadata     *OutputMetadata `json:"metadata,omitzero"`
+	Message      *Message     `json:"message,omitzero"`
+	FinishReason FinishReason `json:"finish_reason,omitempty"`
 }
 
-func NewOutput(message *Message, finishReason FinishReason, outputMetadata *OutputMetadata) (*Output, error) {
-	output := &Output{Message: message, FinishReason: finishReason, Metadata: outputMetadata}
+func NewOutput(message *Message, finishReason FinishReason) (*Output, error) {
+	output := &Output{Message: message, FinishReason: finishReason}
 	if err := output.Validate(); err != nil {
 		return nil, fmt.Errorf("chat: create output: %w", err)
 	}
@@ -120,9 +77,6 @@ func (o *Output) Validate() error {
 	if !o.FinishReason.Valid() {
 		return fmt.Errorf("%w: missing or unknown finish reason %q", ErrInvalidResponse, o.FinishReason)
 	}
-	if err := o.Metadata.validate(); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -130,9 +84,6 @@ func (o Output) clone() *Output {
 	clone := o
 	if o.Message != nil {
 		clone.Message = new(o.Message.Clone())
-	}
-	if o.Metadata != nil {
-		clone.Metadata = o.Metadata.clone()
 	}
 	return &clone
 }
@@ -159,10 +110,6 @@ func (o *Output) UnmarshalJSON(data []byte) error {
 	*o = candidate
 	return nil
 }
-
-type wireOutputMetadata OutputMetadata
-
-func (OutputMetadata) JSONSchemaModel() any { return wireOutputMetadata{} }
 
 type wireOutput Output
 

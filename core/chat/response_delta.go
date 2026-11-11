@@ -195,7 +195,6 @@ type ResponseDelta struct {
 	Parts           []PartDelta       `json:"parts,omitempty"`
 	MessageMetadata metadata.Map      `json:"message_metadata,omitzero"`
 	FinishReason    FinishReason      `json:"finish_reason,omitempty"`
-	OutputMetadata  *OutputMetadata   `json:"output_metadata,omitzero"`
 	Metadata        *ResponseMetadata `json:"metadata,omitzero"`
 }
 
@@ -210,9 +209,6 @@ func (r *ResponseDelta) Clone() *ResponseDelta {
 	}
 	for index := range r.Parts {
 		clone.Parts[index] = r.Parts[index].Clone()
-	}
-	if r.OutputMetadata != nil {
-		clone.OutputMetadata = r.OutputMetadata.clone()
 	}
 	if r.Metadata != nil {
 		clone.Metadata = r.Metadata.clone()
@@ -251,9 +247,6 @@ func (r *ResponseDelta) Validate() error {
 	if r.FinishReason != "" && !r.FinishReason.Valid() {
 		return fmt.Errorf("%w: unknown finish reason %q", ErrInvalidResponse, r.FinishReason)
 	}
-	if err := r.OutputMetadata.validate(); err != nil {
-		return err
-	}
 	if err := r.Metadata.validate(); err != nil {
 		return fmt.Errorf("%w: metadata: %w", ErrInvalidResponse, err)
 	}
@@ -261,8 +254,7 @@ func (r *ResponseDelta) Validate() error {
 }
 
 func (r *ResponseDelta) empty() bool {
-	return len(r.Parts) == 0 && len(r.MessageMetadata) == 0 && r.FinishReason == "" &&
-		r.OutputMetadata == nil && r.Metadata == nil
+	return len(r.Parts) == 0 && len(r.MessageMetadata) == 0 && r.FinishReason == "" && r.Metadata == nil
 }
 
 func (r ResponseDelta) MarshalJSON() ([]byte, error) {

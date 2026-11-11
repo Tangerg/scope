@@ -109,11 +109,9 @@ func (c *chatStreamState) complete(delta *corechat.ResponseDelta) (*corechat.Res
 		return nil, err
 	}
 	delta.FinishReason = c.finish.normalized()
-	outputMetadata, err := c.finish.metadata()
-	if err != nil {
+	if err := c.finish.preserveNative(delta.Metadata); err != nil {
 		return nil, err
 	}
-	delta.OutputMetadata = outputMetadata
 	if err := delta.Validate(); err != nil {
 		return nil, fmt.Errorf("mistral: terminal stream response: %w", err)
 	}
