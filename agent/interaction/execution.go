@@ -399,6 +399,8 @@ func collectEffectResult(messages []run.Message, expected operation, id run.Effe
 	return arrival, nil
 }
 
+// prepareDelegateCalls starts the run of delegated calls that begins at the
+// next call, which advanceToolCallBatch found delegated.
 func (e *execution) prepareDelegateCalls(ctx context.Context, turn run.Turn, calls []chat.ToolCall) ([]run.Effect, error) {
 	start := e.state.ToolRound.nextCallIndex()
 	batch := &callBatch{Kind: callDelegate}
@@ -422,9 +424,6 @@ func (e *execution) prepareDelegateCalls(ctx context.Context, turn run.Turn, cal
 		}
 		batch.Invocations = append(batch.Invocations, &callInvocation{Reference: turn.EffectID(uint32(len(effects))), Child: &invocation})
 		effects = append(effects, effect)
-	}
-	if len(effects) == 0 {
-		return nil, ErrInvalidExecutionState
 	}
 	e.state.ToolRound.beginCalls(batch)
 	return effects, nil

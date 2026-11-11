@@ -62,10 +62,8 @@ func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transit
 	}
 	e.state.WorldState = sensed.WorldState
 	if confirms := e.state.Sense.Confirms; confirms != "" {
-		binding, found := e.definition.binding(confirms)
-		if !found {
-			return run.Transition{}, ErrInvalidExecutionState
-		}
+		// Restore and requestSense only record a bound Action here.
+		binding, _ := e.definition.binding(confirms)
 		e.state.confirmAction(confirms, binding.action)
 	}
 	e.state.Sense = nil
