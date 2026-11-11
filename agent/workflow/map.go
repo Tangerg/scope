@@ -170,11 +170,11 @@ func (m mapValueCodec) index(ctx context.Context, raw json.RawMessage) ([]mapIte
 	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.ReadToken()
-	if err != nil || token.Kind() != '[' {
+	if err != nil || token.Kind() != jsontext.KindBeginArray {
 		return nil, errors.Join(ErrInvalidExecutionState, err)
 	}
 	var spans []mapItemSpan
-	for decoder.PeekKind() != ']' {
+	for decoder.PeekKind() != jsontext.KindEndArray {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
