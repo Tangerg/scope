@@ -170,7 +170,7 @@ func TestMalformedDispatcherProtocolsFailAtTheCommittedBoundary(t *testing.T) {
 		t.Error("malformed request invoked a model")
 		return nil, errors.New("must not run")
 	}))}))
-	for _, payload := range []string{`{}`, `{"model_call":{}}`, `{"tool_call":{"invocation":{"call":{"id":"call","name":"absent","arguments":"{}"}}}}`, `{"prepare_context":{"model_call_sequence":1,"request":{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}]}]}}}`} {
+	for _, payload := range []string{`{}`, `{"model_call":{}}`, `{"tool_call":{"call":{"id":"call","name":"absent","arguments":"{}"}}}`, `{"prepare_context":{"model_call_sequence":1,"request":{"messages":[{"role":"user","parts":[{"kind":"text","text":"question"}]}]}}}`} {
 		effect := mustValue(run.NewDispatcherEffect(mustValue(run.ParsePayload([]byte(payload)))))
 		conformancetest.CheckDispatcherRejection(t, dispatcher, effect)
 	}

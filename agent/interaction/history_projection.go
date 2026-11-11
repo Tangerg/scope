@@ -227,7 +227,7 @@ func (h *historyProjector) intendedToolCall(effect run.EffectID, request toolDis
 		return nil
 	}
 	round := h.rounds[effect.Process]
-	index, found := round.callIndex(request.Invocation.Call)
+	index, found := round.callIndex(request.Call)
 	if !found {
 		return ErrInvalidResult
 	}
@@ -359,7 +359,7 @@ func (p *projectedCall) toolCall() chat.ToolCall { return p.round.calls[p.index]
 
 func (p *projectedCall) resume(request toolDispatchRequest, effect run.EffectID) error {
 	resume := request.Resume
-	if resume == nil || !resume.precedes(effect) || p.input == nil || p.round.references[p.index] != resume.Reference || p.toolCall() != request.Invocation.Call {
+	if resume == nil || !resume.precedes(effect) || p.input == nil || p.round.references[p.index] != resume.Reference || p.toolCall() != request.Call {
 		return ErrInvalidResult
 	}
 	if !p.input.Request.Equal(resume.InputRequest) {

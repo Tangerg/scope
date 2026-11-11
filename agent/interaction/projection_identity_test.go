@@ -102,7 +102,7 @@ func TestOneProviderCallCannotAcquireTwoInitialEffectOwners(t *testing.T) {
 	}
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	for _, resume := range []*toolResume{nil, {Reference: intents[0].ID, InputRequest: question, InputResponse: []byte(`true`)}} {
-		changed := mustValue(toolDispatchRequest{Invocation: toolCall{Call: requested("echo", "first")}, Resume: resume}.effect())
+		changed := mustValue(toolDispatchRequest{Call: requested("echo", "first"), Resume: resume}.effect())
 		corrupt := replaceLoggedEffect(t, log, intents[1].ID, changed)
 		assertProjectionRejection(t, program, corrupt)
 	}
@@ -148,7 +148,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 		t.Fatal("fixture did not emit a continuation")
 	}
 	for _, change := range []func(*toolDispatchRequest){
-		func(request *toolDispatchRequest) { request.Invocation.Call.ID = "another-provider-call" },
+		func(request *toolDispatchRequest) { request.Call.ID = "another-provider-call" },
 		func(request *toolDispatchRequest) {
 			request.Resume.InputRequest = mustValue(newInputRequest([]byte(`"Changed question?"`), question.ResponseSchema().JSON(), question.State()))
 		},
@@ -286,7 +286,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 		{requested("foreign", "call"), false},
 		{chat.ToolCall{ID: "call", Name: "echo", Arguments: `{"changed":true}`}, false},
 	} {
-		effect := mustValue(toolDispatchRequest{Invocation: toolCall{Call: row.call}}.effect())
+		effect := mustValue(toolDispatchRequest{Call: row.call}.effect())
 		changed := replaceLoggedEffect(t, log, invocation.ID, effect)
 		assertProjectionRejection(t, program, changed)
 		request := requestFromIntentPrefix(t, changed, invocation.ID)
@@ -322,7 +322,7 @@ func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 	if _, err := SettleToolResult(program, modelRequest, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("model request acquired tool recovery authority", err)
 	}
-	beforeProposal := mustValue(toolDispatchRequest{Invocation: toolCall{Call: requested("echo", "call")}}.effect())
+	beforeProposal := mustValue(toolDispatchRequest{Call: requested("echo", "call")}.effect())
 	assertProjectionRejection(t, program, replaceLoggedEffect(t, log, model.ID, beforeProposal))
 	for _, wire := range []string{
 		`{}`,

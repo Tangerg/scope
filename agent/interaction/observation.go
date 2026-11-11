@@ -150,7 +150,7 @@ func ToolCallFromEffect(effect run.Effect) (ToolCallIntent, bool, error) {
 	if envelope.operation() != operationToolCall {
 		return ToolCallIntent{}, false, nil
 	}
-	intent := ToolCallIntent{Call: envelope.ToolCall.Invocation.Call}
+	intent := ToolCallIntent{Call: envelope.ToolCall.Call}
 	if envelope.ToolCall.Resume != nil {
 		intent.ContinuationOf = envelope.ToolCall.Resume.Reference
 	}

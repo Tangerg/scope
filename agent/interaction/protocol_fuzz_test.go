@@ -27,11 +27,11 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 				AppliedSteerSignalIDs: []run.SignalID{signalID},
 			},
 		},
-		{ToolCall: &toolDispatchRequest{Invocation: toolCall{Call: call}}},
+		{ToolCall: &toolDispatchRequest{Call: call}},
 		{
 			ToolCall: &toolDispatchRequest{
-				Invocation: toolCall{Call: call},
-				Resume:     &toolResume{Reference: testTurn(1).EffectID(0), InputRequest: fuzzToolInputRequest(f), InputResponse: json.RawMessage(`"Ada"`)},
+				Call:   call,
+				Resume: &toolResume{Reference: testTurn(1).EffectID(0), InputRequest: fuzzToolInputRequest(f), InputResponse: json.RawMessage(`"Ada"`)},
 			},
 		},
 	} {

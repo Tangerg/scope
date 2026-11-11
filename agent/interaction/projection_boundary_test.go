@@ -39,7 +39,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"private":true}`)))
 	reference := testTurn(1).EffectID(1)
 	for _, resume := range []*toolResume{nil, {InputRequest: question, Reference: reference, InputResponse: []byte(`true`)}} {
-		effect := mustValue(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: resume}.effect())
+		effect := mustValue(toolDispatchRequest{Call: call, Resume: resume}.effect())
 		observed, present, decodeErr := ToolCallFromEffect(effect)
 		origin := observed.ContinuationOf
 		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {

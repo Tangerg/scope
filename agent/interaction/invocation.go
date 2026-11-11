@@ -38,7 +38,7 @@ func (t ToolInvocation) ProcessID() run.ProcessID   { return t.request.ID().Proc
 func (t ToolInvocation) Epoch() run.Epoch           { return t.request.Epoch() }
 func (t ToolInvocation) ProgramRef() run.ProgramRef { return t.request.ProgramRef() }
 func (t ToolInvocation) EffectID() run.EffectID     { return t.request.ID() }
-func (t ToolInvocation) ToolCall() chat.ToolCall    { return t.call.Invocation.Call }
+func (t ToolInvocation) ToolCall() chat.ToolCall    { return t.call.Call }
 
 // Reference is the Effect that started the logical call.
 func (t ToolInvocation) Reference() run.EffectID {
@@ -59,7 +59,7 @@ func idempotencyKey(reference run.EffectID) tool.IdempotencyKey {
 }
 
 func (t ToolInvocation) Valid() bool {
-	return t.request.Valid() && t.call.Invocation.validate() == nil && (t.call.Resume == nil || t.call.Resume.precedes(t.request.ID()))
+	return t.request.Valid() && (t.call.Resume == nil || t.call.Resume.precedes(t.request.ID()))
 }
 
 func (t ToolInvocation) admission() (tool.Admission, error) {

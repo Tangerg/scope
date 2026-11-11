@@ -86,7 +86,7 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	if err != nil || envelope.ToolCall == nil || !d.tools.Configured() {
 		return policy
 	}
-	policy.Replay = d.tools.replayPolicy(envelope.ToolCall.Invocation.Call.Name)
+	policy.Replay = d.tools.replayPolicy(envelope.ToolCall.Call.Name)
 	policy.RequiredCapabilities = d.requiredToolCapabilities
 	return policy
 }

@@ -25,7 +25,7 @@ func TestModelEffectConstructionRejectsAmbiguousOrInvalidAuthority(t *testing.T)
 		{"invalid tool definition", modelCall{ModelCallSequence: 1, Request: request, Tools: []tool.Definition{{}}}, nil},
 		{"duplicate steering identity", modelCall{ModelCallSequence: 1, Request: request, AppliedSteerSignalIDs: []run.SignalID{id, id}}, nil},
 		{"missing steering identity", modelCall{ModelCallSequence: 1, Request: request, AppliedSteerSignalIDs: []run.SignalID{{}}}, nil},
-		{"second operation", modelCall{ModelCallSequence: 1, Request: request}, &toolDispatchRequest{Invocation: toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}}},
+		{"second operation", modelCall{ModelCallSequence: 1, Request: request}, &toolDispatchRequest{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			for _, envelope := range []effectEnvelope{{ModelCall: &test.call, ToolCall: test.other}, {Preparation: &test.call, ToolCall: test.other}} {
@@ -38,15 +38,15 @@ func TestModelEffectConstructionRejectsAmbiguousOrInvalidAuthority(t *testing.T)
 }
 
 func TestToolEffectConstructionRequiresItsExactContinuationContract(t *testing.T) {
-	call := toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}
+	call := chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}
 	request, err := newInputRequest([]byte(`"approve"`), []byte(`{"type":"boolean"}`), []byte(`null`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, invocation := range []toolDispatchRequest{
 		{},
-		{Invocation: call, Resume: &toolResume{InputResponse: []byte(`true`)}},
-		{Invocation: call, Resume: &toolResume{InputRequest: request, InputResponse: []byte(`"yes"`)}},
+		{Call: call, Resume: &toolResume{InputResponse: []byte(`true`)}},
+		{Call: call, Resume: &toolResume{InputRequest: request, InputResponse: []byte(`"yes"`)}},
 	} {
 		if _, err := invocation.effect(); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatalf("invalid continuation admitted: %+v", invocation)

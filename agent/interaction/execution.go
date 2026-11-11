@@ -447,7 +447,7 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		if invocation != nil || active >= e.definition.maxConcurrentToolCalls {
 			continue
 		}
-		effect, effectErr := toolDispatchRequest{Invocation: toolCall{Call: calls[index]}}.effect()
+		effect, effectErr := toolDispatchRequest{Call: calls[index]}.effect()
 		if effectErr != nil {
 			return run.Transition{}, effectErr
 		}

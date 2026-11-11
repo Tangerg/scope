@@ -70,26 +70,16 @@ func (m modelCall) validate() error {
 	return nil
 }
 
-// The model owns call ID and name; the EffectID owns execution correlation.
-type toolCall struct {
-	Call chat.ToolCall `json:"call"`
-}
-
-func (t toolCall) validate() error {
-	if err := t.Call.Validate(); err != nil {
-		return fmt.Errorf("%w: tool_call: %w", ErrInvalidProtocol, err)
-	}
-	return nil
-}
-
+// toolDispatchRequest carries the model's call; the model owns its ID and name,
+// and the EffectID owns execution correlation.
 type toolDispatchRequest struct {
-	Invocation toolCall    `json:"invocation"`
-	Resume     *toolResume `json:"resume,omitzero"`
+	Call   chat.ToolCall `json:"call"`
+	Resume *toolResume   `json:"resume,omitzero"`
 }
 
 func (t toolDispatchRequest) validate() error {
-	if err := t.Invocation.validate(); err != nil {
-		return err
+	if err := t.Call.Validate(); err != nil {
+		return fmt.Errorf("%w: tool_call: %w", ErrInvalidProtocol, err)
 	}
 	if t.Resume == nil {
 		return nil

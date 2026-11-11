@@ -319,7 +319,7 @@ func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 		return nil, errors.New("must not call the model")
 	}))}))
 	for name, want := range map[string]run.ReplayPolicy{"read": run.ReplayPolicySameIdentity, "write": run.ReplayPolicyNever} {
-		effect := mustValue(toolDispatchRequest{Invocation: toolCall{Call: requested(name, name)}}.effect())
+		effect := mustValue(toolDispatchRequest{Call: requested(name, name)}.effect())
 		if got := dispatcher.Policy(effect).Replay; got != want {
 			t.Errorf("%s replay = %s; want %s", name, got, want)
 		}
