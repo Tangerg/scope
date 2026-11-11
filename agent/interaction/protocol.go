@@ -272,13 +272,11 @@ func failedSettlement(cause error) (run.Settlement, error) {
 	return stepfail.Settlement(run.FailureKindContract, failureCodeDispatchRejected, cause.Error())
 }
 
-// decodeSettlement reads the definite settlement delivered for an Effect of
-// the expected operation. A failure keeps the classification its dispatcher
-// recorded, so the Step that ends on it terminates with that same Failure.
+// decodeSettlement reads the settlement a delivered Completion carries for an
+// Effect of the expected operation; a delivered Completion is always definite.
+// A failure keeps the classification its dispatcher recorded, so the Step that
+// ends on it terminates with that same Failure.
 func decodeSettlement(settlement run.Settlement, expected operation) (resultEnvelope, run.Failure, error) {
-	if !settlement.Valid() || settlement.Status() == run.SettlementStatusUnknown {
-		return resultEnvelope{}, run.Failure{}, ErrInvalidProtocol
-	}
 	if failure, failed := settlement.Failure(); failed {
 		_, err := expected.failedResponse(settlement)
 		return resultEnvelope{}, failure, err

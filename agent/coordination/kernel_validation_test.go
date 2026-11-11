@@ -112,8 +112,6 @@ func TestDeadlineValidatesRestoredStateAndExactTimerCompletion(t *testing.T) {
 	}
 	for _, messages := range [][]run.Message{
 		nil, {external}, {run.Completion{Effect: turn(1).EffectID(1), Outcome: settled(timerReached{})}},
-		{run.Completion{Effect: turn(1).EffectID(0)}},
-		{run.Completion{Effect: turn(1).EffectID(0), Outcome: require(run.NewSettlement(run.SettlementStatusUnknown, require(run.ParsePayload([]byte(`null`)))))}},
 		{run.Completion{Effect: turn(1).EffectID(0), Outcome: settled("not a reached receipt")}},
 	} {
 		restored := require(definition.Restore(t.Context(), waiting))

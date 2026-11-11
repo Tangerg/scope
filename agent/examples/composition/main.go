@@ -136,10 +136,7 @@ func (*uppercaseDefinition) ChildPrograms() []agentrun.Program[agentrun.Payload,
 	return nil
 }
 
-func (u *uppercaseDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {
-	if err := u.descriptor.ValidateInput(input); err != nil {
-		return nil, err
-	}
+func (*uppercaseDefinition) Start(input agentrun.Payload) (agentrun.Execution, error) {
 	decoded, err := input.Decode[textInput]()
 	if err != nil {
 		return nil, err
