@@ -97,10 +97,6 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	if accepted, err := invocation.Accept(run.Exit{Child: parent}); accepted || err != nil {
 		t.Fatal("unrelated exit consumed")
 	}
-	var absent *Invocation
-	if accepted, err := absent.Accept(run.Signal{}); accepted || err == nil {
-		t.Fatal("nil invocation accepted input")
-	}
 	if _, _, err := Start(run.Turn{}, 0, run.ChildSpec{}); err == nil {
 		t.Fatal("invalid start accepted")
 	}

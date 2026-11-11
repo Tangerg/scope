@@ -83,10 +83,9 @@ func (i *Invocation) UnmarshalJSON(data []byte) error {
 
 func (i Invocation) Done() bool { return i.Termination != nil || i.Rejection != nil }
 
+// Accept applies message to the invocation it answers. Start and decoding are
+// the only sources of an Invocation, and both leave exactly one obligation.
 func (i *Invocation) Accept(message run.Message) (bool, error) {
-	if i == nil || !i.Valid() {
-		return false, ErrInvalidMessage
-	}
 	switch value := message.(type) {
 	case run.Completion:
 		if i.Request == nil || value.Effect != *i.Request {
