@@ -23,13 +23,7 @@ type AudioTranslationModelConfig struct {
 }
 
 func (a AudioTranslationModelConfig) Validate() error {
-	if err := requireBindingEndpoint(a.Provider, a.BaseURL); err != nil {
-		return err
-	}
-	if err := validateProvider(a.Provider); err != nil {
-		return fmt.Errorf("openai: Provider: %w", err)
-	}
-	if err := (apiConfig{APIKey: a.APIKey, BaseURL: a.BaseURL}).validate(); err != nil {
+	if err := validateBinding(a.Provider, a.APIKey, a.BaseURL); err != nil {
 		return err
 	}
 	if a.DefaultOptions.Model == "" {

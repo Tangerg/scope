@@ -48,6 +48,18 @@ func requireBindingEndpoint(provider, endpoint string) error {
 	return nil
 }
 
+// validateBinding admits the provider, credential, and endpoint every
+// OpenAI-protocol model binds before it is constructed.
+func validateBinding(provider, apiKey, baseURL string) error {
+	if err := requireBindingEndpoint(provider, baseURL); err != nil {
+		return err
+	}
+	if err := validateProvider(provider); err != nil {
+		return fmt.Errorf("openai: Provider: %w", err)
+	}
+	return apiConfig{APIKey: apiKey, BaseURL: baseURL}.validate()
+}
+
 func (a apiConfig) validate() error {
 	_, err := a.endpoint()
 	return err

@@ -23,13 +23,7 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if err := requireBindingEndpoint(e.Provider, e.BaseURL); err != nil {
-		return err
-	}
-	if err := validateProvider(e.Provider); err != nil {
-		return fmt.Errorf("openai: Provider: %w", err)
-	}
-	if err := (apiConfig{APIKey: e.APIKey, BaseURL: e.BaseURL}).validate(); err != nil {
+	if err := validateBinding(e.Provider, e.APIKey, e.BaseURL); err != nil {
 		return err
 	}
 	if e.DefaultOptions.Model == "" {

@@ -23,13 +23,7 @@ type ModerationModelConfig struct {
 }
 
 func (m ModerationModelConfig) Validate() error {
-	if err := requireBindingEndpoint(m.Provider, m.BaseURL); err != nil {
-		return err
-	}
-	if err := validateProvider(m.Provider); err != nil {
-		return fmt.Errorf("openai: Provider: %w", err)
-	}
-	if err := (apiConfig{APIKey: m.APIKey, BaseURL: m.BaseURL}).validate(); err != nil {
+	if err := validateBinding(m.Provider, m.APIKey, m.BaseURL); err != nil {
 		return err
 	}
 	if m.DefaultOptions.Model == "" {

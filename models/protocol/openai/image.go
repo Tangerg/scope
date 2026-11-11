@@ -43,13 +43,7 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
-	if err := requireBindingEndpoint(i.Provider, i.BaseURL); err != nil {
-		return err
-	}
-	if err := validateProvider(i.Provider); err != nil {
-		return fmt.Errorf("openai: Provider: %w", err)
-	}
-	if err := (apiConfig{APIKey: i.APIKey, BaseURL: i.BaseURL}).validate(); err != nil {
+	if err := validateBinding(i.Provider, i.APIKey, i.BaseURL); err != nil {
 		return err
 	}
 	if i.DefaultOptions.Model == "" {

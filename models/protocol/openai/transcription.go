@@ -22,13 +22,7 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) Validate() error {
-	if err := requireBindingEndpoint(t.Provider, t.BaseURL); err != nil {
-		return err
-	}
-	if err := validateProvider(t.Provider); err != nil {
-		return fmt.Errorf("openai: Provider: %w", err)
-	}
-	if err := (apiConfig{APIKey: t.APIKey, BaseURL: t.BaseURL}).validate(); err != nil {
+	if err := validateBinding(t.Provider, t.APIKey, t.BaseURL); err != nil {
 		return err
 	}
 	if t.DefaultOptions.Model == "" {
