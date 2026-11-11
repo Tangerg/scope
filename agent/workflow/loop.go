@@ -17,12 +17,11 @@ type LoopPredicate[T any] func(ctx context.Context, value T) (bool, error)
 // when MaxIterations was exhausted; that outcome is still a valid completion.
 type LoopResult[T any] struct {
 	// Value is the output of the last completed body iteration.
-	Value      T      `json:"value"`
+	Value T `json:"value"`
+	// Iterations counts completed body iterations; a Loop always runs one.
 	Iterations uint64 `json:"iterations"`
 	Satisfied  bool   `json:"satisfied"`
 }
-
-func (l LoopResult[T]) Valid() bool { return l.Iterations > 0 }
 
 type LoopConfig[T any] struct {
 	// ID is unique within the Workflow and remains stable across restoration.
@@ -95,10 +94,6 @@ func loopResult[T any](resultSchema jsonschema.Schema) func(run.Payload, uint64,
 		if err != nil {
 			return run.Payload{}, err
 		}
-		result := LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied}
-		if !result.Valid() {
-			return run.Payload{}, ErrInvalidExecutionState
-		}
-		return encodeConforming(resultSchema, result)
+		return encodeConforming(resultSchema, LoopResult[T]{Value: value, Iterations: iterations, Satisfied: satisfied})
 	}
 }

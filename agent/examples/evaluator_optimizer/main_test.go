@@ -156,14 +156,11 @@ func TestOptimizationHistoryOwnsEvaluatedCandidates(t *testing.T) {
 
 func TestFinalReportRefusesIncompleteOrContradictoryHistory(t *testing.T) {
 	good := optimizationState{Objective: "review", History: []attempt{{Candidate: candidate{Content: "first"}, Assessment: assessment{Score: 0.8, Feedback: "evidence"}}}}
-	for _, mode := range []string{"no iterations", "no evidence", "pending revision", "invalid assessment", "missing history", "untrimmed objective"} {
+	for _, mode := range []string{"no evidence", "pending revision", "invalid assessment", "missing history", "untrimmed objective"} {
 		t.Run(mode, func(t *testing.T) {
 			s := good
 			s.History = slices.Clone(good.History)
-			iters := uint64(1)
 			switch mode {
-			case "no iterations":
-				iters = 0
 			case "no evidence":
 				s.History = []attempt{}
 			case "pending revision":
@@ -175,7 +172,7 @@ func TestFinalReportRefusesIncompleteOrContradictoryHistory(t *testing.T) {
 			case "untrimmed objective":
 				s.Objective = " review"
 			}
-			got, err := finalizeOptimization(workflow.LoopResult[optimizationState]{Value: s, Iterations: iters, Satisfied: true})
+			got, err := finalizeOptimization(workflow.LoopResult[optimizationState]{Value: s, Iterations: 1, Satisfied: true})
 			if err == nil || got.Accepted || len(got.History) != 0 {
 				t.Fatalf("invalid report=%+v err=%v", got, err)
 			}

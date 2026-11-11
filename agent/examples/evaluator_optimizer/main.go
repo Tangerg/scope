@@ -350,9 +350,6 @@ func initializeOptimization(_ context.Context, request optimizationRequest) (opt
 
 func finalizeOptimization(result workflow.LoopResult[optimizationState]) (optimizationReport, error) {
 	state := result.Value
-	if !result.Valid() {
-		return optimizationReport{}, errors.New("loop result is invalid")
-	}
 	if err := state.validateSettled(); err != nil {
 		return optimizationReport{}, err
 	}

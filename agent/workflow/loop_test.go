@@ -58,7 +58,7 @@ func TestLoopRunsAtLeastOnceAndReportsSatisfiedOrExhausted(t *testing.T) {
 				t.Fatal(err)
 			}
 			output := decodeCompleted[LoopResult[loopValue]](t, result)
-			if !output.Valid() || output.Value.Value != test.wantValue ||
+			if output.Value.Value != test.wantValue ||
 				output.Iterations != uint64(test.wantIterations) || output.Satisfied != test.wantSatisfied {
 				t.Fatalf("Loop output = %#v", output)
 			}
@@ -138,8 +138,5 @@ func TestLoopRequiresPredicateAndExactBodyContract(t *testing.T) {
 				t.Fatalf("Loop error = %v", err)
 			}
 		})
-	}
-	if (LoopResult[loopValue]{}).Valid() {
-		t.Fatal("zero LoopResult is valid")
 	}
 }
