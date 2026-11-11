@@ -163,7 +163,6 @@ func reviewerProgram(compiler *agentrun.Compiler, reviewer string) (agentrun.Pro
 func transformProgram[I, O any](
 	compiler *agentrun.Compiler,
 	name, description string,
-
 	transform workflow.TransformFunc[I, O],
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("apply", transform)
