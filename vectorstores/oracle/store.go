@@ -442,40 +442,11 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	if len(batch.Records[0].Values) != width {
 		return fmt.Errorf("%w: native vector width is %d", vectorstore.ErrInvalidRequest, width)
 	}
-	args := make([][]any, len(batch.Records))
-	ids := make([]string, len(args))
-	for i, r := range batch.Records {
-		doc := r.Document
-		ids[i] = doc.ID
-		metaJSON, encodeErr := doc.MarshalStoredMetadata()
-		if encodeErr != nil {
-			return encodeErr
-		}
-		vectorJSON, encodeErr := jsonv2.Marshal(corevector.Float32(r.Values))
-		if encodeErr != nil {
-			return encodeErr
-		}
-		content, encodeErr := oratypes.NewClob(nil, ctx, doc.Text, false)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		facts, encodeErr := oratypes.NewBlob(nil, ctx, metaJSON)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		args[i] = []any{[]byte(doc.ID), content, facts, string(vectorJSON)}
+	ids, rows, err := upsertRows(ctx, batch.Records)
+	if err != nil {
+		return err
 	}
-	mergeSQL := fmt.Sprintf(
-		`MERGE INTO %s tgt USING (SELECT :1 AS id, :2 AS content, :3 AS metadata, TO_VECTOR(:4, *, FLOAT32) AS embedding FROM dual) src `+
-			`ON (tgt.%s = src.id) `+
-			`WHEN MATCHED THEN UPDATE SET tgt.%s = src.content, tgt.%s = src.metadata, tgt.%s = src.embedding `+
-			`WHEN NOT MATCHED THEN INSERT (tgt.%s, tgt.%s, tgt.%s, tgt.%s) VALUES (src.id, src.content, src.metadata, src.embedding)`,
-		s.tableSQL(),
-		s.idColumn.sql(),
-		s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
-		s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
-	)
-	stmt, err := s.db.PrepareContext(ctx, mergeSQL)
+	stmt, err := s.db.PrepareContext(ctx, s.mergeStatement())
 	if err != nil {
 		return err
 	}
@@ -488,25 +459,72 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			}
 		}
 	}()
-	for i, row := range args {
-		if err := ctx.Err(); err != nil {
-			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
+	for i, row := range rows {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return vectorstore.NewWriteError(contextErr, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
-		result, execErr := stmt.ExecContext(ctx, row...)
-		if execErr == nil {
-			if result == nil {
-				execErr = errors.New("oracle: missing native row acknowledgment")
-			} else {
-				var count int64
-				count, execErr = result.RowsAffected()
-				if execErr == nil && (count != 1) {
-					execErr = fmt.Errorf("oracle: invalid upsert acknowledgment %d", count)
-				}
-			}
+		if execErr := acknowledgeMerge(stmt.ExecContext(ctx, row...)); execErr != nil {
+			return vectorstore.NewWriteError(execErr, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
-		if err := execErr; err != nil {
-			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
+	}
+	return nil
+}
+
+func upsertRows(ctx context.Context, records []vectorstore.Record) ([]string, [][]any, error) {
+	ids := make([]string, len(records))
+	rows := make([][]any, len(records))
+	for i, r := range records {
+		doc := r.Document
+		metaJSON, err := doc.MarshalStoredMetadata()
+		if err != nil {
+			return nil, nil, err
 		}
+		vectorJSON, err := jsonv2.Marshal(corevector.Float32(r.Values))
+		if err != nil {
+			return nil, nil, err
+		}
+		content, err := oratypes.NewClob(nil, ctx, doc.Text, false)
+		if err != nil {
+			return nil, nil, err
+		}
+		facts, err := oratypes.NewBlob(nil, ctx, metaJSON)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids[i] = doc.ID
+		rows[i] = []any{[]byte(doc.ID), content, facts, string(vectorJSON)}
+	}
+	return ids, rows, nil
+}
+
+func (s *Store) mergeStatement() string {
+	return fmt.Sprintf(
+		`MERGE INTO %s tgt USING (SELECT :1 AS id, :2 AS content, :3 AS metadata, TO_VECTOR(:4, *, FLOAT32) AS embedding FROM dual) src `+
+			`ON (tgt.%s = src.id) `+
+			`WHEN MATCHED THEN UPDATE SET tgt.%s = src.content, tgt.%s = src.metadata, tgt.%s = src.embedding `+
+			`WHEN NOT MATCHED THEN INSERT (tgt.%s, tgt.%s, tgt.%s, tgt.%s) VALUES (src.id, src.content, src.metadata, src.embedding)`,
+		s.tableSQL(),
+		s.idColumn.sql(),
+		s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
+		s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
+	)
+}
+
+// acknowledgeMerge requires the one row a MERGE of a single source row writes,
+// whether it inserted or updated.
+func acknowledgeMerge(result sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return errors.New("oracle: missing native row acknowledgment")
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("oracle: invalid upsert acknowledgment %d", count)
 	}
 	return nil
 }
@@ -550,14 +568,11 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	return s.rank(ctx, q, &budget)
 }
 
+// rank expects a request its entry point already validated for this store.
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
-	if err = request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("oracle: rank query: %w", err)
-	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("oracle: rank query: %w", err)
 	}
-
 	defer func() {
 		if err == nil {
 			err = request.ValidateResponse(response)
@@ -573,18 +588,6 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if len(request.Values) != width {
 		return nil, vectorstore.ErrInvalidRequest
 	}
-	var transaction *sql.Tx
-	if request.Options.Filter != nil {
-		transaction, err = s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return nil, fmt.Errorf("oracle: begin filter transaction: %w", err)
-		}
-		defer rollbackTransaction(transaction, &err)
-		if err = s.prepareFilter(ctx, transaction, request.Options.Filter, false, budget); err != nil {
-			return nil, err
-		}
-	}
-
 	vectorJSON, err := jsonv2.Marshal(corevector.Float32(request.Values))
 	if err != nil {
 		return nil, fmt.Errorf("oracle: marshal query vector: %w", err)
@@ -592,46 +595,61 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	var ranked []rankedResult
 	if request.Options.Filter == nil {
 		ranked, err = s.searchRows(ctx, nil, request, string(vectorJSON), nil)
-		if err != nil {
-			return nil, err
-		}
 	} else {
-		var lastID []byte
-		for {
-			page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
-			if pageErr != nil {
-				return nil, pageErr
-			}
-			if len(page.ids) > 0 {
-				candidates, queryErr := s.searchRows(ctx, transaction, request, string(vectorJSON), page.ids)
-				if queryErr != nil {
-					return nil, queryErr
-				}
-				ranked = append(ranked, candidates...)
-				slices.SortFunc(ranked, func(left, right rankedResult) int {
-					if order := cmp.Compare(left.distance, right.distance); order != 0 {
-						return order
-					}
-					return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-				})
-				ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
-			}
-			if page.count < filterPageSize {
-				break
-			}
-			lastID = page.lastID
-		}
+		ranked, err = s.rankFiltered(ctx, request, string(vectorJSON), budget)
+	}
+	if err != nil {
+		return nil, err
 	}
 	results := make([]*vectorstore.SearchResult, len(ranked))
 	for index, candidate := range ranked {
 		results[index] = candidate.result
 	}
-	if transaction != nil {
-		if err = transaction.Commit(); err != nil {
-			return nil, fmt.Errorf("oracle: commit filter transaction: %w", err)
-		}
-	}
 	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// rankFiltered ranks the filter matches page by page inside one transaction,
+// so every page ranks against the same snapshot the filter scanned.
+func (s *Store) rankFiltered(ctx context.Context, request *vectorstore.Query, vector string, budget *vectorstore.ScanBudget) (ranked []rankedResult, err error) {
+	transaction, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("oracle: begin filter transaction: %w", err)
+	}
+	defer rollbackTransaction(transaction, &err)
+	if err = s.prepareFilter(ctx, transaction, request.Options.Filter, false, budget); err != nil {
+		return nil, err
+	}
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+		if len(page.ids) > 0 {
+			candidates, queryErr := s.searchRows(ctx, transaction, request, vector, page.ids)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			ranked = nearest(append(ranked, candidates...), request.Options.ResultLimit())
+		}
+		if page.count < filterPageSize {
+			break
+		}
+		lastID = page.lastID
+	}
+	if err = transaction.Commit(); err != nil {
+		return nil, fmt.Errorf("oracle: commit filter transaction: %w", err)
+	}
+	return ranked, nil
+}
+
+// nearest keeps the limit closest results, breaking distance ties by ID so
+// every page order yields the same ranking.
+func nearest(ranked []rankedResult, limit int) []rankedResult {
+	slices.SortFunc(ranked, func(left, right rankedResult) int {
+		return cmp.Or(cmp.Compare(left.distance, right.distance), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked[:min(len(ranked), limit)]
 }
 
 type rankedResult struct {
