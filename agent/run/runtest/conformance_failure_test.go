@@ -72,10 +72,10 @@ func TestPublicConformanceRejectsBrokenImplementations(t *testing.T) {
 func publicConformanceFailures() []conformanceFailure {
 	return []conformanceFailure{
 		{"nil store factory", "", "runtest: store factory is nil", func(t *testing.T) { RunStoreConformance(t, nil) }},
-		{"acknowledged start disappears", "crash started cut 1", "committed prefix was lost", brokenStoreSuite(omitEveryAppend)},
-		{"acknowledged effect intent disappears", "crash effect_intent cut 1", "lost acknowledgment did not leave the exact committed batch", brokenStoreSuite(omitEffectIntent)},
-		{"store grants an unauthorized replay policy", "crash effect_intent cut 1", "unacknowledged effect did not receive a durable unknown outcome", brokenStoreSuite(authorizeReplay)},
-		{"store rewrites successful settlement", "crash effect_settled cut 1", "recovered outcome=failed", brokenStoreSuite(rewriteSettlement)},
+		{"acknowledged start disappears", "crash started after append", "committed prefix was lost", brokenStoreSuite(omitEveryAppend)},
+		{"acknowledged effect intent disappears", "crash effect_intent after append", "lost acknowledgment did not leave the exact committed batch", brokenStoreSuite(omitEffectIntent)},
+		{"store grants an unauthorized replay policy", "crash effect_intent after append", "unacknowledged effect did not receive a durable unknown outcome", brokenStoreSuite(authorizeReplay)},
+		{"store rewrites successful settlement", "crash effect_settled after append", "recovered outcome=failed", brokenStoreSuite(rewriteSettlement)},
 		{"history read drops its first entry", "read yields history after a position", "read after 0", brokenStoreSuite(dropFirstHistoryEntry)},
 		{"committed checkpoint disappears", "checkpoint recovery keeps the same local wait", "checkpoint barrier did not commit its recovery baseline", brokenStoreSuite(hideCheckpoint)},
 		{"accepted signal receipt disappears", "signal receipts survive recovery", "recovered signal retry accepted=true", brokenStoreSuite(omitSignalReceipt)},

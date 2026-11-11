@@ -27,6 +27,41 @@ const (
 	cutAfterAppend
 )
 
+func (a appendCut) String() string {
+	if a == cutAfterAppend {
+		return "after append"
+	}
+	return "before append"
+}
+
+// recoveryCut is one crash point: the first batch holding kind is lost either
+// before it reaches the store or after, with only its acknowledgment lost.
+type recoveryCut struct {
+	kind run.RecordKind
+	cut  appendCut
+}
+
+// startLost reports a crash that leaves no durable Process to recover.
+func (r recoveryCut) startLost() bool {
+	return r.kind == run.RecordKindStarted && r.cut == cutBeforeAppend
+}
+
+// leavesUnknown reports a dispatch whose result never reached the log, which
+// therefore cannot be known to have failed.
+func (r recoveryCut) leavesUnknown() bool {
+	return r.kind == run.RecordKindEffectIntent && r.cut == cutAfterAppend ||
+		r.kind == run.RecordKindEffectSettled && r.cut == cutBeforeAppend
+}
+
+// dispatches is the number of dispatches the whole run performs: none when the
+// Program needs no dispatch, or when the cut intent is resolved instead of run.
+func (r recoveryCut) dispatches() int {
+	if r.kind == run.RecordKindStarted || r.kind == run.RecordKindEffectIntent && r.cut == cutAfterAppend {
+		return 0
+	}
+	return 1
+}
+
 type appendBarrier struct {
 	store    run.Store
 	kind     run.RecordKind
@@ -96,8 +131,8 @@ func (a *appendBarrier) await(t *testing.T) run.Batch {
 func runRecoveryConformance(t *testing.T, factory func(*testing.T) run.Store) {
 	for _, kind := range []run.RecordKind{run.RecordKindStarted, run.RecordKindEffectIntent, run.RecordKindEffectSettled, run.RecordKindExited} {
 		for _, cut := range []appendCut{cutBeforeAppend, cutAfterAppend} {
-			t.Run(fmt.Sprintf("crash %s cut %d", kind, cut), func(t *testing.T) {
-				checkRecoveryCut(t, factory(t), kind, cut)
+			t.Run(fmt.Sprintf("crash %s %s", kind, cut), func(t *testing.T) {
+				checkRecoveryCut(t, factory(t), recoveryCut{kind: kind, cut: cut})
 			})
 		}
 	}
@@ -129,25 +164,18 @@ func resolveRetainedUnknown(t *testing.T, recovered *run.Handle[run.Payload], ro
 	if !ok || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
 		t.Fatalf("unacknowledged external result did not remain unknown: %+v", process)
 	}
-	result, err := run.EncodePayload("result")
-	if err != nil {
-		t.Fatal(err)
-	}
-	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, result)
-	if err != nil {
-		t.Fatal(err)
-	}
+	settlement := conformanceSettlement(t, run.SettlementStatusSucceeded, "result")
 	if err := recovered.ResolveUnknownEffect(t.Context(), process.PendingEffects[0].Request.ID(), settlement); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func checkRecoveryCut(t *testing.T, store run.Store, kind run.RecordKind, cut appendCut) {
-	gate := newAppendBarrier(store, kind, cut)
+func checkRecoveryCut(t *testing.T, store run.Store, crash recoveryCut) {
+	gate := newAppendBarrier(store, crash.kind, crash.cut)
 	defer gate.abort()
 	dispatcher := conformanceDispatcher(t, run.ReplayPolicyNever)
 	definition := newRecoveryDefinition(t, recoveryEffect)
-	if kind == run.RecordKindStarted {
+	if crash.kind == run.RecordKindStarted {
 		definition.mode = recoveryComplete
 	}
 	original, program := recoveryRuntime(t, gate, definition, dispatcher)
@@ -162,7 +190,7 @@ func checkRecoveryCut(t *testing.T, store run.Store, kind run.RecordKind, cut ap
 	if err != nil {
 		t.Fatal(err)
 	}
-	if kind == run.RecordKindStarted && cut == cutBeforeAppend {
+	if crash.startLost() {
 		if found {
 			t.Fatal("unacknowledged start left durable records")
 		}
@@ -175,31 +203,38 @@ func checkRecoveryCut(t *testing.T, store run.Store, kind run.RecordKind, cut ap
 	if !found {
 		t.Fatal("committed prefix was lost")
 	}
-	if kind == run.RecordKindEffectIntent && len(dispatcher.Requests()) != 0 {
+	if crash.kind == run.RecordKindEffectIntent && len(dispatcher.Requests()) != 0 {
 		t.Fatal("dispatcher ran before intent acknowledgment")
 	}
-	assertCutHead(t, log, batch, cut)
+	assertCutHead(t, log, batch, crash.cut)
+	recoverAfterCut(t, store, definition, dispatcher, batch.Root, crash)
+	gate.abort()
+	awaitOriginalCrash(t, started)
+}
+
+func recoverAfterCut(t *testing.T, store run.Store, definition *recoveryDefinition, dispatcher *ScriptedDispatcher, root run.ProcessID, crash recoveryCut) {
+	t.Helper()
 	recoveredRuntime, recoveredProgram := recoveryRuntime(t, store, definition, dispatcher)
-	recovered, err := recoveredRuntime.Recover(t.Context(), recoveredProgram, batch.Root)
+	recovered, err := recoveredRuntime.Recover(t.Context(), recoveredProgram, root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A dispatch whose result never reached the log cannot be known to have failed.
-	if kind == run.RecordKindEffectIntent && cut == cutAfterAppend || kind == run.RecordKindEffectSettled && cut == cutBeforeAppend {
-		resolveRetainedUnknown(t, recovered, batch.Root)
+	if crash.leavesUnknown() {
+		resolveRetainedUnknown(t, recovered, root)
 	}
 	result, err := recovered.Await(t.Context())
 	if err != nil || result.Termination().Status() != run.StatusCompleted {
 		t.Fatalf("recovered outcome=%v error=%v", result.Termination().Status(), err)
 	}
-	wantCalls := 1
-	if kind == run.RecordKindStarted || kind == run.RecordKindEffectIntent && cut == cutAfterAppend {
-		wantCalls = 0
+	if len(dispatcher.Requests()) != crash.dispatches() {
+		t.Fatalf("dispatches=%d, want %d", len(dispatcher.Requests()), crash.dispatches())
 	}
-	if len(dispatcher.Requests()) != wantCalls {
-		t.Fatalf("dispatches=%d, want %d", len(dispatcher.Requests()), wantCalls)
-	}
-	gate.abort()
+}
+
+// awaitOriginalCrash requires the superseded writer to end with the simulated
+// acknowledgment loss, whether its Start or its Process observed it.
+func awaitOriginalCrash(t *testing.T, started <-chan recoveryStart) {
+	t.Helper()
 	start := awaitRecoveryStart(t, started)
 	if start.err != nil {
 		if !errors.Is(start.err, errConformanceCrash) {
