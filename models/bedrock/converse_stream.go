@@ -54,64 +54,18 @@ func (c *converseStream) terminated() bool {
 }
 
 func (c *converseStream) add(event types.ConverseStreamOutput) (*corechat.ResponseDelta, bool, error) {
-	if lo.IsNil(event) {
-		return nil, false, fmt.Errorf("bedrock: stream: %w: missing event", corechat.ErrInvalidResponse)
+	if started, err := c.admit(event); started || err != nil {
+		return nil, false, err
 	}
-	if c.phase == converseMetadataReceived {
-		return nil, false, fmt.Errorf("bedrock: stream: %w: event after metadata", corechat.ErrInvalidResponse)
-	}
-	if start, ok := event.(*types.ConverseStreamOutputMemberMessageStart); ok {
-		if c.phase != converseAwaitingStart || start.Value.Role != types.ConversationRoleAssistant {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: duplicate messageStart or non-assistant role", corechat.ErrInvalidResponse)
-		}
-		c.phase = converseStreaming
-		return nil, false, nil
-	}
-	if c.phase == converseAwaitingStart {
-		return nil, false, fmt.Errorf("bedrock: stream: %w: event before messageStart", corechat.ErrInvalidResponse)
-	}
-	if c.terminated() {
-		if _, ok := event.(*types.ConverseStreamOutputMemberMetadata); !ok {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: event after messageStop", corechat.ErrInvalidResponse)
-		}
-	}
-
 	response := &corechat.ResponseDelta{Metadata: &corechat.ResponseMetadata{Model: c.model}}
 	var nativeValue any
 	var nativeKey string
 	switch typed := event.(type) {
 	case *types.ConverseStreamOutputMemberContentBlockStart:
-		index, err := protocolBlockIndex(typed.Value.ContentBlockIndex)
+		part, err := c.startBlock(typed.Value)
 		if err != nil {
 			return nil, false, err
 		}
-		if lo.IsNil(typed.Value.Start) {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: missing content block start payload", corechat.ErrInvalidResponse)
-		}
-		tool, ok := typed.Value.Start.(*types.ContentBlockStartMemberToolUse)
-		if !ok {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: content block start %T", errors.ErrUnsupported, typed.Value.Start)
-		}
-		if tool.Value.Type != "" {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: tool use type %q", errors.ErrUnsupported, tool.Value.Type)
-		}
-		if tool.Value.ToolUseId == nil || *tool.Value.ToolUseId == "" || tool.Value.Name == nil || *tool.Value.Name == "" {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: toolUse content block opened without an id or name", corechat.ErrInvalidResponse)
-		}
-		if _, exists := c.blocks[index]; exists {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, index)
-		}
-		for _, other := range c.blocks {
-			if other.kind == protocolToolBlock && other.toolID == *tool.Value.ToolUseId {
-				return nil, false, fmt.Errorf("bedrock: stream: %w: tool id %q reused at content block %d", corechat.ErrInvalidResponse, other.toolID, index)
-			}
-		}
-		part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: *tool.Value.ToolUseId, Name: *tool.Value.Name})
-		part.Index = int(index)
-		if err := part.Validate(); err != nil {
-			return nil, false, err
-		}
-		c.blocks[index] = protocolStreamBlock{kind: protocolToolBlock, open: true, toolID: *tool.Value.ToolUseId, toolName: *tool.Value.Name}
 		response.Parts = []corechat.PartDelta{part}
 	case *types.ConverseStreamOutputMemberContentBlockDelta:
 		part, include, err := c.mapDelta(typed.Value)
@@ -120,31 +74,13 @@ func (c *converseStream) add(event types.ConverseStreamOutput) (*corechat.Respon
 		}
 		response.Parts = []corechat.PartDelta{part}
 	case *types.ConverseStreamOutputMemberContentBlockStop:
-		index, err := protocolBlockIndex(typed.Value.ContentBlockIndex)
-		if err != nil {
-			return nil, false, err
-		}
-		block, exists := c.blocks[index]
-		if !exists || !block.open {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: content block %d is not open", corechat.ErrInvalidResponse, index)
-		}
-		block.open = false
-		c.blocks[index] = block
-		return nil, false, nil
+		return nil, false, c.stopBlock(typed.Value)
 	case *types.ConverseStreamOutputMemberMessageStop:
-		if typed.Value.StopReason == "" {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: missing stop reason", corechat.ErrInvalidResponse)
-		}
-		for index, block := range c.blocks {
-			if block.open {
-				return nil, false, fmt.Errorf("bedrock: stream: %w: content block %d is still open at messageStop", corechat.ErrInvalidResponse, index)
-			}
+		if err := c.checkMessageStop(typed.Value); err != nil {
+			return nil, false, err
 		}
 		nativeKey, nativeValue = ChatMessageStopExtensionKey, typed.Value
 	case *types.ConverseStreamOutputMemberMetadata:
-		if !c.terminated() {
-			return nil, false, fmt.Errorf("bedrock: stream: %w: metadata before messageStop", corechat.ErrInvalidResponse)
-		}
 		response.Metadata.Usage = mapProtocolUsage(typed.Value.Usage)
 		nativeKey, nativeValue = ChatMetadataExtensionKey, typed.Value
 	default:
@@ -170,6 +106,98 @@ func (c *converseStream) add(event types.ConverseStreamOutput) (*corechat.Respon
 		c.phase = converseMetadataReceived
 	}
 	return response, true, nil
+}
+
+// admit enforces the native event order: messageStart first, content until
+// messageStop, then only trailing metadata. It reports a consumed messageStart.
+func (c *converseStream) admit(event types.ConverseStreamOutput) (bool, error) {
+	if lo.IsNil(event) {
+		return false, fmt.Errorf("bedrock: stream: %w: missing event", corechat.ErrInvalidResponse)
+	}
+	if c.phase == converseMetadataReceived {
+		return false, fmt.Errorf("bedrock: stream: %w: event after metadata", corechat.ErrInvalidResponse)
+	}
+	if start, ok := event.(*types.ConverseStreamOutputMemberMessageStart); ok {
+		if c.phase != converseAwaitingStart || start.Value.Role != types.ConversationRoleAssistant {
+			return false, fmt.Errorf("bedrock: stream: %w: duplicate messageStart or non-assistant role", corechat.ErrInvalidResponse)
+		}
+		c.phase = converseStreaming
+		return true, nil
+	}
+	_, metadata := event.(*types.ConverseStreamOutputMemberMetadata)
+	switch {
+	case c.phase == converseAwaitingStart:
+		return false, fmt.Errorf("bedrock: stream: %w: event before messageStart", corechat.ErrInvalidResponse)
+	case c.terminated() && !metadata:
+		return false, fmt.Errorf("bedrock: stream: %w: event after messageStop", corechat.ErrInvalidResponse)
+	case !c.terminated() && metadata:
+		return false, fmt.Errorf("bedrock: stream: %w: metadata before messageStop", corechat.ErrInvalidResponse)
+	default:
+		return false, nil
+	}
+}
+
+// startBlock opens a toolUse block, the only kind Converse announces before
+// its first delta.
+func (c *converseStream) startBlock(start types.ContentBlockStartEvent) (corechat.PartDelta, error) {
+	index, err := protocolBlockIndex(start.ContentBlockIndex)
+	if err != nil {
+		return corechat.PartDelta{}, err
+	}
+	if lo.IsNil(start.Start) {
+		return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: missing content block start payload", corechat.ErrInvalidResponse)
+	}
+	tool, ok := start.Start.(*types.ContentBlockStartMemberToolUse)
+	if !ok {
+		return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: content block start %T", errors.ErrUnsupported, start.Start)
+	}
+	if tool.Value.Type != "" {
+		return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: tool use type %q", errors.ErrUnsupported, tool.Value.Type)
+	}
+	if tool.Value.ToolUseId == nil || *tool.Value.ToolUseId == "" || tool.Value.Name == nil || *tool.Value.Name == "" {
+		return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: toolUse content block opened without an id or name", corechat.ErrInvalidResponse)
+	}
+	if _, exists := c.blocks[index]; exists {
+		return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, index)
+	}
+	for _, other := range c.blocks {
+		if other.kind == protocolToolBlock && other.toolID == *tool.Value.ToolUseId {
+			return corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: tool id %q reused at content block %d", corechat.ErrInvalidResponse, other.toolID, index)
+		}
+	}
+	part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: *tool.Value.ToolUseId, Name: *tool.Value.Name})
+	part.Index = int(index)
+	if err := part.Validate(); err != nil {
+		return corechat.PartDelta{}, err
+	}
+	c.blocks[index] = protocolStreamBlock{kind: protocolToolBlock, open: true, toolID: *tool.Value.ToolUseId, toolName: *tool.Value.Name}
+	return part, nil
+}
+
+func (c *converseStream) stopBlock(stop types.ContentBlockStopEvent) error {
+	index, err := protocolBlockIndex(stop.ContentBlockIndex)
+	if err != nil {
+		return err
+	}
+	block, exists := c.blocks[index]
+	if !exists || !block.open {
+		return fmt.Errorf("bedrock: stream: %w: content block %d is not open", corechat.ErrInvalidResponse, index)
+	}
+	block.open = false
+	c.blocks[index] = block
+	return nil
+}
+
+func (c *converseStream) checkMessageStop(stop types.MessageStopEvent) error {
+	if stop.StopReason == "" {
+		return fmt.Errorf("bedrock: stream: %w: missing stop reason", corechat.ErrInvalidResponse)
+	}
+	for index, block := range c.blocks {
+		if block.open {
+			return fmt.Errorf("bedrock: stream: %w: content block %d is still open at messageStop", corechat.ErrInvalidResponse, index)
+		}
+	}
+	return nil
 }
 
 // complete derives termination on the final delta after the transport succeeds,

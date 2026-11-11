@@ -213,32 +213,8 @@ func newProtocolStreamState(provider string, documents protocolDocumentSources) 
 
 func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnion) (*corechat.ResponseDelta, error) {
 	value := event.AsAny()
-	var wireErr error
-	if value == nil {
-		wireErr = validateResponseWire[struct {
-			Type responseWireString `json:"type"`
-		}](event.RawJSON())
-	} else {
-		wireErr = validateResponseWire[responseEventWire](event.RawJSON())
-	}
-	if wireErr != nil {
-		return nil, fmt.Errorf("%w: anthropic: stream event: %w", corechat.ErrInvalidResponse, wireErr)
-	}
-	if p.phase == protocolStreamStopped {
-		return nil, fmt.Errorf("anthropic: stream: %w: event after message_stop", corechat.ErrInvalidResponse)
-	}
-	switch value.(type) {
-	case anthropicsdk.ContentBlockStartEvent, anthropicsdk.ContentBlockDeltaEvent, anthropicsdk.ContentBlockStopEvent:
-		// The SDK coerces missing, fractional and boolean positions to zero.
-		// Never bind content or tool arguments to another block on that basis.
-		index, err := strconv.ParseInt(event.JSON.Index.Raw(), 10, 64)
-		if err != nil || index < 0 {
-			return nil, fmt.Errorf("%w: anthropic: %s requires a nonnegative integer index", corechat.ErrInvalidResponse, event.Type)
-		}
-	}
-	_, startsMessage := value.(anthropicsdk.MessageStartEvent)
-	if value != nil && !startsMessage && p.phase == protocolStreamAwaitingStart {
-		return nil, fmt.Errorf("anthropic: stream: %w: %s before message_start", corechat.ErrInvalidResponse, event.Type)
+	if err := p.admit(event, value); err != nil {
+		return nil, err
 	}
 	response := &corechat.ResponseDelta{Metadata: &corechat.ResponseMetadata{ID: p.id, Model: p.model}}
 	if err := response.Metadata.Extra.Set(p.streamEventKey, json.RawMessage(event.RawJSON())); err != nil {
@@ -256,55 +232,28 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		response.Parts = parts
 		p.phase = protocolStreamActive
 	case anthropicsdk.ContentBlockStartEvent:
-		if p.finish != "" {
-			return nil, fmt.Errorf("anthropic: stream: %w: content block %d started after the finish reason", corechat.ErrInvalidResponse, value.Index)
-		}
-		if _, exists := p.blocks[value.Index]; exists {
-			return nil, fmt.Errorf("anthropic: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, value.Index)
-		}
-		parts, err := p.mapBlockStart(value)
+		parts, err := p.startBlock(value)
 		if err != nil {
 			return nil, err
 		}
 		response.Parts = parts
-		block := protocolStreamBlock{kind: value.ContentBlock.Type, open: true}
-		if block.kind == protocolBlockToolUse {
-			block.toolID = value.ContentBlock.ID
-			block.toolName = value.ContentBlock.Name
-		}
-		p.blocks[value.Index] = block
 	case anthropicsdk.ContentBlockDeltaEvent:
-		if p.finish != "" {
-			return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed after the finish reason", corechat.ErrInvalidResponse, value.Index)
-		}
-		block, exists := p.blocks[value.Index]
-		if !exists || !block.open {
-			return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed without an open block", corechat.ErrInvalidResponse, value.Index)
-		}
-		part, include, err := p.mapBlockDelta(value, block)
+		parts, err := p.extendBlock(value)
 		if err != nil {
-			return nil, fmt.Errorf("anthropic: stream: content block %d: %w", value.Index, err)
+			return nil, err
 		}
-		if include {
-			part.Index = int(value.Index)
-			response.Parts = []corechat.PartDelta{part}
-		}
+		response.Parts = parts
 	case anthropicsdk.MessageDeltaEvent:
-		for _, index := range slices.Sorted(maps.Keys(p.blocks)) {
-			if p.blocks[index].open {
-				return nil, fmt.Errorf("anthropic: stream: %w: content block %d has no content_block_stop", corechat.ErrInvalidResponse, index)
-			}
+		if err := p.requireClosedBlocks(); err != nil {
+			return nil, err
 		}
 		if err := p.mapMessageDelta(value, response); err != nil {
 			return nil, err
 		}
 	case anthropicsdk.ContentBlockStopEvent:
-		block := p.blocks[value.Index]
-		if !block.open {
-			return nil, fmt.Errorf("anthropic: stream: %w: content block %d stopped without an open block", corechat.ErrInvalidResponse, value.Index)
+		if err := p.stopBlock(value); err != nil {
+			return nil, err
 		}
-		block.open = false
-		p.blocks[value.Index] = block
 	case anthropicsdk.MessageStopEvent:
 		if p.finish == "" {
 			return nil, fmt.Errorf("anthropic: stream: %w: message_stop without a finish reason", corechat.ErrInvalidResponse)
@@ -320,6 +269,97 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		return nil, fmt.Errorf("anthropic: mapped stream response: %w", err)
 	}
 	return response, nil
+}
+
+// admit checks an event's wire shape and its place in the native lifecycle
+// before any of it is mapped.
+func (p *protocolStreamState) admit(event anthropicsdk.MessageStreamEventUnion, value any) error {
+	var wireErr error
+	if value == nil {
+		wireErr = validateResponseWire[struct {
+			Type responseWireString `json:"type"`
+		}](event.RawJSON())
+	} else {
+		wireErr = validateResponseWire[responseEventWire](event.RawJSON())
+	}
+	if wireErr != nil {
+		return fmt.Errorf("%w: anthropic: stream event: %w", corechat.ErrInvalidResponse, wireErr)
+	}
+	if p.phase == protocolStreamStopped {
+		return fmt.Errorf("anthropic: stream: %w: event after message_stop", corechat.ErrInvalidResponse)
+	}
+	switch value.(type) {
+	case anthropicsdk.ContentBlockStartEvent, anthropicsdk.ContentBlockDeltaEvent, anthropicsdk.ContentBlockStopEvent:
+		// The SDK coerces missing, fractional and boolean positions to zero.
+		// Never bind content or tool arguments to another block on that basis.
+		index, err := strconv.ParseInt(event.JSON.Index.Raw(), 10, 64)
+		if err != nil || index < 0 {
+			return fmt.Errorf("%w: anthropic: %s requires a nonnegative integer index", corechat.ErrInvalidResponse, event.Type)
+		}
+	}
+	_, startsMessage := value.(anthropicsdk.MessageStartEvent)
+	if value != nil && !startsMessage && p.phase == protocolStreamAwaitingStart {
+		return fmt.Errorf("anthropic: stream: %w: %s before message_start", corechat.ErrInvalidResponse, event.Type)
+	}
+	return nil
+}
+
+func (p *protocolStreamState) startBlock(event anthropicsdk.ContentBlockStartEvent) ([]corechat.PartDelta, error) {
+	if p.finish != "" {
+		return nil, fmt.Errorf("anthropic: stream: %w: content block %d started after the finish reason", corechat.ErrInvalidResponse, event.Index)
+	}
+	if _, exists := p.blocks[event.Index]; exists {
+		return nil, fmt.Errorf("anthropic: stream: %w: content block %d started twice", corechat.ErrInvalidResponse, event.Index)
+	}
+	parts, err := p.mapBlockStart(event)
+	if err != nil {
+		return nil, err
+	}
+	block := protocolStreamBlock{kind: event.ContentBlock.Type, open: true}
+	if block.kind == protocolBlockToolUse {
+		block.toolID = event.ContentBlock.ID
+		block.toolName = event.ContentBlock.Name
+	}
+	p.blocks[event.Index] = block
+	return parts, nil
+}
+
+func (p *protocolStreamState) extendBlock(event anthropicsdk.ContentBlockDeltaEvent) ([]corechat.PartDelta, error) {
+	if p.finish != "" {
+		return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed after the finish reason", corechat.ErrInvalidResponse, event.Index)
+	}
+	block, exists := p.blocks[event.Index]
+	if !exists || !block.open {
+		return nil, fmt.Errorf("anthropic: stream: %w: content block %d changed without an open block", corechat.ErrInvalidResponse, event.Index)
+	}
+	part, include, err := p.mapBlockDelta(event, block)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: stream: content block %d: %w", event.Index, err)
+	}
+	if !include {
+		return nil, nil
+	}
+	part.Index = int(event.Index)
+	return []corechat.PartDelta{part}, nil
+}
+
+func (p *protocolStreamState) stopBlock(event anthropicsdk.ContentBlockStopEvent) error {
+	block := p.blocks[event.Index]
+	if !block.open {
+		return fmt.Errorf("anthropic: stream: %w: content block %d stopped without an open block", corechat.ErrInvalidResponse, event.Index)
+	}
+	block.open = false
+	p.blocks[event.Index] = block
+	return nil
+}
+
+func (p *protocolStreamState) requireClosedBlocks() error {
+	for _, index := range slices.Sorted(maps.Keys(p.blocks)) {
+		if p.blocks[index].open {
+			return fmt.Errorf("anthropic: stream: %w: content block %d has no content_block_stop", corechat.ErrInvalidResponse, index)
+		}
+	}
+	return nil
 }
 
 func (p *protocolStreamState) mapMessageStart(event anthropicsdk.MessageStartEvent, response *corechat.ResponseDelta) ([]corechat.PartDelta, error) {

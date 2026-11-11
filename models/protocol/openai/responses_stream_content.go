@@ -248,6 +248,26 @@ func (r *responsesStreamContent) addContent(kind string, reported bool, output, 
 	return &part, nil
 }
 
+// annotate attaches one citation to the open text entry the event names.
+func (r *responsesStreamContent) annotate(event responses.ResponseOutputTextAnnotationAddedEvent) (*corechat.PartDelta, error) {
+	citation, include, err := responsesStreamCitation(event.Annotation)
+	if err != nil || !include {
+		return nil, err
+	}
+	message := r.messages[event.OutputIndex]
+	if !event.JSON.OutputIndex.Valid() || !event.JSON.ContentIndex.Valid() || !event.JSON.AnnotationIndex.Valid() ||
+		event.ItemID == "" || message.identity.ItemID != event.ItemID {
+		return nil, fmt.Errorf("%w: openai responses: annotation is not bound to a reported message", corechat.ErrInvalidResponse)
+	}
+	if err := message.requireOpen(); err != nil {
+		return nil, err
+	}
+	if evidence, known := message.segments[event.ContentIndex]; !known || evidence.kind != responsesContentTypeText {
+		return nil, fmt.Errorf("%w: openai responses: annotation references unknown text", corechat.ErrInvalidResponse)
+	}
+	return new(corechat.NewCitationDelta(citation)), nil
+}
+
 func (r *responsesStreamContent) append(position responsesContentPosition, itemID, kind, text string) error {
 	if position.output < 0 || position.content < 0 || itemID == "" {
 		return fmt.Errorf("%w: openai responses: content delta requires nonnegative indices and an item ID", corechat.ErrInvalidResponse)
