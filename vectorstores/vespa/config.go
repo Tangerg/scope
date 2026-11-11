@@ -63,8 +63,11 @@ func (s StoreConfig) Validate() error {
 	if err := (schemaFields{content: s.ContentField, embedding: s.EmbeddingField}).validate(); err != nil {
 		return err
 	}
-	for name, value := range map[string]string{"SchemaName": s.SchemaName, "Namespace": s.Namespace, "QueryTensorName": s.QueryTensorName, "RankingProfile": s.RankingProfile} {
-		if err := identifier(value).validate(name); err != nil {
+	for _, field := range []struct{ name, value string }{
+		{"SchemaName", s.SchemaName}, {"Namespace", s.Namespace},
+		{"QueryTensorName", s.QueryTensorName}, {"RankingProfile", s.RankingProfile},
+	} {
+		if err := identifier(field.value).validate(field.name); err != nil {
 			return fmt.Errorf("vespa: config: %w", err)
 		}
 	}
@@ -81,5 +84,6 @@ func (s *StoreConfig) applyDefaults() {
 // DocumentNamespace binds a logical namespace to its coordinate space and
 // width; changing the binding cannot access the previous document IDs.
 func (s StoreConfig) DocumentNamespace() string {
-	return cmp.Or(s.Namespace, s.SchemaName) + "_" + s.Space.StorageKey() + "_" + strconv.Itoa(s.Dimensions)
+	s.applyDefaults()
+	return s.Namespace + "_" + s.Space.StorageKey() + "_" + strconv.Itoa(s.Dimensions)
 }

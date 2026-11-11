@@ -19,7 +19,7 @@ func TestQueryRequiresFullCoverage(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
 			t.Cleanup(server.Close)
 			store := &Store{endpoint: server.URL, httpClient: server.Client()}
-			if hits, err := store.query(fixtureMeter(t, t.Context()), map[string]any{"yql": "select * from scope where true"}); err == nil || hits != nil {
+			if hits, err := store.query(fixtureMeter(t, t.Context()), searchRequest{YQL: "select * from scope where true"}); err == nil || hits != nil {
 				t.Fatalf("incomplete query: hits=%v error=%v", hits, err)
 			}
 		})

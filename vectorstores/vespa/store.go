@@ -133,11 +133,10 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 			expected[record.document.ID] = false
 		}
 		yql := fmt.Sprintf("select %s, %s, %s, %s from %s where {approximate:false,targetHits:%d}nearestNeighbor(%s,%s) and %s in (%s)", s.fields.content, s.fields.embedding, metadataField, nativeIDField, s.schemaName, len(group), s.fields.embedding, s.queryTensorName, identityAttribute, strings.Join(ids, ","))
-		body := map[string]any{"yql": yql, "hits": len(group), "ranking": s.rankingProfile, "presentation.summary": defaultSummary,
-			"input.query(" + s.queryTensorName + ")": struct {
-				Values []float32 `json:"values"`
-			}{narrowed}}
-		hits, err := s.query(meter, body)
+		hits, err := s.query(meter, searchRequest{
+			YQL: yql, Hits: len(group), Ranking: s.rankingProfile, Summary: defaultSummary,
+			Inputs: map[string]queryTensor{queryInputName(s.queryTensorName): {Values: narrowed}},
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -285,7 +284,23 @@ func (s *Store) readSource(meter *vectorstore.ScanMeter) ([]nativeRecord, int, e
 	}
 }
 
-func (s *Store) query(meter *vectorstore.ScanMeter, body map[string]any) ([]queryHit, error) {
+// searchRequest is the Vespa Query API body. Each query tensor travels as its
+// own input.query(<name>) member beside the fixed members.
+type searchRequest struct {
+	YQL     string                 `json:"yql"`
+	Hits    int                    `json:"hits"`
+	Ranking string                 `json:"ranking,omitempty"`
+	Summary string                 `json:"presentation.summary"`
+	Inputs  map[string]queryTensor `json:",embed"`
+}
+
+type queryTensor struct {
+	Values []float32 `json:"values"`
+}
+
+func queryInputName(tensor string) string { return "input.query(" + tensor + ")" }
+
+func (s *Store) query(meter *vectorstore.ScanMeter, body searchRequest) ([]queryHit, error) {
 	raw, status, err := s.wire(meter.Context(), http.MethodPost, "/search/", body, meter)
 	if err != nil {
 		return nil, err

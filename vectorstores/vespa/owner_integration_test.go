@@ -89,7 +89,7 @@ func liveVisibility(ctx context.Context, store *Store, count int) error {
 			allVisible := true
 			for start := 0; start < len(ids); start += queryGroupSize {
 				group := ids[start:min(start+queryGroupSize, len(ids))]
-				matched, queryErr := store.query(meter, map[string]any{"yql": "select documentid from scope where scope_documentid in (" + strings.Join(group, ",") + ")", "hits": len(group), "presentation.summary": defaultSummary})
+				matched, queryErr := store.query(meter, searchRequest{YQL: "select documentid from scope where scope_documentid in (" + strings.Join(group, ",") + ")", Hits: len(group), Summary: defaultSummary})
 				if queryErr != nil {
 					return queryErr
 				}
