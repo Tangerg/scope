@@ -49,7 +49,7 @@ func TestInvocationRejectsContradictoryStateAndForeignParent(t *testing.T) {
 	id := run.EffectID{Process: parent, Step: 1}
 	process := value(run.ParseProcessID("other/worker"))
 	for _, invalid := range []Invocation{{}, {Request: &id, Process: &process}, {Process: &parent}, {Request: new(run.EffectID)}} {
-		if invalid.valid() {
+		if invalid.Valid() {
 			t.Fatalf("accepted %+v", invalid)
 		}
 	}
@@ -69,7 +69,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	id := run.EffectID{Process: parent, Step: 1}
 	failure := value(run.NewFailure(run.FailureKindExternal, "test.refused", "refused"))
 	for _, invalid := range []Invocation{{Termination: new(run.Termination)}, {Rejection: new(run.Failure)}, {Process: new(run.ProcessID)}} {
-		if invalid.valid() {
+		if invalid.Valid() {
 			t.Fatal("invalid obligation accepted")
 		}
 	}

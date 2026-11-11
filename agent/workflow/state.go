@@ -86,7 +86,7 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 }
 
 func (s singleChild) validate(stage Stage) error {
-	if !s.belongsTo(stage) || s.Invocation.Done() {
+	if !s.Invocation.Valid() || !s.belongsTo(stage) || s.Invocation.Done() {
 		return fmt.Errorf("%w: single-child progress does not match its Stage", ErrInvalidExecutionState)
 	}
 	if _, err := (child.Batch{s.Invocation}).Parent(func(int) (run.ChildKey, error) { return singleChildKey(stage, s.Case, s.Iteration) }); err != nil {

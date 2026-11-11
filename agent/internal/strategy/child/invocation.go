@@ -18,7 +18,8 @@ var ErrInvalidMessage = run.NewClassifiedError(run.FailureKindContract, "strateg
 // Invocation retains only the outstanding obligation. The runtime owns child
 // membership; replacing one variant discards facts the next variant supersedes.
 // Start, Accept and decoding are its only sources, and each leaves exactly one
-// valid obligation, so holders never check it again.
+// valid obligation. A member absent from a record never reaches the decoder,
+// so a holder of a value Invocation checks Valid when it restores one.
 type Invocation struct {
 	Request     *run.EffectID    `json:"request,omitzero"`
 	Process     *run.ProcessID   `json:"process,omitzero"`
@@ -34,7 +35,7 @@ func Start(turn run.Turn, index uint32, spec run.ChildSpec) (Invocation, run.Eff
 	return Invocation{Request: new(turn.EffectID(index))}, effect, nil
 }
 
-func (i Invocation) valid() bool {
+func (i Invocation) Valid() bool {
 	count := 0
 	if i.Request != nil {
 		if !i.Request.Valid() {
@@ -72,7 +73,7 @@ func (i *Invocation) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if !Invocation(decoded).valid() {
+	if !Invocation(decoded).Valid() {
 		return errors.New("child: invocation must hold exactly one valid obligation")
 	}
 	*i = Invocation(decoded)

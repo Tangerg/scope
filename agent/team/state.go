@@ -23,6 +23,9 @@ func (t taskState) validate(definition *definition) error {
 	if err := definition.validateRequest(t.Request); err != nil {
 		return err
 	}
+	if !t.Invocation.Valid() {
+		return ErrInvalidExecutionState
+	}
 	if t.Invocation.Process != nil {
 		if key, _ := t.Invocation.Process.Key(); key != t.Request.Key {
 			return ErrInvalidExecutionState
