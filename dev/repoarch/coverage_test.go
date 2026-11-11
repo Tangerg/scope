@@ -65,9 +65,9 @@ func TestCoveragePreservesExactPriorRatioWithoutRounding(t *testing.T) {
 		total   int
 		pass    bool
 	}{
-		{13, 14, true},
-		{26, 28, true},
-		{25999, 28000, false},
+		{10, 11, true},
+		{20, 22, true},
+		{9999, 11000, false},
 	} {
 		t.Run(fmt.Sprintf("%d-of-%d", test.covered, test.total), func(t *testing.T) {
 			profile := fmt.Sprintf("mode: set\ngithub.com/Tangerg/scope/models/fireworks/chat.go:1.1,2.1 %d 1\ngithub.com/Tangerg/scope/models/fireworks/chat.go:3.1,4.1 %d 0\n", test.covered, test.total-test.covered)

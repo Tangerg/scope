@@ -36,7 +36,7 @@ module_budget=(
   "models/deepgram 61.4"
   "models/deepseek 73.6"
   "models/elevenlabs 49.4"
-  "models/fireworks 13/14"
+  "models/fireworks 10/11"
   "models/gladia 62.6"
   "models/google 60.5"
   "models/groq 36.4"
