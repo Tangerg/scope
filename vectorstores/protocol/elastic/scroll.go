@@ -148,20 +148,20 @@ func (s *Scroll) member(hit Hit, predicate filter.Predicate) (Version, bool, err
 	if err != nil {
 		return Version{}, false, err
 	}
-	if err := vectorstore.ValidateDocument(doc); err != nil {
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return Version{}, false, err
 	}
 	if doc.ID != hit.ID {
 		return Version{}, false, errors.New("elastic: decoded document changed native identity")
 	}
 	if !lo.IsNil(predicate) {
-		values, err := doc.Metadata.Values()
-		if err != nil {
-			return Version{}, false, err
+		values, valuesErr := doc.Metadata.Values()
+		if valuesErr != nil {
+			return Version{}, false, valuesErr
 		}
-		matched, err := filter.Match(predicate, values)
-		if err != nil || !matched {
-			return Version{}, false, err
+		matched, matchErr := filter.Match(predicate, values)
+		if matchErr != nil || !matched {
+			return Version{}, false, matchErr
 		}
 	}
 	version, err := hit.Version()
