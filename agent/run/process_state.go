@@ -73,11 +73,33 @@ func (p *processState) ready() bool {
 	return p.exited == nil && !p.terminal.Valid() && !p.paused && !p.yielded
 }
 
+// admissible is the one rule deciding whether p accepts a new Signal. Live
+// admission applies it before append; the fold applies it again to every
+// committed SignalAdmitted, so a log can never hold a Signal it would refuse.
+func (p *processState) admissible(signal Signal) error {
+	if p.exited != nil || p.terminal.Valid() {
+		return ErrProcessFinished
+	}
+	if signal.Wait.Valid() {
+		wait, ok := p.waits[signal.Wait]
+		if !ok || !wait.Pending {
+			return ErrSignalRejected
+		}
+		return wait.Wait.Admits(signal.Payload)
+	}
+	// Replay folds records before recovery binds the Program, which then
+	// validates every retained unaddressed Signal itself.
+	if !p.program.Valid() {
+		return nil
+	}
+	return p.program.descriptor.ValidateSignal(signal.Payload)
+}
+
 func (p *processState) admit(signal Signal, limits TreeLimits) error {
 	if err := p.admitMessages(limits, 0, nil, 1); err != nil {
 		return err
 	}
-	if !signal.Valid() || p.exited != nil || p.terminal.Valid() {
+	if !signal.Valid() {
 		return ErrSignalRejected
 	}
 	digest := signal.digest()
@@ -87,20 +109,13 @@ func (p *processState) admit(signal Signal, limits TreeLimits) error {
 		}
 		return ErrSignalConflict
 	}
+	if err := p.admissible(signal); err != nil {
+		return err
+	}
 	if signal.Wait.Valid() {
-		wait, ok := p.waits[signal.Wait]
-		if !ok || !wait.Pending {
-			return ErrSignalRejected
-		}
-		if err := wait.Wait.Admits(signal.Payload); err != nil {
-			return err
-		}
+		wait := p.waits[signal.Wait]
 		wait.Pending = false
 		p.waits[signal.Wait] = wait
-	} else if p.program.Valid() {
-		if err := p.program.descriptor.ValidateSignal(signal.Payload); err != nil {
-			return err
-		}
 	}
 	p.receipts[signal.ID] = SignalReceipt{ID: signal.ID, Wait: signal.Wait, Digest: digest}
 	p.inbox = append(p.inbox, signal)

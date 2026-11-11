@@ -785,18 +785,7 @@ func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, erro
 	}
 	var records []Record
 	for _, signal := range fresh {
-		if p.exited != nil || p.terminal.Valid() {
-			return nil, ErrProcessFinished
-		}
-		if signal.Wait.Valid() {
-			wait, exists := p.waits[signal.Wait]
-			if !exists || !wait.Pending {
-				return nil, ErrSignalRejected
-			}
-			if err := wait.Wait.Admits(signal.Payload); err != nil {
-				return nil, err
-			}
-		} else if err := p.program.descriptor.ValidateSignal(signal.Payload); err != nil {
+		if err := p.admissible(signal); err != nil {
 			return nil, err
 		}
 		records = append(records, SignalAdmitted{Process: p.started.Process, Signal: signal, At: canonicalTime(time.Now())})
