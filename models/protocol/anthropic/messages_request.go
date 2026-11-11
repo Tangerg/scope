@@ -69,6 +69,60 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 	}
 	req = req.Clone()
 	req.Options = options
+	fields, err := extensionFields(req, dialect)
+	if err != nil {
+		return nil, err
+	}
+	options = req.Options
+	if err = checkOptionSupport(options); err != nil {
+		return nil, err
+	}
+	if fields, err = withSampling(fields, options, dialect); err != nil {
+		return nil, err
+	}
+	outputConfig, err := decodeOutputConfig(fields, protocolRequestExtensionKey(dialect.Provider))
+	if err != nil {
+		return nil, err
+	}
+	params := anthropicsdk.MessageNewParams{OutputConfig: outputConfig, Model: options.Model, MaxTokens: protocolDefaultMaxTokens}
+	nativeFields, err := nativeJSONFields(fields)
+	if err != nil {
+		return nil, err
+	}
+	params.SetExtraFields(nativeFields)
+	if options.MaxOutputTokens != nil {
+		params.MaxTokens = *options.MaxOutputTokens
+	}
+	if len(options.Stop) > 0 {
+		params.StopSequences = slices.Clone(options.Stop)
+	}
+	if req.ToolChoice != nil {
+		params.ToolChoice = mapProtocolToolChoice(*req.ToolChoice)
+	}
+	if params.OutputConfig.Effort, err = mapProtocolReasoningEffort(options.ReasoningEffort); err != nil {
+		return nil, err
+	}
+	mapper := protocolMessageMapper{provider: dialect.Provider}
+	system, messages, err := mapper.mapMessages(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+	params.System = append(params.System, system...)
+	params.Messages = append(params.Messages, messages...)
+	if err = mapProtocolOutputFormat(options.OutputFormat, dialect, &params); err != nil {
+		return nil, err
+	}
+	tools, err := mapProtocolTools(req.Tools)
+	if err != nil {
+		return nil, err
+	}
+	params.Tools = append(params.Tools, tools...)
+	return &protocolRequest{params: &params, documents: mapper.documents}, nil
+}
+
+// extensionFields decodes the provider's native fields, lets the dialect
+// prepare the request, and then rejects any field Core owns.
+func extensionFields(req *corechat.Request, dialect Dialect) (map[string]any, error) {
 	extensionKey := protocolRequestExtensionKey(dialect.Provider)
 	encodedFields, _, err := req.Options.Extensions.Decode[metadata.Map](extensionKey)
 	if err != nil {
@@ -82,18 +136,35 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		if fields == nil {
 			fields = make(map[string]any)
 		}
-		if prepareErr := dialect.PrepareRequest(req, fields); prepareErr != nil {
-			return nil, fmt.Errorf("anthropic: prepare %s request: %w", dialect.Provider, prepareErr)
+		if err = dialect.PrepareRequest(req, fields); err != nil {
+			return nil, fmt.Errorf("anthropic: prepare %s request: %w", dialect.Provider, err)
 		}
-		options = req.Options
 	}
 	for _, name := range []string{requestFieldModel, requestFieldMessages, requestFieldSystem, requestFieldTools, requestFieldStream, requestFieldMaxTokens, requestFieldTemperature, requestFieldToolChoice, requestFieldTopK, requestFieldTopP, requestFieldStopSequences} {
 		if _, exists := fields[name]; exists {
 			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
 		}
 	}
-	// Revision and sampling support are independent endpoint capabilities;
-	// metadata headers cannot enable request fields.
+	return fields, nil
+}
+
+func checkOptionSupport(options corechat.Options) error {
+	if options.Model == "" {
+		return errors.New("anthropic: model is required in defaults or request options")
+	}
+	if options.FrequencyPenalty != nil {
+		return errors.New("anthropic: options.frequency_penalty is not supported")
+	}
+	if options.PresencePenalty != nil {
+		return errors.New("anthropic: options.presence_penalty is not supported")
+	}
+	return nil
+}
+
+// withSampling adds the sampling options the endpoint supports. Revision and
+// sampling support are independent endpoint capabilities; metadata headers
+// cannot enable request fields.
+func withSampling(fields map[string]any, options corechat.Options, dialect Dialect) (map[string]any, error) {
 	for _, sampling := range []struct {
 		name  string
 		value any
@@ -114,78 +185,31 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request, dialec
 		}
 		fields[sampling.name] = sampling.value
 	}
-	outputConfig, err := decodeOutputConfig(fields, extensionKey)
-	if err != nil {
-		return nil, err
-	}
-	params := anthropicsdk.MessageNewParams{OutputConfig: outputConfig}
-	nativeFields, err := nativeJSONFields(fields)
-	if err != nil {
-		return nil, err
-	}
-	params.SetExtraFields(nativeFields)
+	return fields, nil
+}
 
-	if options.Model == "" {
-		return nil, errors.New("anthropic: model is required in defaults or request options")
+func mapProtocolToolChoice(choice corechat.ToolChoice) anthropicsdk.ToolChoiceUnionParam {
+	disableParallel := param.Opt[bool]{}
+	switch choice.Parallelism {
+	case corechat.ToolParallelismAllow:
+		disableParallel = param.NewOpt(false)
+	case corechat.ToolParallelismSingle:
+		disableParallel = param.NewOpt(true)
 	}
-	if options.FrequencyPenalty != nil {
-		return nil, errors.New("anthropic: options.frequency_penalty is not supported")
+	var mapped anthropicsdk.ToolChoiceUnionParam
+	switch choice.Mode {
+	case corechat.ToolChoiceAuto:
+		mapped.OfAuto = &anthropicsdk.ToolChoiceAutoParam{DisableParallelToolUse: disableParallel}
+	case corechat.ToolChoiceNone:
+		none := anthropicsdk.NewToolChoiceNoneParam()
+		mapped.OfNone = &none
+	case corechat.ToolChoiceRequired:
+		mapped.OfAny = &anthropicsdk.ToolChoiceAnyParam{DisableParallelToolUse: disableParallel}
+	case corechat.ToolChoiceNamed:
+		mapped = anthropicsdk.ToolChoiceParamOfTool(choice.Name)
+		mapped.OfTool.DisableParallelToolUse = disableParallel
 	}
-	if options.PresencePenalty != nil {
-		return nil, errors.New("anthropic: options.presence_penalty is not supported")
-	}
-	params.Model = options.Model
-	if options.MaxOutputTokens != nil {
-		params.MaxTokens = *options.MaxOutputTokens
-	} else {
-		params.MaxTokens = protocolDefaultMaxTokens
-	}
-	if len(options.Stop) > 0 {
-		params.StopSequences = slices.Clone(options.Stop)
-	}
-	if req.ToolChoice != nil {
-		disableParallel := param.Opt[bool]{}
-		switch req.ToolChoice.Parallelism {
-		case corechat.ToolParallelismAllow:
-			disableParallel = param.NewOpt(false)
-		case corechat.ToolParallelismSingle:
-			disableParallel = param.NewOpt(true)
-		}
-		switch req.ToolChoice.Mode {
-		case corechat.ToolChoiceAuto:
-			params.ToolChoice.OfAuto = &anthropicsdk.ToolChoiceAutoParam{DisableParallelToolUse: disableParallel}
-		case corechat.ToolChoiceNone:
-			none := anthropicsdk.NewToolChoiceNoneParam()
-			params.ToolChoice.OfNone = &none
-		case corechat.ToolChoiceRequired:
-			params.ToolChoice.OfAny = &anthropicsdk.ToolChoiceAnyParam{DisableParallelToolUse: disableParallel}
-		case corechat.ToolChoiceNamed:
-			params.ToolChoice = anthropicsdk.ToolChoiceParamOfTool(req.ToolChoice.Name)
-			params.ToolChoice.OfTool.DisableParallelToolUse = disableParallel
-		}
-	}
-	reasoningEffort, err := mapProtocolReasoningEffort(options.ReasoningEffort)
-	if err != nil {
-		return nil, err
-	}
-	params.OutputConfig.Effort = reasoningEffort
-
-	mapper := protocolMessageMapper{provider: dialect.Provider}
-	system, messages, err := mapper.mapMessages(req.Messages)
-	if err != nil {
-		return nil, err
-	}
-	params.System = append(params.System, system...)
-	params.Messages = append(params.Messages, messages...)
-	if mapProtocolOutputFormatErr := mapProtocolOutputFormat(options.OutputFormat, dialect, &params); mapProtocolOutputFormatErr != nil {
-		return nil, mapProtocolOutputFormatErr
-	}
-	tools, err := mapProtocolTools(req.Tools)
-	if err != nil {
-		return nil, err
-	}
-	params.Tools = append(params.Tools, tools...)
-	return &protocolRequest{params: &params, documents: mapper.documents}, nil
+	return mapped
 }
 
 func projectMessageInputTokenCount(params *anthropicsdk.MessageNewParams) (*anthropicsdk.MessageCountTokensParams, error) {
