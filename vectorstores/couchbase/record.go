@@ -4,7 +4,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/couchbase/gocb/v2"
 
@@ -84,10 +83,7 @@ func decodeStoredRow(raw []byte, policy vectorPolicy) (storedCandidate, error) {
 		return storedCandidate{}, fmt.Errorf("couchbase: decode metadata of %s: %w", row.ID, err)
 	}
 	doc.ID, doc.Text = row.ID, row.Record.Content
-	if strings.TrimSpace(doc.ID) == "" {
-		return storedCandidate{}, vectorstore.ErrMissingDocumentID
-	}
-	if err := doc.Validate(); err != nil {
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return storedCandidate{}, fmt.Errorf("couchbase: invalid stored document: %w", err)
 	}
 	if err := policy.validate(row.Record.Embedding); err != nil {

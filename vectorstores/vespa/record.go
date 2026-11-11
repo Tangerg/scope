@@ -77,15 +77,16 @@ func escapeMetadataJSON(raw []byte) string {
 	return escaped.String()
 }
 
+// Fields Vespa adds to a search summary beside the document's own fields.
+const (
+	summaryFieldDocumentName  = "sddocname"
+	summaryFieldSummaryRank   = "summaryfeatures"
+	summaryFieldMatchFeatures = "matchfeatures"
+)
+
 func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bool) (nativeRecord, error) {
-	for name := range fields {
-		if name == names.content || name == names.embedding || name == metadataField {
-			continue
-		}
-		if summary && (name == nativeIDField || name == "sddocname" || name == "summaryfeatures" || name == "matchfeatures") {
-			continue
-		}
-		return nativeRecord{}, fmt.Errorf("vespa: document %q has unexpected field %q", id, name)
+	if err := admitRecordFields(id, fields, names, summary); err != nil {
+		return nativeRecord{}, err
 	}
 	text, present, err := fields.Decode[string](names.content)
 	if err != nil || !present {
@@ -100,10 +101,7 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 		return nativeRecord{}, err
 	}
 	doc.ID, doc.Text = id, text
-	if strings.TrimSpace(id) == "" {
-		return nativeRecord{}, vectorstore.ErrMissingDocumentID
-	}
-	if err = doc.Validate(); err != nil {
+	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nativeRecord{}, err
 	}
 	if err = validateText(id); err != nil {
@@ -112,23 +110,46 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 	if err = validateText(text); err != nil {
 		return nativeRecord{}, err
 	}
-	tensor, present, err := fields.Decode[nativeTensor](names.embedding)
-	if err != nil || !present {
-		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks a dense tensor: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
-	}
-	dimensions := denseTensorType.FindStringSubmatch(tensor.Type)
-	if dimensions == nil {
-		return nativeRecord{}, fmt.Errorf("vespa: document %q tensor must be one fixed float dimension", id)
-	}
-	width, err := strconv.Atoi(dimensions[1])
-	if err != nil || width != len(tensor.Values) {
-		return nativeRecord{}, errors.New("vespa: tensor type and values disagree")
-	}
-	vector, err := floatVector(tensor.Values, width)
+	vector, err := decodeTensor(id, fields, names)
 	if err != nil {
 		return nativeRecord{}, err
 	}
 	return nativeRecord{document: doc, metadata: facts, vector: vector}, nil
+}
+
+// admitRecordFields allows only the document's current fields, plus the
+// fields Vespa adds to a search summary.
+func admitRecordFields(id string, fields metadata.Map, names schemaFields, summary bool) error {
+	for name := range fields {
+		switch name {
+		case names.content, names.embedding, metadataField:
+			continue
+		case nativeIDField, summaryFieldDocumentName, summaryFieldSummaryRank, summaryFieldMatchFeatures:
+			if summary {
+				continue
+			}
+		}
+		return fmt.Errorf("vespa: document %q has unexpected field %q", id, name)
+	}
+	return nil
+}
+
+// decodeTensor reads the one fixed float dimension a record's tensor declares
+// and requires its values to fill it.
+func decodeTensor(id string, fields metadata.Map, names schemaFields) ([]float32, error) {
+	tensor, present, err := fields.Decode[nativeTensor](names.embedding)
+	if err != nil || !present {
+		return nil, fmt.Errorf("vespa: document %q lacks a dense tensor: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	dimensions := denseTensorType.FindStringSubmatch(tensor.Type)
+	if dimensions == nil {
+		return nil, fmt.Errorf("vespa: document %q tensor must be one fixed float dimension", id)
+	}
+	width, err := strconv.Atoi(dimensions[1])
+	if err != nil || width != len(tensor.Values) {
+		return nil, errors.New("vespa: tensor type and values disagree")
+	}
+	return floatVector(tensor.Values, width)
 }
 
 func floatVector(values []float64, width int) ([]float32, error) {

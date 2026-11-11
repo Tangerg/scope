@@ -116,69 +116,13 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	if err != nil {
 		return nil, err
 	}
-	if len(selected) == 0 {
-		return &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}, nil
-	}
 	results := make([]*vectorstore.SearchResult, 0, len(selected))
-	for start := 0; start < len(selected); start += queryGroupSize {
-		group := selected[start:min(start+queryGroupSize, len(selected))]
-		ids := make([]string, len(group))
-		expected := make(map[string]bool, len(group))
-		for index, record := range group {
-			literal, err := quoteLiteral(s.nativeID(record.document.ID))
-			if err != nil {
-				return nil, err
-			}
-			ids[index] = literal
-			expected[record.document.ID] = false
-		}
-		yql := fmt.Sprintf("select %s, %s, %s, %s from %s where {approximate:false,targetHits:%d}nearestNeighbor(%s,%s) and %s in (%s)", s.fields.content, s.fields.embedding, metadataField, nativeIDField, s.schemaName, len(group), s.fields.embedding, s.queryTensorName, identityAttribute, strings.Join(ids, ","))
-		hits, err := s.query(meter, searchRequest{
-			YQL: yql, Hits: len(group), Ranking: s.rankingProfile, Summary: defaultSummary,
-			Inputs: map[string]queryTensor{queryInputName(s.queryTensorName): {Values: narrowed}},
-		})
+	for group := range slices.Chunk(selected, queryGroupSize) {
+		ranked, err := s.rankGroup(meter, group, exactRanking{query: narrowed, width: width, options: request.Options})
 		if err != nil {
 			return nil, err
 		}
-		if len(hits) != len(group) {
-			return nil, errors.New("vespa: exact query omitted selected documents; check native visibility and query limits")
-		}
-		for _, hit := range hits {
-			rawID, present, err := hit.Fields.Decode[string](nativeIDField)
-			if err != nil || !present {
-				return nil, errors.New("vespa: search summary lacks its native document ID")
-			}
-			id, err := s.documentID(rawID)
-			if err != nil {
-				return nil, err
-			}
-			seen, belongs := expected[id]
-			if !belongs || seen {
-				return nil, errors.New("vespa: search returned an unexpected or repeated identity")
-			}
-			expected[id] = true
-			record, err := decodeRecord(id, hit.Fields, s.fields, true)
-			if err != nil {
-				return nil, err
-			}
-			if len(record.vector) != width {
-				return nil, errors.New("vespa: search tensor dimensions changed")
-			}
-			if hit.Relevance == nil {
-				return nil, errors.New("vespa: search hit lacks relevance")
-			}
-			score := vectorstore.Score(*hit.Relevance)
-			if err = score.Validate(); err != nil {
-				return nil, err
-			}
-			matches, err := matchesMetadata(request.Options.Filter, record.document.Metadata)
-			if err != nil {
-				return nil, err
-			}
-			if matches && score >= request.Options.MinScore {
-				results = append(results, &vectorstore.SearchResult{Document: record.document, Score: score})
-			}
-		}
+		results = append(results, ranked...)
 	}
 	slices.SortStableFunc(results, func(left, right *vectorstore.SearchResult) int { return cmp.Compare(right.Score, left.Score) })
 	results = results[:min(len(results), request.Options.ResultLimit())]
@@ -187,6 +131,88 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 		return nil, err
 	}
 	return response, nil
+}
+
+// exactRanking is one scan query's ranking input: the narrowed vector, the
+// source tensor width every hit must keep, and the caller's options.
+type exactRanking struct {
+	query   []float32
+	width   int
+	options vectorstore.SearchOptions
+}
+
+// rankGroup ranks one group of selected records exactly and requires every
+// selected identity back exactly once.
+func (s *Store) rankGroup(meter *vectorstore.ScanMeter, group []nativeRecord, ranking exactRanking) ([]*vectorstore.SearchResult, error) {
+	ids := make([]string, len(group))
+	expected := make(map[string]bool, len(group))
+	for index, record := range group {
+		literal, err := quoteLiteral(s.nativeID(record.document.ID))
+		if err != nil {
+			return nil, err
+		}
+		ids[index] = literal
+		expected[record.document.ID] = false
+	}
+	yql := fmt.Sprintf("select %s, %s, %s, %s from %s where {approximate:false,targetHits:%d}nearestNeighbor(%s,%s) and %s in (%s)", s.fields.content, s.fields.embedding, metadataField, nativeIDField, s.schemaName, len(group), s.fields.embedding, s.queryTensorName, identityAttribute, strings.Join(ids, ","))
+	hits, err := s.query(meter, searchRequest{
+		YQL: yql, Hits: len(group), Ranking: s.rankingProfile, Summary: defaultSummary,
+		Inputs: map[string]queryTensor{queryInputName(s.queryTensorName): {Values: ranking.query}},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(hits) != len(group) {
+		return nil, errors.New("vespa: exact query omitted selected documents; check native visibility and query limits")
+	}
+	var results []*vectorstore.SearchResult
+	for _, hit := range hits {
+		result, err := s.admitHit(hit, expected, ranking)
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			results = append(results, result)
+		}
+	}
+	return results, nil
+}
+
+// admitHit decodes one exact hit and returns nil for a hit the filter or the
+// minimum score excludes.
+func (s *Store) admitHit(hit queryHit, expected map[string]bool, ranking exactRanking) (*vectorstore.SearchResult, error) {
+	rawID, present, err := hit.Fields.Decode[string](nativeIDField)
+	if err != nil || !present {
+		return nil, errors.New("vespa: search summary lacks its native document ID")
+	}
+	id, err := s.documentID(rawID)
+	if err != nil {
+		return nil, err
+	}
+	seen, belongs := expected[id]
+	if !belongs || seen {
+		return nil, errors.New("vespa: search returned an unexpected or repeated identity")
+	}
+	expected[id] = true
+	record, err := decodeRecord(id, hit.Fields, s.fields, true)
+	if err != nil {
+		return nil, err
+	}
+	if len(record.vector) != ranking.width {
+		return nil, errors.New("vespa: search tensor dimensions changed")
+	}
+	if hit.Relevance == nil {
+		return nil, errors.New("vespa: search hit lacks relevance")
+	}
+	score := vectorstore.Score(*hit.Relevance)
+	if err = score.Validate(); err != nil {
+		return nil, err
+	}
+	matches, err := matchesMetadata(ranking.options.Filter, record.document.Metadata)
+	if err != nil || !matches || score < ranking.options.MinScore {
+		return nil, err
+	}
+	return &vectorstore.SearchResult{Document: record.document, Score: score}, nil
 }
 
 func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) error {

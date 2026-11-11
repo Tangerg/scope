@@ -291,15 +291,15 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	id, idOK := props[s.idProperty].(string)
 	text, textOK := props[s.textProperty].(string)
 	encoded, metadataOK := props[s.metadataProperty].(string)
-	if !idOK || strings.TrimSpace(id) == "" || !textOK || !metadataOK {
-		return nil, errors.New("neo4j: invalid document property types or ID")
+	if !idOK || !textOK || !metadataOK {
+		return nil, errors.New("neo4j: invalid document property types")
 	}
 	doc := new(document.Document)
 	if err := doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
 		return nil, fmt.Errorf("neo4j: decode metadata for %q: %w", id, err)
 	}
 	doc.ID, doc.Text = id, text
-	if err := doc.Validate(); err != nil {
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	rawVector, ok := props[s.embeddingProperty].([]any)

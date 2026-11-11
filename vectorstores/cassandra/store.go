@@ -283,11 +283,8 @@ func decodeStoredRecord(record storedRecord) (*document.Document, error) {
 		return nil, fmt.Errorf("cassandra: decode metadata for %q: %w", record.id, err)
 	}
 	doc.ID, doc.Text = record.id, record.content
-	if err := doc.Validate(); err != nil {
+	if err := vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
-	}
-	if strings.TrimSpace(doc.ID) == "" {
-		return nil, vectorstore.ErrMissingDocumentID
 	}
 	if err := corevector.Coordinates[float32](record.vector).Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", vectorstore.ErrInvalidRequest, err)
