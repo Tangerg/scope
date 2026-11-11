@@ -218,14 +218,6 @@ type SearchResponse struct {
 	Results []*SearchResult `json:"results"`
 }
 
-func NewSearchResponse(results []*SearchResult) (*SearchResponse, error) {
-	response := &SearchResponse{Results: slices.Clone(results)}
-	if err := response.Validate(); err != nil {
-		return nil, fmt.Errorf("vectorstore: create search response: %w", err)
-	}
-	return response, nil
-}
-
 func (s *SearchResponse) Validate() error {
 	if s == nil {
 		return fmt.Errorf("%w: response is nil", ErrInvalidResponse)

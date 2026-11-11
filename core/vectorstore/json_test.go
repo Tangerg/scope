@@ -18,8 +18,8 @@ func TestModelErrorsAreClassifiable(t *testing.T) {
 	if _, err := vectorstore.NewSearchResult(nil, 1); !errors.Is(err, vectorstore.ErrInvalidResponse) {
 		t.Fatalf("NewSearchResult error = %v, want ErrInvalidResponse", err)
 	}
-	if _, err := vectorstore.NewSearchResponse([]*vectorstore.SearchResult{nil}); !errors.Is(err, vectorstore.ErrInvalidResponse) {
-		t.Fatalf("NewSearchResponse error = %v, want ErrInvalidResponse", err)
+	if err := (&vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{nil}}).Validate(); !errors.Is(err, vectorstore.ErrInvalidResponse) {
+		t.Fatalf("SearchResponse.Validate error = %v, want ErrInvalidResponse", err)
 	}
 }
 

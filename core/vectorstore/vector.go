@@ -161,14 +161,12 @@ type Querier interface {
 	Query(context.Context, *Query) (*SearchResponse, error)
 }
 
-// ValidateResponse detects protocol violations; it never fixes incorrect
-// membership by filtering a truncated top-K result.
+// ValidateResponse holds a response to the options of a query its store
+// already admitted with ValidateFor. It detects protocol violations and never
+// fixes incorrect membership by filtering a truncated top-K result.
 func (q *Query) ValidateResponse(result *SearchResponse) error {
 	if q == nil {
 		return fmt.Errorf("%w: nil vector query", ErrInvalidRequest)
-	}
-	if err := q.ValidateFor(q.Space); err != nil {
-		return err
 	}
 	return result.validateOptions(q.Options)
 }
