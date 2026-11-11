@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
@@ -17,12 +19,12 @@ import (
 func TestEveryMutationHonorsBulkAdmission(t *testing.T) {
 	for _, operation := range []struct {
 		name   string
-		mutate func(context.Context, *Store, []*document.Document) error
+		mutate func(context.Context, *elastic.Store, []*document.Document) error
 		wire   func(string) string
 	}{
 		{
 			name: "upsert",
-			mutate: func(ctx context.Context, store *Store, docs []*document.Document) error {
+			mutate: func(ctx context.Context, store *elastic.Store, docs []*document.Document) error {
 				return store.Upsert(ctx, fixtureBatch(docs))
 			},
 			wire: func(id string) string {
@@ -31,7 +33,7 @@ func TestEveryMutationHonorsBulkAdmission(t *testing.T) {
 		},
 		{
 			name: "delete IDs",
-			mutate: func(ctx context.Context, store *Store, docs []*document.Document) error {
+			mutate: func(ctx context.Context, store *elastic.Store, docs []*document.Document) error {
 				var ids []string
 				for _, doc := range docs {
 					ids = append(ids, doc.ID)
@@ -44,7 +46,7 @@ func TestEveryMutationHonorsBulkAdmission(t *testing.T) {
 		},
 		{
 			name: "conditional delete",
-			mutate: func(ctx context.Context, store *Store, _ []*document.Document) error {
+			mutate: func(ctx context.Context, store *elastic.Store, _ []*document.Document) error {
 				return store.DeleteMatching(ctx, filter.IsNull("unused"), fixtureBudget())
 			},
 			wire: func(id string) string {
@@ -140,7 +142,7 @@ func TestBulkBudgetRetainsWriteEvidenceAcrossRequests(t *testing.T) {
 	}
 }
 
-func newBulkBudgetFixture(t *testing.T, limit int, docs []*document.Document) (*protocolFixture, *Store) {
+func newBulkBudgetFixture(t *testing.T, limit int, docs []*document.Document) (*protocolFixture, *elastic.Store) {
 	t.Helper()
 	fixture := newProtocolFixture(t)
 	fixture.pageSize = 512

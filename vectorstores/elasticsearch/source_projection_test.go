@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
@@ -51,10 +53,9 @@ func TestReadsExplicitlyIncludeSourceVectors(t *testing.T) {
 		t.Run(operation.name, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
 			fixture.settings.Defaults["index.mapping.exclude_source_vectors"] = "true"
-			fixture.rows["one"] = storedDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
-			store := fixture.store()
+			fixture.rows["one"] = elastic.StoredDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
 			client := &sourceProjectionClient{client: fixture.client}
-			store.client = fixtureProtocol(t, client, 0)
+			store := fixture.storeThrough(client)
 			query := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}}
 			var response *vectorstore.SearchResponse
 			var err error

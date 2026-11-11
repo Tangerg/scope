@@ -114,34 +114,42 @@ func TestScrollRejectsUntrustworthyPagesAndStillCleansUp(t *testing.T) {
 
 func TestScrollResponseBudgetPreservesCleanupCause(t *testing.T) {
 	cause := errors.New("cleanup failed")
-	for _, nativeLimit := range []bool{false, true} {
-		t.Run(fmt.Sprint(nativeLimit), func(t *testing.T) {
-			transport := &scriptedTransport{t: t, replies: []wireReply{
-				{status: 200, body: `{"_scroll_id":"latest","padding":"` + strings.Repeat("x", 1024) + `"}`},
-				{status: 503, body: `{}`, closeErr: cause},
-			}}
-			scroll := configuredScroll(t, transport, func(config *ScrollConfig) {
+	oversized := `{"_scroll_id":"latest","padding":"` + strings.Repeat("x", 1024) + `"}`
+	for _, later := range []bool{false, true} {
+		for _, nativeLimit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("later=%t/native=%t", later, nativeLimit), func(t *testing.T) {
+				limit := int64(64)
+				var replies []wireReply
+				if later {
+					first := scrollPage("previous", 2, scrollHit("one", "alpha"))
+					replies = append(replies, wireReply{status: 200, body: first})
+					limit += int64(len(first))
+				}
+				replies = append(replies, wireReply{status: 200, body: oversized}, wireReply{status: 503, body: `{}`, closeErr: cause})
+				transport := &scriptedTransport{t: t, replies: replies}
+				scroll := configuredScroll(t, transport, func(config *ScrollConfig) {
+					if nativeLimit {
+						config.Client = protocolClient(t, transport, limit)
+					} else {
+						config.Budget.MaxBytes = limit
+					}
+				})
+				selected, err := scroll.Select(t.Context(), nil)
+				if selected != nil || !errors.Is(err, cause) {
+					t.Fatalf("selection=%v error=%v", selected, err)
+				}
+				want := vectorstore.ErrScanBudget
 				if nativeLimit {
-					config.Client = protocolClient(t, transport, 64)
-				} else {
-					config.Budget.MaxBytes = 64
+					want = ErrResponseLimit
+				}
+				if !errors.Is(err, want) {
+					t.Fatal(err)
+				}
+				if cleanup := transport.requests[len(transport.requests)-1]; cleanup.body != `{"scroll_id":["latest"]}` {
+					t.Fatalf("cleanup=%+v; the latest observed cursor was lost", cleanup)
 				}
 			})
-			selected, err := scroll.Select(t.Context(), nil)
-			if selected != nil || !errors.Is(err, cause) {
-				t.Fatalf("selection=%v error=%v", selected, err)
-			}
-			want := vectorstore.ErrScanBudget
-			if nativeLimit {
-				want = ErrResponseLimit
-			}
-			if !errors.Is(err, want) {
-				t.Fatal(err)
-			}
-			if transport.requests[1].body != `{"scroll_id":["latest"]}` {
-				t.Fatal("latest observed cursor was lost")
-			}
-		})
+		}
 	}
 }
 

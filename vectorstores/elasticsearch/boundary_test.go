@@ -42,13 +42,13 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 			case "missing source":
 				hit.Source = nil
 			case "missing metadata":
-				delete(source, metadataField)
+				delete(source, elastic.MetadataField)
 			case "shadow metadata":
 				source["metadata"] = json.RawMessage(`{}`)
 			case "missing vector":
-				delete(source, embeddingField)
+				delete(source, elastic.EmbeddingField)
 			case "null coordinate":
-				source[embeddingField] = json.RawMessage(`[1,null]`)
+				source[elastic.EmbeddingField] = json.RawMessage(`[1,null]`)
 			case "missing tokens":
 				hit.SeqNo = nil
 			case "routing":

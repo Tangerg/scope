@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
 	"github.com/Tangerg/scope/core/document"
@@ -56,7 +58,7 @@ type liveConfig struct {
 	compression string
 }
 
-func liveStore(t *testing.T, config liveConfig) (*Store, *opensearchsdk.Client) {
+func liveStore(t *testing.T, config liveConfig) (*elastic.Store, *opensearchsdk.Client, string) {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_OPENSEARCH_ENDPOINT")
 	if endpoint == "" {
@@ -97,7 +99,7 @@ func liveStore(t *testing.T, config liveConfig) (*Store, *opensearchsdk.Client) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, client
+	return store, client, name
 }
 
 func refreshNative(ctx context.Context, client *opensearchsdk.Client, name string) error {
@@ -107,7 +109,7 @@ func refreshNative(ctx context.Context, client *opensearchsdk.Client, name strin
 func TestLiveFilterConformance(t *testing.T) {
 	for _, engine := range []string{"lucene", "faiss"} {
 		t.Run(engine, func(t *testing.T) {
-			store, client := liveStore(t, liveConfig{engine: engine, metric: "cosinesimil"})
+			store, client, index := liveStore(t, liveConfig{engine: engine, metric: "cosinesimil"})
 			var previous []string
 			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 				if err := store.DeleteIDs(ctx, previous); err != nil {
@@ -120,7 +122,7 @@ func TestLiveFilterConformance(t *testing.T) {
 				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 					return nil, err
 				}
-				if err := refreshNative(ctx, client, store.indexName); err != nil {
+				if err := refreshNative(ctx, client, index); err != nil {
 					return nil, err
 				}
 				response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
@@ -141,7 +143,7 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 	for _, engine := range []string{"lucene", "faiss"} {
 		for _, metric := range []string{"cosinesimil", "l2", "innerproduct"} {
 			t.Run(engine+"/"+metric, func(t *testing.T) {
-				store, client := liveStore(t, liveConfig{engine: engine, metric: metric})
+				store, client, index := liveStore(t, liveConfig{engine: engine, metric: metric})
 				facts := []metadata.Map{nil, {}, {"content": json.RawMessage(`"user value"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}}
 				docs := make([]*document.Document, len(facts))
 				for i := range facts {
@@ -150,7 +152,7 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 				if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 					t.Fatal(err)
 				}
-				if err := refreshNative(t.Context(), client, store.indexName); err != nil {
+				if err := refreshNative(t.Context(), client, index); err != nil {
 					t.Fatal(err)
 				}
 				response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
@@ -166,7 +168,7 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 				if err = store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err != nil {
 					t.Fatal(err)
 				}
-				if err = refreshNative(t.Context(), client, store.indexName); err != nil {
+				if err = refreshNative(t.Context(), client, index); err != nil {
 					t.Fatal(err)
 				}
 				if response, err = fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}); err != nil || len(response.Results) != 0 {
@@ -187,7 +189,7 @@ func TestLiveFP16LimitsBelongToNativeIndexEncoding(t *testing.T) {
 		{name: "native clipping", encoder: `{"name":"sq","parameters":{"type":"fp16","clip":true}}`, clip: true},
 	} {
 		t.Run(sample.name, func(t *testing.T) {
-			store, client := liveStore(t, liveConfig{engine: "faiss", metric: "l2", encoder: sample.encoder, compression: sample.compression})
+			store, client, index := liveStore(t, liveConfig{engine: "faiss", metric: "l2", encoder: sample.encoder, compression: sample.compression})
 
 			batch := fixtureBatch([]*document.Document{{ID: "first", Text: "small"}, {ID: "second", Text: "large"}})
 			batch.Records[1].Values = []float64{65505, 0}
@@ -200,7 +202,7 @@ func TestLiveFP16LimitsBelongToNativeIndexEncoding(t *testing.T) {
 				if err == nil {
 					t.Fatal("native FP16 boundary was ignored")
 				}
-				if err = refreshNative(t.Context(), client, store.indexName); err != nil {
+				if err = refreshNative(t.Context(), client, index); err != nil {
 					t.Fatal(err)
 				}
 				empty, queryErr := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("small")})
@@ -211,7 +213,7 @@ func TestLiveFP16LimitsBelongToNativeIndexEncoding(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err = refreshNative(t.Context(), client, store.indexName); err != nil {
+			if err = refreshNative(t.Context(), client, index); err != nil {
 				t.Fatal(err)
 			}
 			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("large")})

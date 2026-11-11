@@ -41,7 +41,7 @@ func (c *concurrentWriter) Perform(request *http.Request) (*http.Response, error
 }
 
 func TestLiveConditionalDeleteRetainsConcurrentVersion(t *testing.T) {
-	store, client := liveStore(t, "cosine")
+	store, client, index := liveStore(t, "cosine")
 	facts, err := metadata.FromValues(map[string]any{"value": "x"})
 	if err != nil {
 		t.Fatal(err)
@@ -49,14 +49,17 @@ func TestLiveConditionalDeleteRetainsConcurrentVersion(t *testing.T) {
 	if err = store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text", Metadata: facts}})); err != nil {
 		t.Fatal(err)
 	}
-	if err = refreshNative(t.Context(), client, store.indexName); err != nil {
+	if err = refreshNative(t.Context(), client, index); err != nil {
 		t.Fatal(err)
 	}
-	store.client = fixtureProtocol(t, &concurrentWriter{client: client, index: store.indexName}, 0)
+	store, err = NewStore(t.Context(), StoreConfig{Client: &concurrentWriter{client: client, index: index}, IndexName: index, Space: fixtureSpace})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err = store.DeleteMatching(t.Context(), filter.EQ("value", "x"), fixtureBudget()); err == nil {
 		t.Fatal("stale native CAS reported success")
 	}
-	if err = refreshNative(t.Context(), client, store.indexName); err != nil {
+	if err = refreshNative(t.Context(), client, index); err != nil {
 		t.Fatal(err)
 	}
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
@@ -69,7 +72,7 @@ func TestLiveConditionalDeleteRetainsConcurrentVersion(t *testing.T) {
 }
 
 func TestLiveFilteredGroupsPreserveNativeRanking(t *testing.T) {
-	store, client := liveStore(t, "max_inner_product")
+	store, client, index := liveStore(t, "max_inner_product")
 	docs := make([]*document.Document, 513)
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("%04d", i), Text: strconv.Itoa(i + 1)}
@@ -81,7 +84,7 @@ func TestLiveFilteredGroupsPreserveNativeRanking(t *testing.T) {
 	if err := store.Upsert(t.Context(), batch); err != nil {
 		t.Fatal(err)
 	}
-	if err := refreshNative(t.Context(), client, store.indexName); err != nil {
+	if err := refreshNative(t.Context(), client, index); err != nil {
 		t.Fatal(err)
 	}
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("1"), Options: vectorstore.SearchOptions{TopK: 3, Filter: filter.IsNull("unused")}})

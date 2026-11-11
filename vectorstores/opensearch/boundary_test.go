@@ -48,13 +48,13 @@ func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
 			case "missing source":
 				hit.Source = nil
 			case "missing metadata":
-				delete(source, metadataField)
+				delete(source, elastic.MetadataField)
 			case "shadow metadata":
 				source["metadata"] = json.RawMessage(`{}`)
 			case "missing vector":
-				delete(source, embeddingField)
+				delete(source, elastic.EmbeddingField)
 			case "null coordinate":
-				source[embeddingField] = json.RawMessage(`[1,null]`)
+				source[elastic.EmbeddingField] = json.RawMessage(`[1,null]`)
 			case "missing tokens":
 				hit.SeqNo = nil
 			case "routing":
@@ -128,7 +128,7 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 	for _, fault := range []string{"native KNN disabled", "vector source derived", "search pipeline", "missing engine", "trained model", "unsupported engine space", "missing metadata", "missing content", "shadow source", "missing cursor", "wrong total", "scroll shard missing"} {
 		t.Run(fault, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			field := fixture.mapping.Properties[embeddingField]
+			field := fixture.mapping.Properties[elastic.EmbeddingField]
 			switch fault {
 			case "native KNN disabled":
 				fixture.settings.Settings["index.knn"] = "false"
@@ -143,7 +143,7 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 			case "unsupported engine space":
 				field.Method.SpaceType = "l1"
 			default:
-				fixture.rows["one"] = storedDocument{Content: "text", Embedding: []float32{1, 0}, MetadataJSON: "null"}
+				fixture.rows["one"] = elastic.StoredDocument{Content: "text", Embedding: []float32{1, 0}, MetadataJSON: "null"}
 				if fault == "missing metadata" {
 					record := fixture.rows["one"]
 					record.MetadataJSON = ""
@@ -155,7 +155,7 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 					fixture.rows["one"] = record
 				}
 			}
-			fixture.mapping.Properties[embeddingField] = field
+			fixture.mapping.Properties[elastic.EmbeddingField] = field
 			if strings.HasPrefix(fault, "scroll") || fault == "missing cursor" || fault == "wrong total" || fault == "shadow source" {
 				hit := fixture.hit("one")
 				if fault == "shadow source" {
@@ -193,9 +193,9 @@ func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
 
 func TestNMSLibFilteredSearchRejectsBeforeModelOrNativeIO(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	field := fixture.mapping.Properties[embeddingField]
+	field := fixture.mapping.Properties[elastic.EmbeddingField]
 	field.Method.Engine = "nmslib"
-	fixture.mapping.Properties[embeddingField] = field
+	fixture.mapping.Properties[elastic.EmbeddingField] = field
 	store := fixture.store()
 	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); !errors.Is(err, errors.ErrUnsupported) || response != nil || len(fixture.groups) != 0 {
 		t.Fatalf("unsupported operation reached model or native query: %#v, %v", response, err)

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 
@@ -12,8 +14,8 @@ import (
 
 func TestUnfilteredSearchDoesNotAuditUnreturnedRecords(t *testing.T) {
 	fixture := newProtocolFixture(t)
-	fixture.rows["one"] = storedDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
-	fixture.rows["unrelated"] = storedDocument{Content: "text", MetadataJSON: "broken", Embedding: []float32{0, 1}}
+	fixture.rows["one"] = elastic.StoredDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
+	fixture.rows["unrelated"] = elastic.StoredDocument{Content: "text", MetadataJSON: "broken", Embedding: []float32{0, 1}}
 	fixture.scores["one"], fixture.scores["unrelated"] = 1, 0.5
 	store := fixture.store()
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1}})

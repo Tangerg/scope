@@ -42,19 +42,64 @@ func fixtureBatch(docs []*document.Document) *vectorstore.Batch {
 func fixtureBudget() vectorstore.ScanBudget {
 	return vectorstore.ScanBudget{MaxRecords: 10000, MaxBytes: 16 << 20, Timeout: time.Minute}
 }
-func fixtureQuery(ctx context.Context, s *Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
+func fixtureQuery(ctx context.Context, s *elastic.Store, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
 	if q.Options.Filter != nil {
 		return s.QueryByScan(ctx, q, fixtureBudget())
 	}
 	return s.Query(ctx, q)
 }
 
+// The fixture serves native mapping JSON; Store decodes it through its own
+// engine-neutral and engine-specific types.
+type fixtureIndex struct {
+	Mappings fixtureMapping `json:"mappings"`
+}
+
+type fixtureMapping struct {
+	Meta struct {
+		Space string `json:"scope_vector_space"`
+	} `json:"_meta"`
+	Dynamic    string                  `json:"dynamic"`
+	Properties map[string]fixtureField `json:"properties"`
+	Source     fixtureSource           `json:"_source"`
+	Routing    struct {
+		Required bool `json:"required"`
+	} `json:"_routing"`
+	Runtime          map[string]any `json:"runtime"`
+	Derived          map[string]any `json:"derived"`
+	DynamicTemplates []any          `json:"dynamic_templates"`
+}
+
+type fixtureField struct {
+	Type             string        `json:"type"`
+	Dimensions       int           `json:"dimension"`
+	SpaceType        string        `json:"space_type"`
+	DataType         string        `json:"data_type"`
+	ModelID          string        `json:"model_id"`
+	CompressionLevel string        `json:"compression_level"`
+	Method           *nativeMethod `json:"method,omitzero"`
+	Index            *bool         `json:"index"`
+	DocValues        *bool         `json:"doc_values"`
+}
+
+type fixtureSource struct {
+	Enabled  *bool    `json:"enabled"`
+	Mode     string   `json:"mode"`
+	Includes []string `json:"includes"`
+	Excludes []string `json:"excludes"`
+}
+
+type fixtureSearchRequest struct {
+	Size  int       `json:"size"`
+	Query *knnQuery `json:"query"`
+}
+
 type protocolFixture struct {
 	t             *testing.T
 	client        *opensearchsdk.Client
-	mapping       nativeMapping
-	settings      nativeSettings
-	rows          map[string]storedDocument
+	mapping       fixtureMapping
+	settings      elastic.IndexSettings
+	rows          map[string]elastic.StoredDocument
 	snapshot      []elastic.Hit
 	position      int
 	pageSize      int
@@ -72,7 +117,7 @@ type protocolFixture struct {
 
 func newProtocolFixture(t *testing.T) *protocolFixture {
 	t.Helper()
-	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]storedDocument), scores: make(map[string]float64), mapping: nativeMapping{Dynamic: "strict", Properties: map[string]mappedField{contentField: {Type: "text"}, metadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, embeddingField: {Type: "knn_vector", Dimensions: 2, Method: &nativeMethod{Name: "hnsw", Engine: "lucene", SpaceType: "cosinesimil"}}}}, settings: nativeSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.knn": "true", "index.derived_source.enabled": "false", "index.knn.derived_source.enabled": "false", "index.search.default_pipeline": "_none", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
+	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]elastic.StoredDocument), scores: make(map[string]float64), mapping: fixtureMapping{Dynamic: "strict", Properties: map[string]fixtureField{elastic.ContentField: {Type: "text"}, elastic.MetadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, elastic.EmbeddingField: {Type: "knn_vector", Dimensions: 2, Method: &nativeMethod{Name: "hnsw", Engine: "lucene", SpaceType: "cosinesimil"}}}}, settings: elastic.IndexSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.knn": "true", "index.derived_source.enabled": "false", "index.knn.derived_source.enabled": "false", "index.search.default_pipeline": "_none", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
 	fixture.mapping.Meta.Space = string(fixtureSpace)
 	server := httptest.NewServer(fixture)
 	t.Cleanup(server.Close)
@@ -90,7 +135,7 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 	return fixture
 }
 
-func (p *protocolFixture) store() *Store {
+func (p *protocolFixture) store() *elastic.Store {
 	p.t.Helper()
 	store, err := NewStore(p.t.Context(), StoreConfig{Client: p.client, IndexName: "documents", Space: fixtureSpace})
 	if err != nil {
@@ -124,9 +169,9 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case health:
 	case strings.HasSuffix(r.URL.Path, "/_mapping"):
-		response = map[string]mappedIndex{"documents": {Mappings: p.mapping}}
+		response = map[string]fixtureIndex{"documents": {Mappings: p.mapping}}
 	case strings.HasSuffix(r.URL.Path, "/_settings"):
-		response = map[string]nativeSettings{"documents": p.settings}
+		response = map[string]elastic.IndexSettings{"documents": p.settings}
 	case r.Method == http.MethodDelete && r.URL.Path == "/_search/scroll":
 		p.cleared++
 		response = map[string]any{"succeeded": true, "num_freed": 1}
@@ -155,7 +200,7 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if action.Index != nil {
 				operation, target, status = bulkOperationIndex, action.Index, 201
 				i++
-				var record storedDocument
+				var record elastic.StoredDocument
 				if i >= len(lines) {
 					p.t.Error("missing native document line")
 					w.WriteHeader(500)
@@ -190,7 +235,7 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		response = p.page(p.snapshot[p.position:end], len(p.snapshot), "cursor")
 		p.position = end
 	case strings.HasSuffix(r.URL.Path, "/_search"):
-		var request searchRequest
+		var request fixtureSearchRequest
 		if err := jsonv2.UnmarshalRead(r.Body, &request); err != nil {
 			p.t.Error(err)
 			w.WriteHeader(500)
@@ -219,8 +264,8 @@ func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			var hits []elastic.Hit
 			var ids []string
-			if request.Query.KNN[embeddingField].Filter != nil {
-				ids = request.Query.KNN[embeddingField].Filter.IDs.Values
+			if request.Query.KNN[elastic.EmbeddingField].Filter != nil {
+				ids = request.Query.KNN[elastic.EmbeddingField].Filter.IDs.Values
 			}
 			p.groups = append(p.groups, len(ids))
 			for id := range p.rows {
@@ -333,11 +378,11 @@ func TestWholePreparationRejectsLateFailuresWithoutPublication(t *testing.T) {
 			fixture := newProtocolFixture(t)
 
 			if fault == "FP16" {
-				field := fixture.mapping.Properties[embeddingField]
+				field := fixture.mapping.Properties[elastic.EmbeddingField]
 				field.Method.Engine = "faiss"
 				field.Method.SpaceType = "l2"
 				field.Method.Parameters.Encoder = &nativeEncoder{Name: "sq"}
-				fixture.mapping.Properties[embeddingField] = field
+				fixture.mapping.Properties[elastic.EmbeddingField] = field
 			}
 			vector := []float64{1, 0}
 			switch fault {
@@ -372,15 +417,20 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 	for _, metric := range []string{"cosinesimil", "l2", "innerproduct", "l1", "linf"} {
 		t.Run(metric, func(t *testing.T) {
 			fixture := newProtocolFixture(t)
-			field := fixture.mapping.Properties[embeddingField]
+			field := fixture.mapping.Properties[elastic.EmbeddingField]
 			field.Method.SpaceType = metric
 			if metric == "l1" || metric == "linf" {
 				field.Method.Engine = "nmslib"
 			}
-			fixture.mapping.Properties[embeddingField] = field
-			store := fixture.store()
-			if store.schema.similarity != nativeSimilarity(metric) || store.schema.dimensions != 2 {
-				t.Fatalf("schema=%#v", store.schema)
+			fixture.mapping.Properties[elastic.EmbeddingField] = field
+			fixture.store()
+			embedding, err := jsonv2.Marshal(fixture.mapping.Properties[elastic.EmbeddingField])
+			if err != nil {
+				t.Fatal(err)
+			}
+			schema, err := engine{}.Admit(embedding, fixture.settings)
+			if err != nil || schema.(nativeSchema).similarity != nativeSimilarity(metric) || schema.(nativeSchema).dimensions != 2 {
+				t.Fatalf("schema=%#v, error=%v", schema, err)
 			}
 		})
 	}
@@ -391,34 +441,34 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 			case "dynamic":
 				fixture.mapping.Dynamic = "true"
 			case "extra property":
-				fixture.mapping.Properties["shadow"] = mappedField{Type: "keyword"}
+				fixture.mapping.Properties["shadow"] = fixtureField{Type: "keyword"}
 			case "routing":
 				fixture.mapping.Routing.Required = true
 			case "source disabled":
 				fixture.mapping.Source.Enabled = new(false)
 			case "source pruned":
-				fixture.mapping.Source.Excludes = []string{embeddingField}
+				fixture.mapping.Source.Excludes = []string{elastic.EmbeddingField}
 			case "metadata indexed":
-				field := fixture.mapping.Properties[metadataField]
+				field := fixture.mapping.Properties[elastic.MetadataField]
 				field.Index = new(true)
-				fixture.mapping.Properties[metadataField] = field
+				fixture.mapping.Properties[elastic.MetadataField] = field
 			case "metadata object":
-				fixture.mapping.Properties[metadataField] = mappedField{Type: "object"}
+				fixture.mapping.Properties[elastic.MetadataField] = fixtureField{Type: "object"}
 			case "byte vectors":
-				field := fixture.mapping.Properties[embeddingField]
+				field := fixture.mapping.Properties[elastic.EmbeddingField]
 				field.DataType = "byte"
-				fixture.mapping.Properties[embeddingField] = field
+				fixture.mapping.Properties[elastic.EmbeddingField] = field
 			case "no dimension":
-				field := fixture.mapping.Properties[embeddingField]
+				field := fixture.mapping.Properties[elastic.EmbeddingField]
 				field.Dimensions = 0
-				fixture.mapping.Properties[embeddingField] = field
+				fixture.mapping.Properties[elastic.EmbeddingField] = field
 			case "pipeline":
 				fixture.settings.Settings["index.final_pipeline"] = "rewrite"
 			case "source mode":
 				fixture.settings.Settings["index.derived_source.enabled"] = "true"
 			}
 			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
-			if store != nil || !errors.Is(err, ErrIncompatibleIndex) {
+			if store != nil || !errors.Is(err, elastic.ErrIncompatibleIndex) {
 				t.Fatalf("incompatible policy accepted: %#v, %v", store, err)
 			}
 		})
@@ -447,15 +497,15 @@ func TestConditionalDeletionReportsNativeConflict(t *testing.T) {
 func TestNativeInnerProductScoreAndRawRanking(t *testing.T) {
 	schema := nativeSchema{similarity: "innerproduct"}
 	for _, sample := range []struct{ raw, want float64 }{{0.5, 0.2689414213699951}, {1, 0.5}, {2, 0.7310585786300049}} {
-		score, err := schema.score(sample.raw)
+		score, err := schema.Score(sample.raw)
 		if err != nil || math.Abs(float64(score)-sample.want) > 1e-15 {
 			t.Fatalf("score(%g)=%g, %v", sample.raw, score, err)
 		}
 	}
 	fixture := newProtocolFixture(t)
-	field := fixture.mapping.Properties[embeddingField]
+	field := fixture.mapping.Properties[elastic.EmbeddingField]
 	field.Method.SpaceType = "innerproduct"
-	fixture.mapping.Properties[embeddingField] = field
+	fixture.mapping.Properties[elastic.EmbeddingField] = field
 	store := fixture.store()
 	docs := make([]*document.Document, 513)
 	for i := range docs {

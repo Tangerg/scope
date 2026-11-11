@@ -30,7 +30,7 @@ import (
 	"github.com/Tangerg/scope/core/vectorstore/storetest"
 )
 
-func liveStore(t *testing.T, metric string) (*Store, *elasticsearchsdk.Client) {
+func liveStore(t *testing.T, metric string) (*elastic.Store, *elasticsearchsdk.Client, string) {
 	t.Helper()
 	endpoint := os.Getenv("SCOPE_ELASTICSEARCH_ENDPOINT")
 	if endpoint == "" {
@@ -82,7 +82,7 @@ func liveStore(t *testing.T, metric string) (*Store, *elasticsearchsdk.Client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return store, client
+	return store, client, name
 }
 
 func refreshNative(ctx context.Context, client *elasticsearchsdk.Client, name string) (err error) {
@@ -98,7 +98,7 @@ func refreshNative(ctx context.Context, client *elasticsearchsdk.Client, name st
 }
 
 func TestLiveFilterConformance(t *testing.T) {
-	store, client := liveStore(t, "cosine")
+	store, client, index := liveStore(t, "cosine")
 	var previous []string
 	storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
 		if err := store.DeleteIDs(ctx, previous); err != nil {
@@ -111,7 +111,7 @@ func TestLiveFilterConformance(t *testing.T) {
 		if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
 			return nil, err
 		}
-		if err := refreshNative(ctx, client, store.indexName); err != nil {
+		if err := refreshNative(ctx, client, index); err != nil {
 			return nil, err
 		}
 		response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
@@ -129,7 +129,7 @@ func TestLiveFilterConformance(t *testing.T) {
 func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 	for _, metric := range []string{"cosine", "l2_norm", "dot_product", "max_inner_product"} {
 		t.Run(metric, func(t *testing.T) {
-			store, client := liveStore(t, metric)
+			store, client, index := liveStore(t, metric)
 			facts := []metadata.Map{nil, {}, {"content": json.RawMessage(`"user value"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}}
 			docs := make([]*document.Document, len(facts))
 			for i := range facts {
@@ -138,7 +138,7 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 			if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 				t.Fatal(err)
 			}
-			if refreshErr := refreshNative(t.Context(), client, store.indexName); refreshErr != nil {
+			if refreshErr := refreshNative(t.Context(), client, index); refreshErr != nil {
 				t.Fatal(refreshErr)
 			}
 			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs)}})
@@ -154,7 +154,7 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 			if err = store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err != nil {
 				t.Fatal(err)
 			}
-			if refreshErr := refreshNative(t.Context(), client, store.indexName); refreshErr != nil {
+			if refreshErr := refreshNative(t.Context(), client, index); refreshErr != nil {
 				t.Fatal(refreshErr)
 			}
 			if response, err = fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")}); err != nil || len(response.Results) != 0 {
@@ -165,14 +165,14 @@ func TestLiveExactMetadataAndNativeMetrics(t *testing.T) {
 }
 
 func TestLiveNativeEnvelope(t *testing.T) {
-	store, client := liveStore(t, "cosine")
+	store, client, index := liveStore(t, "cosine")
 	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
 		t.Fatal(err)
 	}
-	if err := refreshNative(t.Context(), client, store.indexName); err != nil {
+	if err := refreshNative(t.Context(), client, index); err != nil {
 		t.Fatal(err)
 	}
-	response, err := client.Search(client.Search.WithContext(t.Context()), client.Search.WithIndex(store.indexName), client.Search.WithBody(strings.NewReader(`{"size":1,"_source":{"exclude_vectors":false},"seq_no_primary_term":true,"stored_fields":["_routing"],"track_total_hits":true,"knn":{"field":"embedding","query_vector":[1,0],"k":1}}`)))
+	response, err := client.Search(client.Search.WithContext(t.Context()), client.Search.WithIndex(index), client.Search.WithBody(strings.NewReader(`{"size":1,"_source":{"exclude_vectors":false},"seq_no_primary_term":true,"stored_fields":["_routing"],"track_total_hits":true,"knn":{"field":"embedding","query_vector":[1,0],"k":1}}`)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestLiveNativeEnvelope(t *testing.T) {
 	if response.IsError() || decodeErr != nil || closeErr != nil {
 		t.Fatalf("native envelope: HTTP %d, decode=%v, close=%v", response.StatusCode, decodeErr, closeErr)
 	}
-	if err = page.Validate(store.indexName); err != nil {
+	if err = page.Validate(index); err != nil {
 		t.Fatal(err)
 	}
 	if len(*page.Hits.Hits) != 1 {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
@@ -28,7 +30,7 @@ func TestHTTPFailureRetainsSafeEvidenceAndIndexClassification(t *testing.T) {
 			if store != nil || !ok || failure.HTTPStatus() != status || failure.RequestID() != identity.want {
 				t.Fatalf("store=%v error=%v", store, err)
 			}
-			if errors.Is(err, ErrIndexMissing) != (status == http.StatusNotFound) {
+			if errors.Is(err, elastic.ErrIndexMissing) != (status == http.StatusNotFound) {
 				t.Fatalf("index classification=%v", err)
 			}
 			if strings.Contains(err.Error(), "private-response-content") || identity.want == "" && strings.Contains(err.Error(), identity.value) {

@@ -1,7 +1,7 @@
 package opensearch
 
 import (
-	"cmp"
+	"context"
 	"errors"
 	"net/http"
 
@@ -13,12 +13,7 @@ import (
 
 const (
 	Provider                = "OpenSearch"
-	contentField            = "content"
-	embeddingField          = "embedding"
-	metadataField           = "metadata_json"
-	nativeMaximumK          = 10000
 	nativeMaximumDimensions = 16000
-	filterBatchSize         = 512
 )
 
 // APIClient borrows the native SDK's streaming transport. The host owns authentication,
@@ -37,19 +32,32 @@ type StoreConfig struct {
 }
 
 func (s StoreConfig) Validate() error {
-	if lo.IsNil(s.Client) {
-		return errors.New("opensearch: Client is required")
-	}
-	if err := s.Space.Validate(); err != nil {
+	config, err := s.store()
+	if err != nil {
 		return err
 	}
-	if err := (elastic.ClientConfig{Perform: s.Client.Stream, MaxResponseBytes: s.MaxResponseBytes}).Validate(); err != nil {
-		return err
-	}
-	return (elastic.BulkConfig{Index: cmp.Or(s.IndexName, elastic.DefaultIndexName), Operation: elastic.Index, MaxBytes: s.MaxBulkBytes}).Validate()
+	return config.Validate()
 }
 
-var (
-	ErrIndexMissing      = errors.New("opensearch: index not found")
-	ErrIncompatibleIndex = errors.New("opensearch: native index is incompatible")
-)
+func (s StoreConfig) store() (elastic.StoreConfig, error) {
+	if lo.IsNil(s.Client) {
+		return elastic.StoreConfig{}, errors.New("opensearch: Client is required")
+	}
+	return elastic.StoreConfig{
+		Engine:           engine{},
+		Perform:          s.Client.Stream,
+		IndexName:        s.IndexName,
+		Space:            s.Space,
+		MaxBulkBytes:     s.MaxBulkBytes,
+		MaxResponseBytes: s.MaxResponseBytes,
+	}, nil
+}
+
+// NewStore admits the host-provisioned index through the OpenSearch engine.
+func NewStore(ctx context.Context, config StoreConfig) (*elastic.Store, error) {
+	store, err := config.store()
+	if err != nil {
+		return nil, err
+	}
+	return elastic.NewStore(ctx, store)
+}
