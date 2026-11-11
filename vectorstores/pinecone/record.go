@@ -29,21 +29,47 @@ type nativeSchema struct {
 	metric     pineconesdk.IndexMetric
 }
 
+// servingServerless reports the named index ready on managed serverless
+// infrastructure, neither pod-based nor bring-your-own-cloud.
+func servingServerless(index *pineconesdk.Index, name string) bool {
+	if index == nil || index.Name != name || index.Host == "" || index.Schema == nil || index.Status == nil || !index.Status.Ready {
+		return false
+	}
+	deployment := index.Deployment
+	return deployment != nil && deployment.Managed != nil && deployment.Pod == nil && deployment.Byoc == nil
+}
+
+// validIndexHost admits the bare origin the control plane reports for an
+// index; it omits the scheme, which is always HTTPS.
+func validIndexHost(host string) bool {
+	if !strings.Contains(host, schemeSeparator) {
+		host = httpsScheme + schemeSeparator + host
+	}
+	parsed, err := url.Parse(host)
+	if err != nil || strings.TrimSpace(host) != host || strings.ContainsAny(host, "?#") || parsed.Path != "" {
+		return false
+	}
+	_, err = httpclient.NewOrigin(parsed)
+	return err == nil
+}
+
+const (
+	httpsScheme     = "https"
+	schemeSeparator = "://"
+)
+
+// maxIndexDimension is the largest dense vector dimension Pinecone serves.
+const maxIndexDimension = 20000
+
 func (n *nativeSchema) read(index *pineconesdk.Index, name string) error {
-	if index == nil || index.Name != name || index.Host == "" || index.Schema == nil || index.Status == nil || !index.Status.Ready || index.Deployment == nil || index.Deployment.Managed == nil || index.Deployment.Pod != nil || index.Deployment.Byoc != nil {
+	if !servingServerless(index, name) {
 		return fmt.Errorf("%w: requires a ready dense serverless native index with declared dimensions and host", ErrIncompatibleIndex)
 	}
 	vector := index.Schema.Fields[vectorField].DenseVector
-	if vector == nil || vector.Dimension <= 0 || vector.Dimension > 20000 {
+	if vector == nil || vector.Dimension <= 0 || vector.Dimension > maxIndexDimension {
 		return fmt.Errorf("%w: requires a dense %s field with valid dimensions", ErrIncompatibleIndex, vectorField)
 	}
-	host := index.Host
-	if !strings.Contains(host, "://") {
-		host = "https://" + host
-	}
-	parsed, err := url.Parse(host)
-	_, originErr := httpclient.NewOrigin(parsed)
-	if err != nil || originErr != nil || strings.TrimSpace(host) != host || strings.ContainsAny(host, "?#") || parsed.Path != "" {
+	if !validIndexHost(index.Host) {
 		return fmt.Errorf("%w: native index has an invalid host", ErrIncompatibleIndex)
 	}
 	switch vector.Metric {
