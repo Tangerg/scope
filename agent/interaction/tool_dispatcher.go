@@ -112,7 +112,7 @@ func (t *toolDispatcher) bindTool(executable tool.Tool, deferred bool, middlewar
 // its result and records the failure beside it.
 func (t *toolDispatcher) callTool(ctx context.Context, prepared preparedToolCall) (outcome toolDispatchResult, err error) {
 	if prepared.rejection != nil {
-		return toolDispatchResult{Completion: new(prepared.rejection.clone())}, nil
+		return toolDispatchResult{Completion: prepared.rejection}, nil
 	}
 	defer func() {
 		if recovered := recover(); recovered != nil {

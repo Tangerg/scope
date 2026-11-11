@@ -93,13 +93,9 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return policy
 }
 
+// dispatchModel sends the request decodeEffect already validated.
 func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit run.DeltaEmitter) (run.Settlement, error) {
-	modelRequest := call.request()
-	if validateErr := modelRequest.Validate(); validateErr != nil {
-		// No provider work ran, which only NotExecuted establishes.
-		return stepfail.Settlement(run.FailureKindContract, failureCodeModelNotExecuted, fmt.Sprintf("interaction: prepare model request: %v", validateErr))
-	}
-	response, err := d.callModelResponse(ctx, modelRequest, emit)
+	response, err := d.callModelResponse(ctx, call.request(), emit)
 	return d.definition.settleModelResponse(response, err)
 }
 
@@ -107,8 +103,7 @@ func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, 
 	if d.contextProcessor == nil {
 		return failedSettlement(ErrInvalidConfig)
 	}
-	original := call.request()
-	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, original.Clone())
+	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, call.request())
 	if err != nil {
 		if _, definite := errors.AsType[*ContextFailure](err); definite {
 			return stepfail.Settlement(run.FailureKindExternal, failureCodeContextRejected, err.Error())

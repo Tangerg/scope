@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
@@ -59,12 +58,6 @@ func settleToolCall(outcome tool.Result, cause error) (toolDispatchResult, error
 // toolResult renders the result the model sees for call.
 func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
 	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output.Clone(), IsError: t.Disposition != ResultSucceeded}
-}
-
-func (t toolCallResult) clone() toolCallResult {
-	t.Output = t.Output.Clone()
-	t.AdvertisedToolNames = slices.Clone(t.AdvertisedToolNames)
-	return t
 }
 
 func (t toolCallResult) validate() error {
