@@ -91,7 +91,29 @@ func (r referenceResolver) resolve(ctx context.Context, source []byte) ([]byte, 
 		return nil, nil, err
 	}
 	root := r.parser.Parse(source)
-	var edits []referenceEdit
+	edits, err := collectReferenceEdits(ctx, root, source)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(edits) == 0 {
+		return source, root, nil
+	}
+	resolved, err := edits.expand(ctx, source, r.maxBytes)
+	if err != nil {
+		return nil, nil, err
+	}
+	root = r.parser.Parse(resolved)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	return resolved, root, nil
+}
+
+// referenceEdits are the reference tails of one source, ordered by position.
+type referenceEdits []referenceEdit
+
+func collectReferenceEdits(ctx context.Context, root ast.Node, source []byte) (referenceEdits, error) {
+	var edits referenceEdits
 	err := ast.Walk(root, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
@@ -127,56 +149,59 @@ func (r referenceResolver) resolve(ctx context.Context, source []byte) ([]byte, 
 		return ast.WalkContinue, nil
 	})
 	if err != nil {
-		return nil, nil, err
-	}
-	if len(edits) == 0 {
-		return source, root, nil
+		return nil, err
 	}
 	slices.SortFunc(edits, func(left, right referenceEdit) int { return left.start - right.start })
-	unchangedBytes := len(source)
-	offset := 0
-	for _, edit := range edits {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, err
-		}
-		if edit.start < offset {
-			return nil, nil, fmt.Errorf("markdown: overlapping reference tails")
-		}
-		unchangedBytes -= edit.end - edit.start
-		offset = edit.end
+	return edits, nil
+}
+
+// expand counts the expansion against maxBytes before allocating it, then
+// writes each tail in place of its reference.
+func (r referenceEdits) expand(ctx context.Context, source []byte, maxBytes int) ([]byte, error) {
+	unchangedBytes, err := r.unchangedBytes(ctx, len(source))
+	if err != nil {
+		return nil, err
 	}
-	allowance := referenceAllowance{remaining: r.maxBytes - unchangedBytes}
-	for _, edit := range edits {
+	allowance := referenceAllowance{remaining: maxBytes - unchangedBytes}
+	for _, edit := range r {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if err := edit.writeTail(&allowance, source); err != nil {
-			return nil, nil, fmt.Errorf("markdown: expand reference: %w", err)
+			return nil, fmt.Errorf("markdown: expand reference: %w", err)
 		}
 	}
 	var resolved bytes.Buffer
-	resolved.Grow(r.maxBytes - allowance.remaining)
-	offset = 0
-	for _, edit := range edits {
+	resolved.Grow(maxBytes - allowance.remaining)
+	offset := 0
+	for _, edit := range r {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		resolved.Write(source[offset:edit.start])
 		if err := edit.writeTail(&resolved, source); err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		offset = edit.end
 	}
 	resolved.Write(source[offset:])
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+	return resolved.Bytes(), ctx.Err()
+}
+
+// unchangedBytes is how much of a source of total bytes no edit replaces.
+func (r referenceEdits) unchangedBytes(ctx context.Context, total int) (int, error) {
+	offset := 0
+	for _, edit := range r {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if edit.start < offset {
+			return 0, fmt.Errorf("markdown: overlapping reference tails")
+		}
+		total -= edit.end - edit.start
+		offset = edit.end
 	}
-	source = resolved.Bytes()
-	root = r.parser.Parse(source)
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
-	}
-	return source, root, nil
+	return total, nil
 }
 
 type referenceAllowance struct{ remaining int }
