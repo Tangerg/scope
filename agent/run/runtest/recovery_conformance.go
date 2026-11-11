@@ -419,16 +419,31 @@ func recoveryRuntime(t *testing.T, store run.Store, definition *recoveryDefiniti
 
 func conformanceDispatcher(t *testing.T, replay run.ReplayPolicy) *ScriptedDispatcher {
 	t.Helper()
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: replay, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusSucceeded, SettlementPayload: []byte(`"result"`)}}})
+	settlement := conformanceSettlement(t, run.SettlementStatusSucceeded, "result")
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: replay, Calls: []ScriptedCall{{Settlement: settlement}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return dispatcher
 }
 
+func conformanceSettlement(t *testing.T, status run.SettlementStatus, value any) run.Settlement {
+	t.Helper()
+	settlement, err := run.NewSettlement(status, conformancePayload(t, value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return settlement
+}
+
 func conformanceInput(t *testing.T) run.Payload {
 	t.Helper()
-	payload, err := run.EncodePayload("input")
+	return conformancePayload(t, "input")
+}
+
+func conformancePayload(t *testing.T, value any) run.Payload {
+	t.Helper()
+	payload, err := run.EncodePayload(value)
 	if err != nil {
 		t.Fatal(err)
 	}

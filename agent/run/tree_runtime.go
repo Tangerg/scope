@@ -914,7 +914,7 @@ func (stepResult) jobResult() {}
 
 func (t *treeRuntime) emitter(request EffectRequest) DeltaEmitter {
 	if t.runtime.deltas == nil {
-		return nil
+		return discardDelta
 	}
 	emitter := t.emitters[request.ID()]
 	if emitter == nil {

@@ -3,8 +3,6 @@ package runtest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -21,16 +19,14 @@ var (
 )
 
 // ScriptedCall describes one expected Dispatcher call and its deterministic
-// stream and settlement outcome. ExpectedEffect is optional; when present, the
-// complete immutable Effect must match. Error may follow emitted Deltas and is
-// mutually exclusive with SettlementStatus and SettlementPayload.
+// stream and outcome. ExpectedEffect is optional; when present, the complete
+// immutable Effect must match. The outcome is exactly one of Settlement and
+// Error, and either follows the emitted Deltas.
 type ScriptedCall struct {
 	ExpectedEffect *run.Effect
 	// Deltas are emitted in declaration order before the final outcome.
-	Deltas            []json.RawMessage
-	SettlementStatus  run.SettlementStatus
-	SettlementPayload json.RawMessage
-	Failure           run.Failure
+	Deltas     []run.Payload
+	Settlement run.Settlement
 	// Error makes Dispatch return an indeterminate external error.
 	Error error
 }
@@ -43,7 +39,7 @@ type ScriptedDispatcherConfig struct {
 
 type frozenCall struct {
 	expectedEffectJSON []byte
-	deltas             []json.RawMessage
+	deltas             []run.Payload
 	settlement         run.Settlement
 	err                error
 }
@@ -90,37 +86,17 @@ func freezeCall(source ScriptedCall) (frozenCall, error) {
 		}
 		call.expectedEffectJSON = encoded
 	}
-	call.deltas = make([]json.RawMessage, len(source.Deltas))
 	for index, delta := range source.Deltas {
-		if !jsontext.Value(delta).IsValid() {
-			return frozenCall{}, fmt.Errorf("deltas[%d] is not valid JSON", index)
-		}
-		call.deltas[index] = bytes.Clone(delta)
-	}
-	if source.Error != nil {
-		if source.SettlementStatus != run.SettlementStatusInvalid || len(source.SettlementPayload) != 0 || source.Failure.Valid() {
-			return frozenCall{}, errors.New("error cannot be combined with a settlement")
-		}
-		return call, nil
-	}
-	var payload run.Payload
-	var err error
-	if len(source.SettlementPayload) != 0 {
-		payload, err = run.ParsePayload(source.SettlementPayload)
-		if err != nil {
-			return frozenCall{}, err
+		if !delta.Valid() {
+			return frozenCall{}, fmt.Errorf("deltas[%d]: %w", index, run.ErrInvalidPayload)
 		}
 	}
-	if source.SettlementStatus == run.SettlementStatusFailed {
-		call.settlement, err = run.NewFailedSettlement(source.Failure, payload)
-	} else if source.Failure.Valid() {
-		return frozenCall{}, errors.New("only a failed settlement carries a Failure")
-	} else {
-		call.settlement, err = run.NewSettlement(source.SettlementStatus, payload)
+	call.deltas = slices.Clone(source.Deltas)
+	settled, interrupted := source.Settlement.Valid(), source.Error != nil
+	if settled == interrupted {
+		return frozenCall{}, errors.New("exactly one of a valid Settlement and Error is required")
 	}
-	if err != nil {
-		return frozenCall{}, err
-	}
+	call.settlement = source.Settlement
 	return call, nil
 }
 
@@ -164,10 +140,8 @@ func (f frozenCall) dispatch(
 	if !matches {
 		return run.Settlement{}, ErrEffectMismatch
 	}
-	if emit != nil {
-		for _, delta := range f.deltas {
-			emit(bytes.Clone(delta))
-		}
+	for _, delta := range f.deltas {
+		emit(delta)
 	}
 	if f.err != nil {
 		return run.Settlement{}, f.err

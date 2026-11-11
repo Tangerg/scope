@@ -23,7 +23,7 @@ func TestParseModelResponseDeltaRejectsUnknownCoreMembers(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			payload := json.RawMessage(`{"response_delta":` + delta + `}`)
-			if _, err := ParseModelResponseDelta(payload); !errors.Is(err, jsonv2.ErrUnknownName) {
+			if _, err := ParseModelResponseDelta(mustValue(run.ParsePayload(payload))); !errors.Is(err, jsonv2.ErrUnknownName) {
 				t.Fatalf("parse error = %v, want unknown object member", err)
 			}
 		})

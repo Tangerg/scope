@@ -95,7 +95,7 @@ func TestObserveCancellationPreservesUnknownAndStorageFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &outcomeStore{store: run.NewMemoryStore(), readyKind: test.ready, ready: make(chan run.ProcessID, 1), cancelError: test.storeError}
-			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusUnknown, SettlementPayload: []byte(`null`)}}})
+			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Settlement: conformanceSettlement(t, run.SettlementStatusUnknown, nil)}}})
 			if err != nil {
 				t.Fatal(err)
 			}

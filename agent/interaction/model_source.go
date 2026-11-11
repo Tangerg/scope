@@ -99,16 +99,14 @@ func (s streamModel) respond(ctx context.Context, request *chat.Request, emit ru
 		if err != nil {
 			return nil, err
 		}
-		if len(payload) > remainingDeltaBytes {
+		if payload.Size() > remainingDeltaBytes {
 			return nil, ErrModelStreamTooLarge
 		}
-		remainingDeltaBytes -= len(payload)
+		remainingDeltaBytes -= payload.Size()
 		if err := accumulator.Add(delta); err != nil {
 			return nil, fmt.Errorf("accumulate model stream: %w", err)
 		}
-		if emit != nil {
-			emit(payload)
-		}
+		emit(payload)
 	}
 	// Response rejects a stream that produced no deltas, so no local tally is kept.
 	response, err := accumulator.Response()

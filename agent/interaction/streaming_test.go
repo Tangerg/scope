@@ -142,7 +142,7 @@ func TestInvalidModelEvidenceAndDeltaEncodingStayUnknown(t *testing.T) {
 		t.Fatal("nil delta encoded")
 	}
 	for _, raw := range []json.RawMessage{[]byte(`{}`), []byte(`{"response_delta":{}}`)} {
-		if _, err := ParseModelResponseDelta(raw); err == nil {
+		if _, err := ParseModelResponseDelta(mustValue(run.ParsePayload(raw))); err == nil {
 			t.Fatal("empty transport increment admitted")
 		}
 	}

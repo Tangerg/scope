@@ -80,7 +80,7 @@ func responseLimit(configured int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(minimum.Payload().JSON()) > configured {
+	if minimum.Payload().Size() > configured {
 		return 0, fmt.Errorf("%w: MaxResponseBytes %d cannot hold the smallest model response", ErrInvalidConfig, configured)
 	}
 	return configured, nil
@@ -220,7 +220,7 @@ func (d *definition) settleModelResponse(response *chat.Response, cause error) (
 }
 
 func (d *definition) validateResponsePayload(payload run.Payload) error {
-	if len(payload.JSON()) > d.maxResponseBytes {
+	if payload.Size() > d.maxResponseBytes {
 		return ErrModelResponseTooLarge
 	}
 	return nil

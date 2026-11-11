@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -69,7 +68,12 @@ func (e EffectRequest) Valid() bool {
 	return e.id.Valid() && e.epoch > 0 && e.program.Valid() && e.effect.Valid()
 }
 
-type DeltaEmitter func(json.RawMessage)
+// DeltaEmitter publishes one observational increment of the Effect being
+// dispatched. The Runtime always supplies one; increments no Host consumes are
+// discarded, so a Dispatcher never checks whether anyone listens.
+type DeltaEmitter func(Payload)
+
+func discardDelta(Payload) {}
 
 // Policy is captured in EffectIntent before dispatch. Recovery uses that
 // acknowledged declaration, never a newly queried replay decision.

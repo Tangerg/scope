@@ -88,6 +88,10 @@ func (p Payload) Equal(other Payload) bool { return bytes.Equal(p.data, other.da
 
 func (p Payload) Valid() bool { return len(p.data) > 0 }
 
+// Size is the length of the canonical encoding, the measure MaxPayloadBytes and
+// every derived admission bound limit.
+func (p Payload) Size() int { return len(p.data) }
+
 func (Payload) JSONSchemaModel() any { return json.RawMessage{} }
 
 func (p Payload) MarshalJSON() ([]byte, error) {

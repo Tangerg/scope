@@ -30,7 +30,7 @@ func TestModelFailureResponseCannotBypassSettlementBudget(t *testing.T) {
 			}))}))
 			outcome, err := dispatcher.dispatchModel(t.Context(), &modelCall{ModelCallSequence: 1, Request: testInput()}, nil)
 			if !errors.Is(err, ErrModelResponseTooLarge) || outcome.Valid() || calls != 1 {
-				t.Fatalf("oversized generation acquired settlement authority: bytes=%d status=%s calls=%d error=%v", len(outcome.Payload().JSON()), outcome.Status(), calls, err)
+				t.Fatalf("oversized generation acquired settlement authority: bytes=%d status=%s calls=%d error=%v", outcome.Payload().Size(), outcome.Status(), calls, err)
 			}
 		})
 	}
@@ -49,7 +49,7 @@ func TestModelFailureBudgetMeasuresCanonicalEvidenceWithoutDroppingUsage(t *test
 			}
 			encoded := mustValue(settle(0))
 			for _, offset := range []int{-1, 0, 1} {
-				outcome, err := settle(len(encoded.Payload().JSON()) + offset)
+				outcome, err := settle(encoded.Payload().Size() + offset)
 				if offset < 0 {
 					if !errors.Is(err, ErrModelResponseTooLarge) || !errors.Is(err, cause) || outcome.Valid() {
 						t.Fatal("oversized evidence was admitted or its diagnostic was lost", err)
@@ -94,7 +94,7 @@ func TestOversizedFailedModelEvidenceRequiresResolutionWithoutRepeatingCall(t *t
 				if !ok || settled.ID != request.ID() {
 					continue
 				}
-				if len(settled.Outcome.Payload().JSON()) > limit || settled.Failure == nil || !strings.Contains(settled.Failure.Message(), ErrModelResponseTooLarge.Error()) {
+				if settled.Outcome.Payload().Size() > limit || settled.Failure == nil || !strings.Contains(settled.Failure.Message(), ErrModelResponseTooLarge.Error()) {
 					t.Fatal("runtime admitted oversized evidence or concealed its rejection")
 				}
 			}
@@ -141,11 +141,11 @@ func TestModelStreamAdmitsScopeEncodedDeltaBytesBeforeAccumulation(t *testing.T)
 					}
 				}
 			})})}
-			response, err := dispatcher.callModel(t.Context(), nil, func(json.RawMessage) { observed++ }, new(chat.ResponseAccumulator))
+			response, err := dispatcher.callModel(t.Context(), nil, func(run.Payload) { observed++ }, new(chat.ResponseAccumulator))
 			if response != nil || !errors.Is(err, ErrModelStreamTooLarge) || errors.Is(err, ErrModelResponseTooLarge) || !closed {
 				t.Fatalf("response=%+v error=%v producer closed=%v", response, err, closed)
 			}
-			want := limit / len(encoded)
+			want := limit / encoded.Size()
 			if produced != want+1 || observed != want {
 				t.Fatalf("produced=%d observed=%d, want %d and %d", produced, observed, want+1, want)
 			}
@@ -167,7 +167,7 @@ func TestModelStreamWithinBudgetMatchesAggregateResponse(t *testing.T) {
 		{model: StreamModel(StreamModelConfig{Streamer: streamer})},
 		{model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return want.Clone(), nil }))},
 	} {
-		got, err := dispatcher.callModel(t.Context(), nil, nil, new(chat.ResponseAccumulator))
+		got, err := dispatcher.callModel(t.Context(), nil, func(run.Payload) {}, new(chat.ResponseAccumulator))
 		if err != nil || !reflect.DeepEqual(got, want) {
 			t.Fatalf("response=%+v error=%v", got, err)
 		}

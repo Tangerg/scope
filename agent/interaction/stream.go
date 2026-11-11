@@ -1,11 +1,9 @@
 package interaction
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -16,8 +14,8 @@ type ModelResponseDelta struct {
 	delta chat.ResponseDelta
 }
 
-func ParseModelResponseDelta(payload json.RawMessage) (ModelResponseDelta, error) {
-	wire, err := jsonwire.Decode[modelResponseDeltaWire](payload)
+func ParseModelResponseDelta(payload run.Payload) (ModelResponseDelta, error) {
+	wire, err := payload.Decode[modelResponseDeltaWire]()
 	if err != nil {
 		return ModelResponseDelta{}, fmt.Errorf("interaction: decode model response Delta: %w", err)
 	}
@@ -36,15 +34,13 @@ type modelResponseDeltaWire struct {
 	ResponseDelta chat.ResponseDelta `json:"response_delta"`
 }
 
-func encodeModelResponseDelta(delta *chat.ResponseDelta) (json.RawMessage, error) {
+func encodeModelResponseDelta(delta *chat.ResponseDelta) (run.Payload, error) {
 	if delta == nil {
-		return nil, errors.New("interaction: cannot encode a nil model response Delta")
+		return run.Payload{}, errors.New("interaction: cannot encode a nil model response Delta")
 	}
-	payload, err := run.EncodePayload(modelResponseDeltaWire{
-		ResponseDelta: *delta,
-	})
+	payload, err := run.EncodePayload(modelResponseDeltaWire{ResponseDelta: *delta})
 	if err != nil {
-		return nil, fmt.Errorf("interaction: encode model response Delta: %w", err)
+		return run.Payload{}, fmt.Errorf("interaction: encode model response Delta: %w", err)
 	}
-	return payload.JSON(), nil
+	return payload, nil
 }

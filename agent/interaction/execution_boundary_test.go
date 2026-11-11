@@ -140,7 +140,7 @@ func TestModelResponseBudgetAdmitsOnlyCanonicalBoundedSettlements(t *testing.T) 
 	response := finalResponse(strings.Repeat("<>&\u2028\u2029", 20))
 	encoded := mustValue((modelCallResult{Response: response}).settlement())
 	for _, offset := range []int{-1, 0, 1} {
-		limit := len(encoded.Payload().JSON()) + offset
+		limit := encoded.Payload().Size() + offset
 		definition := mustValue(newDefinition(Config{Name: "test.response.boundary", Description: "Bound canonical settlement bytes.", MaxResponseBytes: limit}))
 		settlement, err := definition.settleModelResponse(response, nil)
 		if offset < 0 {

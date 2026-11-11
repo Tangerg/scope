@@ -2,7 +2,6 @@ package runtest
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -11,13 +10,13 @@ import (
 
 func TestScriptedDispatcherRejectsInvalidOrContradictoryCalls(t *testing.T) {
 	cause := errors.New("dispatch failed")
+	settled := conformanceSettlement(t, run.SettlementStatusSucceeded, nil)
 	for _, config := range []ScriptedDispatcherConfig{
 		{},
-		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusSucceeded, SettlementPayload: []byte(`null`), Deltas: []json.RawMessage{[]byte(`{`)}}}},
-		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusFailed, SettlementPayload: []byte(`null`), Error: cause}}},
+		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Settlement: settled, Deltas: []run.Payload{{}}}}},
+		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Settlement: settled, Error: cause}}},
 		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &run.Effect{}, Error: cause}}},
-		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusSucceeded, SettlementPayload: []byte(`{`)}}},
-		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementPayload: []byte(`null`)}}},
+		{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{}}},
 	} {
 		if _, err := NewScriptedDispatcher(config); !errors.Is(err, ErrInvalidDispatchScript) {
 			t.Fatalf("invalid script accepted or misclassified: %v", err)
@@ -29,30 +28,32 @@ func TestScriptedDispatcherPreservesSettlementDeltaAndRequestOwnership(t *testin
 	request := scriptedRequest(t)
 	for _, status := range []run.SettlementStatus{run.SettlementStatusSucceeded, run.SettlementStatusFailed, run.SettlementStatusUnknown} {
 		t.Run(string(status), func(t *testing.T) {
-			payload := json.RawMessage(`"result"`)
-			delta := json.RawMessage(`"first"`)
 			effect := request.Effect()
-			var failure run.Failure
+			result := conformancePayload(t, "result")
+			scripted, err := run.NewSettlement(status, result)
 			if status == run.SettlementStatusFailed {
-				var err error
-				failure, err = run.NewFailure(run.FailureKindExternal, "test.dispatch.failed", "dispatch failed")
-				if err != nil {
-					t.Fatal(err)
+				failure, failureErr := run.NewFailure(run.FailureKindExternal, "test.dispatch.failed", "dispatch failed")
+				if failureErr != nil {
+					t.Fatal(failureErr)
 				}
+				scripted, err = run.NewFailedSettlement(failure, result)
 			}
-			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: status, SettlementPayload: payload, Failure: failure, Deltas: []json.RawMessage{delta}}}})
 			if err != nil {
 				t.Fatal(err)
 			}
-			payload[1] = 'x'
-			delta[1] = 'x'
-			var seen []json.RawMessage
-			settlement, err := dispatcher.Dispatch(t.Context(), request, func(value json.RawMessage) { seen = append(seen, value) })
+			deltas := []run.Payload{conformancePayload(t, "first")}
+			dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, Settlement: scripted, Deltas: deltas}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			deltas[0] = run.Payload{}
+			var seen []run.Payload
+			settlement, err := dispatcher.Dispatch(t.Context(), request, func(value run.Payload) { seen = append(seen, value) })
 			if err != nil || settlement.Status() != status || string(settlement.Payload().JSON()) != `"result"` {
 				t.Fatalf("settlement=%+v error=%v", settlement, err)
 			}
-			if len(seen) != 1 || string(seen[0]) != `"first"` {
-				t.Fatalf("deltas=%s", seen)
+			if len(seen) != 1 || string(seen[0].JSON()) != `"first"` {
+				t.Fatalf("deltas=%v", seen)
 			}
 			requests := dispatcher.Requests()
 			if dispatcher.Remaining() != 0 || len(requests) != 1 || requests[0].ID() != request.ID() {
@@ -72,7 +73,7 @@ func TestScriptedDispatcherPreservesSettlementDeltaAndRequestOwnership(t *testin
 func TestScriptedDispatcherKeepsCancellationAndUnknownOutcomeDistinct(t *testing.T) {
 	request := scriptedRequest(t)
 	cause := errors.New("remote acknowledgment lost")
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Error: cause, Deltas: []json.RawMessage{[]byte(`1`)}}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Error: cause, Deltas: []run.Payload{conformancePayload(t, 1)}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +83,7 @@ func TestScriptedDispatcherKeepsCancellationAndUnknownOutcomeDistinct(t *testing
 		t.Fatalf("canceled call consumed script: %v", err)
 	}
 	var deltas int
-	if settlement, err := dispatcher.Dispatch(t.Context(), request, func(json.RawMessage) { deltas++ }); !errors.Is(err, cause) || settlement.Valid() || deltas != 1 {
+	if settlement, err := dispatcher.Dispatch(t.Context(), request, func(run.Payload) { deltas++ }); !errors.Is(err, cause) || settlement.Valid() || deltas != 1 {
 		t.Fatalf("indeterminate call settlement=%+v deltas=%d error=%v", settlement, deltas, err)
 	}
 }
@@ -97,7 +98,7 @@ func TestScriptedDispatcherRejectsWrongEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &other, SettlementStatus: run.SettlementStatusSucceeded, SettlementPayload: []byte(`null`)}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &other, Settlement: conformanceSettlement(t, run.SettlementStatusSucceeded, nil)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func TestScriptedDispatcherHasNoPolicyWithoutAValidReceiverAndEffect(t *testing.
 
 func TestScriptedDispatcherClassifiesAnInvalidRequestEffect(t *testing.T) {
 	effect := scriptedRequest(t).Effect()
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, SettlementStatus: run.SettlementStatusSucceeded, SettlementPayload: []byte(`null`)}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{ExpectedEffect: &effect, Settlement: conformanceSettlement(t, run.SettlementStatusSucceeded, nil)}}})
 	if err != nil {
 		t.Fatal(err)
 	}

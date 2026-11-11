@@ -117,7 +117,7 @@ func TestDeltaSequenceSurvivesSameEpochReplay(t *testing.T) {
 	}}
 	var calls atomic.Uint32
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(_ context.Context, _ EffectRequest, emit DeltaEmitter) (Settlement, error) {
-		emit(json.RawMessage(`"increment"`))
+		emit(controlValue(EncodePayload("increment")))
 		if calls.Add(1) == 1 {
 			return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))
 		}

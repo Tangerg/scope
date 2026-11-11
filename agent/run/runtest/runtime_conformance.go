@@ -277,7 +277,7 @@ func (r redirectedStore) Read(ctx context.Context, _ run.ProcessID, after run.LS
 }
 
 func checkUnresolvedCancellation(t *testing.T, store run.Store) {
-	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{SettlementStatus: run.SettlementStatusUnknown, SettlementPayload: []byte("null")}}})
+	dispatcher, err := NewScriptedDispatcher(ScriptedDispatcherConfig{ReplayPolicy: run.ReplayPolicyNever, Calls: []ScriptedCall{{Settlement: conformanceSettlement(t, run.SettlementStatusUnknown, nil)}}})
 	if err != nil {
 		t.Fatal(err)
 	}

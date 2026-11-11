@@ -50,9 +50,7 @@ func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest
 	if err != nil {
 		return failedSettlement(err)
 	}
-	if emit != nil {
-		ctx = tool.WithProgressReporter(ctx, deltaProgress{emit: emit})
-	}
+	ctx = tool.WithProgressReporter(ctx, deltaProgress{emit: emit})
 	prepared := t.prepareToolCall(invocation.ToolCall(), admission)
 	if prepared.defect != nil {
 		// A validator defect is settled before Tool.Call runs, as a definite

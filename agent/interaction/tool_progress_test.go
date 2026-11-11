@@ -32,7 +32,7 @@ func TestToolProgressIsPublishedAsDeltasOfItsEffect(t *testing.T) {
 	if delta.ProcessID() != handle.ID() || progress != (tool.Progress{Completed: 1, Total: 2, Message: "halfway"}) {
 		t.Fatalf("delta=%v progress=%+v", delta.ProcessID(), progress)
 	}
-	if _, err := ParseToolProgress([]byte(`{"progress":{"completed":3,"total":2}}`)); err == nil {
+	if _, err := ParseToolProgress(mustValue(run.ParsePayload([]byte(`{"progress":{"completed":3,"total":2}}`)))); err == nil {
 		t.Fatal("inconsistent progress decoded")
 	}
 }

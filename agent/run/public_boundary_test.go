@@ -466,13 +466,10 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 	requests := make(chan EffectRequest, 1)
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(_ context.Context, request EffectRequest, emit DeltaEmitter) (Settlement, error) {
 		requests <- request
-		emit(nil)
-		emit(json.RawMessage(`{`))
-		payload := json.RawMessage(`{"text":"first"}`)
-		emit(payload)
-		payload[0] = '['
-		emit(json.RawMessage(`"dropped by full channel"`))
-		emit(json.RawMessage(`"` + strings.Repeat("x", maxDeltaBytes) + `"`))
+		emit(Payload{})
+		emit(controlValue(EncodePayload(strings.Repeat("x", maxDeltaBytes))))
+		emit(controlValue(EncodePayload(map[string]string{"text": "first"})))
+		emit(controlValue(EncodePayload("dropped by full channel")))
 		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload(json.RawMessage(`7`))))
 	}}
 	program := controlValue(Bind[int, int](runtime.Compiler(), BindingConfig{Definition: definition, Dispatcher: dispatcher, Revision: "one"}))
@@ -485,17 +482,16 @@ func TestBoundedDeltasDoNotChangeCommittedResults(t *testing.T) {
 	}
 	delta := <-deltas
 	request := <-requests
-	if !delta.Valid() || delta.ProcessID() != handle.ID() || delta.EffectID() != request.ID() || delta.Epoch() != request.Epoch() || delta.EffectSequence() != 3 || delta.EmittedAt().IsZero() || string(delta.Payload()) != `{"text":"first"}` {
-		t.Fatalf("streamed increment lost its owner or immutable payload: %+v", delta)
+	if !delta.Valid() || delta.ProcessID() != handle.ID() || delta.EffectID() != request.ID() || delta.Epoch() != request.Epoch() || delta.EffectSequence() != 3 || delta.EmittedAt().IsZero() || string(delta.Payload().JSON()) != `{"text":"first"}` {
+		t.Fatalf("streamed increment lost its owner or payload: %+v", delta)
 	}
-	delta.Payload()[0] = '['
-	if string(delta.Payload()) != `{"text":"first"}` || (Delta{}).Valid() || len(deltas) != 0 {
-		t.Fatal("delta escaped ownership or the bounded channel queued extra increments")
+	if (Delta{}).Valid() || len(deltas) != 0 {
+		t.Fatal("the bounded channel queued extra increments")
 	}
 	emitter := deltaEmitter{request: request, channel: deltas, sequence: math.MaxUint64 - 1}
-	emitter.emit(json.RawMessage(`"last"`))
+	emitter.emit(controlValue(EncodePayload("last")))
 	last := <-deltas
-	emitter.emit(json.RawMessage(`"cannot wrap"`))
+	emitter.emit(controlValue(EncodePayload("cannot wrap")))
 	if last.EffectSequence() != math.MaxUint64 || len(deltas) != 0 {
 		t.Fatal("exhausted delta sequence reused a logical coordinate")
 	}
