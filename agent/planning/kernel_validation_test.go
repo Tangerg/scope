@@ -307,7 +307,7 @@ func TestPlanningChildRejectionIsObservedBeforeReplanning(t *testing.T) {
 	failure := planningValue(run.NewFailure(run.FailureKindContract, "test.child.rejected", "admission refused"))
 	rejected := run.Completion{Effect: validationTurn(2).EffectID(0), Outcome: planningValue(run.NewFailedSettlement(failure, run.Payload{}))}
 	observe := planningValue(execution.Step(t.Context(), validationTurn(3, rejected)))
-	envelope := planningValue(decodeEffect(observe.Effects()[0].Payload().JSON()))
+	envelope := planningValue(decodeEffect(observe.Effects()[0].Payload()))
 	if envelope.operation() != operationSense {
 		t.Fatal("child rejection replanned against an old world observation")
 	}

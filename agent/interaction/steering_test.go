@@ -33,7 +33,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 	definition := mustValue(newDefinition(Config{Name: "test.steering", Description: "Apply each committed instruction once."}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	first := advance(t, execution, 1, steer(t, "initial"))
-	request := mustValue(decodeEffect(first.Effects()[0].Payload().JSON())).ModelCall
+	request := mustValue(decodeEffect(first.Effects()[0].Payload())).ModelCall
 	if !slices.Equal(request.AppliedSteerSignalIDs, []run.SignalID{mustValue(run.ParseSignalID("initial"))}) || request.Request.Messages[len(request.Request.Messages)-1].Text() != "initial" {
 		t.Fatal("initial steering did not belong to the first request")
 	}
@@ -49,7 +49,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 	if len(revised.Effects()) != 1 || revised.Kind() != run.TransitionKindYield {
 		t.Fatal("pending guidance was discarded by a final model response")
 	}
-	model := mustValue(decodeEffect(revised.Effects()[0].Payload().JSON())).ModelCall
+	model := mustValue(decodeEffect(revised.Effects()[0].Payload())).ModelCall
 	if !slices.Equal(model.AppliedSteerSignalIDs, []run.SignalID{mustValue(run.ParseSignalID("first")), mustValue(run.ParseSignalID("second"))}) {
 		t.Fatal("applied instructions lost durable receipt order")
 	}
@@ -78,7 +78,7 @@ func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
 	execution = mustValue(definition.Restore(t.Context(), mustValue(execution.Snapshot())))
 	prepared := mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.EncodePayload(resultEnvelope{Prepared: &preparedContext{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("retrieved"))}}}))))
 	transition := advance(t, execution, 4, run.Completion{Effect: testTurn(1).EffectID(0), Outcome: prepared})
-	model := mustValue(decodeEffect(transition.Effects()[0].Payload().JSON())).ModelCall
+	model := mustValue(decodeEffect(transition.Effects()[0].Payload())).ModelCall
 	if model == nil || len(model.Request.Messages) != 2 || model.Request.Messages[0].Text() != "retrieved" || model.Request.Messages[1].Text() != "correction" || len(model.AppliedSteerSignalIDs) != 1 {
 		t.Fatalf("model request=%+v", model)
 	}

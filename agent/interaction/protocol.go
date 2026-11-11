@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
@@ -278,8 +277,8 @@ func (t toolDispatchResult) validate() error {
 	return t.Completion.validate()
 }
 
-func decodeEffect(data json.RawMessage) (effectEnvelope, error) {
-	envelope, err := jsonwire.Decode[effectEnvelope](data)
+func decodeEffect(payload run.Payload) (effectEnvelope, error) {
+	envelope, err := payload.Decode[effectEnvelope]()
 	if err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: decode effect: %w", ErrInvalidProtocol, err)
 	}
@@ -306,7 +305,7 @@ func decodeSettlement(settlement run.Settlement, expected operation) (resultEnve
 		_, err := expected.failedResponse(settlement)
 		return resultEnvelope{}, failure, err
 	}
-	envelope, err := decodeResult(settlement.Payload().JSON())
+	envelope, err := decodeResult(settlement.Payload())
 	if err == nil && envelope.operation() != expected {
 		err = ErrInvalidProtocol
 	}
@@ -341,8 +340,8 @@ func (o operation) failedResponse(outcome run.Settlement) (*chat.Response, error
 	return details.Response, nil
 }
 
-func decodeResult(data json.RawMessage) (resultEnvelope, error) {
-	envelope, err := jsonwire.Decode[resultEnvelope](data)
+func decodeResult(payload run.Payload) (resultEnvelope, error) {
+	envelope, err := payload.Decode[resultEnvelope]()
 	if err != nil {
 		return resultEnvelope{}, fmt.Errorf("%w: decode result: %w", ErrInvalidProtocol, err)
 	}

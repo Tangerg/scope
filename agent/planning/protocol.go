@@ -1,10 +1,8 @@
 package planning
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
 )
@@ -75,8 +73,8 @@ func newActionEffect(input run.Payload, binding actionDeclaration, state WorldSt
 	return run.NewDispatcherEffect(payload)
 }
 
-func decodeEffect(payload json.RawMessage) (effectEnvelope, error) {
-	envelope, err := jsonwire.Decode[effectEnvelope](payload)
+func decodeEffect(payload run.Payload) (effectEnvelope, error) {
+	envelope, err := payload.Decode[effectEnvelope]()
 	if err != nil {
 		return effectEnvelope{}, fmt.Errorf("%w: decode Effect: %w", ErrInvalidProtocol, err)
 	}
@@ -116,7 +114,6 @@ func decodeSettlement[T any](messages []run.Message, expected run.EffectID) (T, 
 		return result, nil, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome
-	var err error
 	if settlement.Status() == run.SettlementStatusFailed {
 		failure, valid := settlement.Failure()
 		if !valid {
@@ -124,7 +121,8 @@ func decodeSettlement[T any](messages []run.Message, expected run.EffectID) (T, 
 		}
 		return result, &failure, nil
 	}
-	if result, err = jsonwire.Decode[T](settlement.Payload().JSON()); err != nil {
+	result, err := settlement.Payload().Decode[T]()
+	if err != nil {
 		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
 	}
 	return result, nil, nil

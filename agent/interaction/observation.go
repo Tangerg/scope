@@ -123,7 +123,7 @@ func ModelCallFromEffect(effect run.Effect) (ModelCallIntent, bool, error) {
 	if effect.Target() != run.EffectTargetDispatcher {
 		return ModelCallIntent{}, false, nil
 	}
-	envelope, err := decodeEffect(effect.Payload().JSON())
+	envelope, err := decodeEffect(effect.Payload())
 	if err != nil {
 		return ModelCallIntent{}, false, err
 	}
@@ -145,7 +145,7 @@ func ToolCallFromEffect(effect run.Effect) (ToolCallIntent, bool, error) {
 	if effect.Target() != run.EffectTargetDispatcher {
 		return ToolCallIntent{}, false, nil
 	}
-	envelope, err := decodeEffect(effect.Payload().JSON())
+	envelope, err := decodeEffect(effect.Payload())
 	if err != nil {
 		return ToolCallIntent{}, false, err
 	}
@@ -186,7 +186,7 @@ func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error
 		}
 		return result, result.Validate()
 	default:
-		envelope, err := decodeResult(outcome.Payload().JSON())
+		envelope, err := decodeResult(outcome.Payload())
 		if err != nil {
 			return ModelSettlement{}, err
 		}
@@ -221,7 +221,7 @@ func ToolSettlementFromRecord(call chat.ToolCall, record run.EffectSettled) (Too
 		return evidence.toolSettlement()
 	}
 
-	envelope, err := decodeResult(outcome.Payload().JSON())
+	envelope, err := decodeResult(outcome.Payload())
 	if err != nil {
 		return ToolSettlement{}, err
 	}

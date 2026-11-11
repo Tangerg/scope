@@ -4,7 +4,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 
-	"github.com/Tangerg/scope/agent/internal/jsonwire"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -59,7 +58,7 @@ func (s *steerBatch) collectSignal(message run.Message) (bool, error) {
 }
 
 func (s *steerBatch) collectInput(signal run.Signal) error {
-	envelope, err := jsonwire.Decode[steerSignal](signal.Payload.JSON())
+	envelope, err := signal.Payload.Decode[steerSignal]()
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSteer, err)
 	}

@@ -25,7 +25,7 @@ func (s StartID) Root() ProcessID {
 		return ProcessID{}
 	}
 	payload, _ := EncodePayload(s)
-	return ProcessID{path: ComputeDigest(payload.JSON()).hex()}
+	return ProcessID{path: ComputeDigest(payload.data).hex()}
 }
 
 type StartRequest[I any] struct {

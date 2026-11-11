@@ -139,7 +139,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 	var intent run.EffectIntent
 	for _, entry := range log.Entries {
 		if candidate, ok := entry.Record.(run.EffectIntent); ok && candidate.Effect.Target() == run.EffectTargetDispatcher {
-			envelope := mustValue(decodeEffect(candidate.Effect.Payload().JSON()))
+			envelope := mustValue(decodeEffect(candidate.Effect.Payload()))
 			if envelope.ToolCall != nil && envelope.ToolCall.Resume != nil {
 				intent = candidate
 			}
@@ -158,7 +158,7 @@ func TestContinuationProjectionRequiresTheExactOutstandingQuestion(t *testing.T)
 		},
 		func(request *toolDispatchRequest) { request.Resume.Reference = intent.ID },
 	} {
-		envelope := mustValue(decodeEffect(intent.Effect.Payload().JSON()))
+		envelope := mustValue(decodeEffect(intent.Effect.Payload()))
 		change(envelope.ToolCall)
 		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
 		assertProjectionRejection(t, program, replaceLoggedEffect(t, log, intent.ID, effect))

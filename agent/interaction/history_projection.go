@@ -110,7 +110,7 @@ type decodedDispatch struct {
 }
 
 func decodeDispatch(payload run.Payload) (decodedDispatch, error) {
-	envelope, err := decodeEffect(payload.JSON())
+	envelope, err := decodeEffect(payload)
 	if err != nil {
 		return decodedDispatch{}, err
 	}
@@ -286,7 +286,7 @@ func (h *historyProjector) settledModel(settled run.EffectSettled, sequence uint
 	if settled.Outcome.Status() != run.SettlementStatusSucceeded {
 		return nil
 	}
-	envelope, err := decodeResult(settled.Outcome.Payload().JSON())
+	envelope, err := decodeResult(settled.Outcome.Payload())
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (h *historyProjector) settledToolCall(settled run.EffectSettled, call *proj
 	if settled.Outcome.Status() != run.SettlementStatusSucceeded {
 		return nil
 	}
-	envelope, err := decodeResult(settled.Outcome.Payload().JSON())
+	envelope, err := decodeResult(settled.Outcome.Payload())
 	if err != nil {
 		return err
 	}

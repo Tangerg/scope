@@ -50,7 +50,7 @@ func (d *dispatcher) Dispatch(
 	if !request.Valid() {
 		return run.Settlement{}, ErrInvalidProtocol
 	}
-	envelope, err := decodeEffect(request.Effect().Payload().JSON())
+	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return planningFailureSettlement(err)
 	}
@@ -69,7 +69,7 @@ func (d *dispatcher) Dispatch(
 
 // Sensing is side-effect-free. Action replay authority belongs to its binding.
 func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
-	envelope, err := decodeEffect(effect.Payload().JSON())
+	envelope, err := decodeEffect(effect.Payload())
 	if err == nil && envelope.operation() == operationSense {
 		return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 	}

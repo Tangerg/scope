@@ -1,9 +1,7 @@
 package interaction
 
 import (
-	"bytes"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"testing"
 
 	"github.com/Tangerg/scope/core/tool"
@@ -37,23 +35,27 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 			},
 		},
 	} {
-		encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
+		encoded, err := run.EncodePayload(effect)
 		if err != nil {
 			f.Fatal(err)
 		}
 		if _, err := decodeEffect(encoded); err != nil {
 			f.Fatalf("invalid effect seed: %v", err)
 		}
-		f.Add([]byte(encoded))
+		f.Add([]byte(encoded.JSON()))
 	}
 	f.Add([]byte(`null`))
 	f.Add([]byte(`{"tool_call":{"call":{"id":"call","name":"ask"},"input_response":"Ada"}}`))
-	f.Fuzz(func(t *testing.T, payload []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		payload, err := run.ParsePayload(data)
+		if err != nil {
+			return
+		}
 		effect, err := decodeEffect(payload)
 		if err != nil {
 			return
 		}
-		encoded, err := jsonv2.Marshal(effect, jsonv2.Deterministic(true))
+		encoded, err := run.EncodePayload(effect)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,12 +63,12 @@ func FuzzInteractionEffectProtocol(f *testing.F) {
 		if err != nil {
 			t.Fatalf("accepted effect did not round trip: %v", err)
 		}
-		reencoded, err := jsonv2.Marshal(restored, jsonv2.Deterministic(true))
+		reencoded, err := run.EncodePayload(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(encoded, reencoded) {
-			t.Fatalf("effect encoding changed after restoration\nfirst: %s\nsecond: %s", encoded, reencoded)
+		if !encoded.Equal(reencoded) {
+			t.Fatalf("effect encoding changed after restoration\nfirst: %s\nsecond: %s", encoded.JSON(), reencoded.JSON())
 		}
 	})
 }
@@ -84,24 +86,28 @@ func FuzzInteractionResultProtocol(f *testing.F) {
 		{ToolResult: &toolDispatchResult{Completion: &toolCallResult{Disposition: ResultFailed, Output: failed.Output}}},
 		{ToolResult: &toolDispatchResult{InputRequest: &request}},
 	} {
-		encoded, err := jsonv2.Marshal(result, jsonv2.Deterministic(true))
+		encoded, err := run.EncodePayload(result)
 		if err != nil {
 			f.Fatal(err)
 		}
 		if _, err := decodeResult(encoded); err != nil {
 			f.Fatalf("invalid result seed: %v", err)
 		}
-		f.Add([]byte(encoded))
+		f.Add([]byte(encoded.JSON()))
 	}
 	f.Add([]byte(`null`))
 	f.Add([]byte(`{"model_result":{"error":"provider","host_error":"host"}}`))
 	f.Add([]byte(`{"input_response":{},"steer":{"messages":[]}}`))
-	f.Fuzz(func(t *testing.T, payload []byte) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		payload, err := run.ParsePayload(data)
+		if err != nil {
+			return
+		}
 		result, err := decodeResult(payload)
 		if err != nil {
 			return
 		}
-		encoded, err := jsonv2.Marshal(result, jsonv2.Deterministic(true))
+		encoded, err := run.EncodePayload(result)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -109,12 +115,12 @@ func FuzzInteractionResultProtocol(f *testing.F) {
 		if err != nil {
 			t.Fatalf("accepted result did not round trip: %v", err)
 		}
-		reencoded, err := jsonv2.Marshal(restored, jsonv2.Deterministic(true))
+		reencoded, err := run.EncodePayload(restored)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !bytes.Equal(encoded, reencoded) {
-			t.Fatalf("result encoding changed after restoration\nfirst: %s\nsecond: %s", encoded, reencoded)
+		if !encoded.Equal(reencoded) {
+			t.Fatalf("result encoding changed after restoration\nfirst: %s\nsecond: %s", encoded.JSON(), reencoded.JSON())
 		}
 	})
 }
@@ -141,7 +147,7 @@ func FuzzInteractionSteeringSignal(f *testing.F) {
 			t.Fatal("accepted external guidance did not round trip", restoreErr)
 		}
 		reencoded := mustValue(NewSteerSignal(id, restored.Messages...))
-		if !bytes.Equal(encoded.Payload.JSON(), reencoded.Payload.JSON()) {
+		if !encoded.Payload.Equal(reencoded.Payload) {
 			t.Fatal("external guidance changed its canonical encoding")
 		}
 	})

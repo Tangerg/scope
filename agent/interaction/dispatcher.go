@@ -61,7 +61,7 @@ func (d *dispatcher) Dispatch(
 	emit run.DeltaEmitter,
 ) (run.Settlement, error) {
 	ctx = run.RequireContext(ctx)
-	envelope, err := decodeEffect(request.Effect().Payload().JSON())
+	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return failedSettlement(err)
 	}
@@ -84,7 +84,7 @@ func (d *dispatcher) Dispatch(
 // replay safety in its immutable binding.
 func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	policy := run.EffectPolicy{Replay: run.ReplayPolicyNever}
-	envelope, err := decodeEffect(effect.Payload().JSON())
+	envelope, err := decodeEffect(effect.Payload())
 	if err != nil || envelope.ToolCall == nil || !d.tools.Configured() {
 		return policy
 	}

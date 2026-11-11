@@ -71,7 +71,7 @@ func Bind[I, O any](compiler *Compiler, config BindingConfig) (Program[I, O], er
 	}
 	reference, err := newProgramRef(programIdentityWire{
 		Name: descriptor.Name(), Build: compiler.build, Contract: descriptor.Digest(),
-		Configuration: ComputeDigest(configuration.JSON()), Revision: config.Revision, Children: bindings,
+		Configuration: ComputeDigest(configuration.data), Revision: config.Revision, Children: bindings,
 	})
 	if err != nil {
 		return Program[I, O]{}, fmt.Errorf("%w: %w", ErrInvalidProgram, err)
