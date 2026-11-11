@@ -32,7 +32,7 @@ type executionState struct {
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
 	Child             *child.Invocation `json:"child,omitzero"`
-	PendingEffect     *run.EffectID     `json:"pending_effect,omitzero"`
+	PendingEffect     run.EffectID      `json:"pending_effect,omitzero"`
 }
 
 // awaitsChild reports whether the awaited Action runs as a child Process
@@ -132,7 +132,7 @@ func (e executionState) validateProgress() error {
 
 func (e executionState) validatePhase() error {
 	pending := e.Phase == phaseAwaitingSense || e.Phase == phaseAwaitingAction && e.Child == nil
-	if pending != (e.PendingEffect != nil) || e.PendingEffect != nil && !e.PendingEffect.Valid() {
+	if pending != e.PendingEffect.Valid() {
 		return ErrInvalidExecutionState
 	}
 	if e.Child != nil && e.Phase != phaseAwaitingAction {

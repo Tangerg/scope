@@ -49,7 +49,7 @@ func (e *execution) requestSense(turn run.Turn, consumedMessages uint32) (run.Tr
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = new(turn.EffectID(0))
+	e.state.PendingEffect = turn.EffectID(0)
 	e.state.Phase = phaseAwaitingSense
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
@@ -117,7 +117,7 @@ func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding 
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = new(turn.EffectID(0))
+	e.state.PendingEffect = turn.EffectID(0)
 	e.state.CurrentActionName = binding.action.name
 	e.state.Phase = phaseAwaitingAction
 	return run.Yield(consumedMessages, []run.Effect{effect})
@@ -146,7 +146,7 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding a
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = nil
+	e.state.PendingEffect = run.EffectID{}
 	e.state.Child = &invocation
 	e.state.CurrentActionName = binding.action.name
 	e.state.Phase = phaseAwaitingAction

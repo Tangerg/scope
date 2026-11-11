@@ -68,7 +68,7 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 	newState := func() executionState {
 		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")),
 			WorldState: validationWorld(t), CurrentActionName: config.actions[0].action.Name(),
-			PendingEffect: new(validationTurn(2).EffectID(0))}
+			PendingEffect: validationTurn(2).EffectID(0)}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {
 		t.Fatalf("valid pending action rejected: %v", err)
@@ -97,14 +97,14 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
 		}},
 		{"dispatcher retains child", func(s *executionState) {
-			s.PendingEffect = nil
+			s.PendingEffect = run.EffectID{}
 			s.Child = &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey(s.CurrentActionName, 1)))))}
 		}},
-		{"missing effect", func(s *executionState) { s.PendingEffect = nil }},
+		{"missing effect", func(s *executionState) { s.PendingEffect = run.EffectID{} }},
 		{"missing current action", func(s *executionState) { s.CurrentActionName = "" }},
 		{"initial phase repeats attempts", func(s *executionState) {
 			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
-			s.CurrentActionName, s.PendingEffect, s.Phase = "", nil, phaseReadySense
+			s.CurrentActionName, s.PendingEffect, s.Phase = "", run.EffectID{}, phaseReadySense
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -147,7 +147,7 @@ func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 		{"wrong request ordinal", func(s *executionState) { s.Child = &child.Invocation{Request: new(validationTurn(2).EffectID(1))} }},
 		{"already rejected", func(s *executionState) { s.Child = &child.Invocation{Rejection: &failed} }},
 		{"wrong phase", func(s *executionState) {
-			s.Phase, s.PendingEffect = phaseAwaitingSense, new(validationTurn(2).EffectID(0))
+			s.Phase, s.PendingEffect = phaseAwaitingSense, validationTurn(2).EffectID(0)
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

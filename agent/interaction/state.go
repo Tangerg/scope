@@ -30,7 +30,7 @@ type contextPreparation struct {
 // executionState is the complete Strategy-owned recovery state. WorkingContext
 // owns messages and options; the Program owns Tools. ToolRound owns each pending round.
 type executionState struct {
-	PendingEffect       *run.EffectID       `json:"pending_effect,omitzero"`
+	PendingEffect       run.EffectID        `json:"pending_effect,omitzero"`
 	Preparation         *contextPreparation `json:"preparation,omitzero"`
 	WorkingContext      *Input              `json:"working_context"`
 	ModelCallCount      uint64              `json:"model_call_count" jsonwire:"required"`
@@ -162,7 +162,7 @@ func (e executionState) validateRoundDelegateOutputs(definition *definition, cal
 
 func (e executionState) validateEnvelope() error {
 	pending := e.phase() == phaseAwaitingContext || e.phase() == phaseAwaitingModel
-	if pending != (e.PendingEffect != nil) || e.PendingEffect != nil && !e.PendingEffect.Valid() {
+	if pending != e.PendingEffect.Valid() {
 		return fmt.Errorf("%w: pending model effect does not match phase", ErrInvalidExecutionState)
 	}
 	if e.WorkingContext == nil {

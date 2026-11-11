@@ -122,7 +122,7 @@ func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSte
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = new(turn.EffectID(0))
+	e.state.PendingEffect = turn.EffectID(0)
 	if prepare {
 		e.state.Preparation = &contextPreparation{Applied: slices.Clone(appliedSteerSignalIDs)}
 	} else {
@@ -139,7 +139,7 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 	if !arrival.settled {
 		return e.awaitPendingEffect(arrival)
 	}
-	e.state.PendingEffect = nil
+	e.state.PendingEffect = run.EffectID{}
 	if arrival.failure.Valid() {
 		return run.Fail(arrival.consumed, arrival.failure)
 	}
@@ -171,7 +171,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 		return e.awaitPendingEffect(arrival)
 	}
 	consumedMessages := arrival.consumed
-	e.state.PendingEffect = nil
+	e.state.PendingEffect = run.EffectID{}
 	if arrival.failure.Valid() {
 		return run.Fail(consumedMessages, arrival.failure)
 	}
@@ -376,7 +376,7 @@ type effectArrival struct {
 	consumed uint32
 }
 
-func collectEffectResult(messages []run.Message, expected operation, id *run.EffectID) (effectArrival, error) {
+func collectEffectResult(messages []run.Message, expected operation, id run.EffectID) (effectArrival, error) {
 	arrival := effectArrival{consumed: uint32(len(messages))}
 	for _, message := range messages {
 		switch value := message.(type) {
@@ -385,7 +385,7 @@ func collectEffectResult(messages []run.Message, expected operation, id *run.Eff
 				return effectArrival{}, err
 			}
 		case run.Completion:
-			if arrival.settled || id == nil || value.Effect != *id {
+			if arrival.settled || value.Effect != id {
 				return effectArrival{}, ErrInvalidProtocol
 			}
 			envelope, failure, err := decodeSettlement(value.Outcome, expected)

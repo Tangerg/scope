@@ -62,7 +62,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 	steerID := mustValue(run.ParseSignalID("guidance"))
 	validArtifact := artifactRecord{ModelCallSequence: 1, ToolCallID: "evidence", DelegateName: "worker", Output: mustValue(run.EncodePayload(delegateValue{Value: 1}))}
 	state := func() executionState {
-		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, PendingEffect: new(testTurn(1).EffectID(0))}
+		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, PendingEffect: testTurn(1).EffectID(0)}
 	}
 	round := func() executionState {
 		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, ToolRound: &toolCallRound{Response: callResponse(call), Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}}}}
@@ -72,8 +72,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 		base   func() executionState
 		change func(*executionState)
 	}{
-		{"missing pending model", state, func(value *executionState) { value.PendingEffect = nil }},
-		{"invalid pending identity", state, func(value *executionState) { value.PendingEffect = new(run.EffectID) }},
+		{"missing pending model", state, func(value *executionState) { value.PendingEffect = run.EffectID{} }},
 		{"missing working context", state, func(value *executionState) { value.WorkingContext = nil }},
 		{"invalid working context", state, func(value *executionState) { value.WorkingContext = new(Input) }},
 		{"past model quota", state, func(value *executionState) { value.ModelCallCount = 5 }},
@@ -85,7 +84,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 		}},
 		{"fresh state with unapplied steering", state, func(value *executionState) {
 			value.ModelCallCount = 0
-			value.PendingEffect = nil
+			value.PendingEffect = run.EffectID{}
 			value.PendingSteer = &steerBatch{Messages: testInput().Messages, SignalIDs: []run.SignalID{steerID}}
 		}},
 		{"undeclared preparation", state, func(value *executionState) { value.Preparation = new(contextPreparation) }},
