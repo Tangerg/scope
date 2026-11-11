@@ -32,7 +32,7 @@ type contextPreparation struct {
 type executionState struct {
 	PendingEffect       run.EffectID        `json:"pending_effect,omitzero"`
 	Preparation         *contextPreparation `json:"preparation,omitzero"`
-	WorkingContext      *Input              `json:"working_context"`
+	WorkingContext      Input               `json:"working_context"`
 	ModelCallCount      uint64              `json:"model_call_count" jsonwire:"required"`
 	AdvertisedToolNames []string            `json:"advertised_tool_names,omitempty"`
 	ToolRound           *toolCallRound      `json:"tool_round,omitzero"`
@@ -164,9 +164,6 @@ func (e executionState) validateEnvelope() error {
 	pending := e.phase() == phaseAwaitingContext || e.phase() == phaseAwaitingModel
 	if pending != e.PendingEffect.Valid() {
 		return fmt.Errorf("%w: pending model effect does not match phase", ErrInvalidExecutionState)
-	}
-	if e.WorkingContext == nil {
-		return fmt.Errorf("%w: WorkingContext is required", ErrInvalidExecutionState)
 	}
 	if err := e.WorkingContext.Validate(); err != nil {
 		return fmt.Errorf("%w: WorkingContext: %w", ErrInvalidExecutionState, err)

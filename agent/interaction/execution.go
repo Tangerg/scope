@@ -90,7 +90,7 @@ func (e *execution) requestModel(
 		return run.Transition{}, run.ErrCounterExhausted
 	}
 	if e.definition.contextPolicy != nil {
-		messages, err := e.definition.contextPolicy(ctx, *e.state.WorkingContext.clone())
+		messages, err := e.definition.contextPolicy(ctx, e.state.WorkingContext.clone())
 		if contextErr := ctx.Err(); contextErr != nil {
 			return run.Transition{}, contextErr
 		}
@@ -109,7 +109,7 @@ func (e *execution) requestModel(
 func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID, prepare bool) (run.Transition, error) {
 	call := &modelCall{
 		ModelCallSequence:     e.state.ModelCallCount + 1,
-		Request:               *e.state.WorkingContext,
+		Request:               e.state.WorkingContext,
 		Tools:                 e.definition.modelDefinitions(e.state.AdvertisedToolNames),
 		AppliedSteerSignalIDs: appliedSteerSignalIDs,
 	}

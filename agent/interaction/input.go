@@ -21,8 +21,8 @@ func (i Input) Validate() error {
 	return nil
 }
 
-func (i Input) clone() *Input {
-	return &Input{Messages: cloneMessages(i.Messages), Options: i.Options.Clone()}
+func (i Input) clone() Input {
+	return Input{Messages: cloneMessages(i.Messages), Options: i.Options.Clone()}
 }
 
 func (i Input) request() *chat.Request {

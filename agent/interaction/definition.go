@@ -162,7 +162,7 @@ func (d *definition) Start(input run.Payload) (run.Execution, error) {
 	}
 	return &execution{
 		definition: d,
-		state:      executionState{WorkingContext: &decoded},
+		state:      executionState{WorkingContext: decoded},
 	}, nil
 }
 

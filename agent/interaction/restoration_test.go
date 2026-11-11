@@ -62,10 +62,10 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 	steerID := mustValue(run.ParseSignalID("guidance"))
 	validArtifact := artifactRecord{ModelCallSequence: 1, ToolCallID: "evidence", DelegateName: "worker", Output: mustValue(run.EncodePayload(delegateValue{Value: 1}))}
 	state := func() executionState {
-		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, PendingEffect: testTurn(1).EffectID(0)}
+		return executionState{WorkingContext: testInput(), ModelCallCount: 1, PendingEffect: testTurn(1).EffectID(0)}
 	}
 	round := func() executionState {
-		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, ToolRound: &toolCallRound{Response: callResponse(call), Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}}}}
+		return executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{Response: callResponse(call), Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}}}}
 	}
 	for _, row := range []struct {
 		name   string
@@ -73,8 +73,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"missing pending model", state, func(value *executionState) { value.PendingEffect = run.EffectID{} }},
-		{"missing working context", state, func(value *executionState) { value.WorkingContext = nil }},
-		{"invalid working context", state, func(value *executionState) { value.WorkingContext = new(Input) }},
+		{"invalid working context", state, func(value *executionState) { value.WorkingContext = Input{} }},
 		{"past model quota", state, func(value *executionState) { value.ModelCallCount = 5 }},
 		{"unbound advertisements", state, func(value *executionState) { value.AdvertisedToolNames = []string{"missing"} }},
 		{"repeated advertisements", state, func(value *executionState) { value.AdvertisedToolNames = []string{"echo", "echo"} }},
@@ -192,7 +191,7 @@ func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 	firstRef, secondRef := testTurn(3).EffectID(0), testTurn(3).EffectID(1)
 	secondProcess := mustValue(secondRef.Process.Child(mustValue(DelegateChildKey(1, secondCall))))
 	base := func() executionState {
-		return executionState{WorkingContext: new(testInput()), ModelCallCount: 1, ToolRound: &toolCallRound{
+		return executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{
 			Response: callResponse(firstCall, secondCall), Batch: &callBatch{Kind: callDelegate, Invocations: []*callInvocation{
 				{Reference: firstRef, Child: &child.Invocation{Request: &firstRef}},
 				{Reference: secondRef, Child: &child.Invocation{Request: &secondRef}},
@@ -242,7 +241,7 @@ func TestRestoredContinuationCannotOwnAnotherCallsOriginalEffect(t *testing.T) {
 	continued := testTurn(6).EffectID(0)
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
 	for _, awaitingInput := range []bool{false, true} {
-		state := executionState{WorkingContext: new(testInput()), ModelCallCount: 1, ToolRound: &toolCallRound{
+		state := executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{
 			Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third")),
 			Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{
 				{Reference: first, Pending: &continued},
