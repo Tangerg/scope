@@ -267,99 +267,116 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return transaction.Commit(ctx)
 }
 
+// readSchema admits the current four-column table, its binary primary key and
+// its single space binding, returning the native vector width.
 func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
-	rows, err := query.Query(ctx, `SELECT a.attname,t.typname,a.atttypmod,a.attnotnull,a.atthasdef,a.attnum FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=to_regclass($1) AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum`, s.fullTable)
+	width, idNumber, err := s.readColumns(ctx, query)
 	if err != nil {
 		return 0, err
 	}
+	if err := s.requirePrimaryKey(ctx, query, idNumber); err != nil {
+		return 0, err
+	}
+	if err := s.requireSpaceBinding(ctx, query); err != nil {
+		return 0, err
+	}
+	return width, nil
+}
+
+func (s *Store) readColumns(ctx context.Context, query rowQuerier) (width, idNumber int, err error) {
+	rows, err := query.Query(ctx, `SELECT a.attname,t.typname,a.atttypmod,a.attnotnull,a.atthasdef,a.attnum FROM pg_attribute a JOIN pg_type t ON t.oid=a.atttypid WHERE a.attrelid=to_regclass($1) AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum`, s.fullTable)
+	if err != nil {
+		return 0, 0, err
+	}
 	defer rows.Close()
-	width, idNumber, count := 0, 0, 0
+	count := 0
 	for rows.Next() {
 		var name, kind string
 		var modifier, number int
 		var required, defaults bool
 		if err = rows.Scan(&name, &kind, &modifier, &required, &defaults, &number); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		if !required || defaults {
-			return 0, errors.New("pgstore: current columns must be non-null without defaults")
+			return 0, 0, errors.New("pgstore: current columns must be non-null without defaults")
 		}
 		count++
 		switch name {
 		case "id":
 			if kind != "bytea" {
-				return 0, errors.New("pgstore: id must be binary")
+				return 0, 0, errors.New("pgstore: id must be binary")
 			}
 			idNumber = number
 		case "content":
 			if kind != "text" {
-				return 0, errors.New("pgstore: content must be text")
+				return 0, 0, errors.New("pgstore: content must be text")
 			}
 		case s.metadataName:
 			if kind != "bytea" {
-				return 0, errors.New("pgstore: metadata must contain Core JSON bytes")
+				return 0, 0, errors.New("pgstore: metadata must contain Core JSON bytes")
 			}
 		case "embedding":
 			if kind != "vector" || modifier <= 0 {
-				return 0, errors.New("pgstore: embedding must have a fixed native vector width")
+				return 0, 0, errors.New("pgstore: embedding must have a fixed native vector width")
 			}
 			width = modifier
 		default:
-			return 0, fmt.Errorf("pgstore: unexpected current column %q", name)
+			return 0, 0, fmt.Errorf("pgstore: unexpected current column %q", name)
 		}
 	}
 	if err = rows.Err(); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	rows.Close()
 	if count != 4 || width == 0 || idNumber == 0 {
-		return 0, errors.New("pgstore: current four-column schema is required")
+		return 0, 0, errors.New("pgstore: current four-column schema is required")
 	}
+	return width, idNumber, nil
+}
+
+func (s *Store) requirePrimaryKey(ctx context.Context, query rowQuerier, idNumber int) error {
 	primary, err := query.Query(ctx, `SELECT conkey FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, s.fullTable)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer primary.Close()
 	if !primary.Next() {
 		if err = primary.Err(); err != nil {
-			return 0, err
+			return err
 		}
-		return 0, errors.New("pgstore: native primary key is required")
+		return errors.New("pgstore: native primary key is required")
 	}
 	var keys []int16
 	if err = primary.Scan(&keys); err != nil {
-		return 0, err
+		return err
 	}
 	if len(keys) != 1 || int(keys[0]) != idNumber || primary.Next() {
-		return 0, errors.New("pgstore: native primary key must be only the binary ID")
+		return errors.New("pgstore: native primary key must be only the binary ID")
 	}
-	if err = primary.Err(); err != nil {
-		return 0, err
-	}
-	primary.Close()
-	// Read every space marker: multiple bindings cannot authorize mixed spaces.
+	return primary.Err()
+}
+
+// requireSpaceBinding reads every space marker: multiple bindings cannot
+// authorize mixed spaces.
+func (s *Store) requireSpaceBinding(ctx context.Context, query rowQuerier) error {
 	binding, err := query.Query(ctx, `SELECT conname FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='c' AND left(conname,length($2))=$2`, s.fullTable, vectorstore.SpaceStorageKeyPrefix)
 	if err != nil {
-		return 0, err
+		return err
 	}
 	defer binding.Close()
 	if !binding.Next() {
 		if err := binding.Err(); err != nil {
-			return 0, err
+			return err
 		}
-		return 0, fmt.Errorf("%w: table has no space constraint", vectorstore.ErrIncompatibleSpace)
+		return fmt.Errorf("%w: table has no space constraint", vectorstore.ErrIncompatibleSpace)
 	}
 	var name string
 	if err := binding.Scan(&name); err != nil {
-		return 0, err
+		return err
 	}
 	if name != s.space.StorageKey() || binding.Next() {
-		return 0, fmt.Errorf("%w: wrong or ambiguous collection binding", vectorstore.ErrIncompatibleSpace)
+		return fmt.Errorf("%w: wrong or ambiguous collection binding", vectorstore.ErrIncompatibleSpace)
 	}
-	if err := binding.Err(); err != nil {
-		return 0, err
-	}
-	return width, nil
+	return binding.Err()
 }
 
 // Scan never returns partial membership. Preflight is performed in the same
