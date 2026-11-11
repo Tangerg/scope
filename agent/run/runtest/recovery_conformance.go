@@ -14,6 +14,8 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
+const recoveryFixtureKind = "runtest.recovery"
+
 var errConformanceCrash = errors.New("runtest: simulated append acknowledgment loss")
 
 const conformanceTimeout = 10 * time.Second
@@ -480,7 +482,7 @@ func newRecoveryDefinition(t *testing.T, mode recoveryMode) *recoveryDefinition 
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: "runtest.recovery", Description: "Exercise committed log recovery.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema})
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: recoveryFixtureKind, Description: "Exercise committed log recovery.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +497,7 @@ func (r *recoveryDefinition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (r *recoveryDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
-	value, err := state.Decode[recoveryState]("runtest.recovery")
+	value, err := state.Decode[recoveryState](recoveryFixtureKind)
 	if err != nil {
 		return nil, err
 	}
@@ -571,5 +573,5 @@ func (r *recoveryExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 }
 
 func (r *recoveryExecution) Snapshot() (run.ExecutionState, error) {
-	return run.EncodeExecutionState("runtest.recovery", r.state)
+	return run.EncodeExecutionState(recoveryFixtureKind, r.state)
 }

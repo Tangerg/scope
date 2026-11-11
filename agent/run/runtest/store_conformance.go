@@ -13,7 +13,10 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
-const conformanceBuild = "runtest.log"
+const (
+	storeFixtureKind = "runtest.store"
+	conformanceBuild = "runtest.log"
+)
 
 // RunStoreConformance uses a fresh store for each case so another case cannot
 // accidentally supply the head or fencing evidence the implementation omits.
@@ -407,7 +410,7 @@ func readStoreHistory(ctx context.Context, store run.Store, root run.ProcessID, 
 // record as opaque, so its fidelity to the prefix is not under test here.
 func storeCheckpoint(t *testing.T, batch run.Batch) run.Checkpoint {
 	t.Helper()
-	state, err := run.EncodeExecutionState("runtest.store", "input")
+	state, err := run.EncodeExecutionState(storeFixtureKind, "input")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +497,7 @@ func newStoreDefinition(t *testing.T) *storeDefinition {
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: "runtest.store", Description: "Exercise durable log ownership.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema})
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: storeFixtureKind, Description: "Exercise durable log ownership.", InputSchema: schema, OutputSchema: schema, SignalSchema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -509,7 +512,7 @@ func (s *storeDefinition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (s *storeDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
-	value, err := state.Decode[string]("runtest.store")
+	value, err := state.Decode[string](storeFixtureKind)
 	if err != nil {
 		return nil, err
 	}
@@ -524,5 +527,5 @@ func (s *storeExecution) Step(_ context.Context, turn run.Turn) (run.Transition,
 }
 
 func (s *storeExecution) Snapshot() (run.ExecutionState, error) {
-	return run.NewExecutionState("runtest.store", s.input)
+	return run.NewExecutionState(storeFixtureKind, s.input)
 }

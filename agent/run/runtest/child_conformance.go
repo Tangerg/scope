@@ -9,6 +9,8 @@ import (
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
+const childFixtureKind = "runtest.child"
+
 func runChildConformance(t *testing.T, factory func(*testing.T) run.Store) {
 	t.Run("reaped children stay absent after recovery", func(t *testing.T) { checkReapRecovery(t, factory(t)) })
 	t.Run("descendant exits precede their parents", func(t *testing.T) { checkChildExitOrder(t, factory(t)) })
@@ -246,7 +248,7 @@ func newChildDefinition(t *testing.T, child run.Program[run.Payload, run.Payload
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: "runtest.child", Description: "Exercise structured child ownership.", InputSchema: schema, OutputSchema: schema})
+	descriptor, err := run.NewDescriptor(run.DescriptorConfig{Name: childFixtureKind, Description: "Exercise structured child ownership.", InputSchema: schema, OutputSchema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +266,7 @@ func (c *childDefinition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (c *childDefinition) Restore(_ context.Context, state run.ExecutionState) (run.Execution, error) {
-	value, err := state.Decode[childState]("runtest.child")
+	value, err := state.Decode[childState](childFixtureKind)
 	if err != nil {
 		return nil, err
 	}
@@ -340,5 +342,5 @@ func (c *childExecution) Step(_ context.Context, turn run.Turn) (run.Transition,
 }
 
 func (c *childExecution) Snapshot() (run.ExecutionState, error) {
-	return run.EncodeExecutionState("runtest.child", c.state)
+	return run.EncodeExecutionState(childFixtureKind, c.state)
 }
