@@ -17,22 +17,22 @@ import (
 )
 
 const (
-	instrumentationName          = "github.com/Tangerg/scope/otel/eval"
-	spanName                     = "eval.evaluate"
-	operationDurationMetric      = "eval.operation.duration"
-	operationDurationDescription = "Eval operation duration."
-	operationDurationUnit        = "s"
-	operationAttribute           = "eval.operation.name"
-	assessmentIDAttribute        = "eval.assessment.id"
-	metricNamespaceAttribute     = "eval.metric.namespace"
-	metricNameAttribute          = "eval.metric.name"
-	verdictAttribute             = "eval.verdict"
-	decisionPolicyAttribute      = "eval.decision.policy"
-	scoreAttribute               = "eval.score"
-	measurementAttribute         = "eval.measurement"
-	operationEvaluate            = "evaluate"
-	errorInvalidConfig           = "eval.invalid_evaluator_config"
-	errorInvalidReport           = "eval.invalid_report"
+	instrumentationName             = "github.com/Tangerg/scope/otel/eval"
+	spanName                        = "eval.evaluate"
+	operationDurationMetric         = "eval.operation.duration"
+	operationDurationDescription    = "Eval operation duration."
+	operationDurationUnit           = "s"
+	operationAttribute              = "eval.operation.name"
+	assessmentIDAttribute           = "eval.assessment.id"
+	metricNamespaceAttribute        = "eval.metric.namespace"
+	metricNameAttribute             = "eval.metric.name"
+	verdictAttribute                = "eval.verdict"
+	decisionPolicyAttribute         = "eval.decision.policy"
+	scoreAttribute                  = "eval.score"
+	measurementAttribute            = "eval.measurement"
+	operationEvaluate               = "evaluate"
+	errorTypeInvalidEvaluatorConfig = "eval.invalid_evaluator_config"
+	errorTypeInvalidReport          = "eval.invalid_report"
 )
 
 var (
@@ -146,7 +146,7 @@ func metricIdentityAttributes(metricValue coreeval.Metric) []attribute.KeyValue 
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: coreeval.ErrInvalidEvaluatorConfig, Type: errorInvalidConfig},
-		errortelemetry.Class{Err: coreeval.ErrInvalidReport, Type: errorInvalidReport},
+		errortelemetry.Class{Err: coreeval.ErrInvalidEvaluatorConfig, Type: errorTypeInvalidEvaluatorConfig},
+		errortelemetry.Class{Err: coreeval.ErrInvalidReport, Type: errorTypeInvalidReport},
 	)
 }

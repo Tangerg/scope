@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/image"
-	errorInvalidRequest = "image.invalid_request"
-	errorInvalidOutput  = "image.invalid_response"
+	instrumentationName      = "github.com/Tangerg/scope/otel/image"
+	errorTypeInvalidRequest  = "image.invalid_request"
+	errorTypeInvalidOptions  = "image.invalid_options"
+	errorTypeInvalidResponse = "image.invalid_response"
 )
 
 var (
@@ -128,8 +129,8 @@ func (m Middleware) metricAttributes(request *coreimage.Request) []attribute.Key
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: coreimage.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coreimage.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coreimage.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: coreimage.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: coreimage.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: coreimage.ErrInvalidResponse, Type: errorTypeInvalidResponse},
 	)
 }

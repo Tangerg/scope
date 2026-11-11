@@ -18,9 +18,9 @@ func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 	}{
 		"canceled":          {err: fmt.Errorf("provider: %w", context.Canceled), want: "context.canceled"},
 		"deadline exceeded": {err: fmt.Errorf("provider: %w", context.DeadlineExceeded), want: "context.deadline_exceeded"},
-		"invalid request":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidRequest), want: errorInvalidRequest},
-		"invalid options":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidOptions), want: errorInvalidRequest},
-		"invalid response":  {err: fmt.Errorf("provider: %w", corererank.ErrInvalidResponse), want: errorInvalidOutput},
+		"invalid request":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidRequest), want: errorTypeInvalidRequest},
+		"invalid options":   {err: fmt.Errorf("provider: %w", corererank.ErrInvalidOptions), want: errorTypeInvalidOptions},
+		"invalid response":  {err: fmt.Errorf("provider: %w", corererank.ErrInvalidResponse), want: errorTypeInvalidResponse},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {

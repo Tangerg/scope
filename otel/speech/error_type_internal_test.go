@@ -26,15 +26,15 @@ func TestErrorTypeAttributeStaysLowCardinality(t *testing.T) {
 		},
 		"invalid request": {
 			err:  fmt.Errorf("provider: %w", corespeech.ErrInvalidRequest),
-			want: errorInvalidRequest,
+			want: errorTypeInvalidRequest,
 		},
 		"invalid options": {
 			err:  fmt.Errorf("provider: %w", corespeech.ErrInvalidOptions),
-			want: errorInvalidRequest,
+			want: errorTypeInvalidOptions,
 		},
 		"invalid response": {
 			err:  fmt.Errorf("provider: %w", corespeech.ErrInvalidResponse),
-			want: errorInvalidOutput,
+			want: errorTypeInvalidResponse,
 		},
 	}
 	for name, testCase := range cases {

@@ -23,11 +23,12 @@ import (
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/rerank"
-	operationName       = "rerank"
-	documentCountKey    = attribute.Key("gen_ai.request.document.count")
-	errorInvalidRequest = "rerank.invalid_request"
-	errorInvalidOutput  = "rerank.invalid_response"
+	instrumentationName      = "github.com/Tangerg/scope/otel/rerank"
+	operationName            = "rerank"
+	documentCountKey         = attribute.Key("gen_ai.request.document.count")
+	errorTypeInvalidRequest  = "rerank.invalid_request"
+	errorTypeInvalidOptions  = "rerank.invalid_options"
+	errorTypeInvalidResponse = "rerank.invalid_response"
 )
 
 var (
@@ -165,8 +166,8 @@ func (m Middleware) metricAttributes(request *corererank.Request, response *core
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: corererank.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: corererank.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: corererank.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: corererank.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: corererank.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: corererank.ErrInvalidResponse, Type: errorTypeInvalidResponse},
 	)
 }

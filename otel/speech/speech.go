@@ -24,11 +24,12 @@ import (
 )
 
 const (
-	instrumentationName  = "github.com/Tangerg/scope/otel/speech"
-	operationName        = "synthesize_speech"
-	errorInvalidRequest  = "speech.invalid_request"
-	errorInvalidOutput   = "speech.invalid_response"
-	errorInvalidStreamer = "otel.speech.invalid_streamer"
+	instrumentationName      = "github.com/Tangerg/scope/otel/speech"
+	operationName            = "synthesize_speech"
+	errorTypeInvalidRequest  = "speech.invalid_request"
+	errorTypeInvalidOptions  = "speech.invalid_options"
+	errorTypeInvalidResponse = "speech.invalid_response"
+	errorTypeInvalidStreamer = "otel.speech.invalid_streamer"
 )
 
 var (
@@ -251,9 +252,9 @@ func (m Middleware) metricAttributes(
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: corespeech.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: corespeech.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: corespeech.ErrInvalidResponse, Type: errorInvalidOutput},
-		errortelemetry.Class{Err: ErrInvalidStreamer, Type: errorInvalidStreamer},
+		errortelemetry.Class{Err: corespeech.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: corespeech.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: corespeech.ErrInvalidResponse, Type: errorTypeInvalidResponse},
+		errortelemetry.Class{Err: ErrInvalidStreamer, Type: errorTypeInvalidStreamer},
 	)
 }

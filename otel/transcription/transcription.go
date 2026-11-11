@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/transcription"
-	operationName       = "transcribe"
-	errorInvalidRequest = "transcription.invalid_request"
-	errorInvalidOutput  = "transcription.invalid_response"
+	instrumentationName      = "github.com/Tangerg/scope/otel/transcription"
+	operationName            = "transcribe"
+	errorTypeInvalidRequest  = "transcription.invalid_request"
+	errorTypeInvalidOptions  = "transcription.invalid_options"
+	errorTypeInvalidResponse = "transcription.invalid_response"
 )
 
 var (
@@ -153,8 +154,8 @@ func (m Middleware) metricAttributes(
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: coretranscription.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coretranscription.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coretranscription.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: coretranscription.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: coretranscription.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: coretranscription.ErrInvalidResponse, Type: errorTypeInvalidResponse},
 	)
 }

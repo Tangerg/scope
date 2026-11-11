@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/embedding"
-	errorInvalidRequest = "embedding.invalid_request"
-	errorInvalidOutput  = "embedding.invalid_response"
+	instrumentationName      = "github.com/Tangerg/scope/otel/embedding"
+	errorTypeInvalidRequest  = "embedding.invalid_request"
+	errorTypeInvalidOptions  = "embedding.invalid_options"
+	errorTypeInvalidResponse = "embedding.invalid_response"
 )
 
 var (
@@ -173,8 +174,8 @@ func (m Middleware) metricAttributes(
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: coreembedding.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coreembedding.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coreembedding.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: coreembedding.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: coreembedding.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: coreembedding.ErrInvalidResponse, Type: errorTypeInvalidResponse},
 	)
 }

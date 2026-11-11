@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	instrumentationName = "github.com/Tangerg/scope/otel/moderation"
-	operationName       = "moderate"
-	errorInvalidRequest = "moderation.invalid_request"
-	errorInvalidOutput  = "moderation.invalid_response"
+	instrumentationName      = "github.com/Tangerg/scope/otel/moderation"
+	operationName            = "moderate"
+	errorTypeInvalidRequest  = "moderation.invalid_request"
+	errorTypeInvalidOptions  = "moderation.invalid_options"
+	errorTypeInvalidResponse = "moderation.invalid_response"
 )
 
 var (
@@ -153,8 +154,8 @@ func (m Middleware) metricAttributes(
 
 func errorTypeAttribute(err error) attribute.KeyValue {
 	return errortelemetry.Classify(err,
-		errortelemetry.Class{Err: coremoderation.ErrInvalidRequest, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coremoderation.ErrInvalidOptions, Type: errorInvalidRequest},
-		errortelemetry.Class{Err: coremoderation.ErrInvalidResponse, Type: errorInvalidOutput},
+		errortelemetry.Class{Err: coremoderation.ErrInvalidRequest, Type: errorTypeInvalidRequest},
+		errortelemetry.Class{Err: coremoderation.ErrInvalidOptions, Type: errorTypeInvalidOptions},
+		errortelemetry.Class{Err: coremoderation.ErrInvalidResponse, Type: errorTypeInvalidResponse},
 	)
 }
