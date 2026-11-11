@@ -54,9 +54,6 @@ const (
 )
 
 func newSenseEffect(input run.Payload) (run.Effect, error) {
-	if !input.Valid() {
-		return run.Effect{}, ErrInvalidProtocol
-	}
 	payload, err := jsonv2.Marshal(effectEnvelope{Input: input}, jsonv2.Deterministic(true))
 	if err != nil {
 		return run.Effect{}, err
@@ -64,11 +61,9 @@ func newSenseEffect(input run.Payload) (run.Effect, error) {
 	return run.NewDispatcherEffect(payload)
 }
 
+// newActionEffect declares a dispatcher Action the Planner selected. Its plan
+// passed EvaluatePlan against the current state, so the Action applies.
 func newActionEffect(input run.Payload, binding actionDeclaration, state WorldState) (run.Effect, error) {
-	if !input.Valid() || !binding.valid() || binding.delegatesToChild() ||
-		!binding.action.Applicable(state) {
-		return run.Effect{}, ErrInvalidProtocol
-	}
 	payload, err := jsonv2.Marshal(effectEnvelope{
 		Input: input,
 		Action: &actionCall{

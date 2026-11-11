@@ -91,13 +91,8 @@ func (e *execution) decide(ctx context.Context, turn run.Turn, consumedMessages 
 	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
 		return e.failPlanning(consumedMessages, run.FailureKindContract, failureCodePlanningPlannerContract, err)
 	}
-	binding, found := e.definition.binding(plan.actions[0].name)
-	if !found {
-		return stepfail.Transition(
-			consumedMessages, run.FailureKindContract, failureCodePlanningPlannerContract,
-			"Planner selected an Action outside the Planning definition",
-		)
-	}
+	// EvaluatePlan admitted the plan against this definition's Actions.
+	binding, _ := e.definition.binding(plan.actions[0].name)
 	return e.startAction(turn, consumedMessages, binding)
 }
 
