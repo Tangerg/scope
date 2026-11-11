@@ -76,9 +76,6 @@ func (s *StoreConfig) applyDefaults() {
 	s.ContentField = cmp.Or(s.ContentField, DefaultContentField)
 	s.EmbeddingField = cmp.Or(s.EmbeddingField, DefaultEmbeddingField)
 	s.QueryTensorName = cmp.Or(s.QueryTensorName, DefaultQueryTensorName)
-	if s.HTTPClient == nil {
-		s.HTTPClient = http.DefaultClient
-	}
 }
 
 // DocumentNamespace binds a logical namespace to its coordinate space and

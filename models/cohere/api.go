@@ -45,11 +45,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	}
 
 	baseURL := cmp.Or(config.BaseURL, defaultBaseURL)
-	source := config.HTTPClient
-	if source == nil {
-		source = http.DefaultClient
-	}
-	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: source, BaseURL: baseURL})
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: config.HTTPClient, BaseURL: baseURL})
 	if err != nil {
 		return nil, err
 	}
