@@ -75,8 +75,8 @@ func TestSpeechStreamPreservesAudioBeforeReadError(t *testing.T) {
 				if validateErr := response.Validate(); validateErr != nil {
 					t.Fatal(validateErr)
 				}
-				if string(response.Output.Audio) != "audio" {
-					t.Fatalf("audio = %q", response.Output.Audio)
+				if string(response.Output.Audio) != "audio" || response.Output.MIME != "audio/mpeg" {
+					t.Fatalf("output = %q (%q)", response.Output.Audio, response.Output.MIME)
 				}
 				events = append(events, "audio")
 				if test.stop {

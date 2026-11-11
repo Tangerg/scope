@@ -52,7 +52,7 @@ func TestForKeepsGenericArgumentPackageIdentity(t *testing.T) {
 			Message:      new(chat.NewAssistantMessage(chat.NewTextPart("answer"))),
 			FinishReason: chat.FinishReasonStop,
 		}},
-		Speech: genericValue[speech.Output]{Value: speech.Output{Audio: []byte("audio")}},
+		Speech: genericValue[speech.Output]{Value: speech.Output{MIME: "audio/mpeg", Audio: []byte("audio")}},
 	}
 	encoded, err := jsonv2.Marshal(value)
 	if err != nil {

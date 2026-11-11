@@ -3,7 +3,9 @@ package speech
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
+	"mime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Tangerg/scope/core/internal/modelid"
@@ -11,20 +13,25 @@ import (
 	"github.com/Tangerg/scope/core/timestamp"
 )
 
+const audioMediaTypePrefix = "audio/"
+
 // Output is one chunk of generated audio. For synchronous calls the
 // chunk is the entire audio; for streaming calls Audio is whatever
 // segment the provider just produced.
 type Output struct {
-	// Audio holds the encoded bytes in the format selected by
-	// Request.Options.OutputFormat.
+	// MIME is the media type the provider declared for Audio. It is the only
+	// provider-neutral statement of the encoding: Options.OutputFormat is
+	// provider vocabulary and may be empty to select the provider default.
+	MIME string `json:"mime"`
+
 	Audio []byte `json:"audio,omitzero"`
 
 	Metadata metadata.Map `json:"metadata,omitzero"`
 }
 
 // NewOutput validates and snapshots one provider result before it enters a Response.
-func NewOutput(audio []byte, outputMetadata metadata.Map) (*Output, error) {
-	output := &Output{Audio: slices.Clone(audio), Metadata: outputMetadata.Clone()}
+func NewOutput(mimeType string, audio []byte, outputMetadata metadata.Map) (*Output, error) {
+	output := &Output{MIME: mimeType, Audio: slices.Clone(audio), Metadata: outputMetadata.Clone()}
 	if err := output.Validate(); err != nil {
 		return nil, fmt.Errorf("speech: create output: %w", err)
 	}
@@ -37,6 +44,9 @@ func (o *Output) Validate() error {
 	}
 	if len(o.Audio) == 0 {
 		return fmt.Errorf("%w: audio must not be empty", ErrInvalidResponse)
+	}
+	if mediaType, _, err := mime.ParseMediaType(o.MIME); err != nil || !strings.HasPrefix(mediaType, audioMediaTypePrefix) {
+		return fmt.Errorf("%w: %q is not an audio media type", ErrInvalidResponse, o.MIME)
 	}
 	if err := o.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: output metadata: %w", ErrInvalidResponse, err)

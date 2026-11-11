@@ -43,8 +43,8 @@ func TestSpeechModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if out.Output == nil {
-		t.Fatal("nil output")
+	if out.Output == nil || out.Output.MIME != "audio/wav" {
+		t.Fatalf("output = %#v, want the declared audio/wav", out.Output)
 	}
 
 	limited, err := deepgram.NewSpeechModel(t.Context(), deepgram.SpeechModelConfig{

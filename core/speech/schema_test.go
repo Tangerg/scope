@@ -26,7 +26,7 @@ func TestDerivedSchemasMatchSpeechWireModels(t *testing.T) {
 	if validationErr := requestSchema.Validate(requestJSON); validationErr != nil {
 		t.Fatalf("request=%s schema=%s error=%v", requestJSON, requestSchema.JSON(), validationErr)
 	}
-	output, err := speech.NewOutput([]byte("audio"), metadata.Map{})
+	output, err := speech.NewOutput("audio/mpeg", []byte("audio"), metadata.Map{})
 	if err != nil {
 		t.Fatal(err)
 	}

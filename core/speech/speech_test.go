@@ -82,10 +82,15 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 }
 
 func TestResponseValidation(t *testing.T) {
-	if _, err := speech.NewOutput(nil, nil); !errors.Is(err, speech.ErrInvalidResponse) {
+	if _, err := speech.NewOutput("audio/mpeg", nil, nil); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("NewOutput empty audio error = %v", err)
 	}
-	output, _ := speech.NewOutput([]byte("audio"), nil)
+	for _, mimeType := range []string{"", "audio", "not a type", "text/plain", "application/octet-stream"} {
+		if _, err := speech.NewOutput(mimeType, []byte("audio"), nil); !errors.Is(err, speech.ErrInvalidResponse) {
+			t.Fatalf("NewOutput(%q) error = %v, want ErrInvalidResponse", mimeType, err)
+		}
+	}
+	output, _ := speech.NewOutput("audio/mpeg", []byte("audio"), nil)
 	if _, err := speech.NewResponse(output, &speech.ResponseMetadata{}); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +144,7 @@ func TestResponseAndRequestErrorBoundaries(t *testing.T) {
 		t.Fatal("NewRequest accepted empty text")
 	}
 	audio := []byte("audio")
-	output, _ := speech.NewOutput(audio, nil)
+	output, _ := speech.NewOutput("audio/mpeg", audio, nil)
 	audio[0] = 'X'
 	if string(output.Audio) != "audio" {
 		t.Fatal("NewOutput aliases caller audio")

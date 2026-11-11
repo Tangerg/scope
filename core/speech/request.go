@@ -19,7 +19,9 @@ type Options struct {
 	// Voice is a provider-specific speaker profile.
 	Voice string `json:"voice"`
 
-	// OutputFormat selects the audio container ("mp3", "wav", ...).
+	// OutputFormat selects the audio encoding in the provider's vocabulary
+	// ("mp3", "wav", ...); empty selects the provider default. Output.MIME
+	// states the encoding the provider produced.
 	OutputFormat string `json:"output_format"`
 
 	// Speed scales the playback rate: 1.0 is normal and zero leaves the

@@ -25,8 +25,11 @@ func Collect(stream iter.Seq2[*Response, error], maxAudioBytes int64) (*Response
 		if int64(len(response.Output.Audio)) > maxAudioBytes-int64(len(audio)) {
 			return nil, fmt.Errorf("%w: audio exceeds %d-byte limit", ErrInvalidResponse, maxAudioBytes)
 		}
+		if last != nil && response.Output.MIME != last.Output.MIME {
+			return nil, fmt.Errorf("%w: audio MIME type changed from %q to %q", ErrInvalidResponse, last.Output.MIME, response.Output.MIME)
+		}
 		audio = append(audio, response.Output.Audio...)
-		last = &Response{Output: &Output{Audio: audio, Metadata: response.Output.Metadata.Clone()}}
+		last = &Response{Output: &Output{MIME: response.Output.MIME, Audio: audio, Metadata: response.Output.Metadata.Clone()}}
 		if response.Metadata != nil {
 			responseMetadata := *response.Metadata
 			responseMetadata.Extra = response.Metadata.Extra.Clone()

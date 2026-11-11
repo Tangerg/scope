@@ -20,7 +20,6 @@ const (
 	webhookEventOutput              = "output"
 	webhookEventLogs                = "logs"
 	webhookEventCompleted           = "completed"
-	metadataMIMEType                = "replicate/mime_type"
 	metadataPredictTimeMilliseconds = "replicate/predict_time_ms"
 	metadataPredictionID            = "replicate/prediction_id"
 	metadataVersion                 = "replicate/version"

@@ -228,18 +228,13 @@ func (s *SpeechModel) response(ctx context.Context, effectiveOptions speech.Opti
 	}
 
 	var outputMetadata metadata.Map
-	if contentType != "" {
-		if setErr := outputMetadata.Set(metadataMIMEType, contentType); setErr != nil {
-			return nil, setErr
-		}
-	}
 	if milliseconds, present := final.predictTimeMilliseconds(); present {
 		if setErr := outputMetadata.Set(metadataPredictTimeMilliseconds, milliseconds); setErr != nil {
 			return nil, setErr
 		}
 	}
 
-	output, err := speech.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(contentType, audio, outputMetadata)
 	if err != nil {
 		return nil, err
 	}

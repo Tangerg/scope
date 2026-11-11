@@ -13,6 +13,20 @@ const (
 	audioFormatPCM   = "pcm"
 )
 
+// audioFormatMIME names the media type of each audio format Hume returns.
+func audioFormatMIME(format string) (string, error) {
+	switch format {
+	case audioFormatMP3:
+		return "audio/mpeg", nil
+	case audioFormatWAV:
+		return "audio/wav", nil
+	case audioFormatPCM:
+		return "audio/pcm", nil
+	default:
+		return "", fmt.Errorf("%w: hume: unknown audio format %q", speech.ErrInvalidResponse, format)
+	}
+}
+
 type snippetProgress struct {
 	next     int64
 	finished bool
@@ -33,10 +47,8 @@ func (g *generationStream) accept(event ttsStreamEvent) error {
 	if event.SnippetID == "" || event.GenerationID == "" || event.RequestID == "" {
 		return fmt.Errorf("%w: hume: streamed audio is missing snippet identity", speech.ErrInvalidResponse)
 	}
-	switch event.AudioFormat {
-	case audioFormatMP3, audioFormatWAV, audioFormatPCM:
-	default:
-		return fmt.Errorf("%w: hume: invalid streamed audio format %q", speech.ErrInvalidResponse, event.AudioFormat)
+	if _, err := audioFormatMIME(event.AudioFormat); err != nil {
+		return err
 	}
 	if event.UtteranceIndex != nil && *event.UtteranceIndex != 0 {
 		return fmt.Errorf("%w: hume: streamed audio refers to unrequested utterance %d", speech.ErrInvalidResponse, *event.UtteranceIndex)

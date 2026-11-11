@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -30,7 +29,6 @@ const (
 	requestIDHeader                     = "request-id"
 	traceIDHeader                       = "x-trace-id"
 	metadataCharacterCost               = "elevenlabs/character_cost"
-	metadataMIMEType                    = "elevenlabs/mime_type"
 	metadataRequestID                   = "elevenlabs/request_id"
 	metadataTraceID                     = "elevenlabs/trace_id"
 	minimumSpeechSpeed                  = 0.7
@@ -175,20 +173,13 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 	if len(audio) == 0 {
 		return nil, errors.New("elevenlabs: speech response contained no audio")
 	}
-	var outputMetadata metadata.Map
 	details := speechResponseMetadata{
 		ContentType:   hdr.Get(contentTypeHeader),
 		CharacterCost: hdr.Get(characterCostHeader),
 		RequestID:     hdr.Get(requestIDHeader),
 		TraceID:       hdr.Get(traceIDHeader),
 	}
-	if details.ContentType != "" {
-		if err := outputMetadata.Set(metadataMIMEType, details.ContentType); err != nil {
-			return nil, err
-		}
-	}
-
-	output, err := speech.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(details.ContentType, audio, nil)
 	if err != nil {
 		return nil, err
 	}

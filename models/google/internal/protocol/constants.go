@@ -35,7 +35,6 @@ const (
 	nativeFinishReasonMetadataSuffix              = "/native_finish_reason"
 	safetyRatingsMetadataSuffix                   = "/safety_ratings"
 	finishMessageMetadataSuffix                   = "/finish_message"
-	speechMIMETypeMetadataSuffix                  = "/mime_type"
 	embeddingTokenCountMetadataSuffix             = "/token_count"
 	embeddingTruncatedMetadataSuffix              = "/truncated"
 	embeddingBillableCharacterCountMetadataSuffix = "/billable_character_count"

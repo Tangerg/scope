@@ -229,7 +229,7 @@ func TestSpeechStreamRecordsChunkLatency(t *testing.T) {
 						defer func() { closed = true }()
 						for _, delay := range []time.Duration{time.Second, 2 * time.Second, 3 * time.Second} {
 							time.Sleep(delay)
-							response := &corespeech.Response{Output: &corespeech.Output{Audio: []byte("audio")}, Metadata: &corespeech.ResponseMetadata{Model: "served"}}
+							response := &corespeech.Response{Output: &corespeech.Output{MIME: "audio/mpeg", Audio: []byte("audio")}, Metadata: &corespeech.ResponseMetadata{Model: "served"}}
 							if !yield(response, nil) {
 								return
 							}

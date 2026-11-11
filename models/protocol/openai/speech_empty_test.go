@@ -37,3 +37,31 @@ func TestSpeechRejectsEmptySuccessfulAudio(t *testing.T) {
 		t.Fatalf("Call response=%v error=%v", response, err)
 	}
 }
+
+func TestSpeechReportsTheDeclaredAudioType(t *testing.T) {
+	for contentType, wantErr := range map[string]bool{"audio/wav": false, "text/html": true, "": true} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header()["Content-Type"] = []string{contentType}
+			_, _ = w.Write([]byte("RIFF"))
+		}))
+		model, err := NewSpeechModel(t.Context(), SpeechModelConfig{Provider: "openai", APIKey: "test", DefaultOptions: speech.Options{Model: "test", Voice: "alloy"}, BaseURL: server.URL})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := speech.NewRequest("hello")
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := model.Call(t.Context(), request)
+		server.Close()
+		if wantErr {
+			if !errors.Is(err, speech.ErrInvalidResponse) {
+				t.Fatalf("Content-Type %q: Call = %v, want ErrInvalidResponse", contentType, err)
+			}
+			continue
+		}
+		if err != nil || response.Output.MIME != contentType {
+			t.Fatalf("Content-Type %q: Call = %#v, %v", contentType, response, err)
+		}
+	}
+}

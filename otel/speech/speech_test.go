@@ -35,7 +35,7 @@ func TestStreamRemainsLazyAndDoesNotObserveContent(t *testing.T) {
 		started = true
 		return func(yield func(*corespeech.Response, error) bool) {
 			yield(&corespeech.Response{
-				Output:   &corespeech.Output{Audio: []byte("sensitive audio")},
+				Output:   &corespeech.Output{MIME: "audio/mpeg", Audio: []byte("sensitive audio")},
 				Metadata: &corespeech.ResponseMetadata{Model: "served"},
 			}, nil)
 		}

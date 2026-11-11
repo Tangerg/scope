@@ -75,7 +75,7 @@ func TestSpeechPreservesProviderSpecificControls(t *testing.T) {
 			t.Errorf("body=%+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"generations":[{"audio":"YXVkaW8="}]}`)
+		fmt.Fprint(w, `{"generations":[{"audio":"YXVkaW8=","encoding":{"format":"wav","sample_rate":24000}}]}`)
 	}))
 	defer server.Close()
 	opts := speech.Options{Model: hume.ModelOctave2, Voice: "voice-1", Speed: 1.1, OutputFormat: "wav"}
@@ -86,8 +86,9 @@ func TestSpeechPreservesProviderSpecificControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err != nil {
-		t.Fatal(err)
+	response, err := model.Call(t.Context(), &speech.Request{Text: "hello"})
+	if err != nil || response.Output.MIME != "audio/wav" {
+		t.Fatalf("Call = %#v, %v; want the wav encoding Hume reported", response, err)
 	}
 }
 func TestSpeechRejectsDuplicateResponseMembers(t *testing.T) {

@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -144,14 +143,7 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 	if len(audio) == 0 {
 		return nil, errors.New("deepgram: speech response contained no audio")
 	}
-	var outputMetadata metadata.Map
-	if ct := hdr.Get(headerContentType); ct != "" {
-		if err := outputMetadata.Set(metadataMIMEType, ct); err != nil {
-			return nil, err
-		}
-	}
-
-	output, err := speech.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(hdr.Get(headerContentType), audio, nil)
 	if err != nil {
 		return nil, err
 	}

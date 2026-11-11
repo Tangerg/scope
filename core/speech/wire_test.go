@@ -57,7 +57,7 @@ func TestRequestRoundTrip(t *testing.T) {
 }
 
 func TestResponseRoundTrip(t *testing.T) {
-	output, err := speech.NewOutput([]byte("audio"), metadata.Map{"provider/chunk": json.RawMessage(`0`)})
+	output, err := speech.NewOutput("audio/mpeg", []byte("audio"), metadata.Map{"provider/chunk": json.RawMessage(`0`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestResponseRoundTrip(t *testing.T) {
 }
 
 func TestOutputAndResponseMetadataRoundTrip(t *testing.T) {
-	output, err := speech.NewOutput([]byte("chunk"), nil)
+	output, err := speech.NewOutput("audio/mpeg", []byte("chunk"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 		t.Fatalf("failed Request decode mutated receiver: %#v", request)
 	}
 
-	output := speech.Output{Audio: []byte("keep")}
+	output := speech.Output{MIME: "audio/mpeg", Audio: []byte("keep")}
 	if err := jsonv2.Unmarshal([]byte(`{"audio":""}`), &output); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Output decode error = %v", err)
 	}
@@ -195,7 +195,7 @@ func TestDecodedValuesAreValidatedBeforeAssignment(t *testing.T) {
 		t.Fatalf("failed ResponseMetadata decode mutated receiver: %#v", responseMetadata)
 	}
 
-	kept := speech.Output{Audio: []byte("keep")}
+	kept := speech.Output{MIME: "audio/mpeg", Audio: []byte("keep")}
 	response := speech.Response{Output: &kept}
 	if err := jsonv2.Unmarshal([]byte(`{"output":null}`), &response); !errors.Is(err, speech.ErrInvalidResponse) {
 		t.Fatalf("Response decode error = %v", err)
@@ -214,7 +214,7 @@ func TestInvalidValuesFailToMarshal(t *testing.T) {
 		"padded options model":    {value: speech.Options{Model: " padded "}, want: speech.ErrInvalidOptions},
 		"empty request text":      {value: speech.Request{}, want: speech.ErrInvalidRequest},
 		"empty output audio":      {value: speech.Output{}, want: speech.ErrInvalidResponse},
-		"invalid output metadata": {value: speech.Output{Audio: []byte("a"), Metadata: brokenExtra}, want: speech.ErrInvalidResponse},
+		"invalid output metadata": {value: speech.Output{MIME: "audio/mpeg", Audio: []byte("a"), Metadata: brokenExtra}, want: speech.ErrInvalidResponse},
 		"invalid extra":           {value: speech.ResponseMetadata{Extra: brokenExtra}, want: speech.ErrInvalidResponse},
 		"missing response output": {value: speech.Response{}, want: speech.ErrInvalidResponse},
 	}
@@ -244,7 +244,7 @@ func TestOptionsResolveRejectsInvalidOverride(t *testing.T) {
 
 func TestNewOutputClonesCallerMetadata(t *testing.T) {
 	callerMetadata := metadata.Map{"provider/chunk": json.RawMessage(`0`)}
-	output, err := speech.NewOutput([]byte("audio"), callerMetadata)
+	output, err := speech.NewOutput("audio/mpeg", []byte("audio"), callerMetadata)
 	if err != nil {
 		t.Fatal(err)
 	}

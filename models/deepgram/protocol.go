@@ -15,7 +15,6 @@ const (
 	headerModelName          = "dg-model-name"
 	headerRequestID          = "dg-request-id"
 	metadataRequestID        = "deepgram/request_id"
-	metadataMIMEType         = "deepgram/mime_type"
 	metadataDurationSeconds  = "deepgram/duration_seconds"
 	metadataChannels         = "deepgram/channels"
 	metadataConfidence       = "deepgram/confidence"

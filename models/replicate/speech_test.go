@@ -79,7 +79,7 @@ func TestSpeechModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if out.Output == nil {
-		t.Fatal("nil output")
+	if out.Output == nil || out.Output.MIME != "audio/mpeg" {
+		t.Fatalf("output = %#v, want the delivered audio/mpeg", out.Output)
 	}
 }

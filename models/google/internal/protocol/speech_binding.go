@@ -12,7 +12,6 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -134,7 +133,7 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 				return
 			}
 			received = true
-			if !yield(&speech.Response{Output: &speech.Output{Audio: part.InlineData.Data}}, nil) {
+			if !yield(&speech.Response{Output: &speech.Output{MIME: string(*format), Audio: part.InlineData.Data}}, nil) {
 				return
 			}
 		}
@@ -145,13 +144,6 @@ func (s *speechBinding) buildTTSResponse(apiResp *genai.GenerateContentResponse,
 	if err != nil {
 		return nil, err
 	}
-
-	var outputMetadata metadata.Map
-	if err := outputMetadata.Set(protocolKey(s.provider, speechMIMETypeMetadataSuffix), string(*format)); err != nil {
-		return nil, err
-	}
-
-	response.Output.Metadata = outputMetadata
 
 	meta := &speech.ResponseMetadata{Model: apiResp.ModelVersion}
 	if err := meta.Extra.Set(protocolKey(s.provider, SpeechResponseExtensionSuffix), apiResp); err != nil {

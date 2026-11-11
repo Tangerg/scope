@@ -50,7 +50,7 @@ func TestProtocolJSONRejectsUnknownMembersWithoutChangingReceiver(t *testing.T) 
 		{"rerank request", &rerank.Request{Query: "query", Documents: []string{"text"}}},
 		{"rerank response", &rerank.Response{Results: []*rerank.Result{{Index: 0, Score: 0.5}}}},
 		{"speech request", &speech.Request{Text: "text"}},
-		{"speech response", &speech.Response{Output: &speech.Output{Audio: []byte{1}}}},
+		{"speech response", &speech.Response{Output: &speech.Output{MIME: "audio/mpeg", Audio: []byte{1}}}},
 		{"transcription request", &transcription.Request{Audio: audioMedia}},
 		{"transcription response", &transcription.Response{Output: &transcription.Output{Text: "text"}}},
 		{"vector batch", &vectorstore.Batch{Space: "fixture", Records: []vectorstore.Record{{Document: &document.Document{ID: "doc", Text: "text"}, Values: []float64{1}}}}},

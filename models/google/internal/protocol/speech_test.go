@@ -45,8 +45,8 @@ func TestSpeechModel_Call_Mock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call: %v", err)
 	}
-	if out.Output == nil {
-		t.Fatal("nil output")
+	if out.Output == nil || out.Output.MIME != "audio/l16; rate=24000" {
+		t.Fatalf("output = %#v, want the canonical declared PCM type", out.Output)
 	}
 }
 

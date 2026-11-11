@@ -151,10 +151,11 @@ func (t *ttsStreamEvent) response(model string) (*speech.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	var outputMetadata metadata.Map
-	if setErr := outputMetadata.Set(metadataAudioFormat, t.AudioFormat); setErr != nil {
-		return nil, setErr
+	mimeType, err := audioFormatMIME(t.AudioFormat)
+	if err != nil {
+		return nil, err
 	}
+	var outputMetadata metadata.Map
 	if setErr := outputMetadata.Set(metadataChunkIndex, t.ChunkIndex); setErr != nil {
 		return nil, setErr
 	}
@@ -179,7 +180,7 @@ func (t *ttsStreamEvent) response(model string) (*speech.Response, error) {
 	if setErr := outputMetadata.Set(metadataStreamAudioEvent, t); setErr != nil {
 		return nil, setErr
 	}
-	output, err := speech.NewOutput(audio, outputMetadata)
+	output, err := speech.NewOutput(mimeType, audio, outputMetadata)
 	if err != nil {
 		return nil, err
 	}

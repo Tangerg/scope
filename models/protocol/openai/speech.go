@@ -115,8 +115,8 @@ func (s *SpeechModel) buildAPITTSRequest(req *speech.Request) (*openai.AudioSpee
 	return params, nil
 }
 
-func (s *SpeechModel) buildTTSResponse(data []byte) (*speech.Response, error) {
-	output, err := speech.NewOutput(data, nil)
+func (s *SpeechModel) buildTTSResponse(mimeType string, data []byte) (*speech.Response, error) {
+	output, err := speech.NewOutput(mimeType, data, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +146,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 		}
 		closeBody := sync.OnceValue(apiResp.Body.Close)
 		defer func() { _ = closeBody() }()
+		mimeType := apiResp.Header.Get("Content-Type")
 
 		received := false
 		for chunk, err := range speech.ReadChunks(apiResp.Body) {
@@ -154,7 +155,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 				return
 			}
 
-			resp, err := s.buildTTSResponse(chunk)
+			resp, err := s.buildTTSResponse(mimeType, chunk)
 			if err != nil {
 				yield(nil, err)
 				return

@@ -24,7 +24,7 @@ func TestProtocolValidationRejectsUnencodableStrings(t *testing.T) {
 		{"speech.OutputFormat", func(text string) validatedProtocolValue { return speech.Options{OutputFormat: text} }, speech.ErrInvalidOptions},
 		{"speech.Text", func(text string) validatedProtocolValue { return &speech.Request{Text: text} }, speech.ErrInvalidRequest},
 		{"speech.Response.Model", func(text string) validatedProtocolValue {
-			return &speech.Response{Output: &speech.Output{Audio: []byte{1}}, Metadata: &speech.ResponseMetadata{Model: text}}
+			return &speech.Response{Output: &speech.Output{MIME: "audio/mpeg", Audio: []byte{1}}, Metadata: &speech.ResponseMetadata{Model: text}}
 		}, speech.ErrInvalidResponse},
 	}
 	for _, test := range tests {
@@ -49,7 +49,7 @@ func TestProtocolValidationRejectsUnencodableStrings(t *testing.T) {
 
 func TestProtocolValidationRejectsUnrepresentableTimestamps(t *testing.T) {
 	value := func(createdAt time.Time) validatedProtocolValue {
-		return &speech.Response{Output: &speech.Output{Audio: []byte{1}}, Metadata: &speech.ResponseMetadata{CreatedAt: createdAt}}
+		return &speech.Response{Output: &speech.Output{MIME: "audio/mpeg", Audio: []byte{1}}, Metadata: &speech.ResponseMetadata{CreatedAt: createdAt}}
 	}
 	for _, createdAt := range []time.Time{
 		time.Date(-1, 1, 1, 0, 0, 0, 0, time.UTC),

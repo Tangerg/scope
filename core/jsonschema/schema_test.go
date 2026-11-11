@@ -231,7 +231,7 @@ func TestForQualifiesSameNamedTypesFromDifferentPackages(t *testing.T) {
 	}
 	sample := response{
 		Chat:   chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("answer"))), FinishReason: chat.FinishReasonStop},
-		Speech: speech.Output{Audio: []byte("audio")},
+		Speech: speech.Output{MIME: "audio/mpeg", Audio: []byte("audio")},
 	}
 	encoded, err := jsonv2.Marshal(sample)
 	if err != nil {

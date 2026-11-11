@@ -31,7 +31,7 @@ func TestCollectLimitAndFailureDiscardPartialOutput(t *testing.T) {
 			stream := func(yield func(*Response, error) bool) {
 				defer func() { stopped = true }()
 				for _, audio := range sample.audio {
-					if !yield(&Response{Output: &Output{Audio: []byte(audio)}}, nil) {
+					if !yield(&Response{Output: &Output{MIME: "audio/mpeg", Audio: []byte(audio)}}, nil) {
 						return
 					}
 				}
@@ -72,9 +72,9 @@ func TestCollectSnapshotsTerminalMetadata(t *testing.T) {
 	if err := responseMetadata.Set("request_id", "terminal"); err != nil {
 		t.Fatal(err)
 	}
-	last := &Response{Output: &Output{Audio: []byte("b"), Metadata: outputMetadata}, Metadata: &ResponseMetadata{Model: "model", Extra: responseMetadata}}
+	last := &Response{Output: &Output{MIME: "audio/mpeg", Audio: []byte("b"), Metadata: outputMetadata}, Metadata: &ResponseMetadata{Model: "model", Extra: responseMetadata}}
 	stream := iter.Seq2[*Response, error](func(yield func(*Response, error) bool) {
-		if yield(&Response{Output: &Output{Audio: []byte("a")}}, nil) {
+		if yield(&Response{Output: &Output{MIME: "audio/mpeg", Audio: []byte("a")}}, nil) {
 			yield(last, nil)
 		}
 		last.Output.Audio[0] = 'z'
@@ -101,5 +101,21 @@ func TestCollectSnapshotsTerminalMetadata(t *testing.T) {
 	}
 	if string(response.Output.Audio) != "ab" || response.Metadata.Model != "model" || format != "mp3" || id != "terminal" {
 		t.Fatalf("audio=%q model=%q format=%q id=%q", response.Output.Audio, response.Metadata.Model, format, id)
+	}
+}
+
+func TestCollectRejectsAudioThatChangesEncoding(t *testing.T) {
+	_, err := Collect(func(yield func(*Response, error) bool) {
+		_ = yield(&Response{Output: &Output{MIME: "audio/mpeg", Audio: []byte("a")}}, nil) &&
+			yield(&Response{Output: &Output{MIME: "audio/wav", Audio: []byte("b")}}, nil)
+	}, DefaultMaxAudioBytes)
+	if !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("Collect = %v, want ErrInvalidResponse", err)
+	}
+	response, err := Collect(func(yield func(*Response, error) bool) {
+		yield(&Response{Output: &Output{MIME: "audio/L16;rate=24000", Audio: []byte("pcm")}}, nil)
+	}, DefaultMaxAudioBytes)
+	if err != nil || response.Output.MIME != "audio/L16;rate=24000" {
+		t.Fatalf("Collect = %#v, %v", response, err)
 	}
 }

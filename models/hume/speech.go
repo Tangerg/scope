@@ -11,10 +11,8 @@ import (
 )
 
 const (
-	metadataAudioFormat      = "hume/audio_format"
 	metadataChunkIndex       = "hume/chunk_index"
 	metadataDurationSeconds  = "hume/duration_seconds"
-	metadataEncodingFormat   = "hume/encoding_format"
 	metadataGenerationID     = "hume/generation_id"
 	metadataIsLastChunk      = "hume/is_last_chunk"
 	metadataRequestID        = "hume/request_id"
@@ -93,27 +91,26 @@ func (s *SpeechModel) buildResponse(apiResp *ttsResponse, model string) (*speech
 	if err != nil {
 		return nil, err
 	}
+	g := apiResp.Generations[0]
+	mimeType, err := audioFormatMIME(g.Encoding.Format)
+	if err != nil {
+		return nil, err
+	}
 	var outputMetadata metadata.Map
-	if len(apiResp.Generations) > 0 {
-		g := apiResp.Generations[0]
-		if setErr := outputMetadata.Set(metadataEncodingFormat, g.Encoding.Format); setErr != nil {
-			return nil, setErr
-		}
-		if g.Encoding.SampleRate != nil {
-			if setErr := outputMetadata.Set(metadataSampleRate, *g.Encoding.SampleRate); setErr != nil {
-				return nil, setErr
-			}
-		}
-		if g.Duration != nil {
-			if setErr := outputMetadata.Set(metadataDurationSeconds, *g.Duration); setErr != nil {
-				return nil, setErr
-			}
-		}
-		if setErr := outputMetadata.Set(metadataGenerationID, g.ID); setErr != nil {
+	if g.Encoding.SampleRate != nil {
+		if setErr := outputMetadata.Set(metadataSampleRate, *g.Encoding.SampleRate); setErr != nil {
 			return nil, setErr
 		}
 	}
-	output, err := speech.NewOutput(audio, outputMetadata)
+	if g.Duration != nil {
+		if setErr := outputMetadata.Set(metadataDurationSeconds, *g.Duration); setErr != nil {
+			return nil, setErr
+		}
+	}
+	if setErr := outputMetadata.Set(metadataGenerationID, g.ID); setErr != nil {
+		return nil, setErr
+	}
+	output, err := speech.NewOutput(mimeType, audio, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
