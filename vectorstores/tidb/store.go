@@ -417,33 +417,11 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	if err != nil {
 		return err
 	}
-	args := make([][]any, len(batch.Records))
-	ids := make([]string, len(args))
-	for i, r := range batch.Records {
-		doc := r.Document
-		if contentErr := binding.checkContent(doc.Text); contentErr != nil {
-			return contentErr
-		}
-		ids[i] = doc.ID
-		metaJSON, encodeErr := doc.MarshalStoredMetadata()
-		if encodeErr != nil {
-			return encodeErr
-		}
-		vectorJSON, encodeErr := s.distanceMetric.encodeVector(r.Values, binding.dimensions)
-		if encodeErr != nil {
-			return encodeErr
-		}
-		args[i] = []any{[]byte(doc.ID), doc.Text, metaJSON, vectorJSON}
+	ids, rows, err := s.upsertRows(binding, batch.Records)
+	if err != nil {
+		return err
 	}
-	upsert := fmt.Sprintf(
-		`INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?) `+
-			`ON DUPLICATE KEY UPDATE %s = VALUES(%s), %s = VALUES(%s), %s = VALUES(%s)`,
-		s.tableSQL(), s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
-		s.contentColumn.sql(), s.contentColumn.sql(),
-		s.metadataColumn.sql(), s.metadataColumn.sql(),
-		s.embeddingColumn.sql(), s.embeddingColumn.sql(),
-	)
-	stmt, err := s.db.PrepareContext(ctx, upsert)
+	stmt, err := s.db.PrepareContext(ctx, s.upsertStatement())
 	if err != nil {
 		return err
 	}
@@ -456,25 +434,67 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			}
 		}
 	}()
-	for i, row := range args {
-		if err := ctx.Err(); err != nil {
-			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
+	for i, row := range rows {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return vectorstore.NewWriteError(contextErr, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unattempted: ids[i:]})
 		}
-		result, execErr := stmt.ExecContext(ctx, row...)
-		if execErr == nil {
-			if result == nil {
-				execErr = errors.New("tidb: missing native row acknowledgment")
-			} else {
-				var count int64
-				count, execErr = result.RowsAffected()
-				if execErr == nil && (count < 0 || count > 2) {
-					execErr = fmt.Errorf("tidb: invalid upsert acknowledgment %d", count)
-				}
-			}
+		if execErr := acknowledgeUpsert(stmt.ExecContext(ctx, row...)); execErr != nil {
+			return vectorstore.NewWriteError(execErr, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
 		}
-		if err := execErr; err != nil {
-			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Acknowledged: ids[:i], Unconfirmed: ids[i : i+1], Unattempted: ids[i+1:]})
+	}
+	return nil
+}
+
+func (s *Store) upsertRows(binding nativeBinding, records []vectorstore.Record) ([]string, [][]any, error) {
+	ids := make([]string, len(records))
+	rows := make([][]any, len(records))
+	for i, r := range records {
+		doc := r.Document
+		if err := binding.checkContent(doc.Text); err != nil {
+			return nil, nil, err
 		}
+		metaJSON, err := doc.MarshalStoredMetadata()
+		if err != nil {
+			return nil, nil, err
+		}
+		vectorJSON, err := s.distanceMetric.encodeVector(r.Values, binding.dimensions)
+		if err != nil {
+			return nil, nil, err
+		}
+		ids[i] = doc.ID
+		rows[i] = []any{[]byte(doc.ID), doc.Text, metaJSON, vectorJSON}
+	}
+	return ids, rows, nil
+}
+
+func (s *Store) upsertStatement() string {
+	return fmt.Sprintf(
+		`INSERT INTO %s (%s, %s, %s, %s) VALUES (?, ?, ?, ?) `+
+			`ON DUPLICATE KEY UPDATE %s = VALUES(%s), %s = VALUES(%s), %s = VALUES(%s)`,
+		s.tableSQL(), s.idColumn.sql(), s.contentColumn.sql(), s.metadataColumn.sql(), s.embeddingColumn.sql(),
+		s.contentColumn.sql(), s.contentColumn.sql(),
+		s.metadataColumn.sql(), s.metadataColumn.sql(),
+		s.embeddingColumn.sql(), s.embeddingColumn.sql(),
+	)
+}
+
+// maxUpsertRowsAffected is MySQL's count for an upsert that updated an
+// existing row; an insert counts one and an unchanged row zero.
+const maxUpsertRowsAffected = 2
+
+func acknowledgeUpsert(result sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return errors.New("tidb: missing native row acknowledgment")
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count < 0 || count > maxUpsertRowsAffected {
+		return fmt.Errorf("tidb: invalid upsert acknowledgment %d", count)
 	}
 	return nil
 }
@@ -518,10 +538,8 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	return s.rank(ctx, q, &budget)
 }
 
+// rank expects a request its entry point already validated for this store.
 func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
-	if err = request.ValidateFor(s.space); err != nil {
-		return nil, fmt.Errorf("tidb: rank query: %w", err)
-	}
 	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("tidb: rank query: %w", err)
 	}
@@ -541,65 +559,64 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err != nil {
 		return nil, err
 	}
-	var transaction *sql.Tx
-	if request.Options.Filter != nil {
-		transaction, err = s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
-		if err != nil {
-			return nil, fmt.Errorf("tidb: begin filter transaction: %w", err)
-		}
-		defer rollbackTransaction(transaction, &err)
-		if err = s.prepareFilter(ctx, transaction, request.Options.Filter, budget); err != nil {
-			return nil, err
-		}
-	}
-
 	var ranked []rankedResult
 	if request.Options.Filter == nil {
 		ranked, err = s.searchRows(ctx, nil, request, encoded, nil)
-		if err != nil {
-			return nil, err
-		}
 	} else {
-		var lastID []byte
-		for {
-			page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
-			if pageErr != nil {
-				return nil, pageErr
-			}
-			if len(page.matches) > 0 {
-				ids := make([]any, len(page.matches))
-				for index, match := range page.matches {
-					ids[index] = match.id
-				}
-				candidates, queryErr := s.searchRows(ctx, transaction, request, encoded, ids)
-				if queryErr != nil {
-					return nil, queryErr
-				}
-				ranked = append(ranked, candidates...)
-				slices.SortFunc(ranked, func(left, right rankedResult) int {
-					if order := cmp.Compare(left.distance, right.distance); order != 0 {
-						return order
-					}
-					return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-				})
-				ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
-			}
-			if page.count < filterPageSize {
-				break
-			}
-			lastID = page.lastID
-		}
+		ranked, err = s.rankFiltered(ctx, request, encoded, budget)
+	}
+	if err != nil {
+		return nil, err
 	}
 	results := make([]*vectorstore.SearchResult, len(ranked))
 	for index, candidate := range ranked {
 		results[index] = candidate.result
 	}
-	if transaction != nil {
-		if err = transaction.Commit(); err != nil {
-			return nil, fmt.Errorf("tidb: commit filter transaction: %w", err)
-		}
-	}
 	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// rankFiltered ranks the filter matches page by page inside one transaction,
+// so every page ranks against the same snapshot the filter scanned.
+func (s *Store) rankFiltered(ctx context.Context, request *vectorstore.Query, vector string, budget *vectorstore.ScanBudget) (ranked []rankedResult, err error) {
+	transaction, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
+	if err != nil {
+		return nil, fmt.Errorf("tidb: begin filter transaction: %w", err)
+	}
+	defer rollbackTransaction(transaction, &err)
+	if err = s.prepareFilter(ctx, transaction, request.Options.Filter, budget); err != nil {
+		return nil, err
+	}
+	var lastID []byte
+	for {
+		page, pageErr := s.readFilterPage(ctx, transaction, request.Options.Filter, lastID)
+		if pageErr != nil {
+			return nil, pageErr
+		}
+		if len(page.matches) > 0 {
+			candidates, queryErr := s.searchRows(ctx, transaction, request, vector, page.matchIDs())
+			if queryErr != nil {
+				return nil, queryErr
+			}
+			ranked = nearest(append(ranked, candidates...), request.Options.ResultLimit())
+		}
+		if page.count < filterPageSize {
+			break
+		}
+		lastID = page.lastID
+	}
+	if err = transaction.Commit(); err != nil {
+		return nil, fmt.Errorf("tidb: commit filter transaction: %w", err)
+	}
+	return ranked, nil
+}
+
+// nearest keeps the limit closest results, breaking distance ties by ID so
+// every page order yields the same ranking.
+func nearest(ranked []rankedResult, limit int) []rankedResult {
+	slices.SortFunc(ranked, func(left, right rankedResult) int {
+		return cmp.Or(cmp.Compare(left.distance, right.distance), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked[:min(len(ranked), limit)]
 }
 
 type rankedResult struct {
@@ -732,6 +749,14 @@ type filterPage struct {
 	lastID  []byte
 	matches []filterMatch
 	count   int
+}
+
+func (f filterPage) matchIDs() []any {
+	ids := make([]any, len(f.matches))
+	for index, match := range f.matches {
+		ids[index] = match.id
+	}
+	return ids
 }
 
 func (s *Store) readFilterPage(ctx context.Context, transaction *sql.Tx, predicate filter.Predicate, lastID []byte) (page filterPage, err error) {
