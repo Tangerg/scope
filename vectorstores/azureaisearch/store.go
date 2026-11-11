@@ -186,27 +186,27 @@ func (s *Store) validateVector(vector []float32) error {
 
 func (s *Store) decodeDocument(row metadata.Map) (*document.Document, error) {
 	for field := range row {
-		if field != s.idField && field != s.contentField && field != s.embeddingField && field != s.metadataField && !strings.HasPrefix(field, "@") {
+		if field != s.idField && field != s.contentField && field != s.embeddingField && field != s.metadataField && !strings.HasPrefix(field, searchAnnotationPrefix) {
 			return nil, fmt.Errorf("azureaisearch: unexpected stored field %q", field)
 		}
 	}
-	id, present, err := row.Decode[*string](s.idField)
-	if err != nil || !present || id == nil {
-		return nil, fmt.Errorf("azureaisearch: missing or invalid document key: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
-	}
-	if err = validateID(*id); err != nil {
+	id, err := requiredString(row, s.idField, "document key")
+	if err != nil {
 		return nil, err
 	}
-	text, present, err := row.Decode[*string](s.contentField)
-	if err != nil || !present || text == nil {
-		return nil, fmt.Errorf("azureaisearch: missing or invalid content: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	if err = validateID(id); err != nil {
+		return nil, err
 	}
-	encoded, present, err := row.Decode[*string](s.metadataField)
-	if err != nil || !present || encoded == nil {
-		return nil, fmt.Errorf("azureaisearch: missing or invalid Core metadata JSON: %w", errors.Join(err, vectorstore.ErrInvalidDocument))
+	text, err := requiredString(row, s.contentField, "content")
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := requiredString(row, s.metadataField, "Core metadata JSON")
+	if err != nil {
+		return nil, err
 	}
 	doc := new(document.Document)
-	if err = doc.UnmarshalStoredMetadata([]byte(*encoded)); err != nil {
+	if err = doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
 		return nil, fmt.Errorf("azureaisearch: decode Core metadata: %w", err)
 	}
 	vector, present, err := row.Decode[corevector.Coordinates[float32]](s.embeddingField)
@@ -216,11 +216,20 @@ func (s *Store) decodeDocument(row metadata.Map) (*document.Document, error) {
 	if err = s.validateVector(vector); err != nil {
 		return nil, err
 	}
-	doc.ID, doc.Text = *id, *text
+	doc.ID, doc.Text = id, text
 	if err = vectorstore.ValidateDocument(doc); err != nil {
 		return nil, err
 	}
 	return doc, nil
+}
+
+// requiredString reads a stored string field, which must be present and not null.
+func requiredString(row metadata.Map, field, label string) (string, error) {
+	value, present, err := row.Decode[*string](field)
+	if err != nil || !present || value == nil {
+		return "", fmt.Errorf("azureaisearch: missing or invalid %s: %w", label, errors.Join(err, vectorstore.ErrInvalidDocument))
+	}
+	return *value, nil
 }
 
 func matches(doc *document.Document, predicate filter.Predicate) (bool, error) {

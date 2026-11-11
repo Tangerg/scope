@@ -3,7 +3,10 @@ package azureaisearch
 const (
 	searchActionField = "@search.action"
 	searchScoreField  = "@search.score"
-	queryKindVector   = "vector"
+	// searchAnnotationPrefix marks every member the service adds to a result,
+	// so none of them is a stored field.
+	searchAnnotationPrefix = "@"
+	queryKindVector        = "vector"
 )
 
 type searchRequest struct {
