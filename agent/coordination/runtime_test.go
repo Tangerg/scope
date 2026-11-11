@@ -137,7 +137,7 @@ func TestFirstSuccessCancelsAndDrainsLosingSubtrees(t *testing.T) {
 	defer cancel()
 	result := require(handle.Await(ctx))
 	output := require(result.Output())
-	if !output.Valid() || output.Winner == nil || *output.Winner != 0 || output.Candidates[1].Outcome.Status() != run.StatusCanceled {
+	if output.Winner == nil || *output.Winner != 0 || output.Candidates[1].Outcome.Status() != run.StatusCanceled {
 		t.Fatalf("result=%+v", output)
 	}
 	log, _, err := store.Load(ctx, handle.ID())

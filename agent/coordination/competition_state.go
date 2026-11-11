@@ -27,9 +27,6 @@ func (f firstSuccessState) validate(ctx context.Context, maximum uint32) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !candidate.Valid() {
-			return ErrInvalidExecutionState
-		}
 		if _, exists := keys[candidate.Key]; exists {
 			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidExecutionState)
 		}
@@ -59,7 +56,7 @@ func (f firstSuccessState) validateCancellations(parent run.ProcessID) error {
 	}
 	var previous run.EffectID
 	for _, id := range f.Cancellations {
-		if !id.Valid() || parent.Valid() && id.Process != parent || uint64(id.Index)+1 >= uint64(len(f.Calls)) {
+		if parent.Valid() && id.Process != parent || uint64(id.Index)+1 >= uint64(len(f.Calls)) {
 			return ErrInvalidExecutionState
 		}
 		if previous.Valid() && (previous.Process != id.Process || previous.Step != id.Step || previous.Index >= id.Index) {

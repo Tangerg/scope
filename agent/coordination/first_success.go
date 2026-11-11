@@ -172,11 +172,7 @@ func (f *firstSuccessExecution) cancelRemaining(turn run.Turn, consumed uint32) 
 }
 
 func (f *firstSuccessExecution) complete(consumed uint32) (run.Transition, error) {
-	result := f.state.result()
-	if !result.Valid() {
-		return run.Transition{}, ErrInvalidExecutionState
-	}
-	output, err := run.EncodePayload(result)
+	output, err := run.EncodePayload(f.state.result())
 	if err != nil {
 		return run.Transition{}, err
 	}

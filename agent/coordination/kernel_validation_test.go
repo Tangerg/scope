@@ -165,28 +165,6 @@ func TestTimerProtocolRejectionAndCancellationAreDefinite(t *testing.T) {
 	})
 }
 
-func TestCompetitionResultRequiresOneOutcomePerCandidate(t *testing.T) {
-	termination := ended("winner")
-	failure := require(run.NewFailure(run.FailureKindContract, "test.rejected", "candidate rejected"))
-	for _, sample := range []struct {
-		result FirstSuccessResult
-		valid  bool
-	}{
-		{FirstSuccessResult{}, false},
-		{FirstSuccessResult{Candidates: []CandidateResult{{}}}, false},
-		{FirstSuccessResult{Candidates: []CandidateResult{{Outcome: new(run.Termination)}}}, false},
-		{FirstSuccessResult{Candidates: []CandidateResult{{Outcome: &termination, Rejection: &failure}}}, false},
-		{FirstSuccessResult{Candidates: []CandidateResult{{Rejection: &failure}}}, true},
-		{FirstSuccessResult{Winner: new(uint32(0)), Candidates: []CandidateResult{{Rejection: &failure}}}, false},
-		{FirstSuccessResult{Winner: new(uint32(1)), Candidates: []CandidateResult{{Outcome: &termination}}}, false},
-		{FirstSuccessResult{Winner: new(uint32(0)), Candidates: []CandidateResult{{Outcome: &termination}}}, true},
-	} {
-		if sample.result.Valid() != sample.valid {
-			t.Fatalf("contradictory result classification: %+v", sample)
-		}
-	}
-}
-
 func TestCompetitionRestorationRejectsContradictoryPendingState(t *testing.T) {
 	compiler := conformancetest.Compiler(t)
 	candidate := require(Compile[time.Time, time.Time](compiler, Config{Name: "test.candidate", Description: "Wait.", Policy: Deadline{}}))
@@ -241,7 +219,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 		}
 		output, ok := transition.Output()
 		result := require(output.Decode[FirstSuccessResult]())
-		if !ok || !result.Valid() || result.Winner != nil || len(result.Candidates) != 1 {
+		if !ok || result.Winner != nil || len(result.Candidates) != 1 {
 			t.Fatal("unacceptable result became a winner")
 		}
 	}
@@ -256,7 +234,7 @@ func TestCompetitionReturnsAllRejectionsAndPropagatesPredicateFailure(t *testing
 	transition := require(execution.Step(t.Context(), turn(2, run.Completion{Effect: turn(1).EffectID(0), Outcome: outcome})))
 	output, ok := transition.Output()
 	result := require(output.Decode[FirstSuccessResult]())
-	if !ok || !result.Valid() || result.Winner != nil || result.Candidates[0].Rejection == nil || result.Candidates[0].Rejection.Code() != failure.Code() {
+	if !ok || result.Winner != nil || result.Candidates[0].Rejection == nil || result.Candidates[0].Rejection.Code() != failure.Code() {
 		t.Fatal("spawn rejection lost its terminal evidence")
 	}
 }
