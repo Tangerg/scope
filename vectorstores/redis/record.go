@@ -130,5 +130,5 @@ func tagValues(m metadata.Map) (string, error) {
 	for i, t := range terms {
 		terms[i] = hex.EncodeToString([]byte(t))
 	}
-	return strings.Join(terms, ","), nil
+	return strings.Join(terms, termsSeparator), nil
 }
