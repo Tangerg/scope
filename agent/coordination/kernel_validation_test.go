@@ -75,7 +75,7 @@ func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 	}
 }
 
-func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
+func TestDeadlineValidatesRestoredStateAndExactTimerCompletion(t *testing.T) {
 	program := require(Compile[time.Time, time.Time](conformancetest.Compiler(t), Config{Name: "test.deadline", Description: "Wait for one absolute instant.", Policy: Deadline{}}))
 	definition := program.Definition()
 	deadline := time.Date(2027, time.January, 2, 3, 4, 5, 0, time.UTC)
@@ -104,16 +104,10 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 	}
 	waiting := require(execution.Snapshot())
 	conformancetest.CheckRestoreCancellation(t, definition, waiting)
-	for _, sample := range []deadlineState{
-		{Phase: deadlineReady},
-		{Deadline: deadline, Phase: "unknown"},
-		{Deadline: deadline, Phase: deadlineAwaiting},
-		{Deadline: deadline, Phase: deadlineReady, Effect: turn(1).EffectID(0)},
-		{Deadline: deadline, Phase: "completed"},
-	} {
-		state := require(run.EncodeExecutionState(deadlineStateKind, sample))
+	for _, raw := range []string{`{}`, `{"timer":{}}`, `{"deadline":"2027-01-02T03:04:05Z","phase":"ready"}`} {
+		state := require(run.NewExecutionState(deadlineStateKind, require(run.ParsePayload([]byte(raw)))))
 		if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
-			t.Fatalf("inconsistent timer phase admitted: %+v, %v", sample, err)
+			t.Fatalf("invalid deadline state admitted: %s, %v", raw, err)
 		}
 	}
 	for _, messages := range [][]run.Message{

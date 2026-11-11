@@ -38,7 +38,7 @@ func (d *deadlineDefinition) Start(input run.Payload) (run.Execution, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: decode deadline: %w", run.ErrInvalidPayload, err)
 	}
-	state := deadlineState{Deadline: deadline, Phase: deadlineReady}
+	state := deadlineState{Deadline: deadline}
 	if err := state.validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", run.ErrInvalidPayload, err)
 	}
@@ -58,21 +58,11 @@ func (d *deadlineDefinition) Restore(ctx context.Context, state run.ExecutionSta
 	return &deadlineExecution{state: decoded}, nil
 }
 
-type deadlinePhase string
-
-const (
-	deadlineReady    deadlinePhase = "ready"
-	deadlineAwaiting deadlinePhase = "awaiting_timer"
-)
-
-func (d deadlinePhase) valid() bool {
-	return d == deadlineReady || d == deadlineAwaiting
-}
-
+// deadlineState is ready until its one timer is armed; the timer Effect alone
+// records that it was, so no separate phase can disagree with it.
 type deadlineState struct {
-	Deadline time.Time     `json:"deadline"`
-	Phase    deadlinePhase `json:"phase"`
-	Effect   run.EffectID  `json:"effect,omitzero"`
+	Deadline time.Time    `json:"deadline"`
+	Timer    run.EffectID `json:"timer,omitzero"`
 }
 
 // validate states the rule without classifying it: Start reports a breach as
@@ -80,12 +70,6 @@ type deadlineState struct {
 func (d deadlineState) validate() error {
 	if d.Deadline.IsZero() {
 		return errors.New("absolute deadline is required")
-	}
-	if (d.Phase == deadlineAwaiting) != d.Effect.Valid() {
-		return errors.New("timer effect disagrees with the deadline phase")
-	}
-	if !d.Phase.valid() {
-		return fmt.Errorf("unknown deadline phase %q", d.Phase)
 	}
 	return nil
 }
@@ -96,23 +80,18 @@ func (d *deadlineExecution) Step(ctx context.Context, turn run.Turn) (run.Transi
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	switch d.state.Phase {
-	case deadlineReady:
-		if len(turn.Messages) != 0 {
-			return run.Transition{}, fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol)
-		}
-		effect, err := newTimerEffect(d.state.Deadline)
-		if err != nil {
-			return run.Transition{}, err
-		}
-		d.state.Effect = turn.EffectID(0)
-		d.state.Phase = deadlineAwaiting
-		return run.Yield(0, []run.Effect{effect})
-	case deadlineAwaiting:
+	if d.state.Timer.Valid() {
 		return d.acceptTimer(turn.Messages)
-	default:
-		return run.Transition{}, fmt.Errorf("%w: deadline has no next Step", ErrInvalidProtocol)
 	}
+	if len(turn.Messages) != 0 {
+		return run.Transition{}, fmt.Errorf("%w: deadline does not accept external Signals", ErrInvalidProtocol)
+	}
+	effect, err := newTimerEffect(d.state.Deadline)
+	if err != nil {
+		return run.Transition{}, err
+	}
+	d.state.Timer = turn.EffectID(0)
+	return run.Yield(0, []run.Effect{effect})
 }
 
 func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition, error) {
@@ -120,7 +99,7 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 		return run.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
 	}
 	completion, ok := messages[0].(run.Completion)
-	if !ok || completion.Effect != d.state.Effect {
+	if !ok || completion.Effect != d.state.Timer {
 		return run.Transition{}, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome
