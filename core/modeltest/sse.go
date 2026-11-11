@@ -50,29 +50,3 @@ func AnthropicSSEServer(events []AnthropicEvent) *httptest.Server {
 	}))
 	return srv
 }
-
-// Inspections run before the response is written and receive the live request.
-// Read the body during inspection; it is unavailable after the handler returns.
-func JSONServer(status int, body string, inspections ...func(request *http.Request)) *httptest.Server {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		for _, inspect := range inspections {
-			inspect(request)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		writer.WriteHeader(status)
-		fmt.Fprint(writer, body)
-	}))
-	return server
-}
-
-func BinaryServer(status int, contentType string, body []byte, inspections ...func(request *http.Request)) *httptest.Server {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		for _, inspect := range inspections {
-			inspect(request)
-		}
-		writer.Header().Set("Content-Type", contentType)
-		writer.WriteHeader(status)
-		_, _ = writer.Write(body)
-	}))
-	return server
-}
