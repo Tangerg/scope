@@ -171,7 +171,7 @@ func (t *textReasoningStream) ReasoningDeltas(source openaisdk.ChatCompletionChu
 
 func decodeTextReasoning(fields map[string]respjson.Field, fieldName string) (string, error) {
 	field, found := fields[fieldName]
-	if !found || field.Raw() == "" || field.Raw() == "null" {
+	if !found || !present(field) {
 		return "", nil
 	}
 	var reasoning string

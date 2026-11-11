@@ -70,12 +70,20 @@ func NewEmbeddingModel(ctx context.Context, config EmbeddingModelConfig) (*Embed
 	}, nil
 }
 
+// Embedding request fields Core owns or constrains.
+const (
+	embeddingFieldModel          = "model"
+	embeddingFieldInput          = "input"
+	embeddingFieldDimensions     = "dimensions"
+	embeddingFieldEncodingFormat = "encoding_format"
+)
+
 func (e *EmbeddingModel) buildAPIEmbeddingRequest(req *embedding.Request) (*openai.EmbeddingNewParams, error) {
-	fields, err := decodeRequestFields(req.Options.Extensions, protocolModalityRequestExtensionKey(e.provider, "embedding"), "model", "input", "dimensions")
+	fields, err := decodeRequestFields(req.Options.Extensions, e.provider+EmbeddingRequestExtensionSuffix, embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions)
 	if err != nil {
 		return nil, err
 	}
-	if format, set := fields["encoding_format"]; set && format != string(openai.EmbeddingNewParamsEncodingFormatFloat) {
+	if format, set := fields[embeddingFieldEncodingFormat]; set && format != string(openai.EmbeddingNewParamsEncodingFormatFloat) {
 		return nil, fmt.Errorf("%w: openai: embedding encoding_format must be float for a Core embedding", errors.ErrUnsupported)
 	}
 	params := &openai.EmbeddingNewParams{}

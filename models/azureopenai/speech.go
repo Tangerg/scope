@@ -8,6 +8,10 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+// SpeechRequestExtensionKey holds the provider-native speech request fields Core does not
+// represent; fields Core owns are rejected rather than overridden.
+const SpeechRequestExtensionKey = Provider + openai.SpeechRequestExtensionSuffix
+
 type SpeechModelConfig struct {
 	Config
 	DefaultOptions   speech.Options

@@ -70,13 +70,19 @@ func NewModerationModel(ctx context.Context, config ModerationModelConfig) (*Mod
 	}, nil
 }
 
+// Moderation request fields Core owns.
+const (
+	moderationFieldModel = "model"
+	moderationFieldInput = "input"
+)
+
 func (m *ModerationModel) buildAPIModerationRequest(req *moderation.Request) (*openai.ModerationNewParams, error) {
 	effectiveOptions, err := m.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(m.provider, "moderation"), "model", "input")
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, m.provider+ModerationRequestExtensionSuffix, moderationFieldModel, moderationFieldInput)
 	if err != nil {
 		return nil, err
 	}

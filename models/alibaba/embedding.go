@@ -10,6 +10,10 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+// EmbeddingRequestExtensionKey holds the provider-native embedding request fields Core does not
+// represent; fields Core owns are rejected rather than overridden.
+const EmbeddingRequestExtensionKey = Provider + openai.EmbeddingRequestExtensionSuffix
+
 type EmbeddingModelConfig struct {
 	APIKey         string
 	DefaultOptions embedding.Options

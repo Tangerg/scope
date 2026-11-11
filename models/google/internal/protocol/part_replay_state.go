@@ -1,8 +1,8 @@
 package protocol
 
 import (
-	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"slices"
@@ -88,7 +88,7 @@ func (p *partReplayState) UnmarshalJSON(data []byte) error {
 	if err := jsonv2.Unmarshal(data, &presence); err != nil {
 		return err
 	}
-	if bytes.Equal(bytes.TrimSpace(presence.Thought), []byte("null")) {
+	if jsontext.Value(presence.Thought).Kind() == jsontext.Null.Kind() {
 		return errors.New("part replay thought flag must be a boolean")
 	}
 	if !partReplayState(decoded).hasFields() {

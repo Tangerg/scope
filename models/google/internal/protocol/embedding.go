@@ -133,12 +133,12 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 		}
 
 		var outputMetadata metadata.Map
-		if len(item.TokenCount) != 0 && string(item.TokenCount) != "null" {
+		if presentJSON(item.TokenCount) {
 			if err := outputMetadata.Set(protocolKey(e.provider, embeddingTokenCountMetadataSuffix), item.TokenCount); err != nil {
 				return nil, err
 			}
 		}
-		if len(item.Truncated) != 0 && string(item.Truncated) != "null" {
+		if presentJSON(item.Truncated) {
 			if err := outputMetadata.Set(protocolKey(e.provider, embeddingTruncatedMetadataSuffix), item.Truncated); err != nil {
 				return nil, err
 			}
@@ -155,7 +155,7 @@ func (e *EmbeddingModel) buildResponse(modelName string, apiResp *nativeEmbeddin
 	if err := meta.Extra.Set(protocolKey(e.provider, EmbeddingResponseExtensionSuffix), apiResp.Raw); err != nil {
 		return nil, err
 	}
-	if len(apiResp.BillableCharacterCount) != 0 && string(apiResp.BillableCharacterCount) != "null" {
+	if presentJSON(apiResp.BillableCharacterCount) {
 		if err := meta.Extra.Set(protocolKey(e.provider, embeddingBillableCharacterCountMetadataSuffix), apiResp.BillableCharacterCount); err != nil {
 			return nil, err
 		}

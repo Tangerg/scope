@@ -123,7 +123,7 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 func (r reasoningDetailsCodec) ReasoningDeltas(source openaisdk.ChatCompletionChunkChoiceDelta, sequence uint64) ([]reasoningDelta, error) {
 	fields := source.JSON.ExtraFields
 	detailsField, hasDetails := fields[r.config.DetailsField]
-	if hasDetails && detailsField.Raw() != "" && detailsField.Raw() != "null" {
+	if hasDetails && present(detailsField) {
 		return r.decodeDetails([]byte(detailsField.Raw()), sequence)
 	}
 	return textReasoningDeltas(fields, r.provider, r.config.TextField)
@@ -426,12 +426,11 @@ func sameReasoningDetailIdentity(left, right map[string]json.RawMessage) bool {
 
 func hasReasoningDetailIdentity(fields map[string]json.RawMessage) bool {
 	id, index := fields[reasoningDetailFieldID], fields[reasoningDetailFieldIndex]
-	return len(id) != 0 && !bytes.Equal(id, []byte("null")) && !bytes.Equal(id, []byte(`""`)) ||
-		len(index) != 0 && !bytes.Equal(index, []byte("null"))
+	return presentJSON(id) && !bytes.Equal(id, []byte(`""`)) || presentJSON(index)
 }
 
 func decodeOptionalString(raw json.RawMessage) (string, bool, error) {
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+	if !presentJSON(raw) {
 		return "", false, nil
 	}
 	var value string

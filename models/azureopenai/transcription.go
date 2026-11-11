@@ -7,6 +7,10 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+// TranscriptionRequestExtensionKey holds the provider-native transcription request fields Core does not
+// represent; fields Core owns are rejected rather than overridden.
+const TranscriptionRequestExtensionKey = Provider + openai.TranscriptionRequestExtensionSuffix
+
 type TranscriptionModelConfig struct {
 	Config
 	DefaultOptions transcription.Options

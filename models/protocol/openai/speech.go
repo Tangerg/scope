@@ -81,13 +81,23 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 	}, nil
 }
 
+// Speech request fields Core owns.
+const (
+	speechFieldModel          = "model"
+	speechFieldInput          = "input"
+	speechFieldVoice          = "voice"
+	speechFieldSpeed          = "speed"
+	speechFieldResponseFormat = "response_format"
+	speechFieldStreamFormat   = "stream_format"
+)
+
 func (s *SpeechModel) buildAPITTSRequest(req *speech.Request) (*openai.AudioSpeechNewParams, error) {
 	effectiveOptions, err := s.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(s.provider, "speech"), "model", "input", "voice", "speed", "response_format", "stream_format")
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, s.provider+SpeechRequestExtensionSuffix, speechFieldModel, speechFieldInput, speechFieldVoice, speechFieldSpeed, speechFieldResponseFormat, speechFieldStreamFormat)
 	if err != nil {
 		return nil, err
 	}

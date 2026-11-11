@@ -170,7 +170,7 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 }
 
 func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkChoice) ([]corechat.PartDelta, error) {
-	if field := choice.Delta.JSON.FunctionCall.Raw(); (field != "" && field != "null") || choice.FinishReason == string(constant.ValueOf[constant.FunctionCall]()) {
+	if present(choice.Delta.JSON.FunctionCall) || choice.FinishReason == string(constant.ValueOf[constant.FunctionCall]()) {
 		return nil, fmt.Errorf("%w: openai: deprecated function_call cannot identify a Core tool proposal", errors.ErrUnsupported)
 	}
 	if index, present := responseIndex(choice.JSON.Index); !present || index != 0 {
@@ -195,7 +195,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		o.hasText = true
 		parts = append(parts, o.delta(chatStreamText, corechat.NewTextDelta(choice.Delta.Content)))
 	}
-	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && field.Raw() != "null" {
+	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && present(field) {
 		var annotations []openaisdk.ChatCompletionMessageAnnotation
 		if decodeErr := jsonv2.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
 			return nil, fmt.Errorf("annotations: %w", decodeErr)
@@ -218,7 +218,7 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		o.refused = true
 		parts = append(parts, o.delta(chatStreamRefusal, corechat.NewRefusalDelta(choice.Delta.Refusal)))
 	}
-	if field := choice.Delta.JSON.Audio; field.Raw() != "" && field.Raw() != "null" {
+	if present(choice.Delta.JSON.Audio) {
 		audio := choice.Delta.Audio
 		if audio.ID != "" {
 			if o.audioID != "" && o.audioID != audio.ID {

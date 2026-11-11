@@ -87,13 +87,13 @@ func (a *AudioTranslationModel) buildAPITranslationRequest(req *transcription.Re
 		return nil, err
 	}
 	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions("openai: translation", map[string]bool{
-		"language": effectiveOptions.Language != "",
+		audioFieldLanguage: effectiveOptions.Language != "",
 	}); rejectUnsupportedOptionsErr != nil {
 		return nil, rejectUnsupportedOptionsErr
 	}
 
-	extensionKey := protocolModalityRequestExtensionKey(a.provider, "translation")
-	params, err := decodeAudioRequest[openai.AudioTranslationNewParams](effectiveOptions.Extensions, extensionKey, "model", "file")
+	extensionKey := a.provider + TranslationRequestExtensionSuffix
+	params, err := decodeAudioRequest[openai.AudioTranslationNewParams](effectiveOptions.Extensions, extensionKey, audioFieldModel, audioFieldFile)
 	if err != nil {
 		return nil, err
 	}

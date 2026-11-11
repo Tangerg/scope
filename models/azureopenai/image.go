@@ -7,6 +7,10 @@ import (
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
+// ImageRequestExtensionKey holds the provider-native image request fields Core does not
+// represent; fields Core owns are rejected rather than overridden.
+const ImageRequestExtensionKey = Provider + openai.ImageRequestExtensionSuffix
+
 type ImageModelConfig struct {
 	Config
 	DefaultOptions image.Options

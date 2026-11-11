@@ -105,7 +105,7 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 		return nil, errors.New("openai: image: width and height must be set together")
 	}
 
-	fields, err := decodeRequestFields(effectiveOptions.Extensions, protocolModalityRequestExtensionKey(i.provider, "image"),
+	fields, err := decodeRequestFields(effectiveOptions.Extensions, i.provider+ImageRequestExtensionSuffix,
 		imageFieldModel, imageFieldPrompt, imageFieldNegativePrompt, imageFieldWidth, imageFieldHeight,
 		imageFieldSeed, imageFieldOutputFormat, imageFieldSize, imageFieldStream, imageFieldPartialImages)
 	if err != nil {

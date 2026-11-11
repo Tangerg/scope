@@ -24,6 +24,14 @@ type audioMultipartObject interface {
 	audioRequestParams | openai.AudioTranscriptionNewParamsChunkingStrategyVadConfig
 }
 
+// Multipart audio request fields Core owns for transcription and translation.
+const (
+	audioFieldModel    = "model"
+	audioFieldFile     = "file"
+	audioFieldLanguage = "language"
+	audioFieldStream   = "stream"
+)
+
 func decodeAudioRequest[T audioRequestParams](extensions metadata.Extensions, key string, coreFields ...string) (*T, error) {
 	raw, found, err := extensions.Decode[json.RawMessage](key)
 	if err != nil {
@@ -33,7 +41,7 @@ func decodeAudioRequest[T audioRequestParams](extensions metadata.Extensions, ke
 	if !found {
 		return params, nil
 	}
-	fields, err := decodeRequestFields(extensions, key, append(coreFields, "stream")...)
+	fields, err := decodeRequestFields(extensions, key, append(coreFields, audioFieldStream)...)
 	if err != nil {
 		return nil, err
 	}

@@ -75,7 +75,7 @@ func (t *TranscriptionModel) buildAPITranscriptionRequest(req *transcription.Req
 		return nil, err
 	}
 
-	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](effectiveOptions.Extensions, protocolModalityRequestExtensionKey(t.provider, "transcription"), "model", "file", "language")
+	params, err := decodeAudioRequest[openai.AudioTranscriptionNewParams](effectiveOptions.Extensions, t.provider+TranscriptionRequestExtensionSuffix, audioFieldModel, audioFieldFile, audioFieldLanguage)
 	if err != nil {
 		return nil, err
 	}

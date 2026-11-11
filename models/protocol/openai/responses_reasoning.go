@@ -103,7 +103,7 @@ func responsesReasoningChildren(item map[string]json.RawMessage, field string) (
 	if !exists && field == responsesReasoningContent {
 		return nil, nil
 	}
-	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+	if !presentJSON(raw) {
 		return nil, fmt.Errorf("reasoning %s must be an array", field)
 	}
 	var children []map[string]json.RawMessage

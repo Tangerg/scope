@@ -13,11 +13,10 @@ import (
 )
 
 func optionalCount(field respjson.Field) (*int64, error) {
-	raw := field.Raw()
-	if raw == "" || raw == "null" {
+	if !present(field) {
 		return nil, nil
 	}
-	value, err := strconv.ParseInt(raw, 10, 64)
+	value, err := strconv.ParseInt(field.Raw(), 10, 64)
 	if err != nil || value < 0 {
 		return nil, errors.New("expected a nonnegative integer token count")
 	}

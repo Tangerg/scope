@@ -265,10 +265,6 @@ func validateProvider(provider string) error {
 	return nil
 }
 
-func protocolModalityRequestExtensionKey(provider, modality string) string {
-	return provider + "/" + modality + "_request"
-}
-
 func protocolStreamChunkExtensionKey(provider string) string {
 	if provider == ProviderID {
 		return StreamChunkExtensionKey
