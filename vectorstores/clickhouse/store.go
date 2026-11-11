@@ -224,10 +224,14 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 
 func (s *Store) initialize(ctx context.Context, dimensions int) error {
 	statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-  %s String, %s String, %s String, %s Array(Float32),
-  CONSTRAINT vec_len CHECK length(%s) = %d,
-  CONSTRAINT vec_finite CHECK arrayAll(x -> isFinite(x), %s)
- ) ENGINE = ReplacingMergeTree() ORDER BY (%s)`, s.fullTable, s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn, s.embeddingColumn, dimensions, s.embeddingColumn, s.idColumn)
+  %s %s, %s %s, %s %s, %s %s,
+  CONSTRAINT %s CHECK length(%s) = %d,
+  CONSTRAINT %s CHECK arrayAll(x -> isFinite(x), %s)
+ ) ENGINE = %s ORDER BY (%s)`, s.fullTable,
+		s.idColumn, textColumnType, s.contentColumn, textColumnType, s.metadataColumn, textColumnType, s.embeddingColumn, embeddingColumnType,
+		widthConstraint, s.embeddingColumn, dimensions,
+		finiteConstraint, s.embeddingColumn,
+		replacingEngineEmpty, s.idColumn)
 	if _, err := s.db.ExecContext(nativeStatementContext(ctx, false), statement); err != nil {
 		return fmt.Errorf("clickhouse: create table %s: %w", s.fullTable, err)
 	}
@@ -487,44 +491,81 @@ func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
 
 const metadataPageSize = 512
 
-func (s *Store) tableDimensions(ctx context.Context) (width int, err error) {
+// The native table shape this store creates and later admits: an unversioned
+// ReplacingMergeTree with String text columns, an Array(Float32) embedding,
+// and the named width and finiteness constraints.
+const (
+	replacingEngine      = "ReplacingMergeTree"
+	textColumnType       = "String"
+	embeddingColumnType  = "Array(Float32)"
+	engineSortingClause  = " ORDER BY "
+	sortingKeyOpen       = "("
+	sortingKeyClose      = ")"
+	replacingEngineEmpty = replacingEngine + sortingKeyOpen + sortingKeyClose
+	widthConstraint      = "vec_len"
+	finiteConstraint     = "vec_finite"
+)
+
+func (s *Store) tableDimensions(ctx context.Context) (int, error) {
 	ctx = nativeStatementContext(ctx, false)
 	var engine, sortingKey, partitionKey, createStatement string
-	if err = s.db.QueryRowContext(ctx, "SELECT engine_full, sorting_key, partition_key, formatQuery(create_table_query) FROM system.tables WHERE database = ? AND name = ?", s.databaseName, s.tableName).Scan(&engine, &sortingKey, &partitionKey, &createStatement); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT engine_full, sorting_key, partition_key, formatQuery(create_table_query) FROM system.tables WHERE database = ? AND name = ?", s.databaseName, s.tableName).Scan(&engine, &sortingKey, &partitionKey, &createStatement); err != nil {
 		return 0, fmt.Errorf("clickhouse: inspect table %s: %w", s.fullTable, err)
 	}
-	engineName, _, _ := strings.Cut(engine, " ORDER BY ")
-	for strings.HasPrefix(sortingKey, "(") && strings.HasSuffix(sortingKey, ")") {
-		sortingKey = sortingKey[1 : len(sortingKey)-1]
-	}
-	if (engineName != "ReplacingMergeTree" && engineName != "ReplacingMergeTree()") || sortingKey != s.idColumn || partitionKey != "" {
+	if !s.replacingByID(engine, sortingKey, partitionKey) {
 		return 0, fmt.Errorf("clickhouse: table %s must use unpartitioned ReplacingMergeTree without version arguments, ordered by %s", s.fullTable, s.idColumn)
 	}
-	widthPattern := `(?m)^[\t ]*CONSTRAINT vec_len CHECK length\(` + regexp.QuoteMeta(s.embeddingColumn) + `\) = ([1-9][0-9]*)[,\n]`
-	widthRE, err := regexp.Compile(widthPattern)
+	width, err := s.constrainedWidth(createStatement)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.admitColumns(ctx); err != nil {
+		return 0, err
+	}
+	return width, nil
+}
+
+func (s *Store) replacingByID(engine, sortingKey, partitionKey string) bool {
+	engineName, _, _ := strings.Cut(engine, engineSortingClause)
+	for strings.HasPrefix(sortingKey, sortingKeyOpen) && strings.HasSuffix(sortingKey, sortingKeyClose) {
+		sortingKey = sortingKey[len(sortingKeyOpen) : len(sortingKey)-len(sortingKeyClose)]
+	}
+	return (engineName == replacingEngine || engineName == replacingEngineEmpty) && sortingKey == s.idColumn && partitionKey == ""
+}
+
+// constrainedWidth reads the embedding width from the table's vec_len
+// constraint and requires its vec_finite constraint, the two checks every
+// stored vector must pass.
+func (s *Store) constrainedWidth(createStatement string) (int, error) {
+	widthRE, err := regexp.Compile(`(?m)^[\t ]*CONSTRAINT ` + widthConstraint + ` CHECK length\(` + regexp.QuoteMeta(s.embeddingColumn) + `\) = ([1-9][0-9]*)[,\n]`)
 	if err != nil {
 		return 0, err
 	}
 	matches := widthRE.FindStringSubmatch(createStatement)
-	if len(matches) != 2 {
+	if len(matches) != widthRE.NumSubexp()+1 {
 		return 0, fmt.Errorf("%w: missing native width constraint", vectorstore.ErrIncompatibleSpace)
 	}
-	width, err = strconv.Atoi(matches[1])
+	width, err := strconv.Atoi(matches[1])
 	if err != nil {
 		return 0, err
 	}
-	finitePattern := `(?m)^[\t ]*CONSTRAINT vec_finite CHECK arrayAll\(x -> isFinite\(x\), ` + regexp.QuoteMeta(s.embeddingColumn) + `\)[,\n]`
-	validFinite, err := regexp.MatchString(finitePattern, createStatement)
+	finite, err := regexp.MatchString(`(?m)^[\t ]*CONSTRAINT `+finiteConstraint+` CHECK arrayAll\(x -> isFinite\(x\), `+regexp.QuoteMeta(s.embeddingColumn)+`\)[,\n]`, createStatement)
 	if err != nil {
 		return 0, err
 	}
-	if !validFinite {
-		return 0, fmt.Errorf("clickhouse: table %s must have current vec_len and vec_finite constraints", s.fullTable)
+	if !finite {
+		return 0, fmt.Errorf("clickhouse: table %s must have current %s and %s constraints", s.fullTable, widthConstraint, finiteConstraint)
 	}
-	expected := map[string]string{s.idColumn: "String", s.contentColumn: "String", s.metadataColumn: "String", s.embeddingColumn: "Array(Float32)"}
+	return width, nil
+}
+
+// admitColumns requires exactly the stored columns with their native types and
+// no generated values.
+func (s *Store) admitColumns(ctx context.Context) (err error) {
+	expected := map[string]string{s.idColumn: textColumnType, s.contentColumn: textColumnType, s.metadataColumn: textColumnType, s.embeddingColumn: embeddingColumnType}
 	rows, err := s.db.QueryContext(ctx, "SELECT name, type, default_kind FROM system.columns WHERE database = ? AND table = ?", s.databaseName, s.tableName)
 	if err != nil {
-		return 0, fmt.Errorf("clickhouse: inspect columns: %w", err)
+		return fmt.Errorf("clickhouse: inspect columns: %w", err)
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
@@ -533,21 +574,21 @@ func (s *Store) tableDimensions(ctx context.Context) (width int, err error) {
 	}()
 	for rows.Next() {
 		var name, dataType, defaultKind string
-		if err := rows.Scan(&name, &dataType, &defaultKind); err != nil {
-			return 0, err
+		if scanErr := rows.Scan(&name, &dataType, &defaultKind); scanErr != nil {
+			return scanErr
 		}
 		if expected[name] != dataType || defaultKind != "" {
-			return 0, fmt.Errorf("clickhouse: column %q must use %s without generated values, got %s %s", name, expected[name], dataType, defaultKind)
+			return fmt.Errorf("clickhouse: column %q must use %s without generated values, got %s %s", name, expected[name], dataType, defaultKind)
 		}
 		delete(expected, name)
 	}
-	if err := rows.Err(); err != nil {
-		return 0, err
+	if rowsErr := rows.Err(); rowsErr != nil {
+		return rowsErr
 	}
 	if len(expected) != 0 {
-		return 0, fmt.Errorf("clickhouse: table %s is missing required columns", s.fullTable)
+		return fmt.Errorf("clickhouse: table %s is missing required columns", s.fullTable)
 	}
-	return width, nil
+	return nil
 }
 
 // scan visits FINAL records in one native transaction. It charges every
