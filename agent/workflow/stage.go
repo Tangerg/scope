@@ -133,6 +133,15 @@ func (s Stage) hasIdenticalInputSchema(schema jsonschema.Schema) bool {
 	return s.inputSchema.Equal(schema)
 }
 
+// fanoutChildKey names the child Process that runs the fan-out member at index.
+func (s Stage) fanoutChildKey(index uint32) (run.ChildKey, error) {
+	member, found := s.fanout.source.member(index)
+	if !found {
+		return run.ChildKey{}, ErrInvalidExecutionState
+	}
+	return workflowChildKey(string(s.kind), s.id, member.id)
+}
+
 func (s Stage) fanoutMemberLabel(index uint32) string {
 	member, present := s.fanout.source.member(index)
 	if !present {

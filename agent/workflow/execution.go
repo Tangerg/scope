@@ -241,7 +241,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 			return run.Transition{}, fmt.Errorf("%w: Stage %q has no fan-out member %d", ErrInvalidExecutionState, stage.id, index)
 		}
 		input := inputs[index-start]
-		key, err := e.fanoutChildKey(index)
+		key, err := e.stage().fanoutChildKey(index)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -304,18 +304,6 @@ func (e *execution) advanceFanout(ctx context.Context, turn run.Turn) (run.Trans
 	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, outputs...)
 	e.state.ActiveFanoutWindow = nil
 	return e.startFanoutWindow(ctx, turn, consumed)
-}
-
-func (e *execution) fanoutChildKey(index uint32) (run.ChildKey, error) {
-	return fanoutChildKey(e.stage(), index)
-}
-
-func fanoutChildKey(stage Stage, index uint32) (run.ChildKey, error) {
-	member, found := stage.fanout.source.member(index)
-	if !found {
-		return run.ChildKey{}, ErrInvalidExecutionState
-	}
-	return workflowChildKey(string(stage.kind), stage.id, member.id)
 }
 
 var _ run.Execution = (*execution)(nil)
