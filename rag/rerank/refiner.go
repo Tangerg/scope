@@ -86,9 +86,6 @@ func (r *Refiner) Refine(ctx context.Context, query rag.Query, candidates rag.Ca
 		return nil, fmt.Errorf("%w: create model request: %w", rag.ErrInvalidReranking, requestErr)
 	}
 	request.Options.TopK = new(r.topK)
-	if err := request.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: model request: %w", rag.ErrInvalidReranking, err)
-	}
 	response, callErr := r.model.Call(ctx, request.Clone())
 	if callErr != nil {
 		if errors.Is(callErr, corererank.ErrInvalidResponse) {
