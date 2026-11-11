@@ -141,3 +141,10 @@ func TestExecutionStateDecodeEnforcesKindAndPayload(t *testing.T) {
 		t.Fatalf("zero state error=%v", err)
 	}
 }
+
+func TestExecutionStateRejectsAMissingPayload(t *testing.T) {
+	var state ExecutionState
+	if err := state.UnmarshalJSON([]byte(`{"kind":"strategy.progress"}`)); !errors.Is(err, ErrInvalidExecutionState) || state.Valid() {
+		t.Fatalf("state without payload admitted: %v", err)
+	}
+}

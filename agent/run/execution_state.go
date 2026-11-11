@@ -1,7 +1,6 @@
 package run
 
 import (
-	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
@@ -17,35 +16,42 @@ var ErrInvalidExecutionState = errors.New("run: invalid execution state")
 // is invalid.
 type ExecutionState struct {
 	kind    string
-	payload json.RawMessage
+	payload Payload
 }
 
 // ParseExecutionState freezes an opaque payload under its owning Strategy kind.
 func ParseExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
-	if !ValidQualifiedName(kind) {
-		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
-	}
-	normalized, err := normalizeJSON(payload, MaxPayloadBytes)
+	value, err := ParsePayload(payload)
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: payload: %w", ErrInvalidExecutionState, err)
 	}
-	return ExecutionState{kind: kind, payload: normalized}, nil
+	return sealExecutionState(kind, value)
 }
 
-// EncodeExecutionState strictly encodes a typed strategy state and seals it with
-// ParseExecutionState. Invalid UTF-8 and duplicate JSON names are rejected.
+// EncodeExecutionState strictly encodes a typed strategy state. Invalid UTF-8
+// and duplicate JSON names are rejected.
 func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
-	payload, err := jsonv2.Marshal(value, jsonv2.Deterministic(true))
+	payload, err := EncodePayload(value)
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: encode: %w", ErrInvalidExecutionState, err)
 	}
-	return ParseExecutionState(kind, payload)
+	return sealExecutionState(kind, payload)
+}
+
+func sealExecutionState(kind string, payload Payload) (ExecutionState, error) {
+	if !ValidQualifiedName(kind) {
+		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
+	}
+	if !payload.Valid() {
+		return ExecutionState{}, fmt.Errorf("%w: payload is required", ErrInvalidExecutionState)
+	}
+	return ExecutionState{kind: kind, payload: payload}, nil
 }
 
 func (e ExecutionState) Kind() string { return e.kind }
 
 // Payload returns an independently owned copy of the opaque Strategy state.
-func (e ExecutionState) Payload() json.RawMessage { return bytes.Clone(e.payload) }
+func (e ExecutionState) Payload() json.RawMessage { return e.payload.JSON() }
 
 // Decode checks the Strategy kind before decoding its payload into T. Unknown
 // object members are rejected; the Strategy still validates its domain state.
@@ -54,25 +60,22 @@ func (e ExecutionState) Decode[T any](kind string) (T, error) {
 		var value T
 		return value, fmt.Errorf("%w: expected Strategy kind %q, got %q", ErrInvalidExecutionState, kind, e.kind)
 	}
-	value, err := jsonwire.Decode[T](e.payload)
+	value, err := e.payload.Decode[T]()
 	if err != nil {
-		return value, fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
+		return value, fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
 	return value, nil
 }
 
 func (e ExecutionState) Valid() bool {
-	return ValidQualifiedName(e.kind) && len(e.payload) > 0
+	return ValidQualifiedName(e.kind) && e.payload.Valid()
 }
 
 func (e ExecutionState) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {
 		return nil, ErrInvalidExecutionState
 	}
-	return jsonv2.Marshal(executionStateWire{
-		Kind:    e.kind,
-		Payload: e.payload,
-	})
+	return jsonv2.Marshal(executionStateWire{Kind: e.kind, Payload: e.payload})
 }
 
 func (e *ExecutionState) UnmarshalJSON(data []byte) error {
@@ -83,7 +86,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}
-	value, err := ParseExecutionState(wire.Kind, wire.Payload)
+	value, err := sealExecutionState(wire.Kind, wire.Payload)
 	if err != nil {
 		return err
 	}
@@ -92,6 +95,6 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 }
 
 type executionStateWire struct {
-	Kind    string          `json:"kind"`
-	Payload json.RawMessage `json:"payload"`
+	Kind    string  `json:"kind"`
+	Payload Payload `json:"payload"`
 }
