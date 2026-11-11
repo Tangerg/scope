@@ -64,7 +64,7 @@ func TestFanoutRestoreAdmitsSuccessAndFailureVariants(t *testing.T) {
 				{"rejected", child.Invocation{Rejection: &failure}},
 			} {
 				t.Run(row.name, func(t *testing.T) {
-					state := executionState{CurrentValue: input, ActiveFanoutWindow: []child.Invocation{row.invocation, {Request: new(testTurn(2).EffectID(1))}}}
+					state := executionState{CurrentValue: input, Fanout: &fanoutProgress{Window: []child.Invocation{row.invocation, {Request: new(testTurn(2).EffectID(1))}}}}
 					snapshot, err := state.snapshot()
 					if err != nil {
 						t.Fatal(err)
@@ -88,12 +88,12 @@ func TestFanoutRecoveryRejectsInvalidOutputsBeforeActivation(t *testing.T) {
 				name  string
 				state executionState
 			}{
-				{"active", executionState{CurrentValue: input, ActiveFanoutWindow: []child.Invocation{
+				{"active", executionState{CurrentValue: input, Fanout: &fanoutProgress{Window: []child.Invocation{
 					{Termination: new(fanoutTermination(t, `{"output":"wrong schema"}`))},
 					{Termination: new(fanoutTermination(t, `{"output":2}`))},
-				}}},
-				{"archived", executionState{CurrentValue: input, CompletedFanoutOutputs: []run.Payload{mustPayload(t, "wrong schema"), mustPayload(t, 2)},
-					ActiveFanoutWindow: []child.Invocation{{Request: new(testTurn(2).EffectID(0))}}}},
+				}}}},
+				{"archived", executionState{CurrentValue: input, Fanout: &fanoutProgress{Completed: []run.Payload{mustPayload(t, "wrong schema"), mustPayload(t, 2)},
+					Window: []child.Invocation{{Request: new(testTurn(2).EffectID(0))}}}}},
 			} {
 				t.Run(row.name, func(t *testing.T) {
 					snapshot, err := row.state.snapshot()

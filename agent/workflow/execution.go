@@ -56,7 +56,7 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 		e.state.CurrentValue = value
 		return e.finishStage(0)
 	case StageKindCall:
-		return e.startSingleChild(turn, 0, stage.call)
+		return e.startSingleChild(turn, 0, stage.call, "", 0)
 	case StageKindSwitch:
 		selected, err := stage.switcher.selectCase(ctx, e.state.CurrentValue)
 		if err != nil {
@@ -69,20 +69,20 @@ func (e *execution) advance(ctx context.Context, turn run.Turn) (run.Transition,
 				"Switch Stage "+stage.id+" selected an undeclared case",
 			)
 		}
-		e.state.SelectedCaseID = selected
-		return e.startSingleChild(turn, 0, binding)
+		return e.startSingleChild(turn, 0, binding, selected, 0)
 	case StageKindFork, StageKindMap:
 		return e.startFanoutWindow(ctx, turn, 0)
 	case StageKindLoop:
-		e.state.LoopIteration = 1
-		return e.startSingleChild(turn, 0, stage.loop.binding)
+		return e.startSingleChild(turn, 0, stage.loop.binding, "", 1)
 	default:
 		return run.Transition{}, fmt.Errorf("%w: Stage %q has an unknown kind %q", ErrInvalidExecutionState, stage.id, stage.kind)
 	}
 }
 
-func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, binding run.ChildBinding) (run.Transition, error) {
-	key, err := e.childKey()
+// startSingleChild runs the child a Call, the selected Switch case, or one
+// Loop iteration names.
+func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, binding run.ChildBinding, caseID string, iteration uint64) (run.Transition, error) {
+	key, err := singleChildKey(e.stage(), caseID, iteration)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -94,7 +94,7 @@ func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, bin
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.Child = &invocation
+	e.state.Child = &singleChild{Case: caseID, Iteration: iteration, Invocation: invocation}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
@@ -102,18 +102,19 @@ func (e *execution) stageInvocationLabel() string {
 	stage := e.stage()
 	switch stage.kind {
 	case StageKindSwitch:
-		return stage.id + ".case." + e.state.SelectedCaseID
+		return stage.id + ".case." + e.state.Child.Case
 	case StageKindLoop:
-		return stage.id + ".iteration." + strconv.FormatUint(e.state.LoopIteration, 10)
+		return stage.id + ".iteration." + strconv.FormatUint(e.state.Child.Iteration, 10)
 	default:
 		return stage.id
 	}
 }
 
 func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transition, error) {
+	invocation := &e.state.Child.Invocation
 	var consumed uint32
 	for _, message := range turn.Messages {
-		accepted, err := e.state.Child.Accept(message)
+		accepted, err := invocation.Accept(message)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -121,17 +122,17 @@ func (e *execution) advanceChild(ctx context.Context, turn run.Turn) (run.Transi
 			return run.Transition{}, ErrInvalidProtocol
 		}
 		consumed++
-		if e.state.Child.Done() {
+		if invocation.Done() {
 			break
 		}
 	}
-	if e.state.Child.Rejection != nil {
-		return run.Fail(consumed, *e.state.Child.Rejection)
+	if invocation.Rejection != nil {
+		return run.Fail(consumed, *invocation.Rejection)
 	}
-	if e.state.Child.Termination == nil {
+	if invocation.Termination == nil {
 		return run.Yield(consumed, nil)
 	}
-	failure, output, err := childOutcome(*e.state.Child.Termination, e.stage().failureCode, "Child Process for Stage "+e.stageInvocationLabel())
+	failure, output, err := childOutcome(*invocation.Termination, e.stage().failureCode, "Child Process for Stage "+e.stageInvocationLabel())
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -158,10 +159,6 @@ func (e *execution) stage() Stage {
 	return e.definition.stages[e.state.StageIndex]
 }
 
-func (e *execution) childKey() (run.ChildKey, error) {
-	return e.state.childKey(e.stage())
-}
-
 func (e *execution) finishLoopIteration(
 	ctx context.Context,
 	turn run.Turn,
@@ -169,25 +166,24 @@ func (e *execution) finishLoopIteration(
 	output run.Payload,
 ) (run.Transition, error) {
 	stage := e.stage()
+	iteration := e.state.Child.Iteration
 	satisfied, err := stage.loop.predicate(ctx, output)
 	if err != nil {
 		return run.Transition{}, err
 	}
 	e.state.CurrentValue = output
-	if satisfied || !stage.loop.maxIterations.Allows(e.state.LoopIteration, 1) {
-		value, err := stage.loop.result(e.state.CurrentValue, e.state.LoopIteration, satisfied)
+	if satisfied || !stage.loop.maxIterations.Allows(iteration, 1) {
+		value, err := stage.loop.result(e.state.CurrentValue, iteration, satisfied)
 		if err != nil {
 			return run.Transition{}, err
 		}
 		e.state.CurrentValue = value
 		return e.finishStage(consumedMessages)
 	}
-	e.state.clearSingleChild()
-	if e.state.LoopIteration == math.MaxUint64 {
+	if iteration == math.MaxUint64 {
 		return run.Transition{}, run.ErrCounterExhausted
 	}
-	e.state.LoopIteration++
-	return e.startSingleChild(turn, consumedMessages, stage.loop.binding)
+	return e.startSingleChild(turn, consumedMessages, stage.loop.binding, "", iteration+1)
 }
 
 func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
@@ -208,9 +204,13 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 	if err != nil {
 		return run.Transition{}, err
 	}
+	var completed []run.Payload
+	if e.state.Fanout != nil {
+		completed = e.state.Fanout.Completed
+	}
 	count := e.fanoutInput.count()
 	if start == count {
-		value, err := stage.fanout.complete(ctx, e.state.CurrentValue, e.state.CompletedFanoutOutputs)
+		value, err := stage.fanout.complete(ctx, e.state.CurrentValue, completed)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -244,15 +244,15 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 		window[index-start] = invocation
 		effects = append(effects, effect)
 	}
-	e.state.ActiveFanoutWindow = window
+	e.state.Fanout = &fanoutProgress{Window: window, Completed: completed}
 	return run.Yield(consumedMessages, effects)
 }
 
 func (e *execution) advanceFanout(ctx context.Context, turn run.Turn) (run.Transition, error) {
 	for _, message := range turn.Messages {
 		matched := false
-		for index := range e.state.ActiveFanoutWindow {
-			invocation := &e.state.ActiveFanoutWindow[index]
+		for index := range e.state.Fanout.Window {
+			invocation := &e.state.Fanout.Window[index]
 			if invocation.Done() {
 				continue
 			}
@@ -270,13 +270,14 @@ func (e *execution) advanceFanout(ctx context.Context, turn run.Turn) (run.Trans
 		}
 	}
 	consumed := uint32(len(turn.Messages))
-	for _, invocation := range e.state.ActiveFanoutWindow {
+	window := e.state.Fanout.Window
+	for _, invocation := range window {
 		if !invocation.Done() {
 			return run.Yield(consumed, nil)
 		}
 	}
-	outputs := make([]run.Payload, len(e.state.ActiveFanoutWindow))
-	for index, invocation := range e.state.ActiveFanoutWindow {
+	outputs := make([]run.Payload, len(window))
+	for index, invocation := range window {
 		if invocation.Rejection != nil {
 			return run.Fail(consumed, *invocation.Rejection)
 		}
@@ -289,8 +290,9 @@ func (e *execution) advanceFanout(ctx context.Context, turn run.Turn) (run.Trans
 		}
 		outputs[index] = output
 	}
-	e.state.CompletedFanoutOutputs = append(e.state.CompletedFanoutOutputs, outputs...)
-	e.state.ActiveFanoutWindow = nil
+	// The finished window leaves only its outputs until the next one starts in
+	// this same Step, so no snapshot sees the state between them.
+	e.state.Fanout = &fanoutProgress{Completed: append(e.state.Fanout.Completed, outputs...)}
 	return e.startFanoutWindow(ctx, turn, consumed)
 }
 
