@@ -46,7 +46,7 @@
 // [Dialect]. Application code continues to use the provider's own chat type.
 //
 // [Messages.CountInputTokens] exposes the provider-specific complete-request
-// token endpoint. the Messages text-counter binding serves isolated text workflows.
+// token endpoint. The Messages text-counter binding serves isolated text workflows.
 //
 // [Messages.ListModels] follows the SDK's native model pagination using this
 // binding. Count and total response-byte budgets are explicit per operation;
