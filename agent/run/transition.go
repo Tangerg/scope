@@ -84,7 +84,9 @@ func (t Transition) Waits() []Wait            { return slices.Clone(t.waits) }
 func (t Transition) Output() (Payload, bool)  { return t.output, t.output.Valid() }
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.failure.Valid() }
 
-func (t Transition) Valid() bool {
+func (t Transition) Valid() bool { return t.declarationsValid() && t.shapeMatchesKind() }
+
+func (t Transition) declarationsValid() bool {
 	for _, effect := range t.effects {
 		if !effect.Valid() {
 			return false
@@ -92,14 +94,16 @@ func (t Transition) Valid() bool {
 	}
 	keys := make(map[WaitKey]struct{}, len(t.waits))
 	for _, wait := range t.waits {
-		if !wait.Valid() {
-			return false
-		}
-		if _, ok := keys[wait.Key]; ok {
+		if _, duplicate := keys[wait.Key]; duplicate || !wait.Valid() {
 			return false
 		}
 		keys[wait.Key] = struct{}{}
 	}
+	return true
+}
+
+// shapeMatchesKind requires each kind to carry exactly the members it owns.
+func (t Transition) shapeMatchesKind() bool {
 	switch t.kind {
 	case TransitionKindContinue:
 		return len(t.waits) == 0 && !t.output.Valid() && !t.failure.Valid()
