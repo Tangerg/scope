@@ -108,7 +108,7 @@ func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, 
 		}
 		return run.Settlement{}, err
 	}
-	result, err := d.definition.settlePreparedContext(req, messages)
+	result, err := d.definition.settlePreparedContext(call, messages)
 	if err != nil {
 		return failedSettlement(err)
 	}

@@ -226,26 +226,16 @@ func (d *definition) validateResponsePayload(payload run.Payload) error {
 	return nil
 }
 
-func (d *definition) settlePreparedContext(req run.EffectRequest, messages []chat.Message) (run.Settlement, error) {
-	if !d.prepareContext {
-		return run.Settlement{}, ErrInvalidConfig
-	}
-	if !req.Valid() {
-		return run.Settlement{}, ErrInvalidProtocol
-	}
-	env, err := decodeEffect(req.Effect().Payload())
-	if err != nil {
+// settlePreparedContext admits replacement messages as the model call the
+// preparation bound: the same options, Tools and steering with new messages.
+// The settlement is encoded before return, so it borrows messages.
+func (d *definition) settlePreparedContext(preparation *modelCall, messages []chat.Message) (run.Settlement, error) {
+	prepared := *preparation
+	prepared.Request.Messages = messages
+	if err := prepared.validate(); err != nil {
 		return run.Settlement{}, err
 	}
-	if env.operation() != operationPrepare {
-		return run.Settlement{}, ErrInvalidProtocol
-	}
-	effective := env.Preparation.request()
-	effective.Messages = cloneMessages(messages)
-	if err = effective.Validate(); err != nil {
-		return run.Settlement{}, err
-	}
-	outcome, err := resultEnvelope{Prepared: &preparedContext{Messages: effective.Messages}}.settlement()
+	outcome, err := resultEnvelope{Prepared: &preparedContext{Messages: messages}}.settlement()
 	if err != nil {
 		return run.Settlement{}, err
 	}

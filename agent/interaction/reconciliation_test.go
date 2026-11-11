@@ -83,8 +83,8 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 	if _, err := SettleModelResult(program, request, finalResponse("wrong variant")); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("tool effect accepted a model result", err)
 	}
-	if _, err := SettlePreparedContext(program, request, testInput().Messages); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatal("unbound context processor accepted a recovery result", err)
+	if _, err := SettlePreparedContext(program, request, testInput().Messages); !errors.Is(err, ErrInvalidProtocol) {
+		t.Fatal("tool effect accepted a prepared context", err)
 	}
 	for _, disposition := range []ResultDisposition{ResultSucceeded, ResultFailed, ResultRejected} {
 		settlement := mustValue(SettleToolResult(program, request, tool.Result{}, disposition, nil))

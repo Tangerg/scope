@@ -43,7 +43,14 @@ func SettlePreparedContext[I, O any](program run.Program[I, O], request run.Effe
 	if err != nil {
 		return run.Settlement{}, err
 	}
-	return definition.settlePreparedContext(request, messages)
+	envelope, err := decodeEffect(request.Effect().Payload())
+	if err != nil {
+		return run.Settlement{}, err
+	}
+	if envelope.operation() != operationPrepare {
+		return run.Settlement{}, ErrInvalidProtocol
+	}
+	return definition.settlePreparedContext(envelope.Preparation, messages)
 }
 
 // SettleToolResult takes advertised as the Tool identities its
