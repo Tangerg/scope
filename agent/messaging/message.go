@@ -12,14 +12,15 @@ var ErrInvalidMessage = errors.New("messaging: invalid message")
 
 // Message is a request to deliver one input to a concrete Process address.
 // Recipient and WaitKey must remain bound to this payload across restoration.
+// A zero WaitKey addresses no wait, exactly as in [run.Signal].
 type Message struct {
 	Recipient run.ProcessID `json:"recipient"`
-	WaitKey   *run.WaitKey  `json:"wait_key,omitzero"`
+	WaitKey   run.WaitKey   `json:"wait_key,omitzero"`
 	Payload   run.Payload   `json:"payload"`
 }
 
 func (m Message) Valid() bool {
-	return m.Recipient.Valid() && (m.WaitKey == nil || m.WaitKey.Valid()) && m.Payload.Valid()
+	return m.Recipient.Valid() && m.Payload.Valid()
 }
 
 // Effect freezes the message as one external operation. Multiple recipients
@@ -45,11 +46,7 @@ func (m Message) signal(effectID run.EffectID) (run.Signal, error) {
 	if err != nil {
 		return run.Signal{}, err
 	}
-	var waitKey run.WaitKey
-	if m.WaitKey != nil {
-		waitKey = *m.WaitKey
-	}
-	return run.Signal{ID: id, Wait: waitKey, Payload: m.Payload}, nil
+	return run.Signal{ID: id, Wait: m.WaitKey, Payload: m.Payload}, nil
 }
 
 func decodeMessage(effect run.Effect) (Message, error) {

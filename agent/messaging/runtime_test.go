@@ -193,7 +193,7 @@ func TestMessageDeliveryReconcilesLostAcknowledgmentWithSameSignalIdentity(t *te
 	}
 	port := &recipientPort{runtime: runtime, store: store, loseFirst: true}
 	sender := senderProgram(t, runtime, port)
-	message := Message{Recipient: recipient.ID(), WaitKey: &key, Payload: require(run.EncodePayload("answer"))}
+	message := Message{Recipient: recipient.ID(), WaitKey: key, Payload: require(run.EncodePayload("answer"))}
 	handle := require(runtime.Start(ctx, sender, run.StartRequest[Message]{ID: run.StartID{Scope: "sender", Key: t.Name()}, Input: message}))
 	var unknown run.EffectID
 	for !unknown.Valid() {
@@ -248,9 +248,9 @@ func TestMessageDeliveryReconcilesLostAcknowledgmentWithSameSignalIdentity(t *te
 func TestMessageEffectFreezesRecipientAndWait(t *testing.T) {
 	recipient := require(run.ParseProcessID("recipient"))
 	key := require(run.ParseWaitKey("question"))
-	message := Message{Recipient: recipient, WaitKey: &key, Payload: require(run.EncodePayload("answer"))}
+	message := Message{Recipient: recipient, WaitKey: key, Payload: require(run.EncodePayload("answer"))}
 	effect := require(message.Effect())
-	key = require(run.ParseWaitKey("changed"))
+	message.WaitKey = require(run.ParseWaitKey("changed"))
 	message.Recipient = require(run.ParseProcessID("other"))
 	message.Payload = require(run.EncodePayload("different"))
 	frozen := require(decodeMessage(effect))
