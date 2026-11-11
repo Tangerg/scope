@@ -23,6 +23,7 @@ import (
 const begin = "<!-- vectorstore-catalog:begin -->"
 const end = "<!-- vectorstore-catalog:end -->"
 const vectorstore = "github.com/Tangerg/scope/core/vectorstore"
+const workspace = "github.com/Tangerg/scope"
 
 type surface struct {
 	owner                                string
@@ -75,7 +76,30 @@ func hasParameter(fn *ast.FuncDecl, imports map[string]string, typename string) 
 	return false
 }
 
-func inspect(path string, records map[string]*surface) error {
+// sharedStore names the workspace package whose Store a constructor returns,
+// so an adapter that supplies only an engine reports the shared operations.
+func sharedStore(fn *ast.FuncDecl, imports map[string]string) (string, bool) {
+	if fn.Recv != nil || !fn.Name.IsExported() || fn.Type.Results == nil {
+		return "", false
+	}
+	for _, field := range fn.Type.Results.List {
+		pointer, ok := field.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		selector, ok := pointer.X.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "Store" {
+			continue
+		}
+		pkg, ok := selector.X.(*ast.Ident)
+		if path := imports[pkg.Name]; ok && strings.HasPrefix(path, workspace+"/") {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+func inspect(path string, records map[string]*surface, shared map[string]bool) error {
 	f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		return err
@@ -94,7 +118,13 @@ func inspect(path string, records map[string]*surface) error {
 	}
 	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv == nil || !fn.Name.IsExported() {
+		if !ok {
+			continue
+		}
+		if path, ok := sharedStore(fn, imports); ok {
+			shared[path] = true
+		}
+		if fn.Recv == nil || !fn.Name.IsExported() {
 			continue
 		}
 		owner := receiver(fn.Recv.List[0].Type)
@@ -127,9 +157,8 @@ func inspect(path string, records map[string]*surface) error {
 	return nil
 }
 
-func moduleRow(root, dir string) (string, error) {
-	records := map[string]*surface{}
-	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+func inspectTree(dir string, records map[string]*surface, shared map[string]bool) error {
+	return filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -142,10 +171,31 @@ func moduleRow(root, dir string) (string, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		return inspect(path, records)
+		return inspect(path, records, shared)
 	})
+}
+
+func docLink(root, owner string) (string, error) {
+	ref, err := filepath.Rel(filepath.Join(root, "vectorstores"), filepath.Join(owner, "doc.go"))
 	if err != nil {
 		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(owner, "doc.go")); err != nil {
+		return "", err
+	}
+	return "[" + filepath.Base(owner) + "](" + filepath.ToSlash(ref) + ")", nil
+}
+
+func moduleRow(root, dir string) (string, error) {
+	records := map[string]*surface{}
+	shared := map[string]bool{}
+	if err := inspectTree(dir, records, shared); err != nil {
+		return "", err
+	}
+	for path := range shared {
+		if err := inspectTree(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(path, workspace+"/"))), records, map[string]bool{}); err != nil {
+			return "", err
+		}
 	}
 	var states, apis, docs []string
 	add := func(xs *[]string, x string) {
@@ -166,14 +216,19 @@ func moduleRow(root, dir string) (string, error) {
 				add(&apis, "`"+op.name+"`")
 			}
 		}
-		ref, err := filepath.Rel(filepath.Join(root, "vectorstores"), filepath.Join(s.owner, "doc.go"))
+		link, err := docLink(root, s.owner)
 		if err != nil {
 			return "", err
 		}
-		if _, err := os.Stat(filepath.Join(s.owner, "doc.go")); err != nil {
+		add(&docs, link)
+	}
+	// An adapter that returns a shared Store still owns the engine it supplies.
+	if len(shared) > 0 {
+		link, err := docLink(root, dir)
+		if err != nil {
 			return "", err
 		}
-		add(&docs, "["+filepath.Base(s.owner)+"]("+filepath.ToSlash(ref)+")")
+		add(&docs, link)
 	}
 	if len(states) == 0 {
 		return "", fmt.Errorf("no public provider operation found in %s", dir)

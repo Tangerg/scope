@@ -92,30 +92,30 @@ type mappedField struct {
 	DocValues *bool  `json:"doc_values"`
 }
 
-func (m indexMapping) admitRecordLayout() error {
-	if m.Dynamic != dynamicMappingStrict || len(m.Properties) != 3 || m.Routing.Required || len(m.Runtime) > 0 || len(m.Derived) > 0 || len(m.DynamicTemplates) > 0 {
+func (i indexMapping) admitRecordLayout() error {
+	if i.Dynamic != dynamicMappingStrict || len(i.Properties) != 3 || i.Routing.Required || len(i.Runtime) > 0 || len(i.Derived) > 0 || len(i.DynamicTemplates) > 0 {
 		return fmt.Errorf("%w: requires exactly the current strict properties without routing or dynamic rules", ErrIncompatibleIndex)
 	}
-	if m.Source.Enabled != nil && !*m.Source.Enabled || len(m.Source.Includes) > 0 || len(m.Source.Excludes) > 0 || m.Source.Mode != "" && m.Source.Mode != sourceModeStored {
+	if i.Source.Enabled != nil && !*i.Source.Enabled || len(i.Source.Includes) > 0 || len(i.Source.Excludes) > 0 || i.Source.Mode != "" && i.Source.Mode != sourceModeStored {
 		return fmt.Errorf("%w: requires complete stored _source", ErrIncompatibleIndex)
 	}
-	content, err := m.field(ContentField)
+	content, err := i.field(ContentField)
 	if err != nil || content.Type != fieldTypeText {
 		return fmt.Errorf("%w: content must be TEXT", ErrIncompatibleIndex)
 	}
-	metadata, err := m.field(MetadataField)
+	metadata, err := i.field(MetadataField)
 	if err != nil || metadata.Type != fieldTypeKeyword || metadata.Index == nil || *metadata.Index || metadata.DocValues == nil || *metadata.DocValues {
 		return fmt.Errorf("%w: metadata_json must be an unindexed KEYWORD without doc values", ErrIncompatibleIndex)
 	}
-	if _, exists := m.Properties[EmbeddingField]; !exists {
+	if _, exists := i.Properties[EmbeddingField]; !exists {
 		return fmt.Errorf("%w: requires an embedding field", ErrIncompatibleIndex)
 	}
 	return nil
 }
 
-func (m indexMapping) field(name string) (mappedField, error) {
+func (i indexMapping) field(name string) (mappedField, error) {
 	var field mappedField
-	raw, exists := m.Properties[name]
+	raw, exists := i.Properties[name]
 	if !exists {
 		return field, fmt.Errorf("%w: missing %s", ErrIncompatibleIndex, name)
 	}
