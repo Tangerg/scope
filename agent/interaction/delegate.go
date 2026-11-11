@@ -60,7 +60,7 @@ func (d Delegate) validateInput(input run.Payload) error {
 	if !d.Valid() {
 		return ErrInvalidDelegate
 	}
-	return d.child.Program.Descriptor().InputSchema().Validate(input.JSON())
+	return d.child.Program.Descriptor().ValidateInput(input)
 }
 
 // validateOutput is the one OutputSchema admission a successful Delegate result
@@ -73,7 +73,7 @@ func (d Delegate) validateOutput(output run.Payload) error {
 	if !output.Valid() {
 		return fmt.Errorf("%w: Delegate result output is invalid", ErrInvalidDelegate)
 	}
-	return d.child.Program.Descriptor().OutputSchema().Validate(output.JSON())
+	return d.child.Program.Descriptor().ValidateOutput(output)
 }
 
 // admitResultOutput is validateOutput for a raw result: a success carrying no
