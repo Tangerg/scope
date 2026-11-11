@@ -6,18 +6,10 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/samber/lo"
-
 	"github.com/Tangerg/scope/core/httpclient"
 )
 
-const (
-	defaultOutputOrigin      = "https://bfldeliveryprod.blob.core.windows.net"
-	maximumDownloadRedirects = 10
-	headerAuthorization      = "Authorization"
-	headerProxyAuthorization = "Proxy-Authorization"
-	headerCookie             = "Cookie"
-)
+const defaultOutputOrigin = "https://bfldeliveryprod.blob.core.windows.net"
 
 // API authority does not grant delivery authority. Presigned assets use
 // credential-free requests to official delivery origins or host-authorized ones.
@@ -61,7 +53,12 @@ func (o outputURLPolicy) parse(raw string) (*url.URL, error) {
 	return endpoint, nil
 }
 
-func (o outputURLPolicy) validateRequest(request *http.Request) error {
+// ValidateRequest makes the policy the delivery client's destination: an
+// official or host-authorized origin, or a regional provider URL.
+func (o outputURLPolicy) ValidateRequest(request *http.Request) error {
+	if request == nil {
+		return fmt.Errorf("blackforestlabs: nil output request: %w", httpclient.ErrOriginNotAllowed)
+	}
 	origin, err := o.origin(request.URL)
 	if err != nil {
 		return err
@@ -69,28 +66,7 @@ func (o outputURLPolicy) validateRequest(request *http.Request) error {
 	return origin.ValidateRequest(request)
 }
 
-func (o outputURLPolicy) client(source *http.Client) *http.Client {
-	client := *source
-	client.Jar = nil
-	transport := client.Transport
-	if lo.IsNil(transport) {
-		transport = http.DefaultTransport
-	}
-	client.Transport = &downloadTransport{next: transport, urls: o}
-	previous := client.CheckRedirect
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if len(via) >= maximumDownloadRedirects {
-			return fmt.Errorf("blackforestlabs: stopped after %d output redirects", maximumDownloadRedirects)
-		}
-		if previous != nil {
-			if err := previous(request, via); err != nil {
-				return err
-			}
-		}
-		if len(via) > 0 && via[len(via)-1].URL.Scheme == providerSchemeHTTPS && request.URL.Scheme != providerSchemeHTTPS {
-			return fmt.Errorf("blackforestlabs: output redirect downgrades HTTPS: %w", httpclient.ErrOriginNotAllowed)
-		}
-		return o.validateRequest(request)
-	}
-	return &client
+// client never sends credentials, including the API key, to a delivery URL.
+func (o outputURLPolicy) client(source *http.Client) (*http.Client, error) {
+	return httpclient.NewDeliveryClient(httpclient.DeliveryConfig{HTTPClient: source, Destination: o, CredentialHeaders: []string{headerAPIKey}})
 }

@@ -70,7 +70,11 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, err
 	}
-	adapter.download = resty.NewWithClient(outputs.client(&adapter.client)).SetResponseBodyLimit(defaultMaxOutputBytes)
+	downloads, err := outputs.client(&adapter.client)
+	if err != nil {
+		return nil, err
+	}
+	adapter.download = resty.NewWithClient(downloads).SetResponseBodyLimit(defaultMaxOutputBytes)
 	return adapter, nil
 }
 

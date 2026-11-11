@@ -1,11 +1,7 @@
 package replicate
 
 const (
-	maximumDownloadRedirects        = 10
 	headerContentType               = "Content-Type"
-	headerAuthorization             = "Authorization"
-	headerProxyAuthorization        = "Proxy-Authorization"
-	headerCookie                    = "Cookie"
 	mediaTypeJSON                   = "application/json"
 	mediaTypeBinary                 = "application/octet-stream"
 	mediaTypeImagePrefix            = "image/"

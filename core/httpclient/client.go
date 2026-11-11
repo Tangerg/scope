@@ -25,10 +25,7 @@ func New(_ context.Context, config Config) (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("httpclient: invalid API endpoint: %w", err)
 	}
-	owned := http.Client{}
-	if config.HTTPClient != nil {
-		owned = *config.HTTPClient
-	}
-	Origins{origin}.restrict(&owned, config.RejectRedirects)
-	return &owned, nil
+	owned := copyClient(config.HTTPClient)
+	restriction{allowed: Origins{origin}, rejectRedirects: config.RejectRedirects}.apply(owned)
+	return owned, nil
 }

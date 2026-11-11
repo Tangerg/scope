@@ -77,7 +77,7 @@ func TestOutputTransportOwnsCredentialIsolationAndRetainsHostCleanup(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, header := range []string{headerAuthorization, headerProxyAuthorization, headerCookie} {
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "Cookie"} {
 		request.Header.Set(header, "private")
 	}
 	client := adapter.download.GetClient()
@@ -86,7 +86,7 @@ func TestOutputTransportOwnsCredentialIsolationAndRetainsHostCleanup(t *testing.
 		t.Fatalf("response=%v requests=%d error=%v", response, len(next.requests), err)
 	}
 	_ = response.Body.Close()
-	for _, header := range []string{headerAuthorization, headerProxyAuthorization, headerCookie} {
+	for _, header := range []string{"Authorization", "Proxy-Authorization", "Cookie"} {
 		if request.Header.Get(header) != "private" || next.requests[0].Header.Get(header) != "" {
 			t.Fatalf("credential policy changed the original request or leaked %s", header)
 		}

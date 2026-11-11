@@ -8,8 +8,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-
-	"github.com/samber/lo"
 )
 
 const (
@@ -106,6 +104,13 @@ func (o Origin) ValidateRequest(request *http.Request) error {
 	return nil
 }
 
+// Destination authorizes the target of one request, including the authority
+// written to the wire. Origins is the fixed-set Destination; a provider whose
+// output hosts follow a rule supplies its own.
+type Destination interface {
+	ValidateRequest(request *http.Request) error
+}
+
 // Origins is a set of authorized origins. A request is authorized when its
 // destination, including the authority written to the wire, is one of them.
 type Origins []Origin
@@ -122,68 +127,4 @@ func (o Origins) ValidateRequest(request *http.Request) error {
 		return fmt.Errorf("%w: %s://%s", ErrOriginNotAllowed, destination.scheme, destination.host)
 	}
 	return destination.ValidateRequest(request)
-}
-
-// Restrict returns a copy of client whose requests, including every redirect,
-// reach only allowed origins. A nil client is an empty client on the default
-// transport. The host keeps ownership of the shared transport and cookie jar.
-func Restrict(client *http.Client, allowed Origins) (*http.Client, error) {
-	if len(allowed) == 0 || slices.Contains(allowed, Origin{}) {
-		return nil, errors.New("httpclient: restriction requires at least one valid origin")
-	}
-	owned := http.Client{}
-	if client != nil {
-		owned = *client
-	}
-	allowed.restrict(&owned, false)
-	return &owned, nil
-}
-
-// restrict chains the host's redirect policy, then the origin check, then the
-// optional refusal to follow, so no setting replaces another.
-func (o Origins) restrict(client *http.Client, rejectRedirects bool) {
-	transport := client.Transport
-	if lo.IsNil(transport) {
-		transport = http.DefaultTransport
-	}
-	client.Transport = &originTransport{next: transport, allowed: o}
-	previous := client.CheckRedirect
-	client.CheckRedirect = func(request *http.Request, via []*http.Request) error {
-		if previous != nil {
-			if err := previous(request, via); err != nil {
-				return err
-			}
-		} else if len(via) >= maxHTTPRedirects {
-			return fmt.Errorf("httpclient: stopped after %d redirects", maxHTTPRedirects)
-		}
-		if err := o.ValidateRequest(request); err != nil {
-			return err
-		}
-		if rejectRedirects {
-			return http.ErrUseLastResponse
-		}
-		return nil
-	}
-}
-
-// The final transport check covers URL changes made by host redirect callbacks.
-type originTransport struct {
-	next    http.RoundTripper
-	allowed Origins
-}
-
-func (o *originTransport) RoundTrip(request *http.Request) (*http.Response, error) {
-	if err := o.allowed.ValidateRequest(request); err != nil {
-		if request != nil && request.Body != nil {
-			err = errors.Join(err, request.Body.Close())
-		}
-		return nil, err
-	}
-	return o.next.RoundTrip(request)
-}
-
-func (o *originTransport) CloseIdleConnections() {
-	if closer, ok := o.next.(interface{ CloseIdleConnections() }); ok {
-		closer.CloseIdleConnections()
-	}
 }

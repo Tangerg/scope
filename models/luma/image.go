@@ -66,7 +66,7 @@ func (i ImageModelConfig) Validate() error {
 	if i.MaxOutputBytes < 0 {
 		return errors.New("luma: MaxOutputBytes must not be negative")
 	}
-	_, err := newOutputPolicy(i.OutputOrigins)
+	_, err := outputOrigins(i.OutputOrigins)
 	return err
 }
 
@@ -91,7 +91,12 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	if err != nil {
 		return nil, err
 	}
-	outputs, err := newOutputPolicy(config.OutputOrigins)
+	origins, err := outputOrigins(config.OutputOrigins)
+	if err != nil {
+		return nil, err
+	}
+	// Outputs never receive credentials, even when they share the API host.
+	downloads, err := httpclient.NewDeliveryClient(httpclient.DeliveryConfig{HTTPClient: config.HTTPClient, Destination: origins})
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +111,7 @@ func NewImageModel(ctx context.Context, config ImageModelConfig) (*ImageModel, e
 	return &ImageModel{
 		api:            api,
 		defaultOptions: config.DefaultOptions.Clone(),
-		httpClient:     outputs.client(config.HTTPClient),
+		httpClient:     downloads,
 		pollInterval:   pollInterval,
 		pollTimeout:    pollTimeout,
 		maxOutputBytes: cmp.Or(config.MaxOutputBytes, DefaultMaxOutputBytes),

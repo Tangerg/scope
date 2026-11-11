@@ -129,7 +129,12 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		return nil, fmt.Errorf("replicate: output origin: %w", err)
 	}
 	adapter := &api{http: client, policy: outputPolicy{apiOrigin: origin}, apiKey: config.APIKey}
-	adapter.download = resty.NewWithClient(adapter.policy.client(config.HTTPClient)).SetResponseBodyLimit(defaultMaxOutputBytes)
+	// Only the API origin, which serves its own files, keeps the credentials.
+	downloads, err := httpclient.NewDeliveryClient(httpclient.DeliveryConfig{HTTPClient: config.HTTPClient, Destination: adapter.policy, CredentialOrigin: origin})
+	if err != nil {
+		return nil, err
+	}
+	adapter.download = resty.NewWithClient(downloads).SetResponseBodyLimit(defaultMaxOutputBytes)
 	return adapter, nil
 }
 
