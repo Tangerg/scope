@@ -17,7 +17,9 @@ type Definition interface {
 // Execution is single-use past a failed Step: once Step returns an error, or
 // returns a Transition the Runtime rejects, the Runtime ends the Process and
 // never calls Step or Snapshot on that Execution again. Step may therefore
-// mutate its state before it fails; it needs no rollback.
+// mutate its state before it fails; it needs no rollback. A Complete or Fail
+// Transition is likewise the Execution's last: its state is never stepped,
+// snapshotted or restored again, so an Execution records no finished phase.
 type Execution interface {
 	Step(ctx context.Context, turn Turn) (Transition, error)
 	Snapshot() (ExecutionState, error)

@@ -62,13 +62,6 @@ func TestUppercaseExecutionRejectsInvalidAdvancementAndRestoresExactly(t *testin
 	if transition.Kind() != agentrun.TransitionKindComplete {
 		t.Fatal(transition.Kind())
 	}
-	completed := compositionValue(execution.Snapshot())
-	if _, err := execution.Step(t.Context(), compositionTurn(2)); err == nil {
-		t.Fatal("completed execution advanced")
-	}
-	if after := compositionValue(execution.Snapshot()); !after.Payload().Equal(completed.Payload()) {
-		t.Fatal("duplicate completion changed state")
-	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := program.Definition().Restore(ctx, before); !errors.Is(err, context.Canceled) {

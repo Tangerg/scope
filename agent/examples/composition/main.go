@@ -157,17 +157,12 @@ func (*uppercaseDefinition) Restore(ctx context.Context, state agentrun.Executio
 
 type uppercaseExecution struct {
 	Text string `json:"text"`
-	Done bool   `json:"done"`
 }
 
 func (u *uppercaseExecution) Step(_ context.Context, turn agentrun.Turn) (agentrun.Transition, error) {
 	if len(turn.Messages) != 0 {
 		return agentrun.Transition{}, agentrun.ErrInvalidMessage
 	}
-	if u.Done {
-		return agentrun.Transition{}, errors.New("uppercase execution already completed")
-	}
-	u.Done = true
 	value, err := agentrun.EncodePayload(textOutput{Text: strings.ToUpper(u.Text)})
 	if err != nil {
 		return agentrun.Transition{}, err

@@ -45,17 +45,15 @@ func (s senderDefinition) Restore(ctx context.Context, state run.ExecutionState)
 type senderExecution struct {
 	message *Message
 	pending *run.EffectID
-	done    bool
 }
 
 type senderWire struct {
 	Message *Message      `json:"message,omitzero"`
 	Pending *run.EffectID `json:"pending,omitzero"`
-	Done    bool          `json:"done,omitzero"`
 }
 
 func (s senderExecution) MarshalJSON() ([]byte, error) {
-	payload, err := run.EncodePayload(senderWire{Message: s.message, Pending: s.pending, Done: s.done})
+	payload, err := run.EncodePayload(senderWire{Message: s.message, Pending: s.pending})
 	return payload.JSON(), err
 }
 
@@ -68,7 +66,7 @@ func (s *senderExecution) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	*s = senderExecution{message: wire.Message, pending: wire.Pending, done: wire.Done}
+	*s = senderExecution{message: wire.Message, pending: wire.Pending}
 	return nil
 }
 
@@ -77,9 +75,6 @@ func (s *senderExecution) Snapshot() (run.ExecutionState, error) {
 }
 
 func (s *senderExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {
-	if s.done {
-		return run.Transition{}, ErrInvalidMessage
-	}
 	if s.pending == nil {
 		effect, err := s.message.Effect()
 		if err != nil {
@@ -97,8 +92,6 @@ func (s *senderExecution) Step(_ context.Context, turn run.Turn) (run.Transition
 		return run.Transition{}, ErrInvalidMessage
 	}
 	payload := completion.Outcome.Payload()
-	s.pending = nil
-	s.done = true
 	if failure, failed := completion.Outcome.Failure(); failed {
 		return run.Fail(1, failure)
 	}
