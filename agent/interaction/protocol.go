@@ -278,12 +278,20 @@ func (t toolDispatchResult) validate() error {
 }
 
 func decodeEffect(payload run.Payload) (effectEnvelope, error) {
-	envelope, err := payload.Decode[effectEnvelope]()
+	return decodeEnvelope[effectEnvelope](payload, "effect")
+}
+
+// decodeEnvelope admits one protocol envelope: strict decoding and then the
+// envelope's own validation, both classified as protocol violations.
+func decodeEnvelope[E interface{ validate() error }](payload run.Payload, role string) (E, error) {
+	envelope, err := payload.Decode[E]()
 	if err != nil {
-		return effectEnvelope{}, fmt.Errorf("%w: decode effect: %w", ErrInvalidProtocol, err)
+		var zero E
+		return zero, fmt.Errorf("%w: decode %s: %w", ErrInvalidProtocol, role, err)
 	}
 	if err := envelope.validate(); err != nil {
-		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		var zero E
+		return zero, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
 	}
 	return envelope, nil
 }
@@ -341,12 +349,5 @@ func (o operation) failedResponse(outcome run.Settlement) (*chat.Response, error
 }
 
 func decodeResult(payload run.Payload) (resultEnvelope, error) {
-	envelope, err := payload.Decode[resultEnvelope]()
-	if err != nil {
-		return resultEnvelope{}, fmt.Errorf("%w: decode result: %w", ErrInvalidProtocol, err)
-	}
-	if err := envelope.validate(); err != nil {
-		return resultEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	return envelope, nil
+	return decodeEnvelope[resultEnvelope](payload, "result")
 }
