@@ -103,18 +103,13 @@ func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition,
 		return run.Transition{}, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome
-	payload := settlement.Payload()
-	if settlement.Status() == run.SettlementStatusFailed {
-		failure, valid := settlement.Failure()
-		if !valid {
-			return run.Transition{}, fmt.Errorf("%w: invalid timer failure diagnostic", ErrInvalidProtocol)
-		}
+	if failure, failed := settlement.Failure(); failed {
 		return run.Fail(1, failure)
 	}
 	if settlement.Status() != run.SettlementStatusSucceeded {
 		return run.Transition{}, fmt.Errorf("%w: timer requires a definite settlement", ErrInvalidProtocol)
 	}
-	if _, err := payload.Decode[timerReached](); err != nil {
+	if _, err := settlement.Payload().Decode[timerReached](); err != nil {
 		return run.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
 	}
 	output, err := run.EncodePayload(d.state.Deadline)

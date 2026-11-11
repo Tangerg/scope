@@ -114,11 +114,7 @@ func decodeSettlement[T any](messages []run.Message, expected run.EffectID) (T, 
 		return result, nil, ErrInvalidProtocol
 	}
 	settlement := completion.Outcome
-	if settlement.Status() == run.SettlementStatusFailed {
-		failure, valid := settlement.Failure()
-		if !valid {
-			return result, nil, fmt.Errorf("%w: invalid settlement failure", ErrInvalidProtocol)
-		}
+	if failure, failed := settlement.Failure(); failed {
 		return result, &failure, nil
 	}
 	result, err := settlement.Payload().Decode[T]()

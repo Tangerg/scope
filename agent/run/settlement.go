@@ -84,11 +84,11 @@ func (s Settlement) Status() SettlementStatus { return s.status }
 // remains available through Failure without interpreting the domain's schema.
 func (s Settlement) Payload() Payload { return s.payload }
 
+// Failure reports the diagnostic of a definite failure. Every constructor and
+// decoder requires a failed Settlement to carry a valid Failure, so the result
+// is valid exactly when the status is Failed.
 func (s Settlement) Failure() (Failure, bool) {
-	if s.status != SettlementStatusFailed {
-		return Failure{}, false
-	}
-	return s.failure, s.failure.Valid()
+	return s.failure, s.status == SettlementStatusFailed
 }
 
 func (s Settlement) Valid() bool {
@@ -160,11 +160,7 @@ func (s Settlement) SpawnResult() (ProcessID, Failure, error) {
 		}
 		return child, Failure{}, nil
 	case SettlementStatusFailed:
-		failure, valid := s.Failure()
-		if !valid {
-			return ProcessID{}, Failure{}, fmt.Errorf("%w: spawn rejection carries no failure", ErrInvalidSettlement)
-		}
-		return ProcessID{}, failure, nil
+		return ProcessID{}, s.failure, nil
 	default:
 		return ProcessID{}, Failure{}, fmt.Errorf("%w: spawn outcome is not definite", ErrInvalidSettlement)
 	}
