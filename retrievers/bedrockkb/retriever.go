@@ -136,6 +136,36 @@ func (r retrievalResult) match(knowledgeBase string) (rag.Candidate, error) {
 	return candidate, candidate.Validate()
 }
 
+// locationTypeMember names a location's type in the native location object.
+const locationTypeMember = "type"
+
+// locationIdentity names, for each native location type, the member holding
+// that location and the property that identifies its source.
+func locationIdentity(kind types.RetrievalResultLocationType) (member, property string, known bool) {
+	switch kind {
+	case types.RetrievalResultLocationTypeS3:
+		return "s3Location", "uri", true
+	case types.RetrievalResultLocationTypeWeb:
+		return "webLocation", "url", true
+	case types.RetrievalResultLocationTypeConfluence:
+		return "confluenceLocation", "url", true
+	case types.RetrievalResultLocationTypeSalesforce:
+		return "salesforceLocation", "url", true
+	case types.RetrievalResultLocationTypeSharepoint:
+		return "sharePointLocation", "url", true
+	case types.RetrievalResultLocationTypeKendra:
+		return "kendraDocumentLocation", "uri", true
+	case types.RetrievalResultLocationTypeCustom:
+		return "customDocumentLocation", "id", true
+	case types.RetrievalResultLocationTypeOnedrive:
+		return "oneDriveLocation", "url", true
+	case types.RetrievalResultLocationTypeGoogledrive:
+		return "googleDriveLocation", "url", true
+	default:
+		return "", "", false
+	}
+}
+
 func (r retrievalResult) sourceLocation() (metadata.Map, error) {
 	var location metadata.Map
 	if len(r.Location) != 0 {
@@ -149,32 +179,11 @@ func (r retrievalResult) sourceLocation() (metadata.Map, error) {
 		}
 		return location, nil
 	}
-	kind, _, err := location.Decode[string]("type")
+	kind, _, err := location.Decode[string](locationTypeMember)
 	if err != nil {
 		return nil, err
 	}
-	member, property := "", ""
-	switch types.RetrievalResultLocationType(kind) {
-	case types.RetrievalResultLocationTypeS3:
-		member, property = "s3Location", "uri"
-	case types.RetrievalResultLocationTypeWeb:
-		member, property = "webLocation", "url"
-	case types.RetrievalResultLocationTypeConfluence:
-		member, property = "confluenceLocation", "url"
-	case types.RetrievalResultLocationTypeSalesforce:
-		member, property = "salesforceLocation", "url"
-	case types.RetrievalResultLocationTypeSharepoint:
-		member, property = "sharePointLocation", "url"
-	case types.RetrievalResultLocationTypeKendra:
-		member, property = "kendraDocumentLocation", "uri"
-	case types.RetrievalResultLocationTypeCustom:
-		member, property = "customDocumentLocation", "id"
-	case types.RetrievalResultLocationTypeOnedrive:
-		member, property = "oneDriveLocation", "url"
-	case types.RetrievalResultLocationTypeGoogledrive:
-		member, property = "googleDriveLocation", "url"
-	}
-	if member != "" {
+	if member, property, known := locationIdentity(types.RetrievalResultLocationType(kind)); known {
 		source, present, decodeErr := location.Decode[metadata.Map](member)
 		if decodeErr != nil {
 			return nil, decodeErr
