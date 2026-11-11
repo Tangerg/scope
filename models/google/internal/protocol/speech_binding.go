@@ -12,6 +12,7 @@ import (
 
 	"google.golang.org/genai"
 
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -61,7 +62,7 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 		return "", nil, nil, err
 	}
 	if _, found := fields[speechResponseModalitiesField]; found {
-		return "", nil, nil, fmt.Errorf("google: speech: %s is owned by the audio capability", speechResponseModalitiesField)
+		return "", nil, nil, fmt.Errorf("google: speech: %s belongs to the audio capability: %w", speechResponseModalitiesField, metadata.ErrCoreOwnedField)
 	}
 	if raw, found := fields[speechConfigField]; found {
 		var speechFields map[string]json.RawMessage
@@ -69,7 +70,7 @@ func (s *speechBinding) buildAPITTSRequest(req *speech.Request) (string, []*gena
 			return "", nil, nil, err
 		}
 		if _, found := speechFields[speechVoiceConfigField]; found {
-			return "", nil, nil, fmt.Errorf("google: speech: native %s is owned by Core Voice", speechVoiceConfigField)
+			return "", nil, nil, fmt.Errorf("google: speech: native %s: %w", speechVoiceConfigField, metadata.ErrCoreOwnedField)
 		}
 	}
 	config.ResponseModalities = []string{string(genai.ModalityAudio)}

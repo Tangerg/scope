@@ -14,6 +14,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/mistral"
 )
@@ -200,7 +201,7 @@ func TestChatRejectsDuplicateToolChoiceSurfacesBeforeProviderIO(t *testing.T) {
 	if err := request.Options.Extensions.Set(mistral.RequestExtensionKey, map[string]any{"tool_choice": "auto"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by the Core ToolChoice") {
+	if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("extension tool choice error = %v", err)
 	}
 	if hits.Load() != 0 {

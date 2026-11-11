@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
 
@@ -84,7 +85,7 @@ func nativeTranscriptionRequest(options transcription.Options) (*transcriptionRe
 	}
 	for _, field := range []string{transcriptionFieldModelID, transcriptionFieldLanguageCode} {
 		if _, named := members[field]; named {
-			return nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+			return nil, fmt.Errorf("elevenlabs: extension %q field %q: %w", TranscriptionRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	native, _, err := options.Extensions.Decode[transcriptionRequest](TranscriptionRequestExtensionKey)

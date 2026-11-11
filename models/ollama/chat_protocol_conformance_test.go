@@ -3,6 +3,7 @@ package ollama_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -179,7 +180,7 @@ func TestChatRejectsToolChoiceAndDuplicateExtensionOptions(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := adapter.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by Core chat options") {
+	if _, err := adapter.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate extension error = %v", err)
 	}
 	if hits.Load() != 0 {

@@ -37,7 +37,7 @@ func validateChatExtraField(name string) error {
 	}
 	switch name {
 	case chatFieldModel, chatFieldMessages, chatFieldTools, chatFieldFunctions, chatFieldFunctionCall, string(ChatOptionFrequencyPenalty), string(TokenLimitMaxTokens), string(TokenLimitMaxCompletionTokens), chatFieldParallelToolCalls, string(ChatOptionPresencePenalty), string(ChatOptionReasoningEffort), chatFieldResponseFormat, chatFieldStop, chatFieldStream, string(ChatOptionTemperature), chatFieldToolChoice, chatFieldTopK, string(ChatOptionTopP):
-		return fmt.Errorf("openai: extra field %q is owned by Core", name)
+		return fmt.Errorf("openai: extra field %q: %w", name, metadata.ErrCoreOwnedField)
 	case chatFieldOutputCount:
 		return fmt.Errorf("openai: extra field %q is unsupported; Core Chat produces one output", name)
 	default:
@@ -56,7 +56,7 @@ func decodeRequestFields(values metadata.Extensions, key string, reserved ...str
 	}
 	for _, name := range reserved {
 		if _, exists := fields[name]; exists {
-			return nil, fmt.Errorf("openai: extension %q field %q is owned by Core", key, name)
+			return nil, fmt.Errorf("openai: extension %q field %q: %w", key, name, metadata.ErrCoreOwnedField)
 		}
 	}
 	return fields, nil

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -80,7 +81,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*nativeEmbedRe
 		}
 		for _, name := range []string{nativeFieldModel, embeddingFieldInput, embeddingFieldDimensions} {
 			if _, exists := fields[name]; exists {
-				return nil, fmt.Errorf("ollama: embedding extension field %q is owned by Core", name)
+				return nil, fmt.Errorf("ollama: embedding extension field %q: %w", name, metadata.ErrCoreOwnedField)
 			}
 		}
 		if err := jsonv2.Unmarshal(raw, apiReq, jsonv2.RejectUnknownMembers(true)); err != nil {

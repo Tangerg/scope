@@ -11,6 +11,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -182,11 +183,11 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 	for field := range fields {
 		switch field {
 		case nativeFieldModel, nativeFieldMessages, nativeFieldStream, nativeFieldTools:
-			return nil, fmt.Errorf("ollama: extension %q field %q is owned by the Core request", RequestExtensionKey, field)
+			return nil, fmt.Errorf("ollama: extension %q field %q belongs to the Core request: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		case nativeFieldFormat:
-			return nil, fmt.Errorf("ollama: extension %q field %q is owned by options.output_format", RequestExtensionKey, field)
+			return nil, fmt.Errorf("ollama: extension %q field %q belongs to options.output_format: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		case nativeFieldToolChoice, nativeFieldParallelToolCalls:
-			return nil, fmt.Errorf("ollama: extension %q field %q is owned by options.tool_choice", RequestExtensionKey, field)
+			return nil, fmt.Errorf("ollama: extension %q field %q belongs to options.tool_choice: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if rawOptions, exists := fields[nativeFieldOptions]; exists {
@@ -197,7 +198,7 @@ func decodeProtocolRequestExtension(req *corechat.Request) (*nativeChatRequest, 
 		for field := range optionFields {
 			switch field {
 			case nativeOptionFrequencyPenalty, nativeOptionNumPredict, nativeOptionPresencePenalty, nativeOptionStop, nativeOptionTemperature, nativeOptionTopK, nativeOptionTopP:
-				return nil, fmt.Errorf("ollama: extension %q field %q.%s is owned by Core chat options", RequestExtensionKey, nativeFieldOptions, field)
+				return nil, fmt.Errorf("ollama: extension %q field %q.%s: %w", RequestExtensionKey, nativeFieldOptions, field, metadata.ErrCoreOwnedField)
 			}
 		}
 	}

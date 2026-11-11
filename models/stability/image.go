@@ -95,7 +95,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 	}
 	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldSeed, fieldOutputFormat, fieldModel} {
 		if _, exists := nativeFields[field]; exists {
-			return "", nil, fmt.Errorf("stability: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return "", nil, fmt.Errorf("stability: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if _, exists := nativeFields[fieldMode]; exists {

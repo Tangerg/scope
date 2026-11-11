@@ -99,7 +99,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	}
 	for _, field := range []string{fieldAudioURL, fieldLanguageCode} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("assemblyai: extension %q field %q is owned by Core", RequestExtensionKey, field)}
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("assemblyai: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)}
 		}
 	}
 

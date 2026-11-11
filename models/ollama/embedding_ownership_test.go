@@ -2,10 +2,11 @@ package ollama
 
 import (
 	"encoding/json"
-	"strings"
+	"errors"
 	"testing"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func TestEmbeddingNativeFieldsCannotOwnCoreInputs(t *testing.T) {
@@ -19,7 +20,7 @@ func TestEmbeddingNativeFieldsCannotOwnCoreInputs(t *testing.T) {
 				t.Fatal(err)
 			}
 			model := &EmbeddingModel{defaultOptions: embedding.Options{Model: "embedding-model"}}
-			if _, err := model.buildAPIRequest(request); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+			if _, err := model.buildAPIRequest(request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 				t.Fatalf("native request %s: error = %v; want Core ownership rejection", raw, err)
 			}
 		})

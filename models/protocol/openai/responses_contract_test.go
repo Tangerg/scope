@@ -3,6 +3,7 @@ package openai_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -132,11 +134,11 @@ func TestResponsesRejectsCoreOwnedExtensions(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by") {
+				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 					t.Fatalf("defaults=%v: Call = %v", defaults, err)
 				}
 				_, err = model.CountInputTokens(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by") {
+				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 					t.Fatalf("defaults=%v: CountInputTokens = %v", defaults, err)
 				}
 			}

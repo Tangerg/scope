@@ -2,6 +2,7 @@ package replicate_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/replicate"
 )
@@ -56,7 +58,7 @@ func TestImageRejectsBoundNativeInputBeforeIO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := model.Call(t.Context(), &image.Request{Prompt: "hello"}); err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+			if _, err := model.Call(t.Context(), &image.Request{Prompt: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})
@@ -78,7 +80,7 @@ func TestSpeechRejectsBoundNativeInputBeforeIO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})

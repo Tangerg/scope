@@ -71,7 +71,7 @@ func validateAdditionalModelRequestFields(fields metadata.Map) error {
 			nativeFieldStop, nativeFieldStopSequencesSnake, nativeFieldStopSequencesCamel,
 			nativeFieldFrequencyPenalty, nativeFieldPresencePenalty, nativeFieldReasoningEffortSnake, nativeFieldReasoningEffortCamel,
 			nativeFieldResponseFormatSnake, nativeFieldResponseFormatCamel, nativeFieldOutputConfigCamel, nativeFieldInferenceConfig, nativeFieldTextGenerationConfig:
-			return fmt.Errorf("bedrock: additional_model_request_fields.%s is owned by Core", name)
+			return fmt.Errorf("bedrock: additional_model_request_fields.%s: %w", name, metadata.ErrCoreOwnedField)
 		case nativeFieldOutputConfigSnake:
 			coreMembers = []string{nativeFieldEffort, nativeFieldFormat}
 		case nativeFieldReasoningConfig:
@@ -85,7 +85,7 @@ func validateAdditionalModelRequestFields(fields metadata.Map) error {
 		}
 		for _, member := range coreMembers {
 			if _, exists := members[member]; exists {
-				return fmt.Errorf("bedrock: additional_model_request_fields.%s.%s is owned by Core", name, member)
+				return fmt.Errorf("bedrock: additional_model_request_fields.%s.%s: %w", name, member, metadata.ErrCoreOwnedField)
 			}
 		}
 	}

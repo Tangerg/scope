@@ -1,6 +1,7 @@
 package blackforestlabs_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,11 +45,11 @@ func TestImageRejectsUnsupportedNativeFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				reason := "owned by Core"
+				refused := errors.Is(err, metadata.ErrCoreOwnedField)
 				if field == "unknown_field" {
-					reason = "unknown"
+					refused = err != nil && strings.Contains(err.Error(), "unknown")
 				}
-				if err == nil || !strings.Contains(err.Error(), reason) || requests != 0 {
+				if !refused || requests != 0 {
 					t.Fatalf("native field accepted: requests=%d err=%v", requests, err)
 				}
 			})

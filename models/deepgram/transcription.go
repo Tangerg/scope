@@ -107,7 +107,7 @@ func (t *TranscriptionModel) buildParams(req *transcription.Request) (*listenPar
 	}
 	for _, field := range []string{fieldModel, fieldLanguage} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+			return nil, fmt.Errorf("deepgram: extension %q field %q: %w", TranscriptionRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	params, _, err := options.Extensions.Decode[listenParams](TranscriptionRequestExtensionKey)

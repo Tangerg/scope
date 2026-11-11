@@ -1,6 +1,7 @@
 package stability_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,7 +45,7 @@ func TestImageRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by Core") || requests != 0 {
+				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || requests != 0 {
 					t.Fatalf("native field accepted: requests=%d err=%v", requests, err)
 				}
 			})

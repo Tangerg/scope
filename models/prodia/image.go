@@ -11,6 +11,7 @@ import (
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 type ImageModelConfig struct {
@@ -93,7 +94,7 @@ func newJobRequest(prompt string, options image.Options) (*jobRequest, error) {
 		return nil, err
 	}
 	if _, exists := nativeFields[fieldType]; exists {
-		return nil, fmt.Errorf("prodia: extension %q field %q is owned by Core", ImageRequestExtensionKey, fieldType)
+		return nil, fmt.Errorf("prodia: extension %q field %q: %w", ImageRequestExtensionKey, fieldType, metadata.ErrCoreOwnedField)
 	}
 	request, _, err := options.Extensions.Decode[jobRequest](ImageRequestExtensionKey)
 	if err != nil {
@@ -105,7 +106,7 @@ func newJobRequest(prompt string, options image.Options) (*jobRequest, error) {
 	}
 	for _, field := range []string{fieldPrompt, fieldNegativePrompt, fieldWidth, fieldHeight, fieldSeed} {
 		if _, exists := request.Config[field]; exists {
-			return nil, fmt.Errorf("prodia: config field %q is owned by Core", field)
+			return nil, fmt.Errorf("prodia: config field %q: %w", field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if err := request.setConfig(fieldPrompt, prompt); err != nil {

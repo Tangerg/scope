@@ -2,10 +2,12 @@ package openai
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"strings"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func TestChatDefaultsReachNativeExtensionAndDialect(t *testing.T) {
@@ -84,7 +86,7 @@ func TestCompatibleRequestCannotOverwriteCoreFields(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := &corechat.Request{Messages: []corechat.Message{corechat.NewUserMessage(corechat.NewTextPart("hello"))}}
-			if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+			if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 				t.Fatalf("Call=%v", err)
 			}
 		})

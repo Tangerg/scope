@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -76,7 +77,7 @@ func (e *EmbeddingModel) buildAPIRequest(req *embedding.Request) (*embeddingRequ
 	}
 	for _, field := range []string{embeddingFieldModel, embeddingFieldInput, embeddingFieldDimensions} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("jina: extension %q field %q is owned by Core", EmbeddingRequestExtensionKey, field)
+			return nil, fmt.Errorf("jina: extension %q field %q: %w", EmbeddingRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 

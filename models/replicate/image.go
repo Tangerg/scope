@@ -288,7 +288,7 @@ func (i *ImageModel) prepareRequest(req *image.Request) (image.Options, *predict
 	for _, key := range []string{i.inputSchema.PromptKey, i.inputSchema.NegativePromptKey, i.inputSchema.WidthKey, i.inputSchema.HeightKey, i.inputSchema.SeedKey, i.inputSchema.OutputFormatKey} {
 		if key != "" {
 			if _, exists := apiReq.Input[key]; exists {
-				return image.Options{}, nil, fmt.Errorf("replicate: extension input %q is owned by Core", key)
+				return image.Options{}, nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
 			}
 		}
 	}

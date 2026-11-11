@@ -3,10 +3,10 @@ package bedrock_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -78,7 +78,7 @@ func TestChatRejectsNativeAliasesForCoreFactsBeforeIO(t *testing.T) {
 					Credentials: &bedrock.Credentials{AccessKeyID: "test", SecretAccessKey: "test"}, DefaultOptions: defaults,
 				})
 				if fromDefaults {
-					if model != nil || err == nil || !strings.Contains(err.Error(), "owned by Core") || calls.Load() != 0 {
+					if model != nil || err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls.Load() != 0 {
 						t.Fatalf("model=%v error=%v provider calls=%d", model, err, calls.Load())
 					}
 					return
@@ -87,7 +87,7 @@ func TestChatRejectsNativeAliasesForCoreFactsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				response, err := model.Call(t.Context(), request)
-				if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !strings.Contains(err.Error(), "owned by Core") || calls.Load() != 0 {
+				if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !errors.Is(err, metadata.ErrCoreOwnedField) || calls.Load() != 0 {
 					t.Fatalf("response=%v error=%v provider calls=%d", response, err, calls.Load())
 				}
 			})

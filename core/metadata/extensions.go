@@ -2,10 +2,16 @@ package metadata
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 )
+
+// ErrCoreOwnedField marks an extension that sets a field Core already owns,
+// such as the model or the input. Every provider rejects that override before
+// I/O with this one error, so callers match it rather than provider wording.
+var ErrCoreOwnedField = errors.New("metadata: extension field is owned by Core")
 
 // Extensions owns namespaced JSON values and prevents unchecked public map mutation.
 type Extensions struct {

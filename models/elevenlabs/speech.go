@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -130,12 +131,12 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 	}
 	for _, field := range []string{speechFieldText, speechFieldModelID, speechFieldVoiceID, speechFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
-			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
+			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if settings, ok := nativeFields[speechFieldVoiceSettings].(map[string]any); ok {
 		if _, exists := settings[voiceSettingsFieldSpeed]; exists {
-			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed is owned by Core", SpeechRequestExtensionKey)
+			return "", "", nil, fmt.Errorf("elevenlabs: extension %q field voice_settings.speed: %w", SpeechRequestExtensionKey, metadata.ErrCoreOwnedField)
 		}
 	}
 

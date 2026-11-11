@@ -12,6 +12,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -63,7 +64,7 @@ func (r ReasoningDetailsConfig) Validate() error {
 	}
 	switch r.DetailsField {
 	case assistantFieldRole, assistantFieldContent, assistantFieldName, assistantFieldToolCalls, assistantFieldFunctionCall, assistantFieldRefusal, assistantFieldAudio:
-		return fmt.Errorf("openai: reasoning details field %q is owned by Core", r.DetailsField)
+		return fmt.Errorf("openai: reasoning details field %q: %w", r.DetailsField, metadata.ErrCoreOwnedField)
 	}
 	return nil
 }

@@ -17,6 +17,7 @@ import (
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -173,7 +174,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 			}
 			name += "." + field.member
 		}
-		return nil, fmt.Errorf("google: extension %q field %q is owned by %s", extensionKey, name, field.owner)
+		return nil, fmt.Errorf("google: extension %q field %q belongs to %s: %w", extensionKey, name, field.owner, metadata.ErrCoreOwnedField)
 	}
 	if value, exists := fields[generationToolsField]; exists {
 		var tools []map[string]json.RawMessage
@@ -182,7 +183,7 @@ func decodeProtocolConfig(provider string, req *corechat.Request) (*genai.Genera
 		}
 		for index, tool := range tools {
 			if _, exists := tool[generationDeclarationsField]; exists {
-				return nil, fmt.Errorf("google: extension %q field %s[%d].%s is owned by %s", extensionKey, generationToolsField, index, generationDeclarationsField, chatToolsOwner)
+				return nil, fmt.Errorf("google: extension %q field %s[%d].%s belongs to %s: %w", extensionKey, generationToolsField, index, generationDeclarationsField, chatToolsOwner, metadata.ErrCoreOwnedField)
 			}
 		}
 	}

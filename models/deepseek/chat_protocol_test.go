@@ -3,6 +3,7 @@ package deepseek_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/deepseek"
 	"github.com/Tangerg/scope/models/protocol/openai"
@@ -286,7 +288,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 	if err := request.Options.Extensions.Set(deepseek.RequestExtensionKey, map[string]any{"reasoning_effort": "high"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by options.reasoning_effort") {
+	if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate reasoning effort owner error = %v", err)
 	}
 
@@ -294,7 +296,7 @@ func TestChatRejectsInvalidDeepSeekOptions(t *testing.T) {
 	if err := request.Options.Extensions.Set(deepseek.RequestExtensionKey, map[string]any{"tool_choice": "auto"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by options.tool_choice") {
+	if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate tool choice owner error = %v", err)
 	}
 }

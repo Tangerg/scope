@@ -134,7 +134,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	}
 	for _, field := range []string{requestFieldPrompt, requestFieldWidth, requestFieldHeight, requestFieldSeed, requestFieldOutputFormat} {
 		if _, exists := nativeFields[field]; exists {
-			return "", nil, fmt.Errorf("blackforestlabs: extension %q field %q is owned by Core", ImageRequestExtensionKey, field)
+			return "", nil, fmt.Errorf("blackforestlabs: extension %q field %q: %w", ImageRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 

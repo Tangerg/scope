@@ -142,7 +142,7 @@ func extensionFields(req *corechat.Request, dialect Dialect) (map[string]any, er
 	}
 	for _, name := range []string{requestFieldModel, requestFieldMessages, requestFieldSystem, requestFieldTools, requestFieldStream, requestFieldMaxTokens, requestFieldTemperature, requestFieldToolChoice, requestFieldTopK, requestFieldTopP, requestFieldStopSequences} {
 		if _, exists := fields[name]; exists {
-			return nil, fmt.Errorf("anthropic: extension %q field %q is owned by Core", extensionKey, name)
+			return nil, fmt.Errorf("anthropic: extension %q field %q: %w", extensionKey, name, metadata.ErrCoreOwnedField)
 		}
 	}
 	return fields, nil
@@ -242,10 +242,10 @@ func decodeOutputConfig(fields map[string]any, extensionKey string) (anthropicsd
 	var extraFields map[string]any
 	if object, ok := value.(map[string]any); ok {
 		if _, exists := object[outputConfigFieldFormat]; exists {
-			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.format is owned by options.output_format", extensionKey, requestFieldOutputConfig)
+			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.format belongs to options.output_format: %w", extensionKey, requestFieldOutputConfig, metadata.ErrCoreOwnedField)
 		}
 		if _, exists := object[outputConfigFieldEffort]; exists {
-			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, requestFieldOutputConfig)
+			return anthropicsdk.OutputConfigParam{}, fmt.Errorf("anthropic: extension %q field %q.effort belongs to options.reasoning_effort: %w", extensionKey, requestFieldOutputConfig, metadata.ErrCoreOwnedField)
 		}
 		extraFields = maps.Clone(object)
 	}

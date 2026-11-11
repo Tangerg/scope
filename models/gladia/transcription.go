@@ -113,12 +113,12 @@ func (t *TranscriptionModel) buildRequest(req *transcription.Request) (*transcri
 	}
 	for _, field := range []string{fieldAudioURL, fieldModel} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return nil, fmt.Errorf("gladia: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if language, ok := nativeFields[fieldLanguageConfig].(map[string]any); ok {
 		if _, exists := language[fieldLanguages]; exists {
-			return nil, fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)
+			return nil, fmt.Errorf("gladia: extension %q language_config.languages: %w", RequestExtensionKey, metadata.ErrCoreOwnedField)
 		}
 	}
 	apiReq, _, err := options.Extensions.Decode[transcriptionRequest](RequestExtensionKey)

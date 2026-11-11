@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/protocol/anthropic"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -133,10 +134,10 @@ func prepareOpenAIRequest(source *corechat.Request, _ *openai.CompatibleRequest)
 			return fmt.Errorf("openrouter: reasoning: %w", err)
 		}
 		if _, found := reasoning[reasoningEffortField]; found {
-			return errors.New("openrouter: reasoning.effort is owned by options.reasoning_effort")
+			return fmt.Errorf("openrouter: reasoning.effort belongs to options.reasoning_effort: %w", metadata.ErrCoreOwnedField)
 		}
 		if _, found := reasoning[reasoningEnabledField]; found {
-			return errors.New("openrouter: reasoning.enabled is owned by options.reasoning_effort")
+			return fmt.Errorf("openrouter: reasoning.enabled belongs to options.reasoning_effort: %w", metadata.ErrCoreOwnedField)
 		}
 		if _, found := reasoning[reasoningMaxTokensField]; found && source.Options.ReasoningEffort != "" {
 			return errors.New("openrouter: reasoning.max_tokens cannot be combined with options.reasoning_effort")

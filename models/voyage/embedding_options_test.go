@@ -2,6 +2,7 @@ package voyage_test
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/voyage"
 )
 
@@ -80,7 +82,7 @@ func TestEmbeddingRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 					t.Fatalf("requests=%d error=%v", calls, err)
 				}
 			})

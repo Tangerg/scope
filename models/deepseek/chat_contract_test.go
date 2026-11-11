@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/deepseek"
 )
@@ -97,7 +99,7 @@ func TestChatRejectsObsoleteThinkingExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "owned by options.reasoning_effort") {
+	if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("Call = %v", err)
 	}
 }

@@ -1,9 +1,9 @@
 package elevenlabs_test
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/Tangerg/scope/core/media"
@@ -46,7 +46,7 @@ func TestTranscriptionRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, err = model.Call(t.Context(), request)
-				if err == nil || !strings.Contains(err.Error(), "owned by Core") || requests != 0 {
+				if err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || requests != 0 {
 					t.Fatalf("native field accepted: requests=%d error=%v", requests, err)
 				}
 			})
@@ -74,7 +74,7 @@ func TestSpeechRejectsNativeCoreFieldsBeforeIO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !strings.Contains(err.Error(), "owned by Core") || calls != 0 {
+			if _, err := model.Call(t.Context(), &speech.Request{Text: "hello"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) || calls != 0 {
 				t.Fatalf("calls=%d error=%v", calls, err)
 			}
 		})

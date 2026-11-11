@@ -1,12 +1,14 @@
 package protocol
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"google.golang.org/genai"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func TestProtocolRequestMapsCoreReasoningEffort(t *testing.T) {
@@ -32,7 +34,7 @@ func TestProtocolRequestRejectsDuplicateOrUnknownReasoningEffort(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := mapProtocolRequest("google", corechat.Options{Model: "gemini-3-pro"}, request); err == nil || !strings.Contains(err.Error(), "owned by options.reasoning_effort") {
+	if _, _, _, err := mapProtocolRequest("google", corechat.Options{Model: "gemini-3-pro"}, request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate owner error = %v", err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -104,7 +105,7 @@ func (c *CompatibleRequest) SetFinalAssistantExtraField(name string, value any) 
 	}
 	switch name {
 	case assistantFieldRole, assistantFieldContent, assistantFieldName, assistantFieldToolCalls, assistantFieldFunctionCall, assistantFieldRefusal, assistantFieldAudio:
-		return fmt.Errorf("openai: assistant field %q is owned by Core", name)
+		return fmt.Errorf("openai: assistant field %q: %w", name, metadata.ErrCoreOwnedField)
 	}
 	fields := c.finalAssistant.ExtraFields()
 	if _, exists := fields[name]; exists {

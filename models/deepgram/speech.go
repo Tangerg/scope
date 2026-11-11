@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -89,7 +90,7 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (string, *speakParams
 	}
 	for _, field := range []string{fieldModel, fieldEncoding, fieldContainer, fieldSpeed, fieldText} {
 		if _, exists := nativeFields[field]; exists {
-			return "", nil, fmt.Errorf("deepgram: extension %q field %q is owned by Core", SpeechRequestExtensionKey, field)
+			return "", nil, fmt.Errorf("deepgram: extension %q field %q: %w", SpeechRequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 

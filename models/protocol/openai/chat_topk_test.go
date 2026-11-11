@@ -3,6 +3,7 @@ package openai_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -24,7 +26,9 @@ func TestChatTopKHasOneCoreOwner(t *testing.T) {
 		extension       string
 		dialectOverride bool
 		want            *int64
-		wantErr         string
+		// wantErr is the refusal reason; ErrCoreOwnedField marks an override.
+		wantErr string
+		wantIs  error
 	}{
 		{name: "absent stays absent"},
 		{name: "supported default", supported: true, defaultTopK: new(int64(40)), want: new(int64(40))},
@@ -32,12 +36,12 @@ func TestChatTopKHasOneCoreOwner(t *testing.T) {
 		{name: "request overrides default", supported: true, defaultTopK: new(int64(40)), requestTopK: new(int64(7)), want: new(int64(7))},
 		{name: "unsupported dialect", requestTopK: new(int64(40)), wantErr: "not supported"},
 		{name: "invalid Core value", supported: true, requestTopK: new(int64(-1)), wantErr: "top_k must be greater than zero"},
-		{name: "raw field without Core", supported: true, extension: `{"top_k":40}`, wantErr: "owned by Core"},
-		{name: "raw same value", supported: true, requestTopK: new(int64(40)), extension: `{"top_k":40}`, wantErr: "owned by Core"},
-		{name: "raw different value", supported: true, requestTopK: new(int64(40)), extension: `{"top_k":7}`, wantErr: "owned by Core"},
-		{name: "raw invalid value", supported: true, extension: `{"top_k":-1}`, wantErr: "owned by Core"},
-		{name: "raw on unsupported dialect", extension: `{"top_k":40}`, wantErr: "owned by Core"},
-		{name: "callback cannot replace Core", supported: true, requestTopK: new(int64(40)), dialectOverride: true, wantErr: "owned by Core"},
+		{name: "raw field without Core", supported: true, extension: `{"top_k":40}`, wantIs: metadata.ErrCoreOwnedField},
+		{name: "raw same value", supported: true, requestTopK: new(int64(40)), extension: `{"top_k":40}`, wantIs: metadata.ErrCoreOwnedField},
+		{name: "raw different value", supported: true, requestTopK: new(int64(40)), extension: `{"top_k":7}`, wantIs: metadata.ErrCoreOwnedField},
+		{name: "raw invalid value", supported: true, extension: `{"top_k":-1}`, wantIs: metadata.ErrCoreOwnedField},
+		{name: "raw on unsupported dialect", extension: `{"top_k":40}`, wantIs: metadata.ErrCoreOwnedField},
+		{name: "callback cannot replace Core", supported: true, requestTopK: new(int64(40)), dialectOverride: true, wantIs: metadata.ErrCoreOwnedField},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var calls atomic.Int64
@@ -81,8 +85,9 @@ func TestChatTopKHasOneCoreOwner(t *testing.T) {
 				}
 			}
 			response, err := model.Call(t.Context(), request)
-			if test.wantErr != "" {
-				if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !strings.Contains(err.Error(), test.wantErr) || calls.Load() != 0 {
+			if test.wantErr != "" || test.wantIs != nil {
+				refused := test.wantIs != nil && errors.Is(err, test.wantIs) || test.wantErr != "" && err != nil && strings.Contains(err.Error(), test.wantErr)
+				if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || !refused || calls.Load() != 0 {
 					t.Fatalf("response=%v error=%v provider calls=%d", response, err, calls.Load())
 				}
 				return

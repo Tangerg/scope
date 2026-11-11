@@ -2,15 +2,16 @@ package openrouter_test
 
 import (
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/models/openrouter"
 )
 
@@ -23,7 +24,7 @@ func TestChatRejectsNativeReasoningEffort(t *testing.T) {
 	if err := request.Options.Extensions.Set(openrouter.OpenAIRequestExtensionKey, map[string]any{"reasoning": map[string]any{"effort": "high"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.Call(t.Context(), request); err == nil || !strings.Contains(err.Error(), "reasoning.effort is owned") {
+	if _, err := model.Call(t.Context(), request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("Call=%v", err)
 	}
 }

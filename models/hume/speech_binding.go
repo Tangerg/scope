@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
@@ -66,11 +67,11 @@ func (s *speechBinding) buildAPIRequest(req *speech.Request) (*ttsRequest, error
 // format options that would refine a Core value the request does not set.
 func admitSpeechExtension(fields map[string]any, options speech.Options) error {
 	if _, exists := fields[requestFieldVersion]; exists {
-		return fmt.Errorf("hume: extension %q version is owned by Core", SpeechRequestExtensionKey)
+		return fmt.Errorf("hume: extension %q version: %w", SpeechRequestExtensionKey, metadata.ErrCoreOwnedField)
 	}
 	if format, ok := fields[requestFieldFormat].(map[string]any); ok {
 		if _, exists := format[formatFieldType]; exists {
-			return fmt.Errorf("hume: extension %q format.type is owned by Core", SpeechRequestExtensionKey)
+			return fmt.Errorf("hume: extension %q format.type: %w", SpeechRequestExtensionKey, metadata.ErrCoreOwnedField)
 		}
 		if len(format) > 0 && options.OutputFormat == "" {
 			return errors.New("hume: native format options require Options.OutputFormat")
@@ -98,7 +99,7 @@ func admitUtterance(value any, options speech.Options) error {
 	}
 	for _, field := range []string{utteranceFieldText, utteranceFieldSpeed} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("hume: extension utterance %s is owned by Core", field)
+			return fmt.Errorf("hume: extension utterance %s: %w", field, metadata.ErrCoreOwnedField)
 		}
 	}
 	voiceFields, ok := fields[utteranceFieldVoice].(map[string]any)
@@ -107,7 +108,7 @@ func admitUtterance(value any, options speech.Options) error {
 	}
 	for _, field := range []string{voiceFieldID, voiceFieldName} {
 		if _, exists := voiceFields[field]; exists {
-			return fmt.Errorf("hume: extension utterance voice.%s is owned by Core", field)
+			return fmt.Errorf("hume: extension utterance voice.%s: %w", field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if options.Voice == "" {

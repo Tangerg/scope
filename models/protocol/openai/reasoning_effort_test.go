@@ -1,12 +1,14 @@
 package openai
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 func TestChatMapsCoreReasoningEffort(t *testing.T) {
@@ -27,7 +29,7 @@ func TestChatMapsCoreReasoningEffort(t *testing.T) {
 	if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]any{"reasoning_effort": "low"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.buildRequest(request); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+	if _, err := model.buildRequest(request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate owner error = %v", err)
 	}
 }
@@ -54,7 +56,7 @@ func TestResponsesMapsCoreReasoningEffortAndTokenProjection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := model.buildResponsesRequest(request); err == nil || !strings.Contains(err.Error(), "owned by options.reasoning_effort") {
+	if _, err := model.buildResponsesRequest(request); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 		t.Fatalf("duplicate owner error = %v", err)
 	}
 }

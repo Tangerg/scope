@@ -3,6 +3,7 @@ package anthropic
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	corechat "github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
 	"github.com/Tangerg/scope/core/media"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -54,7 +56,7 @@ func TestNativeClaudeRejectsCompetingStreamControl(t *testing.T) {
 			if err := request.Options.Extensions.Set(RequestExtensionKey, map[string]json.RawMessage{"stream": value}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !strings.Contains(err.Error(), "owned by Core") {
+			if _, err := mapProtocolRequest(corechat.Options{Model: "claude-opus-4-6"}, request, Dialect{Provider: "anthropic"}); err == nil || !errors.Is(err, metadata.ErrCoreOwnedField) {
 				t.Fatalf("stream admission error = %v", err)
 			}
 		})

@@ -75,13 +75,13 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode Mistral request options: %w", err)
 	}
 	if len(reserved.ResponseFormat) != 0 {
-		return fmt.Errorf("field %q is owned by chat options output format", responseFormatField)
+		return fmt.Errorf("field %q belongs to chat options output format: %w", responseFormatField, metadata.ErrCoreOwnedField)
 	}
 	if len(reserved.ToolChoice) != 0 {
-		return errors.New("field \"tool_choice\" is owned by the Core ToolChoice")
+		return fmt.Errorf("field \"tool_choice\" belongs to the Core ToolChoice: %w", metadata.ErrCoreOwnedField)
 	}
 	if len(reserved.ParallelToolCalls) != 0 {
-		return errors.New("field \"parallel_tool_calls\" is owned by the Core ToolChoice")
+		return fmt.Errorf("field \"parallel_tool_calls\" belongs to the Core ToolChoice: %w", metadata.ErrCoreOwnedField)
 	}
 	type wireOptions ChatRequestOptions
 	var decoded wireOptions

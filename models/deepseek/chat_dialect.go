@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -66,15 +67,15 @@ func (r *RequestOptions) UnmarshalJSON(data []byte) error {
 	}
 	for _, field := range []string{thinkingField, reasoningEffortField} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("field %q is owned by options.reasoning_effort", field)
+			return fmt.Errorf("field %q belongs to options.reasoning_effort: %w", field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if _, exists := fields[responseFormatField]; exists {
-		return errors.New("field \"response_format\" is owned by options.output_format")
+		return fmt.Errorf("field \"response_format\" belongs to options.output_format: %w", metadata.ErrCoreOwnedField)
 	}
 	for _, field := range []string{toolChoiceField, parallelToolCallsField} {
 		if _, exists := fields[field]; exists {
-			return fmt.Errorf("field %q is owned by options.tool_choice", field)
+			return fmt.Errorf("field %q belongs to options.tool_choice: %w", field, metadata.ErrCoreOwnedField)
 		}
 	}
 	type wireOptions RequestOptions

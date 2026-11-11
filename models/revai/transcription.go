@@ -129,7 +129,7 @@ func (t *TranscriptionModel) buildJobOptions(req *transcription.Request) (*jobOp
 	}
 	for _, field := range []string{fieldMediaURL, fieldLanguage, fieldTranscriber} {
 		if _, exists := nativeFields[field]; exists {
-			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+			return nil, fmt.Errorf("revai: extension %q field %q: %w", RequestExtensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if raw, exists := nativeFields[fieldSourceConfig]; exists {

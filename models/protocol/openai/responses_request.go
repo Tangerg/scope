@@ -44,7 +44,7 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions, extension
 	}
 	for field := range fields {
 		if responsesRequestField(field).coreOwned() {
-			return fmt.Errorf("openai responses: extension %q field %q is owned by Core", extensionKey, field)
+			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, field, metadata.ErrCoreOwnedField)
 		}
 	}
 	if raw, exists := fields[string(responsesFieldReasoning)]; exists {
@@ -53,7 +53,7 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions, extension
 			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, responsesFieldReasoning, err)
 		}
 		if _, exists := reasoningFields[string(responsesFieldReasoningEffort)]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.effort is owned by options.reasoning_effort", extensionKey, responsesFieldReasoning)
+			return fmt.Errorf("openai responses: extension %q field %q.effort belongs to options.reasoning_effort: %w", extensionKey, responsesFieldReasoning, metadata.ErrCoreOwnedField)
 		}
 	}
 	if raw, exists := fields[string(responsesFieldText)]; exists {
@@ -62,7 +62,7 @@ func rejectCoreOwnedResponsesExtension(extensions metadata.Extensions, extension
 			return fmt.Errorf("openai responses: extension %q field %q: %w", extensionKey, responsesFieldText, err)
 		}
 		if _, exists := textFields[string(responsesFieldTextFormat)]; exists {
-			return fmt.Errorf("openai responses: extension %q field %q.format is owned by options.output_format", extensionKey, responsesFieldText)
+			return fmt.Errorf("openai responses: extension %q field %q.format belongs to options.output_format: %w", extensionKey, responsesFieldText, metadata.ErrCoreOwnedField)
 		}
 	}
 	return nil

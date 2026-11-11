@@ -188,7 +188,7 @@ func (s *SpeechModel) prepareRequest(req *speech.Request) (speech.Options, *pred
 	for _, key := range []string{s.inputSchema.TextKey, s.inputSchema.VoiceKey, s.inputSchema.SpeedKey} {
 		if key != "" {
 			if _, exists := apiReq.Input[key]; exists {
-				return speech.Options{}, nil, fmt.Errorf("replicate: extension input %q is owned by Core", key)
+				return speech.Options{}, nil, fmt.Errorf("replicate: extension input %q: %w", key, metadata.ErrCoreOwnedField)
 			}
 		}
 	}

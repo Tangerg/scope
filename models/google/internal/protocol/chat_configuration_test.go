@@ -2,12 +2,14 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -32,7 +34,7 @@ func TestProtocolConfigRejectsCoreOwnedFields(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, _, _, err := mapProtocolRequest(provider, chat.Options{Model: "gemini"}, request)
-				if err == nil || !strings.Contains(err.Error(), "owned by "+field.owner) {
+				if !errors.Is(err, metadata.ErrCoreOwnedField) || !strings.Contains(err.Error(), field.owner) {
 					t.Fatalf("native field without a Core value bypassed ownership: %v", err)
 				}
 			})
@@ -48,7 +50,7 @@ func TestProtocolConfigRejectsCoreOwnedFields(t *testing.T) {
 					t.Fatal(err)
 				}
 				_, _, _, err := mapProtocolRequest(provider, chat.Options{Model: "gemini"}, request)
-				if err == nil || !strings.Contains(err.Error(), "owned by "+extension.owner) {
+				if !errors.Is(err, metadata.ErrCoreOwnedField) || !strings.Contains(err.Error(), extension.owner) {
 					t.Fatalf("nested owner error = %v", err)
 				}
 			})
