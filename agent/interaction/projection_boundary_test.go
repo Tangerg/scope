@@ -16,8 +16,8 @@ import (
 )
 
 func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
-	model := mustValue(newModelEffect(new(testInput()), 41, []tool.Definition{scriptTool{name: "echo"}.Definition()}, nil))
-	modelEffect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(model))))
+	model := effectEnvelope{ModelCall: &modelCall{ModelCallSequence: 41, Request: testInput(), Tools: []tool.Definition{scriptTool{name: "echo"}.Definition()}}}
+	modelEffect := mustValue(model.effect())
 	request, recognized, err := ModelCallFromEffect(modelEffect)
 	if err != nil || !recognized || request.Sequence != 41 || len(request.Request.Tools) != 1 || request.Request.Tools[0].Name != "echo" {
 		t.Fatalf("model intent=%+v recognized=%t error=%v", request, recognized, err)
@@ -39,8 +39,7 @@ func TestPublicIntentDecodersPreserveVariantAndDetachedRequest(t *testing.T) {
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`{"private":true}`)))
 	reference := testTurn(1).EffectID(1)
 	for _, resume := range []*toolResume{nil, {InputRequest: question, Reference: reference, InputResponse: []byte(`true`)}} {
-		envelope := mustValue(newToolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: resume}))
-		effect := mustValue(run.NewDispatcherEffect(mustValue(run.EncodePayload(envelope))))
+		effect := mustValue(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: resume}.effect())
 		observed, present, decodeErr := ToolCallFromEffect(effect)
 		origin := observed.ContinuationOf
 		if decodeErr != nil || !present || observed.Call != call || (resume != nil) != origin.Valid() || resume != nil && origin != reference {

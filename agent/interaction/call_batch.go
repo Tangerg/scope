@@ -95,7 +95,7 @@ func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, nex
 	if err != nil || signal.Wait != key {
 		return run.Effect{}, false, err
 	}
-	effect, err := toolEffect(toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: &toolResume{Reference: c.Reference, InputRequest: c.Input.Request, InputResponse: signal.Payload.JSON()}})
+	effect, err := toolDispatchRequest{Invocation: toolCall{Call: call}, Resume: &toolResume{Reference: c.Reference, InputRequest: c.Input.Request, InputResponse: signal.Payload.JSON()}}.effect()
 	if err != nil {
 		return run.Effect{}, false, err
 	}

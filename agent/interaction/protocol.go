@@ -52,6 +52,24 @@ func (m modelCall) request() *chat.Request {
 	return request
 }
 
+// validate checks the request the model will receive: Input alone cannot see
+// how its options bind to the advertised Tools.
+func (m modelCall) validate() error {
+	if m.ModelCallSequence == 0 {
+		return fmt.Errorf("%w: model call sequence is zero", ErrInvalidProtocol)
+	}
+	request := chat.Request{Messages: m.Request.Messages, Options: m.Request.Options, Tools: m.Tools}
+	if err := request.Validate(); err != nil {
+		return fmt.Errorf("%w: model call request: %w", ErrInvalidProtocol, err)
+	}
+	if len(m.AppliedSteerSignalIDs) > 0 {
+		if err := validateSteerSignalIDs(m.AppliedSteerSignalIDs); err != nil {
+			return fmt.Errorf("%w: model call applied steer SignalIDs: %w", ErrInvalidProtocol, err)
+		}
+	}
+	return nil
+}
+
 // The model owns call ID and name; the EffectID owns execution correlation.
 type toolCall struct {
 	Call chat.ToolCall `json:"call"`
@@ -67,6 +85,26 @@ func (t toolCall) validate() error {
 type toolDispatchRequest struct {
 	Invocation toolCall    `json:"invocation"`
 	Resume     *toolResume `json:"resume,omitzero"`
+}
+
+func (t toolDispatchRequest) validate() error {
+	if err := t.Invocation.validate(); err != nil {
+		return err
+	}
+	if t.Resume == nil {
+		return nil
+	}
+	if !t.Resume.Reference.Valid() || !t.Resume.InputRequest.Valid() {
+		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, tool.ErrInvalidInputRequest)
+	}
+	if _, err := t.Resume.InputRequest.Continuation(t.Resume.InputResponse); err != nil {
+		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, err)
+	}
+	return nil
+}
+
+func (t toolDispatchRequest) effect() (run.Effect, error) {
+	return effectEnvelope{ToolCall: &t}.effect()
 }
 
 // toolResume continues the Tool with the input it requested, carrying the
@@ -147,87 +185,30 @@ type toolDispatchResult struct {
 	AdvertisementFailure string `json:"advertisement_failure,omitzero"`
 }
 
-func newModelEffect(
-	request *Input,
-	modelCallSequence uint64,
-	tools []tool.Definition,
-	appliedSteerSignalIDs []run.SignalID,
-) (effectEnvelope, error) {
-	if request == nil {
-		return effectEnvelope{}, fmt.Errorf("%w: model request is nil", ErrInvalidProtocol)
-	}
-	// validateModelCall owns the rule set the decode path also enforces. The
-	// envelope is encoded before the state changes again, so it borrows values.
-	envelope := effectEnvelope{
-		ModelCall: &modelCall{
-			ModelCallSequence:     modelCallSequence,
-			Request:               *request,
-			Tools:                 tools,
-			AppliedSteerSignalIDs: appliedSteerSignalIDs,
-		},
-	}
-	if err := envelope.validateModelCall(); err != nil {
-		return effectEnvelope{}, err
-	}
-	return envelope, nil
-}
-
-func newToolEffect(call toolDispatchRequest) (effectEnvelope, error) {
-	envelope := effectEnvelope{ToolCall: &call}
-	if err := envelope.validateToolCall(); err != nil {
-		return effectEnvelope{}, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
-	}
-	return envelope, nil
-}
-
 func (e effectEnvelope) validate() error {
-	switch e.operation() {
-	case operationPrepare:
-		if e.ToolCall != nil || e.ModelCall != nil {
-			return ErrInvalidProtocol
-		}
-		return (effectEnvelope{ModelCall: e.Preparation}).validateModelCall()
-	case operationModelCall:
-		return e.validateModelCall()
-	case operationToolCall:
-		return e.validateToolCall()
+	switch {
+	case e.Preparation != nil && e.ModelCall == nil && e.ToolCall == nil:
+		return e.Preparation.validate()
+	case e.ModelCall != nil && e.Preparation == nil && e.ToolCall == nil:
+		return e.ModelCall.validate()
+	case e.ToolCall != nil && e.Preparation == nil && e.ModelCall == nil:
+		return e.ToolCall.validate()
 	default:
-		return fmt.Errorf("%w: unsupported effect protocol", ErrInvalidProtocol)
+		return fmt.Errorf("%w: effect requires exactly one operation request", ErrInvalidProtocol)
 	}
 }
 
-func (e effectEnvelope) validateModelCall() error {
-	if e.ModelCall == nil || e.ToolCall != nil || e.ModelCall.ModelCallSequence == 0 {
-		return fmt.Errorf("%w: model_call effect has an invalid payload set", ErrInvalidProtocol)
+// effect admits an envelope by the rule set the decode path also enforces, so
+// the Execution can never emit an Effect its Dispatcher would reject.
+func (e effectEnvelope) effect() (run.Effect, error) {
+	if err := e.validate(); err != nil {
+		return run.Effect{}, err
 	}
-	request := chat.Request{Messages: e.ModelCall.Request.Messages, Options: e.ModelCall.Request.Options, Tools: e.ModelCall.Tools}
-	if err := request.Validate(); err != nil {
-		return fmt.Errorf("%w: model_call request: %w", ErrInvalidProtocol, err)
+	payload, err := run.EncodePayload(e)
+	if err != nil {
+		return run.Effect{}, err
 	}
-	if len(e.ModelCall.AppliedSteerSignalIDs) > 0 {
-		if err := validateSteerSignalIDs(e.ModelCall.AppliedSteerSignalIDs); err != nil {
-			return fmt.Errorf("%w: model_call applied steer SignalIDs: %w", ErrInvalidProtocol, err)
-		}
-	}
-	return nil
-}
-
-func (e effectEnvelope) validateToolCall() error {
-	if e.ModelCall != nil || e.ToolCall == nil {
-		return fmt.Errorf("%w: tool_call effect has an invalid payload set", ErrInvalidProtocol)
-	}
-	if err := e.ToolCall.Invocation.validate(); err != nil {
-		return err
-	}
-	resume := e.ToolCall.Resume
-	if resume == nil {
-		return nil
-	}
-	if !resume.Reference.Valid() || !resume.InputRequest.Valid() {
-		return fmt.Errorf("%w: tool resume input: %w", ErrInvalidProtocol, tool.ErrInvalidInputRequest)
-	}
-	_, err := resume.InputRequest.Continuation(resume.InputResponse)
-	return err
+	return run.NewDispatcherEffect(payload)
 }
 
 func (r resultEnvelope) operation() operation {
@@ -282,16 +263,15 @@ func decodeEffect(payload run.Payload) (effectEnvelope, error) {
 }
 
 // decodeEnvelope admits one protocol envelope: strict decoding and then the
-// envelope's own validation, both classified as protocol violations.
+// envelope's own validation, which already classifies its violations.
 func decodeEnvelope[E interface{ validate() error }](payload run.Payload, role string) (E, error) {
+	var zero E
 	envelope, err := payload.Decode[E]()
 	if err != nil {
-		var zero E
 		return zero, fmt.Errorf("%w: decode %s: %w", ErrInvalidProtocol, role, err)
 	}
 	if err := envelope.validate(); err != nil {
-		var zero E
-		return zero, fmt.Errorf("%w: %w", ErrInvalidProtocol, err)
+		return zero, err
 	}
 	return envelope, nil
 }

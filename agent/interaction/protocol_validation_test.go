@@ -10,28 +10,28 @@ import (
 )
 
 func TestModelEffectConstructionRejectsAmbiguousOrInvalidAuthority(t *testing.T) {
-	request := &Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}}
+	request := Input{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("run"))}}
 	id, err := run.ParseSignalID("signal:steer")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name     string
-		request  *Input
-		sequence uint64
-		tools    []tool.Definition
-		steer    []run.SignalID
+		name  string
+		call  modelCall
+		other *toolDispatchRequest
 	}{
-		{"missing request", nil, 1, nil, nil},
-		{"missing sequence", request, 0, nil, nil},
-		{"empty request", &Input{}, 1, nil, nil},
-		{"invalid tool definition", request, 1, []tool.Definition{{}}, nil},
-		{"duplicate steering identity", request, 1, nil, []run.SignalID{id, id}},
-		{"missing steering identity", request, 1, nil, []run.SignalID{{}}},
+		{"missing sequence", modelCall{Request: request}, nil},
+		{"empty request", modelCall{ModelCallSequence: 1}, nil},
+		{"invalid tool definition", modelCall{ModelCallSequence: 1, Request: request, Tools: []tool.Definition{{}}}, nil},
+		{"duplicate steering identity", modelCall{ModelCallSequence: 1, Request: request, AppliedSteerSignalIDs: []run.SignalID{id, id}}, nil},
+		{"missing steering identity", modelCall{ModelCallSequence: 1, Request: request, AppliedSteerSignalIDs: []run.SignalID{{}}}, nil},
+		{"second operation", modelCall{ModelCallSequence: 1, Request: request}, &toolDispatchRequest{Invocation: toolCall{Call: chat.ToolCall{ID: "call", Name: "inspect", Arguments: `{}`}}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := newModelEffect(test.request, test.sequence, test.tools, test.steer); !errors.Is(err, ErrInvalidProtocol) {
-				t.Fatalf("invalid dispatch command accepted: %v", err)
+			for _, envelope := range []effectEnvelope{{ModelCall: &test.call, ToolCall: test.other}, {Preparation: &test.call, ToolCall: test.other}} {
+				if _, err := envelope.effect(); !errors.Is(err, ErrInvalidProtocol) {
+					t.Fatalf("invalid dispatch command accepted: %v", err)
+				}
 			}
 		})
 	}
@@ -48,7 +48,7 @@ func TestToolEffectConstructionRequiresItsExactContinuationContract(t *testing.T
 		{Invocation: call, Resume: &toolResume{InputResponse: []byte(`true`)}},
 		{Invocation: call, Resume: &toolResume{InputRequest: request, InputResponse: []byte(`"yes"`)}},
 	} {
-		if _, err := newToolEffect(invocation); err == nil {
+		if _, err := invocation.effect(); !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatalf("invalid continuation admitted: %+v", invocation)
 		}
 	}

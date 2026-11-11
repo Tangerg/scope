@@ -104,20 +104,20 @@ func (e *execution) requestModel(
 	return e.emitModel(turn, consumedMessages, appliedSteerSignalIDs, e.definition.prepareContext)
 }
 
+// emitModel requests the next model call, or its context preparation first.
+// The envelope is encoded before the state changes again, so it borrows values.
 func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID, prepare bool) (run.Transition, error) {
-	modelCallSequence := e.state.ModelCallCount + 1
-	envelope, err := newModelEffect(e.state.WorkingContext, modelCallSequence, e.definition.modelDefinitions(e.state.AdvertisedToolNames), appliedSteerSignalIDs)
-	if err != nil {
-		return run.Transition{}, err
+	call := &modelCall{
+		ModelCallSequence:     e.state.ModelCallCount + 1,
+		Request:               *e.state.WorkingContext,
+		Tools:                 e.definition.modelDefinitions(e.state.AdvertisedToolNames),
+		AppliedSteerSignalIDs: appliedSteerSignalIDs,
 	}
+	envelope := effectEnvelope{ModelCall: call}
 	if prepare {
-		envelope.Preparation, envelope.ModelCall = envelope.ModelCall, nil
+		envelope = effectEnvelope{Preparation: call}
 	}
-	payload, err := run.EncodePayload(envelope)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	effect, err := run.NewDispatcherEffect(payload)
+	effect, err := envelope.effect()
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -125,7 +125,7 @@ func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSte
 	if prepare {
 		e.state.Preparation = &contextPreparation{Applied: slices.Clone(appliedSteerSignalIDs)}
 	} else {
-		e.state.ModelCallCount = modelCallSequence
+		e.state.ModelCallCount = call.ModelCallSequence
 	}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
@@ -447,7 +447,7 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		if invocation != nil || active >= e.definition.maxConcurrentToolCalls {
 			continue
 		}
-		effect, effectErr := toolEffect(toolDispatchRequest{Invocation: toolCall{Call: calls[index]}})
+		effect, effectErr := toolDispatchRequest{Invocation: toolCall{Call: calls[index]}}.effect()
 		if effectErr != nil {
 			return run.Transition{}, effectErr
 		}
@@ -469,18 +469,6 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		return run.Transition{}, err
 	}
 	return run.Yield(consumed, effects, waits...)
-}
-
-func toolEffect(request toolDispatchRequest) (run.Effect, error) {
-	envelope, err := newToolEffect(request)
-	if err != nil {
-		return run.Effect{}, err
-	}
-	payload, err := run.EncodePayload(envelope)
-	if err != nil {
-		return run.Effect{}, err
-	}
-	return run.NewDispatcherEffect(payload)
 }
 
 func (e *execution) advanceCalls(turn run.Turn) (run.Transition, error) {
