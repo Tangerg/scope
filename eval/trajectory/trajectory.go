@@ -29,11 +29,11 @@ type Config struct {
 // Admission validates the owned log once. Detached accessors cannot invalidate
 // it, so evaluation never replays the same history merely to check a value.
 type Trajectory struct {
-	log        run.Log
-	coverage   *Coverage
-	inspection run.TreeInspection
-	calls      callProjection
-	treeUsage  run.Usage
+	log       run.Log
+	coverage  *Coverage
+	root      run.ProcessInspection
+	calls     callProjection
+	treeUsage run.Usage
 }
 
 func New(config Config) (Trajectory, error) {
@@ -48,6 +48,10 @@ func New(config Config) (Trajectory, error) {
 	if err != nil {
 		return Trajectory{}, fmt.Errorf("%w: log: %w", ErrInvalidTrajectory, err)
 	}
+	root, found := inspection.Process(owned.Root)
+	if !found {
+		return Trajectory{}, fmt.Errorf("%w: log has no root Process", ErrInvalidTrajectory)
+	}
 	coverage := config.Coverage.clone()
 	calls, err := projectCalls(owned, coverage)
 	if err != nil {
@@ -57,7 +61,7 @@ func New(config Config) (Trajectory, error) {
 	if err != nil {
 		return Trajectory{}, fmt.Errorf("%w: usage: %w", ErrInvalidTrajectory, err)
 	}
-	return Trajectory{log: owned, coverage: coverage, inspection: inspection, calls: calls, treeUsage: usage}, nil
+	return Trajectory{log: owned, coverage: coverage, root: root, calls: calls, treeUsage: usage}, nil
 }
 
 func (t Trajectory) Validate() error {
@@ -100,23 +104,16 @@ func (t Trajectory) Log() (run.Log, error) {
 func (t Trajectory) RootProcessID() run.ProcessID { return t.log.Root }
 func (t Trajectory) Coverage() *Coverage          { return t.coverage.clone() }
 
-func (t Trajectory) Termination() run.Termination {
-	root, _ := t.inspection.Process(t.log.Root)
-	return root.Termination
-}
+func (t Trajectory) Termination() run.Termination { return t.root.Termination }
 
 func (t Trajectory) Elapsed() (time.Duration, bool) {
-	root, ok := t.inspection.Process(t.log.Root)
-	if !ok || root.StartedAt.IsZero() || root.FinishedAt.IsZero() || root.FinishedAt.Before(root.StartedAt) {
+	if t.root.StartedAt.IsZero() || t.root.FinishedAt.IsZero() || t.root.FinishedAt.Before(t.root.StartedAt) {
 		return 0, false
 	}
-	return root.FinishedAt.Sub(root.StartedAt), true
+	return t.root.FinishedAt.Sub(t.root.StartedAt), true
 }
 
-func (t Trajectory) RootUsage() run.Usage {
-	root, _ := t.inspection.Process(t.log.Root)
-	return root.Usage
-}
+func (t Trajectory) RootUsage() run.Usage { return t.root.Usage }
 
 func (t Trajectory) ModelCalls() []ModelCall {
 	calls := make([]ModelCall, 0, len(t.calls.models))
