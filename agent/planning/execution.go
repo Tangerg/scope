@@ -11,10 +11,7 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-const (
-	failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
-	actionChildKeyNamespace             = "planning.action"
-)
+const actionChildKeyNamespace = "planning.action"
 
 type execution struct {
 	definition *definition
@@ -70,10 +67,7 @@ func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transit
 		return run.Transition{}, err
 	}
 	if failure != nil {
-		if failure.Kind() == run.FailureKindContract {
-			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.Message())
-		}
-		return stepfail.Transition(1, run.FailureKindExternal, failureCodePlanningSensingFailed, failure.Message())
+		return run.Fail(1, *failure)
 	}
 	e.state.WorldState = sensed.WorldState
 	if e.state.awaitingConfirmation() {
@@ -176,10 +170,12 @@ func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
 		return run.Transition{}, err
 	}
 	if failure != nil {
+		// A contract rejection proves the Action never ran, so it ends Planning
+		// instead of becoming an attempt against the world.
 		if failure.Kind() == run.FailureKindContract {
-			return stepfail.Transition(1, run.FailureKindContract, failureCodePlanningDispatchRejected, failure.Message())
+			return run.Fail(1, *failure)
 		}
-		e.state.recordFailedAction(failure.Message())
+		e.state.recordFailedAction(failureDiagnostic(*failure))
 	}
 	return e.requestSense(turn, 1)
 }
@@ -202,8 +198,10 @@ func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
 	if !e.state.Child.Done() {
 		return run.Yield(consumed, nil)
 	}
-	if failure := e.state.Child.Rejection; failure != nil {
-		e.state.recordFailedAction(failure.Code() + ": " + failure.Message())
+	if rejection := e.state.Child.Rejection; rejection != nil {
+		e.state.recordFailedAction(failureDiagnostic(*rejection))
+	} else if failure, failed := e.state.Child.Termination.Failure(); failed {
+		e.state.recordFailedAction(failureDiagnostic(failure))
 	} else if outcome := e.state.Child.Termination; outcome.Status() != run.StatusCompleted {
 		e.state.recordFailedAction(outcome.Reason())
 	}
@@ -223,6 +221,12 @@ func (e *execution) complete(ctx context.Context, consumedMessages uint32) (run.
 	return run.Complete(consumedMessages, erased)
 }
 
+// failureDiagnostic is the one Attempt diagnostic of a definite Failure,
+// whichever execution path reported it; the code keeps distinct failures apart.
+func failureDiagnostic(failure run.Failure) string {
+	return failure.Code() + ": " + failure.Message()
+}
+
 func planningChildKey(action string, attempt uint64) (run.ChildKey, error) {
 	return run.DeriveChildKey(actionChildKeyNamespace, action, strconv.FormatUint(attempt, 10))
 }
@@ -232,5 +236,4 @@ const (
 	failureCodePlanningChildInputInvalid = "planning.child.input.invalid"
 	failureCodePlanningPlannerContract   = "planning.planner.contract"
 	failureCodePlanningPlannerFailed     = "planning.planner.failed"
-	failureCodePlanningSensingFailed     = "planning.sensing.failed"
 )

@@ -134,5 +134,5 @@ func (d *dispatcher) execute(
 var _ run.Dispatcher = (*dispatcher)(nil)
 
 func planningFailureSettlement(cause error) (run.Settlement, error) {
-	return stepfail.Settlement(run.FailureKindContract, failureCodePlanningHostRejected, cause.Error())
+	return stepfail.Settlement(run.FailureKindContract, failureCodePlanningDispatchRejected, cause.Error())
 }

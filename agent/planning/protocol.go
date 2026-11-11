@@ -45,9 +45,12 @@ type senseResult struct {
 
 type actionCompleted struct{}
 
+// Execution records these settlement failures unchanged, so each code is the
+// one name of its fact in every Log and Output.
 const (
-	failureCodePlanningHostRejected    = "planning.host.rejected"
-	failureCodePlanningOperationFailed = "planning.operation.failed"
+	failureCodePlanningDispatchRejected = "planning.dispatch.rejected"
+	failureCodePlanningSensingFailed    = "planning.sensing.failed"
+	failureCodePlanningActionFailed     = "planning.action.failed"
 )
 
 func newSenseEffect(input run.Payload) (run.Effect, error) {
@@ -98,7 +101,7 @@ func (e effectEnvelope) valid() bool {
 
 func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	if cause != nil {
-		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningOperationFailed, cause.Error())
+		return stepfail.Settlement(run.FailureKindExternal, failureCodePlanningSensingFailed, cause.Error())
 	}
 	payload, err := jsonv2.Marshal(senseResult{WorldState: state}, jsonv2.Deterministic(true))
 	if err != nil {
