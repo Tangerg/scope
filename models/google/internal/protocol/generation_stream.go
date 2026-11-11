@@ -20,11 +20,11 @@ func (g generationStream) advance(response *genai.GenerateContentResponse) (gene
 	if response == nil {
 		return g, errors.New("nil generation response")
 	}
-	if response.ResponseID != "" && g.responseID != "" && response.ResponseID != g.responseID {
-		return g, fmt.Errorf("response id changed from %q to %q", g.responseID, response.ResponseID)
+	if err := adoptStreamConstant(&g.responseID, response.ResponseID, "response id"); err != nil {
+		return g, err
 	}
-	if response.ModelVersion != "" && g.modelVersion != "" && response.ModelVersion != g.modelVersion {
-		return g, fmt.Errorf("model version changed from %q to %q", g.modelVersion, response.ModelVersion)
+	if err := adoptStreamConstant(&g.modelVersion, response.ModelVersion, "model version"); err != nil {
+		return g, err
 	}
 	candidate, err := singleGenerationCandidate(response)
 	if err != nil {
@@ -33,19 +33,8 @@ func (g generationStream) advance(response *genai.GenerateContentResponse) (gene
 		}
 		return g, err
 	}
-	if candidate != nil && g.finished() {
-		if candidate.Content != nil && len(candidate.Content.Parts) > 0 {
-			return g, errors.New("content after finish reason")
-		}
-		if isProtocolStopReason(candidate.FinishReason) {
-			return g, errors.New("more than one finish reason")
-		}
-	}
-	if response.ResponseID != "" {
-		g.responseID = response.ResponseID
-	}
-	if response.ModelVersion != "" {
-		g.modelVersion = response.ModelVersion
+	if err := g.admitAfterFinish(candidate); err != nil {
+		return g, err
 	}
 	if candidate != nil && isProtocolStopReason(candidate.FinishReason) {
 		g.finishReason = candidate.FinishReason
@@ -55,6 +44,35 @@ func (g generationStream) advance(response *genai.GenerateContentResponse) (gene
 }
 
 func (g generationStream) finished() bool { return g.finishReason != "" }
+
+// admitAfterFinish lets a finished stream carry only trailing metadata: no
+// further content and no second finish reason.
+func (g generationStream) admitAfterFinish(candidate *genai.Candidate) error {
+	if candidate == nil || !g.finished() {
+		return nil
+	}
+	if candidate.Content != nil && len(candidate.Content.Parts) > 0 {
+		return errors.New("content after finish reason")
+	}
+	if isProtocolStopReason(candidate.FinishReason) {
+		return errors.New("more than one finish reason")
+	}
+	return nil
+}
+
+// adoptStreamConstant records a value every event of one stream must repeat
+// when it carries it: an empty value says nothing, and a different one is a
+// protocol violation.
+func adoptStreamConstant(recorded *string, observed, name string) error {
+	if observed == "" {
+		return nil
+	}
+	if *recorded != "" && observed != *recorded {
+		return fmt.Errorf("%s changed from %q to %q", name, *recorded, observed)
+	}
+	*recorded = observed
+	return nil
+}
 
 func singleGenerationCandidate(response *genai.GenerateContentResponse) (*genai.Candidate, error) {
 	if response == nil {
