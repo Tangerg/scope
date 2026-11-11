@@ -190,43 +190,14 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 		return nil, err
 	}
 	var ranked []rankedResult
-	if len(candidates) != 0 {
-		vector := request.Values
-		for batch := range slices.Chunk(candidates, rankingBatchSize) {
-			projections := make([]vectorProjection, len(batch))
-			for i, candidate := range batch {
-				projections[i] = vectorProjection{Position: i, Embedding: candidate.embedding}
-			}
-			seen := make([]bool, len(batch))
-			err := s.runStatement(ctx, fmt.Sprintf("SELECT c.position, VECTOR_DISTANCE(c.embedding, $vector, %q) AS distance FROM $candidates AS c", s.vectors.similarity), map[string]any{"candidates": projections, "vector": vector}, func(raw json.RawMessage) error {
-				var row distanceRow
-				if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
-					return fmt.Errorf("couchbase: decode distance: %w", err)
-				}
-				if row.Position == nil || *row.Position < 0 || *row.Position >= len(batch) || seen[*row.Position] || row.Distance == nil {
-					return errors.New("couchbase: invalid native distance result")
-				}
-				seen[*row.Position] = true
-				hit, err := vectorstore.NewSearchResult(batch[*row.Position].document, s.vectors.similarity.score(*row.Distance))
-				if err != nil {
-					return err
-				}
-				if hit.Score >= request.Options.MinScore {
-					ranked = append(ranked, rankedResult{result: hit, distance: *row.Distance})
-				}
-				return nil
-			})
-			if err != nil {
-				return nil, err
-			}
-			if slices.Contains(seen, false) {
-				return nil, errors.New("couchbase: native distance result is incomplete")
-			}
-			slices.SortFunc(ranked, compareResults)
-			if len(ranked) > request.Options.ResultLimit() {
-				ranked = ranked[:request.Options.ResultLimit()]
-			}
+	for batch := range slices.Chunk(candidates, rankingBatchSize) {
+		hits, err := s.rankBatch(ctx, request, batch)
+		if err != nil {
+			return nil, err
 		}
+		ranked = append(ranked, hits...)
+		slices.SortFunc(ranked, compareResults)
+		ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
 	}
 	results := make([]*vectorstore.SearchResult, len(ranked))
 	for i, hit := range ranked {
@@ -239,11 +210,56 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	return response, nil
 }
 
+// The named parameters of the statements below; each statement refers to one
+// as "$" followed by its name.
+const (
+	candidatesParam = "candidates"
+	vectorParam     = "vector"
+	readLimitParam  = "readLimit"
+)
+
+// rankBatch has the server measure each candidate's distance to the query and
+// keeps the hits at or above MinScore. Every candidate must be measured once.
+func (s *Store) rankBatch(ctx context.Context, request *vectorstore.Query, batch []storedCandidate) ([]rankedResult, error) {
+	projections := make([]vectorProjection, len(batch))
+	for i, candidate := range batch {
+		projections[i] = vectorProjection{Position: i, Embedding: candidate.embedding}
+	}
+	statement := fmt.Sprintf("SELECT c.position, VECTOR_DISTANCE(c.embedding, $%s, %q) AS distance FROM $%s AS c", vectorParam, s.vectors.similarity, candidatesParam)
+	seen := make([]bool, len(batch))
+	var ranked []rankedResult
+	err := s.runStatement(ctx, statement, map[string]any{candidatesParam: projections, vectorParam: request.Values}, func(raw json.RawMessage) error {
+		var row distanceRow
+		if err := jsonv2.Unmarshal(raw, &row, jsonv2.RejectUnknownMembers(true)); err != nil {
+			return fmt.Errorf("couchbase: decode distance: %w", err)
+		}
+		if row.Position == nil || *row.Position < 0 || *row.Position >= len(batch) || seen[*row.Position] || row.Distance == nil {
+			return errors.New("couchbase: invalid native distance result")
+		}
+		seen[*row.Position] = true
+		hit, err := vectorstore.NewSearchResult(batch[*row.Position].document, s.vectors.similarity.score(*row.Distance))
+		if err != nil {
+			return err
+		}
+		if hit.Score >= request.Options.MinScore {
+			ranked = append(ranked, rankedResult{result: hit, distance: *row.Distance})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if slices.Contains(seen, false) {
+		return nil, errors.New("couchbase: native distance result is incomplete")
+	}
+	return ranked, nil
+}
+
 // selectDocuments captures each complete KV record once. Filtering, ranking and
 // returned content use that same projection even if another writer replaces it.
 func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate, meter *vectorstore.ScanMeter, readLimit int) ([]storedCandidate, error) {
 	var candidates []storedCandidate
-	err := s.runStatement(ctx, "SELECT META(c).id AS id, META(c).cas AS cas, c AS record FROM "+s.keyspace+" AS c LIMIT $readLimit", map[string]any{"readLimit": readLimit}, func(raw json.RawMessage) error {
+	err := s.runStatement(ctx, "SELECT META(c).id AS id, META(c).cas AS cas, c AS record FROM "+s.keyspace+" AS c LIMIT $"+readLimitParam, map[string]any{readLimitParam: readLimit}, func(raw json.RawMessage) error {
 		if err := meter.Charge(int64(len(raw))); err != nil {
 			return err
 		}
