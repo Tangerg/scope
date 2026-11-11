@@ -553,19 +553,23 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeoutCause(ctx, request.Budget.Timeout, vectorstore.ErrScanBudget)
-	defer cancel()
+	meter, err := request.Budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
 	if err := s.verify(ctx); err != nil {
 		return nil, errors.Join(err, context.Cause(ctx))
 	}
 	var found []*document.Document
-	var used int64
 	count := 0
 	last := ""
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, errors.Join(err, context.Cause(ctx))
 		}
+		// One row past the grant proves that the source exceeds it.
 		limit := min(maximumResultsPerPage, request.Budget.MaxRecords-count+1)
 		body := searchRequest{Select: s.selectedFields(), Top: limit, OrderBy: s.idField + " asc"}
 		if last != "" {
@@ -578,29 +582,14 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 		if len(rows) == 0 {
 			break
 		}
-		if len(rows) > request.Budget.MaxRecords-count {
-			return nil, vectorstore.ErrScanBudget
+		if err := meter.ChargePage(len(rows), 0); err != nil {
+			return nil, err
 		}
+		count += len(rows)
 		for _, row := range rows {
-			if err := ctx.Err(); err != nil {
-				return nil, errors.Join(err, context.Cause(ctx))
-			}
-			wire, err := jsonv2.Marshal(row, jsonv2.Deterministic(true))
+			doc, err := s.admitScanned(meter, row, last)
 			if err != nil {
 				return nil, err
-			}
-			n := int64(len(wire))
-			if n > request.Budget.MaxBytes-used {
-				return nil, vectorstore.ErrScanBudget
-			}
-			used += n
-			count++
-			doc, err := s.decodeDocument(row)
-			if err != nil {
-				return nil, err
-			}
-			if last != "" && doc.ID <= last {
-				return nil, fmt.Errorf("azureaisearch: non-advancing scan key %q", doc.ID)
 			}
 			last = doc.ID
 			ok, err := matches(doc, request.Filter)
@@ -616,4 +605,24 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 		return nil, errors.Join(err, context.Cause(ctx))
 	}
 	return found, nil
+}
+
+// admitScanned charges a row's canonical wire bytes before decoding it and
+// requires keys to advance past the previous one.
+func (s *Store) admitScanned(meter *vectorstore.ScanMeter, row metadata.Map, last string) (*document.Document, error) {
+	wire, err := jsonv2.Marshal(row, jsonv2.Deterministic(true))
+	if err != nil {
+		return nil, err
+	}
+	if err = meter.ChargePage(0, int64(len(wire))); err != nil {
+		return nil, err
+	}
+	doc, err := s.decodeDocument(row)
+	if err != nil {
+		return nil, err
+	}
+	if last != "" && doc.ID <= last {
+		return nil, fmt.Errorf("azureaisearch: non-advancing scan key %q", doc.ID)
+	}
+	return doc, nil
 }

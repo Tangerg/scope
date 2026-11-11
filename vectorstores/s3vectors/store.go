@@ -178,18 +178,20 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	budget, predicate := request.Budget, request.Filter
-	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
-	defer cancel()
+	meter, err := request.Budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
 	if err := s.checkBinding(ctx); err != nil {
 		return nil, err
 	}
 	var docs []*document.Document
-	var scanned int
-	remaining := budget.MaxBytes
 	seenKeys := make(map[string]struct{})
 	seenTokens := make(map[string]struct{})
-	input := &awss3.ListVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), MaxResults: aws.Int32(int32(min(1000, budget.MaxRecords+1))), ReturnMetadata: true, ReturnData: true}
+	// One record past the grant proves that the source exceeds it.
+	input := &awss3.ListVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), MaxResults: aws.Int32(int32(min(1000, request.Budget.MaxRecords+1))), ReturnMetadata: true, ReturnData: true}
 	for {
 		page, err := s.client.ListVectors(ctx, input)
 		if err != nil {
@@ -199,39 +201,12 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 			return nil, errors.New("s3vectors: ListVectors returned no vector array")
 		}
 		for _, row := range page.Vectors {
-			if row.Key == nil {
-				return nil, errors.New("s3vectors: listed vector is missing its key")
-			}
-			if _, duplicate := seenKeys[*row.Key]; duplicate {
-				return nil, errors.New("s3vectors: ListVectors repeated a vector key")
-			}
-			seenKeys[*row.Key] = struct{}{}
-			scanned++
-			if scanned > budget.MaxRecords {
-				return nil, vectorstore.ErrScanBudget
-			}
-			doc, err := decodeDocument(*row.Key, row.Metadata)
+			doc, err := s.admitListed(meter, row, seenKeys)
 			if err != nil {
 				return nil, err
 			}
-			data, ok := row.Data.(*types.VectorDataMemberFloat32)
-			if !ok || data == nil {
-				return nil, errors.New("s3vectors: listed vector is missing float32 data")
-			}
-			if err = s.schema.validateVector(data.Value); err != nil {
-				return nil, err
-			}
-			raw, err := row.Metadata.MarshalSmithyDocument()
-			if err != nil {
-				return nil, err
-			}
-			weight := int64(len(raw)) + int64(len(*row.Key)) + 4*int64(len(data.Value))
-			if weight > remaining {
-				return nil, vectorstore.ErrScanBudget
-			}
-			remaining -= weight
-			if predicate != nil {
-				matched, err := filter.Match(predicate, doc.Metadata)
+			if request.Filter != nil {
+				matched, err := filter.Match(request.Filter, doc.Metadata)
 				if err != nil {
 					return nil, fmt.Errorf("s3vectors: evaluate Core predicate: %w", err)
 				}
@@ -250,6 +225,37 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 		seenTokens[*page.NextToken] = struct{}{}
 		input.NextToken = page.NextToken
 	}
+}
+
+// admitListed charges one listed vector's key, encoded metadata and float32
+// coordinates before decoding it, and rejects a repeated key.
+func (s *Store) admitListed(meter *vectorstore.ScanMeter, row types.ListOutputVector, seen map[string]struct{}) (*document.Document, error) {
+	if row.Key == nil {
+		return nil, errors.New("s3vectors: listed vector is missing its key")
+	}
+	if _, duplicate := seen[*row.Key]; duplicate {
+		return nil, errors.New("s3vectors: ListVectors repeated a vector key")
+	}
+	seen[*row.Key] = struct{}{}
+	data, ok := row.Data.(*types.VectorDataMemberFloat32)
+	if !ok || data == nil {
+		return nil, errors.New("s3vectors: listed vector is missing float32 data")
+	}
+	raw, err := row.Metadata.MarshalSmithyDocument()
+	if err != nil {
+		return nil, err
+	}
+	if err = meter.Charge(int64(len(raw)) + int64(len(*row.Key)) + 4*int64(len(data.Value))); err != nil {
+		return nil, err
+	}
+	doc, err := decodeDocument(*row.Key, row.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.schema.validateVector(data.Value); err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
 
 type rankedResult struct {
@@ -305,61 +311,12 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-
-	var ranked []rankedResult
-	seen := make(map[string]struct{})
-	{
-		input := &awss3.QueryVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), QueryVector: &types.VectorDataMemberFloat32{Value: query}, TopK: aws.Int32(int32(request.Options.ResultLimit())), ReturnDistance: true, ReturnMetadata: true}
-		seenTokens := make(map[string]struct{})
-		for {
-			page, err := s.client.QueryVectors(ctx, input)
-			if err != nil {
-				return nil, fmt.Errorf("s3vectors: QueryVectors: %w", err)
-			}
-			if page == nil || page.Vectors == nil {
-				return nil, errors.New("s3vectors: QueryVectors returned no vector array")
-			}
-			if page.DistanceMetric != s.schema.metric {
-				return nil, fmt.Errorf("%w: native query metric changed", ErrIncompatibleIndex)
-			}
-			for _, row := range page.Vectors {
-				if row.Key == nil || row.Distance == nil {
-					return nil, errors.New("s3vectors: query result is missing key or distance")
-				}
-				if _, duplicate := seen[*row.Key]; duplicate {
-					return nil, errors.New("s3vectors: QueryVectors repeated a vector key")
-				}
-				seen[*row.Key] = struct{}{}
-				doc, err := decodeDocument(*row.Key, row.Metadata)
-				if err != nil {
-					return nil, err
-				}
-				distance := float64(*row.Distance)
-				score, err := s.schema.score(distance)
-				if err != nil {
-					return nil, err
-				}
-				result, err := vectorstore.NewSearchResult(doc, score)
-				if err != nil {
-					return nil, err
-				}
-				ranked = append(ranked, rankedResult{distance: distance, result: result})
-			}
-			if page.NextToken == nil || *page.NextToken == "" {
-				break
-			}
-			if _, repeated := seenTokens[*page.NextToken]; repeated {
-				return nil, errors.New("s3vectors: QueryVectors repeated a continuation token")
-			}
-			seenTokens[*page.NextToken] = struct{}{}
-			input.NextToken = page.NextToken
-		}
+	ranked, err := s.queryPages(ctx, query, request.Options.ResultLimit())
+	if err != nil {
+		return nil, err
 	}
 	slices.SortFunc(ranked, func(left, right rankedResult) int {
-		if order := cmp.Compare(left.distance, right.distance); order != 0 {
-			return order
-		}
-		return cmp.Compare(left.result.Document.ID, right.result.Document.ID)
+		return cmp.Or(cmp.Compare(left.distance, right.distance), cmp.Compare(left.result.Document.ID, right.result.Document.ID))
 	})
 	results := make([]*vectorstore.SearchResult, 0, min(len(ranked), request.Options.ResultLimit()))
 	for _, row := range ranked {
@@ -372,6 +329,66 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		}
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// queryPages follows QueryVectors continuation tokens and rejects a repeated
+// key or token, either of which would make the native result incomplete.
+func (s *Store) queryPages(ctx context.Context, query []float32, limit int) ([]rankedResult, error) {
+	input := &awss3.QueryVectorsInput{VectorBucketName: aws.String(s.vectorBucketName), IndexName: aws.String(s.indexName), QueryVector: &types.VectorDataMemberFloat32{Value: query}, TopK: aws.Int32(int32(limit)), ReturnDistance: true, ReturnMetadata: true}
+	var ranked []rankedResult
+	seen := make(map[string]struct{})
+	seenTokens := make(map[string]struct{})
+	for {
+		page, err := s.client.QueryVectors(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("s3vectors: QueryVectors: %w", err)
+		}
+		if page == nil || page.Vectors == nil {
+			return nil, errors.New("s3vectors: QueryVectors returned no vector array")
+		}
+		if page.DistanceMetric != s.schema.metric {
+			return nil, fmt.Errorf("%w: native query metric changed", ErrIncompatibleIndex)
+		}
+		for _, row := range page.Vectors {
+			result, err := s.rankRow(row, seen)
+			if err != nil {
+				return nil, err
+			}
+			ranked = append(ranked, result)
+		}
+		if page.NextToken == nil || *page.NextToken == "" {
+			return ranked, nil
+		}
+		if _, repeated := seenTokens[*page.NextToken]; repeated {
+			return nil, errors.New("s3vectors: QueryVectors repeated a continuation token")
+		}
+		seenTokens[*page.NextToken] = struct{}{}
+		input.NextToken = page.NextToken
+	}
+}
+
+func (s *Store) rankRow(row types.QueryOutputVector, seen map[string]struct{}) (rankedResult, error) {
+	if row.Key == nil || row.Distance == nil {
+		return rankedResult{}, errors.New("s3vectors: query result is missing key or distance")
+	}
+	if _, duplicate := seen[*row.Key]; duplicate {
+		return rankedResult{}, errors.New("s3vectors: QueryVectors repeated a vector key")
+	}
+	seen[*row.Key] = struct{}{}
+	doc, err := decodeDocument(*row.Key, row.Metadata)
+	if err != nil {
+		return rankedResult{}, err
+	}
+	distance := float64(*row.Distance)
+	score, err := s.schema.score(distance)
+	if err != nil {
+		return rankedResult{}, err
+	}
+	result, err := vectorstore.NewSearchResult(doc, score)
+	if err != nil {
+		return rankedResult{}, err
+	}
+	return rankedResult{distance: distance, result: result}, nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {

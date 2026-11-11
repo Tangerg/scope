@@ -58,7 +58,9 @@ type ScanMeter struct {
 	bytes   int64
 }
 
-// Begin starts a fresh meter and deadline; it does not modify the grant.
+// Begin starts a fresh meter and deadline; it does not modify the grant. The
+// deadline's cause is ErrScanBudget, so an elapsed grant is distinguishable
+// from the caller's own deadline through context.Cause.
 func (s ScanBudget) Begin(ctx context.Context) (*ScanMeter, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
@@ -66,7 +68,7 @@ func (s ScanBudget) Begin(ctx context.Context) (*ScanMeter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.Timeout)
+	ctx, cancel := context.WithTimeoutCause(ctx, s.Timeout, ErrScanBudget)
 	return &ScanMeter{ctx: ctx, cancel: cancel, records: s.MaxRecords, bytes: s.MaxBytes}, nil
 }
 
@@ -84,8 +86,8 @@ func (s *ScanMeter) Charge(n int64) error {
 func (s *ScanMeter) ChargePage(records int, n int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ctx.Err(); err != nil {
-		return err
+	if s.ctx.Err() != nil {
+		return context.Cause(s.ctx)
 	}
 	if n < 0 || records < 0 || s.records < records || s.bytes < n {
 		return ErrScanBudget

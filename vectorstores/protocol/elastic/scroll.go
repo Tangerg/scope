@@ -67,12 +67,13 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 			return nil, err
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.budget.Timeout)
-	defer cancel()
-	budget := s.budget
-	body := s.body
-	bytesLeft := budget.MaxBytes
-	raw, callErr := s.client.Read(ctx, http.MethodPost, "/"+s.index+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, body, bytesLeft)
+	meter, err := s.budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
+	raw, callErr := s.client.Read(ctx, http.MethodPost, "/"+s.index+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, s.body, meter.RemainingBytes())
 	cursor := scrollCursor{client: s.client}
 	defer func() {
 		err = errors.Join(err, cursor.close(ctx))
@@ -84,18 +85,21 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 	seen := make(map[string]struct{})
 	var total *int64
 	for {
-		bytesLeft -= int64(len(raw))
 		page, decodeErr := cursor.decodePage(raw)
 		if err = errors.Join(callErr, decodeErr); err != nil {
+			return nil, err
+		}
+		if err = meter.ChargePage(0, int64(len(raw))); err != nil {
 			return nil, err
 		}
 		if err = page.Validate(s.index); err != nil {
 			return nil, err
 		}
+		// The declared total is charged once, before any hit is decoded.
 		if total == nil {
 			total = page.Hits.Total.Value
-			if *total > int64(budget.MaxRecords) {
-				return nil, vectorstore.ErrScanBudget
+			if err = meter.ChargePage(int(*total), 0); err != nil {
+				return nil, err
 			}
 		}
 		if *total != *page.Hits.Total.Value || page.ScrollID == "" {
@@ -131,10 +135,11 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 		if encodeErr != nil {
 			return nil, encodeErr
 		}
-		if bytesLeft <= 0 {
+		remaining := meter.RemainingBytes()
+		if remaining <= 0 {
 			return nil, vectorstore.ErrScanBudget
 		}
-		raw, callErr = s.client.Read(ctx, http.MethodPost, scrollPath, nil, payload, bytesLeft)
+		raw, callErr = s.client.Read(ctx, http.MethodPost, scrollPath, nil, payload, remaining)
 	}
 }
 

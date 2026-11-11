@@ -400,78 +400,99 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 	if err := s.verify(ctx); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeoutCause(ctx, request.Budget.Timeout, vectorstore.ErrScanBudget)
-	defer cancel()
+	meter, err := request.Budget.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer meter.Close()
+	ctx = meter.Context()
 	seen := make(map[v2.DocumentID]struct{})
-	var used int64
 	var found []*document.Document
 	for offset := 0; ; {
-		if err := ctx.Err(); err != nil {
-			return nil, errors.Join(err, context.Cause(ctx))
-		}
+		// One record past the grant proves that the source exceeds it.
 		limit := min(pageSize, request.Budget.MaxRecords-offset+1)
-		page, err := s.collection.Get(ctx, v2.WithOffset(offset), v2.WithLimit(limit), v2.WithInclude(v2.IncludeDocuments, v2.IncludeMetadatas, v2.IncludeEmbeddings))
+		page, err := s.scanPage(ctx, offset, limit)
 		if err != nil {
-			return nil, nativeFailure(ctx, "scan records", err)
+			return nil, err
 		}
-		if err = ctx.Err(); err != nil {
-			return nil, errors.Join(err, context.Cause(ctx))
+		if len(page) == 0 {
+			break
 		}
-		if lo.IsNil(page) {
-			return nil, errors.New("chroma: scan returned no result")
+		if err := meter.ChargePage(len(page), 0); err != nil {
+			return nil, err
 		}
-		ids, texts, facts, vectors := page.GetIDs(), page.GetDocuments(), page.GetMetadatas(), page.GetEmbeddings()
-		if len(ids) > limit || len(texts) != len(ids) || len(facts) != len(ids) || len(vectors) != len(ids) {
-			return nil, errors.New("chroma: scan returned inconsistent columns")
-		}
-		if len(ids) > request.Budget.MaxRecords-offset {
-			return nil, vectorstore.ErrScanBudget
-		}
-		for i, id := range ids {
-			if err = ctx.Err(); err != nil {
-				return nil, errors.Join(err, context.Cause(ctx))
-			}
-			if _, ok := seen[id]; ok {
-				return nil, fmt.Errorf("chroma: scan repeated document %q", id)
-			}
-			seen[id] = struct{}{}
-			if lo.IsNil(texts[i]) || lo.IsNil(facts[i]) || lo.IsNil(vectors[i]) {
-				return nil, errors.New("chroma: incomplete scan record")
-			}
-			raw, ok := facts[i].GetString(metadataField)
-			if !ok {
-				return nil, errors.New("chroma: missing stored metadata")
-			}
-			width := len(vectors[i].ContentAsFloat32())
-			if width != s.dimensions {
-				return nil, fmt.Errorf("chroma: %w: scan dimension", vectorstore.ErrIncompatibleSpace)
-			}
-			for _, bytes := range []int64{int64(len(id)), int64(len(texts[i].ContentString())), int64(len(raw)), int64(width) * 4} {
-				if bytes > request.Budget.MaxBytes-used {
-					return nil, vectorstore.ErrScanBudget
-				}
-				used += bytes
-			}
-			doc, err := decodeDocument(id, texts[i], facts[i], vectors[i])
+		for _, record := range page {
+			doc, err := s.admitScanned(meter, record, seen)
 			if err != nil {
 				return nil, err
 			}
 			match, err := matches(doc, request.Filter)
 			if err != nil {
-				return nil, fmt.Errorf("chroma: filter document %q: %w", id, err)
+				return nil, fmt.Errorf("chroma: filter document %q: %w", doc.ID, err)
 			}
 			if match {
 				found = append(found, doc)
 			}
 		}
-		if len(ids) == 0 {
-			break
-		}
-		offset += len(ids)
+		offset += len(page)
 	}
 	slices.SortFunc(found, func(a, b *document.Document) int { return strings.Compare(a.ID, b.ID) })
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Join(err, context.Cause(ctx))
 	}
 	return found, nil
+}
+
+// scannedRecord is one row of a scan page, before admission.
+type scannedRecord struct {
+	id     v2.DocumentID
+	text   v2.Document
+	facts  v2.DocumentMetadata
+	vector chromaEmbed.Embedding
+}
+
+func (s *Store) scanPage(ctx context.Context, offset, limit int) ([]scannedRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(err, context.Cause(ctx))
+	}
+	page, err := s.collection.Get(ctx, v2.WithOffset(offset), v2.WithLimit(limit), v2.WithInclude(v2.IncludeDocuments, v2.IncludeMetadatas, v2.IncludeEmbeddings))
+	if err != nil {
+		return nil, errors.Join(nativeFailure(ctx, "scan records", err), context.Cause(ctx))
+	}
+	if lo.IsNil(page) {
+		return nil, errors.New("chroma: scan returned no result")
+	}
+	ids, texts, facts, vectors := page.GetIDs(), page.GetDocuments(), page.GetMetadatas(), page.GetEmbeddings()
+	if len(ids) > limit || len(texts) != len(ids) || len(facts) != len(ids) || len(vectors) != len(ids) {
+		return nil, errors.New("chroma: scan returned inconsistent columns")
+	}
+	records := make([]scannedRecord, len(ids))
+	for index, id := range ids {
+		records[index] = scannedRecord{id: id, text: texts[index], facts: facts[index], vector: vectors[index]}
+	}
+	return records, nil
+}
+
+// admitScanned charges a record's native bytes before decoding it and rejects
+// a repeated or incomplete record.
+func (s *Store) admitScanned(meter *vectorstore.ScanMeter, record scannedRecord, seen map[v2.DocumentID]struct{}) (*document.Document, error) {
+	if _, repeated := seen[record.id]; repeated {
+		return nil, fmt.Errorf("chroma: scan repeated document %q", record.id)
+	}
+	seen[record.id] = struct{}{}
+	if lo.IsNil(record.text) || lo.IsNil(record.facts) || lo.IsNil(record.vector) {
+		return nil, errors.New("chroma: incomplete scan record")
+	}
+	raw, ok := record.facts.GetString(metadataField)
+	if !ok {
+		return nil, errors.New("chroma: missing stored metadata")
+	}
+	width := len(record.vector.ContentAsFloat32())
+	if width != s.dimensions {
+		return nil, fmt.Errorf("chroma: %w: scan dimension", vectorstore.ErrIncompatibleSpace)
+	}
+	if err := meter.ChargePage(0, int64(len(record.id))+int64(len(record.text.ContentString()))+int64(len(raw))+int64(width)*4); err != nil {
+		return nil, err
+	}
+	return decodeDocument(record.id, record.text, record.facts, record.vector)
 }

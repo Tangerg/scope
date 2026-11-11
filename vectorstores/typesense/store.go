@@ -213,17 +213,18 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	return validateImport(raw, ids, err)
 }
 
-func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, budget vectorstore.ScanBudget) ([]string, error) {
+func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, meter *vectorstore.ScanMeter) ([]string, error) {
 	native, callErr := s.client.ExportDocuments(ctx, s.collectionName, nil)
-	raw, err := readNativeResponse(native, callErr, min(budget.MaxBytes, s.maxResponseBytes))
-	if errors.Is(err, errResponseLimit) && budget.MaxBytes <= s.maxResponseBytes {
+	granted := meter.RemainingBytes()
+	raw, err := readNativeResponse(native, callErr, min(granted, s.maxResponseBytes))
+	if errors.Is(err, errResponseLimit) && granted <= s.maxResponseBytes {
 		return nil, errors.Join(vectorstore.ErrScanBudget, err)
 	}
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(raw)) > budget.MaxBytes {
-		return nil, vectorstore.ErrScanBudget
+	if err := meter.ChargePage(0, int64(len(raw))); err != nil {
+		return nil, err
 	}
 	decoder := jsontext.NewDecoder(bytes.NewReader(raw))
 	var keys []string
@@ -236,6 +237,9 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, bu
 		if readErr != nil {
 			return nil, readErr
 		}
+		if err := meter.ChargePage(1, 0); err != nil {
+			return nil, err
+		}
 		record, doc, decodeErr := s.schema.decodeDocument(value)
 		if decodeErr != nil {
 			return nil, decodeErr
@@ -244,9 +248,6 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, bu
 			return nil, errors.New("typesense: export repeated a native key")
 		}
 		seen[*record.ID] = struct{}{}
-		if len(seen) > budget.MaxRecords {
-			return nil, vectorstore.ErrScanBudget
-		}
 		if predicate != nil {
 			matched, matchErr := filter.Match(predicate, doc.Metadata)
 			if matchErr != nil {
@@ -268,12 +269,12 @@ func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.S
 // exact membership. MaxBytes bounds the JSONL source payload, not ANN pages.
 // The collection can change between export and ranking; membership is rechecked.
 func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget vectorstore.ScanBudget) (*vectorstore.SearchResponse, error) {
-	if err := budget.Validate(); err != nil {
+	meter, err := budget.Begin(ctx)
+	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, budget.Timeout)
-	defer cancel()
-	return s.rank(ctx, q, &budget)
+	defer meter.Close()
+	return s.rank(meter.Context(), q, meter)
 }
 
 func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
@@ -302,14 +303,14 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	return s.checkBinding(ctx)
 }
 
-func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *vectorstore.ScanBudget) (response *vectorstore.SearchResponse, err error) {
+func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vectorstore.ScanMeter) (response *vectorstore.SearchResponse, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = s.checkOptions(request.Options, budget != nil); err != nil {
+	if err = s.checkOptions(request.Options, meter != nil); err != nil {
 		return nil, err
 	}
 	query, err := s.schema.narrow(request.Values)
@@ -330,10 +331,10 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	}
 	var keys []string
 	if request.Options.Filter != nil {
-		if budget == nil {
+		if meter == nil {
 			return nil, vectorstore.ErrUnsupportedFilter
 		}
-		keys, err = s.matchingKeys(ctx, request.Options.Filter, *budget)
+		keys, err = s.matchingKeys(ctx, request.Options.Filter, meter)
 		if err != nil {
 			return nil, err
 		}
