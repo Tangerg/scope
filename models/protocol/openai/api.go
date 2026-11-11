@@ -151,8 +151,11 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 	if maxModels <= 0 || maxResponseBytes <= 0 {
 		return nil, errors.New("openai: model count and response byte limits must be positive")
 	}
-	budget := modelListResponseBudget{remaining: maxResponseBytes}
-	page, err := a.models.List(ctx, option.WithMaxRetries(0), option.WithMiddleware(budget.read))
+	budget, err := httpclient.NewResponseBudget(maxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
+	page, err := a.models.List(ctx, option.WithMaxRetries(0), option.WithMiddleware(budget.Apply))
 	if err != nil {
 		return nil, a.wrapError(err)
 	}

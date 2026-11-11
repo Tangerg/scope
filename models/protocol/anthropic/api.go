@@ -138,10 +138,13 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 		return nil, errors.New("anthropic: model count and response byte limits must be positive")
 	}
 	const maximumPageSize = 1000
-	budget := modelListResponseBudget{remaining: maxResponseBytes}
+	budget, err := httpclient.NewResponseBudget(maxResponseBytes)
+	if err != nil {
+		return nil, err
+	}
 	page, err := a.client.Models.List(ctx,
 		anthropicsdk.ModelListParams{Limit: anthropicsdk.Int(int64(min(maxModels, maximumPageSize)))},
-		option.WithMaxRetries(0), option.WithMiddleware(budget.read),
+		option.WithMaxRetries(0), option.WithMiddleware(budget.Apply),
 	)
 	var ids []string
 	cursors := make(map[string]struct{})
