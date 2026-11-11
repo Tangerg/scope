@@ -85,7 +85,7 @@ func TestHistoryProjectionReusesDecodingOnlyForIdenticalPayloads(t *testing.T) {
 	want := roundDigests(t, mustValue(projection.SettledResults(log)))
 	unrelated := mustValue(run.ParsePayload([]byte(`{"unrelated":true}`)))
 	projection.mu.Lock()
-	stale := make(map[run.EffectID]dispatchFact, len(projection.dispatches))
+	stale := make(map[run.EffectID]decodedDispatch, len(projection.dispatches))
 	for id, fact := range projection.dispatches {
 		fact.payload = unrelated
 		fact.modelCallSequence += 100

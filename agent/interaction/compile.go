@@ -56,15 +56,15 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 	if err != nil {
 		return zero, err
 	}
-	type delegateFact struct {
+	type configuredDelegate struct {
 		Contract     tool.Definition
 		Ref          run.ProgramRef
 		Budget       run.Budget
 		Capabilities run.CapabilitySet
 	}
-	var delegates []delegateFact
+	var delegates []configuredDelegate
 	for _, d := range definition.delegates {
-		delegates = append(delegates, delegateFact{d.definition, d.child.Program.ProgramRef(), d.child.Budget, d.child.Capabilities})
+		delegates = append(delegates, configuredDelegate{d.definition, d.child.Program.ProgramRef(), d.child.Budget, d.child.Capabilities})
 	}
 	policy := struct {
 		LocalContext, ExternalContext, ValidateCompletion             bool
@@ -72,7 +72,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		Tools                                                         toolConfiguration
 		RequiredToolCapabilities                                      run.CapabilitySet
 		MaxConcurrentToolCalls, MaxResponseBytes, MaxStreamDeltaBytes int
-		Delegates                                                     []delegateFact
+		Delegates                                                     []configuredDelegate
 	}{
 		LocalContext:             cfg.ContextPolicy != nil,
 		ExternalContext:          cfg.ContextProcessor != nil,

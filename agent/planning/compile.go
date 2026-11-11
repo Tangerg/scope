@@ -50,7 +50,7 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 	if err != nil {
 		return zero, err
 	}
-	type actionFact struct {
+	type configuredAction struct {
 		Name, Description      string
 		Preconditions, Effects []Condition
 		Policy                 run.EffectPolicy
@@ -58,19 +58,19 @@ func Compile[I any](compiler *run.Compiler, cfg Config) (run.Program[I, Output],
 		Budget                 run.Budget
 		Capabilities           run.CapabilitySet
 	}
-	actions := make([]actionFact, 0, len(def.bindings))
+	actions := make([]configuredAction, 0, len(def.bindings))
 	for _, b := range def.bindings {
 		var child *run.ProgramRef
 		if b.delegatesToChild() {
 			child = new(b.child.Program.ProgramRef())
 		}
 		a := b.action
-		actions = append(actions, actionFact{a.Name(), a.Description(), a.Preconditions(), a.Effects(), b.policy, child, b.child.Budget, b.child.Capabilities})
+		actions = append(actions, configuredAction{a.Name(), a.Description(), a.Preconditions(), a.Effects(), b.policy, child, b.child.Budget, b.child.Capabilities})
 	}
 	configuration := struct {
 		Goal, Description string
 		Conditions        []Condition
-		Actions           []actionFact
+		Actions           []configuredAction
 		Attempts          run.Quota
 	}{def.goal.Name(), def.goal.Description(), def.goal.Conditions(), actions, def.maxActionAttempts}
 	return run.Bind[I, Output](compiler, run.BindingConfig{

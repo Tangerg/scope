@@ -25,7 +25,7 @@ type HistoryProjection struct {
 	program    run.ProgramRef
 	definition *definition
 	mu         sync.Mutex
-	dispatches map[run.EffectID]dispatchFact
+	dispatches map[run.EffectID]decodedDispatch
 }
 
 // NewHistoryProjection binds a projection to a compiled interaction Program.
@@ -99,29 +99,29 @@ func (h *HistoryProjection) project(log run.Log) (interactionProjection, error) 
 	return projector.projection, nil
 }
 
-// dispatchFact is what later records need from one strictly decoded dispatcher
+// decodedDispatch is what later records need from one strictly decoded dispatcher
 // Effect. Decoding depends only on the canonical payload, so the same Effect
-// with identical payload bytes reuses its fact instead of decoding again.
-type dispatchFact struct {
+// with identical payload bytes reuses its decoding instead of decoding again.
+type decodedDispatch struct {
 	payload           run.Payload
 	operation         operation
 	modelCallSequence uint64
 	toolCall          toolDispatchRequest
 }
 
-func decodeDispatchFact(payload run.Payload) (dispatchFact, error) {
+func decodeDispatch(payload run.Payload) (decodedDispatch, error) {
 	envelope, err := decodeEffect(payload.JSON())
 	if err != nil {
-		return dispatchFact{}, err
+		return decodedDispatch{}, err
 	}
-	fact := dispatchFact{payload: payload, operation: envelope.operation()}
-	switch fact.operation {
+	dispatch := decodedDispatch{payload: payload, operation: envelope.operation()}
+	switch dispatch.operation {
 	case operationModelCall:
-		fact.modelCallSequence = envelope.ModelCall.ModelCallSequence
+		dispatch.modelCallSequence = envelope.ModelCall.ModelCallSequence
 	case operationToolCall:
-		fact.toolCall = *envelope.ToolCall
+		dispatch.toolCall = *envelope.ToolCall
 	}
-	return fact, nil
+	return dispatch, nil
 }
 
 type interactionProjection struct {
@@ -140,22 +140,22 @@ type historyProjector struct {
 	members map[run.ProcessID]bool
 	intents map[run.EffectID]run.EffectIntent
 	// decoded is the previous read's cache; dispatches holds only this history's facts.
-	decoded    map[run.EffectID]dispatchFact
-	dispatches map[run.EffectID]dispatchFact
+	decoded    map[run.EffectID]decodedDispatch
+	dispatches map[run.EffectID]decodedDispatch
 	models     map[run.EffectID]uint64
 	rounds     map[run.ProcessID]*RoundResults
 	calls      map[run.EffectID]*projectedCall
 	delegates  map[run.ProcessID]*projectedCall
 }
 
-func newHistoryProjector(program run.ProgramRef, definition *definition, decoded map[run.EffectID]dispatchFact) *historyProjector {
+func newHistoryProjector(program run.ProgramRef, definition *definition, decoded map[run.EffectID]decodedDispatch) *historyProjector {
 	return &historyProjector{
 		program:    program,
 		definition: definition,
 		members:    make(map[run.ProcessID]bool),
 		intents:    make(map[run.EffectID]run.EffectIntent),
 		decoded:    decoded,
-		dispatches: make(map[run.EffectID]dispatchFact, len(decoded)),
+		dispatches: make(map[run.EffectID]decodedDispatch, len(decoded)),
 		models:     make(map[run.EffectID]uint64),
 		rounds:     make(map[run.ProcessID]*RoundResults),
 		calls:      make(map[run.EffectID]*projectedCall),
@@ -196,20 +196,20 @@ func (h *historyProjector) intended(intent run.EffectIntent) error {
 
 func (h *historyProjector) intendedDispatch(intent run.EffectIntent) error {
 	payload := intent.Effect.Payload()
-	fact, known := h.decoded[intent.ID]
-	if !known || !fact.payload.Equal(payload) {
+	dispatch, known := h.decoded[intent.ID]
+	if !known || !dispatch.payload.Equal(payload) {
 		var err error
-		if fact, err = decodeDispatchFact(payload); err != nil {
+		if dispatch, err = decodeDispatch(payload); err != nil {
 			return err
 		}
 	}
-	h.dispatches[intent.ID] = fact
-	switch fact.operation {
+	h.dispatches[intent.ID] = dispatch
+	switch dispatch.operation {
 	case operationModelCall:
-		h.models[intent.ID] = fact.modelCallSequence
+		h.models[intent.ID] = dispatch.modelCallSequence
 		return nil
 	case operationToolCall:
-		return h.intendedToolCall(intent.ID, fact.toolCall)
+		return h.intendedToolCall(intent.ID, dispatch.toolCall)
 	default:
 		return nil
 	}
