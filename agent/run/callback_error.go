@@ -31,7 +31,7 @@ func sealCallbackError(err error) error {
 	_, panicked := errors.AsType[*CallbackPanicError](err)
 	c := &callbackError{cause: err, message: err.Error(), panicked: panicked}
 	c.step, _ = StepFailure(err)
-	c.appendConflict = errors.Is(err, ErrCommitConflict) || errors.Is(err, ErrEpochConflict)
+	c.appendConflict = appendConflict(err)
 	return c
 }
 
