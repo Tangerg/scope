@@ -159,57 +159,21 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	if err := s.binding.verify(ctx); err != nil {
+	if err = s.binding.verify(ctx); err != nil {
 		return nil, err
 	}
-	var ranked []scoredDocument
-	seen := make(map[string]struct{})
-	{
-		queryReq := &pineconesdk.QueryByVectorValuesRequest{Vector: query, TopK: uint32(request.Options.ResultLimit()), IncludeMetadata: true, IncludeValues: true}
-		queryReq.MetadataFilter = where
-		page, err := s.index.QueryByVectorValues(ctx, queryReq)
-		if err != nil {
-			return nil, err
-		}
-		if page == nil || page.Namespace != s.index.Namespace() || len(page.Matches) > request.Options.ResultLimit() {
-			return nil, errors.New("pinecone: native query returned no valid namespace acknowledgment")
-		}
-		for _, hit := range page.Matches {
-			if hit == nil {
-				return nil, errors.New("pinecone: native query omitted a scored record")
-			}
-			doc, _, err := s.binding.schema.decode(hit.Vector)
-			if err != nil {
-				return nil, err
-			}
-			if _, duplicate := seen[doc.ID]; duplicate {
-				return nil, errors.New("pinecone: native query repeated an identity")
-			}
-			seen[doc.ID] = struct{}{}
-
-			raw := float64(hit.Score)
-			score, err := s.binding.schema.score(raw)
-			if err != nil {
-				return nil, err
-			}
-			result, err := vectorstore.NewSearchResult(doc, score)
-			if err != nil {
-				return nil, err
-			}
-			rank := raw
-			if s.binding.schema.metric == pineconesdk.IndexMetricEuclidean {
-				rank = -raw
-			}
-			ranked = append(ranked, scoredDocument{result: result, rank: rank})
-		}
+	native := &pineconesdk.QueryByVectorValuesRequest{Vector: query, TopK: uint32(request.Options.ResultLimit()), IncludeMetadata: true, IncludeValues: true, MetadataFilter: where}
+	page, err := s.index.QueryByVectorValues(ctx, native)
+	if err != nil {
+		return nil, err
 	}
-	slices.SortFunc(ranked, func(left, right scoredDocument) int {
-		if order := cmp.Compare(right.rank, left.rank); order != 0 {
-			return order
-		}
-		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-	})
-	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+	if page == nil || page.Namespace != s.index.Namespace() {
+		return nil, errors.New("pinecone: native query returned no valid namespace acknowledgment")
+	}
+	ranked, err := s.rankHits(page.Matches, request.Options.ResultLimit())
+	if err != nil {
+		return nil, err
+	}
 	response = &vectorstore.SearchResponse{}
 	for _, hit := range ranked {
 		if hit.result.Score >= request.Options.MinScore {
@@ -217,6 +181,43 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		}
 	}
 	return response, nil
+}
+
+// rankHits decodes native matches nearest first and rejects what a query of
+// one namespace can never return.
+func (s *Store) rankHits(hits []*pineconesdk.ScoredVector, limit int) ([]scoredDocument, error) {
+	if len(hits) > limit {
+		return nil, errors.New("pinecone: native query exceeded its result limit")
+	}
+	ranked := make([]scoredDocument, 0, len(hits))
+	seen := make(map[string]struct{}, len(hits))
+	for _, hit := range hits {
+		if hit == nil {
+			return nil, errors.New("pinecone: native query omitted a scored record")
+		}
+		doc, _, err := s.binding.schema.decode(hit.Vector)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return nil, errors.New("pinecone: native query repeated an identity")
+		}
+		seen[doc.ID] = struct{}{}
+		raw := float64(hit.Score)
+		score, err := s.binding.schema.score(raw)
+		if err != nil {
+			return nil, err
+		}
+		result, err := vectorstore.NewSearchResult(doc, score)
+		if err != nil {
+			return nil, err
+		}
+		ranked = append(ranked, scoredDocument{result: result, rank: s.binding.schema.nearness(raw)})
+	}
+	slices.SortFunc(ranked, func(left, right scoredDocument) int {
+		return cmp.Or(cmp.Compare(right.rank, left.rank), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked[:min(len(ranked), limit)], nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {

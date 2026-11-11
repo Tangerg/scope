@@ -74,6 +74,15 @@ func (n nativeSchema) validateVector(vector []float32) error {
 	return nil
 }
 
+// nearness orders native scores so that larger is nearer: Pinecone reports a
+// similarity for cosine and dot product but a distance for Euclidean indexes.
+func (n nativeSchema) nearness(raw float64) float64 {
+	if n.metric == pineconesdk.IndexMetricEuclidean {
+		return -raw
+	}
+	return raw
+}
+
 func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) {
 		return 0, errors.New("pinecone: native score is not finite")
