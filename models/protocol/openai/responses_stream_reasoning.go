@@ -84,66 +84,57 @@ func (r responsesStreamReasoning) bind(index int64, itemID string) (*responsesRe
 	return evidence, nil
 }
 
-func (r responsesStreamReasoning) delta(index int64, indexPresent bool, text string, segment responsesReasoningSegment) (*corechat.PartDelta, error) {
+func (r responsesStreamReasoning) delta(index int64, indexPresent bool, text string, segment responsesReasoningSegment) (*corechat.PartDelta, responsesStreamPart, error) {
 	if !indexPresent {
-		return nil, fmt.Errorf("%w: openai responses: reasoning delta requires its output and segment indices", corechat.ErrInvalidResponse)
+		return nil, responsesStreamPart{}, fmt.Errorf("%w: openai responses: reasoning delta requires its output and segment indices", corechat.ErrInvalidResponse)
 	}
 	evidence, err := r.bind(index, segment.ItemID)
 	if err != nil {
-		return nil, err
+		return nil, responsesStreamPart{}, err
 	}
 	if appendErr := evidence.append(text, segment); appendErr != nil {
-		return nil, appendErr
+		return nil, responsesStreamPart{}, appendErr
 	}
 	frame, err := r.codec.encodeFrame(responsesReasoningState{Segment: &segment})
 	if err != nil {
-		return nil, err
+		return nil, responsesStreamPart{}, err
 	}
-	part := corechat.NewReasoningDelta(text, frame)
-	if err := part.Metadata.Set(responsesReasoningIdentityKey, segment); err != nil {
-		return nil, err
-	}
-	return &part, nil
+	return new(corechat.NewReasoningDelta(text, frame)), segment.part(index), nil
 }
 
-func (r responsesStreamReasoning) finish(event responses.ResponseOutputItemDoneEvent) (*corechat.PartDelta, error) {
+// finish publishes the item's remaining native state on its last segment, or
+// on a part of its own when the item streamed no text.
+func (r responsesStreamReasoning) finish(event responses.ResponseOutputItemDoneEvent) (*corechat.PartDelta, responsesStreamPart, error) {
 	if !event.JSON.OutputIndex.Valid() {
-		return nil, fmt.Errorf("%w: openai responses: reasoning completion requires an output index", corechat.ErrInvalidResponse)
+		return nil, responsesStreamPart{}, fmt.Errorf("%w: openai responses: reasoning completion requires an output index", corechat.ErrInvalidResponse)
 	}
 	item := event.Item.AsReasoning()
 	evidence, err := r.bind(event.OutputIndex, item.ID)
 	if err != nil {
-		return nil, err
+		return nil, responsesStreamPart{}, err
 	}
 	if evidence.completion != nil {
-		return nil, fmt.Errorf("%w: openai responses: reasoning item completed twice", corechat.ErrInvalidResponse)
+		return nil, responsesStreamPart{}, fmt.Errorf("%w: openai responses: reasoning item completed twice", corechat.ErrInvalidResponse)
 	}
 	state, err := completedResponsesReasoningState(item)
 	if err != nil {
-		return nil, fmt.Errorf("%w: openai responses: reasoning completion: %w", corechat.ErrInvalidResponse, err)
+		return nil, responsesStreamPart{}, fmt.Errorf("%w: openai responses: reasoning completion: %w", corechat.ErrInvalidResponse, err)
 	}
 	if validationErr := evidence.validateText(item); validationErr != nil {
-		return nil, validationErr
+		return nil, responsesStreamPart{}, validationErr
 	}
 	frame, err := r.codec.encodeFrame(state)
 	if err != nil {
-		return nil, fmt.Errorf("%w: openai responses: reasoning completion: %w", corechat.ErrInvalidResponse, err)
+		return nil, responsesStreamPart{}, fmt.Errorf("%w: openai responses: reasoning completion: %w", corechat.ErrInvalidResponse, err)
 	}
-	part := corechat.NewReasoningDelta("", frame)
+	key := responsesStreamPart{output: event.OutputIndex}
 	if evidence.lastSegment != nil {
-		err = part.Metadata.Set(responsesReasoningIdentityKey, *evidence.lastSegment)
-	} else {
-		err = part.Metadata.Set(responsesReasoningIdentityKey, struct {
-			ItemID string `json:"item_id"`
-		}{ItemID: item.ID})
-	}
-	if err != nil {
-		return nil, err
+		key = evidence.lastSegment.part(event.OutputIndex)
 	}
 	evidence.completion = &responsesReasoningCompletion{
 		encryptedContent: item.EncryptedContent, encryptedContentPresent: item.JSON.EncryptedContent.Valid(), status: item.Status,
 	}
-	return &part, nil
+	return new(corechat.NewReasoningDelta("", frame)), key, nil
 }
 
 func (r responsesStreamReasoning) validateTerminal(response responses.Response) error {

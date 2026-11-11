@@ -139,3 +139,39 @@ func TestChatReportsUnmappedNativeContent(t *testing.T) {
 		})
 	}
 }
+
+func TestConverseStreamKeepsAdjacentContentBlocksApart(t *testing.T) {
+	stream := newStartedConverseStream(t, "anthropic.claude")
+	var accumulator corechat.ResponseAccumulator
+	for _, event := range []types.ConverseStreamOutput{
+		&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{ContentBlockIndex: aws.Int32(0), Delta: &types.ContentBlockDeltaMemberText{Value: "first"}}},
+		&types.ConverseStreamOutputMemberContentBlockStop{Value: types.ContentBlockStopEvent{ContentBlockIndex: aws.Int32(0)}},
+		&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{ContentBlockIndex: aws.Int32(1), Delta: &types.ContentBlockDeltaMemberText{Value: "second"}}},
+		&types.ConverseStreamOutputMemberContentBlockStop{Value: types.ContentBlockStopEvent{ContentBlockIndex: aws.Int32(1)}},
+		&types.ConverseStreamOutputMemberMessageStop{Value: types.MessageStopEvent{StopReason: types.StopReasonEndTurn}},
+	} {
+		delta, include, err := stream.add(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !include {
+			continue
+		}
+		if stream.terminated() {
+			if delta, err = stream.complete(delta); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := accumulator.Add(delta); err != nil {
+			t.Fatal(err)
+		}
+	}
+	response, err := accumulator.Response()
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Output.Message.Parts
+	if len(parts) != 2 || parts[0].Text != "first" || parts[1].Text != "second" {
+		t.Fatalf("parts = %#v, want one part per content block", parts)
+	}
+}

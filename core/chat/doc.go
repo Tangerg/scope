@@ -15,7 +15,9 @@
 //
 // Response is a complete, stable output. Streamer yields ResponseDelta transport
 // increments instead of partial Responses; ResponseAccumulator is the single
-// promotion path between them and requires a terminal finish reason. Citations,
+// promotion path between them and requires a terminal finish reason. Each
+// PartDelta names its part by Index, so a provider states where parts begin
+// instead of leaving adjacency or metadata to imply it. Citations,
 // refusals, reasoning replay state, and tool calls remain typed protocol values
 // while exact provider-only data stays in namespaced metadata.
 //

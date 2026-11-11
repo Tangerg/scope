@@ -18,16 +18,59 @@ type chatStreamTool struct {
 }
 
 type chatStreamState struct {
-	responseID       string
-	model            string
-	tools            map[int]chatStreamTool
-	finish           finishReason
-	thinkingBlock    uint64
-	thinkingPosition uint64
+	responseID    string
+	model         string
+	parts         chatStreamParts
+	tools         map[int]chatStreamTool
+	finish        finishReason
+	thinkingBlock uint64
 }
 
 func newChatStreamState() *chatStreamState {
-	return &chatStreamState{tools: make(map[int]chatStreamTool)}
+	return &chatStreamState{tools: make(map[int]chatStreamTool), parts: chatStreamParts{tools: make(map[int]int)}}
+}
+
+// chatStreamParts assigns Core part identity to Mistral chunks, which carry
+// none of their own. Text continues across chunks until another part opens;
+// each thinking child keeps its own replay frame, media is complete in one
+// chunk, and a tool call keeps its native index.
+type chatStreamParts struct {
+	count    int
+	openText *int
+	lastText *int
+	tools    map[int]int
+}
+
+func (c *chatStreamParts) open() int {
+	c.openText = nil
+	index := c.count
+	c.count++
+	return index
+}
+
+func (c *chatStreamParts) text() int {
+	if c.openText == nil {
+		index := c.open()
+		c.openText = &index
+	}
+	c.lastText = c.openText
+	return *c.openText
+}
+
+func (c *chatStreamParts) tool(native int) int {
+	index, found := c.tools[native]
+	if !found {
+		index = c.open()
+		c.tools[native] = index
+	}
+	return index
+}
+
+func (c *chatStreamParts) citation() (int, error) {
+	if c.lastText == nil {
+		return 0, fmt.Errorf("%w: reference precedes any text", corechat.ErrInvalidResponse)
+	}
+	return *c.lastText, nil
 }
 
 // terminated reports whether a chunk carried a finish reason. A stream that
@@ -170,9 +213,9 @@ func (c *chatStreamState) mapToolDeltas(calls []chatToolCall) ([]corechat.PartDe
 		deltaArguments := tool.pendingArguments
 		tool.pendingArguments = ""
 		c.tools[index] = tool
-		parts = append(parts, corechat.NewToolCallDelta(corechat.ToolCallDelta{
-			ID: tool.id, Name: tool.name, Arguments: deltaArguments,
-		}))
+		part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: tool.id, Name: tool.name, Arguments: deltaArguments})
+		part.Index = c.parts.tool(index)
+		parts = append(parts, part)
 	}
 	return parts, nil
 }
@@ -190,7 +233,9 @@ func (c *chatStreamState) mapContentDeltas(raw json.RawMessage) ([]corechat.Part
 		if text == "" {
 			return nil, nil
 		}
-		return []corechat.PartDelta{corechat.NewTextDelta(text)}, nil
+		part := corechat.NewTextDelta(text)
+		part.Index = c.parts.text()
+		return []corechat.PartDelta{part}, nil
 	}
 	var chunks []json.RawMessage
 	if err := jsonv2.Unmarshal(trimmed, &chunks); err != nil {
@@ -204,7 +249,11 @@ func (c *chatStreamState) mapContentDeltas(raw json.RawMessage) ([]corechat.Part
 		}
 		if reference {
 			for citationIndex := range citations {
-				deltas = append(deltas, corechat.NewCitationDelta(citations[citationIndex]))
+				part := corechat.NewCitationDelta(citations[citationIndex])
+				if part.Index, err = c.parts.citation(); err != nil {
+					return nil, fmt.Errorf("chunk[%d]: %w", index, err)
+				}
+				deltas = append(deltas, part)
 			}
 			continue
 		}
@@ -231,9 +280,13 @@ func (c *chatStreamState) mapContentDeltas(raw json.RawMessage) ([]corechat.Part
 		}
 		switch part.Kind {
 		case corechat.PartText:
-			deltas = append(deltas, corechat.NewTextDelta(part.Text))
+			delta := corechat.NewTextDelta(part.Text)
+			delta.Index = c.parts.text()
+			deltas = append(deltas, delta)
 		case corechat.PartMedia:
-			deltas = append(deltas, corechat.NewMediaDelta(part.Media))
+			delta := corechat.NewMediaDelta(part.Media)
+			delta.Index = c.parts.open()
+			deltas = append(deltas, delta)
 		default:
 			return nil, fmt.Errorf("chunk[%d]: unsupported stream part %q", index, part.Kind)
 		}
@@ -254,14 +307,7 @@ func (c *chatStreamState) mapThinkingDeltas(raw json.RawMessage) ([]corechat.Par
 		return nil, err
 	}
 	for index := range parts {
-		identity := struct {
-			Block    uint64 `json:"block"`
-			Position uint64 `json:"position"`
-		}{Block: c.thinkingBlock, Position: c.thinkingPosition}
-		if err := parts[index].Metadata.Set(thinkingPartIdentityKey, identity); err != nil {
-			return nil, err
-		}
-		c.thinkingPosition++
+		parts[index].Index = c.parts.open()
 	}
 	if chunk.Closed == thinkingClosureClosed {
 		c.thinkingBlock++

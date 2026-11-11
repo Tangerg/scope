@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/openai/openai-go/v3/responses"
@@ -10,8 +9,17 @@ import (
 	corecontent "github.com/Tangerg/scope/core/content"
 )
 
+// responsesStreamPart identifies one Core part of a Responses stream. The
+// output index names the native item; kind and index name the message content
+// entry or reasoning segment within it and stay zero for whole-item parts.
+type responsesStreamPart struct {
+	output int64
+	kind   string
+	index  int64
+}
+
 type responsesStreamState struct {
-	lastText             *responsesContentPosition
+	parts                streamPartIndexes[responsesStreamPart]
 	responseExtensionKey string
 	identity             streamIdentity
 	tools                responsesStreamTools
@@ -37,6 +45,7 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		return nil, fmt.Errorf("%w: openai responses: event: %w", corechat.ErrInvalidResponse, err)
 	}
 	var part *corechat.PartDelta
+	var key responsesStreamPart
 	var err error
 	// SDK union fields erase variant-specific types. Only a consumed variant
 	// selects an admission shape; unrelated native events remain opaque.
@@ -54,14 +63,13 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 			return nil, r.content.startMessage(typed)
 		}
 		part, err = r.tools.add(typed)
+		key = responsesStreamPart{output: typed.OutputIndex}
 	case responses.ResponseTextDeltaEvent:
 		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
 		part, err = r.content.addText(typed)
-		if err == nil && part != nil {
-			r.lastText = &responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
-		}
+		key = responsesStreamPart{output: typed.OutputIndex, kind: responsesContentTypeText, index: typed.ContentIndex}
 	case responses.ResponseOutputTextAnnotationAddedEvent:
 		if wireErr := validateResponsesEvent[responsesAnnotationEventWire](event); wireErr != nil {
 			return nil, wireErr
@@ -77,24 +85,23 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		if stateErr := r.content.messages[typed.OutputIndex].requireOpen(); stateErr != nil {
 			return nil, stateErr
 		}
-		position := responsesContentPosition{output: typed.OutputIndex, content: typed.ContentIndex}
 		if evidence, known := r.content.messages[typed.OutputIndex].segments[typed.ContentIndex]; !known || evidence.kind != responsesContentTypeText {
 			return nil, fmt.Errorf("%w: openai responses: annotation references unknown text", corechat.ErrInvalidResponse)
 		}
-		if r.lastText == nil || *r.lastText != position {
-			return nil, fmt.Errorf("%w: openai responses: Core cannot attach a delayed annotation to an earlier text segment", errors.ErrUnsupported)
-		}
-		return r.deltaResponse(corechat.NewCitationDelta(citation))
+		part = new(corechat.NewCitationDelta(citation))
+		key = responsesStreamPart{output: typed.OutputIndex, kind: responsesContentTypeText, index: typed.ContentIndex}
 	case responses.ResponseRefusalDeltaEvent:
 		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
 		part, err = r.content.addRefusal(typed)
+		key = responsesStreamPart{output: typed.OutputIndex, kind: responsesContentTypeRefusal, index: typed.ContentIndex}
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
 		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
 		part, err = r.tools.appendArguments(typed)
+		key = responsesStreamPart{output: typed.OutputIndex}
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
 		if wireErr := validateResponsesEvent[responsesArgumentsDoneEventWire](event); wireErr != nil {
 			return nil, wireErr
@@ -104,21 +111,21 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
-		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
 		if wireErr := validateResponsesEvent[responsesDeltaEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
-		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
+		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Delta, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseReasoningSummaryPartAddedEvent:
 		if wireErr := validateResponsesEvent[responsesContentEventWire](event); wireErr != nil {
 			return nil, wireErr
 		}
-		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.SummaryIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningSummary, Index: typed.SummaryIndex,
 		})
 	case responses.ResponseContentPartAddedEvent:
@@ -131,7 +138,7 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 		if typed.Part.Type != responsesReasoningContentText {
 			return nil, nil
 		}
-		part, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
+		part, key, err = r.reasoning.delta(typed.OutputIndex, typed.JSON.OutputIndex.Valid() && typed.JSON.ContentIndex.Valid(), typed.Part.Text, responsesReasoningSegment{
 			ItemID: typed.ItemID, Kind: responsesReasoningContent, Index: typed.ContentIndex,
 		})
 	case responses.ResponseContentPartDoneEvent, responses.ResponseTextDoneEvent, responses.ResponseRefusalDoneEvent:
@@ -168,7 +175,7 @@ func (r *responsesStreamState) addEvent(event responses.ResponseStreamEventUnion
 	if err != nil || part == nil {
 		return nil, err
 	}
-	return r.deltaResponse(*part)
+	return r.deltaResponse(key, *part)
 }
 
 func (r *responsesStreamState) finishItem(event responses.ResponseOutputItemDoneEvent) (*corechat.ResponseDelta, error) {
@@ -181,11 +188,11 @@ func (r *responsesStreamState) finishItem(event responses.ResponseOutputItemDone
 	if event.Item.Type != responsesItemTypeReasoning {
 		return nil, nil
 	}
-	part, err := r.reasoning.finish(event)
+	part, key, err := r.reasoning.finish(event)
 	if err != nil {
 		return nil, err
 	}
-	return r.deltaResponse(*part)
+	return r.deltaResponse(key, *part)
 }
 
 func (r *responsesStreamState) bindResponseIdentity(response responses.Response) error {
@@ -213,11 +220,8 @@ func (r *responsesStreamState) terminalDelta(response responses.Response, status
 	return responsesTerminalDelta(&response, r.responseExtensionKey, r.identity)
 }
 
-func (r *responsesStreamState) deltaResponse(part corechat.PartDelta) (*corechat.ResponseDelta, error) {
-	if part.Kind != corechat.PartDeltaText && part.Kind != corechat.PartDeltaCitation {
-		r.lastText = nil
-	}
-
+func (r *responsesStreamState) deltaResponse(key responsesStreamPart, part corechat.PartDelta) (*corechat.ResponseDelta, error) {
+	part.Index = r.parts.of(key)
 	response := &corechat.ResponseDelta{
 		Parts:    []corechat.PartDelta{part},
 		Metadata: r.identity.metadata(),

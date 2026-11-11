@@ -18,7 +18,6 @@ import (
 const (
 	responsesReasoningLengthSize  = 4
 	responsesReasoningFrameSize   = len(responsesReasoningFrameMagic) + responsesReasoningLengthSize
-	responsesReasoningIdentityKey = "openai/responses_reasoning_identity"
 	responsesReasoningSummary     = "summary"
 	responsesReasoningContent     = "content"
 	responsesReasoningSummaryText = "summary_text"
@@ -31,6 +30,10 @@ type responsesReasoningSegment struct {
 	ItemID string `json:"item_id"`
 	Kind   string `json:"kind"`
 	Index  int64  `json:"index"`
+}
+
+func (r responsesReasoningSegment) part(output int64) responsesStreamPart {
+	return responsesStreamPart{output: output, kind: r.Kind, index: r.Index}
 }
 
 func (r responsesReasoningSegment) validate() error {

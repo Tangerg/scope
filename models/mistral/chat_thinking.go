@@ -15,7 +15,6 @@ const (
 	thinkingFrameMagic      = "MSTH"
 	thinkingFrameLengthSize = 4
 	thinkingFrameHeaderSize = len(thinkingFrameMagic) + thinkingFrameLengthSize
-	thinkingPartIdentityKey = "mistral/thinking_part_identity"
 	thinkingFieldType       = "type"
 	thinkingFieldText       = "text"
 	thinkingFieldChildren   = "thinking"

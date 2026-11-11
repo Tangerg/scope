@@ -112,9 +112,15 @@ func TestUnsignedReasoningRemainsVisibleAndDoesNotBlockContinuation(t *testing.T
 	if addErr := accumulator.Add(delta); addErr != nil {
 		t.Fatal(addErr)
 	}
-	if addErr := accumulator.Add(&corechat.ResponseDelta{
-		Parts: []corechat.PartDelta{corechat.NewTextDelta("answer")}, FinishReason: corechat.FinishReasonStop,
-	}); addErr != nil {
+	answer, include, err := mapper.add(&types.ConverseStreamOutputMemberContentBlockDelta{Value: types.ContentBlockDeltaEvent{
+		ContentBlockIndex: aws.Int32(1),
+		Delta:             &types.ContentBlockDeltaMemberText{Value: "answer"},
+	}})
+	if err != nil || !include {
+		t.Fatalf("text delta = %v, %t", err, include)
+	}
+	answer.FinishReason = corechat.FinishReasonStop
+	if addErr := accumulator.Add(answer); addErr != nil {
 		t.Fatal(addErr)
 	}
 	response, err := accumulator.Response()

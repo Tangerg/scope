@@ -16,9 +16,9 @@ import (
 type ResponseAccumulator struct {
 	metadata        *ResponseMetadata
 	parts           []accumulatedPart
+	positions       map[int]int
 	messageMetadata metadata.Map
 	finishReason    FinishReason
-	toolParts       map[string]int
 	seen            bool
 }
 
@@ -127,55 +127,70 @@ func (r *ResponseAccumulator) Response() (*Response, error) {
 }
 
 // All cross-delta failures are checked before any owned state changes. The
-// temporary identities cover tool calls introduced earlier in the same delta.
+// temporary openings cover parts introduced earlier in the same delta.
 func (r *ResponseAccumulator) preflight(delta *ResponseDelta) error {
 	if r.finishReason != "" {
 		return errors.New("stream emitted a delta after its finish reason")
 	}
-	var last PartKind
-	if len(r.parts) > 0 {
-		last = r.parts[len(r.parts)-1].part.Kind
-	}
-	var introduced map[string]string
-	for index, part := range delta.Parts {
-		switch part.Kind {
-		case PartDeltaCitation:
-			if last != PartText {
-				return fmt.Errorf("part %d: citation delta does not follow text", index)
+	var opened map[int]partOpening
+	for position, part := range delta.Parts {
+		opening, exists := r.opening(part.Index)
+		if !exists {
+			opening, exists = opened[part.Index]
+		}
+		if !exists {
+			if opened == nil {
+				opened = make(map[int]partOpening)
 			}
-		case PartDeltaToolCall:
-			call := part.ToolCall
-			name, exists := r.toolCallName(call.ID, introduced)
-			if exists {
-				if name != call.Name {
-					return fmt.Errorf("part %d: tool call %q changed name from %q to %q", index, call.ID, name, call.Name)
-				}
-				continue
-			}
-			if introduced == nil {
-				introduced = make(map[string]string)
-			}
-			introduced[call.ID] = call.Name
-			last = PartToolCall
-		case PartDeltaText:
-			last = PartText
-		case PartDeltaReasoning:
-			last = PartReasoning
-		case PartDeltaRefusal:
-			last = PartRefusal
-		case PartDeltaMedia:
-			last = PartMedia
+			opened[part.Index] = newPartOpening(part)
+			continue
+		}
+		if err := opening.admit(part); err != nil {
+			return fmt.Errorf("part %d at index %d: %w", position, part.Index, err)
 		}
 	}
 	return nil
 }
 
-func (r *ResponseAccumulator) toolCallName(id string, introduced map[string]string) (string, bool) {
-	if position, found := r.toolParts[id]; found {
-		return r.parts[position].part.ToolCall.Name, true
+func (r *ResponseAccumulator) opening(index int) (partOpening, bool) {
+	position, exists := r.positions[index]
+	if !exists {
+		return partOpening{}, false
 	}
-	name, exists := introduced[id]
-	return name, exists
+	part := r.parts[position].part
+	opening := partOpening{kind: part.Kind}
+	if part.ToolCall != nil {
+		opening.toolID, opening.toolName = part.ToolCall.ID, part.ToolCall.Name
+	}
+	return opening, true
+}
+
+// partOpening is what every later delta of one part must agree with.
+type partOpening struct {
+	kind     PartKind
+	toolID   string
+	toolName string
+}
+
+func newPartOpening(delta PartDelta) partOpening {
+	opening := partOpening{kind: delta.Kind.partKind()}
+	if delta.ToolCall != nil {
+		opening.toolID, opening.toolName = delta.ToolCall.ID, delta.ToolCall.Name
+	}
+	return opening
+}
+
+func (p partOpening) admit(delta PartDelta) error {
+	switch {
+	case delta.Kind.partKind() != p.kind:
+		return fmt.Errorf("%s delta cannot extend a %s part", delta.Kind, p.kind)
+	case delta.Kind == PartDeltaMedia:
+		return errors.New("media delta cannot extend a complete media part")
+	case delta.Kind == PartDeltaToolCall && (delta.ToolCall.ID != p.toolID || delta.ToolCall.Name != p.toolName):
+		return fmt.Errorf("tool call %q (%q) cannot extend tool call %q (%q)", delta.ToolCall.ID, delta.ToolCall.Name, p.toolID, p.toolName)
+	default:
+		return nil
+	}
 }
 
 func (r *ResponseAccumulator) merge(delta *ResponseDelta) {
@@ -197,46 +212,34 @@ func (r *ResponseAccumulator) merge(delta *ResponseDelta) {
 }
 
 func (r *ResponseAccumulator) mergePart(delta PartDelta) {
-	switch delta.Kind {
-	case PartDeltaText:
-		r.mergeTextLike(PartText, delta)
-	case PartDeltaRefusal:
-		r.mergeTextLike(PartRefusal, delta)
-	case PartDeltaReasoning:
-		r.mergeTextLike(PartReasoning, delta)
-	case PartDeltaMedia:
-		part := NewMediaPart(delta.Media.Clone())
-		part.Metadata = delta.Metadata.Clone()
+	position, exists := r.positions[delta.Index]
+	if !exists {
+		position = len(r.parts)
+		if r.positions == nil {
+			r.positions = make(map[int]int)
+		}
+		r.positions[delta.Index] = position
+		part := Part{Kind: delta.Kind.partKind()}
+		if delta.ToolCall != nil {
+			part.ToolCall = &ToolCall{ID: delta.ToolCall.ID, Name: delta.ToolCall.Name}
+		}
 		r.parts = append(r.parts, accumulatedPart{part: part})
+	}
+	part := &r.parts[position]
+	mergeValidatedMetadata(&part.part.Metadata, delta.Metadata)
+	switch delta.Kind {
+	case PartDeltaText, PartDeltaRefusal:
+		part.content = append(part.content, delta.Text...)
+	case PartDeltaReasoning:
+		part.content = append(part.content, delta.Text...)
+		part.part.ReasoningState = append(part.part.ReasoningState, delta.ReasoningState...)
 	case PartDeltaToolCall:
-		call := delta.ToolCall
-		if position, exists := r.toolParts[call.ID]; exists {
-			part := &r.parts[position]
-			part.content = append(part.content, call.Arguments...)
-			mergeValidatedMetadata(&part.part.Metadata, delta.Metadata)
-			return
-		}
-		part := NewToolCallPart(ToolCall{ID: call.ID, Name: call.Name})
-		part.Metadata = delta.Metadata.Clone()
-		if r.toolParts == nil {
-			r.toolParts = make(map[string]int)
-		}
-		r.toolParts[call.ID] = len(r.parts)
-		r.parts = append(r.parts, accumulatedPart{part: part, content: []byte(call.Arguments)})
+		part.content = append(part.content, delta.ToolCall.Arguments...)
+	case PartDeltaMedia:
+		part.part.Media = delta.Media.Clone()
 	case PartDeltaCitation:
-		part := &r.parts[len(r.parts)-1].part
-		part.Citations = append(part.Citations, *delta.Citation)
-		mergeValidatedMetadata(&part.Metadata, delta.Metadata)
+		part.part.Citations = append(part.part.Citations, *delta.Citation)
 	}
-}
-
-func (r *ResponseAccumulator) mergeTextLike(kind PartKind, delta PartDelta) {
-	if len(r.parts) == 0 || r.parts[len(r.parts)-1].part.Kind != kind || !r.parts[len(r.parts)-1].part.Metadata.Equal(delta.Metadata) {
-		r.parts = append(r.parts, accumulatedPart{part: Part{Kind: kind, Metadata: delta.Metadata.Clone()}})
-	}
-	part := &r.parts[len(r.parts)-1]
-	part.content = append(part.content, delta.Text...)
-	part.part.ReasoningState = append(part.part.ReasoningState, delta.ReasoningState...)
 }
 
 // The accumulator owns target and validates source at Add's admission boundary.

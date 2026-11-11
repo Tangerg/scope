@@ -32,8 +32,16 @@ type requestDialect interface {
 	PrepareRequest(source *corechat.Request, target *openaisdk.ChatCompletionNewParams) error
 }
 
+// responseDialect maps the provider's reasoning fields of one stream chunk.
 type responseDialect interface {
-	FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, sequence uint64) error
+	ReasoningDeltas(source openaisdk.ChatCompletionChunkChoiceDelta, sequence uint64) ([]reasoningDelta, error)
+}
+
+// reasoningDelta is one reasoning increment and the native identity of the
+// block it extends. The zero block is the provider's plain reasoning field.
+type reasoningDelta struct {
+	block string
+	part  corechat.Part
 }
 
 // CompatibleRequest exposes the stable subset of a compatible request that a

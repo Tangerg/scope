@@ -49,6 +49,7 @@ func TestTextDeltaAdmissionRejectsInvalidUTF8Atomically(t *testing.T) {
 			if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("你好")}}); err != nil {
 				t.Fatal(err)
 			}
+			part.Index = 1
 			rejected := &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("must not append"), part}, FinishReason: chat.FinishReasonStop}
 			if err := accumulator.Add(rejected); !errors.Is(err, chat.ErrInvalidResponse) {
 				t.Fatalf("Add = %v, want ErrInvalidResponse", err)
@@ -56,7 +57,7 @@ func TestTextDeltaAdmissionRejectsInvalidUTF8Atomically(t *testing.T) {
 			if accumulator.Text() != "你好" {
 				t.Fatalf("rejected delta mutated text: %q", accumulator.Text())
 			}
-			accepted := &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("世界"), chat.NewReasoningDelta("考える", nil)}, FinishReason: chat.FinishReasonStop}
+			accepted := &chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("世界"), at(1, chat.NewReasoningDelta("考える", nil))}, FinishReason: chat.FinishReasonStop}
 			if _, err := jsonv2.Marshal(accepted); err != nil {
 				t.Fatal(err)
 			}

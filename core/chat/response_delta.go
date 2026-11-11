@@ -57,10 +57,34 @@ func (p PartDeltaKind) Valid() bool {
 	return valid
 }
 
-// PartDelta is one transport increment. It is intentionally distinct from
-// Part because incomplete tool arguments and citation attachment are not valid
-// stable message content.
+// partKind is the kind of the Part a delta builds; citations attach to text.
+func (p PartDeltaKind) partKind() PartKind {
+	switch p {
+	case PartDeltaText, PartDeltaCitation:
+		return PartText
+	case PartDeltaMedia:
+		return PartMedia
+	case PartDeltaReasoning:
+		return PartReasoning
+	case PartDeltaToolCall:
+		return PartToolCall
+	case PartDeltaRefusal:
+		return PartRefusal
+	default:
+		return ""
+	}
+}
+
+// PartDelta is one transport increment of the part named by Index. It is
+// intentionally distinct from Part because incomplete tool arguments and
+// citation attachment are not valid stable message content.
 type PartDelta struct {
+	// Index names one part of a response; it is an identity, not a position.
+	// Every delta with the same Index builds that part, and parts take their
+	// message order from their first delta. Providers forward a native block
+	// index or assign one per part, so neither adjacency nor metadata decides
+	// where one part ends and the next begins.
+	Index          int                   `json:"index,omitzero"`
 	Kind           PartDeltaKind         `json:"kind"`
 	Text           string                `json:"text,omitempty"`
 	Media          *media.Media          `json:"media,omitzero"`
@@ -134,6 +158,9 @@ func (p PartDelta) Validate() error {
 	allowed, valid := p.Kind.allowedPayloads()
 	if !valid {
 		return fmt.Errorf("%w: delta has unknown part kind %q", ErrInvalidResponse, p.Kind)
+	}
+	if p.Index < 0 {
+		return fmt.Errorf("%w: delta index %d is negative", ErrInvalidResponse, p.Index)
 	}
 	if err := p.Metadata.Validate(); err != nil {
 		return fmt.Errorf("%w: delta metadata: %w", ErrInvalidResponse, err)

@@ -19,13 +19,13 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 		},
 		{Parts: []chat.PartDelta{
 			chat.NewReasoningDelta("one", []byte("final")),
-			chat.NewTextDelta("hel"),
-			chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-1", Name: "search", Arguments: `{"q":"`}),
+			at(1, chat.NewTextDelta("hel")),
+			at(2, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-1", Name: "search", Arguments: `{"q":"`})),
 		}},
 		{
 			Parts: []chat.PartDelta{
-				chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-1", Name: "search", Arguments: `scope"}`}),
-				chat.NewTextDelta("lo"),
+				at(2, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-1", Name: "search", Arguments: `scope"}`})),
+				at(1, chat.NewTextDelta("lo")),
 			},
 			FinishReason: chat.FinishReasonToolCalls,
 			Metadata:     &chat.ResponseMetadata{Model: "model-final", Usage: &chat.Usage{InputTokens: 12, OutputTokens: 5}},
@@ -55,12 +55,15 @@ func TestResponseAccumulatorPromotesTerminalStream(t *testing.T) {
 	if response.Metadata.ID != "response-1" || response.Metadata.Model != "model-final" {
 		t.Errorf("identity = %q/%q", response.Metadata.ID, response.Metadata.Model)
 	}
-	wantKinds := []chat.PartKind{chat.PartReasoning, chat.PartText, chat.PartToolCall, chat.PartText}
+	wantKinds := []chat.PartKind{chat.PartReasoning, chat.PartText, chat.PartToolCall}
 	if got := partKinds(response.Output.Message); !slices.Equal(got, wantKinds) {
 		t.Fatalf("part kinds = %v; want %v", got, wantKinds)
 	}
 	if response.Output.Message.Parts[0].Text != "step one" || string(response.Output.Message.Parts[0].ReasoningState) != "state-final" {
 		t.Errorf("reasoning = %#v", response.Output.Message.Parts[0])
+	}
+	if response.Output.Message.Parts[1].Text != "hello" {
+		t.Errorf("text interleaved with a tool call = %q", response.Output.Message.Parts[1].Text)
 	}
 	call := response.Output.Message.Parts[2].ToolCall
 	if call == nil || call.ID != "call-1" || call.Name != "search" || call.Arguments != `{"q":"scope"}` {
@@ -84,11 +87,11 @@ func TestResponseAccumulatorMergesInterleavedParallelToolCalls(t *testing.T) {
 	chunks := []*chat.ResponseDelta{
 		{Parts: []chat.PartDelta{
 			chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-a", Name: "a", Arguments: `{"a":`}),
-			chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-b", Name: "b", Arguments: `{"b":`}),
+			at(1, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-b", Name: "b", Arguments: `{"b":`})),
 		}},
 		{Parts: []chat.PartDelta{
 			chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-a", Name: "a", Arguments: `1}`}),
-			chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-b", Name: "b", Arguments: `2}`}),
+			at(1, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call-b", Name: "b", Arguments: `2}`})),
 		}, FinishReason: chat.FinishReasonToolCalls},
 	}
 	var accumulator chat.ResponseAccumulator
@@ -111,7 +114,7 @@ func TestResponseAccumulatorAttachesCitationsAndRefusal(t *testing.T) {
 	citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/source"}, Title: "Source"}
 	chunks := []*chat.ResponseDelta{
 		{Parts: []chat.PartDelta{chat.NewTextDelta("claim"), chat.NewCitationDelta(citation)}},
-		{Parts: []chat.PartDelta{chat.NewRefusalDelta("cannot continue")}, FinishReason: chat.FinishReasonRefusal},
+		{Parts: []chat.PartDelta{at(1, chat.NewRefusalDelta("cannot continue"))}, FinishReason: chat.FinishReasonRefusal},
 	}
 	var accumulator chat.ResponseAccumulator
 	for _, chunk := range chunks {
@@ -260,6 +263,11 @@ func TestResponseAccumulatorRejectsNilEmptyAndPostTerminalDeltas(t *testing.T) {
 	}
 }
 
+func at(index int, delta chat.PartDelta) chat.PartDelta {
+	delta.Index = index
+	return delta
+}
+
 func partKinds(message *chat.Message) []chat.PartKind {
 	if message == nil {
 		return nil
@@ -285,12 +293,12 @@ func decode[T any](t *testing.T, values metadata.Map, key string) T {
 
 func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 	for _, last := range []chat.PartDelta{
-		chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "different", Arguments: "bad"}),
-		chat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com"}}),
+		at(1, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "different", Arguments: "bad"})),
+		at(1, chat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com"}})),
 	} {
 		var accumulator chat.ResponseAccumulator
 		initial := &chat.ResponseDelta{
-			Parts:           []chat.PartDelta{chat.NewTextDelta("before"), chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "{"})},
+			Parts:           []chat.PartDelta{chat.NewTextDelta("before"), at(1, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "{"}))},
 			Metadata:        &chat.ResponseMetadata{ID: "original", Extra: metadata.Map{"value": []byte(`"original"`)}},
 			MessageMetadata: metadata.Map{"value": []byte(`"original"`)},
 		}
@@ -300,7 +308,7 @@ func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 		rejected := &chat.ResponseDelta{
 			Parts: []chat.PartDelta{
 				chat.NewTextDelta("rejected"),
-				chat.NewToolCallDelta(chat.ToolCallDelta{ID: "new", Name: "new", Arguments: "{}"}), last,
+				at(2, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "new", Name: "new", Arguments: "{}"})), last,
 			},
 			FinishReason:    chat.FinishReasonToolCalls,
 			Metadata:        &chat.ResponseMetadata{ID: "rejected", Extra: metadata.Map{"value": []byte(`"rejected"`)}},
@@ -311,7 +319,7 @@ func TestResponseAccumulatorRejectsWholeDeltaBeforeMutation(t *testing.T) {
 		}
 		initial.Metadata.Extra["value"][1] = 'X'
 		initial.MessageMetadata["value"][1] = 'X'
-		if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "}"})}, FinishReason: chat.FinishReasonToolCalls}); err != nil {
+		if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{at(1, chat.NewToolCallDelta(chat.ToolCallDelta{ID: "call", Name: "write", Arguments: "}"}))}, FinishReason: chat.FinishReasonToolCalls}); err != nil {
 			t.Fatal(err)
 		}
 		response, err := accumulator.Response()
@@ -393,5 +401,81 @@ func TestResponseAccumulatorRetainsCitationMetadata(t *testing.T) {
 	part := response.Output.Message.Parts[0]
 	if len(part.Citations) != 1 || string(part.Metadata["provider_state"]) != `{"page":2}` {
 		t.Fatalf("citation metadata = %v", part)
+	}
+}
+
+func TestResponseAccumulatorSeparatesAdjacentPartsOnlyByIndex(t *testing.T) {
+	citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com/second"}}
+	first := chat.NewTextDelta("first ")
+	if err := first.Metadata.Set("test/state", 1); err != nil {
+		t.Fatal(err)
+	}
+	continued := chat.NewTextDelta("block")
+	if err := continued.Metadata.Set("test/state", 2); err != nil {
+		t.Fatal(err)
+	}
+	response, err := chat.Collect(func(yield func(*chat.ResponseDelta, error) bool) {
+		yield(&chat.ResponseDelta{Parts: []chat.PartDelta{first, continued, at(1, chat.NewTextDelta("second")), at(1, chat.NewCitationDelta(citation))}, FinishReason: chat.FinishReasonStop}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Output.Message.Parts
+	if len(parts) != 2 || parts[0].Text != "first block" || parts[1].Text != "second" {
+		t.Fatalf("parts = %#v", parts)
+	}
+	if len(parts[0].Citations) != 0 || len(parts[1].Citations) != 1 {
+		t.Fatalf("citations attached to the wrong part: %#v", parts)
+	}
+	if got := decode[int](t, parts[0].Metadata, "test/state"); got != 2 {
+		t.Fatalf("metadata within one part = %d; want the latest value", got)
+	}
+}
+
+func TestResponseAccumulatorLetsCitationOpenItsTextPart(t *testing.T) {
+	citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: "https://example.com"}}
+	response, err := chat.Collect(func(yield func(*chat.ResponseDelta, error) bool) {
+		_ = yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewCitationDelta(citation)}}, nil) &&
+			yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewTextDelta("cited")}, FinishReason: chat.FinishReasonStop}, nil)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Output.Message.Parts
+	if len(parts) != 1 || parts[0].Text != "cited" || len(parts[0].Citations) != 1 {
+		t.Fatalf("parts = %#v", parts)
+	}
+	_, err = chat.Collect(func(yield func(*chat.ResponseDelta, error) bool) {
+		yield(&chat.ResponseDelta{Parts: []chat.PartDelta{chat.NewCitationDelta(citation)}, FinishReason: chat.FinishReasonStop}, nil)
+	})
+	if !errors.Is(err, chat.ErrInvalidResponse) {
+		t.Fatalf("citation without text = %v, want ErrInvalidResponse", err)
+	}
+}
+
+func TestResponseAccumulatorRejectsDeltasThatCannotExtendTheirPart(t *testing.T) {
+	image, err := media.NewBytes("image/png", []byte("image"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, test := range map[string]struct {
+		opening, extension chat.PartDelta
+	}{
+		"kind":  {chat.NewReasoningDelta("thought", nil), chat.NewTextDelta("answer")},
+		"media": {chat.NewMediaDelta(image), chat.NewMediaDelta(image)},
+		"tool":  {chat.NewToolCallDelta(chat.ToolCallDelta{ID: "a", Name: "search"}), chat.NewToolCallDelta(chat.ToolCallDelta{ID: "b", Name: "search"})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var accumulator chat.ResponseAccumulator
+			if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{test.opening}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := accumulator.Add(&chat.ResponseDelta{Parts: []chat.PartDelta{test.extension}}); !errors.Is(err, chat.ErrInvalidResponse) {
+				t.Fatalf("Add = %v, want ErrInvalidResponse", err)
+			}
+		})
+	}
+	if err := at(-1, chat.NewTextDelta("negative")).Validate(); !errors.Is(err, chat.ErrInvalidResponse) {
+		t.Fatalf("negative index Validate = %v, want ErrInvalidResponse", err)
 	}
 }

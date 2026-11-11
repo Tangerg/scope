@@ -15,8 +15,8 @@ import (
 )
 
 func TestProtocolRejectsInvalidReplayState(t *testing.T) {
-	for _, state := range []string{`{}`, `{"thought":null}`, `{"thought":true,"partIndex":-1}`, `{"thought":true,"unknown":1}`,
-		`{"thought":true}`, `{"thought":false}`, `{"thoughtSignature":"c2lnbmF0dXJl"}`, `{"thought":null,"partIndex":1}`} {
+	for _, state := range []string{`{}`, `{"thought":null}`, `{"signedReasoning":false}`, `{"thought":true,"unknown":1}`,
+		`{"thought":true}`, `{"thought":false}`, `{"thoughtSignature":"c2lnbmF0dXJl"}`, `{"thought":null,"signedReasoning":true}`} {
 		t.Run(state, func(t *testing.T) {
 			part := corechat.NewReasoningPart("reason", []byte("signature"))
 			if err := part.Metadata.Set("google/part_state", json.RawMessage(state)); err != nil {
@@ -26,6 +26,16 @@ func TestProtocolRejectsInvalidReplayState(t *testing.T) {
 				t.Fatal("invalid native replay state was accepted")
 			}
 		})
+	}
+}
+
+func TestProtocolRejectsSignedReasoningStateOnOtherParts(t *testing.T) {
+	part := corechat.NewTextPart("answer")
+	if err := part.Metadata.Set("google/part_state", json.RawMessage(`{"signedReasoning":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mapProtocolAssistantParts("google", []corechat.Part{part}); err == nil {
+		t.Fatal("a text part claimed a reasoning signature")
 	}
 }
 

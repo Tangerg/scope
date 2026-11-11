@@ -25,8 +25,36 @@ const (
 
 type protocolResponseMapper struct {
 	model        string
+	parts        protocolStreamParts
 	hasToolCalls bool
 	finished     bool
+}
+
+// protocolStreamParts gives Ollama's single thinking and content fields one
+// part each across the stream; images and tool calls arrive complete and open
+// parts of their own.
+type protocolStreamParts struct {
+	count    int
+	thinking *int
+	content  *int
+}
+
+func (p *protocolStreamParts) open() int {
+	index := p.count
+	p.count++
+	return index
+}
+
+// field returns the part of the message field that carries kind.
+func (p *protocolStreamParts) field(kind corechat.PartKind) int {
+	slot := &p.content
+	if kind == corechat.PartReasoning {
+		slot = &p.thinking
+	}
+	if *slot == nil {
+		*slot = new(p.open())
+	}
+	return **slot
 }
 
 func newProtocolResponseMapper() *protocolResponseMapper {
@@ -58,20 +86,26 @@ func (p *protocolResponseMapper) mapDelta(requestModel string, response nativeCh
 	}
 	for index := range parts {
 		part := parts[index]
+		var delta corechat.PartDelta
 		switch part.Kind {
 		case corechat.PartText:
-			mapped.Parts = append(mapped.Parts, corechat.NewTextDelta(part.Text))
+			delta = corechat.NewTextDelta(part.Text)
+			delta.Index = p.parts.field(part.Kind)
 		case corechat.PartMedia:
-			mapped.Parts = append(mapped.Parts, corechat.NewMediaDelta(part.Media))
+			delta = corechat.NewMediaDelta(part.Media)
+			delta.Index = p.parts.open()
 		case corechat.PartReasoning:
-			mapped.Parts = append(mapped.Parts, corechat.NewReasoningDelta(part.Text, part.ReasoningState))
+			delta = corechat.NewReasoningDelta(part.Text, part.ReasoningState)
+			delta.Index = p.parts.field(part.Kind)
 		case corechat.PartToolCall:
-			mapped.Parts = append(mapped.Parts, corechat.NewToolCallDelta(corechat.ToolCallDelta{
+			delta = corechat.NewToolCallDelta(corechat.ToolCallDelta{
 				ID: part.ToolCall.ID, Name: part.ToolCall.Name, Arguments: part.ToolCall.Arguments,
-			}))
+			})
+			delta.Index = p.parts.open()
 		default:
 			return nil, fmt.Errorf("ollama: unsupported stream part %q", part.Kind)
 		}
+		mapped.Parts = append(mapped.Parts, delta)
 	}
 	if response.Done {
 		mapped.FinishReason = normalizeProtocolDoneReason(response.DoneReason, p.hasToolCalls)

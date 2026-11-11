@@ -296,8 +296,8 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		case corechat.PartReasoning:
 			reasoning := &genai.Part{Text: part.Text, Thought: true}
 			// Opaque signatures are meaningful only to the provider that issued
-			// the native replay state. Visible reasoning text remains portable.
-			if found {
+			// them. Visible reasoning text remains portable.
+			if state.SignedReasoning {
 				reasoning.ThoughtSignature = slices.Clone(part.ReasoningState)
 			}
 			if reasoning.Text == "" && len(reasoning.ThoughtSignature) == 0 {

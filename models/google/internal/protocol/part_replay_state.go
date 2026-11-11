@@ -14,9 +14,11 @@ import (
 
 // partReplayState carries only fields without a Core content owner.
 type partReplayState struct {
-	Before             serverToolParts            `json:"before,omitempty"`
-	Thought            *bool                      `json:"thought,omitzero"`
-	PartIndex          *int                       `json:"partIndex,omitzero"`
+	Before  serverToolParts `json:"before,omitempty"`
+	Thought *bool           `json:"thought,omitzero"`
+	// SignedReasoning records that a reasoning part's Core reasoning state is
+	// a thought signature; the provider-namespaced key proves its issuer.
+	SignedReasoning    bool                       `json:"signedReasoning,omitzero"`
 	ThoughtSignature   []byte                     `json:"thoughtSignature,omitempty"`
 	MediaResolution    *genai.PartMediaResolution `json:"mediaResolution,omitzero"`
 	VideoMetadata      *genai.VideoMetadata       `json:"videoMetadata,omitzero"`
@@ -26,26 +28,23 @@ type partReplayState struct {
 	SpeechMetadata     *genai.SpeechMetadata      `json:"speechMetadata,omitzero"`
 }
 
-func newPartReplayState(part *genai.Part, kind corechat.PartKind, partIndex int, before serverToolParts) partReplayState {
+func newPartReplayState(part *genai.Part, kind corechat.PartKind, before serverToolParts) partReplayState {
 	state := partReplayState{MediaResolution: part.MediaResolution, VideoMetadata: part.VideoMetadata,
 		PartMetadata: part.PartMetadata, AudioTranscription: part.AudioTranscription, MediaProcessing: part.MediaProcessing,
 		SpeechMetadata: part.SpeechMetadata, Before: before}
 	if kind == corechat.PartToolCall || kind == corechat.PartMedia || kind == corechat.PartReasoning && part.Text == "" {
 		state.Thought = new(part.Thought)
 	}
-	// Signature and server-tool boundaries must stay separate when Core
-	// aggregates adjacent text or reasoning chunks.
-	if len(part.ThoughtSignature) != 0 || len(before) != 0 {
-		state.PartIndex = new(partIndex)
-	}
-	if kind != corechat.PartReasoning {
+	if kind == corechat.PartReasoning {
+		state.SignedReasoning = len(part.ThoughtSignature) != 0
+	} else {
 		state.ThoughtSignature = slices.Clone(part.ThoughtSignature)
 	}
 	return state
 }
 
 func (p partReplayState) hasFields() bool {
-	return len(p.Before) != 0 || p.Thought != nil || p.PartIndex != nil || len(p.ThoughtSignature) != 0 ||
+	return len(p.Before) != 0 || p.Thought != nil || p.SignedReasoning || len(p.ThoughtSignature) != 0 ||
 		p.MediaResolution != nil || p.VideoMetadata != nil || len(p.PartMetadata) != 0 ||
 		p.AudioTranscription != nil || p.MediaProcessing != "" || p.SpeechMetadata != nil
 }
@@ -53,6 +52,9 @@ func (p partReplayState) hasFields() bool {
 func (p partReplayState) apply(part *genai.Part, kind corechat.PartKind) error {
 	if kind == corechat.PartReasoning && len(p.ThoughtSignature) != 0 {
 		return errors.New("reasoning signature is owned by Core reasoning state")
+	}
+	if kind != corechat.PartReasoning && p.SignedReasoning {
+		return errors.New("only reasoning carries a signature in Core reasoning state")
 	}
 	if kind == corechat.PartText || kind == corechat.PartRefusal || kind == corechat.PartReasoning && part.Text != "" {
 		if p.Thought != nil {
@@ -91,9 +93,6 @@ func (p *partReplayState) UnmarshalJSON(data []byte) error {
 	}
 	if !partReplayState(decoded).hasFields() {
 		return errors.New("part replay state has no native fields")
-	}
-	if decoded.PartIndex != nil && *decoded.PartIndex < 0 {
-		return errors.New("part replay index must not be negative")
 	}
 	*p = partReplayState(decoded)
 	return nil

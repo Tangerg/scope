@@ -52,9 +52,6 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 			if err := setProtocolReasoningState(&part, provider, ReasoningBlockThinking); err != nil {
 				return nil, err
 			}
-			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
-				return nil, err
-			}
 			parts = append(parts, part)
 		case string(ReasoningBlockRedacted):
 			if block.Data == "" {
@@ -62,9 +59,6 @@ func mapProtocolContent(blocks []anthropicsdk.ContentBlockUnion, provider string
 			}
 			part := corechat.NewReasoningPart("", []byte(block.Data))
 			if err := setProtocolReasoningState(&part, provider, ReasoningBlockRedacted); err != nil {
-				return nil, err
-			}
-			if err := part.Metadata.Set(protocolContentBlockIndexKey, i); err != nil {
 				return nil, err
 			}
 			parts = append(parts, part)
@@ -112,17 +106,12 @@ func setProtocolReasoningState(part *corechat.Part, provider string, kind Reason
 	return nil
 }
 
-func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider string, kind ReasoningBlockKind, index int64) error {
+func setProtocolReasoningDeltaState(part *corechat.PartDelta, provider string, kind ReasoningBlockKind) error {
 	if err := part.Metadata.Set(protocolReasoningProviderKey, provider); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning provider: %w", err)
 	}
 	if err := part.Metadata.Set(protocolReasoningKindKey, kind); err != nil {
 		return fmt.Errorf("anthropic: preserve reasoning kind: %w", err)
-	}
-	// A signature protects one provider block. The index lets Core join its
-	// fragments without concatenating independent signed or redacted blocks.
-	if err := part.Metadata.Set(protocolContentBlockIndexKey, index); err != nil {
-		return fmt.Errorf("anthropic: preserve reasoning content block index: %w", err)
 	}
 	return nil
 }
@@ -190,33 +179,13 @@ const (
 type protocolStreamBlock struct {
 	kind     string
 	open     bool
-	hasText  bool
 	toolID   string
 	toolName string
-}
-
-func (p *protocolStreamBlock) observeText(parts []corechat.PartDelta) {
-	for _, part := range parts {
-		if part.Kind == corechat.PartDeltaText && part.Text != "" {
-			p.hasText = true
-		}
-	}
 }
 
 func (p protocolStreamBlock) requireKind(kind string) error {
 	if p.kind != kind {
 		return fmt.Errorf("%w: delta requires %q block, got %q", corechat.ErrInvalidResponse, kind, p.kind)
-	}
-	return nil
-}
-
-func (p protocolStreamBlock) requireCitationText() error {
-	if err := p.requireKind(protocolBlockText); err != nil {
-		return err
-	}
-	// Core attaches citations to the latest text, which may belong to an earlier block.
-	if !p.hasText {
-		return fmt.Errorf("%w: citations require text in their block", corechat.ErrInvalidResponse)
 	}
 	return nil
 }
@@ -299,7 +268,6 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 		}
 		response.Parts = parts
 		block := protocolStreamBlock{kind: value.ContentBlock.Type, open: true}
-		block.observeText(parts)
 		if block.kind == protocolBlockToolUse {
 			block.toolID = value.ContentBlock.ID
 			block.toolName = value.ContentBlock.Name
@@ -318,10 +286,9 @@ func (p *protocolStreamState) mapEvent(event anthropicsdk.MessageStreamEventUnio
 			return nil, fmt.Errorf("anthropic: stream: content block %d: %w", value.Index, err)
 		}
 		if include {
+			part.Index = int(value.Index)
 			response.Parts = []corechat.PartDelta{part}
 		}
-		block.observeText(response.Parts)
-		p.blocks[value.Index] = block
 	case anthropicsdk.MessageDeltaEvent:
 		for _, index := range slices.Sorted(maps.Keys(p.blocks)) {
 			if p.blocks[index].open {
@@ -363,11 +330,30 @@ func (p *protocolStreamState) mapMessageStart(event anthropicsdk.MessageStartEve
 	if err := p.usage.observe(event.Message.JSON.Usage.Raw(), response.Metadata); err != nil {
 		return nil, err
 	}
-	parts, err := mapProtocolContent(event.Message.Content, p.provider, p.documents)
+	var deltas []corechat.PartDelta
+	for index, block := range event.Message.Content {
+		blockDeltas, err := p.mapContentBlock(block, index)
+		if err != nil {
+			return nil, err
+		}
+		deltas = append(deltas, blockDeltas...)
+	}
+	return deltas, nil
+}
+
+func (p *protocolStreamState) mapContentBlock(block anthropicsdk.ContentBlockUnion, index int) ([]corechat.PartDelta, error) {
+	parts, err := mapProtocolContent([]anthropicsdk.ContentBlockUnion{block}, p.provider, p.documents)
 	if err != nil {
 		return nil, err
 	}
-	return protocolPartsAsDeltas(parts)
+	deltas, err := protocolPartsAsDeltas(parts)
+	if err != nil {
+		return nil, err
+	}
+	for position := range deltas {
+		deltas[position].Index = index
+	}
+	return deltas, nil
 }
 
 func (p *protocolStreamState) mapMessageDelta(event anthropicsdk.MessageDeltaEvent, response *corechat.ResponseDelta) error {
@@ -447,17 +433,14 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 	block := event.ContentBlock
 	switch block.Type {
 	case protocolBlockText:
-		parts, err := mapProtocolContent([]anthropicsdk.ContentBlockUnion{{Type: block.Type, Text: block.Text, Citations: block.Citations}}, p.provider, p.documents)
-		if err != nil {
-			return nil, err
-		}
-		return protocolPartsAsDeltas(parts)
+		return p.mapContentBlock(anthropicsdk.ContentBlockUnion{Type: block.Type, Text: block.Text, Citations: block.Citations}, int(event.Index))
 	case string(ReasoningBlockThinking):
 		if block.Thinking == "" && block.Signature == "" {
 			return nil, nil
 		}
 		part := corechat.NewReasoningDelta(block.Thinking, []byte(block.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
+		part.Index = int(event.Index)
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking); err != nil {
 			return nil, err
 		}
 		return []corechat.PartDelta{part}, nil
@@ -466,7 +449,8 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 			return nil, errors.New("anthropic: empty redacted thinking block")
 		}
 		part := corechat.NewReasoningDelta("", []byte(block.Data))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockRedacted, event.Index); err != nil {
+		part.Index = int(event.Index)
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockRedacted); err != nil {
 			return nil, err
 		}
 		return []corechat.PartDelta{part}, nil
@@ -479,7 +463,9 @@ func (p *protocolStreamState) mapBlockStart(event anthropicsdk.ContentBlockStart
 		if block.ID == "" || block.Name == "" {
 			return nil, fmt.Errorf("anthropic: stream: %w: tool_use start requires ID and name", corechat.ErrInvalidResponse)
 		}
-		return []corechat.PartDelta{corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: block.ID, Name: block.Name})}, nil
+		part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: block.ID, Name: block.Name})
+		part.Index = int(event.Index)
+		return []corechat.PartDelta{part}, nil
 	default:
 		return nil, fmt.Errorf("anthropic: stream: %w: content block %q cannot be replayed", errors.ErrUnsupported, block.Type)
 	}
@@ -503,7 +489,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta(delta.Thinking, nil)
-		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -515,7 +501,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 			return corechat.PartDelta{}, false, nil
 		}
 		part := corechat.NewReasoningDelta("", []byte(delta.Signature))
-		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking, event.Index); err != nil {
+		if err := setProtocolReasoningDeltaState(&part, p.provider, ReasoningBlockThinking); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		return part, true, nil
@@ -525,7 +511,7 @@ func (p *protocolStreamState) mapBlockDelta(event anthropicsdk.ContentBlockDelta
 		}
 		return corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: block.toolID, Name: block.toolName, Arguments: delta.PartialJSON}), true, nil
 	case anthropicsdk.CitationsDelta:
-		if err := block.requireCitationText(); err != nil {
+		if err := block.requireKind(protocolBlockText); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 		citation, include, err := mapProtocolDeltaCitation(delta.Citation, p.documents)

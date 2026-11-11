@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/packages/respjson"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 )
@@ -32,9 +31,11 @@ const (
 	reasoningDetailProviderLengthOffset = len(reasoningDetailFrameMagic)
 	reasoningDetailPayloadLengthOffset  = reasoningDetailProviderLengthOffset + reasoningDetailProviderLengthSize
 	reasoningDetailFrameHeaderSize      = reasoningDetailPayloadLengthOffset + reasoningDetailPayloadLengthSize
-	reasoningDetailIdentityKey          = "openai/reasoning_detail_identity"
 	reasoningDetailText                 = "reasoning.text"
 	reasoningDetailSummary              = "reasoning.summary"
+	// emptyReasoningDetailsBlock names the replay marker of an explicit empty
+	// detail array; detail identities are JSON objects and never equal it.
+	emptyReasoningDetailsBlock = "[]"
 )
 
 var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
@@ -68,8 +69,8 @@ func (r ReasoningDetailsConfig) Validate() error {
 }
 
 // The codec keeps visible text in Part.Text and native replay
-// fields in ReasoningState. Detail identities keep separate blocks from merging
-// during accumulation. Replay uses the current text and preserves native fields;
+// fields in ReasoningState. Each detail identity names its own Core part in a
+// stream. Replay uses the current text and preserves native fields;
 // callers remain responsible for preserving content covered by provider signatures.
 // Explicit empty detail arrays remain in ReasoningState and are replayed as [];
 // missing or null detail fields do not create replay state. Each frame contains
@@ -119,24 +120,16 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 	return nil
 }
 
-func (r reasoningDetailsCodec) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, sequence uint64) error {
-	return r.prependReasoning(source.JSON.ExtraFields, target, sequence)
-}
-
-func (r reasoningDetailsCodec) prependReasoning(fields map[string]respjson.Field, target *corechat.Message, sequence uint64) error {
+func (r reasoningDetailsCodec) ReasoningDeltas(source openaisdk.ChatCompletionChunkChoiceDelta, sequence uint64) ([]reasoningDelta, error) {
+	fields := source.JSON.ExtraFields
 	detailsField, hasDetails := fields[r.config.DetailsField]
 	if hasDetails && detailsField.Raw() != "" && detailsField.Raw() != "null" {
-		parts, err := r.decodeDetails([]byte(detailsField.Raw()), sequence)
-		if err != nil {
-			return err
-		}
-		target.Parts = append(parts, target.Parts...)
-		return nil
+		return r.decodeDetails([]byte(detailsField.Raw()), sequence)
 	}
-	return prependTextReasoning(fields, r.provider, r.config.TextField, target)
+	return textReasoningDeltas(fields, r.provider, r.config.TextField)
 }
 
-func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]corechat.Part, error) {
+func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]reasoningDelta, error) {
 	var details []json.RawMessage
 	if err := jsonv2.Unmarshal(raw, &details); err != nil {
 		return nil, fmt.Errorf("%s: decode %s: %w", r.provider, r.config.DetailsField, err)
@@ -146,65 +139,64 @@ func (r reasoningDetailsCodec) decodeDetails(raw []byte, sequence uint64) ([]cor
 		if err != nil {
 			return nil, err
 		}
-		return []corechat.Part{corechat.NewReasoningPart("", state)}, nil
+		return []reasoningDelta{{block: emptyReasoningDetailsBlock, part: corechat.NewReasoningPart("", state)}}, nil
 	}
-	parts := make([]corechat.Part, 0, len(details))
+	deltas := make([]reasoningDelta, 0, len(details))
 	for index := range details {
-		part, err := r.decodeDetail(details[index], index, sequence)
+		delta, err := r.decodeDetail(details[index], index, sequence)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %s[%d]: %w", r.provider, r.config.DetailsField, index, err)
 		}
-		parts = append(parts, part)
+		deltas = append(deltas, delta)
 	}
-	return parts, nil
+	return deltas, nil
 }
 
-func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequence uint64) (corechat.Part, error) {
+func (r reasoningDetailsCodec) decodeDetail(raw json.RawMessage, index int, sequence uint64) (reasoningDelta, error) {
 	var fields map[string]json.RawMessage
 	if err := jsonv2.Unmarshal(raw, &fields); err != nil {
-		return corechat.Part{}, err
+		return reasoningDelta{}, err
 	}
 	field, err := reasoningDetailTextField(fields)
 	if err != nil {
-		return corechat.Part{}, err
+		return reasoningDelta{}, err
 	}
 	text := ""
 	if field != "" {
 		text, _, err = decodeOptionalString(fields[field])
 		if err != nil {
-			return corechat.Part{}, err
+			return reasoningDelta{}, err
 		}
 		delete(fields, field)
 	}
 	state, err := jsonv2.Marshal([]map[string]json.RawMessage{fields}, jsonv2.Deterministic(true))
 	if err != nil {
-		return corechat.Part{}, err
+		return reasoningDelta{}, err
 	}
 	frame, err := r.encodeFrame(state)
 	if err != nil {
-		return corechat.Part{}, err
+		return reasoningDelta{}, err
 	}
-	part := corechat.NewReasoningPart(text, frame)
 	identity := struct {
-		Provider string          `json:"provider"`
-		Type     json.RawMessage `json:"type"`
-		ID       json.RawMessage `json:"id,omitzero"`
-		Format   json.RawMessage `json:"format,omitzero"`
-		Index    json.RawMessage `json:"index,omitzero"`
-		Chunk    uint64          `json:"chunk,omitzero"`
-	}{Provider: r.provider, Type: fields[reasoningDetailFieldType], ID: fields[reasoningDetailFieldID], Format: fields[reasoningDetailFieldFormat], Index: fields[reasoningDetailFieldIndex]}
+		Type   json.RawMessage `json:"type"`
+		ID     json.RawMessage `json:"id,omitzero"`
+		Format json.RawMessage `json:"format,omitzero"`
+		Index  json.RawMessage `json:"index,omitzero"`
+		Chunk  uint64          `json:"chunk,omitzero"`
+	}{Type: fields[reasoningDetailFieldType], ID: fields[reasoningDetailFieldID], Format: fields[reasoningDetailFieldFormat], Index: fields[reasoningDetailFieldIndex]}
 	if !hasReasoningDetailIdentity(fields) {
 		// Anonymous blocks have no cross-chunk identity to justify merging them.
 		identity.Chunk = sequence
 		identity.Index, err = jsonv2.Marshal(index)
 		if err != nil {
-			return corechat.Part{}, err
+			return reasoningDelta{}, err
 		}
 	}
-	if err := part.Metadata.Set(reasoningDetailIdentityKey, identity); err != nil {
-		return corechat.Part{}, err
+	block, err := jsonv2.Marshal(identity, jsonv2.Deterministic(true))
+	if err != nil {
+		return reasoningDelta{}, err
 	}
-	return part, nil
+	return reasoningDelta{block: string(block), part: corechat.NewReasoningPart(text, frame)}, nil
 }
 
 func (r reasoningDetailsCodec) encodeFrame(raw json.RawMessage) ([]byte, error) {

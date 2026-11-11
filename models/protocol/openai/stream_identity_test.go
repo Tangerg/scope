@@ -140,7 +140,6 @@ func TestResponsesRejectsCoercedPositionsAndNeverCitesAnotherItem(t *testing.T) 
 		tail modeltest.AnthropicEvent
 		want error
 	}{
-		{"earlier text", annotation("0", "0", "a"), errors.ErrUnsupported},
 		{"wrong item", annotation("1", "0", "a"), chat.ErrInvalidResponse},
 		{"unknown segment", annotation("1", "1", "b"), chat.ErrInvalidResponse},
 		{"rounded output", annotation("1.5", "0", "b"), chat.ErrInvalidResponse},
@@ -167,5 +166,28 @@ func TestResponsesRejectsCoercedPositionsAndNeverCitesAnotherItem(t *testing.T) 
 				t.Fatalf("expected %v, got %v", item.want, got)
 			}
 		})
+	}
+}
+
+func TestResponsesAttachesDelayedAnnotationToItsOwnText(t *testing.T) {
+	server := modeltest.AnthropicSSEServer([]modeltest.AnthropicEvent{
+		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","output_index":0,"content_index":0,"item_id":"a","delta":"first"}`},
+		{Event: "response.output_text.delta", Data: `{"type":"response.output_text.delta","output_index":1,"content_index":0,"item_id":"b","delta":"second"}`},
+		{Event: "response.output_text.annotation.added", Data: `{"type":"response.output_text.annotation.added","output_index":0,"content_index":0,"item_id":"a","annotation_index":0,"annotation":{"type":"url_citation","url":"https://e.example","title":"Evidence","start_index":0,"end_index":1}}`},
+		{Event: "response.completed", Data: `{"type":"response.completed","response":{"id":"r","model":"model","created_at":1,"status":"completed","output":[` +
+			`{"type":"message","id":"a","role":"assistant","status":"completed","content":[{"type":"output_text","text":"first","annotations":[{"type":"url_citation","url":"https://e.example","title":"Evidence","start_index":0,"end_index":1}]}]},` +
+			`{"type":"message","id":"b","role":"assistant","status":"completed","content":[{"type":"output_text","text":"second","annotations":[]}]}]}}`},
+	})
+	defer server.Close()
+	response, err := newResponsesModel(t, server.URL, "model").Call(t.Context(), newResponsesChatRequest(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := response.Output.Message.Parts
+	if len(parts) != 2 || parts[0].Text != "first" || parts[1].Text != "second" {
+		t.Fatalf("parts = %#v", parts)
+	}
+	if len(parts[0].Citations) != 1 || len(parts[1].Citations) != 0 {
+		t.Fatalf("annotation attached to the wrong text: %#v", parts)
 	}
 }

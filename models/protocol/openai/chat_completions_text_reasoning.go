@@ -146,26 +146,27 @@ type textReasoningStream struct {
 	field    TextReasoningField
 }
 
-func (t *textReasoningStream) FinalizeDelta(source openaisdk.ChatCompletionChunkChoiceDelta, target *corechat.Message, _ uint64) error {
+func (t *textReasoningStream) ReasoningDeltas(source openaisdk.ChatCompletionChunkChoiceDelta, _ uint64) ([]reasoningDelta, error) {
+	var deltas []reasoningDelta
 	for _, field := range t.config.Fields {
 		text, err := decodeTextReasoning(source.JSON.ExtraFields, string(field))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if text == "" {
 			continue
 		}
 		if t.field != "" && t.field != field {
-			return fmt.Errorf("%w: reasoning field changed from %q to %q", corechat.ErrInvalidResponse, t.field, field)
+			return nil, fmt.Errorf("%w: reasoning field changed from %q to %q", corechat.ErrInvalidResponse, t.field, field)
 		}
 		t.field = field
 		part, err := NewTextReasoningPart(t.provider, field, text)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		target.Parts = append([]corechat.Part{part}, target.Parts...)
+		deltas = append(deltas, reasoningDelta{part: part})
 	}
-	return nil
+	return deltas, nil
 }
 
 func decodeTextReasoning(fields map[string]respjson.Field, fieldName string) (string, error) {
@@ -180,17 +181,16 @@ func decodeTextReasoning(fields map[string]respjson.Field, fieldName string) (st
 	return reasoning, nil
 }
 
-func prependTextReasoning(fields map[string]respjson.Field, provider, fieldName string, target *corechat.Message) error {
+func textReasoningDeltas(fields map[string]respjson.Field, provider, fieldName string) ([]reasoningDelta, error) {
 	reasoning, err := decodeTextReasoning(fields, fieldName)
 	if err != nil || reasoning == "" {
-		return err
+		return nil, err
 	}
 	part, err := NewTextReasoningPart(provider, TextReasoningField(fieldName), reasoning)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	target.Parts = append([]corechat.Part{part}, target.Parts...)
-	return nil
+	return []reasoningDelta{{part: part}}, nil
 }
 
 // NewTextReasoningPart retains the issuing field because providers require the

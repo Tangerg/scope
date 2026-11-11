@@ -23,6 +23,7 @@ const (
 
 type protocolResponseMapper struct {
 	partOffset         int
+	parts              protocolStreamParts
 	provider           string
 	generation         generationStream
 	hasToolCalls       bool
@@ -151,15 +152,59 @@ func (p *protocolResponseMapper) mapCandidateDelta(candidate *genai.Candidate, r
 		}
 		if include {
 			p.pendingServerParts = nil
+			delta.Index = p.parts.next(kind, len(delta.Metadata) != 0)
 			response.Parts = append(response.Parts, delta)
 			p.hasToolCalls = p.hasToolCalls || kind == corechat.PartToolCall
 		}
 	}
 	p.partOffset = offset + len(parts)
 	for _, citation := range protocolCitations(candidate.CitationMetadata) {
-		response.Parts = append(response.Parts, corechat.NewCitationDelta(citation))
+		text, found := p.parts.lastText()
+		if !found {
+			return fmt.Errorf("%w: citation metadata precedes any text", corechat.ErrInvalidResponse)
+		}
+		delta := corechat.NewCitationDelta(citation)
+		delta.Index = text
+		response.Parts = append(response.Parts, delta)
 	}
 	return nil
+}
+
+// protocolStreamParts assigns Core part identity to Gemini stream parts, which
+// carry none of their own. A chunk's text or reasoning continues the previous
+// part of its kind; a part with native replay state, such as a signature, stays
+// whole, and every other kind is complete in one chunk.
+type protocolStreamParts struct {
+	count int
+	open  *protocolStreamPart
+	text  *int
+}
+
+type protocolStreamPart struct {
+	index int
+	kind  corechat.PartKind
+}
+
+func (p *protocolStreamParts) next(kind corechat.PartKind, whole bool) int {
+	if p.open == nil || p.open.kind != kind || whole {
+		p.open = &protocolStreamPart{index: p.count, kind: kind}
+		p.count++
+	}
+	index := p.open.index
+	if kind == corechat.PartText {
+		p.text = new(index)
+	}
+	if whole || kind != corechat.PartText && kind != corechat.PartReasoning {
+		p.open = nil
+	}
+	return index
+}
+
+func (p *protocolStreamParts) lastText() (int, bool) {
+	if p.text == nil {
+		return 0, false
+	}
+	return *p.text, true
 }
 
 func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.Part, before serverToolParts) (corechat.PartDelta, corechat.PartKind, bool, error) {
@@ -222,7 +267,7 @@ func mapProtocolCandidatePartDelta(provider string, partIndex int, part *genai.P
 	default:
 		return corechat.PartDelta{}, "", false, nil
 	}
-	state := newPartReplayState(part, kind, partIndex, before)
+	state := newPartReplayState(part, kind, before)
 	if state.hasFields() {
 		if err := mapped.Metadata.Set(protocolKey(provider, partReplayStateMetadataSuffix), state); err != nil {
 			return corechat.PartDelta{}, "", false, fmt.Errorf("preserve native part: %w", err)

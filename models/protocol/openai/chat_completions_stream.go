@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -24,8 +25,23 @@ type openAIStreamTool struct {
 	pendingArguments string
 }
 
+// chatStreamPart identifies one part of the single streamed message: each
+// content field builds one part, while tool calls and reasoning blocks carry
+// their own native identity.
+type chatStreamPart struct {
+	kind  corechat.PartKind
+	block string
+}
+
+var (
+	chatStreamText    = chatStreamPart{kind: corechat.PartText}
+	chatStreamRefusal = chatStreamPart{kind: corechat.PartRefusal}
+	chatStreamAudio   = chatStreamPart{kind: corechat.PartMedia}
+)
+
 type openAIStreamState struct {
 	identity streamIdentity
+	parts    streamPartIndexes[chatStreamPart]
 	tools    map[int64]openAIStreamTool
 	sequence uint64
 	dialect  responseDialect
@@ -134,9 +150,9 @@ func (o *openAIStreamState) complete(delta *corechat.ResponseDelta) (*corechat.R
 		}
 		value.ID = o.audioID
 		if !o.hasText && o.transcript.Len() != 0 {
-			delta.Parts = append(delta.Parts, corechat.NewTextDelta(o.transcript.String()))
+			delta.Parts = append(delta.Parts, o.delta(chatStreamText, corechat.NewTextDelta(o.transcript.String())))
 		}
-		delta.Parts = append(delta.Parts, corechat.NewMediaDelta(value))
+		delta.Parts = append(delta.Parts, o.delta(chatStreamAudio, corechat.NewMediaDelta(value)))
 	}
 	delta.FinishReason = normalizeFinishReason(o.stopReason)
 	if delta.FinishReason == corechat.FinishReasonOther {
@@ -163,19 +179,21 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	if o.finished() {
 		return nil, validateOpenAIStreamTail(choice)
 	}
-	message := &corechat.Message{Role: corechat.RoleAssistant}
-	if choice.Delta.Content != "" {
-		o.hasText = true
-		message.Parts = append(message.Parts, corechat.NewTextPart(choice.Delta.Content))
-	}
+	var parts []corechat.PartDelta
 	if o.dialect != nil {
-		if err := o.dialect.FinalizeDelta(choice.Delta, message, o.sequence); err != nil {
+		reasoning, err := o.dialect.ReasoningDeltas(choice.Delta, o.sequence)
+		if err != nil {
 			return nil, fmt.Errorf("response dialect: %w", err)
 		}
+		for _, block := range reasoning {
+			part := corechat.NewReasoningDelta(block.part.Text, block.part.ReasoningState)
+			part.Metadata = block.part.Metadata
+			parts = append(parts, o.delta(chatStreamPart{kind: corechat.PartReasoning, block: block.block}, part))
+		}
 	}
-	parts, err := stablePartsAsDeltas(message.Parts)
-	if err != nil {
-		return nil, err
+	if choice.Delta.Content != "" {
+		o.hasText = true
+		parts = append(parts, o.delta(chatStreamText, corechat.NewTextDelta(choice.Delta.Content)))
 	}
 	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && field.Raw() != "null" {
 		var annotations []openaisdk.ChatCompletionMessageAnnotation
@@ -183,7 +201,8 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 			return nil, fmt.Errorf("annotations: %w", decodeErr)
 		}
 		for _, annotation := range annotations {
-			parts = append(parts, corechat.NewCitationDelta(corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}))
+			citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}
+			parts = append(parts, o.delta(chatStreamText, corechat.NewCitationDelta(citation)))
 		}
 	}
 	for i := range choice.Delta.ToolCalls {
@@ -192,12 +211,12 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 			return nil, fmt.Errorf("tool_calls[%d]: %w", i, err)
 		}
 		if include {
-			parts = append(parts, corechat.NewToolCallDelta(call))
+			parts = append(parts, call)
 		}
 	}
 	if choice.Delta.Refusal != "" {
 		o.refused = true
-		parts = append(parts, corechat.NewRefusalDelta(choice.Delta.Refusal))
+		parts = append(parts, o.delta(chatStreamRefusal, corechat.NewRefusalDelta(choice.Delta.Refusal)))
 	}
 	if field := choice.Delta.JSON.Audio; field.Raw() != "" && field.Raw() != "null" {
 		audio := choice.Delta.Audio
@@ -241,64 +260,47 @@ func validateOpenAIStreamTail(choice openaisdk.ChatCompletionChunkChoice) error 
 	return fmt.Errorf("openai: stream: %w: generation continued after finish reason", corechat.ErrInvalidResponse)
 }
 
-func stablePartsAsDeltas(parts []corechat.Part) ([]corechat.PartDelta, error) {
-	deltas := make([]corechat.PartDelta, 0, len(parts))
-	for index := range parts {
-		switch parts[index].Kind {
-		case corechat.PartText:
-			delta := corechat.NewTextDelta(parts[index].Text)
-			delta.Metadata = parts[index].Metadata.Clone()
-			deltas = append(deltas, delta)
-		case corechat.PartReasoning:
-			delta := corechat.NewReasoningDelta(parts[index].Text, parts[index].ReasoningState)
-			delta.Metadata = parts[index].Metadata.Clone()
-			deltas = append(deltas, delta)
-		default:
-			return nil, fmt.Errorf("stream dialect produced unsupported part %q", parts[index].Kind)
-		}
-	}
-	return deltas, nil
+func (o *openAIStreamState) delta(part chatStreamPart, delta corechat.PartDelta) corechat.PartDelta {
+	delta.Index = o.parts.of(part)
+	return delta
 }
 
-func (o *openAIStreamState) mapChunkTool(delta openaisdk.ChatCompletionChunkChoiceDeltaToolCall) (corechat.ToolCallDelta, bool, error) {
+func (o *openAIStreamState) mapChunkTool(delta openaisdk.ChatCompletionChunkChoiceDeltaToolCall) (corechat.PartDelta, bool, error) {
 	// Omitting the index cannot identify a fragment as belonging to call zero;
 	// the SDK represents missing and explicit zero with the same Go value.
 	index, indexed := responseIndex(delta.JSON.Index)
 	if !indexed {
-		return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool fragment requires a nonnegative index", corechat.ErrInvalidResponse)
+		return corechat.PartDelta{}, false, fmt.Errorf("%w: tool fragment requires a nonnegative index", corechat.ErrInvalidResponse)
 	}
 	if delta.Type != "" && delta.Type != string(constant.ValueOf[constant.Function]()) {
-		return corechat.ToolCallDelta{}, false, fmt.Errorf("unsupported type %q", delta.Type)
+		return corechat.PartDelta{}, false, fmt.Errorf("unsupported type %q", delta.Type)
 	}
 	state := o.tools[index]
 	if delta.ID != "" {
 		if state.id != "" && state.id != delta.ID {
-			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed id from %q to %q", corechat.ErrInvalidResponse, index, state.id, delta.ID)
+			return corechat.PartDelta{}, false, fmt.Errorf("%w: tool index %d changed id from %q to %q", corechat.ErrInvalidResponse, index, state.id, delta.ID)
 		}
 		for otherIndex, tool := range o.tools {
 			if otherIndex != index && tool.id == delta.ID {
-				return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, delta.ID, index)
+				return corechat.PartDelta{}, false, fmt.Errorf("%w: tool id %q reused at index %d", corechat.ErrInvalidResponse, delta.ID, index)
 			}
 		}
 		state.id = delta.ID
 	}
 	if delta.Function.Name != "" {
 		if state.name != "" && state.name != delta.Function.Name {
-			return corechat.ToolCallDelta{}, false, fmt.Errorf("%w: tool index %d changed name from %q to %q", corechat.ErrInvalidResponse, index, state.name, delta.Function.Name)
+			return corechat.PartDelta{}, false, fmt.Errorf("%w: tool index %d changed name from %q to %q", corechat.ErrInvalidResponse, index, state.name, delta.Function.Name)
 		}
 		state.name = delta.Function.Name
 	}
 	state.pendingArguments += delta.Function.Arguments
 	o.tools[index] = state
 	if state.id == "" || state.name == "" {
-		return corechat.ToolCallDelta{}, false, nil
+		return corechat.PartDelta{}, false, nil
 	}
 	arguments := state.pendingArguments
 	state.pendingArguments = ""
 	o.tools[index] = state
-	return corechat.ToolCallDelta{
-		ID:        state.id,
-		Name:      state.name,
-		Arguments: arguments,
-	}, true, nil
+	part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: state.id, Name: state.name, Arguments: arguments})
+	return o.delta(chatStreamPart{kind: corechat.PartToolCall, block: strconv.FormatInt(index, 10)}, part), true, nil
 }

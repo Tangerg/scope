@@ -107,6 +107,7 @@ func (c *converseStream) add(event types.ConverseStreamOutput) (*corechat.Respon
 			}
 		}
 		part := corechat.NewToolCallDelta(corechat.ToolCallDelta{ID: *tool.Value.ToolUseId, Name: *tool.Value.Name})
+		part.Index = int(index)
 		if err := part.Validate(); err != nil {
 			return nil, false, err
 		}
@@ -231,7 +232,7 @@ func (c *converseStream) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.
 		if kind == protocolReasoningRedactedBlock {
 			reasoningKind = chatReasoningRedacted
 		}
-		if err := setReasoningDeltaState(&part, reasoningKind, index); err != nil {
+		if err := setReasoningDeltaState(&part, reasoningKind); err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 	case *types.ContentBlockDeltaMemberToolUse:
@@ -248,6 +249,7 @@ func (c *converseStream) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.
 	if exists && (!block.open || block.kind != kind) || !exists && kind == protocolToolBlock {
 		return corechat.PartDelta{}, false, fmt.Errorf("bedrock: stream: %w: delta for closed, mismatched, or unopened tool content block %d", corechat.ErrInvalidResponse, index)
 	}
+	part.Index = int(index)
 	include := part.Text != "" || len(part.ReasoningState) != 0 || part.ToolCall != nil && part.ToolCall.Arguments != ""
 	if include {
 		if err := part.Validate(); err != nil {

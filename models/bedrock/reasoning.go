@@ -69,14 +69,9 @@ func setReasoningKind(part *corechat.Part, kind string) error {
 	return nil
 }
 
-func setReasoningDeltaState(part *corechat.PartDelta, kind string, index int32) error {
+func setReasoningDeltaState(part *corechat.PartDelta, kind string) error {
 	if err := part.Metadata.Set(chatReasoningKindKey, kind); err != nil {
 		return fmt.Errorf("bedrock: preserve reasoning delta kind: %w", err)
-	}
-	// Signatures and redacted bytes belong to one content block. Core may
-	// concatenate chunks within it, but must not join independent blocks.
-	if err := part.Metadata.Set(chatContentBlockIndexKey, index); err != nil {
-		return fmt.Errorf("bedrock: preserve reasoning content block index: %w", err)
 	}
 	return nil
 }

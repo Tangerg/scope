@@ -109,43 +109,34 @@ func TestInitialDocumentCitationsCannotAttachToAnotherTextBlock(t *testing.T) {
 	}
 }
 
-func TestCitationDeltasRequireTextFromTheirOwnBlock(t *testing.T) {
+func TestCitationDeltasAttachToTheirOwnBlock(t *testing.T) {
 	const textDelta = `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"current"}}`
-	for _, test := range []struct {
-		name       string
-		beforeText []string
-		wantErr    bool
-	}{
-		{name: "before text", wantErr: true},
-		{name: "after empty text", beforeText: []string{`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":""}}`}, wantErr: true},
-		{name: "after text", beforeText: []string{textDelta}},
+	const citationDelta = `{"type":"content_block_delta","index":1,"delta":{"type":"citations_delta","citation":{"type":"page_location","document_index":0,"document_title":null,"file_id":null,"cited_text":"quote","start_page_number":1,"end_page_number":2}}}`
+	for name, blockEvents := range map[string][]string{
+		"before text":      {citationDelta, textDelta},
+		"after empty text": {`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":""}}`, citationDelta, textDelta},
+		"after text":       {textDelta, citationDelta},
 	} {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(name, func(t *testing.T) {
 			events := []string{
 				`{"type":"message_start","message":{"type":"message","role":"assistant","model":"claude-test","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`,
 				`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"previous"}}`,
 				`{"type":"content_block_stop","index":0}`,
 				`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`,
 			}
-			events = append(events, test.beforeText...)
-			events = append(events, `{"type":"content_block_delta","index":1,"delta":{"type":"citations_delta","citation":{"type":"page_location","document_index":0,"document_title":null,"file_id":null,"cited_text":"quote","start_page_number":1,"end_page_number":2}}}`)
-			if test.wantErr {
-				events = append(events, textDelta)
-			}
+			events = append(events, blockEvents...)
 			events = append(events, `{"type":"content_block_stop","index":1}`, `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`, `{"type":"message_stop"}`)
 			model := newLifecycleMessages(t, events)
 			response, err := model.Call(t.Context(), documentCitationRequest(t))
-			if test.wantErr {
-				if response != nil || !errors.Is(err, corechat.ErrInvalidResponse) {
-					t.Fatalf("response=%#v error=%v; want rejection of citations before their block text", response, err)
-				}
-				return
-			}
 			if err != nil || response == nil || response.Text() != "previouscurrent" {
 				t.Fatalf("response=%#v error=%v", response, err)
 			}
-			if citations := response.Output.Message.Parts[0].Citations; len(citations) != 1 || citations[0].Quote != "quote" {
-				t.Fatalf("citations=%#v, want one admitted citation", citations)
+			parts := response.Output.Message.Parts
+			if len(parts) != 2 || parts[0].Text != "previous" || len(parts[0].Citations) != 0 {
+				t.Fatalf("parts=%#v, want the previous block as its own uncited part", parts)
+			}
+			if citations := parts[1].Citations; parts[1].Text != "current" || len(citations) != 1 || citations[0].Quote != "quote" {
+				t.Fatalf("cited part=%#v, want the citation on its own block", parts[1])
 			}
 		})
 	}

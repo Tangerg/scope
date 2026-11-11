@@ -27,7 +27,6 @@ const (
 	// ChatMetadataExtensionKey preserves provider usage, metrics, and trace data.
 	ChatMetadataExtensionKey  = Provider + "/metadata"
 	chatReasoningKindKey      = "bedrock/reasoning_kind"
-	chatContentBlockIndexKey  = "bedrock/content_block_index"
 	chatReasoningText         = "reasoning_text"
 	chatReasoningRedacted     = "redacted_content"
 	chatNativeFinishReasonKey = "bedrock/native_finish_reason"
