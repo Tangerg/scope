@@ -216,75 +216,98 @@ func (r reasoningDetailsCodec) encodeFrame(raw json.RawMessage) ([]byte, error) 
 func (r reasoningDetailsCodec) mapHistory(parts []corechat.Part) ([]json.RawMessage, string, error) {
 	var frames []json.RawMessage
 	var plain strings.Builder
-	for partIndex := range parts {
-		part := parts[partIndex]
+	for partIndex, part := range parts {
 		if part.Kind != corechat.PartReasoning {
 			continue
 		}
 		if len(part.ReasoningState) == 0 {
-			field, owned, err := textReasoningFieldFor(part, r.provider)
+			text, err := r.plainReasoning(part)
 			if err != nil {
 				return nil, "", fmt.Errorf("parts[%d]: %w", partIndex, err)
 			}
-			if !owned {
-				continue
-			}
-			if string(field) != r.config.TextField {
-				return nil, "", fmt.Errorf("parts[%d]: invalid reasoning field %q for %s", partIndex, field, r.provider)
-			}
-			plain.WriteString(part.Text)
+			plain.WriteString(text)
 			continue
 		}
-		decoded, framed, ownProvider, err := r.decodeFrames(part.ReasoningState)
+		frame, owned, err := r.historyFrame(part)
 		if err != nil {
-			return nil, "", fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
+			return nil, "", fmt.Errorf("parts[%d].%w", partIndex, err)
 		}
-		if !framed || !ownProvider {
+		if !owned {
 			continue
 		}
+		// An owned framed part makes the history carry reasoning_details even
+		// when no frame survives, so the field is present rather than absent.
 		if frames == nil {
 			frames = make([]json.RawMessage, 0)
 		}
-		if len(decoded) == 0 {
-			if part.Text != "" {
-				return nil, "", fmt.Errorf("parts[%d].reasoning text has no native field", partIndex)
-			}
-			continue
+		if frame != nil {
+			frames = append(frames, frame)
 		}
-		decoded, err = coalesceReasoningDetailFrames(decoded)
-		if err != nil {
-			return nil, "", fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
-		}
-		if len(decoded) != 1 {
-			return nil, "", fmt.Errorf("parts[%d].reasoning state contains multiple detail identities", partIndex)
-		}
-		var fields map[string]json.RawMessage
-		if err = jsonv2.Unmarshal(decoded[0], &fields); err != nil {
-			return nil, "", err
-		}
-		field, err := reasoningDetailTextField(fields)
-		if err != nil {
-			return nil, "", err
-		}
-		if field != "" {
-			fields[field], err = jsonv2.Marshal(part.Text)
-			if err != nil {
-				return nil, "", err
-			}
-		} else if part.Text != "" {
-			return nil, "", fmt.Errorf("parts[%d].reasoning text has no native field", partIndex)
-		}
-		reconstructed, err := jsonv2.Marshal(fields, jsonv2.Deterministic(true))
-		if err != nil {
-			return nil, "", err
-		}
-		frames = append(frames, reconstructed)
 	}
 	details, err := coalesceReasoningDetailFrames(frames)
 	if err != nil {
 		return nil, "", err
 	}
 	return details, plain.String(), nil
+}
+
+// plainReasoning returns the text of an unsigned reasoning part this provider
+// owns, or nothing for a part another provider owns.
+func (r reasoningDetailsCodec) plainReasoning(part corechat.Part) (string, error) {
+	field, owned, err := textReasoningFieldFor(part, r.provider)
+	if err != nil || !owned {
+		return "", err
+	}
+	if string(field) != r.config.TextField {
+		return "", fmt.Errorf("invalid reasoning field %q for %s", field, r.provider)
+	}
+	return part.Text, nil
+}
+
+// historyFrame rebuilds the one native detail a signed reasoning part replays,
+// carrying the part's current text in the detail's own text field. A frame
+// another provider owns is not owned; an owned part without detail yields none.
+func (r reasoningDetailsCodec) historyFrame(part corechat.Part) (json.RawMessage, bool, error) {
+	decoded, framed, ownProvider, err := r.decodeFrames(part.ReasoningState)
+	if err != nil {
+		return nil, false, fmt.Errorf("reasoning signature: %w", err)
+	}
+	if !framed || !ownProvider {
+		return nil, false, nil
+	}
+	if len(decoded) == 0 {
+		if part.Text != "" {
+			return nil, false, errors.New("reasoning text has no native field")
+		}
+		return nil, true, nil
+	}
+	decoded, err = coalesceReasoningDetailFrames(decoded)
+	if err != nil {
+		return nil, false, fmt.Errorf("reasoning state: %w", err)
+	}
+	if len(decoded) != 1 {
+		return nil, false, errors.New("reasoning state contains multiple detail identities")
+	}
+	var fields map[string]json.RawMessage
+	if err = jsonv2.Unmarshal(decoded[0], &fields); err != nil {
+		return nil, false, fmt.Errorf("reasoning state: %w", err)
+	}
+	field, err := reasoningDetailTextField(fields)
+	if err != nil {
+		return nil, false, fmt.Errorf("reasoning state: %w", err)
+	}
+	if field == "" {
+		if part.Text != "" {
+			return nil, false, errors.New("reasoning text has no native field")
+		}
+	} else if fields[field], err = jsonv2.Marshal(part.Text); err != nil {
+		return nil, false, err
+	}
+	frame, err := jsonv2.Marshal(fields, jsonv2.Deterministic(true))
+	if err != nil {
+		return nil, false, err
+	}
+	return frame, true, nil
 }
 
 func (r reasoningDetailsCodec) decodeFrames(signature []byte) ([]json.RawMessage, bool, bool, error) {
