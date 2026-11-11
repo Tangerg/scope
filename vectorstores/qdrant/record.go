@@ -73,6 +73,15 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 	}
 }
 
+// nearness orders native scores so that larger is nearer: Qdrant reports a
+// similarity for cosine and dot product but a distance for the other metrics.
+func (n nativeSchema) nearness(raw float64) float64 {
+	if n.metric == qdrantclient.Distance_Euclid || n.metric == qdrantclient.Distance_Manhattan {
+		return -raw
+	}
+	return raw
+}
+
 func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdrantclient.Value, vectors *qdrantclient.VectorsOutput) (*document.Document, string, error) {
 	identity, err := formatPointID(id)
 	if err != nil {

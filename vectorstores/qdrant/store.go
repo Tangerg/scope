@@ -169,57 +169,18 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	var ranked []scoredDocument
-	seen := make(map[string]struct{})
-	{
-		native := &qdrantclient.QueryPoints{CollectionName: s.collectionName, Limit: new(uint64(request.Options.ResultLimit())), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true), Query: qdrantclient.NewQueryDense(query)}
-		native.Filter = where
-		if err := s.verifyCollection(ctx); err != nil {
-			return nil, err
-		}
-		hits, err := s.client.Query(ctx, native)
-		if err != nil {
-			return nil, err
-		}
-		if len(hits) > request.Options.ResultLimit() {
-			return nil, errors.New("qdrant: native query exceeded its result limit")
-		}
-		for _, hit := range hits {
-			if hit == nil || hit.ShardKey != nil {
-				return nil, errors.New("qdrant: native query returned a missing or shard-keyed hit")
-			}
-			doc, _, err := s.schema.decode(hit.Id, hit.Payload, hit.Vectors)
-			if err != nil {
-				return nil, err
-			}
-			if _, duplicate := seen[doc.ID]; duplicate {
-				return nil, errors.New("qdrant: native query repeated an identity")
-			}
-			seen[doc.ID] = struct{}{}
-
-			raw := float64(hit.Score)
-			score, err := s.schema.score(raw)
-			if err != nil {
-				return nil, err
-			}
-			result, err := vectorstore.NewSearchResult(doc, score)
-			if err != nil {
-				return nil, err
-			}
-			rank := raw
-			if s.schema.metric == qdrantclient.Distance_Euclid || s.schema.metric == qdrantclient.Distance_Manhattan {
-				rank = -raw
-			}
-			ranked = append(ranked, scoredDocument{result: result, rank: rank})
-		}
+	if err = s.verifyCollection(ctx); err != nil {
+		return nil, err
 	}
-	slices.SortFunc(ranked, func(left, right scoredDocument) int {
-		if order := cmp.Compare(right.rank, left.rank); order != 0 {
-			return order
-		}
-		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-	})
-	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
+	native := &qdrantclient.QueryPoints{CollectionName: s.collectionName, Limit: new(uint64(request.Options.ResultLimit())), WithPayload: qdrantclient.NewWithPayload(true), WithVectors: qdrantclient.NewWithVectors(true), Query: qdrantclient.NewQueryDense(query), Filter: where}
+	hits, err := s.client.Query(ctx, native)
+	if err != nil {
+		return nil, err
+	}
+	ranked, err := s.rankHits(hits, request.Options.ResultLimit())
+	if err != nil {
+		return nil, err
+	}
 	response = &vectorstore.SearchResponse{}
 	for _, hit := range ranked {
 		if hit.result.Score >= request.Options.MinScore {
@@ -227,6 +188,43 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		}
 	}
 	return response, nil
+}
+
+// rankHits decodes native hits nearest first and rejects what a query of one
+// unsharded collection can never return.
+func (s *Store) rankHits(hits []*qdrantclient.ScoredPoint, limit int) ([]scoredDocument, error) {
+	if len(hits) > limit {
+		return nil, errors.New("qdrant: native query exceeded its result limit")
+	}
+	ranked := make([]scoredDocument, 0, len(hits))
+	seen := make(map[string]struct{}, len(hits))
+	for _, hit := range hits {
+		if hit == nil || hit.ShardKey != nil {
+			return nil, errors.New("qdrant: native query returned a missing or shard-keyed hit")
+		}
+		doc, _, err := s.schema.decode(hit.Id, hit.Payload, hit.Vectors)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return nil, errors.New("qdrant: native query repeated an identity")
+		}
+		seen[doc.ID] = struct{}{}
+		raw := float64(hit.Score)
+		score, err := s.schema.score(raw)
+		if err != nil {
+			return nil, err
+		}
+		result, err := vectorstore.NewSearchResult(doc, score)
+		if err != nil {
+			return nil, err
+		}
+		ranked = append(ranked, scoredDocument{result: result, rank: s.schema.nearness(raw)})
+	}
+	slices.SortFunc(ranked, func(left, right scoredDocument) int {
+		return cmp.Or(cmp.Compare(right.rank, left.rank), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked[:min(len(ranked), limit)], nil
 }
 
 func (s *Store) DeleteWhere(ctx context.Context, predicate filter.Predicate) error {
