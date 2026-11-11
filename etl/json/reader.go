@@ -59,14 +59,14 @@ func (r *Reader) Read(ctx context.Context) ([]*document.Document, error) {
 	}
 
 	dec := jsontext.NewDecoder(bytes.NewReader(data))
-	array := dec.PeekKind() == '['
+	array := dec.PeekKind() == jsontext.KindBeginArray
 	if array {
 		if _, err = dec.ReadToken(); err != nil {
 			return nil, err
 		}
 	}
 	var docs []*document.Document
-	for !array || dec.PeekKind() != ']' {
+	for !array || dec.PeekKind() != jsontext.KindEndArray {
 		if err = ctx.Err(); err != nil {
 			return nil, err
 		}
