@@ -7,7 +7,7 @@ import (
 
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
-	run "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 const failureCodeCoordinatorNotCompleted = "team.coordinator.not_completed"

@@ -80,8 +80,14 @@ type Termination struct {
 	output  Payload
 }
 
+// ValidTerminationReason reports whether reason can explain why a Process
+// ends without completing, such as the reason of a cancellation request.
+func ValidTerminationReason(reason string) bool {
+	return validBoundedText(reason, maxTerminationReasonBytes)
+}
+
 func validateTerminationReason(reason string) error {
-	if !validBoundedText(reason, maxTerminationReasonBytes) {
+	if !ValidTerminationReason(reason) {
 		return fmt.Errorf("%w: reason must be non-empty, trimmed UTF-8 within %d bytes", errInvalidTermination, maxTerminationReasonBytes)
 	}
 	return nil

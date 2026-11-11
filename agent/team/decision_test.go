@@ -1,8 +1,11 @@
 package team
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
 
@@ -22,5 +25,20 @@ func TestDecisionSchemaPublishesTheDecidedModes(t *testing.T) {
 		if err := schema.Validate([]byte(invalid)); err == nil {
 			t.Fatalf("schema admitted %s", invalid)
 		}
+	}
+}
+
+// A control is validated by the same reason rule the Runtime applies to the
+// cancellation it declares, so an admitted decision never fails at declaration.
+func TestControlRequiresAReasonTheRuntimeCanCarry(t *testing.T) {
+	task := require(run.ParseChildKey("task"))
+	for _, reason := range []string{"", " padded ", strings.Repeat("x", 4097)} {
+		if err := (Control{Task: task, CancelReason: &reason}).validate(); !errors.Is(err, ErrInvalidDecision) {
+			t.Fatalf("reason of %d bytes admitted: %v", len(reason), err)
+		}
+	}
+	reason := "superseded"
+	if err := (Control{Task: task, CancelReason: &reason}).validate(); err != nil {
+		t.Fatal(err)
 	}
 }

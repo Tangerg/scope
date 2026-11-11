@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
-	run "github.com/Tangerg/scope/agent/run"
+	"github.com/Tangerg/scope/agent/run"
 )
 
 const turnPrefix = "team.turn."

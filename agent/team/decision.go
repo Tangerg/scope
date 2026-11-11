@@ -1,10 +1,6 @@
 package team
 
-import (
-	"strings"
-
-	"github.com/Tangerg/scope/agent/run"
-)
+import "github.com/Tangerg/scope/agent/run"
 
 type Mode string
 
@@ -122,7 +118,7 @@ func (c Control) validate() error {
 	if c.Signal != nil && !c.Signal.Valid() {
 		return ErrInvalidDecision
 	}
-	if c.CancelReason != nil && (strings.TrimSpace(*c.CancelReason) != *c.CancelReason || *c.CancelReason == "") {
+	if c.CancelReason != nil && !run.ValidTerminationReason(*c.CancelReason) {
 		return ErrInvalidDecision
 	}
 	return nil
