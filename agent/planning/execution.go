@@ -48,11 +48,7 @@ func (e *execution) Snapshot() (run.ExecutionState, error) {
 }
 
 func (e *execution) requestSense(turn run.Turn, consumedMessages uint32) (run.Transition, error) {
-	input, err := e.state.input()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	effect, err := newSenseEffect(input)
+	effect, err := newSenseEffect(e.state.Input)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -82,7 +78,7 @@ func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transit
 
 func (e *execution) decide(ctx context.Context, turn run.Turn, consumedMessages uint32) (run.Transition, error) {
 	if !e.state.needsPlan(e.definition) {
-		return e.complete(ctx, consumedMessages)
+		return e.complete(consumedMessages)
 	}
 	problem := e.definition.problem(e.state)
 	plan, found, err := e.definition.planner.Plan(ctx, problem)
@@ -93,7 +89,7 @@ func (e *execution) decide(ctx context.Context, turn run.Turn, consumedMessages 
 		return e.failPlanning(consumedMessages, run.FailureKindExecution, failureCodePlanningPlannerFailed, err)
 	}
 	if !found {
-		return e.complete(ctx, consumedMessages)
+		return e.complete(consumedMessages)
 	}
 	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
 		return e.failPlanning(consumedMessages, run.FailureKindContract, failureCodePlanningPlannerContract, err)
@@ -117,14 +113,10 @@ func (e *execution) failPlanning(consumedMessages uint32, kind run.FailureKind, 
 }
 
 func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding actionDeclaration) (run.Transition, error) {
-	input, err := e.state.input()
-	if err != nil {
-		return run.Transition{}, err
-	}
 	if binding.delegatesToChild() {
-		return e.startChild(turn, consumedMessages, binding, input)
+		return e.startChild(turn, consumedMessages, binding, e.state.Input)
 	}
-	effect, err := newActionEffect(input, binding, e.state.WorldState)
+	effect, err := newActionEffect(e.state.Input, binding, e.state.WorldState)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -209,12 +201,8 @@ func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
 	return e.requestSense(turn, consumed)
 }
 
-func (e *execution) complete(ctx context.Context, consumedMessages uint32) (run.Transition, error) {
-	output, err := e.state.complete(ctx, e.definition)
-	if err != nil {
-		return run.Transition{}, err
-	}
-	erased, err := run.EncodePayload(output)
+func (e *execution) complete(consumedMessages uint32) (run.Transition, error) {
+	erased, err := run.EncodePayload(e.state.output(e.definition))
 	if err != nil {
 		return run.Transition{}, err
 	}

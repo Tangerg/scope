@@ -66,7 +66,7 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 	config := validationConfig(t)
 	definition := planningValue(config.definition())
 	newState := func() executionState {
-		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")).JSON(),
+		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")),
 			WorldState: validationWorld(t), CurrentActionName: config.actions[0].action.Name(),
 			PendingEffect: new(validationTurn(2).EffectID(0))}
 	}
@@ -78,7 +78,7 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 		change func(*executionState)
 	}{
 		{"unknown phase", func(s *executionState) { s.Phase = phase("other") }},
-		{"input schema", func(s *executionState) { s.Input = []byte(`42`) }},
+		{"input schema", func(s *executionState) { s.Input = planningValue(run.EncodePayload(42)) }},
 		{"unknown action", func(s *executionState) { s.CurrentActionName = "action.unknown" }},
 		{"inapplicable action", func(s *executionState) { s.WorldState = WorldState{} }},
 		{"excluded current action", func(s *executionState) {
@@ -129,7 +129,7 @@ func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 	definition := planningValue(config.definition())
 	key := planningValue(planningChildKey(config.actions[0].action.Name(), 1))
 	newState := func() executionState {
-		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")).JSON(), WorldState: validationWorld(t),
+		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")), WorldState: validationWorld(t),
 			CurrentActionName: config.actions[0].action.Name(), Child: &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(key)))}}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {

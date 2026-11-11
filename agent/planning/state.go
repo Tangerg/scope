@@ -2,9 +2,7 @@ package planning
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/run"
@@ -29,7 +27,7 @@ func (p phase) valid() bool {
 
 type executionState struct {
 	Phase             phase             `json:"phase"`
-	Input             json.RawMessage   `json:"input"`
+	Input             run.Payload       `json:"input" jsonwire:"required"`
 	WorldState        WorldState        `json:"world_state" jsonwire:"required"`
 	Attempts          []Attempt         `json:"attempts,omitempty"`
 	CurrentActionName string            `json:"current_action_name,omitempty"`
@@ -54,11 +52,7 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if !e.Phase.valid() {
 		return fmt.Errorf("%w: unknown phase %q", ErrInvalidExecutionState, e.Phase)
 	}
-	input, err := run.ParsePayload(e.Input)
-	if err != nil {
-		return fmt.Errorf("%w: Input: %w", ErrInvalidExecutionState, err)
-	}
-	if err := definition.descriptor.ValidateInput(input); err != nil {
+	if err := definition.descriptor.ValidateInput(e.Input); err != nil {
 		return fmt.Errorf("%w: input schema: %w", ErrInvalidExecutionState, err)
 	}
 	if err := e.validateAttemptHistory(ctx, definition); err != nil {
@@ -181,21 +175,6 @@ func (e *executionState) recordFailedAction(reason string) {
 	e.CurrentActionName = ""
 }
 
-func (e *executionState) complete(ctx context.Context, definition *definition) (Output, error) {
-	if err := e.validate(ctx, definition); err != nil {
-		return Output{}, err
-	}
-	output := e.output(definition)
-	if err := output.Validate(); err != nil {
-		return Output{}, fmt.Errorf("%w: completion: %w", ErrInvalidExecutionState, err)
-	}
-	output.Attempts = slices.Clone(output.Attempts)
-	if output.Attempts == nil {
-		output.Attempts = []Attempt{}
-	}
-	return output, nil
-}
-
 // output classifies completion: a completion that still needed a plan
 // followed a planning pass that found none, otherwise the attempt limit
 // admitted no further pass.
@@ -210,12 +189,6 @@ func (e executionState) output(definition *definition) Output {
 		outcome = OutcomeStuck
 	}
 	return Output{Outcome: outcome, WorldState: e.WorldState, Attempts: e.Attempts}
-}
-
-func (e executionState) input() (run.Payload, error) {
-	// ParsePayload normalizes into an independently owned copy, so the raw Input
-	// needs no separate clone here.
-	return run.ParsePayload(e.Input)
 }
 
 func (e executionState) snapshot() (run.ExecutionState, error) {
