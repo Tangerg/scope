@@ -1,7 +1,6 @@
 package coordination
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -46,7 +45,7 @@ func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 	if _, err := execution.Step(ctx, turn(1)); !errors.Is(err, context.Canceled) {
 		t.Fatal("canceled gate advanced", err)
 	}
-	if after := require(execution.Snapshot()); !bytes.Equal(initial.Payload(), after.Payload()) {
+	if after := require(execution.Snapshot()); !initial.Payload().Equal(after.Payload()) {
 		t.Fatal("rejected initial turn changed the request")
 	}
 	require(execution.Step(t.Context(), turn(1)))
@@ -58,7 +57,7 @@ func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 		if transition, err := restored.Step(t.Context(), turn(2, messages...)); transition.Valid() || !errors.Is(err, ErrInvalidProtocol) {
 			t.Fatalf("unaddressed answer advanced the gate: %v, %v", transition, err)
 		}
-		if after := require(restored.Snapshot()); !bytes.Equal(waiting.Payload(), after.Payload()) {
+		if after := require(restored.Snapshot()); !waiting.Payload().Equal(after.Payload()) {
 			t.Fatal("rejected answer changed the published wait")
 		}
 	}
@@ -69,7 +68,7 @@ func TestInputGateRejectsUnaddressedMessages(t *testing.T) {
 	}
 	conformancetest.CheckRestoreCancellation(t, definition, waiting)
 	for _, raw := range []string{`{"phase":"unknown"}`, `{"phase":"waiting","request":42}`, `{"phase":"completed","request":"question"}`} {
-		state := require(run.ParseExecutionState(inputGateStateKind, []byte(raw)))
+		state := require(run.NewExecutionState(inputGateStateKind, require(run.ParsePayload([]byte(raw)))))
 		if _, err := definition.Restore(t.Context(), state); !errors.Is(err, ErrInvalidExecutionState) {
 			t.Fatalf("invalid gate state lost its owning classification: %s, %v", raw, err)
 		}
@@ -96,7 +95,7 @@ func TestDeadlineValidatesRestoredPhaseAndExactTimerCompletion(t *testing.T) {
 	if _, err := execution.Step(ctx, turn(1)); !errors.Is(err, context.Canceled) {
 		t.Fatal("canceled timer preparation advanced", err)
 	}
-	if after := require(execution.Snapshot()); !bytes.Equal(initial.Payload(), after.Payload()) {
+	if after := require(execution.Snapshot()); !initial.Payload().Equal(after.Payload()) {
 		t.Fatal("rejected preparation changed the deadline")
 	}
 	first := require(execution.Step(t.Context(), turn(1)))

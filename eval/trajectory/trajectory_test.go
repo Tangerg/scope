@@ -47,8 +47,8 @@ func (fixtureDefinition) Start(input run.Payload) (run.Execution, error) {
 }
 
 func (fixtureDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	var execution fixtureExecution
-	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
+	execution, err := state.Decode[fixtureExecution]("test.trajectory")
+	if err != nil {
 		return nil, err
 	}
 	return &execution, nil

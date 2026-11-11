@@ -61,7 +61,7 @@ func (echoDefinition) Restore(_ context.Context, state run.ExecutionState) (run.
 type echoExecution struct{ input run.Payload }
 
 func (e echoExecution) Snapshot() (run.ExecutionState, error) {
-	return run.ParseExecutionState(echoStateKind, e.input.JSON())
+	return run.NewExecutionState(echoStateKind, e.input)
 }
 
 func (e echoExecution) Step(_ context.Context, turn run.Turn) (run.Transition, error) {

@@ -194,17 +194,13 @@ func (codecDefinition) Restore(ctx context.Context, state run.ExecutionState) (r
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	input, err := run.ParsePayload(state.Payload())
-	if err != nil {
-		return nil, err
-	}
-	return codecExecution{input: input}, nil
+	return codecExecution{input: state.Payload()}, nil
 }
 
 type codecExecution struct{ input run.Payload }
 
 func (c codecExecution) Snapshot() (run.ExecutionState, error) {
-	return run.ParseExecutionState("codec_child", c.input.JSON())
+	return run.NewExecutionState("codec_child", c.input)
 }
 
 func (c codecExecution) Step(ctx context.Context, _ run.Turn) (run.Transition, error) {

@@ -212,7 +212,7 @@ func TestSteeringDuringToolInputWaitSurvivesRecoveryAndRevisesDirectOutput(t *te
 					if process.Started.Process != handle.ID() || !process.State.Valid() {
 						continue
 					}
-					state := mustValue(mustValue(run.ParsePayload(process.State.Payload())).Decode[executionState]())
+					state := mustValue(process.State.Payload().Decode[executionState]())
 					if state.PendingSteer != nil {
 						return true
 					}

@@ -19,7 +19,7 @@ func TestLogUsageRetainsReapedWorkAndCountsOnlyDefiniteMessages(t *testing.T) {
 	log = integrityAppend(log, signal,
 		Stepped{Process: log.Root, Step: 1, Delivered: 1, Transition: controlValue(Yield(1, []Effect{spawn, external}))}, spawnIntent, externalIntent)
 	state := controlValue(projectLog(log))
-	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{state.processes[log.Root].materialize(controlValue(ParseExecutionState("fixture", parent.Input.JSON())))}}
+	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{state.processes[log.Root].materialize(controlValue(NewExecutionState("fixture", parent.Input)))}}
 	checkpointIndex := len(log.Entries)
 	log = integrityAppend(log, checkpoint, child,
 		EffectSettled{ID: spawnIntent.ID, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(EncodePayload(child.Process)))), At: parent.At},

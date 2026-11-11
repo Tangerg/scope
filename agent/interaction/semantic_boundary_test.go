@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"bytes"
 	"errors"
 	"testing"
 
@@ -133,7 +132,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 			if !errors.Is(err, row.failure) || transition.Valid() {
 				t.Fatal("unrelated message advanced a tool obligation", transition, err)
 			}
-			if after := mustValue(execution.Snapshot()); !bytes.Equal(before.Payload(), after.Payload()) {
+			if after := mustValue(execution.Snapshot()); !before.Payload().Equal(after.Payload()) {
 				t.Fatal("rejected input changed the owned continuation")
 			}
 		})

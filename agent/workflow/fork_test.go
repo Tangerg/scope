@@ -336,11 +336,8 @@ func (m *managedBranchDefinition) Start(input run.Payload) (run.Execution, error
 }
 
 func (m *managedBranchDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	if state.Kind() != "test.branch" {
-		return nil, run.ErrInvalidExecutionState
-	}
-	var execution managedBranchExecution
-	if err := jsonv2.Unmarshal(state.Payload(), &execution); err != nil {
+	execution, err := state.Decode[managedBranchExecution]("test.branch")
+	if err != nil {
 		return nil, err
 	}
 	if execution.Branch != m.branch || execution.Phase > 2 {
@@ -384,11 +381,7 @@ func (m *managedBranchExecution) Step(_ context.Context, turn run.Turn) (run.Tra
 }
 
 func (m *managedBranchExecution) Snapshot() (run.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(m)
-	if err != nil {
-		return run.ExecutionState{}, err
-	}
-	return run.ParseExecutionState("test.branch", payload)
+	return run.EncodeExecutionState("test.branch", m)
 }
 
 type managedBranchDispatcher struct{ tracker *branchTracker }

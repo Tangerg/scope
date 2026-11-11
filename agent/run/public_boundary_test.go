@@ -405,7 +405,7 @@ func publicBoundaryLog(t *testing.T, completed bool) Log {
 			EffectSettled{ID: intent.ID, Outcome: controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload(json.RawMessage(`null`))))), Failure: &failure, At: started.At},
 			SignalAdmitted{Process: log.Root, Signal: Signal{ID: controlValue(ParseSignalID("answer")), Wait: wait.Key, Payload: controlValue(EncodePayload(1))}, At: started.At},
 		)
-		state = controlValue(ParseExecutionState("fixture", started.Input.JSON()))
+		state = controlValue(NewExecutionState("fixture", started.Input))
 	}
 	projected := controlValue(projectLog(log))
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{projected.processes[log.Root].materialize(state)}}

@@ -208,7 +208,7 @@ func TestCoordinationRejectsMalformedPolicyAndState(t *testing.T) {
 	}
 	definition := require(newInputGate("test.input", "Ask.", InputGate{RequestSchema: require(jsonschema.For[string]()), AnswerSchema: require(jsonschema.For[string]())}))
 	for _, wire := range []string{`{"phase":"waiting"}`, `{"phase":"completed","request":"duplicate"}`, `{"phase":"waiting","request":"question","unexpected":1}`} {
-		state := require(run.ParseExecutionState(inputGateStateKind, []byte(wire)))
+		state := require(run.NewExecutionState(inputGateStateKind, require(run.ParsePayload([]byte(wire)))))
 		if _, err := definition.Restore(t.Context(), state); err == nil {
 			t.Fatalf("accepted %s", wire)
 		}

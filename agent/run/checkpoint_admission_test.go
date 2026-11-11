@@ -133,7 +133,7 @@ func TestCheckpointRejectsConflictingProcessFactsBeforeRecovery(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			log := integrityInitialLog(t)
 			started := log.Entries[0].Record.(Started)
-			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: controlValue(ParseExecutionState("fixture", started.Input.JSON()))}}}
+			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: controlValue(NewExecutionState("fixture", started.Input))}}}
 			test.change(&checkpoint.Processes[0])
 			assertCheckpointRejected(t, log.Root, checkpoint)
 		})
@@ -149,7 +149,7 @@ func TestCheckpointRetainsExactlyOneMatchingExitUntilItsParentConsumesIt(t *test
 	terminal := Termination{output: child.Input}
 	exit := Exit{Child: child.Process, Termination: terminal}
 	checkpoint := Checkpoint{StartedProcesses: 2, Processes: []ProcessCheckpoint{
-		{Started: parent, State: controlValue(ParseExecutionState("fixture", parent.Input.JSON())), Children: []StartedChild{{Key: key, Started: 5}},
+		{Started: parent, State: controlValue(NewExecutionState("fixture", parent.Input)), Children: []StartedChild{{Key: key, Started: 5}},
 			Inbox: Inbox{exit}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 2}},
 		{Started: child, Terminal: &terminal, Exited: &Exited{Process: child.Process, Termination: terminal, At: child.At}},
 	}}
@@ -238,8 +238,8 @@ func TestCheckpointRejectsConflictingTreeFacts(t *testing.T) {
 			child := parent
 			child.Process, child.Limits = controlValue(parent.Process.Child(key)), TreeLimits{}
 			checkpoint := Checkpoint{StartedProcesses: 2, Processes: []ProcessCheckpoint{
-				{Started: parent, State: controlValue(ParseExecutionState("fixture", parent.Input.JSON())), Children: []StartedChild{{Key: key, Started: 5}}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 1}},
-				{Started: child, State: controlValue(ParseExecutionState("fixture", child.Input.JSON()))},
+				{Started: parent, State: controlValue(NewExecutionState("fixture", parent.Input)), Children: []StartedChild{{Key: key, Started: 5}}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 1}},
+				{Started: child, State: controlValue(NewExecutionState("fixture", child.Input))},
 			}}
 			if err := (Log{Root: log.Root, Entries: []Entry{{LSN: 20, Epoch: 1, Record: checkpoint}}}).Validate(); err != nil {
 				t.Fatalf("valid checkpoint baseline: %v", err)
@@ -254,7 +254,7 @@ func TestCheckpointUsageOwnsTheNextStepIdentity(t *testing.T) {
 	log := integrityInitialLog(t)
 	started := log.Entries[0].Record.(Started)
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{
-		Started: started, State: controlValue(ParseExecutionState("fixture", started.Input.JSON())), Usage: Usage{CommittedSteps: 7},
+		Started: started, State: controlValue(NewExecutionState("fixture", started.Input)), Usage: Usage{CommittedSteps: 7},
 	}}}
 	state := controlValue(checkpoint.tree(log.Root, Entry{LSN: 20, Epoch: 1, Record: checkpoint}))
 	process := state.processes[log.Root]

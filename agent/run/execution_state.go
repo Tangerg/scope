@@ -1,7 +1,6 @@
 package run
 
 import (
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -19,15 +18,6 @@ type ExecutionState struct {
 	payload Payload
 }
 
-// ParseExecutionState freezes an opaque payload under its owning Strategy kind.
-func ParseExecutionState(kind string, payload json.RawMessage) (ExecutionState, error) {
-	value, err := ParsePayload(payload)
-	if err != nil {
-		return ExecutionState{}, fmt.Errorf("%w: payload: %w", ErrInvalidExecutionState, err)
-	}
-	return sealExecutionState(kind, value)
-}
-
 // EncodeExecutionState strictly encodes a typed strategy state. Invalid UTF-8
 // and duplicate JSON names are rejected.
 func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
@@ -35,10 +25,11 @@ func EncodeExecutionState[T any](kind string, value T) (ExecutionState, error) {
 	if err != nil {
 		return ExecutionState{}, fmt.Errorf("%w: encode: %w", ErrInvalidExecutionState, err)
 	}
-	return sealExecutionState(kind, payload)
+	return NewExecutionState(kind, payload)
 }
 
-func sealExecutionState(kind string, payload Payload) (ExecutionState, error) {
+// NewExecutionState freezes an opaque payload under its owning Strategy kind.
+func NewExecutionState(kind string, payload Payload) (ExecutionState, error) {
 	if !ValidQualifiedName(kind) {
 		return ExecutionState{}, fmt.Errorf("%w: kind must be a lowercase qualified name", ErrInvalidExecutionState)
 	}
@@ -50,8 +41,7 @@ func sealExecutionState(kind string, payload Payload) (ExecutionState, error) {
 
 func (e ExecutionState) Kind() string { return e.kind }
 
-// Payload returns an independently owned copy of the opaque Strategy state.
-func (e ExecutionState) Payload() json.RawMessage { return e.payload.JSON() }
+func (e ExecutionState) Payload() Payload { return e.payload }
 
 // Decode checks the Strategy kind before decoding its payload into T. Unknown
 // object members are rejected; the Strategy still validates its domain state.
@@ -86,7 +76,7 @@ func (e *ExecutionState) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidExecutionState, err)
 	}
-	value, err := sealExecutionState(wire.Kind, wire.Payload)
+	value, err := NewExecutionState(wire.Kind, wire.Payload)
 	if err != nil {
 		return err
 	}

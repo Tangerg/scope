@@ -54,7 +54,7 @@ func TestUppercaseExecutionRejectsInvalidAdvancementAndRestoresExactly(t *testin
 	if _, err := execution.Step(t.Context(), compositionTurn(1, agentrun.Signal{})); !errors.Is(err, agentrun.ErrInvalidMessage) {
 		t.Fatal(err)
 	}
-	if after := compositionValue(execution.Snapshot()); !bytes.Equal(after.Payload(), before.Payload()) {
+	if after := compositionValue(execution.Snapshot()); !after.Payload().Equal(before.Payload()) {
 		t.Fatal("rejected message advanced state")
 	}
 	runtest.RunDefinitionConformance(t, runtest.DefinitionConformanceConfig{Definition: program.Definition(), Input: input, InitialTurn: compositionTurn(1)})
@@ -66,7 +66,7 @@ func TestUppercaseExecutionRejectsInvalidAdvancementAndRestoresExactly(t *testin
 	if _, err := execution.Step(t.Context(), compositionTurn(2)); err == nil {
 		t.Fatal("completed execution advanced")
 	}
-	if after := compositionValue(execution.Snapshot()); !bytes.Equal(after.Payload(), completed.Payload()) {
+	if after := compositionValue(execution.Snapshot()); !after.Payload().Equal(completed.Payload()) {
 		t.Fatal("duplicate completion changed state")
 	}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -93,7 +93,8 @@ func TestDefinitionsRejectInvalidBindingsAndBoundaryValues(t *testing.T) {
 	} {
 		execution := compositionValue(row.program.Definition().Start(row.input))
 		state := compositionValue(execution.Snapshot())
-		invalid := compositionValue(agentrun.ParseExecutionState(state.Kind(), append(bytes.TrimSuffix(state.Payload(), []byte("}")), []byte(`,"unknown":true}`)...)))
+		extended := compositionValue(agentrun.ParsePayload(append(bytes.TrimSuffix(state.Payload().JSON(), []byte("}")), []byte(`,"unknown":true}`)...)))
+		invalid := compositionValue(agentrun.NewExecutionState(state.Kind(), extended))
 		if _, err := row.program.Definition().Restore(t.Context(), invalid); err == nil {
 			t.Fatal("unknown state field admitted")
 		}

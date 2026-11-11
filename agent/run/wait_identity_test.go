@@ -29,7 +29,7 @@ func TestWaitIdentitySurvivesWithdrawalAndCheckpointCuts(t *testing.T) {
 				if checkpointed {
 					state := controlValue(projectLog(log))
 					checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{
-						state.processes[log.Root].materialize(controlValue(ParseExecutionState("fixture", started.Input.JSON()))),
+						state.processes[log.Root].materialize(controlValue(NewExecutionState("fixture", started.Input))),
 					}}
 					kind, encoded, err := EncodeRecord(checkpoint)
 					if err != nil {

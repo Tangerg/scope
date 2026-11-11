@@ -2,7 +2,6 @@ package runtest
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"strings"
@@ -62,8 +61,8 @@ func (d *definitionConformanceDefinition) Start(input run.Payload) (run.Executio
 }
 
 func (d *definitionConformanceDefinition) Restore(ctx context.Context, state run.ExecutionState) (run.Execution, error) {
-	var value definitionConformanceInput
-	if err := jsonv2.Unmarshal(state.Payload(), &value); err != nil {
+	value, err := state.Decode[definitionConformanceInput]("agenttest.definition_conformance")
+	if err != nil {
 		return nil, err
 	}
 	return &definitionConformanceExecution{definition: d, value: value.Value, restored: d.lossy}, nil
@@ -95,11 +94,7 @@ func (d *definitionConformanceExecution) Snapshot() (run.ExecutionState, error) 
 	if d.shared != nil {
 		value = *d.shared
 	}
-	payload, err := jsonv2.Marshal(definitionConformanceInput{Value: value})
-	if err != nil {
-		return run.ExecutionState{}, err
-	}
-	return run.ParseExecutionState("agenttest.definition_conformance", payload)
+	return run.EncodeExecutionState("agenttest.definition_conformance", definitionConformanceInput{Value: value})
 }
 
 func TestRunDefinitionConformanceAcceptsIsolatedDeterministicDefinition(t *testing.T) {
@@ -318,11 +313,7 @@ func (r *rejectingExecution) Step(context.Context, run.Turn) (run.Transition, er
 }
 
 func (r *rejectingExecution) Snapshot() (run.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(definitionConformanceInput{})
-	if err != nil {
-		return run.ExecutionState{}, err
-	}
-	return run.ParseExecutionState("agenttest.rejecting", payload)
+	return run.EncodeExecutionState("agenttest.rejecting", definitionConformanceInput{})
 }
 
 func TestVerifyRejectedStepRequiresAStableClassification(t *testing.T) {
@@ -389,7 +380,7 @@ func (t *terminalExecution) Snapshot() (run.ExecutionState, error) {
 	if t.done {
 		return run.ExecutionState{}, errors.New("a terminated Execution has no state to snapshot")
 	}
-	return run.ParseExecutionState("agenttest.terminal", []byte(`{}`))
+	return run.EncodeExecutionState("agenttest.terminal", struct{}{})
 }
 
 func TestDefinitionConformanceEndsAtTheTerminalTransition(t *testing.T) {

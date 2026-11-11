@@ -60,12 +60,12 @@ func TestDefinitionRestoreRejectsUnknownCoreMembers(t *testing.T) {
 		"part":    `"parts":[{`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			payload := string(snapshot.Payload())
+			payload := string(snapshot.Payload().JSON())
 			if !strings.Contains(payload, marker) {
 				t.Fatalf("snapshot is missing %s", marker)
 			}
 			payload = strings.Replace(payload, marker, marker+`"unexpected":true,`, 1)
-			invalid, stateErr := run.ParseExecutionState(snapshot.Kind(), json.RawMessage(payload))
+			invalid, stateErr := run.NewExecutionState(snapshot.Kind(), mustValue(run.ParsePayload(json.RawMessage(payload))))
 			if stateErr != nil {
 				t.Fatal(stateErr)
 			}

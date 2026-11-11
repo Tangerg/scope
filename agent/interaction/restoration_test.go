@@ -293,7 +293,7 @@ func TestRestorePreservesProviderOrderOfDirectToolEffects(t *testing.T) {
 			if _, err := definition.Restore(t.Context(), snapshot); err != nil {
 				t.Fatal("valid issued calls did not restore", err)
 			}
-			state := mustValue(mustValue(run.ParsePayload(snapshot.Payload())).Decode[executionState]())
+			state := mustValue(snapshot.Payload().Decode[executionState]())
 			calls := state.ToolRound.Batch.Invocations
 			calls[0].Reference, calls[2].Reference = calls[2].Reference, calls[0].Reference
 			for _, call := range calls {

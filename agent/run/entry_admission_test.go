@@ -43,7 +43,7 @@ func TestEntryValidationPreservesTheZeroEpochRootStart(t *testing.T) {
 func TestCheckpointMembershipHasOneEntryBoundary(t *testing.T) {
 	log := integrityInitialLog(t)
 	started := log.Entries[0].Record.(Started)
-	state := controlValue(ParseExecutionState("fixture", started.Input.JSON()))
+	state := controlValue(NewExecutionState("fixture", started.Input))
 	checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: state}}}
 	entry := Entry{LSN: log.Head() + 1, Epoch: log.Epoch(), Record: checkpoint}
 	if err := entry.ValidateFor(log.Root); err != nil {

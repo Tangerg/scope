@@ -524,5 +524,5 @@ func (s *storeExecution) Step(_ context.Context, turn run.Turn) (run.Transition,
 }
 
 func (s *storeExecution) Snapshot() (run.ExecutionState, error) {
-	return run.ParseExecutionState("runtest.store", s.input.JSON())
+	return run.NewExecutionState("runtest.store", s.input)
 }

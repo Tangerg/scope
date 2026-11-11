@@ -218,7 +218,7 @@ func TestTeamRejectsContradictoryRestoredOwnership(t *testing.T) {
 	worker := transformed(t, runtime, "test.worker", func(_ context.Context, value string) (string, error) { return value, nil })
 	compiled := compileTeam(t, runtime, coordinator, worker).Definition()
 	for _, raw := range []string{`{"completed":true,"working_state":"duplicate"}`, `{"working_state":"initial","turn_number":0,"coordinator":{}}`, `{"working_state":"initial","turn_number":0,"unknown":true}`} {
-		state := require(run.ParseExecutionState(stateKind, []byte(raw)))
+		state := require(run.NewExecutionState(stateKind, require(run.ParsePayload([]byte(raw)))))
 		if _, err := compiled.Restore(t.Context(), state); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}

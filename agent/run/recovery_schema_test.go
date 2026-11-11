@@ -186,7 +186,7 @@ func TestRecoveryRejectsUnaddressedSignalsOutsideProgramContractBeforeActivation
 			log = integrityAppend(log, SignalAdmitted{Process: log.Root, Signal: signal, At: started.At})
 			if checkpointed {
 				checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{
-					Started: started, State: controlValue(ParseExecutionState("fixture", started.Input.JSON())),
+					Started: started, State: controlValue(NewExecutionState("fixture", started.Input)),
 					Inbox: Inbox{signal}, Receipts: []SignalReceipt{signal.receipt()}, Usage: Usage{AcceptedMessages: 1},
 				}}}
 				log.Entries = []Entry{{LSN: 4, Epoch: 1, Record: checkpoint}}

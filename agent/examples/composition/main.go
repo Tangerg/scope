@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -180,11 +179,7 @@ func (u *uppercaseExecution) Step(_ context.Context, turn agentrun.Turn) (agentr
 }
 
 func (u *uppercaseExecution) Snapshot() (agentrun.ExecutionState, error) {
-	payload, err := jsonv2.Marshal(u)
-	if err != nil {
-		return agentrun.ExecutionState{}, err
-	}
-	return agentrun.ParseExecutionState(uppercaseStateKind, payload)
+	return agentrun.EncodeExecutionState(uppercaseStateKind, u)
 }
 
 func newModelProgram(compiler *agentrun.Compiler) (agentrun.Program[interaction.Input, interaction.Output], error) {

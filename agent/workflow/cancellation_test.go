@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"context"
 	startrand "crypto/rand"
 	"errors"
@@ -124,7 +123,7 @@ func TestWorkflowRejectsCanceledStepBeforeCallingTransform(t *testing.T) {
 		t.Fatalf("canceled Step transition=%+v, error=%v, called=%t", transition, stepErr, called)
 	}
 	after, err := execution.Snapshot()
-	if err != nil || !bytes.Equal(before.Payload(), after.Payload()) {
+	if err != nil || !before.Payload().Equal(after.Payload()) {
 		t.Fatalf("canceled Step changed candidate state: %v", err)
 	}
 }

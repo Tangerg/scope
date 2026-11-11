@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -24,7 +23,7 @@ func (*typedFixtureDefinition) ChildPrograms() []Program[Payload, Payload] { ret
 
 func (t *typedFixtureDefinition) Start(input Payload) (Execution, error) {
 	t.starts++
-	return &typedFixtureExecution{state: input.JSON()}, nil
+	return &typedFixtureExecution{state: input}, nil
 }
 
 func (t *typedFixtureDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
@@ -32,19 +31,15 @@ func (t *typedFixtureDefinition) Restore(ctx context.Context, state ExecutionSta
 }
 
 type typedFixtureExecution struct {
-	state json.RawMessage
+	state Payload
 }
 
 func (t *typedFixtureExecution) Step(context.Context, Turn) (Transition, error) {
-	output, err := ParsePayload(t.state)
-	if err != nil {
-		return Transition{}, err
-	}
-	return Complete(0, output)
+	return Complete(0, t.state)
 }
 
 func (t *typedFixtureExecution) Snapshot() (ExecutionState, error) {
-	return ParseExecutionState("fixture", t.state)
+	return NewExecutionState("fixture", t.state)
 }
 
 func TestDescriptorOwnsTypedEdges(t *testing.T) {

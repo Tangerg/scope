@@ -101,8 +101,8 @@ func (c *capabilityTestDefinition) Start(Payload) (Execution, error) {
 }
 
 func (c *capabilityTestDefinition) Restore(ctx context.Context, state ExecutionState) (Execution, error) {
-	var phase uint8
-	if err := jsonv2.Unmarshal(state.Payload(), &phase); err != nil {
+	phase, err := state.Decode[uint8]("test.capability")
+	if err != nil {
 		return nil, err
 	}
 	return &capabilityTestExecution{phase: phase}, nil
@@ -127,8 +127,7 @@ func (c *capabilityTestExecution) Step(context.Context, Turn) (Transition, error
 }
 
 func (c *capabilityTestExecution) Snapshot() (ExecutionState, error) {
-	payload, _ := jsonv2.Marshal(c.phase)
-	return ParseExecutionState("test.capability", payload)
+	return EncodeExecutionState("test.capability", c.phase)
 }
 
 // capabilityTestDispatcher declares one required capability for every Effect.

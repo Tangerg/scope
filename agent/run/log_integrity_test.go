@@ -38,7 +38,7 @@ func TestCheckpointRejectsAnInconsistentMaterialization(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			log := integrityInitialLog(t)
 			started := log.Entries[0].Record.(Started)
-			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: controlValue(ParseExecutionState("fixture", started.Input.JSON()))}}}
+			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: controlValue(NewExecutionState("fixture", started.Input))}}}
 			cut := Log{Root: log.Root, Entries: []Entry{{LSN: log.Head() + 1, Epoch: log.Epoch(), Record: checkpoint}}}
 			if err := cut.Validate(); err != nil {
 				t.Fatalf("valid recovery baseline: %v", err)
@@ -310,7 +310,7 @@ func TestTerminalCheckpointHasNoOpaqueExecutionState(t *testing.T) {
 			if err := integrityAppend(log, checkpoint).Validate(); err != nil {
 				t.Fatal(err)
 			}
-			checkpoint.Processes[0].State = controlValue(ParseExecutionState("fixture", started.Input.JSON()))
+			checkpoint.Processes[0].State = controlValue(NewExecutionState("fixture", started.Input))
 			if err := integrityAppend(log, checkpoint).Validate(); !errors.Is(err, ErrInvalidLog) {
 				t.Fatalf("terminal checkpoint retained mutable execution state: %v", err)
 			}

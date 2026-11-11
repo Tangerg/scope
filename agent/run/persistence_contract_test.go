@@ -240,7 +240,7 @@ func TestRecoveredLogCannotExceedItsAcceptedByteLimits(t *testing.T) {
 			started.Limits.MaxRecordBytes = NewQuota(1)
 		}
 		log.Entries[0].Record = started
-		state := controlValue(ParseExecutionState("typed_fixture", started.Input.JSON()))
+		state := controlValue(NewExecutionState("typed_fixture", started.Input))
 		log = integrityAppend(log, Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started, State: state}}})
 		if err := log.Validate(); !errors.Is(err, ErrResourceLimitExceeded) {
 			t.Fatalf("accepted limits did not bound recovered history: %v", err)
@@ -303,7 +303,7 @@ func TestCheckpointWireRequiresRecoverableProcessMaterialization(t *testing.T) {
 	for _, checkpoint := range []Checkpoint{
 		{},
 		{StartedProcesses: 1, Processes: []ProcessCheckpoint{{Started: started}}},
-		{StartedProcesses: 1, Processes: []ProcessCheckpoint{{State: controlValue(ParseExecutionState("fixture", []byte(`0`)))}}},
+		{StartedProcesses: 1, Processes: []ProcessCheckpoint{{State: controlValue(EncodeExecutionState("fixture", 0))}}},
 	} {
 		if _, _, err := EncodeRecord(checkpoint); !errors.Is(err, ErrInvalidLog) {
 			t.Fatalf("unrecoverable checkpoint encoded as committed state: %v", err)

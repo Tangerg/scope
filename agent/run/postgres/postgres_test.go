@@ -286,7 +286,7 @@ func (p *postgresExecution) Step(_ context.Context, turn run.Turn) (run.Transiti
 }
 
 func (p *postgresExecution) Snapshot() (run.ExecutionState, error) {
-	return run.ParseExecutionState("postgres.fixture", p.input.JSON())
+	return run.NewExecutionState("postgres.fixture", p.input)
 }
 
 func TestHostPrepareCannotRewriteTheAcceptedBatch(t *testing.T) {
