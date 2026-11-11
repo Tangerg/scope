@@ -22,21 +22,17 @@ func (e *execution) Step(ctx context.Context, turn run.Turn) (run.Transition, er
 	if err := ctx.Err(); err != nil {
 		return run.Transition{}, err
 	}
-	switch e.state.Phase {
-	case phaseReadySense:
-		if len(turn.Messages) != 0 {
-			return run.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
-		}
-		return e.requestSense(turn, 0)
-	case phaseAwaitingSense:
+	switch {
+	case e.state.Sense != nil:
 		return e.acceptSense(ctx, turn)
-	case phaseAwaitingAction:
-		if e.state.awaitsChild(e.definition) {
-			return e.advanceChild(turn)
-		}
+	case e.state.Action != nil && e.state.Action.Child != nil:
+		return e.advanceChild(turn)
+	case e.state.Action != nil:
 		return e.acceptAction(turn)
+	case len(turn.Messages) != 0:
+		return run.Transition{}, fmt.Errorf("%w: initial sensing does not accept Signals", ErrInvalidProtocol)
 	default:
-		return run.Transition{}, ErrInvalidExecutionState
+		return e.requestSense(turn, 0, "")
 	}
 }
 
@@ -44,18 +40,20 @@ func (e *execution) Snapshot() (run.ExecutionState, error) {
 	return e.state.snapshot()
 }
 
-func (e *execution) requestSense(turn run.Turn, consumedMessages uint32) (run.Transition, error) {
+// requestSense observes the world, confirming the named completed Action when
+// confirms is not empty.
+func (e *execution) requestSense(turn run.Turn, consumedMessages uint32, confirms string) (run.Transition, error) {
 	effect, err := newSenseEffect(e.state.Input)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = turn.EffectID(0)
-	e.state.Phase = phaseAwaitingSense
+	e.state.Action = nil
+	e.state.Sense = &awaitedSense{Effect: turn.EffectID(0), Confirms: confirms}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
 func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transition, error) {
-	sensed, failure, err := decodeSettlement[senseResult](turn.Messages, e.state.PendingEffect)
+	sensed, failure, err := decodeSettlement[senseResult](turn.Messages, e.state.Sense.Effect)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -63,13 +61,14 @@ func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transit
 		return run.Fail(1, *failure)
 	}
 	e.state.WorldState = sensed.WorldState
-	if e.state.awaitingConfirmation() {
-		binding, found := e.definition.binding(e.state.CurrentActionName)
+	if confirms := e.state.Sense.Confirms; confirms != "" {
+		binding, found := e.definition.binding(confirms)
 		if !found {
 			return run.Transition{}, ErrInvalidExecutionState
 		}
-		e.state.confirmAction(binding.action)
+		e.state.confirmAction(confirms, binding.action)
 	}
+	e.state.Sense = nil
 	return e.decide(ctx, turn, 1)
 }
 
@@ -112,9 +111,7 @@ func (e *execution) startAction(turn run.Turn, consumedMessages uint32, binding 
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = turn.EffectID(0)
-	e.state.CurrentActionName = binding.action.name
-	e.state.Phase = phaseAwaitingAction
+	e.state.Action = &awaitedAction{Name: binding.action.name, Effect: turn.EffectID(0)}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
@@ -141,33 +138,33 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding a
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.PendingEffect = run.EffectID{}
-	e.state.Child = &invocation
-	e.state.CurrentActionName = binding.action.name
-	e.state.Phase = phaseAwaitingAction
+	e.state.Action = &awaitedAction{Name: binding.action.name, Child: &invocation}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
 func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
-	_, failure, err := decodeSettlement[actionCompleted](turn.Messages, e.state.PendingEffect)
+	name := e.state.Action.Name
+	_, failure, err := decodeSettlement[actionCompleted](turn.Messages, e.state.Action.Effect)
 	if err != nil {
 		return run.Transition{}, err
 	}
-	if failure != nil {
-		// A contract rejection proves the Action never ran, so it ends Planning
-		// instead of becoming an attempt against the world.
-		if failure.Kind() == run.FailureKindContract {
-			return run.Fail(1, *failure)
-		}
-		e.state.recordFailedAction(failureDiagnostic(*failure))
+	if failure == nil {
+		return e.requestSense(turn, 1, name)
 	}
-	return e.requestSense(turn, 1)
+	// A contract rejection proves the Action never ran, so it ends Planning
+	// instead of becoming an attempt against the world.
+	if failure.Kind() == run.FailureKindContract {
+		return run.Fail(1, *failure)
+	}
+	e.state.recordFailedAction(name, failureDiagnostic(*failure))
+	return e.requestSense(turn, 1, "")
 }
 
 func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
+	name, invocation := e.state.Action.Name, e.state.Action.Child
 	var consumed uint32
 	for _, message := range turn.Messages {
-		accepted, err := e.state.Child.Accept(message)
+		accepted, err := invocation.Accept(message)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -175,22 +172,33 @@ func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
 			return run.Transition{}, ErrInvalidProtocol
 		}
 		consumed++
-		if e.state.Child.Done() {
+		if invocation.Done() {
 			break
 		}
 	}
-	if !e.state.Child.Done() {
+	if !invocation.Done() {
 		return run.Yield(consumed, nil)
 	}
-	if rejection := e.state.Child.Rejection; rejection != nil {
-		e.state.recordFailedAction(failureDiagnostic(*rejection))
-	} else if failure, failed := e.state.Child.Termination.Failure(); failed {
-		e.state.recordFailedAction(failureDiagnostic(failure))
-	} else if outcome := e.state.Child.Termination; outcome.Status() != run.StatusCompleted {
-		e.state.recordFailedAction(outcome.Reason())
+	diagnostic, failed := childFailure(*invocation)
+	if !failed {
+		return e.requestSense(turn, consumed, name)
 	}
-	e.state.Child = nil
-	return e.requestSense(turn, consumed)
+	e.state.recordFailedAction(name, diagnostic)
+	return e.requestSense(turn, consumed, "")
+}
+
+// childFailure explains a finished child Action that did not complete.
+func childFailure(invocation child.Invocation) (string, bool) {
+	if rejection := invocation.Rejection; rejection != nil {
+		return failureDiagnostic(*rejection), true
+	}
+	if failure, failed := invocation.Termination.Failure(); failed {
+		return failureDiagnostic(failure), true
+	}
+	if outcome := invocation.Termination; outcome.Status() != run.StatusCompleted {
+		return outcome.Reason(), true
+	}
+	return "", false
 }
 
 func (e *execution) complete(consumedMessages uint32) (run.Transition, error) {

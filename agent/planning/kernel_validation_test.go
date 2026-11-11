@@ -66,45 +66,54 @@ func TestPlanningRestorePreservesActionAndProgressOwnership(t *testing.T) {
 	config := validationConfig(t)
 	definition := planningValue(config.definition())
 	newState := func() executionState {
-		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")),
-			WorldState: validationWorld(t), CurrentActionName: config.actions[0].action.Name(),
-			PendingEffect: validationTurn(2).EffectID(0)}
+		return executionState{Input: planningValue(run.EncodePayload("task")), WorldState: validationWorld(t),
+			Action: &awaitedAction{Name: config.actions[0].action.Name(), Effect: validationTurn(2).EffectID(0)}}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {
 		t.Fatalf("valid pending action rejected: %v", err)
+	}
+	initial := executionState{Input: planningValue(run.EncodePayload("task")), WorldState: validationWorld(t)}
+	encoded := string(planningValue(initial.snapshot()).Payload().JSON())
+	withoutEffect := planningValue(run.ParsePayload([]byte(strings.TrimSuffix(encoded, "}") + `,"sense":{}}`)))
+	if _, err := definition.Restore(t.Context(), planningValue(run.NewExecutionState(executionStateKind, withoutEffect))); !errors.Is(err, ErrInvalidExecutionState) {
+		t.Fatalf("observation without its Effect restored: %v", err)
 	}
 	for _, test := range []struct {
 		name   string
 		change func(*executionState)
 	}{
-		{"unknown phase", func(s *executionState) { s.Phase = phase("other") }},
+		{"observation beside action", func(s *executionState) {
+			s.Sense = &awaitedSense{Effect: validationTurn(2).EffectID(1)}
+		}},
 		{"input schema", func(s *executionState) { s.Input = planningValue(run.EncodePayload(42)) }},
-		{"unknown action", func(s *executionState) { s.CurrentActionName = "action.unknown" }},
+		{"unknown action", func(s *executionState) { s.Action.Name = "action.unknown" }},
+		{"unknown confirmed action", func(s *executionState) {
+			s.Action, s.Sense = nil, &awaitedSense{Effect: validationTurn(2).EffectID(0), Confirms: "action.unknown"}
+		}},
 		{"inapplicable action", func(s *executionState) { s.WorldState = WorldState{} }},
 		{"excluded current action", func(s *executionState) {
-			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptFailed, Diagnostic: "refused"}}
+			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.Action.Name), Status: AttemptFailed, Diagnostic: "refused"}}
 		}},
 		{"attempt unknown action", func(s *executionState) {
 			s.Attempts = []Attempt{{ActionName: "action.unknown", Status: AttemptSucceeded}}
 		}},
 		{"attempt missing diagnostic", func(s *executionState) {
-			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptFailed}}
+			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.Action.Name), Status: AttemptFailed}}
 		}},
 		{"attempt after exclusion", func(s *executionState) {
-			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptUnconfirmed}, {ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
+			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.Action.Name), Status: AttemptUnconfirmed}, {ActionName: run.QualifiedName(s.Action.Name), Status: AttemptSucceeded}}
 		}},
 		{"attempt bound includes pending", func(s *executionState) {
-			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
+			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.Action.Name), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.Action.Name), Status: AttemptSucceeded}, {ActionName: run.QualifiedName(s.Action.Name), Status: AttemptSucceeded}}
 		}},
 		{"dispatcher retains child", func(s *executionState) {
-			s.PendingEffect = run.EffectID{}
-			s.Child = &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey(s.CurrentActionName, 1)))))}
+			s.Action.Effect = run.EffectID{}
+			s.Action.Child = &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey(s.Action.Name, 1)))))}
 		}},
-		{"missing effect", func(s *executionState) { s.PendingEffect = run.EffectID{} }},
-		{"missing current action", func(s *executionState) { s.CurrentActionName = "" }},
-		{"initial phase repeats attempts", func(s *executionState) {
-			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.CurrentActionName), Status: AttemptSucceeded}}
-			s.CurrentActionName, s.PendingEffect, s.Phase = "", run.EffectID{}, phaseReadySense
+		{"missing effect", func(s *executionState) { s.Action.Effect = run.EffectID{} }},
+		{"initial observation repeats attempts", func(s *executionState) {
+			s.Attempts = []Attempt{{ActionName: run.QualifiedName(s.Action.Name), Status: AttemptSucceeded}}
+			s.Action = nil
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -126,8 +135,8 @@ func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 	definition := planningValue(config.definition())
 	key := planningValue(planningChildKey(config.actions[0].action.Name(), 1))
 	newState := func() executionState {
-		return executionState{Phase: phaseAwaitingAction, Input: planningValue(run.EncodePayload("task")), WorldState: validationWorld(t),
-			CurrentActionName: config.actions[0].action.Name(), Child: &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(key)))}}
+		return executionState{Input: planningValue(run.EncodePayload("task")), WorldState: validationWorld(t),
+			Action: &awaitedAction{Name: config.actions[0].action.Name(), Child: &child.Invocation{Process: new(planningValue(validationTurn(1).Process.Child(key)))}}}
 	}
 	if _, err := definition.Restore(t.Context(), planningValue(newState().snapshot())); err != nil {
 		t.Fatalf("valid child ownership rejected: %v", err)
@@ -137,18 +146,18 @@ func TestPlanningChildRestoreRequiresTheExactOutstandingAttempt(t *testing.T) {
 		name   string
 		change func(*executionState)
 	}{
-		{"missing child", func(s *executionState) { s.Child = nil }},
+		{"missing child", func(s *executionState) { s.Action.Child = nil }},
 		{"wrong action identity", func(s *executionState) {
-			s.Child.Process = new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey("action.other", 1)))))
+			s.Action.Child.Process = new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey("action.other", 1)))))
 		}},
 		{"wrong attempt identity", func(s *executionState) {
-			s.Child.Process = new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey(s.CurrentActionName, 2)))))
+			s.Action.Child.Process = new(planningValue(validationTurn(1).Process.Child(planningValue(planningChildKey(s.Action.Name, 2)))))
 		}},
-		{"wrong request ordinal", func(s *executionState) { s.Child = &child.Invocation{Request: new(validationTurn(2).EffectID(1))} }},
-		{"already rejected", func(s *executionState) { s.Child = &child.Invocation{Rejection: &failed} }},
-		{"wrong phase", func(s *executionState) {
-			s.Phase, s.PendingEffect = phaseAwaitingSense, validationTurn(2).EffectID(0)
+		{"wrong request ordinal", func(s *executionState) {
+			s.Action.Child = &child.Invocation{Request: new(validationTurn(2).EffectID(1))}
 		}},
+		{"already rejected", func(s *executionState) { s.Action.Child = &child.Invocation{Rejection: &failed} }},
+		{"child beside its Effect", func(s *executionState) { s.Action.Effect = validationTurn(2).EffectID(0) }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			state := newState()
