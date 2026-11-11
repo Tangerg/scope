@@ -354,40 +354,10 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) > request.Options.ResultLimit() {
-		return nil, errors.New("azureaisearch: query returned excess records")
+	ranked, err := s.rankRows(rows, request.Options)
+	if err != nil {
+		return nil, err
 	}
-	seen := make(map[string]struct{}, len(rows))
-	ranked := make([]rankedResult, 0, len(rows))
-	for _, row := range rows {
-		doc, decodeErr := s.decodeDocument(row)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		if _, duplicate := seen[doc.ID]; duplicate {
-			return nil, fmt.Errorf("azureaisearch: query repeated document %q", doc.ID)
-		}
-		seen[doc.ID] = struct{}{}
-		rawScore, present, scoreErr := row.Decode[*float64](searchScoreField)
-		if scoreErr != nil || !present || rawScore == nil {
-			return nil, fmt.Errorf("azureaisearch: missing or invalid native score: %w", errors.Join(scoreErr, vectorstore.ErrInvalidResponse))
-		}
-		score, scoreErr := s.metric.score(*rawScore, request.Options.Mode)
-		if scoreErr != nil {
-			return nil, scoreErr
-		}
-		result, resultErr := vectorstore.NewSearchResult(doc, score)
-		if resultErr != nil {
-			return nil, resultErr
-		}
-		ranked = append(ranked, rankedResult{result: result, rawScore: *rawScore})
-	}
-	slices.SortFunc(ranked, func(left, right rankedResult) int {
-		if order := cmp.Compare(right.rawScore, left.rawScore); order != 0 {
-			return order
-		}
-		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-	})
 	results := make([]*vectorstore.SearchResult, 0, len(ranked))
 	for _, row := range ranked {
 		if row.result.Score >= request.Options.MinScore {
@@ -395,6 +365,43 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		}
 	}
 	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// rankRows decodes the service's rows best first, rejecting more rows than
+// requested, a repeated document, or a row without its native score.
+func (s *Store) rankRows(rows []metadata.Map, options vectorstore.SearchOptions) ([]rankedResult, error) {
+	if len(rows) > options.ResultLimit() {
+		return nil, errors.New("azureaisearch: query returned excess records")
+	}
+	seen := make(map[string]struct{}, len(rows))
+	ranked := make([]rankedResult, 0, len(rows))
+	for _, row := range rows {
+		doc, err := s.decodeDocument(row)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := seen[doc.ID]; duplicate {
+			return nil, fmt.Errorf("azureaisearch: query repeated document %q", doc.ID)
+		}
+		seen[doc.ID] = struct{}{}
+		rawScore, present, err := row.Decode[*float64](searchScoreField)
+		if err != nil || !present || rawScore == nil {
+			return nil, fmt.Errorf("azureaisearch: missing or invalid native score: %w", errors.Join(err, vectorstore.ErrInvalidResponse))
+		}
+		score, err := s.metric.score(*rawScore, options.Mode)
+		if err != nil {
+			return nil, err
+		}
+		result, err := vectorstore.NewSearchResult(doc, score)
+		if err != nil {
+			return nil, err
+		}
+		ranked = append(ranked, rankedResult{result: result, rawScore: *rawScore})
+	}
+	slices.SortFunc(ranked, func(left, right rankedResult) int {
+		return cmp.Or(cmp.Compare(right.rawScore, left.rawScore), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked, nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
