@@ -179,32 +179,19 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 	if o.finished() {
 		return nil, validateOpenAIStreamTail(choice)
 	}
-	var parts []corechat.PartDelta
-	if o.dialect != nil {
-		reasoning, err := o.dialect.ReasoningDeltas(choice.Delta, o.sequence)
-		if err != nil {
-			return nil, fmt.Errorf("response dialect: %w", err)
-		}
-		for _, block := range reasoning {
-			part := corechat.NewReasoningDelta(block.part.Text, block.part.ReasoningState)
-			part.Metadata = block.part.Metadata
-			parts = append(parts, o.delta(chatStreamPart{kind: corechat.PartReasoning, block: block.block}, part))
-		}
+	parts, err := o.reasoningParts(choice.Delta)
+	if err != nil {
+		return nil, err
 	}
 	if choice.Delta.Content != "" {
 		o.hasText = true
 		parts = append(parts, o.delta(chatStreamText, corechat.NewTextDelta(choice.Delta.Content)))
 	}
-	if field, found := choice.Delta.JSON.ExtraFields["annotations"]; found && present(field) {
-		var annotations []openaisdk.ChatCompletionMessageAnnotation
-		if decodeErr := jsonv2.Unmarshal([]byte(field.Raw()), &annotations); decodeErr != nil {
-			return nil, fmt.Errorf("annotations: %w", decodeErr)
-		}
-		for _, annotation := range annotations {
-			citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}
-			parts = append(parts, o.delta(chatStreamText, corechat.NewCitationDelta(citation)))
-		}
+	citations, err := o.citationParts(choice.Delta)
+	if err != nil {
+		return nil, err
 	}
+	parts = append(parts, citations...)
 	for i := range choice.Delta.ToolCalls {
 		call, include, err := o.mapChunkTool(choice.Delta.ToolCalls[i])
 		if err != nil {
@@ -219,21 +206,67 @@ func (o *openAIStreamState) mapChunkOutput(choice openaisdk.ChatCompletionChunkC
 		parts = append(parts, o.delta(chatStreamRefusal, corechat.NewRefusalDelta(choice.Delta.Refusal)))
 	}
 	if present(choice.Delta.JSON.Audio) {
-		audio := choice.Delta.Audio
-		if audio.ID != "" {
-			if o.audioID != "" && o.audioID != audio.ID {
-				return nil, fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)
-			}
-			o.audioID = audio.ID
+		if err := o.accumulateAudio(choice.Delta.Audio); err != nil {
+			return nil, err
 		}
-		data, err := base64.StdEncoding.DecodeString(audio.Data)
-		if err != nil {
-			return nil, fmt.Errorf("audio data: %w", err)
-		}
-		o.audio = append(o.audio, data...)
-		o.transcript.WriteString(audio.Transcript)
 	}
 	return parts, nil
+}
+
+func (o *openAIStreamState) reasoningParts(delta openaisdk.ChatCompletionChunkChoiceDelta) ([]corechat.PartDelta, error) {
+	if o.dialect == nil {
+		return nil, nil
+	}
+	reasoning, err := o.dialect.ReasoningDeltas(delta, o.sequence)
+	if err != nil {
+		return nil, fmt.Errorf("response dialect: %w", err)
+	}
+	parts := make([]corechat.PartDelta, 0, len(reasoning))
+	for _, block := range reasoning {
+		part := corechat.NewReasoningDelta(block.part.Text, block.part.ReasoningState)
+		part.Metadata = block.part.Metadata
+		parts = append(parts, o.delta(chatStreamPart{kind: corechat.PartReasoning, block: block.block}, part))
+	}
+	return parts, nil
+}
+
+// citationParts reads the URL annotations the SDK leaves as an extra field.
+func (o *openAIStreamState) citationParts(delta openaisdk.ChatCompletionChunkChoiceDelta) ([]corechat.PartDelta, error) {
+	field, found := delta.JSON.ExtraFields[chunkAnnotationsField]
+	if !found || !present(field) {
+		return nil, nil
+	}
+	var annotations []openaisdk.ChatCompletionMessageAnnotation
+	if err := jsonv2.Unmarshal([]byte(field.Raw()), &annotations); err != nil {
+		return nil, fmt.Errorf("annotations: %w", err)
+	}
+	parts := make([]corechat.PartDelta, 0, len(annotations))
+	for _, annotation := range annotations {
+		citation := corecontent.Citation{Source: corecontent.CitationSource{Kind: corecontent.CitationSourceURI, Value: annotation.URLCitation.URL}, Title: annotation.URLCitation.Title}
+		parts = append(parts, o.delta(chatStreamText, corechat.NewCitationDelta(citation)))
+	}
+	return parts, nil
+}
+
+// chunkAnnotationsField is the delta member the SDK does not model.
+const chunkAnnotationsField = "annotations"
+
+// accumulateAudio appends one audio fragment; a stream carries one audio
+// identity, so a later fragment cannot name another.
+func (o *openAIStreamState) accumulateAudio(audio openaisdk.ChatCompletionChunkChoiceDeltaAudio) error {
+	if audio.ID != "" {
+		if o.audioID != "" && o.audioID != audio.ID {
+			return fmt.Errorf("audio identity changed from %q to %q", o.audioID, audio.ID)
+		}
+		o.audioID = audio.ID
+	}
+	data, err := base64.StdEncoding.DecodeString(audio.Data)
+	if err != nil {
+		return fmt.Errorf("audio data: %w", err)
+	}
+	o.audio = append(o.audio, data...)
+	o.transcript.WriteString(audio.Transcript)
+	return nil
 }
 
 // Audio expiry is a native metadata tail with a choice, unlike usage. It must
