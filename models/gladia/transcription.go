@@ -66,63 +66,27 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
-	if err := req.Validate(); err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
+	apiReq, err := t.buildRequest(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](RequestExtensionKey)
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	for _, field := range []string{fieldAudioURL, fieldModel} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)}
-		}
-	}
-	if language, ok := nativeFields[fieldLanguageConfig].(map[string]any); ok {
-		if _, exists := language[fieldLanguages]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)}
-		}
-	}
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](RequestExtensionKey)
-	apiReq := &apiReqValue
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	apiReq.Model = effectiveOptions.Model
-	if effectiveOptions.Language != "" {
-		if apiReq.LanguageConfig == nil {
-			apiReq.LanguageConfig = &languageConfig{}
-		}
-		apiReq.LanguageConfig.Languages = []string{effectiveOptions.Language}
-	}
-	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptionRequestErr}
 	}
 	if req.Audio.Source.Kind == media.SourceURI {
 		apiReq.AudioURL = req.Audio.Source.URI
 	} else {
-		var audio []byte
-		audio, err = req.Audio.Bytes()
-		if err != nil {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+		audio, audioErr := req.Audio.Bytes()
+		if audioErr != nil {
+			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: audioErr}
 		}
-		var uploaded *uploadResponse
-		uploaded, err = t.api.upload(ctx, audio, req.Audio.MIME)
-		if err != nil {
-			return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
+		uploaded, uploadErr := t.api.upload(ctx, audio, req.Audio.MIME)
+		if uploadErr != nil {
+			return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: uploadErr}
 		}
 		apiReq.AudioURL = uploaded.AudioURL
 	}
-
 	job, err := t.api.createTranscription(ctx, apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
-
 	final, err := t.pollUntilDone(ctx, job.ID)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
@@ -130,38 +94,82 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if final.Status == transcriptionStatusError {
 		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: final.failure()}
 	}
+	return newResponse(final, apiReq.Model)
+}
 
-	var outputMetadata metadata.Map
-	if len(final.Result.Transcription.Languages) > 0 {
-		if setErr := outputMetadata.Set(metadataLanguages, final.Result.Transcription.Languages); setErr != nil {
-			return nil, setErr
+// buildRequest resolves options and admits the native extension without
+// Core-owned fields; the audio URL is set once the audio is reachable.
+func (t *TranscriptionModel) buildRequest(req *transcription.Request) (*transcriptionRequest, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	options, err := t.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	nativeFields, _, err := options.Extensions.Decode[map[string]any](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []string{fieldAudioURL, fieldModel} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("gladia: extension %q field %q is owned by Core", RequestExtensionKey, field)
 		}
 	}
-	if len(final.Result.Transcription.Utterances) > 0 {
-		if setErr := outputMetadata.Set(metadataUtterances, final.Result.Transcription.Utterances); setErr != nil {
-			return nil, setErr
+	if language, ok := nativeFields[fieldLanguageConfig].(map[string]any); ok {
+		if _, exists := language[fieldLanguages]; exists {
+			return nil, fmt.Errorf("gladia: extension %q language_config.languages is owned by Core", RequestExtensionKey)
+		}
+	}
+	apiReq, _, err := options.Extensions.Decode[transcriptionRequest](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	apiReq.Model = options.Model
+	if options.Language != "" {
+		if apiReq.LanguageConfig == nil {
+			apiReq.LanguageConfig = &languageConfig{}
+		}
+		apiReq.LanguageConfig.Languages = []string{options.Language}
+	}
+	if err = apiReq.validate(); err != nil {
+		return nil, err
+	}
+	return &apiReq, nil
+}
+
+// newResponse projects a finished job: the full transcript is the output, and
+// languages, utterances, translation and summarization become its metadata.
+func newResponse(final *transcriptionResult, model string) (*transcription.Response, error) {
+	if final.Result.Transcription.FullTranscript == nil {
+		return nil, fmt.Errorf("%w: gladia: transcription requires full_transcript", transcription.ErrInvalidResponse)
+	}
+	var outputMetadata metadata.Map
+	if languages := final.Result.Transcription.Languages; len(languages) > 0 {
+		if err := outputMetadata.Set(metadataLanguages, languages); err != nil {
+			return nil, err
+		}
+	}
+	if utterances := final.Result.Transcription.Utterances; len(utterances) > 0 {
+		if err := outputMetadata.Set(metadataUtterances, utterances); err != nil {
+			return nil, err
 		}
 	}
 	if final.Result.Translation != nil {
-		if setErr := outputMetadata.Set(metadataTranslation, final.Result.Translation); setErr != nil {
-			return nil, setErr
+		if err := outputMetadata.Set(metadataTranslation, final.Result.Translation); err != nil {
+			return nil, err
 		}
 	}
 	if final.Result.Summarization != nil {
-		if setErr := outputMetadata.Set(metadataSummarization, final.Result.Summarization); setErr != nil {
-			return nil, setErr
+		if err := outputMetadata.Set(metadataSummarization, final.Result.Summarization); err != nil {
+			return nil, err
 		}
-	}
-
-	if final.Result.Transcription.FullTranscript == nil {
-		return nil, fmt.Errorf("%w: gladia: transcription requires full_transcript", transcription.ErrInvalidResponse)
 	}
 	output, err := transcription.NewOutput(*final.Result.Transcription.FullTranscript, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
-
-	meta := &transcription.ResponseMetadata{Model: apiReq.Model}
+	meta := &transcription.ResponseMetadata{Model: model}
 	if err := meta.Extra.Set(metadataTranscriptID, final.ID); err != nil {
 		return nil, err
 	}

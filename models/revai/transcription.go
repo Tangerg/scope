@@ -74,52 +74,17 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
-	if err := req.Validate(); err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	effectiveOptions, err := t.defaultOptions.Resolve(req.Options)
+	jobOpts, err := t.buildJobOptions(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
-	if decodeErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
-	}
-	for _, field := range []string{fieldMediaURL, fieldLanguage, fieldTranscriber} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)}
-		}
-	}
-	if raw, exists := nativeFields[fieldSourceConfig]; exists {
-		var sourceFields map[string]json.RawMessage
-		if decodeErr := jsonv2.Unmarshal(raw, &sourceFields); decodeErr != nil {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: source_config: %w", decodeErr)}
-		}
-		for field := range sourceFields {
-			if field != fieldAuthHeaders {
-				return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)}
-			}
-		}
-	}
-
-	jobOptsValue, _, err := effectiveOptions.Extensions.Decode[jobOptions](RequestExtensionKey)
-	jobOpts := &jobOptsValue
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	jobOpts.Language = effectiveOptions.Language
-	jobOpts.Transcriber = effectiveOptions.Model
-	if jobOpts.Transcriber != ModelMachine && jobOpts.Transcriber != ModelHuman {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("revai: transcription model must be %q or %q, got %q", ModelMachine, ModelHuman, jobOpts.Transcriber)}
-	}
-
-	var job *job
+	var submitted *job
 	if req.Audio.Source.Kind == media.SourceURI {
 		if jobOpts.SourceConfig == nil {
 			jobOpts.SourceConfig = &sourceConfig{}
 		}
 		jobOpts.SourceConfig.URL = req.Audio.Source.URI
-		job, err = t.api.submitURL(ctx, *jobOpts)
+		submitted, err = t.api.submitURL(ctx, *jobOpts)
 	} else {
 		if jobOpts.SourceConfig != nil {
 			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("revai: source_config requires URI audio")}
@@ -128,43 +93,85 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		if audioErr != nil {
 			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: audioErr}
 		}
-		job, err = t.api.upload(ctx, audio, req.Audio.MIME, *jobOpts)
+		submitted, err = t.api.upload(ctx, audio, req.Audio.MIME, *jobOpts)
 	}
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
-
-	final, err := t.pollUntilDone(ctx, job.ID)
+	final, err := t.pollUntilDone(ctx, submitted.ID)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	if final.Status == jobStatusFailed {
 		return nil, &invocation.Failure{Kind: invocation.FailureFailed, Cause: fmt.Errorf("revai: transcription failed: %s", final.FailureReason)}
 	}
-
 	text, err := t.api.getTranscriptText(ctx, final.ID)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
+	return newResponse(final, text, jobOpts.Transcriber)
+}
 
+// buildJobOptions resolves options and admits the native extension without
+// Core-owned fields. source_config may carry only authorization headers,
+// because Audio.Source owns the media URL.
+func (t *TranscriptionModel) buildJobOptions(req *transcription.Request) (*jobOptions, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	options, err := t.defaultOptions.Resolve(req.Options)
+	if err != nil {
+		return nil, err
+	}
+	nativeFields, _, err := options.Extensions.Decode[map[string]json.RawMessage](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []string{fieldMediaURL, fieldLanguage, fieldTranscriber} {
+		if _, exists := nativeFields[field]; exists {
+			return nil, fmt.Errorf("revai: extension %q field %q is owned by Core", RequestExtensionKey, field)
+		}
+	}
+	if raw, exists := nativeFields[fieldSourceConfig]; exists {
+		var sourceFields map[string]json.RawMessage
+		if err = jsonv2.Unmarshal(raw, &sourceFields); err != nil {
+			return nil, fmt.Errorf("revai: source_config: %w", err)
+		}
+		for field := range sourceFields {
+			if field != fieldAuthHeaders {
+				return nil, fmt.Errorf("revai: source_config field %q is not a native authorization option; Audio.Source owns the URL", field)
+			}
+		}
+	}
+	jobOpts, _, err := options.Extensions.Decode[jobOptions](RequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	jobOpts.Language = options.Language
+	jobOpts.Transcriber = options.Model
+	if jobOpts.Transcriber != ModelMachine && jobOpts.Transcriber != ModelHuman {
+		return nil, fmt.Errorf("revai: transcription model must be %q or %q, got %q", ModelMachine, ModelHuman, jobOpts.Transcriber)
+	}
+	return &jobOpts, nil
+}
+
+func newResponse(final *job, text, transcriber string) (*transcription.Response, error) {
 	var outputMetadata metadata.Map
 	if final.Language != "" {
-		if setErr := outputMetadata.Set(metadataLanguage, final.Language); setErr != nil {
-			return nil, setErr
+		if err := outputMetadata.Set(metadataLanguage, final.Language); err != nil {
+			return nil, err
 		}
 	}
 	if final.DurationSeconds > 0 {
-		if setErr := outputMetadata.Set(metadataDurationSeconds, final.DurationSeconds); setErr != nil {
-			return nil, setErr
+		if err := outputMetadata.Set(metadataDurationSeconds, final.DurationSeconds); err != nil {
+			return nil, err
 		}
 	}
-
 	output, err := transcription.NewOutput(text, outputMetadata)
 	if err != nil {
 		return nil, err
 	}
-
-	meta := &transcription.ResponseMetadata{Model: jobOpts.Transcriber}
+	meta := &transcription.ResponseMetadata{Model: transcriber}
 	if err := meta.Extra.Set(metadataJobID, final.ID); err != nil {
 		return nil, err
 	}
