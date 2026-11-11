@@ -99,13 +99,6 @@ func loopResult[T any](resultSchema jsonschema.Schema) func(run.Payload, uint64,
 		if !result.Valid() {
 			return run.Payload{}, ErrInvalidExecutionState
 		}
-		erased, err := run.EncodePayload(result)
-		if err != nil {
-			return run.Payload{}, err
-		}
-		if err := resultSchema.Validate(erased.JSON()); err != nil {
-			return run.Payload{}, err
-		}
-		return erased, nil
+		return encodeConforming(resultSchema, result)
 	}
 }

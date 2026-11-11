@@ -205,14 +205,7 @@ func (m mapValueCodec) item[I any](raw jsontext.Value) (run.Payload, error) {
 	if err != nil {
 		return run.Payload{}, err
 	}
-	item, err := run.EncodePayload(value)
-	if err != nil {
-		return run.Payload{}, err
-	}
-	if err := m.schemas.itemInput.Validate(item.JSON()); err != nil {
-		return run.Payload{}, err
-	}
-	return item, nil
+	return encodeConforming(m.schemas.itemInput, value)
 }
 
 func (m mapValueCodec) collect[O any](ctx context.Context, itemOutputs []run.Payload) (run.Payload, error) {

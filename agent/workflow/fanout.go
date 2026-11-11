@@ -78,12 +78,9 @@ func (f fanoutOutputs) decode[T any](ctx context.Context, encodedOutputs []run.P
 }
 
 func (f fanoutOutputs) encodeResult[O any](result O) (run.Payload, error) {
-	erased, err := run.EncodePayload(result)
+	erased, err := encodeConforming(f.resultSchema, result)
 	if err != nil {
-		return run.Payload{}, fmt.Errorf("%s %q encode result: %w", f.kind, f.stageID, err)
-	}
-	if err := f.resultSchema.Validate(erased.JSON()); err != nil {
-		return run.Payload{}, fmt.Errorf("%s %q result contract: %w", f.kind, f.stageID, err)
+		return run.Payload{}, fmt.Errorf("%s %q result: %w", f.kind, f.stageID, err)
 	}
 	return erased, nil
 }

@@ -28,6 +28,19 @@ const (
 	StageKindLoop      StageKind = "loop"
 )
 
+// encodeConforming encodes a typed Stage value and holds it to the schema
+// derived for its type, which a custom codec can still produce outside of.
+func encodeConforming[T any](schema jsonschema.Schema, value T) (run.Payload, error) {
+	payload, err := run.EncodePayload(value)
+	if err != nil {
+		return run.Payload{}, fmt.Errorf("encode: %w", err)
+	}
+	if err := schema.Validate(payload.JSON()); err != nil {
+		return run.Payload{}, fmt.Errorf("contract: %w", err)
+	}
+	return payload, nil
+}
+
 func (s StageKind) Valid() bool {
 	return s == StageKindTransform || s == StageKindCall || s == StageKindSwitch || s == StageKindFork || s == StageKindMap || s == StageKindLoop
 }
@@ -91,12 +104,9 @@ func Transform[I, O any](id string, transform TransformFunc[I, O]) (Stage, error
 		if err != nil {
 			return run.Payload{}, fmt.Errorf("transform %q: %w", id, err)
 		}
-		erased, err := run.EncodePayload(output)
+		erased, err := encodeConforming(outputSchema, output)
 		if err != nil {
-			return run.Payload{}, fmt.Errorf("transform %q encode output: %w", id, err)
-		}
-		if err := outputSchema.Validate(erased.JSON()); err != nil {
-			return run.Payload{}, fmt.Errorf("transform %q output contract: %w", id, err)
+			return run.Payload{}, fmt.Errorf("transform %q output: %w", id, err)
 		}
 		return erased, nil
 	}
