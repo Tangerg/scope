@@ -133,33 +133,9 @@ func (n nativeSchema) validateVector(values []float32) error {
 }
 
 func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, string, error) {
-	elements, err := raw.Elements()
+	fields, err := n.sourceFields(raw, scored)
 	if err != nil {
 		return nil, "", err
-	}
-	fields := make(map[string]bson.RawValue, len(elements))
-	for _, element := range elements {
-		key := element.Key()
-		switch key {
-		case idField, contentField, metadataField, n.vectorPath, termsField:
-		case scoreField:
-			if !scored {
-				return nil, "", errors.New("mongodb: source contains a query score")
-			}
-		default:
-			return nil, "", fmt.Errorf("mongodb: unexpected source field %q", key)
-		}
-		if _, duplicate := fields[key]; duplicate {
-			return nil, "", fmt.Errorf("mongodb: duplicate source field %q", key)
-		}
-		fields[key] = element.Value()
-	}
-	want := 5
-	if scored {
-		want++
-	}
-	if len(fields) != want {
-		return nil, "", errors.New("mongodb: native record does not have the current shape")
 	}
 	id, idOK := fields[idField].StringValueOK()
 	text, textOK := fields[contentField].StringValueOK()
@@ -168,19 +144,7 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 	if !idOK || !textOK || !factsOK || !vectorOK {
 		return nil, "", errors.New("mongodb: identity, content, metadata_json and embedding have invalid native types")
 	}
-	values, err := array.Values()
-	if err != nil {
-		return nil, "", err
-	}
-	vector := make([]float32, len(values))
-	for i, value := range values {
-		number, ok := value.DoubleOK()
-		if !ok {
-			return nil, "", errors.New("mongodb: embedding must contain native doubles")
-		}
-		vector[i] = float32(number)
-	}
-	if err = n.validateVector(vector); err != nil {
+	if err = n.validateStoredVector(array); err != nil {
 		return nil, "", err
 	}
 	doc := new(document.Document)
@@ -200,6 +164,51 @@ func (n nativeSchema) decode(raw bson.Raw, scored bool) (*document.Document, str
 		return nil, "", err
 	}
 	return doc, facts, nil
+}
+
+// sourceFields requires exactly the fields this store writes, plus the search
+// score when the source answers a query.
+func (n nativeSchema) sourceFields(raw bson.Raw, scored bool) (map[string]bson.RawValue, error) {
+	elements, err := raw.Elements()
+	if err != nil {
+		return nil, err
+	}
+	stored := []string{idField, contentField, metadataField, n.vectorPath, termsField}
+	want := len(stored)
+	if scored {
+		want++
+	}
+	fields := make(map[string]bson.RawValue, len(elements))
+	for _, element := range elements {
+		key := element.Key()
+		if !slices.Contains(stored, key) && (key != scoreField || !scored) {
+			return nil, fmt.Errorf("mongodb: unexpected source field %q", key)
+		}
+		if _, duplicate := fields[key]; duplicate {
+			return nil, fmt.Errorf("mongodb: duplicate source field %q", key)
+		}
+		fields[key] = element.Value()
+	}
+	if len(fields) != want {
+		return nil, errors.New("mongodb: native record does not have the current shape")
+	}
+	return fields, nil
+}
+
+func (n nativeSchema) validateStoredVector(array bson.RawArray) error {
+	values, err := array.Values()
+	if err != nil {
+		return err
+	}
+	vector := make([]float32, len(values))
+	for i, value := range values {
+		number, ok := value.DoubleOK()
+		if !ok {
+			return errors.New("mongodb: embedding must contain native doubles")
+		}
+		vector[i] = float32(number)
+	}
+	return n.validateVector(vector)
 }
 
 func encodeRecord(doc *document.Document) (bson.M, error) {
