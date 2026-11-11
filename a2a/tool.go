@@ -227,67 +227,94 @@ func (r remoteTool) awaitInput(task *sdka2a.Task, inv toolcontract.Invocation) (
 	if task.ID == "" || task.ContextID == "" || task.Status.Message == nil {
 		return toolcontract.Result{}, fmt.Errorf("%w: input-required task lacks a bound question", ErrInvalidResult)
 	}
-	var question json.RawMessage
-	var schema corejsonschema.Schema
-	var err error
-	msg := task.Status.Message
-	declared, hasWait := msg.Metadata[WaitMetadataKey]
-	_, hasSchema := msg.Metadata[AnswerSchemaMetadataKey]
-	var wait WaitAddress
-	if hasWait != hasSchema {
-		return toolcontract.Result{}, fmt.Errorf("%w: incomplete or malformed remote wait binding", ErrInvalidResult)
-	}
-	if hasWait {
-		wait, err = ParseWaitAddress(declared)
-		if err != nil {
-			return toolcontract.Result{}, fmt.Errorf("%w: %w", ErrInvalidResult, err)
-		}
-		raw, ok := msg.Metadata[AnswerSchemaMetadataKey].(string)
-		if !ok || len(msg.Parts) != 1 || msg.Parts[0] == nil {
-			return toolcontract.Result{}, ErrInvalidResult
-		}
-		schema, err = corejsonschema.Parse([]byte(raw))
-		if err != nil {
-			return toolcontract.Result{}, err
-		}
-		p := msg.Parts[0]
-		txt, ok := p.Content.(sdka2a.Text)
-		if !ok || p.Filename != "" || len(p.Metadata) > 0 {
-			return toolcontract.Result{}, ErrUnsupportedContent
-		}
-		switch p.MediaType {
-		case MediaTypeJSON:
-			question = json.RawMessage(txt)
-		case "", MediaTypePlainText:
-			question, err = jsonv2.Marshal(string(txt))
-		default:
-			return toolcontract.Result{}, ErrUnsupportedContent
-		}
-	} else {
-		prompt, projectErr := (textProjection{}).parts(msg.Parts)
-		if projectErr != nil {
-			return toolcontract.Result{}, projectErr
-		}
-		if strings.TrimSpace(prompt) == "" {
-			return toolcontract.Result{}, fmt.Errorf("%w: empty task question", ErrInvalidResult)
-		}
-		question, err = jsonv2.Marshal(prompt)
-		if err == nil {
-			schema, err = corejsonschema.Parse([]byte(`{"type":"string","minLength":1}`))
-		}
-	}
+	question, err := parseRemoteQuestion(task.Status.Message)
 	if err != nil {
 		return toolcontract.Result{}, err
 	}
-	state, err := jsonv2.Marshal(remoteTurn{Binding: r.binding, Original: sha256.Sum256(inv.Arguments()), Task: task.ID, Context: task.ContextID, Reply: rand.Text(), Wait: wait})
+	state, err := jsonv2.Marshal(remoteTurn{Binding: r.binding, Original: sha256.Sum256(inv.Arguments()), Task: task.ID, Context: task.ContextID, Reply: rand.Text(), Wait: question.wait})
 	if err != nil {
 		return toolcontract.Result{}, err
 	}
-	request, err := toolcontract.NewInputRequest(toolcontract.InputRequestConfig{Prompt: question, ResponseSchema: schema, ContinuationState: state})
+	request, err := toolcontract.NewInputRequest(toolcontract.InputRequestConfig{Prompt: question.prompt, ResponseSchema: question.schema, ContinuationState: state})
 	if err != nil {
 		return toolcontract.Result{}, err
 	}
 	return toolcontract.Result{InputRequest: &request}, nil
+}
+
+// remoteQuestion is what an input-required task asks: the prompt, the answer
+// contract, and the remote wait an answer must address when the remote binds one.
+type remoteQuestion struct {
+	prompt json.RawMessage
+	schema corejsonschema.Schema
+	wait   WaitAddress
+}
+
+// freeTextAnswerSchema is the contract of a question with no remote wait
+// binding: any non-empty text answers it.
+const freeTextAnswerSchema = `{"type":"string","minLength":1}`
+
+// parseRemoteQuestion requires the wait address and answer schema to arrive
+// together; without them the question is free text.
+func parseRemoteQuestion(msg *sdka2a.Message) (remoteQuestion, error) {
+	declared, hasWait := msg.Metadata[WaitMetadataKey]
+	rawSchema, hasSchema := msg.Metadata[AnswerSchemaMetadataKey]
+	if hasWait != hasSchema {
+		return remoteQuestion{}, fmt.Errorf("%w: incomplete or malformed remote wait binding", ErrInvalidResult)
+	}
+	if hasWait {
+		return parseBoundQuestion(declared, rawSchema, msg.Parts)
+	}
+	prompt, err := (textProjection{}).parts(msg.Parts)
+	if err != nil {
+		return remoteQuestion{}, err
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return remoteQuestion{}, fmt.Errorf("%w: empty task question", ErrInvalidResult)
+	}
+	encoded, err := jsonv2.Marshal(prompt)
+	if err != nil {
+		return remoteQuestion{}, err
+	}
+	schema, err := corejsonschema.Parse([]byte(freeTextAnswerSchema))
+	if err != nil {
+		return remoteQuestion{}, err
+	}
+	return remoteQuestion{prompt: encoded, schema: schema}, nil
+}
+
+// parseBoundQuestion reads a question the remote bound to a wait: exactly one
+// text part, carrying JSON or plain text, under the declared answer schema.
+func parseBoundQuestion(declared, rawSchema any, parts sdka2a.ContentParts) (remoteQuestion, error) {
+	wait, err := ParseWaitAddress(declared)
+	if err != nil {
+		return remoteQuestion{}, fmt.Errorf("%w: %w", ErrInvalidResult, err)
+	}
+	encodedSchema, ok := rawSchema.(string)
+	if !ok || len(parts) != 1 || parts[0] == nil {
+		return remoteQuestion{}, ErrInvalidResult
+	}
+	schema, err := corejsonschema.Parse([]byte(encodedSchema))
+	if err != nil {
+		return remoteQuestion{}, err
+	}
+	part := parts[0]
+	text, ok := part.Content.(sdka2a.Text)
+	if !ok || part.Filename != "" || len(part.Metadata) > 0 {
+		return remoteQuestion{}, ErrUnsupportedContent
+	}
+	var prompt json.RawMessage
+	switch part.MediaType {
+	case MediaTypeJSON:
+		prompt = json.RawMessage(text)
+	case "", MediaTypePlainText:
+		if prompt, err = jsonv2.Marshal(string(text)); err != nil {
+			return remoteQuestion{}, err
+		}
+	default:
+		return remoteQuestion{}, ErrUnsupportedContent
+	}
+	return remoteQuestion{prompt: prompt, schema: schema, wait: wait}, nil
 }
 
 func (r remoteTool) reply(inv toolcontract.Invocation, c toolcontract.Continuation) (*sdka2a.Message, error) {
