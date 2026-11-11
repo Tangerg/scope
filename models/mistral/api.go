@@ -97,12 +97,6 @@ func (a *api) moderation(ctx context.Context, req *moderationRequest) (*moderati
 }
 
 func (a *api) chatCompletionStream(ctx context.Context, request *chatCompletionRequest) (io.ReadCloser, error) {
-	if a == nil || a.http == nil {
-		return nil, errors.New("mistral: nil API")
-	}
-	if request == nil {
-		return nil, errors.New("mistral: chat completion request must not be nil")
-	}
 	response, err := a.http.R().
 		SetContext(ctx).
 		SetBody(request).

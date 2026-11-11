@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -39,12 +38,6 @@ func newImageTransport(ctx context.Context, config ImageModelConfig) (*imageTran
 }
 
 func (i *imageTransport) create(ctx context.Context, req *imageInteractionRequest) (*imageInteractionResponse, error) {
-	if i == nil || i.client == nil {
-		return nil, errors.New("google: image: nil transport")
-	}
-	if req == nil {
-		return nil, errors.New("google: image: request must not be nil")
-	}
 
 	var out imageInteractionResponse
 	resp, err := i.client.R().

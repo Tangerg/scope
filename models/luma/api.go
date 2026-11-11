@@ -66,17 +66,11 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 }
 
 func (a *api) createGeneration(ctx context.Context, params lumaagents.GenerationNewParams) (*lumaagents.Generation, error) {
-	if a == nil || a.client == nil || a.client.Generations == nil {
-		return nil, errors.New("luma: nil API")
-	}
 	generation, err := a.client.Generations.New(ctx, params)
 	return admitGeneration(generation, "", err)
 }
 
 func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagents.Generation, error) {
-	if a == nil || a.client == nil || a.client.Generations == nil {
-		return nil, errors.New("luma: nil API")
-	}
 	if generationID == "" {
 		return nil, errors.New("luma: generation ID is required")
 	}
