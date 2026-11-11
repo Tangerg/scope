@@ -75,7 +75,6 @@ func (s StoreConfig) bulk(operation Operation) BulkConfig {
 // and settings before every mutation and query so a changed index cannot
 // receive or answer with records under the admitted schema.
 type Store struct {
-	engine Engine
 	client *Client
 	config StoreConfig
 	index  admittedIndex
@@ -96,7 +95,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	config.IndexName = cmp.Or(config.IndexName, DefaultIndexName)
-	store := &Store{engine: config.Engine, client: client, config: config}
+	store := &Store{client: client, config: config}
 	store.index, err = store.admit(ctx)
 	if err != nil {
 		return nil, err
@@ -116,7 +115,7 @@ func (s *Store) admit(ctx context.Context) (admittedIndex, error) {
 		return admittedIndex{}, err
 	}
 	var mappings map[string]struct {
-		Mappings Mapping `json:"mappings"`
+		Mappings indexMapping `json:"mappings"`
 	}
 	if err = jsonv2.Unmarshal(raw, &mappings); err != nil {
 		return admittedIndex{}, err
@@ -125,7 +124,7 @@ func (s *Store) admit(ctx context.Context) (admittedIndex, error) {
 	if !exists || len(mappings) != 1 {
 		return admittedIndex{}, fmt.Errorf("%w: requires one concrete index without aliases", ErrIncompatibleIndex)
 	}
-	query := url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {settingNames(s.engine.SettingNames())}}
+	query := url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {settingNames(s.config.Engine.SettingNames())}}
 	raw, err = s.client.Read(ctx, http.MethodGet, "/"+s.config.IndexName+"/_settings", query, nil, 0)
 	if err != nil {
 		return admittedIndex{}, err
@@ -144,7 +143,7 @@ func (s *Store) admit(ctx context.Context) (admittedIndex, error) {
 	if err = mapping.Mappings.admitRecordLayout(); err != nil {
 		return admittedIndex{}, err
 	}
-	schema, err := s.engine.Admit(mapping.Mappings.Properties[EmbeddingField], native)
+	schema, err := s.config.Engine.Admit(mapping.Mappings.Properties[EmbeddingField], native)
 	if err != nil {
 		return admittedIndex{}, err
 	}
@@ -422,7 +421,7 @@ func (s *Store) checkMembership(predicate filter.Predicate, candidates []string,
 }
 
 func (s *Store) failure(message string) error {
-	return fmt.Errorf("%s: %s", s.engine.Name(), message)
+	return fmt.Errorf("%s: %s", s.config.Engine.Name(), message)
 }
 
 // searchBody joins Store's request members, which its response checks rely on,

@@ -63,10 +63,10 @@ func decodeRecord(hit Hit, schema Schema) (*document.Document, error) {
 	return doc, nil
 }
 
-// Mapping is the engine-neutral part of an index mapping: the namespace
+// indexMapping is the engine-neutral part of an index mapping: the namespace
 // declaration and the strict record layout both engines require. Each engine
 // admits its own embedding field.
-type Mapping struct {
+type indexMapping struct {
 	Meta struct {
 		Space string `json:"scope_vector_space"`
 	} `json:"_meta"`
@@ -92,7 +92,7 @@ type mappedField struct {
 	DocValues *bool  `json:"doc_values"`
 }
 
-func (m Mapping) admitRecordLayout() error {
+func (m indexMapping) admitRecordLayout() error {
 	if m.Dynamic != dynamicMappingStrict || len(m.Properties) != 3 || m.Routing.Required || len(m.Runtime) > 0 || len(m.Derived) > 0 || len(m.DynamicTemplates) > 0 {
 		return fmt.Errorf("%w: requires exactly the current strict properties without routing or dynamic rules", ErrIncompatibleIndex)
 	}
@@ -113,7 +113,7 @@ func (m Mapping) admitRecordLayout() error {
 	return nil
 }
 
-func (m Mapping) field(name string) (mappedField, error) {
+func (m indexMapping) field(name string) (mappedField, error) {
 	var field mappedField
 	raw, exists := m.Properties[name]
 	if !exists {
