@@ -150,6 +150,15 @@ func (p propertyWire) admit() error {
 	return nil
 }
 
+// nearness orders native values so that larger is nearer: a hybrid search
+// reports a fused score, while a vector search reports a distance.
+func nearness(raw float64, mode vectorstore.SearchMode) float64 {
+	if mode == vectorstore.SearchModeHybrid {
+		return raw
+	}
+	return -raw
+}
+
 func (n nativeSchema) score(raw float64, mode vectorstore.SearchMode) (vectorstore.Score, error) {
 	if math.IsNaN(raw) || math.IsInf(raw, 0) {
 		return 0, errors.New("weaviate: native relevance is not finite")

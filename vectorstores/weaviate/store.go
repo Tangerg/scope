@@ -211,47 +211,17 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	dimensions := len(query)
-	mode := request.Options.Mode
 	native, err := s.client.rpc.Search(s.client.callContext(ctx), searchRequest(s.collection, request, query, where, s.hybridAlpha))
 	if err != nil {
 		return nil, err
 	}
-	if native == nil || len(native.Results) > request.Options.ResultLimit() {
+	if native == nil {
 		return nil, errors.New("weaviate: malformed native result envelope")
 	}
-	ranked := make([]rankedDocument, 0, len(native.Results))
-	seen := make(map[uuid.UUID]bool, len(native.Results))
-	for _, hit := range native.Results {
-		doc, id, raw, decodeErr := decodeHit(hit, mode, dimensions)
-		if decodeErr != nil {
-			return nil, decodeErr
-		}
-		if seen[id] {
-			return nil, errors.New("weaviate: duplicate native object ID")
-		}
-		seen[id] = true
-		score, scoreErr := s.schema.score(raw, mode)
-		if scoreErr != nil {
-			return nil, scoreErr
-		}
-		result, resultErr := vectorstore.NewSearchResult(doc, score)
-		if resultErr != nil {
-			return nil, resultErr
-		}
-		rank := -raw
-		if mode == vectorstore.SearchModeHybrid {
-			rank = raw
-		}
-		ranked = append(ranked, rankedDocument{result: result, rank: rank})
+	ranked, err := s.rankHits(native.Results, request.Options, len(query))
+	if err != nil {
+		return nil, err
 	}
-	slices.SortFunc(ranked, func(left, right rankedDocument) int {
-		if order := cmp.Compare(right.rank, left.rank); order != 0 {
-			return order
-		}
-		return strings.Compare(left.result.Document.ID, right.result.Document.ID)
-	})
-	ranked = ranked[:min(len(ranked), request.Options.ResultLimit())]
 	response = &vectorstore.SearchResponse{}
 	for _, hit := range ranked {
 		if hit.result.Score >= request.Options.MinScore {
@@ -259,6 +229,39 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		}
 	}
 	return response, nil
+}
+
+// rankHits decodes native hits nearest first, rejecting more hits than
+// requested or a repeated object.
+func (s *Store) rankHits(hits []*pb.SearchResult, options vectorstore.SearchOptions, dimensions int) ([]rankedDocument, error) {
+	if len(hits) > options.ResultLimit() {
+		return nil, errors.New("weaviate: malformed native result envelope")
+	}
+	ranked := make([]rankedDocument, 0, len(hits))
+	seen := make(map[uuid.UUID]bool, len(hits))
+	for _, hit := range hits {
+		doc, id, raw, err := decodeHit(hit, options.Mode, dimensions)
+		if err != nil {
+			return nil, err
+		}
+		if seen[id] {
+			return nil, errors.New("weaviate: duplicate native object ID")
+		}
+		seen[id] = true
+		score, err := s.schema.score(raw, options.Mode)
+		if err != nil {
+			return nil, err
+		}
+		result, err := vectorstore.NewSearchResult(doc, score)
+		if err != nil {
+			return nil, err
+		}
+		ranked = append(ranked, rankedDocument{result: result, rank: nearness(raw, options.Mode)})
+	}
+	slices.SortFunc(ranked, func(left, right rankedDocument) int {
+		return cmp.Or(cmp.Compare(right.rank, left.rank), strings.Compare(left.result.Document.ID, right.result.Document.ID))
+	})
+	return ranked[:min(len(ranked), options.ResultLimit())], nil
 }
 
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
