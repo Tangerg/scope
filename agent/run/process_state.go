@@ -307,14 +307,8 @@ func (p *processState) admitTransition(transition Transition, limits TreeLimits,
 	if !transition.Valid() || transition.consumed > delivered || int(delivered) > len(p.inbox) {
 		return ErrInvalidTransition
 	}
-	if p.usage.CommittedSteps == math.MaxUint64 || !resourceQuantitiesFit(math.MaxUint64, p.usage.PreparedEffects, uint64(len(transition.effects))) {
-		return ErrCounterExhausted
-	}
-	if !p.started.Budget.Steps.Allows(p.usage.CommittedSteps, p.allocated.Steps, 1) {
-		return ErrResourceLimitExceeded
-	}
-	if !p.started.Budget.Effects.Allows(p.usage.PreparedEffects, p.allocated.Effects, uint64(len(transition.effects))) {
-		return ErrResourceLimitExceeded
+	if err := p.admitStepResources(len(transition.effects)); err != nil {
+		return err
 	}
 	if err := p.admitMessages(limits, uint64(transition.consumed), transition.effects, 0); err != nil {
 		return err
@@ -322,17 +316,40 @@ func (p *processState) admitTransition(transition Transition, limits TreeLimits,
 	if transition.kind == TransitionKindYield && len(transition.effects) == 0 && len(transition.waits) == 0 && p.activeChildren == 0 && len(p.pending) == 0 && len(p.inbox) == int(delivered) {
 		return fmt.Errorf("%w: yield has no input or work to await", ErrInvalidTransition)
 	}
-	for _, wait := range transition.waits {
+	if err := p.admitWaits(transition.waits, delivered); err != nil {
+		return err
+	}
+	if transition.output.Valid() && p.program.Valid() {
+		if err := p.program.descriptor.ValidateOutput(transition.output); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// admitStepResources charges one Step and its prepared Effects against the
+// process budget, net of what its children hold.
+func (p *processState) admitStepResources(effects int) error {
+	if p.usage.CommittedSteps == math.MaxUint64 || !resourceQuantitiesFit(math.MaxUint64, p.usage.PreparedEffects, uint64(effects)) {
+		return ErrCounterExhausted
+	}
+	if !p.started.Budget.Steps.Allows(p.usage.CommittedSteps, p.allocated.Steps, 1) {
+		return ErrResourceLimitExceeded
+	}
+	if !p.started.Budget.Effects.Allows(p.usage.PreparedEffects, p.allocated.Effects, uint64(effects)) {
+		return ErrResourceLimitExceeded
+	}
+	return nil
+}
+
+// admitWaits keeps each wait key bound to one contract and one answer.
+func (p *processState) admitWaits(waits []Wait, delivered uint32) error {
+	for _, wait := range waits {
 		if captured, exists := p.waits[wait.Key]; exists && !captured.Wait.equal(wait) {
 			return fmt.Errorf("%w: wait key cannot change its contract", ErrInvalidTransition)
 		}
 		if p.answered(wait.Key) && !p.answerAfter(wait.Key, delivered) {
 			return fmt.Errorf("%w: answered wait key cannot be reused", ErrInvalidTransition)
-		}
-	}
-	if transition.output.Valid() && p.program.Valid() {
-		if err := p.program.descriptor.ValidateOutput(transition.output); err != nil {
-			return err
 		}
 	}
 	return nil

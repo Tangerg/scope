@@ -55,6 +55,12 @@ func (b Batch) Validate() error {
 			return ErrInvalidLog
 		}
 	}
+	return b.validateActivation()
+}
+
+// validateActivation admits at most one Activated record, advancing the epoch
+// by exactly one; after the first batch it must stand alone.
+func (b Batch) validateActivation() error {
 	epoch := b.Epoch
 	activations := 0
 	for _, record := range b.Records {
@@ -66,10 +72,7 @@ func (b Batch) Validate() error {
 			activations++
 		}
 	}
-	if activations > 1 {
-		return ErrInvalidLog
-	}
-	if activations != 0 && b.After != 0 && len(b.Records) != 1 {
+	if activations > 1 || activations != 0 && b.After != 0 && len(b.Records) != 1 {
 		return ErrInvalidLog
 	}
 	return nil
