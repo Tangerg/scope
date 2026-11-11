@@ -240,27 +240,8 @@ func (c *converseStream) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.
 		kind = protocolTextBlock
 		part = corechat.NewTextDelta(value.Value)
 	case *types.ContentBlockDeltaMemberReasoningContent:
-		if lo.IsNil(value.Value) {
-			return corechat.PartDelta{}, false, fmt.Errorf("bedrock: stream: %w: missing reasoning delta payload", corechat.ErrInvalidResponse)
-		}
-		switch reasoning := value.Value.(type) {
-		case *types.ReasoningContentBlockDeltaMemberText:
-			kind = protocolReasoningTextBlock
-			part = corechat.NewReasoningDelta(reasoning.Value, nil)
-		case *types.ReasoningContentBlockDeltaMemberSignature:
-			kind = protocolReasoningTextBlock
-			part = corechat.NewReasoningDelta("", []byte(reasoning.Value))
-		case *types.ReasoningContentBlockDeltaMemberRedactedContent:
-			kind = protocolReasoningRedactedBlock
-			part = corechat.NewReasoningDelta("", reasoning.Value)
-		default:
-			return corechat.PartDelta{}, false, fmt.Errorf("bedrock: stream: %w: reasoning delta %T", errors.ErrUnsupported, value.Value)
-		}
-		reasoningKind := chatReasoningText
-		if kind == protocolReasoningRedactedBlock {
-			reasoningKind = chatReasoningRedacted
-		}
-		if err := setReasoningDeltaState(&part, reasoningKind); err != nil {
+		kind, part, err = mapReasoningDelta(value.Value)
+		if err != nil {
 			return corechat.PartDelta{}, false, err
 		}
 	case *types.ContentBlockDeltaMemberToolUse:
@@ -273,9 +254,8 @@ func (c *converseStream) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.
 	default:
 		return corechat.PartDelta{}, false, fmt.Errorf("bedrock: stream: %w: content block delta %T", errors.ErrUnsupported, delta.Delta)
 	}
-	block, exists := c.blocks[index]
-	if exists && (!block.open || block.kind != kind) || !exists && kind == protocolToolBlock {
-		return corechat.PartDelta{}, false, fmt.Errorf("bedrock: stream: %w: delta for closed, mismatched, or unopened tool content block %d", corechat.ErrInvalidResponse, index)
+	if err := c.admitDelta(index, kind); err != nil {
+		return corechat.PartDelta{}, false, err
 	}
 	part.Index = int(index)
 	include := part.Text != "" || len(part.ReasoningState) != 0 || part.ToolCall != nil && part.ToolCall.Arguments != ""
@@ -284,10 +264,42 @@ func (c *converseStream) mapDelta(delta types.ContentBlockDeltaEvent) (corechat.
 			return corechat.PartDelta{}, false, err
 		}
 	}
+	return part, include, nil
+}
+
+// admitDelta requires the delta's block to be open with the same kind. Text
+// and reasoning blocks have no native start event, so their first delta opens
+// them even when its payload is empty; a tool block must have been started.
+func (c *converseStream) admitDelta(index int32, kind protocolBlockKind) error {
+	block, exists := c.blocks[index]
+	if exists && (!block.open || block.kind != kind) || !exists && kind == protocolToolBlock {
+		return fmt.Errorf("bedrock: stream: %w: delta for closed, mismatched, or unopened tool content block %d", corechat.ErrInvalidResponse, index)
+	}
 	if !exists {
-		// Text and reasoning blocks have no native start event. Their first
-		// delta owns opening even when its payload is empty.
 		c.blocks[index] = protocolStreamBlock{kind: kind, open: true}
 	}
-	return part, include, nil
+	return nil
+}
+
+func mapReasoningDelta(delta types.ReasoningContentBlockDelta) (protocolBlockKind, corechat.PartDelta, error) {
+	if lo.IsNil(delta) {
+		return 0, corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: missing reasoning delta payload", corechat.ErrInvalidResponse)
+	}
+	kind, reasoningKind := protocolReasoningTextBlock, chatReasoningText
+	var part corechat.PartDelta
+	switch reasoning := delta.(type) {
+	case *types.ReasoningContentBlockDeltaMemberText:
+		part = corechat.NewReasoningDelta(reasoning.Value, nil)
+	case *types.ReasoningContentBlockDeltaMemberSignature:
+		part = corechat.NewReasoningDelta("", []byte(reasoning.Value))
+	case *types.ReasoningContentBlockDeltaMemberRedactedContent:
+		kind, reasoningKind = protocolReasoningRedactedBlock, chatReasoningRedacted
+		part = corechat.NewReasoningDelta("", reasoning.Value)
+	default:
+		return 0, corechat.PartDelta{}, fmt.Errorf("bedrock: stream: %w: reasoning delta %T", errors.ErrUnsupported, delta)
+	}
+	if err := setReasoningDeltaState(&part, reasoningKind); err != nil {
+		return 0, corechat.PartDelta{}, err
+	}
+	return kind, part, nil
 }
