@@ -153,18 +153,26 @@ func (p *predictionRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// setInput encodes a Core-owned value as its own JSON token and stores it in the
-// native input map. Keeping each value as raw JSON makes the open input subtree a
+// predictionInput is one Core-owned value bound to its native input key.
+type predictionInput struct {
+	key   string
+	value any
+}
+
+// setInputs encodes each Core-owned value as its own JSON token in the native
+// input map. Keeping each value as raw JSON makes the open input subtree a
 // lossless representation, so a large integer never rounds through float64.
-func (p *predictionRequest) setInput(key string, value any) error {
-	raw, err := jsonv2.Marshal(value)
-	if err != nil {
-		return fmt.Errorf("replicate: encode input %q: %w", key, err)
-	}
+func (p *predictionRequest) setInputs(inputs []predictionInput) error {
 	if p.Input == nil {
 		p.Input = map[string]json.RawMessage{}
 	}
-	p.Input[key] = raw
+	for _, input := range inputs {
+		raw, err := jsonv2.Marshal(input.value)
+		if err != nil {
+			return fmt.Errorf("replicate: encode input %q: %w", input.key, err)
+		}
+		p.Input[input.key] = raw
+	}
 	return nil
 }
 
