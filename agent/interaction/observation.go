@@ -1,7 +1,6 @@
 package interaction
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/Tangerg/scope/agent/run"
@@ -69,8 +68,7 @@ func (d dispatchUncertainty) modelSettlement() (ModelSettlement, error) {
 	if d.Model == nil {
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
-	result := ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic, Response: d.Model.Response.Clone()}
-	return result, result.Validate()
+	return ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic, Response: d.Model.Response.Clone()}, nil
 }
 
 func (d dispatchUncertainty) toolSettlement() (ToolSettlement, error) {
@@ -163,8 +161,7 @@ func ToolCallFromEffect(effect run.Effect) (ToolCallIntent, bool, error) {
 // including one the runtime left Unknown because Dispatch returned an error.
 func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error) {
 	if diagnostic, recorded, err := runtimeUncertainty(record); recorded || err != nil {
-		result := ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic}
-		return result, errors.Join(err, result.Validate())
+		return ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic}, err
 	}
 	outcome := record.Outcome
 	switch outcome.Status() {
@@ -179,12 +176,14 @@ func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error
 		if err != nil {
 			return ModelSettlement{}, err
 		}
+		// failedResponse admits a response only under the model-failed code,
+		// so a non-execution never carries one.
 		failure, _ := outcome.Failure()
 		result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: failure.Message(), Response: response}
 		if failure.Code() == failureCodeModelNotExecuted {
 			result.Outcome = ModelOutcomeNotExecuted
 		}
-		return result, result.Validate()
+		return result, nil
 	default:
 		envelope, err := decodeResult(outcome.Payload())
 		if err != nil {
