@@ -62,7 +62,7 @@ type EffectRequest struct {
 func (e EffectRequest) ID() EffectID           { return e.id }
 func (e EffectRequest) Epoch() Epoch           { return e.epoch }
 func (e EffectRequest) ProgramRef() ProgramRef { return e.program }
-func (e EffectRequest) Effect() Effect         { return e.effect.clone() }
+func (e EffectRequest) Effect() Effect         { return e.effect }
 
 func (e EffectRequest) Valid() bool {
 	return e.id.Valid() && e.epoch > 0 && e.program.Valid() && e.effect.Valid()

@@ -29,6 +29,8 @@ func (e EffectTarget) String() string {
 
 // Each variant owns its operation; a payload is never inspected to guess a
 // framework operation or to distinguish a completion from external input.
+// Variants are reached only through pointers nothing writes after
+// construction, so copies of an Effect share them safely.
 type Effect struct {
 	call   Payload
 	spawn  *ChildSpec
@@ -94,23 +96,6 @@ func (e Effect) Valid() bool {
 		count++
 	}
 	return count == 1
-}
-
-func (e Effect) clone() Effect {
-	owned := e
-	if e.spawn != nil {
-		v := *e.spawn
-		owned.spawn = &v
-	}
-	if e.send != nil {
-		v := *e.send
-		owned.send = &v
-	}
-	if e.cancel != nil {
-		v := *e.cancel
-		owned.cancel = &v
-	}
-	return owned
 }
 
 func (e Effect) MarshalJSON() ([]byte, error) {

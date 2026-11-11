@@ -46,7 +46,7 @@ type Transition struct {
 }
 
 func Continue(consumed uint32, effects ...Effect) (Transition, error) {
-	t := Transition{kind: TransitionKindContinue, consumed: consumed, effects: cloneEffects(effects)}
+	t := Transition{kind: TransitionKindContinue, consumed: consumed, effects: slices.Clone(effects)}
 	if !t.Valid() {
 		return Transition{}, ErrInvalidTransition
 	}
@@ -54,7 +54,7 @@ func Continue(consumed uint32, effects ...Effect) (Transition, error) {
 }
 
 func Yield(consumed uint32, effects []Effect, waits ...Wait) (Transition, error) {
-	t := Transition{kind: TransitionKindYield, consumed: consumed, effects: cloneEffects(effects), waits: slices.Clone(waits)}
+	t := Transition{kind: TransitionKindYield, consumed: consumed, effects: slices.Clone(effects), waits: slices.Clone(waits)}
 	if !t.Valid() {
 		return Transition{}, ErrInvalidTransition
 	}
@@ -79,7 +79,7 @@ func Fail(consumed uint32, failure Failure) (Transition, error) {
 
 func (t Transition) Kind() TransitionKind     { return t.kind }
 func (t Transition) Consumed() uint32         { return t.consumed }
-func (t Transition) Effects() []Effect        { return cloneEffects(t.effects) }
+func (t Transition) Effects() []Effect        { return slices.Clone(t.effects) }
 func (t Transition) Waits() []Wait            { return slices.Clone(t.waits) }
 func (t Transition) Output() (Payload, bool)  { return t.output, t.output.Valid() }
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.failure.Valid() }
@@ -151,14 +151,6 @@ func (t Transition) equal(other Transition) bool {
 		slices.EqualFunc(t.effects, other.effects, Effect.equal) &&
 		slices.EqualFunc(t.waits, other.waits, Wait.equal) &&
 		t.output.Equal(other.output) && t.failure == other.failure
-}
-
-func cloneEffects(effects []Effect) []Effect {
-	owned := slices.Clone(effects)
-	for index := range owned {
-		owned[index] = owned[index].clone()
-	}
-	return owned
 }
 
 type transitionWire struct {
