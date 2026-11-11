@@ -168,99 +168,113 @@ func mapMistralAssistantMessage(parts []corechat.Part) (chatMessage, error) {
 		return chatMessage{}, errors.New("assistant metadata has no replayable Mistral content")
 	}
 	message := chatMessage{Role: chatRoleAssistant}
-	content := make([]any, 0, len(parts))
-	var thinking *thinkingReplay
-	flushThinking := func() error {
-		if thinking == nil {
-			return nil
-		}
-		chunk, err := thinking.chunk()
-		if err != nil {
-			return err
-		}
-		content = append(content, chunk)
-		thinking = nil
-		return nil
-	}
-	for partIndex := range parts {
-		part := parts[partIndex]
+	var content assistantContent
+	for partIndex, part := range parts {
 		if part.Kind != corechat.PartReasoning {
-			if err := flushThinking(); err != nil {
+			if err := content.flushThinking(); err != nil {
 				return chatMessage{}, err
 			}
 		}
 		switch part.Kind {
-		case corechat.PartText:
-			content = append(content, textChunk{Type: contentTypeText, Text: part.Text})
-		case corechat.PartRefusal:
-			content = append(content, textChunk{Type: contentTypeText, Text: part.Text})
+		case corechat.PartText, corechat.PartRefusal:
+			content.chunks = append(content.chunks, textChunk{Type: contentTypeText, Text: part.Text})
 		case corechat.PartReasoning:
-			state, framed, err := decodeThinkingFrame(part.ReasoningState)
-			if err != nil {
-				return chatMessage{}, fmt.Errorf("parts[%d].reasoning signature: %w", partIndex, err)
-			}
-			if framed {
-				if thinking != nil && thinking.block != state.Block {
-					if err := flushThinking(); err != nil {
-						return chatMessage{}, err
-					}
-				}
-				if thinking == nil {
-					thinking = &thinkingReplay{block: state.Block}
-				}
-				if err := thinking.add(state, part.Text); err != nil {
-					return chatMessage{}, fmt.Errorf("parts[%d].reasoning state: %w", partIndex, err)
-				}
-				if state.closed() {
-					if err := flushThinking(); err != nil {
-						return chatMessage{}, err
-					}
-				}
-				continue
-			}
-			if err := flushThinking(); err != nil {
-				return chatMessage{}, err
-			}
-			if part.Text != "" {
-				content = append(content, thinkChunk{
-					Type:     contentTypeThinking,
-					Thinking: []textChunk{{Type: contentTypeText, Text: part.Text}},
-					Closed:   true,
-				})
+			if err := content.addReasoning(part); err != nil {
+				return chatMessage{}, fmt.Errorf("parts[%d].reasoning %w", partIndex, err)
 			}
 		case corechat.PartToolCall:
-			arguments := json.RawMessage(part.ToolCall.Arguments)
-			if len(arguments) == 0 {
-				arguments = json.RawMessage(emptyJSONObject)
+			call, err := mapAssistantToolCall(part.ToolCall)
+			if err != nil {
+				return chatMessage{}, fmt.Errorf("parts[%d].tool_call.arguments: %w", partIndex, err)
 			}
-			if !jsontext.Value(arguments).IsValid() {
-				return chatMessage{}, fmt.Errorf("parts[%d].tool_call.arguments contains invalid JSON", partIndex)
-			}
-			message.ToolCalls = append(message.ToolCalls, chatToolCall{
-				ID:   part.ToolCall.ID,
-				Type: toolTypeFunction,
-				Function: chatFunctionCall{
-					Name:      part.ToolCall.Name,
-					Arguments: arguments,
-				},
-			})
+			message.ToolCalls = append(message.ToolCalls, call)
 		default:
 			return chatMessage{}, fmt.Errorf("parts[%d]: unsupported assistant part %q", partIndex, part.Kind)
 		}
 	}
-	if err := flushThinking(); err != nil {
+	if err := content.flushThinking(); err != nil {
 		return chatMessage{}, err
 	}
-	if len(content) == 1 {
-		if text, ok := content[0].(textChunk); ok {
-			message.Content = text.Text
-		} else {
-			message.Content = content
-		}
-	} else if len(content) > 0 {
-		message.Content = content
-	}
+	message.Content = content.value()
 	return message, nil
+}
+
+// assistantContent collects replayed content chunks. Framed reasoning parts of
+// one thinking block accumulate in thinking until the block closes, a part of
+// another block or kind arrives, or the message ends.
+type assistantContent struct {
+	chunks   []any
+	thinking *thinkingReplay
+}
+
+func (a *assistantContent) flushThinking() error {
+	if a.thinking == nil {
+		return nil
+	}
+	chunk, err := a.thinking.chunk()
+	if err != nil {
+		return err
+	}
+	a.chunks = append(a.chunks, chunk)
+	a.thinking = nil
+	return nil
+}
+
+// addReasoning replays a framed part into its thinking block; an unframed
+// part is a closed thinking chunk of its own.
+func (a *assistantContent) addReasoning(part corechat.Part) error {
+	state, framed, err := decodeThinkingFrame(part.ReasoningState)
+	if err != nil {
+		return fmt.Errorf("signature: %w", err)
+	}
+	if !framed {
+		if err := a.flushThinking(); err != nil {
+			return err
+		}
+		if part.Text != "" {
+			a.chunks = append(a.chunks, thinkChunk{Type: contentTypeThinking, Thinking: []textChunk{{Type: contentTypeText, Text: part.Text}}, Closed: true})
+		}
+		return nil
+	}
+	if a.thinking != nil && a.thinking.block != state.Block {
+		if err := a.flushThinking(); err != nil {
+			return err
+		}
+	}
+	if a.thinking == nil {
+		a.thinking = &thinkingReplay{block: state.Block}
+	}
+	if err := a.thinking.add(state, part.Text); err != nil {
+		return fmt.Errorf("state: %w", err)
+	}
+	if state.closed() {
+		return a.flushThinking()
+	}
+	return nil
+}
+
+// value is a plain string for a single text chunk, as Mistral replays it.
+func (a *assistantContent) value() any {
+	if len(a.chunks) == 1 {
+		if text, ok := a.chunks[0].(textChunk); ok {
+			return text.Text
+		}
+	}
+	if len(a.chunks) == 0 {
+		return nil
+	}
+	return a.chunks
+}
+
+func mapAssistantToolCall(call *corechat.ToolCall) (chatToolCall, error) {
+	arguments := json.RawMessage(call.Arguments)
+	if len(arguments) == 0 {
+		arguments = json.RawMessage(emptyJSONObject)
+	}
+	if !jsontext.Value(arguments).IsValid() {
+		return chatToolCall{}, errors.New("contains invalid JSON")
+	}
+	return chatToolCall{ID: call.ID, Type: toolTypeFunction, Function: chatFunctionCall{Name: call.Name, Arguments: arguments}}, nil
 }
 
 func mapChatTools(definitions []toolcontract.Definition) ([]chatTool, error) {
