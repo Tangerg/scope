@@ -51,11 +51,11 @@ func TestReadsExplicitlyIncludeSourceVectors(t *testing.T) {
 		{name: "delete", reads: 1},
 	} {
 		t.Run(operation.name, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			fixture.settings.Defaults["index.mapping.exclude_source_vectors"] = "true"
-			fixture.rows["one"] = elastic.StoredDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
-			client := &sourceProjectionClient{client: fixture.client}
-			store := fixture.storeThrough(client)
+			index := newNativeIndex(t)
+			index.Settings.Defaults["index.mapping.exclude_source_vectors"] = "true"
+			index.Rows["one"] = elastic.StoredDocument{Content: "text", MetadataJSON: "null", Embedding: []float32{1, 0}}
+			client := &sourceProjectionClient{client: index.client}
+			store := index.storeThrough(client)
 			query := &vectorstore.Query{Space: fixtureSpace, Values: []float64{1, 0}}
 			var response *vectorstore.SearchResponse
 			var err error
@@ -72,8 +72,8 @@ func TestReadsExplicitlyIncludeSourceVectors(t *testing.T) {
 				t.Fatalf("reads = %d, error = %v; want %d successful reads", client.reads, err, operation.reads)
 			}
 			if operation.name == "delete" {
-				if len(fixture.rows) != 0 {
-					t.Fatalf("remaining rows = %v", fixture.rows)
+				if len(index.Rows) != 0 {
+					t.Fatalf("remaining rows = %v", index.Rows)
 				}
 				return
 			}

@@ -1,33 +1,25 @@
 package elasticsearch
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
-	"maps"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"strings"
 	"testing"
 	"time"
-
-	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
 
 	"github.com/elastic/elastic-transport-go/v8/elastictransport"
 	elasticsearchsdk "github.com/elastic/go-elasticsearch/v9"
 
 	"github.com/Tangerg/scope/core/document"
-
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
-	"github.com/Tangerg/scope/core/vectorstore/storetest"
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
+	"github.com/Tangerg/scope/vectorstores/protocol/elastic/elastictest"
 )
 
 const fixtureSpace vectorstore.SpaceID = "paired-v1"
@@ -53,78 +45,37 @@ func fixtureQuery(ctx context.Context, s *elastic.Store, q *vectorstore.Query) (
 	return s.Query(ctx, q)
 }
 
-// The fixture serves native mapping JSON; Store decodes it through its own
-// engine-neutral and engine-specific types.
-type fixtureIndex struct {
-	Mappings fixtureMapping `json:"mappings"`
-}
-
-type fixtureMapping struct {
-	Meta struct {
-		Space string `json:"scope_vector_space"`
-	} `json:"_meta"`
-	Dynamic    string                  `json:"dynamic"`
-	Properties map[string]fixtureField `json:"properties"`
-	Source     fixtureSource           `json:"_source"`
-	Routing    struct {
-		Required bool `json:"required"`
-	} `json:"_routing"`
-	Runtime          map[string]any `json:"runtime"`
-	DynamicTemplates []any          `json:"dynamic_templates"`
-}
-
+// fixtureField is the dense_vector mapping the native index reports.
 type fixtureField struct {
 	Type        string `json:"type"`
 	Dimensions  int    `json:"dims"`
 	Similarity  string `json:"similarity"`
 	ElementType string `json:"element_type"`
 	Index       *bool  `json:"index"`
-	DocValues   *bool  `json:"doc_values"`
 }
 
-type fixtureSource struct {
-	Enabled  *bool    `json:"enabled"`
-	Mode     string   `json:"mode"`
-	Includes []string `json:"includes"`
-	Excludes []string `json:"excludes"`
+// nativeIndex serves the shared Elastic-protocol index with Elasticsearch's
+// mapping, settings and kNN clause through the native SDK client.
+type nativeIndex struct {
+	*elastictest.Index
+	t      *testing.T
+	client *elasticsearchsdk.Client
 }
 
-type fixtureSearchRequest struct {
-	Size int                   `json:"size"`
-	KNN  *nearestNeighborQuery `json:"knn"`
-}
-
-type protocolFixture struct {
-	t             *testing.T
-	client        *elasticsearchsdk.Client
-	mapping       fixtureMapping
-	settings      elastic.IndexSettings
-	rows          map[string]elastic.StoredDocument
-	snapshot      []elastic.Hit
-	position      int
-	pageSize      int
-	writes        int
-	cleared       int
-	groups        []int
-	bulkBodies    [][]byte
-	bulkFailureAt int
-	scores        map[string]float64
-	reply         any
-	beforeSearch  func()
-	beforeDelete  func()
-}
-
-func newProtocolFixture(t *testing.T) *protocolFixture {
+func newNativeIndex(t *testing.T) *nativeIndex {
 	t.Helper()
-	fixture := &protocolFixture{t: t, pageSize: 2, rows: make(map[string]elastic.StoredDocument), scores: make(map[string]float64), mapping: fixtureMapping{Dynamic: "strict", Properties: map[string]fixtureField{elastic.ContentField: {Type: "text"}, elastic.MetadataField: {Type: "keyword", Index: new(false), DocValues: new(false)}, elastic.EmbeddingField: {Type: "dense_vector", Dimensions: 2, Similarity: "cosine"}}}, settings: elastic.IndexSettings{Settings: map[string]string{}, Defaults: map[string]string{"index.mapping.source.mode": "STORED", "index.default_pipeline": "_none", "index.final_pipeline": "_none", "index.max_result_window": "10000"}}}
-	fixture.mapping.Meta.Space = string(fixtureSpace)
-	server := httptest.NewServer(fixture)
+	index := elastictest.NewIndex(t, fixtureSpace, elastictest.Engine{
+		Embedding: fixtureField{Type: "dense_vector", Dimensions: 2, Similarity: "cosine"},
+		Defaults:  map[string]string{sourceModeSetting: "STORED", defaultPipelineSetting: pipelineNone, finalPipelineSetting: pipelineNone},
+		Neighbors: nativeNeighbors,
+		Header:    http.Header{"X-Elastic-Product": {"Elasticsearch"}},
+	})
+	server := httptest.NewServer(index)
 	t.Cleanup(server.Close)
 	client, err := elasticsearchsdk.New(elasticsearchsdk.WithAddresses(server.URL), elasticsearchsdk.WithTransportOptions(elastictransport.WithTransport(server.Client().Transport), elastictransport.WithDisableRetry()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.client = client
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 		defer cancel()
@@ -132,322 +83,113 @@ func newProtocolFixture(t *testing.T) *protocolFixture {
 			t.Error(err)
 		}
 	})
-	return fixture
+	return &nativeIndex{Index: index, t: t, client: client}
 }
 
-func (p *protocolFixture) store() *elastic.Store {
-	p.t.Helper()
-	return p.storeThrough(p.client)
+func nativeNeighbors(body []byte) ([]string, bool, error) {
+	var search searchSyntax
+	if err := jsonv2.Unmarshal(body, &search); err != nil || search.KNN == nil {
+		return nil, false, err
+	}
+	if search.KNN.Filter == nil {
+		return nil, true, nil
+	}
+	return search.KNN.Filter.IDs.Values, true, nil
 }
 
-// storeThrough admits the fixture index through a client that may observe or
-// alter the native exchange.
-func (p *protocolFixture) storeThrough(client APIClient) *elastic.Store {
-	p.t.Helper()
-	store, err := NewStore(p.t.Context(), StoreConfig{Client: client, IndexName: "documents", Space: fixtureSpace})
+func (n *nativeIndex) embedding() fixtureField {
+	return n.Mapping.Properties[elastic.EmbeddingField].(fixtureField)
+}
+
+func (n *nativeIndex) setEmbedding(change func(*fixtureField)) {
+	field := n.embedding()
+	change(&field)
+	n.Mapping.Properties[elastic.EmbeddingField] = field
+}
+
+func (n *nativeIndex) store() *elastic.Store {
+	n.t.Helper()
+	return n.storeThrough(n.client)
+}
+
+// storeThrough admits the index through a client that may observe or alter
+// the native exchange.
+func (n *nativeIndex) storeThrough(client APIClient) *elastic.Store {
+	n.t.Helper()
+	store, err := NewStore(n.t.Context(), StoreConfig{Client: client, IndexName: elastictest.IndexName, Space: fixtureSpace})
 	if err != nil {
-		p.t.Fatal(err)
+		n.t.Fatal(err)
 	}
 	return store
 }
 
-func (p *protocolFixture) hit(id string) elastic.Hit {
-	source, err := jsonv2.Marshal(p.rows[id])
-	if err != nil {
-		p.t.Error(err)
+func TestStoreRoundTripsThroughTheNativeClient(t *testing.T) {
+	index := newNativeIndex(t)
+	store := index.store()
+	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})); err != nil {
+		t.Fatal(err)
 	}
-	score := p.scores[id]
-	if score == 0 {
-		score = 0.8
+	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("tenant")}})
+	if err != nil || len(response.Results) != 1 || !slices.Equal(index.Groups, []int{2}) {
+		t.Fatalf("filtered search = %#v, %v, groups %v", response, err, index.Groups)
 	}
-	return elastic.Hit{Index: "documents", ID: id, SeqNo: new(int64(3)), PrimaryTerm: new(int64(1)), Score: &score, Source: source}
-}
-
-func (p *protocolFixture) page(hits []elastic.Hit, total int, cursor string) elastic.SearchResponse {
-	if hits == nil {
-		hits = []elastic.Hit{}
-	}
-	return elastic.SearchResponse{ScrollID: cursor, TimedOut: new(false), Shards: &elastic.SearchShards{Total: new(1), Successful: new(1), Failed: new(0)}, Hits: &elastic.SearchHits{Hits: &hits, Total: &elastic.SearchTotal{Value: new(int64(total)), Relation: "eq"}}}
-}
-
-func (p *protocolFixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("X-Elastic-Product", "Elasticsearch")
-	w.Header().Set("Content-Type", "application/json")
-	var response any
-	switch {
-	case strings.HasSuffix(r.URL.Path, "/_mapping"):
-		response = map[string]fixtureIndex{"documents": {Mappings: p.mapping}}
-	case strings.HasSuffix(r.URL.Path, "/_settings"):
-		response = map[string]elastic.IndexSettings{"documents": p.settings}
-	case r.Method == http.MethodDelete && r.URL.Path == "/_search/scroll":
-		p.cleared++
-		response = map[string]any{"succeeded": true, "num_freed": 1}
-	case r.URL.Path == "/_bulk":
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			p.t.Error(err)
-			w.WriteHeader(500)
-			return
-		}
-		p.bulkBodies = append(p.bulkBodies, body)
-		if len(p.bulkBodies) == p.bulkFailureAt {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		lines := bytes.Split(bytes.TrimSuffix(body, []byte{'\n'}), []byte{'\n'})
-		result := bulkResponse{Errors: new(false), Items: []map[bulkOperation]bulkItemResult{}}
-		for i := 0; i < len(lines); i++ {
-			var action bulkAction
-			if err := jsonv2.Unmarshal(lines[i], &action); err != nil {
-				p.t.Error(err)
-				w.WriteHeader(500)
-				return
-			}
-			operation, target, status := bulkOperationDelete, action.Delete, 200
-			if action.Index != nil {
-				operation, target, status = bulkOperationIndex, action.Index, 201
-				i++
-				var record elastic.StoredDocument
-				if i >= len(lines) {
-					p.t.Error("missing native document line")
-					w.WriteHeader(500)
-					return
-				}
-				if err := jsonv2.Unmarshal(lines[i], &record, jsonv2.RejectUnknownMembers(true)); err != nil {
-					p.t.Error(err)
-					w.WriteHeader(500)
-					return
-				}
-				p.rows[target.ID] = record
-				p.writes++
-			} else {
-				if p.beforeDelete != nil {
-					p.beforeDelete()
-					p.beforeDelete = nil
-					status = 409
-					*result.Errors = true
-				}
-				if status != 409 {
-					if _, exists := p.rows[target.ID]; !exists {
-						status = 404
-					}
-					delete(p.rows, target.ID)
-				}
-			}
-			result.Items = append(result.Items, map[bulkOperation]bulkItemResult{operation: {Index: target.Index, ID: target.ID, Status: &status}})
-		}
-		response = result
-	case r.URL.Path == "/_search/scroll":
-		end := min(p.position+p.pageSize, len(p.snapshot))
-		response = p.page(p.snapshot[p.position:end], len(p.snapshot), "cursor")
-		p.position = end
-	case strings.HasSuffix(r.URL.Path, "/_search"):
-		var request fixtureSearchRequest
-		if err := jsonv2.UnmarshalRead(r.Body, &request); err != nil {
-			p.t.Error(err)
-			w.WriteHeader(500)
-			return
-		}
-		if request.KNN == nil {
-			p.snapshot = nil
-			for _, id := range slices.Sorted(maps.Keys(p.rows)) {
-				p.snapshot = append(p.snapshot, p.hit(id))
-			}
-			end := min(p.pageSize, len(p.snapshot))
-			response = p.page(p.snapshot[:end], len(p.snapshot), "cursor")
-			p.position = end
-		} else {
-			if p.beforeSearch != nil {
-				p.beforeSearch()
-				p.beforeSearch = nil
-			}
-			if p.reply != nil {
-				response = p.reply
-				break
-			}
-			var hits []elastic.Hit
-			var ids []string
-			if request.KNN.Filter != nil {
-				ids = request.KNN.Filter.IDs.Values
-			}
-			p.groups = append(p.groups, len(ids))
-			for id := range p.rows {
-				if ids == nil || slices.Contains(ids, id) {
-					hits = append(hits, p.hit(id))
-				}
-			}
-			slices.SortFunc(hits, func(left, right elastic.Hit) int {
-				if *left.Score > *right.Score {
-					return -1
-				}
-				if *left.Score < *right.Score {
-					return 1
-				}
-				return strings.Compare(left.ID, right.ID)
-			})
-			hits = hits[:min(len(hits), request.Size)]
-			response = p.page(hits, len(hits), "")
-		}
-	default:
-		p.t.Errorf("unexpected native request %s %s", r.Method, r.URL)
-		w.WriteHeader(500)
-		return
-	}
-	if err := jsonv2.MarshalWrite(w, response); err != nil {
-		p.t.Error(err)
+	if err := store.DeleteIDs(t.Context(), []string{"one", "two"}); err != nil || len(index.Rows) != 0 {
+		t.Fatalf("explicit deletion = %v, rows %v", err, index.Rows)
 	}
 }
 
-func TestCoreFilterConformanceThroughNativeMembership(t *testing.T) {
-	for _, operation := range []string{"search", "delete"} {
-		t.Run(operation, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			store := fixture.store()
-			storetest.FilterConformance(t, storetest.FilterConfig{Query: func(ctx context.Context, docs []*document.Document, predicate filter.Predicate) ([]string, error) {
-				clear(fixture.rows)
-				if err := store.Upsert(ctx, fixtureBatch(docs)); err != nil {
-					return nil, err
-				}
-				if operation == "delete" {
-					if err := store.DeleteMatching(ctx, predicate, fixtureBudget()); err != nil {
-						return nil, err
-					}
-					var deleted []string
-					for _, doc := range docs {
-						if _, present := fixture.rows[doc.ID]; !present {
-							deleted = append(deleted, doc.ID)
-						}
-					}
-					return deleted, nil
-				}
-				response, err := fixtureQuery(ctx, store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: len(docs), Filter: predicate}})
-				if err != nil {
-					return nil, err
-				}
-				var ids []string
-				for _, hit := range response.Results {
-					ids = append(ids, hit.Document.ID)
-				}
-				return ids, nil
-			}})
-		})
-	}
-}
-
-func TestMetadataRoundTripHasOneOpaqueRepresentation(t *testing.T) {
-	fixture := newProtocolFixture(t)
-	store := fixture.store()
-	for _, facts := range []metadata.Map{nil, {}, {"content": json.RawMessage(`"value"`), "embedding": json.RawMessage(`{"nested":[1,null]}`), "metadata_json": json.RawMessage(`9007199254740993`), "decimal": json.RawMessage(`1.0000000000000000001`), "huge": json.RawMessage(`1e1000`)}} {
-		clear(fixture.rows)
-		id := " spaced / * ? 中文🙂 "
-		if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: id, Text: "text", Metadata: facts}})); err != nil {
-			t.Fatal(err)
-		}
-		response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query")})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(response.Results) != 1 || response.Results[0].Document.ID != id || !facts.Equal(response.Results[0].Document.Metadata) || (facts == nil) != (response.Results[0].Document.Metadata == nil) {
-			t.Fatalf("facts changed: %#v", response)
-		}
-		if err := store.DeleteIDs(t.Context(), []string{id, id, "unknown"}); err != nil || len(fixture.rows) != 0 {
-			t.Fatalf("explicit deletion: %v", err)
-		}
-	}
-}
-
-func TestWholePreparationRejectsLateFailuresWithoutPublication(t *testing.T) {
-	for _, fault := range []string{"dimension", "overflow", "magnitude", "cosine underflow", "dot magnitude", "metadata", "ID limit"} {
+func TestEngineRejectsVectorsElasticsearchWouldRefuse(t *testing.T) {
+	for _, fault := range []string{"dimension", "magnitude", "cosine underflow", "dot magnitude"} {
 		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
+			index := newNativeIndex(t)
 			if fault == "dot magnitude" {
-				field := fixture.mapping.Properties[elastic.EmbeddingField]
-				field.Similarity = "dot_product"
-				fixture.mapping.Properties[elastic.EmbeddingField] = field
+				index.setEmbedding(func(field *fixtureField) { field.Similarity = "dot_product" })
 			}
-			vector := []float64{1, 0}
-			switch fault {
-			case "dimension":
-				vector = []float64{1}
-			case "overflow":
-				vector = []float64{1e100, 0}
-			case "magnitude":
-				vector = []float64{1e20, 0}
-			case "cosine underflow":
-				vector = []float64{1e-30, 0}
-			case "dot magnitude":
-				vector = []float64{2, 0}
-			}
-			store := fixture.store()
-			docs := []*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}}
-			if fault == "metadata" {
-				docs[1].Metadata = metadata.Map{"bad": json.RawMessage(`broken`)}
-			}
-			if fault == "ID limit" {
-				docs[1].ID = strings.Repeat("x", 513)
-			}
-			batch := fixtureBatch(docs)
+			vector := map[string][]float64{"dimension": {1}, "magnitude": {1e20, 0}, "cosine underflow": {1e-30, 0}, "dot magnitude": {2, 0}}[fault]
+			store := index.store()
+			batch := fixtureBatch([]*document.Document{{ID: "one", Text: "text"}, {ID: "two", Text: "text"}})
 			batch.Records[1].Values = vector
-			err := store.Upsert(t.Context(), batch)
-			if err == nil || fixture.writes != 0 {
-				t.Fatalf("failure=%v, native writes=%d", err, fixture.writes)
+			if err := store.Upsert(t.Context(), batch); err == nil || index.Writes != 0 {
+				t.Fatalf("failure=%v, native writes=%d", err, index.Writes)
 			}
 		})
 	}
 }
 
-func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
+func TestEngineAdmitsEverySimilarityAndRefusesForeignPolicy(t *testing.T) {
 	for _, metric := range []string{"cosine", "l2_norm", "dot_product", "max_inner_product"} {
 		t.Run(metric, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			field := fixture.mapping.Properties[elastic.EmbeddingField]
-			field.Similarity = metric
-			fixture.mapping.Properties[elastic.EmbeddingField] = field
-			fixture.store()
-			embedding, err := jsonv2.Marshal(fixture.mapping.Properties[elastic.EmbeddingField])
+			index := newNativeIndex(t)
+			index.setEmbedding(func(field *fixtureField) { field.Similarity = metric })
+			index.store()
+			embedding, err := jsonv2.Marshal(index.embedding())
 			if err != nil {
 				t.Fatal(err)
 			}
-			schema, err := engine{}.Admit(embedding, fixture.settings)
+			schema, err := engine{}.Admit(embedding, index.Settings)
 			if err != nil || schema != (nativeSchema{dimensions: 2, similarity: nativeSimilarity(metric)}) {
 				t.Fatalf("schema=%#v, error=%v", schema, err)
 			}
 		})
 	}
-	for _, fault := range []string{"dynamic", "extra property", "routing", "source disabled", "source pruned", "metadata indexed", "metadata object", "byte vectors", "no dimension", "pipeline", "source mode"} {
+	for _, fault := range []string{"byte vectors", "no dimension", "unindexed", "unknown similarity", "pipeline", "source mode"} {
 		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
+			index := newNativeIndex(t)
 			switch fault {
-			case "dynamic":
-				fixture.mapping.Dynamic = "true"
-			case "extra property":
-				fixture.mapping.Properties["shadow"] = fixtureField{Type: "keyword"}
-			case "routing":
-				fixture.mapping.Routing.Required = true
-			case "source disabled":
-				fixture.mapping.Source.Enabled = new(false)
-			case "source pruned":
-				fixture.mapping.Source.Excludes = []string{elastic.EmbeddingField}
-			case "metadata indexed":
-				field := fixture.mapping.Properties[elastic.MetadataField]
-				field.Index = new(true)
-				fixture.mapping.Properties[elastic.MetadataField] = field
-			case "metadata object":
-				fixture.mapping.Properties[elastic.MetadataField] = fixtureField{Type: "object"}
 			case "byte vectors":
-				field := fixture.mapping.Properties[elastic.EmbeddingField]
-				field.ElementType = "byte"
-				fixture.mapping.Properties[elastic.EmbeddingField] = field
+				index.setEmbedding(func(field *fixtureField) { field.ElementType = "byte" })
 			case "no dimension":
-				field := fixture.mapping.Properties[elastic.EmbeddingField]
-				field.Dimensions = 0
-				fixture.mapping.Properties[elastic.EmbeddingField] = field
+				index.setEmbedding(func(field *fixtureField) { field.Dimensions = 0 })
+			case "unindexed":
+				index.setEmbedding(func(field *fixtureField) { field.Index = new(false) })
+			case "unknown similarity":
+				index.setEmbedding(func(field *fixtureField) { field.Similarity = "hamming" })
 			case "pipeline":
-				fixture.settings.Settings["index.final_pipeline"] = "rewrite"
+				index.Settings.Settings[finalPipelineSetting] = "rewrite"
 			case "source mode":
-				fixture.settings.Settings["index.mapping.source.mode"] = "synthetic"
+				index.Settings.Settings[sourceModeSetting] = "synthetic"
 			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
+			store, err := NewStore(t.Context(), StoreConfig{Client: index.client, IndexName: elastictest.IndexName, Space: fixtureSpace})
 			if store != nil || !errors.Is(err, elastic.ErrIncompatibleIndex) {
 				t.Fatalf("incompatible policy accepted: %#v, %v", store, err)
 			}
@@ -455,38 +197,17 @@ func TestNativePolicyHasNoLocalCompetitor(t *testing.T) {
 	}
 }
 
-func TestConditionalDeletionReportsNativeConflict(t *testing.T) {
-	fixture := newProtocolFixture(t)
-	store := fixture.store()
-	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
-		t.Fatal(err)
-	}
-	fixture.beforeDelete = func() {
-		record := fixture.rows["one"]
-		record.MetadataJSON = `{"value":"new"}`
-		fixture.rows["one"] = record
-	}
-	if err := store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err == nil || len(fixture.rows) != 1 {
-		t.Fatalf("stale deletion: %v", err)
-	}
-	if err := store.DeleteMatching(t.Context(), filter.IsNull("unused"), fixtureBudget()); err != nil || len(fixture.rows) != 0 {
-		t.Fatalf("current deletion: %v", err)
-	}
-}
-
 func TestNativeInnerProductScoreAndRawRanking(t *testing.T) {
-	schema := nativeSchema{similarity: "max_inner_product"}
+	schema := nativeSchema{similarity: simMaxInnerProduct}
 	for _, sample := range []struct{ raw, want float64 }{{0.5, 0.2689414213699951}, {1, 0.5}, {2, 0.7310585786300049}} {
 		score, err := schema.Score(sample.raw)
 		if err != nil || math.Abs(float64(score)-sample.want) > 1e-15 {
 			t.Fatalf("score(%g)=%g, %v", sample.raw, score, err)
 		}
 	}
-	fixture := newProtocolFixture(t)
-	field := fixture.mapping.Properties[elastic.EmbeddingField]
-	field.Similarity = "max_inner_product"
-	fixture.mapping.Properties[elastic.EmbeddingField] = field
-	store := fixture.store()
+	index := newNativeIndex(t)
+	index.setEmbedding(func(field *fixtureField) { field.Similarity = string(simMaxInnerProduct) })
+	store := index.store()
 	docs := make([]*document.Document, 513)
 	for i := range docs {
 		docs[i] = &document.Document{ID: fmt.Sprintf("%04d", i), Text: "text"}
@@ -494,14 +215,16 @@ func TestNativeInnerProductScoreAndRawRanking(t *testing.T) {
 	if err := store.Upsert(t.Context(), fixtureBatch(docs)); err != nil {
 		t.Fatal(err)
 	}
+	// Distinct native scores this large saturate to the same Core score, so
+	// only the raw native order can pick the winner across candidate groups.
 	for i, doc := range docs {
-		fixture.scores[doc.ID] = 1e30 + float64(i)*1e29
+		index.Scores[doc.ID] = 1e30 + float64(i)*1e29
 	}
 	response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("unused")}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Results) != 1 || response.Results[0].Document.ID != "0512" || !slices.Equal(fixture.groups, []int{512, 1}) {
-		t.Fatalf("raw native rank changed: %#v, groups=%v", response, fixture.groups)
+	if len(response.Results) != 1 || response.Results[0].Document.ID != "0512" || !slices.Equal(index.Groups, []int{512, 1}) {
+		t.Fatalf("raw native rank changed: %#v, groups=%v", response, index.Groups)
 	}
 }

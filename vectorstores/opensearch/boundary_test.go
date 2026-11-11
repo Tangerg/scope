@@ -2,7 +2,6 @@ package opensearch
 
 import (
 	"bytes"
-	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -11,193 +10,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Tangerg/scope/vectorstores/protocol/elastic"
-
 	opensearchsdk "github.com/opensearch-project/opensearch-go/v5"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
-func TestSearchRejectsDamageWithoutPartialResponse(t *testing.T) {
-	for _, fault := range []string{"timeout", "missing shards", "failed shard", "missing total", "missing hits", "missing source", "missing metadata", "shadow metadata", "missing vector", "null coordinate", "missing tokens", "routing", "wrong index", "wrong membership", "repeated ID", "missing score", "bad score", "terminated early", "late corrupt hit"} {
-		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			store := fixture.store()
-			if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
-				t.Fatal(err)
-			}
-			hit := fixture.hit("one")
-			page := fixture.page([]elastic.Hit{hit}, 1, "")
-			source := map[string]json.RawMessage{}
-			if err := jsonv2.Unmarshal(hit.Source, &source); err != nil {
-				t.Fatal(err)
-			}
-			switch fault {
-			case "timeout":
-				page.TimedOut = new(true)
-			case "missing shards":
-				page.Shards = nil
-			case "failed shard":
-				page.Shards.Failed = new(1)
-			case "missing total":
-				page.Hits.Total = nil
-			case "missing hits":
-				page.Hits.Hits = nil
-			case "missing source":
-				hit.Source = nil
-			case "missing metadata":
-				delete(source, elastic.MetadataField)
-			case "shadow metadata":
-				source["metadata"] = json.RawMessage(`{}`)
-			case "missing vector":
-				delete(source, elastic.EmbeddingField)
-			case "null coordinate":
-				source[elastic.EmbeddingField] = json.RawMessage(`[1,null]`)
-			case "missing tokens":
-				hit.SeqNo = nil
-			case "routing":
-				hit.Fields = map[string][]json.RawMessage{"_routing": {json.RawMessage(`"tenant"`)}}
-			case "wrong index":
-				hit.Index = "other"
-			case "wrong membership":
-				hit.ID = "outside"
-			case "missing score":
-				hit.Score = nil
-			case "bad score":
-				hit.Score = new(float64(-1))
-			case "terminated early":
-				page.TerminatedEarly = new(true)
-			}
-			if strings.Contains(fault, "metadata") || fault == "missing vector" || fault == "null coordinate" {
-				var err error
-				hit.Source, err = jsonv2.Marshal(source)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			if page.Hits.Hits != nil {
-				*page.Hits.Hits = []elastic.Hit{hit}
-			}
-			if fault == "repeated ID" {
-				*page.Hits.Hits = append(*page.Hits.Hits, hit)
-				page.Hits.Total.Value = new(int64(2))
-			}
-			if fault == "late corrupt hit" {
-				hit.ID = "two"
-				hit.Source = json.RawMessage(`{"content":"text"}`)
-				*page.Hits.Hits = append(*page.Hits.Hits, hit)
-				page.Hits.Total.Value = new(int64(2))
-			}
-			fixture.reply = page
-			options := vectorstore.SearchOptions{TopK: 2}
-			if fault == "wrong membership" {
-				options.Filter = filter.IsNull("unused")
-			}
-			response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: options})
-			if err == nil || response != nil {
-				t.Fatalf("damaged output succeeded: %#v, %v", response, err)
-			}
-		})
-	}
-}
-
-func TestNativeLimitsAndMalformedRecordsFailBeforeQuery(t *testing.T) {
-	fixture := newProtocolFixture(t)
-	fixture.settings.Settings["index.max_result_window"] = "1"
-	store := fixture.store()
-	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 2}}); !errors.Is(err, vectorstore.ErrInvalidOptions) || response != nil {
-		t.Fatalf("native window ignored: %#v, %v", response, err)
-	}
-	if err := store.Upsert(t.Context(), fixtureBatch([]*document.Document{{ID: "one", Text: "text"}})); err != nil {
-		t.Fatal(err)
-	}
-	record := fixture.rows["one"]
-	record.MetadataJSON = ""
-	fixture.rows["one"] = record
-	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("absent")}}); err == nil || response != nil || len(fixture.groups) != 0 {
-		t.Fatalf("malformed record reached native ranking: %#v, %v", response, err)
-	}
-	if err := store.DeleteIDs(t.Context(), []string{"one", ""}); err == nil || len(fixture.rows) != 1 {
-		t.Fatal("invalid explicit deletion partially published")
-	}
-}
-
-func TestNamespacePolicyAndScrollDamageCannotInventSuccess(t *testing.T) {
-	for _, fault := range []string{"native KNN disabled", "vector source derived", "search pipeline", "missing engine", "trained model", "unsupported engine space", "missing metadata", "missing content", "shadow source", "missing cursor", "wrong total", "scroll shard missing"} {
-		t.Run(fault, func(t *testing.T) {
-			fixture := newProtocolFixture(t)
-			field := fixture.mapping.Properties[elastic.EmbeddingField]
-			switch fault {
-			case "native KNN disabled":
-				fixture.settings.Settings["index.knn"] = "false"
-			case "vector source derived":
-				fixture.settings.Settings["index.knn.derived_source.enabled"] = "true"
-			case "search pipeline":
-				fixture.settings.Settings["index.search.default_pipeline"] = "rewrite"
-			case "missing engine":
-				field.Method.Engine = ""
-			case "trained model":
-				field.ModelID = "trained"
-			case "unsupported engine space":
-				field.Method.SpaceType = "l1"
-			default:
-				fixture.rows["one"] = elastic.StoredDocument{Content: "text", Embedding: []float32{1, 0}, MetadataJSON: "null"}
-				if fault == "missing metadata" {
-					record := fixture.rows["one"]
-					record.MetadataJSON = ""
-					fixture.rows["one"] = record
-				}
-				if fault == "missing content" {
-					record := fixture.rows["one"]
-					record.Content = ""
-					fixture.rows["one"] = record
-				}
-			}
-			fixture.mapping.Properties[elastic.EmbeddingField] = field
-			if strings.HasPrefix(fault, "scroll") || fault == "missing cursor" || fault == "wrong total" || fault == "shadow source" {
-				hit := fixture.hit("one")
-				if fault == "shadow source" {
-					hit.Source = json.RawMessage(`{"content":"text","embedding":[1,0],"metadata_json":"null","metadata":{}}`)
-				}
-				page := fixture.page([]elastic.Hit{hit}, 1, "cursor")
-				switch fault {
-				case "missing cursor":
-					page.ScrollID = ""
-				case "wrong total":
-					page.Hits.Total.Value = new(int64(2))
-				case "scroll shard missing":
-					page.Shards = nil
-				}
-				fixture.scanReply = page
-			}
-			store, err := NewStore(t.Context(), StoreConfig{Client: fixture.client, IndexName: "documents", Space: fixtureSpace})
-			switch fault {
-			case "missing metadata", "missing content", "shadow source", "missing cursor", "wrong total", "scroll shard missing":
-				if err != nil {
-					t.Fatalf("construction enumerated source records: %v", err)
-				}
-				response, searchErr := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("absent")}})
-				if searchErr == nil || response != nil {
-					t.Fatalf("invalid predicate source accepted: %#v, %v", response, searchErr)
-				}
-				return
-			}
-			if err == nil || store != nil {
-				t.Fatalf("bad namespace accepted: %#v, %v", store, err)
-			}
-		})
-	}
-}
-
 func TestNMSLibFilteredSearchRejectsBeforeModelOrNativeIO(t *testing.T) {
-	fixture := newProtocolFixture(t)
-	field := fixture.mapping.Properties[elastic.EmbeddingField]
-	field.Method.Engine = "nmslib"
-	fixture.mapping.Properties[elastic.EmbeddingField] = field
-	store := fixture.store()
-	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); !errors.Is(err, errors.ErrUnsupported) || response != nil || len(fixture.groups) != 0 {
+	index := newNativeIndex(t)
+	index.setEmbedding(func(field *fixtureField) { field.Method.Engine = engineNMSLIB })
+	store := index.store()
+	if response, err := fixtureQuery(t.Context(), store, &vectorstore.Query{Space: fixtureSpace, Values: fixtureVector("query"), Options: vectorstore.SearchOptions{Filter: filter.IsNull("value")}}); !errors.Is(err, errors.ErrUnsupported) || response != nil || len(index.Groups) != 0 {
 		t.Fatalf("unsupported operation reached model or native query: %#v, %v", response, err)
 	}
 }
