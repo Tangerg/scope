@@ -72,13 +72,8 @@ type indexMapping struct {
 	} `json:"_meta"`
 	Dynamic    string                    `json:"dynamic"`
 	Properties map[string]jsontext.Value `json:"properties"`
-	Source     struct {
-		Enabled  *bool    `json:"enabled"`
-		Mode     string   `json:"mode"`
-		Includes []string `json:"includes"`
-		Excludes []string `json:"excludes"`
-	} `json:"_source"`
-	Routing struct {
+	Source     sourceMapping             `json:"_source"`
+	Routing    struct {
 		Required bool `json:"required"`
 	} `json:"_routing"`
 	Runtime          map[string]any `json:"runtime"`
@@ -92,11 +87,28 @@ type mappedField struct {
 	DocValues *bool  `json:"doc_values"`
 }
 
+type sourceMapping struct {
+	Enabled  *bool    `json:"enabled"`
+	Mode     string   `json:"mode"`
+	Includes []string `json:"includes"`
+	Excludes []string `json:"excludes"`
+}
+
+// complete reports a _source that stores every record field unchanged, which
+// reading a record back requires.
+func (s sourceMapping) complete() bool {
+	disabled := s.Enabled != nil && !*s.Enabled
+	return !disabled && len(s.Includes) == 0 && len(s.Excludes) == 0 && (s.Mode == "" || s.Mode == sourceModeStored)
+}
+
+// recordFields are the only properties a record index maps.
+var recordFields = [...]string{ContentField, MetadataField, EmbeddingField}
+
 func (i indexMapping) admitRecordLayout() error {
-	if i.Dynamic != dynamicMappingStrict || len(i.Properties) != 3 || i.Routing.Required || len(i.Runtime) > 0 || len(i.Derived) > 0 || len(i.DynamicTemplates) > 0 {
+	if i.Dynamic != dynamicMappingStrict || len(i.Properties) != len(recordFields) || i.Routing.Required || len(i.Runtime) > 0 || len(i.Derived) > 0 || len(i.DynamicTemplates) > 0 {
 		return fmt.Errorf("%w: requires exactly the current strict properties without routing or dynamic rules", ErrIncompatibleIndex)
 	}
-	if i.Source.Enabled != nil && !*i.Source.Enabled || len(i.Source.Includes) > 0 || len(i.Source.Excludes) > 0 || i.Source.Mode != "" && i.Source.Mode != sourceModeStored {
+	if !i.Source.complete() {
 		return fmt.Errorf("%w: requires complete stored _source", ErrIncompatibleIndex)
 	}
 	content, err := i.field(ContentField)
@@ -104,13 +116,19 @@ func (i indexMapping) admitRecordLayout() error {
 		return fmt.Errorf("%w: content must be TEXT", ErrIncompatibleIndex)
 	}
 	metadata, err := i.field(MetadataField)
-	if err != nil || metadata.Type != fieldTypeKeyword || metadata.Index == nil || *metadata.Index || metadata.DocValues == nil || *metadata.DocValues {
+	if err != nil || !metadata.storedOnly(fieldTypeKeyword) {
 		return fmt.Errorf("%w: metadata_json must be an unindexed KEYWORD without doc values", ErrIncompatibleIndex)
 	}
 	if _, exists := i.Properties[EmbeddingField]; !exists {
 		return fmt.Errorf("%w: requires an embedding field", ErrIncompatibleIndex)
 	}
 	return nil
+}
+
+// storedOnly reports a field of fieldType that is explicitly neither indexed
+// nor kept in doc values, so only _source carries it.
+func (m mappedField) storedOnly(fieldType string) bool {
+	return m.Type == fieldType && m.Index != nil && !*m.Index && m.DocValues != nil && !*m.DocValues
 }
 
 func (i indexMapping) field(name string) (mappedField, error) {
