@@ -17,8 +17,9 @@ import (
 const requiredTag = "required"
 
 // Decode strictly decodes data into T: unknown and duplicate members are
-// rejected, and every member tagged `jsonwire:"required"` must be present and
-// non-null.
+// rejected, and every member of T tagged `jsonwire:"required"` must be present
+// and non-null. Tags of a nested struct bind only when that struct's own
+// UnmarshalJSON decodes through Decode; Decode never descends into it.
 func Decode[T any](data []byte) (T, error) {
 	var value T
 	if len(data) == 0 {
