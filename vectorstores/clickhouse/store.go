@@ -47,27 +47,38 @@ func (d DistanceMetric) Valid() bool {
 
 func (d DistanceMetric) String() string { return string(d) }
 
+// Construction admits only the two metrics, so cosine is the other case.
 func (d DistanceMetric) function() string {
-	switch d {
-	case DistanceL2:
+	if d == DistanceL2 {
 		return "L2Distance"
-	case DistanceCosine:
-		fallthrough
-	default:
-		return "cosineDistance"
 	}
+	return "cosineDistance"
 }
 
 func (d DistanceMetric) score(distance float64) vectorstore.Score {
-	switch d {
-	case DistanceL2:
+	if d == DistanceL2 {
 		return vectorstore.ScoreFromDistance(distance)
-	case DistanceCosine:
-		fallthrough
-	default:
-		return vectorstore.ScoreFromCosineDistance(distance)
 	}
+	return vectorstore.ScoreFromCosineDistance(distance)
 }
+
+// admits reports whether distance lies in the metric's native range.
+func (d DistanceMetric) admits(distance float64) bool {
+	if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 {
+		return false
+	}
+	return d == DistanceL2 || distance <= maxCosineDistance
+}
+
+const maxCosineDistance = 2
+
+// Native statement parameters bound by name.
+const (
+	vectorParam = "scope_vector"
+	limitParam  = "scope_limit"
+	idsParam    = "scope_ids"
+	cursorParam = "scope_cursor"
+)
 
 // StoreConfig binds the host-owned native ClickHouse database/sql handle.
 // The server must support native transactions; all concurrent writers must
@@ -376,9 +387,9 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	statement := fmt.Sprintf("SELECT %s, %s, %s, toFloat64(%s(%s, {scope_vector:Array(Float32)})) AS distance FROM %s FINAL ORDER BY distance, %s", s.idColumn, s.contentColumn, s.metadataColumn, s.distanceMetric.function(), s.embeddingColumn, s.fullTable, s.idColumn)
-	statement += " LIMIT {scope_limit:UInt64}"
-	rows, err := s.db.QueryContext(nativeStatementContext(ctx, true), statement, sql.Named("scope_vector", vector), sql.Named("scope_limit", request.Options.ResultLimit()))
+	statement := fmt.Sprintf("SELECT %s, %s, %s, toFloat64(%s(%s, {%s:Array(Float32)})) AS distance FROM %s FINAL ORDER BY distance, %s LIMIT {%s:UInt64}",
+		s.idColumn, s.contentColumn, s.metadataColumn, s.distanceMetric.function(), s.embeddingColumn, vectorParam, s.fullTable, s.idColumn, limitParam)
+	rows, err := s.db.QueryContext(nativeStatementContext(ctx, true), statement, sql.Named(vectorParam, vector), sql.Named(limitParam, request.Options.ResultLimit()))
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: query %s: %w", s.fullTable, err)
 	}
@@ -390,37 +401,51 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			response = nil
 		}
 	}()
-	results := make([]*vectorstore.SearchResult, 0, request.Options.ResultLimit())
+	results, err := s.readResults(rows, request.Options)
+	if err != nil {
+		return nil, err
+	}
+	return &vectorstore.SearchResponse{Results: results}, nil
+}
+
+// readResults admits every native row and keeps those at or above MinScore.
+// The native LIMIT bounds the rows, so an extra or repeated row is corrupt.
+func (s *Store) readResults(rows *sql.Rows, options vectorstore.SearchOptions) ([]*vectorstore.SearchResult, error) {
+	results := make([]*vectorstore.SearchResult, 0, options.ResultLimit())
 	seen := make(map[string]bool)
 	for rows.Next() {
-		doc := &document.Document{}
-		var encoded string
-		var distance float64
-		if err := rows.Scan(&doc.ID, &doc.Text, &encoded, &distance); err != nil {
-			return nil, fmt.Errorf("clickhouse: scan search row: %w", err)
-		}
-		if err := doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
-			return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
-		}
-		if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 || s.distanceMetric == DistanceCosine && distance > 2 {
-			return nil, fmt.Errorf("clickhouse: %w: invalid native distance", vectorstore.ErrInvalidScore)
-		}
-		if seen[doc.ID] || len(seen) >= request.Options.ResultLimit() {
-			return nil, fmt.Errorf("clickhouse: %w: duplicate or excess rows", vectorstore.ErrInvalidResponse)
-		}
-		seen[doc.ID] = true
-		result, err := vectorstore.NewSearchResult(doc, s.distanceMetric.score(distance))
+		result, err := s.scanResult(rows)
 		if err != nil {
 			return nil, err
 		}
-		if result.Score >= request.Options.MinScore && len(results) < request.Options.ResultLimit() {
+		if seen[result.Document.ID] || len(seen) >= options.ResultLimit() {
+			return nil, fmt.Errorf("clickhouse: %w: duplicate or excess rows", vectorstore.ErrInvalidResponse)
+		}
+		seen[result.Document.ID] = true
+		if result.Score >= options.MinScore {
 			results = append(results, result)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("clickhouse: read search rows: %w", err)
 	}
-	return &vectorstore.SearchResponse{Results: results}, nil
+	return results, nil
+}
+
+func (s *Store) scanResult(rows *sql.Rows) (*vectorstore.SearchResult, error) {
+	doc := &document.Document{}
+	var encoded string
+	var distance float64
+	if err := rows.Scan(&doc.ID, &doc.Text, &encoded, &distance); err != nil {
+		return nil, fmt.Errorf("clickhouse: scan search row: %w", err)
+	}
+	if err := doc.UnmarshalStoredMetadata([]byte(encoded)); err != nil {
+		return nil, fmt.Errorf("clickhouse: decode metadata for %q: %w", doc.ID, err)
+	}
+	if !s.distanceMetric.admits(distance) {
+		return nil, fmt.Errorf("clickhouse: %w: invalid native distance", vectorstore.ErrInvalidScore)
+	}
+	return vectorstore.NewSearchResult(doc, s.distanceMetric.score(distance))
 }
 
 // DeleteIDs removes the IDs visible in one native snapshot. Empty input is a no-op.
@@ -453,8 +478,8 @@ func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	statement := fmt.Sprintf("DELETE FROM %s WHERE %s IN {scope_ids:Array(String)}", s.fullTable, s.idColumn)
-	if _, err := transaction.Exec(statement, sql.Named("scope_ids", ids)); err != nil {
+	statement := fmt.Sprintf("DELETE FROM %s WHERE %s IN {%s:Array(String)}", s.fullTable, s.idColumn, idsParam)
+	if _, err := transaction.Exec(statement, sql.Named(idsParam, ids)); err != nil {
 		return fmt.Errorf("clickhouse: delete IDs from %s: %w", s.fullTable, err)
 	}
 	return nil
@@ -534,8 +559,8 @@ func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filt
 		query := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
 		var args []any
 		if after != "" {
-			query += fmt.Sprintf(" WHERE %s > {scope_cursor:String}", s.idColumn)
-			args = append(args, sql.Named("scope_cursor", after))
+			query += fmt.Sprintf(" WHERE %s > {%s:String}", s.idColumn, cursorParam)
+			args = append(args, sql.Named(cursorParam, after))
 		}
 		query += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
 		rows, err := tx.Query(query, args...)
