@@ -113,63 +113,10 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 	if err := request.Validate(); err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: request: %w", err)}
 	}
-	effectiveOptions, err := i.defaultOptions.Resolve(request.Options)
+	params, err := i.generationParams(request)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	if rejectUnsupportedOptionsErr := rejectUnsupportedOptions(effectiveOptions); rejectUnsupportedOptionsErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: rejectUnsupportedOptionsErr}
-	}
-
-	options, _, err := effectiveOptions.Extensions.Decode[ImageRequestOptions](ImageRequestExtensionKey)
-	if err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)}
-	}
-	if err = options.Validate(); err != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	params := lumaagents.GenerationNewParams{
-		Prompt: lumaagents.F(request.Prompt),
-		Model:  lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
-		Type:   lumaagents.F(lumaagents.GenerationNewParamsTypeImage),
-	}
-	if options.Type != "" {
-		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(options.Type))
-	}
-	if options.AspectRatio != "" {
-		params.AspectRatio = lumaagents.F(lumaagents.GenerationNewParamsAspectRatio(options.AspectRatio))
-	}
-	if options.Source != nil {
-		params.Source = lumaagents.F(options.Source.sdkParams())
-	}
-	if options.ImageRef != nil {
-		references := make([]lumaagents.ImageRefParam, len(options.ImageRef))
-		for index, reference := range options.ImageRef {
-			references[index] = reference.sdkParams()
-		}
-		params.ImageRef = lumaagents.F(references)
-	}
-	if options.Style != "" {
-		params.Style = lumaagents.F(lumaagents.GenerationNewParamsStyle(options.Style))
-	}
-	if options.UserID != "" {
-		params.UserID = lumaagents.F(options.UserID)
-	}
-	if options.WebSearch != nil {
-		params.WebSearch = lumaagents.F(*options.WebSearch)
-	}
-	if effectiveOptions.OutputFormat != "" {
-		format := strings.TrimPrefix(effectiveOptions.OutputFormat, mediaTypeImagePrefix)
-		switch format {
-		case string(lumaagents.GenerationNewParamsOutputFormatPng):
-			params.OutputFormat = lumaagents.F(lumaagents.GenerationNewParamsOutputFormatPng)
-		case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:
-			params.OutputFormat = lumaagents.F(lumaagents.GenerationNewParamsOutputFormatJpeg)
-		default:
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("luma: output format %q is unsupported; use image/png or image/jpeg", effectiveOptions.OutputFormat)}
-		}
-	}
-
 	submitted, err := i.api.createGeneration(ctx, params)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("luma: create generation: %w", err)}
@@ -186,6 +133,47 @@ func (i *ImageModel) Call(ctx context.Context, request *image.Request) (*image.R
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 	return response, nil
+}
+
+// generationParams resolves a validated request into the native generation.
+func (i *ImageModel) generationParams(request *image.Request) (lumaagents.GenerationNewParams, error) {
+	effectiveOptions, err := i.defaultOptions.Resolve(request.Options)
+	if err != nil {
+		return lumaagents.GenerationNewParams{}, err
+	}
+	if err = rejectUnsupportedOptions(effectiveOptions); err != nil {
+		return lumaagents.GenerationNewParams{}, err
+	}
+	// Decoding the extension validates it.
+	options, _, err := effectiveOptions.Extensions.Decode[ImageRequestOptions](ImageRequestExtensionKey)
+	if err != nil {
+		return lumaagents.GenerationNewParams{}, fmt.Errorf("luma: extension %q: %w", ImageRequestExtensionKey, err)
+	}
+	params := lumaagents.GenerationNewParams{
+		Prompt: lumaagents.F(request.Prompt),
+		Model:  lumaagents.F(lumaagents.Model(effectiveOptions.Model)),
+		Type:   lumaagents.F(lumaagents.GenerationNewParamsTypeImage),
+	}
+	options.apply(&params)
+	if effectiveOptions.OutputFormat != "" {
+		format, err := nativeOutputFormat(effectiveOptions.OutputFormat)
+		if err != nil {
+			return lumaagents.GenerationNewParams{}, err
+		}
+		params.OutputFormat = lumaagents.F(format)
+	}
+	return params, nil
+}
+
+func nativeOutputFormat(mediaType string) (lumaagents.GenerationNewParamsOutputFormat, error) {
+	switch strings.TrimPrefix(mediaType, mediaTypeImagePrefix) {
+	case string(lumaagents.GenerationNewParamsOutputFormatPng):
+		return lumaagents.GenerationNewParamsOutputFormatPng, nil
+	case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:
+		return lumaagents.GenerationNewParamsOutputFormatJpeg, nil
+	default:
+		return "", fmt.Errorf("luma: output format %q is unsupported; use image/png or image/jpeg", mediaType)
+	}
 }
 
 func rejectUnsupportedOptions(options image.Options) error {

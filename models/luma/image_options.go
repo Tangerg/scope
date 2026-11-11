@@ -58,6 +58,35 @@ func (i ImageRequestOptions) Validate() error {
 	return nil
 }
 
+// apply sets the native controls these options carry on params.
+func (i ImageRequestOptions) apply(params *lumaagents.GenerationNewParams) {
+	if i.Type != "" {
+		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(i.Type))
+	}
+	if i.AspectRatio != "" {
+		params.AspectRatio = lumaagents.F(lumaagents.GenerationNewParamsAspectRatio(i.AspectRatio))
+	}
+	if i.Source != nil {
+		params.Source = lumaagents.F(i.Source.sdkParams())
+	}
+	if i.ImageRef != nil {
+		references := make([]lumaagents.ImageRefParam, len(i.ImageRef))
+		for index, reference := range i.ImageRef {
+			references[index] = reference.sdkParams()
+		}
+		params.ImageRef = lumaagents.F(references)
+	}
+	if i.Style != "" {
+		params.Style = lumaagents.F(lumaagents.GenerationNewParamsStyle(i.Style))
+	}
+	if i.UserID != "" {
+		params.UserID = lumaagents.F(i.UserID)
+	}
+	if i.WebSearch != nil {
+		params.WebSearch = lumaagents.F(*i.WebSearch)
+	}
+}
+
 func (i *ImageRequestOptions) UnmarshalJSON(data []byte) error {
 	type wireOptions ImageRequestOptions
 	var decoded *wireOptions
