@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	"slices"
 	"strings"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -83,57 +82,71 @@ func mapProtocolRequest(defaults corechat.Options, req *corechat.Request) (*nati
 	if apiReq.Options == nil {
 		apiReq.Options = make(map[string]json.RawMessage)
 	}
-	// Core-owned options are merged into the same open map that carries the caller's
-	// native extension values. Encoding each to its own JSON token keeps the map a
-	// lossless representation, so an extension integer never rounds through float64.
-	var optionErr error
-	setOption := func(key string, value any) {
-		if optionErr != nil {
-			return
-		}
-		encoded, err := jsonv2.Marshal(value)
-		if err != nil {
-			optionErr = fmt.Errorf("ollama: encode options.%s: %w", key, err)
-			return
-		}
-		apiReq.Options[key] = encoded
+	if err := applyCoreOptions(apiReq.Options, options); err != nil {
+		return nil, err
 	}
+	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > maximumTopLogprobs {
+		return nil, fmt.Errorf("ollama: top_logprobs must be between 0 and %d", maximumTopLogprobs)
+	}
+	return apiReq, nil
+}
+
+// applyCoreOptions merges Core-owned options into the open map that carries
+// the caller's native extension values. Encoding each to its own JSON token
+// keeps the map lossless, so an extension integer never rounds through float64.
+func applyCoreOptions(native map[string]json.RawMessage, options corechat.Options) error {
+	values, err := coreOptionValues(options)
+	if err != nil {
+		return err
+	}
+	for _, option := range values {
+		encoded, err := jsonv2.Marshal(option.value)
+		if err != nil {
+			return fmt.Errorf("ollama: encode options.%s: %w", option.key, err)
+		}
+		native[option.key] = encoded
+	}
+	return nil
+}
+
+type nativeOption struct {
+	key   string
+	value any
+}
+
+// coreOptionValues lists the native value of every set Core option.
+func coreOptionValues(options corechat.Options) ([]nativeOption, error) {
+	var values []nativeOption
 	if options.FrequencyPenalty != nil {
-		setOption(nativeOptionFrequencyPenalty, float32(*options.FrequencyPenalty))
+		values = append(values, nativeOption{nativeOptionFrequencyPenalty, float32(*options.FrequencyPenalty)})
 	}
 	if options.MaxOutputTokens != nil {
 		value, err := protocolInt(nativeOptionNumPredict, *options.MaxOutputTokens)
 		if err != nil {
 			return nil, err
 		}
-		setOption(nativeOptionNumPredict, value)
+		values = append(values, nativeOption{nativeOptionNumPredict, value})
 	}
 	if options.PresencePenalty != nil {
-		setOption(nativeOptionPresencePenalty, float32(*options.PresencePenalty))
+		values = append(values, nativeOption{nativeOptionPresencePenalty, float32(*options.PresencePenalty)})
 	}
 	if len(options.Stop) > 0 {
-		setOption(nativeOptionStop, slices.Clone(options.Stop))
+		values = append(values, nativeOption{nativeOptionStop, options.Stop})
 	}
 	if options.Temperature != nil {
-		setOption(nativeOptionTemperature, float32(*options.Temperature))
+		values = append(values, nativeOption{nativeOptionTemperature, float32(*options.Temperature)})
 	}
 	if options.TopK != nil {
 		value, err := protocolInt(nativeOptionTopK, *options.TopK)
 		if err != nil {
 			return nil, err
 		}
-		setOption(nativeOptionTopK, value)
+		values = append(values, nativeOption{nativeOptionTopK, value})
 	}
 	if options.TopP != nil {
-		setOption(nativeOptionTopP, float32(*options.TopP))
+		values = append(values, nativeOption{nativeOptionTopP, float32(*options.TopP)})
 	}
-	if optionErr != nil {
-		return nil, optionErr
-	}
-	if apiReq.TopLogprobs < 0 || apiReq.TopLogprobs > maximumTopLogprobs {
-		return nil, fmt.Errorf("ollama: top_logprobs must be between 0 and %d", maximumTopLogprobs)
-	}
-	return apiReq, nil
+	return values, nil
 }
 
 func mapProtocolOutputFormat(format *corechat.OutputFormat) (json.RawMessage, error) {
