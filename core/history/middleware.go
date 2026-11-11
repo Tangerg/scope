@@ -184,7 +184,7 @@ func (m Middleware) persist(
 	if !completesTurn(assistant) {
 		return nil
 	}
-	messages := append(fresh, assistant.Clone())
+	messages := append(fresh, *assistant)
 	batch, err := NewBatch(m.conversationID, AppendID(rand.Text()), messages...)
 	if err != nil {
 		return &invocation.Failure{Kind: invocation.FailureFailed, Cause: err}
