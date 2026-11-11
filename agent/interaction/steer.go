@@ -98,7 +98,7 @@ func NewSteerSignal(id run.SignalID, messages ...chat.Message) (run.Signal, erro
 		return run.Signal{}, err
 	}
 	payload, err := jsonv2.Marshal(steerSignal{
-		Steer: steerInput{Messages: cloneMessages(messages)},
+		Steer: steerInput{Messages: messages},
 	}, jsonv2.Deterministic(true))
 	if err != nil {
 		return run.Signal{}, err

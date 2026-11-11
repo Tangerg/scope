@@ -68,7 +68,7 @@ func (d dispatchUncertainty) modelSettlement() (ModelSettlement, error) {
 	if d.Model == nil {
 		return ModelSettlement{}, ErrInvalidProtocol
 	}
-	return ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic, Response: d.Model.Response.Clone()}, nil
+	return ModelSettlement{Outcome: ModelOutcomeUnknown, Failure: diagnostic, Response: d.Model.Response}, nil
 }
 
 func (d dispatchUncertainty) toolSettlement() (ToolSettlement, error) {
@@ -79,11 +79,7 @@ func (d dispatchUncertainty) toolSettlement() (ToolSettlement, error) {
 	if d.Tool == nil {
 		return ToolSettlement{}, ErrInvalidProtocol
 	}
-	result := ToolSettlement{Outcome: ToolOutcomeUnknown, Failure: diagnostic}
-	if d.Tool.Evidence != nil {
-		result.Evidence = new(d.Tool.Evidence.Clone())
-	}
-	return result, nil
+	return ToolSettlement{Outcome: ToolOutcomeUnknown, Failure: diagnostic, Evidence: d.Tool.Evidence}, nil
 }
 
 func (d dispatchUncertainty) settlement() (run.Settlement, error) {
@@ -192,7 +188,7 @@ func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error
 		if envelope.ModelResult == nil {
 			return ModelSettlement{}, ErrInvalidProtocol
 		}
-		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: envelope.ModelResult.Response.Clone()}, nil
+		return ModelSettlement{Outcome: ModelOutcomeSucceeded, Response: envelope.ModelResult.Response}, nil
 	}
 }
 

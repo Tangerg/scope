@@ -97,7 +97,7 @@ func SettleToolResult[I, O any](program run.Program[I, O], request run.EffectReq
 	if err != nil {
 		return run.Settlement{}, fmt.Errorf("%w: Tool recovery advertisements: %w", ErrInvalidProtocol, err)
 	}
-	completion := &toolCallResult{Disposition: disposition, Output: result.Output.Clone(), AdvertisedToolNames: canonical}
+	completion := &toolCallResult{Disposition: disposition, Output: result.Output, AdvertisedToolNames: canonical}
 	if completionErr := completion.validateCall(call); completionErr != nil {
 		return run.Settlement{}, completionErr
 	}

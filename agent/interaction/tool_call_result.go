@@ -19,11 +19,11 @@ type toolCallResult struct {
 }
 
 func succeededCallResult(output tool.Output) toolCallResult {
-	return toolCallResult{Disposition: ResultSucceeded, Output: output.Clone()}
+	return toolCallResult{Disposition: ResultSucceeded, Output: output}
 }
 
 func failedCallResult(output tool.Output) toolCallResult {
-	return toolCallResult{Disposition: ResultFailed, Output: output.Clone()}
+	return toolCallResult{Disposition: ResultFailed, Output: output}
 }
 
 // rejectedCallResult refuses a call before its Tool runs; diagnostic is the
@@ -42,7 +42,9 @@ func settleToolCall(outcome tool.Result, cause error) (toolDispatchResult, error
 		if outcome.InputRequest != nil {
 			return toolDispatchResult{InputRequest: new(*outcome.InputRequest)}, nil
 		}
-		return toolDispatchResult{Completion: new(succeededCallResult(outcome.Output))}, nil
+		// An AdvertisingTool still receives the Tool's own result after this, so
+		// the settlement must not share its output.
+		return toolDispatchResult{Completion: new(succeededCallResult(outcome.Output.Clone()))}, nil
 	}
 	failure, definite := tool.ClassifyFailure(cause)
 	if !definite {
@@ -57,7 +59,7 @@ func settleToolCall(outcome tool.Result, cause error) (toolDispatchResult, error
 
 // toolResult renders the result the model sees for call.
 func (t toolCallResult) toolResult(call chat.ToolCall) chat.ToolResult {
-	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output.Clone(), IsError: t.Disposition != ResultSucceeded}
+	return chat.ToolResult{ID: call.ID, Name: call.Name, Output: t.Output, IsError: t.Disposition != ResultSucceeded}
 }
 
 func (t toolCallResult) validate() error {

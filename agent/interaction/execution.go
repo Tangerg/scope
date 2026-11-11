@@ -174,7 +174,7 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 	if arrival.failure.Valid() {
 		return run.Fail(consumedMessages, arrival.failure)
 	}
-	response := arrival.result.ModelResult.Response.Clone()
+	response := arrival.result.ModelResult.Response
 	calls := proposedCalls(response)
 	if len(calls) > 0 && !opensToolRound(response.Output.FinishReason) {
 		return stepfail.Transition(
@@ -222,7 +222,7 @@ func (e *execution) acceptFinalModelResponse(
 		return e.finishOrRetry(ctx, turn, consumedMessages, Output{
 			ModelResponse: response,
 			ModelCalls:    e.state.ModelCallCount,
-		}, []chat.Message{message.Clone()})
+		}, []chat.Message{*message})
 	}
 	if err := e.state.appendToContext("steered final response", *message); err != nil {
 		return run.Transition{}, err
@@ -329,7 +329,7 @@ func (e *execution) finishToolCallBatch(
 		results[index] = result.toolResult(calls[index])
 		direct = direct && result.Disposition == ResultSucceeded && e.definition.tools.completesDirectly(calls[index].Name)
 	}
-	completionContext := []chat.Message{assistant.Clone(), chat.NewToolMessage(results...)}
+	completionContext := []chat.Message{*assistant, chat.NewToolMessage(results...)}
 	if err := e.state.recordRoundArtifacts(e.definition); err != nil {
 		return run.Transition{}, err
 	}
