@@ -30,12 +30,6 @@ type Origin struct {
 	host   string
 }
 
-// NewOrigin takes the origin of an absolute, hierarchical HTTP(S) URL. Its
-// path, query, and fragment name a resource and do not affect the origin.
-func NewOrigin(endpoint *url.URL) (Origin, error) {
-	return originFromURL(endpoint)
-}
-
 // ParseOrigin admits a configured origin: an absolute HTTP(S) URL with no path
 // beyond "/", query, or fragment, so a value that names a resource cannot be
 // mistaken for the authority it grants.
@@ -47,18 +41,12 @@ func ParseOrigin(raw string) (Origin, error) {
 	if (endpoint.Path != "" && endpoint.Path != "/") || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" {
 		return Origin{}, errors.New("origin must contain only a scheme, host, and port")
 	}
-	return originFromURL(endpoint)
+	return NewOrigin(endpoint)
 }
 
-func parseOrigin(raw string) (Origin, error) {
-	endpoint, err := url.Parse(raw)
-	if err != nil {
-		return Origin{}, fmt.Errorf("endpoint must be an absolute HTTP(S) URL: %w", err)
-	}
-	return originFromURL(endpoint)
-}
-
-func originFromURL(endpoint *url.URL) (Origin, error) {
+// NewOrigin takes the origin of an absolute, hierarchical HTTP(S) URL. Its
+// path, query, and fragment name a resource and do not affect the origin.
+func NewOrigin(endpoint *url.URL) (Origin, error) {
 	if endpoint == nil || endpoint.Opaque != "" || endpoint.User != nil || endpoint.Hostname() == "" {
 		return Origin{}, errors.New("endpoint must be hierarchical, have a host, and have no user information")
 	}
@@ -79,7 +67,7 @@ func originFromURL(endpoint *url.URL) (Origin, error) {
 }
 
 func (o Origin) validate(endpoint *url.URL) error {
-	actual, err := originFromURL(endpoint)
+	actual, err := NewOrigin(endpoint)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOriginNotAllowed, err)
 	}
@@ -119,7 +107,7 @@ func (o Origins) ValidateRequest(request *http.Request) error {
 	if request == nil {
 		return fmt.Errorf("%w: request is nil", ErrOriginNotAllowed)
 	}
-	destination, err := originFromURL(request.URL)
+	destination, err := NewOrigin(request.URL)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrOriginNotAllowed, err)
 	}

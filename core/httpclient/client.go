@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type Config struct {
@@ -21,7 +22,11 @@ type Config struct {
 // The host retains ownership of the shared transport and cookie jar. Its
 // redirect policy runs before the final destination and authority checks.
 func New(_ context.Context, config Config) (*http.Client, error) {
-	origin, err := parseOrigin(config.BaseURL)
+	endpoint, err := url.Parse(config.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("httpclient: invalid API endpoint: %w", err)
+	}
+	origin, err := NewOrigin(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("httpclient: invalid API endpoint: %w", err)
 	}
