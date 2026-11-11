@@ -16,6 +16,7 @@ import (
 	"github.com/go-resty/resty/v2"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -303,6 +304,33 @@ type transcriptionResponse struct {
 	Words               []json.RawMessage          `json:"words"`
 	Entities            []json.RawMessage          `json:"entities"`
 	Raw                 map[string]json.RawMessage `json:"-"`
+}
+
+// outputMetadata carries the detected language, its probability, and the word
+// and entity detail the service reported, omitting what it left empty.
+func (t transcriptionResponse) outputMetadata() (metadata.Map, error) {
+	var output metadata.Map
+	if t.LanguageCode != "" {
+		if err := output.Set(metadataLanguageCode, t.LanguageCode); err != nil {
+			return nil, err
+		}
+	}
+	if t.LanguageProbability != nil {
+		if err := output.Set(metadataLanguageProbability, *t.LanguageProbability); err != nil {
+			return nil, err
+		}
+	}
+	if len(t.Words) > 0 {
+		if err := output.Set(metadataWords, t.Words); err != nil {
+			return nil, err
+		}
+	}
+	if len(t.Entities) > 0 {
+		if err := output.Set(metadataEntities, t.Entities); err != nil {
+			return nil, err
+		}
+	}
+	return output, nil
 }
 
 func (a *api) transcription(ctx context.Context, audio []byte, mimeType string, req *transcriptionRequest) (*transcriptionResponse, error) {

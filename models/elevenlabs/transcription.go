@@ -2,12 +2,12 @@ package elevenlabs
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/Tangerg/scope/core/invocation"
-	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/transcription"
 )
 
@@ -75,6 +75,29 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 	}, nil
 }
 
+// nativeTranscriptionRequest reads the native options extension. Core owns the
+// model and language, so the extension may not name either, even as null.
+func nativeTranscriptionRequest(options transcription.Options) (*transcriptionRequest, error) {
+	members, _, err := options.Extensions.Decode[map[string]jsontext.Value](TranscriptionRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []string{transcriptionFieldModelID, transcriptionFieldLanguageCode} {
+		if _, named := members[field]; named {
+			return nil, fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)
+		}
+	}
+	native, _, err := options.Extensions.Decode[transcriptionRequest](TranscriptionRequestExtensionKey)
+	if err != nil {
+		return nil, err
+	}
+	native.ModelID, native.LanguageCode = options.Model, options.Language
+	if err := native.validate(); err != nil {
+		return nil, err
+	}
+	return &native, nil
+}
+
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
 	if err := req.Validate(); err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
@@ -83,25 +106,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	nativeFields, _, decodeErr := effectiveOptions.Extensions.Decode[map[string]any](TranscriptionRequestExtensionKey)
-	if decodeErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: decodeErr}
-	}
-	for _, field := range []string{transcriptionFieldModelID, transcriptionFieldLanguageCode} {
-		if _, exists := nativeFields[field]; exists {
-			return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: fmt.Errorf("elevenlabs: extension %q field %q is owned by Core", TranscriptionRequestExtensionKey, field)}
-		}
-	}
-
-	apiReqValue, _, err := effectiveOptions.Extensions.Decode[transcriptionRequest](TranscriptionRequestExtensionKey)
-	apiReq := &apiReqValue
+	apiReq, err := nativeTranscriptionRequest(effectiveOptions)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
-	}
-	apiReq.ModelID = effectiveOptions.Model
-	apiReq.LanguageCode = effectiveOptions.Language
-	if validateTranscriptionRequestErr := apiReq.validate(); validateTranscriptionRequestErr != nil {
-		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: validateTranscriptionRequestErr}
 	}
 
 	audio, err := req.Audio.Bytes()
@@ -114,26 +121,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}
 
-	var outputMetadata metadata.Map
-	if apiResp.LanguageCode != "" {
-		if setErr := outputMetadata.Set(metadataLanguageCode, apiResp.LanguageCode); setErr != nil {
-			return nil, setErr
-		}
-	}
-	if apiResp.LanguageProbability != nil {
-		if setErr := outputMetadata.Set(metadataLanguageProbability, *apiResp.LanguageProbability); setErr != nil {
-			return nil, setErr
-		}
-	}
-	if len(apiResp.Words) > 0 {
-		if setErr := outputMetadata.Set(metadataWords, apiResp.Words); setErr != nil {
-			return nil, setErr
-		}
-	}
-	if len(apiResp.Entities) > 0 {
-		if setErr := outputMetadata.Set(metadataEntities, apiResp.Entities); setErr != nil {
-			return nil, setErr
-		}
+	outputMetadata, err := apiResp.outputMetadata()
+	if err != nil {
+		return nil, err
 	}
 
 	if apiResp.Text == nil {
