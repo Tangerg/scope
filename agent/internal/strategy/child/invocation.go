@@ -108,9 +108,6 @@ func (i *Invocation) Accept(message run.Message) (bool, error) {
 		if i.Process == nil || value.Child != *i.Process {
 			return false, nil
 		}
-		if !value.Termination.Valid() {
-			return false, ErrInvalidMessage
-		}
 		*i = Invocation{Termination: &value.Termination}
 		return true, nil
 	default:

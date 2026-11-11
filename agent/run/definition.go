@@ -23,6 +23,9 @@ type Execution interface {
 	Snapshot() (ExecutionState, error)
 }
 
+// Turn is what the Runtime delivers to one Step. A delivered Turn is Valid:
+// its Signals were admitted and its Completions and Exits were committed, so
+// a Step checks only that each message answers something it awaits.
 type Turn struct {
 	Process  ProcessID
 	Step     uint64

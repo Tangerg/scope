@@ -88,9 +88,6 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 		t.Fatal("admission failure was not transferred", err)
 	}
 	invocation = Invocation{Process: &process}
-	if accepted, err := invocation.Accept(run.Exit{Child: process}); accepted || err == nil {
-		t.Fatal("invalid terminal fact accepted")
-	}
 	if accepted, err := invocation.Accept(run.Signal{}); accepted || err != nil {
 		t.Fatal("external input consumed as child message")
 	}
@@ -105,8 +102,9 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 // A strategy may add context around a child protocol violation, but the
 // Failure the Runtime records stays the one this package declares.
 func TestInvalidMessageCarriesOneContractClassification(t *testing.T) {
-	invocation := Invocation{Process: new(value(value(run.ParseProcessID("root")).Child(value(run.ParseChildKey("worker")))))}
-	_, err := invocation.Accept(run.Exit{Child: *invocation.Process})
+	id := run.EffectID{Process: value(run.ParseProcessID("root")), Step: 1}
+	invocation := Invocation{Request: &id}
+	_, err := invocation.Accept(run.Completion{Effect: id, Outcome: value(run.NewSettlement(run.SettlementStatusSucceeded, []byte(`{"not":"a spawn result"}`)))})
 	failure, classified := run.StepFailure(fmt.Errorf("strategy context: %w", err))
 	if !classified || failure.Kind() != run.FailureKindContract || failure.Code() != "strategy.child.message_invalid" {
 		t.Fatalf("StepFailure = %+v, %t", failure, classified)
