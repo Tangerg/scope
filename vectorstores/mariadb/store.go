@@ -262,8 +262,8 @@ func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read document ID schema: %w", err)
 	}
-	if dataType != "varbinary" || !length.Valid || length.Int64 != documentIDBytes || nullable != columnNotNullable {
-		return fmt.Errorf("document ID column must be VARBINARY(%d) NOT NULL; rebuild the table", documentIDBytes)
+	if !strings.EqualFold(dataType, documentIDType) || !length.Valid || length.Int64 != documentIDBytes || nullable != columnNotNullable {
+		return fmt.Errorf("document ID column must be %s(%d) NOT NULL; rebuild the table", documentIDType, documentIDBytes)
 	}
 	if engine != requiredStorageEngine {
 		return errors.New("filter transactions require an InnoDB table; rebuild the table")
@@ -290,7 +290,7 @@ func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
 		if !strings.EqualFold(column, string(s.idColumn)) || ordinal != 1 || prefix.Valid {
 			return errors.New("unique constraints must use the entire document ID as their sole key; rebuild the table")
 		}
-		primary = primary || name == "PRIMARY"
+		primary = primary || name == primaryIndexName
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("read document identity constraints: %w", err)
@@ -314,16 +314,23 @@ func (s *Store) searchStatement(wherePart string) string {
 	)
 }
 
+// The identity column type this store creates and later admits, and the name
+// information_schema reports for a primary key; DATA_TYPE is lower case.
+const (
+	documentIDType   = "VARBINARY"
+	primaryIndexName = "PRIMARY"
+)
+
 func (s *Store) createTableStatement() string {
 	return fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
-			%s VARBINARY(%d) NOT NULL PRIMARY KEY,
+			%s %s(%d) NOT NULL PRIMARY KEY,
 			%s TEXT,
 			%s JSON,
 			%s VECTOR(%d) NOT NULL
 		) ENGINE=%s DEFAULT CHARACTER SET %s COMMENT='%s'`,
 		s.tableSQL(),
-		s.idColumn.sql(), documentIDBytes,
+		s.idColumn.sql(), documentIDType, documentIDBytes,
 		s.contentColumn.sql(),
 		s.metadataColumn.sql(),
 		s.embeddingColumn.sql(), s.dimensions, requiredStorageEngine, nativeTextCharset, s.space.StorageKey(),
