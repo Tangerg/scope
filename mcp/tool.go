@@ -13,6 +13,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/Tangerg/scope/core/jsonschema"
 	"github.com/Tangerg/scope/core/metadata"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/otel/errortelemetry"
@@ -98,21 +99,7 @@ func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.Cal
 		return toolcontract.Result{}, ErrIncompleteResult
 	}
 	for id, req := range result.InputRequests {
-		form, ok := req.(*sdkmcp.ElicitParams)
-		if !ok || form == nil || id == "" || form.Message == "" || form.URL != "" || form.ElicitationID != "" || (form.Mode != "" && form.Mode != elicitation.FormMode) || form.RequestedSchema == nil {
-			return toolcontract.Result{}, ErrIncompleteResult
-		}
-		// Keep decline/cancel distinct from an affirmative answer. The form is
-		// an independent MCP schema; do not embed schemas with root-local references.
-		encoded, err := jsonv2.Marshal(form.RequestedSchema)
-		if err != nil {
-			return toolcontract.Result{}, err
-		}
-		var schemaObject map[string]any
-		if err = jsonv2.Unmarshal(encoded, &schemaObject); err != nil || schemaObject["type"] != elicitation.ObjectSchemaType || relocatesSchema(schemaObject) {
-			return toolcontract.Result{}, ErrIncompleteResult
-		}
-		schema, err := elicitationResponseSchema(encoded)
+		form, schema, err := admitElicitationForm(id, req)
 		if err != nil {
 			return toolcontract.Result{}, err
 		}
@@ -131,6 +118,30 @@ func (r remoteTool) input(invocation toolcontract.Invocation, result *sdkmcp.Cal
 		return toolcontract.Result{InputRequest: &request}, nil
 	}
 	return toolcontract.Result{}, ErrIncompleteResult
+}
+
+// admitElicitationForm accepts only a form-mode elicitation and returns the
+// answer schema that keeps decline and cancel distinct from an affirmative
+// answer. The form is an independent MCP schema, so one with root-local
+// references cannot be embedded.
+func admitElicitationForm(id string, request sdkmcp.InputRequest) (*sdkmcp.ElicitParams, jsonschema.Schema, error) {
+	form, ok := request.(*sdkmcp.ElicitParams)
+	if !ok || form == nil || id == "" || form.Message == "" || form.URL != "" || form.ElicitationID != "" || (form.Mode != "" && form.Mode != elicitation.FormMode) || form.RequestedSchema == nil {
+		return nil, jsonschema.Schema{}, ErrIncompleteResult
+	}
+	encoded, err := jsonv2.Marshal(form.RequestedSchema)
+	if err != nil {
+		return nil, jsonschema.Schema{}, err
+	}
+	var schemaObject map[string]any
+	if err = jsonv2.Unmarshal(encoded, &schemaObject); err != nil || schemaObject["type"] != elicitation.ObjectSchemaType || relocatesSchema(schemaObject) {
+		return nil, jsonschema.Schema{}, ErrIncompleteResult
+	}
+	schema, err := elicitationResponseSchema(encoded)
+	if err != nil {
+		return nil, jsonschema.Schema{}, err
+	}
+	return form, schema, nil
 }
 
 func (r remoteTool) resume(params *sdkmcp.CallToolParams, invocation toolcontract.Invocation, continuation toolcontract.Continuation) error {
