@@ -43,15 +43,8 @@ func (t *toolCallRound) validateProposal() error {
 	return nil
 }
 
-// answered reports whether every call in the response has a result. It only
-// counts calls; validation of the response and results is separate.
-func (t *toolCallRound) answered() bool {
-	if t.Response == nil || t.Response.Output == nil || t.Response.Output.Message == nil {
-		return false
-	}
-	calls := len(t.Response.Output.Message.ToolCalls())
-	return calls != 0 && calls == len(t.Results)
-}
+// answered reports whether every proposed call has a result.
+func (t *toolCallRound) answered() bool { return len(t.Results) == len(t.calls()) }
 
 func (t *toolCallRound) rejected() bool {
 	if !t.answered() {

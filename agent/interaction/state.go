@@ -90,16 +90,17 @@ func (e executionState) validate(ctx context.Context, definition *definition) er
 	if !definition.maxModelCalls.Allows(e.ModelCallCount) {
 		return fmt.Errorf("%w: model call count exceeds configured limit", ErrInvalidExecutionState)
 	}
-	if err := e.validateEnvelope(); err != nil {
-		return err
-	}
 	if err := definition.tools.validateAdvertisements(e.AdvertisedToolNames); err != nil {
 		return fmt.Errorf("%w: advertised Tools: %w", ErrInvalidExecutionState, err)
 	}
-	if err := e.validateArtifacts(ctx, definition); err != nil {
+	// The phase is derived from the round, so the round is admitted first.
+	if err := e.validateRound(ctx, definition); err != nil {
 		return err
 	}
-	if err := e.validateRound(ctx, definition); err != nil {
+	if err := e.validateEnvelope(); err != nil {
+		return err
+	}
+	if err := e.validateArtifacts(ctx, definition); err != nil {
 		return err
 	}
 	return e.validatePhaseState(ctx, definition)
