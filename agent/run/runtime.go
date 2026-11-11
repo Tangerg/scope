@@ -47,7 +47,7 @@ type Runtime struct {
 }
 
 func New(ctx context.Context, config Config) (*Runtime, error) {
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return nil, err
 	}
 	if lo.IsNil(config.Store) || !ValidDescription(config.Build) || config.ProgramResolver != nil && lo.IsNil(config.ProgramResolver) || config.ProcessAdmitter != nil && lo.IsNil(config.ProcessAdmitter) || config.StoreTimeout < 0 {
@@ -86,7 +86,7 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 	if err != nil {
 		return nil, err
 	}
-	handle, err := r.start(ctx, context.WithoutCancel(RequireContext(ctx)), program.Erase(), request.ID, input)
+	handle, err := r.start(ctx, context.WithoutCancel(requireContext(ctx)), program.Erase(), request.ID, input)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 }
 
 func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payload], id StartID, input Payload) (*Handle[Payload], error) {
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return nil, err
 	}
 	if err := r.validateProgram(program); err != nil {
@@ -216,7 +216,7 @@ func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], 
 	if r == nil {
 		return nil, ErrInvalidConfig
 	}
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return nil, err
 	}
 	if err := r.validateProgram(program.Erase()); err != nil {
@@ -290,7 +290,7 @@ func (r *Runtime) Inspect(ctx context.Context, root ProcessID) (TreeInspection, 
 	if r == nil {
 		return TreeInspection{}, ErrInvalidConfig
 	}
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return TreeInspection{}, err
 	}
 	log, found, err := r.load(ctx, root)
@@ -307,7 +307,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	if r == nil {
 		return ErrInvalidConfig
 	}
-	ctx = RequireContext(ctx)
+	ctx = requireContext(ctx)
 	r.mu.Lock()
 	done := r.closeDone
 	if done == nil {
@@ -348,7 +348,7 @@ func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 	if r == nil {
 		return ErrInvalidConfig
 	}
-	ctx = RequireContext(ctx)
+	ctx = requireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -439,7 +439,7 @@ func (r *Runtime) validateProgram(program Program[Payload, Payload]) error {
 }
 
 func (r *Runtime) load(ctx context.Context, root ProcessID) (Log, bool, error) {
-	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
+	ctx, cancel := context.WithTimeout(requireContext(ctx), r.storeTimeout)
 	defer cancel()
 	type loaded struct {
 		log   Log
@@ -467,7 +467,7 @@ func (r *Runtime) read(ctx context.Context, root ProcessID, after LSN) ([]Entry,
 // scan visits root's history after an LSN until visit returns false, so a
 // reader that knows where its facts end stops there instead of at the head.
 func (r *Runtime) scan(ctx context.Context, root ProcessID, after LSN, visit func(Entry) bool) error {
-	ctx, cancel := context.WithTimeout(RequireContext(ctx), r.storeTimeout)
+	ctx, cancel := context.WithTimeout(requireContext(ctx), r.storeTimeout)
 	defer cancel()
 	_, err := invokeCallback("Store.Read", func() (struct{}, error) {
 		next := after + 1
@@ -498,7 +498,7 @@ func (r *Runtime) Answered(ctx context.Context, process ProcessID, wait WaitKey,
 	if r == nil {
 		return false, ErrInvalidConfig
 	}
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return false, err
 	}
 	if !process.Valid() {

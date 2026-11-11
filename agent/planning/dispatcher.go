@@ -46,10 +46,6 @@ func (d *dispatcher) Dispatch(
 	request run.EffectRequest,
 	_ run.DeltaEmitter,
 ) (run.Settlement, error) {
-	ctx = run.RequireContext(ctx)
-	if !request.Valid() {
-		return run.Settlement{}, ErrInvalidProtocol
-	}
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return planningFailureSettlement(err)

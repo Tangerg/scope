@@ -32,7 +32,7 @@ func (h *Handle[O]) Inspect(ctx context.Context) (TreeInspection, error) {
 }
 
 func (h *Handle[O]) DeliverSignals(ctx context.Context, signals ...Signal) (bool, error) {
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return false, err
 	}
 	if h.admissionClosed() {
@@ -146,7 +146,7 @@ func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error 
 }
 
 func (h *Handle[O]) Await(ctx context.Context) (Result[O], error) {
-	ctx = RequireContext(ctx)
+	ctx = requireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return Result[O]{}, err
 	}
@@ -216,7 +216,7 @@ func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
 // polled, with each read starting after the last delivered position.
 func (h *Handle[O]) Observe(ctx context.Context, after LSN) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
-		ctx = RequireContext(ctx)
+		ctx = requireContext(ctx)
 		root := h.id.Root()
 		through, err := h.terminalHead(ctx, after)
 		if err != nil {
@@ -313,7 +313,7 @@ func (h *Handle[O]) waitForCommit(ctx context.Context, commit <-chan struct{}) e
 }
 
 func (h *Handle[O]) request(ctx context.Context, process ProcessID, operation command) (commandResponse, error) {
-	ctx = RequireContext(ctx)
+	ctx = requireContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return commandResponse{}, err
 	}

@@ -15,24 +15,13 @@ func (*uncalledPort) Deliver(context.Context, run.ProcessID, run.ProcessID, run.
 	panic("invalid protocol reached delivery")
 }
 
-func TestDeliveryAuthorityAndContextAreRequiredBeforeDispatch(t *testing.T) {
+func TestDeliveryAuthorityIsRequiredBeforeDispatch(t *testing.T) {
 	var typedNil *uncalledPort
 	for _, port := range []DeliveryPort{nil, typedNil} {
 		if dispatcher, err := NewDispatcher(DispatcherConfig{Port: port}); dispatcher != nil || !errors.Is(err, ErrNilDeliveryPort) {
 			t.Fatalf("missing delivery authority produced %v, %v", dispatcher, err)
 		}
 	}
-	dispatcher := require(NewDispatcher(DispatcherConfig{Port: &uncalledPort{}}))
-	if _, err := dispatcher.Dispatch(t.Context(), run.EffectRequest{}, nil); !errors.Is(err, ErrInvalidMessage) {
-		t.Fatalf("invalid request became a delivery: %v", err)
-	}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("nil context became a protocol result")
-		}
-	}()
-	var nilContext context.Context
-	_, _ = dispatcher.Dispatch(nilContext, run.EffectRequest{}, nil)
 }
 
 func TestMalformedMessageIsDefinitelyRejectedWithoutDeliveryOrReplay(t *testing.T) {

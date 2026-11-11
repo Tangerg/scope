@@ -25,7 +25,7 @@ var (
 	ErrNilContext            = errors.New("run: nil context")
 )
 
-func RequireContext(ctx context.Context) context.Context {
+func requireContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		panic(ErrNilContext)
 	}

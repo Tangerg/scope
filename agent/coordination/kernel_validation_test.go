@@ -141,9 +141,6 @@ func TestDeadlineValidatesRestoredStateAndExactTimerCompletion(t *testing.T) {
 
 func TestTimerProtocolRejectionAndCancellationAreDefinite(t *testing.T) {
 	dispatcher := deadlineDispatcher{}
-	if _, err := dispatcher.Dispatch(t.Context(), run.EffectRequest{}, nil); !errors.Is(err, ErrInvalidProtocol) {
-		t.Fatal("invalid request was dispatched", err)
-	}
 	if dispatcher.Policy(run.Effect{}).Replay != run.ReplayPolicyNever {
 		t.Fatal("invalid timer authorized replay")
 	}

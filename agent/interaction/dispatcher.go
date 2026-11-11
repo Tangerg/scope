@@ -54,13 +54,11 @@ func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
 // owner-defined settlement payload. An error means the external outcome
 // is not provable; Runtime therefore records an unknown settlement instead of
 // retrying the operation.
-// A nil ctx is invalid and panics before the request is processed.
 func (d *dispatcher) Dispatch(
 	ctx context.Context,
 	request run.EffectRequest,
 	emit run.DeltaEmitter,
 ) (run.Settlement, error) {
-	ctx = run.RequireContext(ctx)
 	envelope, err := decodeEffect(request.Effect().Payload())
 	if err != nil {
 		return failedSettlement(err)

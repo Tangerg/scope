@@ -17,7 +17,7 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore { return &MemoryStore{logs: make(map[ProcessID]*memoryLog)} }
 
 func (m *MemoryStore) Append(ctx context.Context, batch Batch) error {
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return err
 	}
 	owned, err := batch.Clone()
@@ -96,7 +96,7 @@ func (m *MemoryStore) stream(ctx context.Context, batch Batch, owned []Entry) (*
 }
 
 func (m *MemoryStore) existing(ctx context.Context, root ProcessID) (*memoryLog, error) {
-	if err := RequireContext(ctx).Err(); err != nil {
+	if err := requireContext(ctx).Err(); err != nil {
 		return nil, err
 	}
 	if !root.Valid() || root.Depth() != 0 {

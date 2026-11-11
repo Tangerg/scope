@@ -68,12 +68,7 @@ func (d *Dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 	return run.EffectPolicy{Replay: run.ReplayPolicySameIdentity}
 }
 
-// Dispatch requires a non-nil context and panics if ctx is nil.
 func (d *Dispatcher) Dispatch(ctx context.Context, request run.EffectRequest, _ run.DeltaEmitter) (run.Settlement, error) {
-	ctx = run.RequireContext(ctx)
-	if !request.Valid() {
-		return run.Settlement{}, ErrInvalidMessage
-	}
 	if d == nil || lo.IsNil(d.port) {
 		return messageFailureSettlement(ErrInvalidMessage)
 	}

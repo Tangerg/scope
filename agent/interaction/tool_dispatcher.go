@@ -41,7 +41,6 @@ func newToolDispatcher() *toolDispatcher {
 }
 
 func (t *toolDispatcher) Dispatch(ctx context.Context, request run.EffectRequest, emit run.DeltaEmitter) (run.Settlement, error) {
-	ctx = run.RequireContext(ctx)
 	invocation, err := ToolInvocationFromRequest(request)
 	if err != nil {
 		return failedSettlement(err)
