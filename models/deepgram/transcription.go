@@ -75,6 +75,9 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	params, err := t.buildParams(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
@@ -90,13 +93,10 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return newTranscriptionResponse(apiResp, params.Model)
 }
 
-// buildParams resolves options and admits the native extension: Core owns
+// buildParams resolves a validated request's options and admits the native extension: Core owns
 // model and language, and a field with a dedicated parameter may not also
 // arrive through Extra.
 func (t *TranscriptionModel) buildParams(req *transcription.Request) (*listenParams, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
 	options, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err

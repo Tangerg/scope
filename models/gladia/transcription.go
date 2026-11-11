@@ -66,6 +66,9 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	apiReq, err := t.buildRequest(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
@@ -97,12 +100,9 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return newResponse(final, apiReq.Model)
 }
 
-// buildRequest resolves options and admits the native extension without
+// buildRequest resolves a validated request's options and admits the native extension without
 // Core-owned fields; the audio URL is set once the audio is reachable.
 func (t *TranscriptionModel) buildRequest(req *transcription.Request) (*transcriptionRequest, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
 	options, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err

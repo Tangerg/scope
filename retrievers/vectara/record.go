@@ -11,7 +11,6 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/metadata"
-	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/rag"
 )
 
@@ -60,8 +59,8 @@ func bindScope(ids []string) (*boundScope, error) {
 }
 
 func validID(id string) error {
-	if err := vectorstore.ValidateDocumentID(id); err != nil {
-		return fmt.Errorf("vectara: %w", err)
+	if strings.TrimSpace(id) == "" || !utf8.ValidString(id) {
+		return errors.New("vectara: invalid document ID")
 	}
 	return nil
 }

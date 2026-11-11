@@ -74,6 +74,9 @@ func NewTranscriptionModel(ctx context.Context, config TranscriptionModelConfig)
 }
 
 func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Request) (*transcription.Response, error) {
+	if err := req.Validate(); err != nil {
+		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
+	}
 	jobOpts, err := t.buildJobOptions(req)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
@@ -112,13 +115,10 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 	return newResponse(final, text, jobOpts.Transcriber)
 }
 
-// buildJobOptions resolves options and admits the native extension without
+// buildJobOptions resolves a validated request's options and admits the native extension without
 // Core-owned fields. source_config may carry only authorization headers,
 // because Audio.Source owns the media URL.
 func (t *TranscriptionModel) buildJobOptions(req *transcription.Request) (*jobOptions, error) {
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
 	options, err := t.defaultOptions.Resolve(req.Options)
 	if err != nil {
 		return nil, err
