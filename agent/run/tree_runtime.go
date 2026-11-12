@@ -6,7 +6,6 @@ import (
 	"math"
 	"slices"
 	"sync"
-	"time"
 )
 
 const treeCommandCapacity = 32
@@ -410,7 +409,7 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 			}
 			return t.reject(p, newRuntimeFailure(failureKindForError(err, FailureKindContract), code, err))
 		}
-		records = append(records, EffectIntent{ID: turn.EffectID(uint32(index)), Effect: effect, Policy: policy, At: canonicalTime(time.Now())})
+		records = append(records, EffectIntent{ID: turn.EffectID(uint32(index)), Effect: effect, Policy: policy, At: recordedNow()})
 	}
 	for _, message := range turn.Messages[:transition.consumed] {
 		if exit, ok := message.(Exit); ok {
@@ -452,7 +451,7 @@ func (t *treeRuntime) policy(p *processState, effect Effect) (EffectPolicy, erro
 }
 
 func (t *treeRuntime) reject(p *processState, failure Failure) error {
-	return t.append(t.ctx, []Record{ExecutionFailed{Process: p.started.Process, Failure: failure, At: canonicalTime(time.Now())}})
+	return t.append(t.ctx, []Record{ExecutionFailed{Process: p.started.Process, Failure: failure, At: recordedNow()}})
 }
 
 func (t *treeRuntime) finish(p *processState) error {
@@ -465,7 +464,7 @@ func (t *treeRuntime) finish(p *processState) error {
 		if child.exited != nil {
 			records = append(records, Reaped{Process: id})
 		} else if !child.terminal.Valid() {
-			records = append(records, ControlRequested{Origin: ControlOriginParent, Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: canonicalTime(time.Now())})
+			records = append(records, ControlRequested{Origin: ControlOriginParent, Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: recordedNow()})
 		}
 	}
 	if len(records) > 0 {
@@ -480,7 +479,7 @@ func (t *treeRuntime) finish(p *processState) error {
 	if p.activeChildren != 0 || p.retainedChildren != 0 || len(p.pending) != 0 {
 		return nil
 	}
-	return t.append(t.ctx, []Record{Exited{Process: p.started.Process, Termination: p.terminal, At: canonicalTime(time.Now())}})
+	return t.append(t.ctx, []Record{Exited{Process: p.started.Process, Termination: p.terminal, At: recordedNow()}})
 }
 
 func (t *treeRuntime) cancelJobs(root ProcessID) {
@@ -603,7 +602,7 @@ func (t *treeRuntime) dispatched(result dispatchResult) {
 		}
 		return
 	}
-	err := t.append(t.ctx, []Record{EffectSettled{ID: result.id, Outcome: result.outcome, Failure: result.failure, At: canonicalTime(time.Now())}})
+	err := t.append(t.ctx, []Record{EffectSettled{ID: result.id, Outcome: result.outcome, Failure: result.failure, At: recordedNow()}})
 	if err != nil {
 		t.fail(err)
 	}
@@ -630,7 +629,7 @@ func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error
 	if err != nil {
 		return err
 	}
-	records = append(records, EffectSettled{ID: intent.ID, Outcome: outcome, At: canonicalTime(time.Now())})
+	records = append(records, EffectSettled{ID: intent.ID, Outcome: outcome, At: recordedNow()})
 	if err := t.append(t.ctx, records); err != nil {
 		return err
 	}
@@ -653,7 +652,7 @@ func (t *treeRuntime) childControl(parent *processState, effect Effect) ([]Recor
 		if err != nil || child.exited != nil {
 			return nil, err
 		}
-		return []Record{ControlRequested{Origin: ControlOriginParent, Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: canonicalTime(time.Now())}}, nil
+		return []Record{ControlRequested{Origin: ControlOriginParent, Process: effect.cancel.Child, Kind: ControlCancel, Reason: effect.cancel.Reason, At: recordedNow()}}, nil
 	default:
 		return nil, ErrInvalidEffect
 	}
@@ -722,7 +721,7 @@ func (t *treeRuntime) prepareChild(ctx context.Context, id EffectID, parent Prog
 		}
 		return childResult{id: id, failure: failure}
 	}
-	return childResult{id: id, child: &preparedChild{started: Started{Process: child, Program: program.ProgramRef(), Input: spec.Input, Budget: spec.Budget, Capabilities: spec.Capabilities, At: canonicalTime(time.Now())}, program: program, execution: execution}}
+	return childResult{id: id, child: &preparedChild{started: Started{Process: child, Program: program.ProgramRef(), Input: spec.Input, Budget: spec.Budget, Capabilities: spec.Capabilities, At: recordedNow()}, program: program, execution: execution}}
 }
 
 func (t *treeRuntime) childPrepared(result childResult) {
@@ -766,7 +765,7 @@ func (t *treeRuntime) settleChildRequest(id EffectID, child *preparedChild, fail
 	if err != nil {
 		return err
 	}
-	records = append(records, EffectSettled{ID: id, Outcome: outcome, At: canonicalTime(time.Now())})
+	records = append(records, EffectSettled{ID: id, Outcome: outcome, At: recordedNow()})
 	if err := t.append(t.ctx, records); err != nil {
 		return err
 	}
@@ -788,7 +787,7 @@ func (t *treeRuntime) signals(p *processState, signals []Signal) ([]Record, erro
 		if err := p.admissible(signal); err != nil {
 			return nil, err
 		}
-		records = append(records, SignalAdmitted{Process: p.started.Process, Signal: signal, At: canonicalTime(time.Now())})
+		records = append(records, SignalAdmitted{Process: p.started.Process, Signal: signal, At: recordedNow()})
 	}
 	if err := p.admitMessages(t.state.limits, 0, nil, uint64(len(records))); err != nil {
 		return nil, err
@@ -869,7 +868,7 @@ func unknownSettlement() Settlement {
 }
 
 func unknownRecord(id EffectID, failure Failure) EffectSettled {
-	return EffectSettled{ID: id, Outcome: unknownSettlement(), Failure: &failure, At: canonicalTime(time.Now())}
+	return EffectSettled{ID: id, Outcome: unknownSettlement(), Failure: &failure, At: recordedNow()}
 }
 
 type preparedChild struct {
@@ -890,7 +889,7 @@ func (t *treeRuntime) contextCanceled() error {
 	if root := t.state.processes[t.state.root]; root == nil || root.exited != nil {
 		return nil
 	}
-	err := t.append(t.ctx, []Record{ControlRequested{Origin: ControlOriginHost, Process: t.state.root, Kind: kind, Reason: reason, At: canonicalTime(time.Now())}})
+	err := t.append(t.ctx, []Record{ControlRequested{Origin: ControlOriginHost, Process: t.state.root, Kind: kind, Reason: reason, At: recordedNow()}})
 	t.cancelJobs(t.state.root)
 	return err
 }

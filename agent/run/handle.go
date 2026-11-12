@@ -411,7 +411,7 @@ type controlCommand struct {
 func (controlCommand) command() {}
 
 func (c controlCommand) records(_ *treeRuntime, p *processState) ([]Record, error) {
-	control := ControlRequested{Origin: ControlOriginHost, Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: canonicalTime(time.Now())}
+	control := ControlRequested{Origin: ControlOriginHost, Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: recordedNow()}
 	if !control.valid() || !p.acceptsControl(c.kind) {
 		return nil, ErrInvalidProcessControl
 	}
@@ -429,7 +429,7 @@ func (r resolveCommand) records(t *treeRuntime, p *processState) ([]Record, erro
 	if !p.unknownEffect(r.id) || !r.outcome.Valid() || r.outcome.Status() == SettlementStatusUnknown || t.jobs[r.id] != nil {
 		return nil, ErrEffectNotPending
 	}
-	return []Record{EffectSettled{ID: r.id, Outcome: r.outcome, At: canonicalTime(time.Now())}}, nil
+	return []Record{EffectSettled{ID: r.id, Outcome: r.outcome, At: recordedNow()}}, nil
 }
 
 type replayCommand struct{ id EffectID }

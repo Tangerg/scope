@@ -141,7 +141,7 @@ func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payl
 	}
 	defer release()
 	ctx = claimed
-	started := Started{Process: root, Program: program.ProgramRef(), Input: input, Budget: r.budget, Capabilities: r.capabilities, Limits: r.limits, At: canonicalTime(time.Now())}
+	started := Started{Process: root, Program: program.ProgramRef(), Input: input, Budget: r.budget, Capabilities: r.capabilities, Limits: r.limits, At: recordedNow()}
 	intent, err := started.IntentDigest()
 	if err != nil {
 		return nil, err

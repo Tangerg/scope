@@ -47,7 +47,7 @@ func (d *deltaEmitter) emit(payload Payload) {
 	if !payload.Valid() || payload.Size() > maxDeltaBytes {
 		return
 	}
-	delta := Delta{effect: d.request.ID(), epoch: d.request.Epoch(), sequence: d.sequence, emittedAt: canonicalTime(time.Now()), payload: payload}
+	delta := Delta{effect: d.request.ID(), epoch: d.request.Epoch(), sequence: d.sequence, emittedAt: recordedNow(), payload: payload}
 	select {
 	case d.channel <- delta:
 	default:

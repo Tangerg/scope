@@ -5,7 +5,6 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestInvalidStepCandidatesCannotPublishProgress(t *testing.T) {
@@ -203,7 +202,7 @@ func TestLocalWorkerCancellationCannotInventHostControl(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	program := treeFixtureProgram(t, runtime, 0, true, false, Budget{})
-	started := Started{Process: hostStartID().Root(), Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: runtime.limits, At: canonicalTime(time.Now())}
+	started := Started{Process: hostStartID().Root(), Program: program.ProgramRef(), Input: controlValue(EncodePayload(0)), Limits: runtime.limits, At: recordedNow()}
 	state := newTreeState(started.Process)
 	tree := newTreeRuntime(runtime, state, t.Context())
 	defer tree.cancel()
