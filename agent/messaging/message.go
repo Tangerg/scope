@@ -49,9 +49,6 @@ func (m Message) signal(effectID run.EffectID) (run.Signal, error) {
 }
 
 func decodeMessage(effect run.Effect) (Message, error) {
-	if !effect.Valid() || effect.Target() != run.EffectTargetDispatcher {
-		return Message{}, ErrInvalidMessage
-	}
 	input := effect.Payload()
 	message, err := input.Decode[Message]()
 	if err != nil {

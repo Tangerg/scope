@@ -73,9 +73,10 @@ func discardDelta(Payload) {}
 
 // Policy is captured in EffectIntent before dispatch. Recovery uses that
 // acknowledged declaration, never a newly queried replay decision.
-// The Runtime calls Dispatch with a live context and a valid EffectRequest for
-// an Effect its Program's Execution declared, so a Dispatcher checks only that
-// the Effect payload belongs to its own protocol.
+// The Runtime calls Policy with a valid dispatcher Effect, and Dispatch with a
+// live context and a valid EffectRequest, for an Effect its Program's
+// Execution declared, so a Dispatcher checks only that the Effect payload
+// belongs to its own protocol.
 // Dispatch must distinguish a definite result from interruption: an error
 // leaves the outcome unknown. A work context canceled by local writer shutdown
 // has ErrWriterStopped as its cause; this is not a durable business failure.

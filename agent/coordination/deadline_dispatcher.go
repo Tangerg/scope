@@ -35,9 +35,6 @@ func newTimerEffect(deadline time.Time) (run.Effect, error) {
 }
 
 func decodeTimerEffect(effect run.Effect) (timerRequest, error) {
-	if !effect.Valid() || effect.Target() != run.EffectTargetDispatcher {
-		return timerRequest{}, ErrInvalidProtocol
-	}
 	payload := effect.Payload()
 	request, err := payload.Decode[timerRequest]()
 	if err != nil {
