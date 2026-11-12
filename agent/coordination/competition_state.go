@@ -19,18 +19,11 @@ func (f firstSuccessState) validate(ctx context.Context, maximum uint32) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maximum) || len(f.Calls) != 0 && len(f.Calls) != len(f.Candidates) {
-		return ErrInvalidExecutionState
+	if err := f.validateCandidates(maximum); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidExecutionState, err)
 	}
-	keys := make(map[run.ChildKey]struct{}, len(f.Candidates))
-	for _, candidate := range f.Candidates {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if _, exists := keys[candidate.Key]; exists {
-			return fmt.Errorf("%w: duplicate candidate key", ErrInvalidExecutionState)
-		}
-		keys[candidate.Key] = struct{}{}
+	if len(f.Calls) != 0 && len(f.Calls) != len(f.Candidates) {
+		return ErrInvalidExecutionState
 	}
 	parent, err := f.validateCalls()
 	if err != nil {
@@ -40,6 +33,22 @@ func (f firstSuccessState) validate(ctx context.Context, maximum uint32) error {
 		return ErrInvalidExecutionState
 	}
 	return f.validateCancellations(parent)
+}
+
+// validateCandidates is the input rule: Start applies it before any child
+// exists, and Restore applies it again beneath the progress built on it.
+func (f firstSuccessState) validateCandidates(maximum uint32) error {
+	if len(f.Candidates) == 0 || uint64(len(f.Candidates)) > uint64(maximum) {
+		return fmt.Errorf("competition requires between 1 and %d candidates", maximum)
+	}
+	keys := make(map[run.ChildKey]struct{}, len(f.Candidates))
+	for _, candidate := range f.Candidates {
+		if _, exists := keys[candidate.Key]; exists {
+			return fmt.Errorf("duplicate candidate key %q", candidate.Key)
+		}
+		keys[candidate.Key] = struct{}{}
+	}
+	return nil
 }
 
 func (f firstSuccessState) validateCalls() (run.ProcessID, error) {

@@ -174,8 +174,8 @@ func TestCompetitionRestorationRejectsContradictoryPendingState(t *testing.T) {
 	b := a
 	b.Key = require(run.ParseChildKey("b"))
 	for _, candidates := range [][]run.ChildSpec{nil, {a, a}, {a, b, a}} {
-		if _, err := definition.Start(require(run.EncodePayload(candidates))); err == nil {
-			t.Fatal("invalid competition candidates accepted")
+		if _, err := definition.Start(require(run.EncodePayload(candidates))); !errors.Is(err, run.ErrInvalidPayload) {
+			t.Fatalf("invalid competition candidates: %v", err)
 		}
 	}
 	execution := require(definition.Start(require(run.EncodePayload([]run.ChildSpec{a, b}))))

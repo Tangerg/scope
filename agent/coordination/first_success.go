@@ -48,11 +48,11 @@ func (*firstSuccessDefinition) ChildPrograms() []run.Program[run.Payload, run.Pa
 func (f *firstSuccessDefinition) Start(input run.Payload) (run.Execution, error) {
 	candidates, err := input.Decode[[]run.ChildSpec]()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: decode candidates: %w", run.ErrInvalidPayload, err)
 	}
 	state := firstSuccessState{Candidates: candidates}
-	if err := state.validate(context.Background(), f.policy.MaxCandidates); err != nil {
-		return nil, err
+	if err := state.validateCandidates(f.policy.MaxCandidates); err != nil {
+		return nil, fmt.Errorf("%w: %w", run.ErrInvalidPayload, err)
 	}
 	return &firstSuccessExecution{definition: f, state: state}, nil
 }
