@@ -61,8 +61,10 @@
 // Option defaults stay with the provider that owns them. The safeguard package
 // screens input and output as fail-closed chat middleware.
 // The httpclient package binds a borrowed HTTP client to its configured API
-// origin so credentials cannot cross that boundary through redirects. The Host
-// retains transport, retry, authentication, and resource-lifetime ownership.
+// origin so credentials cannot cross that boundary through redirects, and owns
+// the base-URL, origin, and path-segment rules adapters use to address an API.
+// The Host retains transport, retry, authentication, and resource-lifetime
+// ownership.
 //
 // # Streaming
 //

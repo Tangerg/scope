@@ -29,6 +29,8 @@ import (
 const (
 	defaultHTTPTimeout = 30 * time.Second
 	restAPIVersion     = "v1"
+	// The REST endpoint's scheme also selects TLS for the gRPC connection.
+	schemeHTTPS = "https"
 )
 
 // Client binds all REST operations to one origin and gRPC calls to one configured server.
@@ -76,7 +78,7 @@ func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
 		return nil, fmt.Errorf("weaviate: read server metadata: %w", err)
 	}
 	secure := insecure.NewCredentials()
-	if u.Scheme == "https" {
+	if u.Scheme == schemeHTTPS {
 		secure = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
 	}
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(secure), grpc.WithDisableRetry(), grpc.WithDisableServiceConfig()}

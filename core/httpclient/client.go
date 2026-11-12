@@ -1,4 +1,6 @@
-// Package httpclient bounds an API client's requests to its configured origin.
+// Package httpclient bounds an API client's requests to its configured origin
+// and owns the URL shapes adapters use to configure and address an API: base
+// URLs, origins, and path segments.
 package httpclient
 
 import (
