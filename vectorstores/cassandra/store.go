@@ -81,12 +81,11 @@ type StoreConfig struct {
 	MetadataColumn  string
 	Space           vectorstore.SpaceID
 	Similarity      SimilarityFunction
-	// CreateDimensions seeds a new vector column when InitializeSchema is true.
-	// Existing native schema always owns the width used by operations.
+	// CreateDimensions provisions the keyspace and four-column table with this
+	// vector width when they do not exist; zero opens an existing table. The
+	// native column owns the width, so an existing table must already declare it.
+	// Every constructor verifies the actual native column types and primary key.
 	CreateDimensions int
-	// InitializeSchema creates only the keyspace and four-column table. Every
-	// constructor verifies the actual native column types and primary key.
-	InitializeSchema bool
 	// KeyspaceReplication is the trusted CQL replication clause for creation.
 	// Empty creates a single-replica SimpleStrategy keyspace.
 	KeyspaceReplication string
@@ -103,11 +102,8 @@ func (s StoreConfig) Validate() error {
 	if !s.Similarity.Valid() {
 		return fmt.Errorf("cassandra: unsupported Similarity %q", s.Similarity)
 	}
-	if s.InitializeSchema && s.CreateDimensions <= 0 {
-		return errors.New("cassandra: CreateDimensions must be positive when InitializeSchema is enabled")
-	}
-	if !s.InitializeSchema && s.CreateDimensions != 0 {
-		return errors.New("cassandra: CreateDimensions requires InitializeSchema")
+	if s.CreateDimensions < 0 {
+		return errors.New("cassandra: CreateDimensions must not be negative")
 	}
 	return s.validateIdentifiers()
 }
@@ -170,7 +166,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{session: config.Session, fullTable: quoteIdentifier(config.KeyspaceName) + "." + quoteIdentifier(config.TableName), idColumn: config.IDColumn, contentColumn: config.ContentColumn, embeddingColumn: config.EmbeddingColumn, metadataColumn: config.MetadataColumn, space: config.Space, similarity: config.Similarity}
-	if config.InitializeSchema {
+	if config.CreateDimensions > 0 {
 		statements := []string{
 			fmt.Sprintf("CREATE KEYSPACE IF NOT EXISTS %s WITH REPLICATION = %s", quoteIdentifier(config.KeyspaceName), config.KeyspaceReplication),
 			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s text PRIMARY KEY, %s text, %s text, %s vector<float,%d>) WITH comment = '%s'", store.fullTable, quoteIdentifier(store.idColumn), quoteIdentifier(store.contentColumn), quoteIdentifier(store.metadataColumn), quoteIdentifier(store.embeddingColumn), config.CreateDimensions, store.tableBinding()),
@@ -183,6 +179,9 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	}
 	if err := store.loadSchema(ctx, config.KeyspaceName, config.TableName); err != nil {
 		return nil, fmt.Errorf("cassandra: verify schema: %w", err)
+	}
+	if config.CreateDimensions > 0 && store.dimensions != config.CreateDimensions {
+		return nil, fmt.Errorf("cassandra: table declares %d dimensions, not %d: %w", store.dimensions, config.CreateDimensions, vectorstore.ErrIncompatibleSpace)
 	}
 	return store, nil
 }

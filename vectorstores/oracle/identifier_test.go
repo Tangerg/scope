@@ -129,7 +129,7 @@ func TestConfiguredIdentifiersKeepCatalogAndSQLIdentity(t *testing.T) {
 					t.Error(err)
 				}
 			})
-			config := StoreConfig{DB: db, SchemaName: "schema", TableName: "table", IDColumn: "primary", ContentColumn: "from", MetadataColumn: "select", EmbeddingColumn: "where", Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
+			config := StoreConfig{DB: db, SchemaName: "schema", TableName: "table", IDColumn: "primary", ContentColumn: "from", MetadataColumn: "select", EmbeddingColumn: "where", Space: fixtureSpace, CreateDimensions: creationWidth(initialize)}
 			store, err := NewStore(t.Context(), config)
 			if err != nil {
 				t.Fatal(err)

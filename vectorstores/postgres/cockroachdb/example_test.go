@@ -18,7 +18,7 @@ func ExampleNewStore() {
 		panic(err)
 	}
 	defer pool.Close()
-	store, err := cockroachdb.NewStore(ctx, cockroachdb.StoreConfig{Pool: pool, SchemaName: "scope", TableName: "documents", Space: "release-notes-v1", Dimensions: 2, InitializeSchema: true})
+	store, err := cockroachdb.NewStore(ctx, cockroachdb.StoreConfig{Pool: pool, SchemaName: "scope", TableName: "documents", Space: "release-notes-v1", CreateDimensions: 2})
 	if err != nil {
 		panic(err)
 	}

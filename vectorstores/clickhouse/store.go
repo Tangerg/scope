@@ -97,9 +97,12 @@ type StoreConfig struct {
 
 	Space vectorstore.SpaceID
 
-	Dimensions       int
-	DistanceMetric   DistanceMetric
-	InitializeSchema bool
+	DistanceMetric DistanceMetric
+
+	// CreateDimensions provisions the table with this vector width when it
+	// does not exist; zero opens an existing table. The native length
+	// constraint owns the width, so an existing table must already declare it.
+	CreateDimensions int
 }
 
 func (s StoreConfig) Validate() error {
@@ -110,8 +113,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.Dimensions < 0 || (s.InitializeSchema && s.Dimensions == 0) {
-		return errors.New("clickhouse: Dimensions must be non-negative and positive for schema creation")
+	if s.CreateDimensions < 0 {
+		return errors.New("clickhouse: CreateDimensions must not be negative")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("clickhouse: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -206,8 +209,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		idColumn: config.IDColumn, contentColumn: config.ContentColumn, metadataColumn: config.MetadataColumn, embeddingColumn: config.EmbeddingColumn,
 		space: config.Space, distanceMetric: config.DistanceMetric,
 	}
-	if config.InitializeSchema {
-		if err = store.initialize(ctx, config.Dimensions); err != nil {
+	if config.CreateDimensions > 0 {
+		if err = store.create(ctx, config.CreateDimensions); err != nil {
 			return nil, err
 		}
 	}
@@ -216,13 +219,13 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store.dimensions = width
-	if config.Dimensions > 0 && config.Dimensions != width {
-		return nil, fmt.Errorf("%w: requested %d dimensions, table declares %d", vectorstore.ErrIncompatibleSpace, config.Dimensions, width)
+	if config.CreateDimensions > 0 && config.CreateDimensions != width {
+		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, width, config.CreateDimensions)
 	}
 	return store, nil
 }
 
-func (s *Store) initialize(ctx context.Context, dimensions int) error {
+func (s *Store) create(ctx context.Context, dimensions int) error {
 	statement := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
   %s %s, %s %s, %s %s, %s %s,
   CONSTRAINT %s CHECK length(%s) = %d,

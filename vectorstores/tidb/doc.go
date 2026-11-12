@@ -1,8 +1,8 @@
 // Package tidb indexes precomputed vectors in a Host-provisioned SQL table.
 // Upsert and ranked queries recheck the durable space marker and native fixed
 // vector dimension. Deletion uses the table selected by the Host directly.
-// Dimensions in StoreConfig seeds only a newly created column;
-// no model, tokenization or embedding call occurs inside the adapter.
+// A positive CreateDimensions provisions a missing table, and an existing
+// table must already declare that width; no model, tokenization or embedding call occurs inside the adapter.
 // Configured schema, table and column names are native names, not SQL fragments;
 // SQL quotes each name so reserved words retain the same catalog identity.
 // Content requires a utf8mb4 TEXT-family column. CheckDocuments and Upsert derive

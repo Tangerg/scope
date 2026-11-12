@@ -69,7 +69,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 }
 
 func (n *nativeFixture) config(initialize bool) StoreConfig {
-	return StoreConfig{DB: n.db, SchemaName: n.schema, TableName: "documents", MetadataColumn: "facts", Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
+	return StoreConfig{DB: n.db, SchemaName: n.schema, TableName: "documents", MetadataColumn: "facts", Space: fixtureSpace, CreateDimensions: creationWidth(initialize)}
 }
 
 func (n *nativeFixture) vector(text string) []float64 {

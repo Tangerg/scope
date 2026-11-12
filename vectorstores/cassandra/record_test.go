@@ -100,15 +100,12 @@ func TestConfigValidatesCurrentSchemaInputs(t *testing.T) {
 		}
 	}
 	var typedNil *nilSession
-	invalid := []StoreConfig{valid, valid, valid, valid, valid, valid, valid}
+	invalid := []StoreConfig{valid, valid, valid, valid, valid}
 	invalid[0].Session = typedNil
 	invalid[1].Space = ""
 	invalid[2].Space = " padded"
 	invalid[3].Similarity = "wrong"
-	invalid[4].InitializeSchema = true
-	invalid[5].CreateDimensions = 2
-	invalid[6].InitializeSchema = true
-	invalid[6].CreateDimensions = -1
+	invalid[4].CreateDimensions = -1
 	for _, config := range invalid {
 		if err := config.Validate(); err == nil {
 			t.Fatal("accepted invalid config")

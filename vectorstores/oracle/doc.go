@@ -1,8 +1,8 @@
 // Package oracle indexes precomputed vectors in a Host-provisioned SQL table.
 // Upsert and ranked queries recheck the durable space marker and native fixed
 // vector dimension. Deletion uses the table selected by the Host directly.
-// Dimensions in StoreConfig seeds only a newly created column;
-// no model, tokenization or embedding call occurs inside the adapter.
+// A positive CreateDimensions provisions a missing table, and an existing
+// table must already declare that width; no model, tokenization or embedding call occurs inside the adapter.
 // Configured schema, table and column names use Oracle's uppercase identity;
 // SQL quotes that canonical name so reserved words remain valid identifiers.
 // Content requires a non-null CLOB in an AL32UTF8 database. Construction checks

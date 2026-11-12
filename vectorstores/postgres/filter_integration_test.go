@@ -66,13 +66,13 @@ func newNativeFixture(t *testing.T, backend string, metric string) *nativeFixtur
 	case "pgvector":
 		f.store, err = pgvector.NewStore(t.Context(), pgvector.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
-			Space: fixtureSpace, Dimensions: 2,
-			IndexType: pgvector.IndexNone, InitializeSchema: true, DistanceMetric: postgres.DistanceMetric(metric),
+			Space: fixtureSpace, CreateDimensions: 2,
+			IndexType: pgvector.IndexNone, DistanceMetric: postgres.DistanceMetric(metric),
 		})
 	case "cockroachdb":
 		f.store, err = cockroachdb.NewStore(t.Context(), cockroachdb.StoreConfig{
 			Pool: pool, SchemaName: schema, TableName: "documents", MetadataColumn: "facts",
-			Space: fixtureSpace, Dimensions: 2, InitializeSchema: true, DistanceMetric: postgres.DistanceMetric(metric),
+			Space: fixtureSpace, CreateDimensions: 2, DistanceMetric: postgres.DistanceMetric(metric),
 		})
 	default:
 		t.Fatalf("unknown test backend %q", backend)

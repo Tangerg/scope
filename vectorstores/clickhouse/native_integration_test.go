@@ -65,11 +65,12 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 	return f
 }
 
-func (n *nativeFixture) config(metric storeclickhouse.DistanceMetric, initialize bool) storeclickhouse.StoreConfig {
-	return storeclickhouse.StoreConfig{
-		DB: n.db, DatabaseName: n.schema, Space: testSpace,
-		Dimensions: 2, DistanceMetric: metric, InitializeSchema: initialize,
+func (n *nativeFixture) config(metric storeclickhouse.DistanceMetric, create bool) storeclickhouse.StoreConfig {
+	config := storeclickhouse.StoreConfig{DB: n.db, DatabaseName: n.schema, Space: testSpace, DistanceMetric: metric}
+	if create {
+		config.CreateDimensions = 2
 	}
+	return config
 }
 
 const testSpace vectorstore.SpaceID = "native-test-space"

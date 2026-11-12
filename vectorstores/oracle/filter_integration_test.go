@@ -73,7 +73,7 @@ func newNativeFixture(t *testing.T) *nativeFixture {
 }
 
 func (n *nativeFixture) config(initialize bool) StoreConfig {
-	return StoreConfig{DB: n.db, TableName: n.table, MetadataColumn: "FACTS", Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
+	return StoreConfig{DB: n.db, TableName: n.table, MetadataColumn: "FACTS", Space: fixtureSpace, CreateDimensions: creationWidth(initialize)}
 }
 
 func (n *nativeFixture) vector(text string) []float64 {
@@ -230,7 +230,7 @@ func TestLiveLargeLOBParametersAndNativeVectorWidth(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := f.config(true)
-	config.Dimensions = 1536
+	config.CreateDimensions = 1536
 	f.vectorFor = func(string) []float64 {
 		v := make([]float64, 1536)
 		for i := range v {
@@ -243,7 +243,7 @@ func TestLiveLargeLOBParametersAndNativeVectorWidth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.InitializeSchema, config.Dimensions = false, 0
+	config.CreateDimensions = 0
 	f.store, err = NewStore(t.Context(), config)
 	if err != nil {
 		t.Fatal(err)
@@ -571,7 +571,7 @@ func TestLiveSchemaBindingAndConfiguredMetrics(t *testing.T) {
 		{DistanceDot, vectorstore.ScoreFromNegativeInnerProductDistance(-1)},
 	} {
 		config := f.config(false)
-		config.SchemaName, config.Dimensions, config.DistanceMetric = strings.ToLower(schema), 0, test.metric
+		config.SchemaName, config.DistanceMetric = strings.ToLower(schema), test.metric
 		store, err := NewStore(t.Context(), config)
 		if err != nil {
 			t.Fatal(err)

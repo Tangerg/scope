@@ -7,8 +7,8 @@
 // Construction probes native transactions and reads the real four-column
 // table schema: unpartitioned ReplacingMergeTree ordered only by ID, three
 // String columns and Array(Float32), vec_len and vec_finite. The native length
-// constraint owns the width. Dimensions sets the creation width and, if given
-// when opening, must agree with the table. The host must not replace the table
+// constraint owns the width. A positive CreateDimensions provisions a missing
+// table, and an existing table must already declare that width. The host must not replace the table
 // while a Store is in use. Metadata is one exact Core JSON string, including
 // null, precise numbers and escaped values. Media documents are unsupported.
 //

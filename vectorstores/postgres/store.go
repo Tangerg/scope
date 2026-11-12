@@ -27,6 +27,9 @@ type StoreConfig struct {
 	MetadataColumn string
 	Space          vectorstore.SpaceID
 	DistanceMetric DistanceMetric
+	// ExpectedDimensions, when positive, is the width the table must already
+	// declare; the native column owns it and zero accepts whatever it declares.
+	ExpectedDimensions int
 }
 
 // Store executes the Core vector store contracts against one pgwire table; the
@@ -48,8 +51,12 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{pool: config.Pool, fullTable: pgx.Identifier{config.SchemaName, config.TableName}.Sanitize(), metadataColumn: pgx.Identifier{config.MetadataColumn}.Sanitize(), metadataName: config.MetadataColumn, space: config.Space, distanceMetric: config.DistanceMetric}
-	if _, err := store.readSchema(ctx, config.Pool); err != nil {
+	width, err := store.readSchema(ctx, config.Pool)
+	if err != nil {
 		return nil, err
+	}
+	if config.ExpectedDimensions > 0 && width != config.ExpectedDimensions {
+		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, width, config.ExpectedDimensions)
 	}
 	return store, nil
 }

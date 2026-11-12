@@ -50,12 +50,14 @@ type StoreConfig struct {
 	IndexName      string
 	MetadataColumn string
 	// Space is the Host-owned immutable binding for this physical collection.
-	Space vectorstore.SpaceID
-	// Dimensions seeds only a newly created native column; existing native width is authoritative.
-	Dimensions       int
-	DistanceMetric   postgres.DistanceMetric
-	IndexType        IndexType
-	InitializeSchema bool
+	Space          vectorstore.SpaceID
+	DistanceMetric postgres.DistanceMetric
+	IndexType      IndexType
+
+	// CreateDimensions provisions the schema and table with this vector width
+	// when they do not exist; zero opens an existing table. The native column
+	// owns the width, so an existing table must already declare it.
+	CreateDimensions int
 }
 
 func (s StoreConfig) Validate() error {
@@ -67,8 +69,8 @@ func (s StoreConfig) Validate() error {
 		return err
 	}
 
-	if s.Dimensions < 0 {
-		return errors.New("pgvector: Dimensions must be >= 0")
+	if s.CreateDimensions < 0 {
+		return errors.New("pgvector: CreateDimensions must not be negative")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("pgvector: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -112,17 +114,20 @@ func NewStore(ctx context.Context, config StoreConfig) (*postgres.Store, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	if err := initialize(ctx, config); err != nil {
-		return nil, fmt.Errorf("pgvector.NewStore: initialize schema: %w", err)
+	if config.CreateDimensions > 0 {
+		if err := create(ctx, config); err != nil {
+			return nil, fmt.Errorf("pgvector.NewStore: create schema: %w", err)
+		}
 	}
 
 	store, err := postgres.NewStore(ctx, postgres.StoreConfig{
-		Pool:           config.Pool,
-		SchemaName:     config.SchemaName,
-		TableName:      config.TableName,
-		MetadataColumn: config.MetadataColumn,
-		Space:          config.Space,
-		DistanceMetric: config.DistanceMetric,
+		Pool:               config.Pool,
+		SchemaName:         config.SchemaName,
+		TableName:          config.TableName,
+		MetadataColumn:     config.MetadataColumn,
+		Space:              config.Space,
+		DistanceMetric:     config.DistanceMetric,
+		ExpectedDimensions: config.CreateDimensions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("pgvector.NewStore: %w", err)
@@ -130,16 +135,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*postgres.Store, error) 
 	return store, nil
 }
 
-func initialize(ctx context.Context, config StoreConfig) error {
-	if !config.InitializeSchema {
-		return nil
-	}
-
-	dimensions := config.Dimensions
-	if dimensions <= 0 {
-		return errors.New("dimensions must be > 0")
-	}
-
+func create(ctx context.Context, config StoreConfig) error {
+	dimensions := config.CreateDimensions
 	statements := []string{
 		`CREATE EXTENSION IF NOT EXISTS vector`,
 		fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, pgx.Identifier{config.SchemaName}.Sanitize()),

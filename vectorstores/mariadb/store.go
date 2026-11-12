@@ -103,14 +103,12 @@ type StoreConfig struct {
 
 	Space vectorstore.SpaceID
 
-	// Dimensions is required when InitializeSchema is true: the width is part
-	// of the VECTOR column type and cannot be read off a table that does not
-	// exist yet.
-	Dimensions int
-
 	DistanceMetric DistanceMetric
 
-	InitializeSchema bool
+	// CreateDimensions provisions the table with this vector width when it
+	// does not exist; zero opens an existing table. The native column owns the
+	// width, so an existing table must already declare it.
+	CreateDimensions int
 }
 
 func (s StoreConfig) Validate() error {
@@ -121,8 +119,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.Dimensions < 0 {
-		return errors.New("mariadb: Dimensions must be >= 0")
+	if s.CreateDimensions < 0 {
+		return errors.New("mariadb: CreateDimensions must not be negative")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("mariadb: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -187,7 +185,6 @@ type Store struct {
 	metadataColumn  identifier
 	embeddingColumn identifier
 	space           vectorstore.SpaceID
-	dimensions      int
 	distanceMetric  DistanceMetric
 }
 
@@ -210,15 +207,23 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		metadataColumn:  identifier(config.MetadataColumn),
 		embeddingColumn: identifier(config.EmbeddingColumn),
 		space:           config.Space,
-		dimensions:      config.Dimensions,
 		distanceMetric:  config.DistanceMetric,
 	}
 
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("mariadb: initialize store: %w", err)
+	if config.CreateDimensions > 0 {
+		if err = store.create(ctx, config.CreateDimensions); err != nil {
+			return nil, fmt.Errorf("mariadb: create store: %w", err)
+		}
 	}
-	if _, err := store.binding(ctx); err != nil {
+	if err = store.validateIdentitySchema(ctx); err != nil {
+		return nil, fmt.Errorf("mariadb: open store: %w", err)
+	}
+	binding, err := store.binding(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if config.CreateDimensions > 0 && binding.dimensions != config.CreateDimensions {
+		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, binding.dimensions, config.CreateDimensions)
 	}
 	return store, nil
 }
@@ -230,14 +235,7 @@ func (s *Store) tableSQL() string {
 	return s.schemaName.sql() + "." + s.tableName.sql()
 }
 
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return s.validateIdentitySchema(ctx)
-	}
-	if s.dimensions <= 0 {
-		return errors.New("mariadb: Dimensions must be > 0")
-	}
-
+func (s *Store) create(ctx context.Context, dimensions int) error {
 	if s.schemaName != "" {
 		if _, err := s.db.ExecContext(ctx,
 			fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", s.schemaName.sql())); err != nil {
@@ -245,10 +243,10 @@ func (s *Store) initialize(ctx context.Context, initSchema bool) error {
 		}
 	}
 
-	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
+	if _, err := s.db.ExecContext(ctx, s.createTableStatement(dimensions)); err != nil {
 		return fmt.Errorf("create table %s: %w", s.tableSQL(), err)
 	}
-	return s.validateIdentitySchema(ctx)
+	return nil
 }
 
 func (s *Store) validateIdentitySchema(ctx context.Context) (err error) {
@@ -321,7 +319,7 @@ const (
 	primaryIndexName = "PRIMARY"
 )
 
-func (s *Store) createTableStatement() string {
+func (s *Store) createTableStatement(dimensions int) string {
 	return fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
 			%s %s(%d) NOT NULL PRIMARY KEY,
@@ -333,7 +331,7 @@ func (s *Store) createTableStatement() string {
 		s.idColumn.sql(), documentIDType, documentIDBytes,
 		s.contentColumn.sql(),
 		s.metadataColumn.sql(),
-		s.embeddingColumn.sql(), s.dimensions, requiredStorageEngine, nativeTextCharset, s.space.StorageKey(),
+		s.embeddingColumn.sql(), dimensions, requiredStorageEngine, nativeTextCharset, s.space.StorageKey(),
 	)
 }
 

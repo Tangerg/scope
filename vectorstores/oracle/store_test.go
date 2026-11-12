@@ -86,10 +86,18 @@ func TestInvalidLaterRecordOrSpaceDoesNotReachDatabase(t *testing.T) {
 func TestConstructionPreservesNativeErrors(t *testing.T) {
 	db, closedErr := closedDatabase(t)
 	for _, initialize := range []bool{false, true} {
-		config := StoreConfig{DB: db, Space: fixtureSpace, Dimensions: 2, InitializeSchema: initialize}
+		config := StoreConfig{DB: db, Space: fixtureSpace, CreateDimensions: creationWidth(initialize)}
 		store, err := NewStore(t.Context(), config)
 		if !errors.Is(err, closedErr) || store != nil {
 			t.Fatalf("construct: %v, %v", store, err)
 		}
 	}
+}
+
+// creationWidth is the fixture width when a test provisions its table.
+func creationWidth(create bool) int {
+	if create {
+		return 2
+	}
+	return 0
 }

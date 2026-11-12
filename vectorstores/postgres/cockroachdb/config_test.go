@@ -12,9 +12,9 @@ import (
 // appear at the first query as an opaque driver error.
 func TestStoreConfigRejectsAnUnusableConfiguration(t *testing.T) {
 	cases := map[string]StoreConfig{
-		"missing pool":        {},
-		"negative dimensions": {Dimensions: -1},
-		"unknown metric":      {DistanceMetric: postgres.DistanceMetric("manhattan")},
+		"missing pool":                 {},
+		"negative creation dimensions": {CreateDimensions: -1},
+		"unknown metric":               {DistanceMetric: postgres.DistanceMetric("manhattan")},
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {

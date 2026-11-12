@@ -15,8 +15,8 @@ func TestSearchUsesCanonicalRowsAndConfiguredMetric(t *testing.T) {
 		{DistanceNegativeIP, "VEC_NEGATIVE_INNER_PRODUCT("},
 	} {
 		t.Run(string(test.metric), func(t *testing.T) {
-			store := &Store{tableName: "docs", idColumn: "id", contentColumn: "content", metadataColumn: "metadata", embeddingColumn: "embedding", dimensions: 3, distanceMetric: test.metric}
-			ddl := store.createTableStatement()
+			store := &Store{tableName: "docs", idColumn: "id", contentColumn: "content", metadataColumn: "metadata", embeddingColumn: "embedding", distanceMetric: test.metric}
+			ddl := store.createTableStatement(3)
 			if strings.Contains(ddl, "VECTOR INDEX") || !strings.Contains(ddl, "`id` VARBINARY(3072) NOT NULL PRIMARY KEY") || !strings.Contains(ddl, "`metadata` LONGBLOB NOT NULL") || !strings.Contains(ddl, "`embedding` VECTOR(3) NOT NULL") {
 				t.Fatalf("schema adds a competing identity or search projection: %s", ddl)
 			}

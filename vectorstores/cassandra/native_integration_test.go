@@ -105,7 +105,7 @@ func (n *nativeFixture) config(metric SimilarityFunction, create bool) StoreConf
 	if create {
 		dimensions = 2
 	}
-	return StoreConfig{Session: n, KeyspaceName: n.keyspace, TableName: "docs", Space: fixtureSpace, Similarity: metric, InitializeSchema: create, CreateDimensions: dimensions}
+	return StoreConfig{Session: n, KeyspaceName: n.keyspace, TableName: "docs", Space: fixtureSpace, Similarity: metric, CreateDimensions: dimensions}
 }
 
 func (n *nativeFixture) store(t *testing.T, metric SimilarityFunction) *Store {
@@ -602,7 +602,7 @@ func TestNativeTableBindingRejectsTheFormerMutationProtocol(t *testing.T) {
 	}
 	for _, initialize := range []bool{false, true} {
 		if opened, err := NewStore(t.Context(), f.config(SimilarityCosine, initialize)); opened != nil || !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
-			t.Fatalf("former ordinary-write binding admitted: InitializeSchema=%t, store=%v, error=%v", initialize, opened, err)
+			t.Fatalf("former ordinary-write binding admitted: create=%t, store=%v, error=%v", initialize, opened, err)
 		}
 	}
 	var binding string

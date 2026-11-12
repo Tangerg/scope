@@ -13,8 +13,9 @@
 // I/O. Metadata may contain encoded NUL values.
 //
 // NewStore validates the deployed column types, constraints, and vector width.
-// InitializeSchema creates the current schema when requested, but never alters
-// an existing table. Dimensions seeds only a new column. Every operation reads
+// A positive CreateDimensions provisions the current schema when it is missing,
+// never alters an existing table, and requires an existing table to declare
+// that width. Every operation reads
 // the native schema again; no Scope width override advances that fact.
 // Existing text-ID/JSONB tables are rejected. Recreate the table and reindex from
 // authoritative documents; there are no compatibility reads or migrations.

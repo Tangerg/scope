@@ -17,8 +17,7 @@ func TestConfigValidationOwnsConstructionRequirements(t *testing.T) {
 	}{
 		{"space", "space ID", func(c *StoreConfig) { c.Space = "" }},
 		{"database", "DB is required", func(config *StoreConfig) { config.DB = nil }},
-		{"negative_width", "Dimensions must be >= 0", func(config *StoreConfig) { config.Dimensions = -1 }},
-		{"creation_width", "Dimensions must be > 0", func(config *StoreConfig) { config.InitializeSchema = true }},
+		{"negative_width", "CreateDimensions must not be negative", func(config *StoreConfig) { config.CreateDimensions = -1 }},
 		{"metric", "unsupported DistanceMetric", func(config *StoreConfig) { config.DistanceMetric = "unsupported" }},
 		{"schema", "SchemaName", func(config *StoreConfig) { config.SchemaName = "bad.schema" }},
 		{"table", "TableName", func(config *StoreConfig) { config.TableName = "bad.table" }},
@@ -63,8 +62,8 @@ func TestMetricsRetainCanonicalNamesAndScoreDirection(t *testing.T) {
 }
 
 func TestDDLKeepsExactIdentityAndLosslessMetadata(t *testing.T) {
-	store := &Store{schemaName: "APP", tableName: "DOCUMENTS", idColumn: "ID", contentColumn: "CONTENT", metadataColumn: "FACTS", embeddingColumn: "EMBEDDING", dimensions: 3}
-	ddl := store.createTableStatement()
+	store := &Store{schemaName: "APP", tableName: "DOCUMENTS", idColumn: "ID", contentColumn: "CONTENT", metadataColumn: "FACTS", embeddingColumn: "EMBEDDING"}
+	ddl := store.createTableStatement(3)
 	for _, want := range []string{`CREATE TABLE IF NOT EXISTS "APP"."DOCUMENTS"`, `"ID" RAW(2000) NOT NULL PRIMARY KEY`, `"FACTS" BLOB NOT NULL`, `"EMBEDDING" VECTOR(3, FLOAT32) NOT NULL`} {
 		if !strings.Contains(ddl, want) {
 			t.Fatalf("DDL = %s, want %s", ddl, want)

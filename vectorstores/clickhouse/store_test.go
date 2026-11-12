@@ -142,8 +142,7 @@ func TestConstructionRejectsInvalidConfigBeforeIO(t *testing.T) {
 	}{
 		{"missing database", func(c *StoreConfig) { c.DB = nil }},
 		{"missing space", func(c *StoreConfig) { c.Space = "" }},
-		{"negative dimensions", func(c *StoreConfig) { c.Dimensions = -1 }},
-		{"missing creation dimensions", func(c *StoreConfig) { c.InitializeSchema = true }},
+		{"negative creation dimensions", func(c *StoreConfig) { c.CreateDimensions = -1 }},
 		{"unsupported metric", func(c *StoreConfig) { c.DistanceMetric = "other" }},
 		{"same column for different facts", func(c *StoreConfig) { c.ContentColumn = DefaultIDColumn }},
 		{"invalid identifier", func(c *StoreConfig) { c.IDColumn = "id;drop" }},

@@ -95,14 +95,12 @@ type StoreConfig struct {
 
 	Space vectorstore.SpaceID
 
-	// Dimensions seeds a newly created VECTOR column; the native column owns
-	// the stored dimension constraint, and runtime vectors derive width from
-	// their input.
-	Dimensions int
-
 	DistanceMetric DistanceMetric
 
-	InitializeSchema bool
+	// CreateDimensions provisions the table with this vector width when it
+	// does not exist; zero opens an existing table. The native column owns the
+	// width, so an existing table must already declare it.
+	CreateDimensions int
 }
 
 func (s StoreConfig) Validate() error {
@@ -113,11 +111,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.Dimensions < 0 {
-		return errors.New("oracle: Dimensions must be >= 0")
-	}
-	if s.InitializeSchema && s.Dimensions == 0 {
-		return errors.New("oracle: Dimensions must be > 0 when InitializeSchema is true")
+	if s.CreateDimensions < 0 {
+		return errors.New("oracle: CreateDimensions must not be negative")
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("oracle: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -170,7 +165,6 @@ type Store struct {
 	metadataColumn  identifier
 	embeddingColumn identifier
 	space           vectorstore.SpaceID
-	dimensions      int
 	distanceMetric  DistanceMetric
 }
 
@@ -203,18 +197,26 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		metadataColumn:  identifier(config.MetadataColumn),
 		embeddingColumn: identifier(config.EmbeddingColumn),
 		space:           config.Space,
-		dimensions:      config.Dimensions,
 		distanceMetric:  config.DistanceMetric,
 	}
 
 	if err = store.requireContentCharacterSet(ctx); err != nil {
 		return nil, err
 	}
-	if err = store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("oracle: initialize store: %w", err)
+	if config.CreateDimensions > 0 {
+		if _, err = store.db.ExecContext(ctx, store.createTableStatement(config.CreateDimensions)); err != nil {
+			return nil, fmt.Errorf("oracle: create table %s: %w", store.tableSQL(), err)
+		}
 	}
-	if _, err := store.binding(ctx); err != nil {
+	if err = store.validateSchema(ctx); err != nil {
+		return nil, fmt.Errorf("oracle: open store: %w", err)
+	}
+	width, err := store.binding(ctx)
+	if err != nil {
 		return nil, err
+	}
+	if config.CreateDimensions > 0 && width != config.CreateDimensions {
+		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, width, config.CreateDimensions)
 	}
 	return store, nil
 }
@@ -223,24 +225,14 @@ func (s *Store) tableSQL() string {
 	return s.schemaName.sql() + "." + s.tableName.sql()
 }
 
-func (s *Store) initialize(ctx context.Context, initSchema bool) error {
-	if !initSchema {
-		return s.validateSchema(ctx)
-	}
-	if _, err := s.db.ExecContext(ctx, s.createTableStatement()); err != nil {
-		return fmt.Errorf("create table %s: %w", s.tableSQL(), err)
-	}
-	return s.validateSchema(ctx)
-}
-
-func (s *Store) createTableStatement() string {
+func (s *Store) createTableStatement(dimensions int) string {
 	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
 		%s %s(%d) NOT NULL PRIMARY KEY,
 		%s %s NOT NULL,
 		%s %s NOT NULL,
 		%s VECTOR(%d, FLOAT32) NOT NULL,
 CONSTRAINT %s CHECK (1=1)
-	)`, s.tableSQL(), s.idColumn.sql(), documentIDType, documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), metadataColumnType, s.embeddingColumn.sql(), s.dimensions, identifier(s.space.StorageKey()).sql())
+	)`, s.tableSQL(), s.idColumn.sql(), documentIDType, documentIDBytes, s.contentColumn.sql(), contentColumnType, s.metadataColumn.sql(), metadataColumnType, s.embeddingColumn.sql(), dimensions, identifier(s.space.StorageKey()).sql())
 }
 
 // Oracle catalog vocabulary for the admitted table shape.

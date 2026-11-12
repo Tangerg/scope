@@ -1,8 +1,9 @@
 // Package cassandra stores precomputed vectors in an exclusively owned
 // Cassandra table. NewStore verifies its Paxos protocol and SpaceID binding in
 // the table comment, native vector<float,N> width and single-column primary key.
-// Set InitializeSchema and CreateDimensions to provision a new bound table;
-// the constructor never changes a pre-existing table's space.
+// A positive CreateDimensions provisions a new bound table, and an existing
+// table must already declare that width; the constructor never changes a
+// pre-existing table's space.
 //
 // All document mutations use QUORUM commits, SERIAL Paxos and server timestamps.
 // Ordinary CQL writes cannot share this table: a future client timestamp can
