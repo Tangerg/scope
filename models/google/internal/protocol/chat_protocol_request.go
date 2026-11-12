@@ -307,10 +307,8 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 			mapped = append(mapped, reasoning)
 		case corechat.PartToolCall:
 			var arguments map[string]json.RawMessage
-			if part.ToolCall.Arguments != "" {
-				if err := jsonv2.Unmarshal([]byte(part.ToolCall.Arguments), &arguments); err != nil {
-					return nil, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
-				}
+			if err := jsonv2.Unmarshal(part.ToolCall.Request().Input(), &arguments); err != nil {
+				return nil, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
 			}
 			mapped = append(mapped, &genai.Part{FunctionCall: &genai.FunctionCall{
 				ID:   part.ToolCall.ID,

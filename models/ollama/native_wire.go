@@ -51,10 +51,6 @@ type nativeJSONObject struct {
 	raw json.RawMessage
 }
 
-func emptyNativeJSONObject() nativeJSONObject {
-	return nativeJSONObject{raw: json.RawMessage("{}")}
-}
-
 func (n *nativeJSONObject) UnmarshalJSON(data []byte) error {
 	var value map[string]any
 	if err := jsonv2.Unmarshal(data, &value); err != nil {

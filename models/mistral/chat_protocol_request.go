@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	mediaTypePDF    = "application/pdf"
-	emptyJSONObject = "{}"
+	mediaTypePDF = "application/pdf"
 )
 
 func newResponseFormat(format *corechat.OutputFormat) (*responseFormat, error) {
@@ -254,10 +253,7 @@ func (a *assistantContent) value() any {
 }
 
 func mapAssistantToolCall(call *corechat.ToolCall) (chatToolCall, error) {
-	arguments := json.RawMessage(call.Arguments)
-	if len(arguments) == 0 {
-		arguments = json.RawMessage(emptyJSONObject)
-	}
+	arguments := json.RawMessage(call.Request().Input())
 	if !jsontext.Value(arguments).IsValid() {
 		return chatToolCall{}, errors.New("contains invalid JSON")
 	}

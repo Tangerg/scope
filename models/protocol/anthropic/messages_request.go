@@ -536,11 +536,7 @@ func mapProtocolReasoningPart(index int, part corechat.Part, provider string) (a
 }
 
 func mapProtocolToolCall(call corechat.ToolCall) (anthropicsdk.ContentBlockParamUnion, error) {
-	input := json.RawMessage(call.Arguments)
-	if call.Arguments == "" {
-		input = json.RawMessage(`{}`)
-	}
-	return anthropicsdk.NewToolUseBlock(call.ID, input, call.Name), nil
+	return anthropicsdk.NewToolUseBlock(call.ID, json.RawMessage(call.Request().Input()), call.Name), nil
 }
 
 func mapProtocolTools(definitions []toolcontract.Definition) ([]anthropicsdk.ToolUnionParam, error) {

@@ -310,7 +310,7 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 			}
 			reasoning.WriteString(part.Text)
 		case corechat.PartToolCall:
-			arguments, err := mapProtocolToolArguments(part.ToolCall.Arguments)
+			arguments, err := mapProtocolToolArguments(part.ToolCall.Request().Input())
 			if err != nil {
 				return nativeMessage{}, fmt.Errorf("parts[%d].tool_call.arguments: %w", i, err)
 			}
@@ -333,19 +333,16 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 	return mapped, nil
 }
 
-func mapProtocolToolArguments(arguments string) (nativeJSONObject, error) {
-	if arguments == "" {
-		return emptyNativeJSONObject(), nil
-	}
+func mapProtocolToolArguments(arguments []byte) (nativeJSONObject, error) {
 	var object map[string]json.RawMessage
-	if err := jsonv2.Unmarshal([]byte(arguments), &object); err != nil || object == nil {
+	if err := jsonv2.Unmarshal(arguments, &object); err != nil || object == nil {
 		if err == nil {
 			err = errors.New("must be a JSON object")
 		}
 		return nativeJSONObject{}, err
 	}
 	var mapped nativeJSONObject
-	if err := jsonv2.Unmarshal([]byte(arguments), &mapped); err != nil {
+	if err := jsonv2.Unmarshal(arguments, &mapped); err != nil {
 		return nativeJSONObject{}, err
 	}
 	return mapped, nil

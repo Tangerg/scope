@@ -9,7 +9,6 @@ import (
 	corecontent "github.com/Tangerg/scope/core/content"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/document"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -186,13 +185,9 @@ func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 			return nil, false, fmt.Errorf("unknown Bedrock reasoning kind %q", kind)
 		}
 	case corechat.PartToolCall:
-		arguments := document.NewLazyDocument(map[string]any{})
-		if part.ToolCall.Arguments != "" {
-			var err error
-			arguments, err = documentFromJSON([]byte(part.ToolCall.Arguments))
-			if err != nil {
-				return nil, false, fmt.Errorf("tool call arguments: %w", err)
-			}
+		arguments, err := documentFromJSON(part.ToolCall.Request().Input())
+		if err != nil {
+			return nil, false, fmt.Errorf("tool call arguments: %w", err)
 		}
 		return &types.ContentBlockMemberToolUse{Value: types.ToolUseBlock{
 			ToolUseId: aws.String(part.ToolCall.ID),

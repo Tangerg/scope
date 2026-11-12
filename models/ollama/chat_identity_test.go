@@ -29,7 +29,7 @@ func TestToolReplayPreservesCurrentCoreIdentity(t *testing.T) {
 			mapper := newProtocolResponseMapper()
 			delta, err := mapper.mapDelta("model", nativeChatResponse{Done: true, Message: nativeMessage{
 				ToolCalls: []nativeToolCall{{ID: nativeID, Function: nativeToolCallFunction{
-					Index: new(0), Name: "lookup", Arguments: emptyNativeJSONObject(),
+					Index: new(0), Name: "lookup", Arguments: nativeJSONObject{raw: json.RawMessage("{}")},
 				}}},
 			}})
 			if err != nil {

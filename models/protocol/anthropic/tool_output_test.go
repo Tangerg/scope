@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"encoding/json"
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -47,5 +48,17 @@ func TestToolResultRejectsUnsupportedMedia(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("tool result accepted unsupported audio")
+	}
+}
+
+func TestToolCallWithBlankArgumentsReplaysAsTheEmptyObject(t *testing.T) {
+	for _, arguments := range []string{"", " \n\t"} {
+		block, err := mapProtocolToolCall(corechat.ToolCall{ID: "call-1", Name: "lookup", Arguments: arguments})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if input, ok := block.OfToolUse.Input.(json.RawMessage); !ok || string(input) != "{}" {
+			t.Fatalf("arguments %q replayed as %#v", arguments, block.OfToolUse.Input)
+		}
 	}
 }
