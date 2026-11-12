@@ -62,9 +62,7 @@ func (s *StoreConfig) applyDefaults() {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	endpoint, err := url.Parse(s.Endpoint)
-	_, originErr := httpclient.NewOrigin(endpoint)
-	if err != nil || originErr != nil || strings.ContainsAny(s.Endpoint, "?#") || strings.Trim(endpoint.Path, "/") != "" {
+	if _, err := httpclient.ParseOrigin(s.Endpoint); err != nil {
 		return errors.New("azureaisearch: Endpoint must be an HTTP service origin")
 	}
 	if !validIndexName(s.IndexName) {

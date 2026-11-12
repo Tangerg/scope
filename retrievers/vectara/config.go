@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/Tangerg/scope/core/httpclient"
@@ -64,9 +63,7 @@ func validCorpusKey(key string) bool {
 }
 
 func (c Config) validateConnection() error {
-	address, err := url.Parse(cmp.Or(c.Endpoint, DefaultEndpoint))
-	_, originErr := httpclient.NewOrigin(address)
-	if err != nil || originErr != nil || strings.ContainsAny(c.Endpoint, "?#") {
+	if _, err := httpclient.ParseBaseURL(cmp.Or(c.Endpoint, DefaultEndpoint)); err != nil {
 		return errors.New("vectara: Endpoint must be an HTTP origin or base path without user info, query or fragment")
 	}
 	if strings.TrimSpace(c.APIKey) == "" {

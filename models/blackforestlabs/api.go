@@ -50,9 +50,9 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 		return nil, err
 	}
 	baseURL := cmp.Or(config.BaseURL, DefaultBaseURL)
-	parsedBaseURL, err := url.Parse(baseURL)
+	parsedBaseURL, err := httpclient.ParseBaseURL(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL %q", baseURL)
+		return nil, fmt.Errorf("blackforestlabs: invalid BaseURL: %w", err)
 	}
 	origin, err := httpclient.NewOrigin(parsedBaseURL)
 	if err != nil {
@@ -195,7 +195,8 @@ func (a *api) getResult(ctx context.Context, pollingURL string) (*pollResult, er
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: invalid polling URL: %w", err)
 	}
-	client, err := a.credentialedClient(ctx, endpoint.String())
+	// The polling URL names a resource; only its origin binds the client.
+	client, err := a.credentialedClient(ctx, (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).String())
 	if err != nil {
 		return nil, err
 	}

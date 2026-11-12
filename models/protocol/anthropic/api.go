@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strconv"
 	"time"
@@ -51,11 +50,7 @@ func (a apiConfig) endpoint() (string, error) {
 	if !present {
 		baseURL = defaultAPIBaseURL
 	}
-	endpoint, err := url.Parse(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("anthropic: %s: %w", source, err)
-	}
-	if _, err := httpclient.NewOrigin(endpoint); err != nil {
+	if _, err := httpclient.ParseBaseURL(baseURL); err != nil {
 		return "", fmt.Errorf("anthropic: %s: %w", source, err)
 	}
 

@@ -49,10 +49,12 @@ type ClientConfig struct {
 }
 
 func NewClient(ctx context.Context, c ClientConfig) (*Client, error) {
-	u, err := url.Parse(c.Endpoint)
-	_, originErr := httpclient.NewOrigin(u)
-	if err != nil || originErr != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.EscapedPath() != "" && u.EscapedPath() != "/" {
-		return nil, errors.New("weaviate: endpoint must be an HTTP(S) origin")
+	if _, err := httpclient.ParseOrigin(c.Endpoint); err != nil {
+		return nil, fmt.Errorf("weaviate: endpoint must be an HTTP(S) origin: %w", err)
+	}
+	u, err := httpclient.ParseBaseURL(c.Endpoint)
+	if err != nil {
+		return nil, err
 	}
 	grpcHost, grpcPort, err := net.SplitHostPort(c.GRPCAddress)
 	if err != nil || grpcHost == "" || grpcPort == "" || strings.ContainsAny(grpcHost, "/?#@") {

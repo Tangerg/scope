@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/url"
 	"strings"
 
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
@@ -40,17 +39,14 @@ func servingServerless(index *pineconesdk.Index, name string) bool {
 }
 
 // validIndexHost admits the bare origin the control plane reports for an
-// index; it omits the scheme, which is always HTTPS.
+// index; it omits the scheme, which is always HTTPS. The SDK also dials the
+// host as a gRPC target, where even a root path is not part of the authority.
 func validIndexHost(host string) bool {
 	if !strings.Contains(host, schemeSeparator) {
 		host = httpsScheme + schemeSeparator + host
 	}
-	parsed, err := url.Parse(host)
-	if err != nil || strings.TrimSpace(host) != host || strings.ContainsAny(host, "?#") || parsed.Path != "" {
-		return false
-	}
-	_, err = httpclient.NewOrigin(parsed)
-	return err == nil
+	_, err := httpclient.ParseOrigin(host)
+	return err == nil && !strings.HasSuffix(host, "/")
 }
 
 const (

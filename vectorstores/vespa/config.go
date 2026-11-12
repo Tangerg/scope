@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -42,9 +40,7 @@ type StoreConfig struct {
 
 func (s StoreConfig) Validate() error {
 	s.applyDefaults()
-	endpoint, err := url.Parse(s.Endpoint)
-	_, originErr := httpclient.NewOrigin(endpoint)
-	if err != nil || originErr != nil || strings.ContainsAny(s.Endpoint, "?#") {
+	if _, err := httpclient.ParseBaseURL(s.Endpoint); err != nil {
 		return errors.New("vespa: Endpoint must be an absolute HTTP URL without credentials, query, or fragment")
 	}
 	if s.RankingProfile == "" {

@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
+
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 type Config struct {
@@ -65,12 +66,9 @@ func normalizeBaseURL(baseURL string) (string, error) {
 	if baseURL == "" {
 		return "", errors.New("azureopenai: BaseURL is required")
 	}
-	parsed, err := url.Parse(baseURL)
+	parsed, err := httpclient.ParseBaseURL(baseURL)
 	if err != nil {
-		return "", errors.New("azureopenai: BaseURL must be a valid absolute URL")
-	}
-	if parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("azureopenai: BaseURL must be an absolute URL without credentials, query parameters, or fragments")
+		return "", fmt.Errorf("azureopenai: BaseURL: %w", err)
 	}
 	if !strings.HasSuffix(parsed.Path, "/openai/v1") && !strings.HasSuffix(parsed.Path, "/openai/v1/") {
 		return "", errors.New("azureopenai: BaseURL must end with /openai/v1/")

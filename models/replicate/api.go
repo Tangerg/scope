@@ -109,9 +109,9 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	if err != nil {
 		return nil, fmt.Errorf("replicate: HTTP client: %w", err)
 	}
-	parsedBaseURL, err := url.Parse(baseURL)
+	parsedBaseURL, err := httpclient.ParseBaseURL(baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("replicate: parse BaseURL: %w", err)
+		return nil, fmt.Errorf("replicate: BaseURL: %w", err)
 	}
 	client := resty.NewWithClient(boundClient).SetResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes)
 	client.SetJSONMarshaler(func(value any) ([]byte, error) { return jsonv2.Marshal(value) }).

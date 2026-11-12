@@ -85,6 +85,26 @@ func TestOriginRejectsOpaqueEndpoints(t *testing.T) {
 	}
 }
 
+func TestParseBaseURLAdmitsAnEndpointAndItsBasePath(t *testing.T) {
+	for raw, valid := range map[string]bool{
+		"https://api.example":          true,
+		"https://api.example/v1/":      true,
+		"http://127.0.0.1:8080/api":    true,
+		"https://api.example/v1?key=1": false,
+		"https://api.example/v1?":      false,
+		"https://api.example/v1#top":   false,
+		"https://api.example/v1#":      false,
+		"https://user@api.example/v1":  false,
+		"ftp://api.example/v1":         false,
+		"https:///missing-host":        false,
+		"/relative":                    false,
+	} {
+		if _, err := httpclient.ParseBaseURL(raw); (err == nil) != valid {
+			t.Errorf("ParseBaseURL(%q) error = %v, want valid %t", raw, err, valid)
+		}
+	}
+}
+
 func TestParseOriginAdmitsOnlyAnAuthority(t *testing.T) {
 	for raw, valid := range map[string]bool{
 		"https://api.example":      true,
@@ -94,6 +114,7 @@ func TestParseOriginAdmitsOnlyAnAuthority(t *testing.T) {
 		"https://api.example/?q=1": false,
 		"https://api.example/?":    false,
 		"https://api.example/#top": false,
+		"https://api.example#":     false,
 		"ftp://api.example":        false,
 		"https://user@api.example": false,
 		"/relative":                false,

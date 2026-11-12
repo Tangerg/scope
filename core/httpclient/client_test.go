@@ -224,7 +224,7 @@ func TestClientOwnershipAndTransportCleanup(t *testing.T) {
 }
 
 func TestInvalidOriginsAreRejectedAtConstruction(t *testing.T) {
-	for _, endpoint := range []string{"", "/relative", "file:///tmp/credential", "https:///missing-host", "https://user:password@api.example"} {
+	for _, endpoint := range []string{"", "/relative", "file:///tmp/credential", "https:///missing-host", "https://user:password@api.example", "https://api.example/v1?key=1", "https://api.example/v1#"} {
 		if client, err := httpclient.New(t.Context(), httpclient.Config{BaseURL: endpoint}); err == nil || client != nil {
 			t.Fatalf("invalid endpoint %q: client=%v error=%v", endpoint, client, err)
 		}

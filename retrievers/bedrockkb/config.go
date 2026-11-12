@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -85,12 +84,8 @@ func (c Config) Validate() error {
 }
 
 func validateEndpoint(raw string) error {
-	endpoint, err := url.Parse(raw)
-	if err != nil || strings.ContainsAny(raw, "?#") || strings.Trim(endpoint.Path, "/") != "" {
-		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
-	}
-	if _, err := httpclient.NewOrigin(endpoint); err != nil {
-		return errors.New("bedrockkb: Endpoint must be an HTTP service origin")
+	if _, err := httpclient.ParseOrigin(raw); err != nil {
+		return fmt.Errorf("bedrockkb: Endpoint must be an HTTP service origin: %w", err)
 	}
 	return nil
 }

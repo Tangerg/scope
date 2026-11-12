@@ -30,15 +30,34 @@ type Origin struct {
 	host   string
 }
 
-// ParseOrigin admits a configured origin: an absolute HTTP(S) URL with no path
-// beyond "/", query, or fragment, so a value that names a resource cannot be
-// mistaken for the authority it grants.
-func ParseOrigin(raw string) (Origin, error) {
+// ParseBaseURL admits a configured API base URL: an absolute HTTP(S) URL with
+// a host and an optional base path. User information would carry a credential
+// the binding does not own, and a query or fragment cannot prefix the resource
+// paths appended to it. The raw text is checked because url.URL drops an
+// empty fragment.
+func ParseBaseURL(raw string) (*url.URL, error) {
 	endpoint, err := url.Parse(raw)
 	if err != nil {
-		return Origin{}, fmt.Errorf("origin must be an absolute HTTP(S) URL: %w", err)
+		return nil, fmt.Errorf("base URL must be an absolute HTTP(S) URL: %w", err)
 	}
-	if (endpoint.Path != "" && endpoint.Path != "/") || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" {
+	if _, err := NewOrigin(endpoint); err != nil {
+		return nil, err
+	}
+	if strings.ContainsAny(raw, "?#") {
+		return nil, errors.New("base URL must not contain a query or fragment")
+	}
+	return endpoint, nil
+}
+
+// ParseOrigin admits a configured origin: a base URL with no path beyond "/",
+// so a value that names a resource cannot be mistaken for the authority it
+// grants.
+func ParseOrigin(raw string) (Origin, error) {
+	endpoint, err := ParseBaseURL(raw)
+	if err != nil {
+		return Origin{}, err
+	}
+	if endpoint.Path != "" && endpoint.Path != "/" {
 		return Origin{}, errors.New("origin must contain only a scheme, host, and port")
 	}
 	return NewOrigin(endpoint)

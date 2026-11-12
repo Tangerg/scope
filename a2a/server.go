@@ -5,7 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -192,16 +191,12 @@ func serverRPCPath(card *sdka2a.AgentCard) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	endpoint, err := url.Parse(iface.URL)
+	endpoint, err := httpclient.ParseBaseURL(iface.URL)
 	if err != nil {
-		return "", fmt.Errorf("%w: parse URL: %w", ErrInvalidRPCInterface, err)
-	}
-	if _, err := httpclient.NewOrigin(endpoint); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrInvalidRPCInterface, err)
 	}
-	if endpoint.User != nil || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||
-		endpoint.Path == "" || endpoint.Path == a2asrv.WellKnownAgentCardPath {
-		return "", fmt.Errorf("%w: URL requires a distinct RPC path without user info, query, or fragment", ErrInvalidRPCInterface)
+	if endpoint.Path == "" || endpoint.Path == a2asrv.WellKnownAgentCardPath {
+		return "", fmt.Errorf("%w: URL requires a distinct RPC path", ErrInvalidRPCInterface)
 	}
 	return endpoint.Path, nil
 }
