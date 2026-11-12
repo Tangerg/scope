@@ -160,7 +160,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 		apiReq.Seed = effectiveOptions.Seed
 	}
 	if effectiveOptions.OutputFormat != "" {
-		apiReq.OutputFormat = media.Type(effectiveOptions.OutputFormat).Subtype()
+		apiReq.OutputFormat = effectiveOptions.OutputFormat.Subtype()
 	}
 	return effectiveOptions.Model, apiReq, nil
 }

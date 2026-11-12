@@ -281,7 +281,7 @@ func TestOutputFormatMustBeCanonicalImageMIME(t *testing.T) {
 		"leading garbling": "  image/png",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if err := (image.Options{OutputFormat: format}).Validate(); !errors.Is(err, image.ErrInvalidOptions) {
+			if err := (image.Options{OutputFormat: media.Type(format)}).Validate(); !errors.Is(err, image.ErrInvalidOptions) {
 				t.Fatalf("Validate(%q) error = %v", format, err)
 			}
 		})

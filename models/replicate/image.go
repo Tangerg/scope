@@ -138,7 +138,7 @@ type ImageInputSchema struct {
 	HeightKey         string
 	SeedKey           string
 	OutputFormatKey   string
-	OutputFormats     map[string]string
+	OutputFormats     map[media.Type]string
 	OutputKind        FileOutputKind
 }
 
@@ -163,7 +163,7 @@ func (i ImageInputSchema) Validate() error {
 	// Keys are matched against canonical Options.OutputFormat values, so a
 	// non-canonical key could never be selected.
 	for mimeType, value := range i.OutputFormats {
-		if mediaType, err := media.ParseType(mimeType); err != nil || mediaType.TopLevel() != media.TopLevelImage || string(mediaType) != mimeType || value == "" {
+		if mediaType, err := media.ParseType(string(mimeType)); err != nil || mediaType.TopLevel() != media.TopLevelImage || mediaType != mimeType || value == "" {
 			return fmt.Errorf("replicate: ImageInputSchema.OutputFormats contains invalid mapping %q -> %q", mimeType, value)
 		}
 	}
@@ -212,7 +212,7 @@ func FluxSchnellImageInputSchema() ImageInputSchema {
 	return ImageInputSchema{
 		PromptKey:       fieldPrompt,
 		OutputFormatKey: fieldOutputFormat,
-		OutputFormats: map[string]string{
+		OutputFormats: map[media.Type]string{
 			mediaTypeJPEG: outputFormatJPG,
 			mediaTypePNG:  outputFormatPNG,
 			mediaTypeWebP: outputFormatWebP,
@@ -325,7 +325,7 @@ func (i *ImageModel) response(ctx context.Context, effectiveOptions image.Option
 		return nil, err
 	}
 
-	outputs, err := i.downloadOutputs(ctx, urls, effectiveOptions.OutputFormat, final)
+	outputs, err := i.downloadOutputs(ctx, urls, string(effectiveOptions.OutputFormat), final)
 	if err != nil {
 		return nil, err
 	}

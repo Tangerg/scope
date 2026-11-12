@@ -155,7 +155,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, []*genai.Content,
 		if config.ImageConfig == nil {
 			config.ImageConfig = &genai.ImageConfig{}
 		}
-		config.ImageConfig.OutputMIMEType = effectiveOptions.OutputFormat
+		config.ImageConfig.OutputMIMEType = string(effectiveOptions.OutputFormat)
 	}
 
 	parts := make([]*genai.Part, 0, len(providerOpts.InputImages)+1)

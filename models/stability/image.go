@@ -121,7 +121,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		apiReq.Seed = effectiveOptions.Seed
 	}
 	if effectiveOptions.OutputFormat != "" {
-		apiReq.OutputFormat = media.Type(effectiveOptions.OutputFormat).Subtype()
+		apiReq.OutputFormat = effectiveOptions.OutputFormat.Subtype()
 	}
 
 	// Binary responses omit the verdict needed to reject filtered generations.

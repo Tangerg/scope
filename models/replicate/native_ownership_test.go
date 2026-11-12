@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/replicate"
@@ -53,7 +54,7 @@ func TestImageRejectsBoundNativeInputBeforeIO(t *testing.T) {
 			if err := opts.Extensions.Set(replicate.ImageRequestExtensionKey, map[string]any{"input": map[string]any{field: nil}}); err != nil {
 				t.Fatal(err)
 			}
-			schema := replicate.ImageInputSchema{PromptKey: "prompt", NegativePromptKey: "negative", WidthKey: "width", HeightKey: "height", SeedKey: "seed", OutputFormatKey: "format", OutputFormats: map[string]string{"image/png": "png"}, OutputKind: replicate.FileOutputURI}
+			schema := replicate.ImageInputSchema{PromptKey: "prompt", NegativePromptKey: "negative", WidthKey: "width", HeightKey: "height", SeedKey: "seed", OutputFormatKey: "format", OutputFormats: map[media.Type]string{"image/png": "png"}, OutputKind: replicate.FileOutputURI}
 			model, err := replicate.NewImageModel(t.Context(), replicate.ImageModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: opts, InputSchema: schema})
 			if err != nil {
 				t.Fatal(err)

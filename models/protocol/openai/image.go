@@ -110,7 +110,7 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	params.Prompt = req.Prompt
 
 	if effectiveOptions.OutputFormat != "" {
-		format := openai.ImagesResponseOutputFormat(media.Type(effectiveOptions.OutputFormat).Subtype())
+		format := openai.ImagesResponseOutputFormat(effectiveOptions.OutputFormat.Subtype())
 		if _, err := imageOutputMIMEType(format); err != nil {
 			return nil, err
 		}

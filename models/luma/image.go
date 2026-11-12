@@ -164,8 +164,8 @@ func (i *ImageModel) generationParams(request *image.Request) (lumaagents.Genera
 	return params, nil
 }
 
-func nativeOutputFormat(mediaType string) (lumaagents.GenerationNewParamsOutputFormat, error) {
-	switch media.Type(mediaType).Subtype() {
+func nativeOutputFormat(mediaType media.Type) (lumaagents.GenerationNewParamsOutputFormat, error) {
+	switch mediaType.Subtype() {
 	case string(lumaagents.GenerationNewParamsOutputFormatPng):
 		return lumaagents.GenerationNewParamsOutputFormatPng, nil
 	case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:

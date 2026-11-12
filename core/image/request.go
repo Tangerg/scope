@@ -27,7 +27,7 @@ type Options struct {
 	Seed *int64 `json:"seed,omitzero"`
 
 	// OutputFormat is a canonical image MIME type; empty leaves it to the provider.
-	OutputFormat string `json:"output_format,omitempty"`
+	OutputFormat media.Type `json:"output_format,omitempty"`
 
 	Extensions metadata.Extensions `json:"extensions,omitzero"`
 }
@@ -59,14 +59,14 @@ func (o Options) validateOutputFormat() error {
 	if o.OutputFormat == "" {
 		return nil
 	}
-	mediaType, err := media.ParseType(o.OutputFormat)
+	mediaType, err := media.ParseType(string(o.OutputFormat))
 	if err != nil {
 		return fmt.Errorf("invalid output format: %w", err)
 	}
 	if mediaType.TopLevel() != media.TopLevelImage {
 		return fmt.Errorf("output format %q is not an image MIME type", o.OutputFormat)
 	}
-	if string(mediaType) != o.OutputFormat {
+	if mediaType != o.OutputFormat {
 		return fmt.Errorf("output format must be the canonical MIME form %q without parameters", mediaType)
 	}
 	return nil

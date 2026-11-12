@@ -89,7 +89,7 @@ func newImageInteractionRequest(req *image.Request, defaults image.Options) (*im
 
 	responseFormat := imageInteractionResponseFormat{
 		Type:        imageInteractionType,
-		MIMEType:    effectiveOptions.OutputFormat,
+		MIMEType:    string(effectiveOptions.OutputFormat),
 		AspectRatio: providerOpts.AspectRatio,
 		ImageSize:   providerOpts.ImageSize,
 		Delivery:    providerOpts.Delivery,

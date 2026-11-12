@@ -69,7 +69,7 @@ func TestOptionsAndRequestValidation(t *testing.T) {
 	if _, err := base.Resolve(image.Options{}); err == nil {
 		t.Fatal("Resolve accepted a non-canonical output MIME type")
 	}
-	for _, invalid := range []string{"text/plain", "image", "image/png;charset=utf-8"} {
+	for _, invalid := range []media.Type{"text/plain", "image", "image/png;charset=utf-8"} {
 		base.OutputFormat = invalid
 		if _, err := base.Resolve(image.Options{}); err == nil {
 			t.Errorf("Resolve accepted invalid OutputFormat %q", invalid)

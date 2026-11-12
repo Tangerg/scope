@@ -8,6 +8,7 @@ import (
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/modeltest"
 )
 
@@ -30,7 +31,7 @@ func TestImageResponseUsesReportedOutputFormat(t *testing.T) {
 			server := modeltest.JSONServer(http.StatusOK, `{"data":[{"b64_json":"aW1hZ2U="}]`+formatField+`}`)
 			t.Cleanup(server.Close)
 			model := newImageModel(t, server.URL, "image-model")
-			request := &image.Request{Prompt: "an image", Options: image.Options{OutputFormat: test.requested}}
+			request := &image.Request{Prompt: "an image", Options: image.Options{OutputFormat: media.Type(test.requested)}}
 			response, err := model.Call(t.Context(), request)
 			if err != nil {
 				t.Fatal(err)

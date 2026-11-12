@@ -73,7 +73,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
-	accept := effectiveOptions.OutputFormat
+	accept := string(effectiveOptions.OutputFormat)
 	switch accept {
 	case "", mediaTypeJPEG, mediaTypePNG, mediaTypeWebP:
 	default:
