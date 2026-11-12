@@ -431,7 +431,6 @@ func TestPlanningBindingsRequireOneExecutionOwner(t *testing.T) {
 	for _, invalid := range []DispatcherBindingConfig{
 		{}, {Action: action}, {Action: action, Executor: ActionExecutorFunc(nil)},
 		{Action: action, Executor: executor, Replay: run.ReplayPolicy("invalid")},
-		{Action: action, Executor: executor, RequiredCapabilities: []run.Capability{{}}},
 	} {
 		if _, err := NewDispatcherBinding(invalid); !errors.Is(err, ErrInvalidAction) {
 			t.Fatalf("invalid dispatcher binding was admitted: %v", err)

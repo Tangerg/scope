@@ -19,7 +19,7 @@ type DispatcherBindingConfig struct {
 	Action               Action
 	Executor             ActionExecutor
 	Replay               run.ReplayPolicy
-	RequiredCapabilities []run.Capability
+	RequiredCapabilities run.CapabilitySet
 }
 
 type ChildBindingConfig struct {
@@ -47,11 +47,7 @@ func NewDispatcherBinding(config DispatcherBindingConfig) (ActionBinding, error)
 	if !replay.Valid() {
 		return ActionBinding{}, fmt.Errorf("%w: dispatcher binding Replay", ErrInvalidAction)
 	}
-	required, err := run.NewCapabilitySet(config.RequiredCapabilities...)
-	if err != nil {
-		return ActionBinding{}, fmt.Errorf("%w: required capabilities: %w", ErrInvalidAction, err)
-	}
-	return ActionBinding{declaration: actionDeclaration{action: config.Action, policy: run.EffectPolicy{Replay: replay, RequiredCapabilities: required}}, executor: config.Executor}, nil
+	return ActionBinding{declaration: actionDeclaration{action: config.Action, policy: run.EffectPolicy{Replay: replay, RequiredCapabilities: config.RequiredCapabilities}}, executor: config.Executor}, nil
 }
 
 func NewChildBinding(config ChildBindingConfig) (ActionBinding, error) {
