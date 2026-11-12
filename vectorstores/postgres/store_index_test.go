@@ -1,4 +1,4 @@
-package pgstore_test
+package postgres_test
 
 import (
 	"errors"
@@ -7,7 +7,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
+	"github.com/Tangerg/scope/vectorstores/postgres"
 )
 
 func TestIndexRejectsMediaInLaterBatchBeforeEmbedding(t *testing.T) {
@@ -19,7 +19,7 @@ func TestIndexRejectsMediaInLaterBatchBeforeEmbedding(t *testing.T) {
 		{ID: "text", Text: "text-only document"},
 		{ID: "mixed", Text: "caption", Media: content},
 	}
-	store := new(pgstore.Store)
+	store := new(postgres.Store)
 	if indexErr := store.CheckDocuments(t.Context(), "test", docs); !errors.Is(indexErr, vectorstore.ErrInvalidDocument) {
 		t.Fatalf("Index = %v", indexErr)
 	}

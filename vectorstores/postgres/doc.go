@@ -1,7 +1,7 @@
-// Package postgres owns the pgwire distance metric shared by the pgvector and
-// cockroachdb backends.
-// Their public constructors select native resources; one private pgwire engine
-// owns execution, transaction lifetime, and conversion to the Core contracts.
+// Package postgres owns the pgwire vector store shared by the pgvector and
+// cockroachdb backends. Store owns execution, transaction lifetime, and
+// conversion to the Core contracts; each backend's NewStore provisions its
+// native schema and returns that one Store.
 //
 // The strict current table has exactly four non-null columns with no defaults:
 // binary id as the sole primary key, text content, binary metadata, and a fixed

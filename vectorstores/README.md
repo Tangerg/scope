@@ -47,7 +47,7 @@ root. Use `-check` to detect drift or omit flags to print the current matrix.
 | `vectorstores/opensearch` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [elastic](protocol/elastic/doc.go), [opensearch](opensearch/doc.go) |
 | `vectorstores/oracle` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [oracle](oracle/doc.go) |
 | `vectorstores/pinecone` | Native vectors | `Query`, `Upsert` | [pinecone](pinecone/doc.go) |
-| `vectorstores/postgres` | Native vectors | `Query`, `Scan`, `Upsert` | [cockroachdb](postgres/cockroachdb/doc.go), [pgvector](postgres/pgvector/doc.go) |
+| `vectorstores/postgres` | Native vectors | `Query`, `Scan`, `Upsert` | [postgres](postgres/doc.go) |
 | `vectorstores/qdrant` | Native vectors | `Query`, `Upsert` | [qdrant](qdrant/doc.go) |
 | `vectorstores/redis` | Native vectors | `DeleteMatching`, `QueryByScan`, `Query`, `Upsert` | [redis](redis/doc.go) |
 | `vectorstores/s3vectors` | Native vectors | `Query`, `Scan`, `Upsert` | [s3vectors](s3vectors/doc.go) |

@@ -1,4 +1,4 @@
-package pgstore_test
+package postgres_test
 
 import (
 	"context"
@@ -19,7 +19,6 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/vectorstores/postgres"
-	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
 )
 
 type searchPeer struct {
@@ -148,7 +147,7 @@ func TestUnfilteredSearchUsesNativeRankingWithoutSourceEnumeration(t *testing.T)
 			t.Errorf("ranking queries = %d", peer.queries)
 		}
 	})
-	store, err := pgstore.New(t.Context(), pgstore.Config{Provider: "pgvector", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
+	store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +213,7 @@ func TestNativeOperationPanicRollsBackWithoutCommit(t *testing.T) {
 					t.Errorf("commits=%d rollbacks=%d", peer.commits, peer.rollbacks)
 				}
 			})
-			store, err := pgstore.New(t.Context(), pgstore.Config{Provider: "pgvector", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
+			store, err := postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", Space: "test", DistanceMetric: postgres.DistanceCosine})
 			if err != nil {
 				t.Fatal(err)
 			}

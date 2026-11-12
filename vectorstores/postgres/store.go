@@ -1,5 +1,4 @@
-// Package pgstore owns the shared pgwire vector-store execution boundary.
-package pgstore
+package postgres
 
 import (
 	"context"
@@ -8,8 +7,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/Tangerg/scope/vectorstores/postgres"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,36 +19,37 @@ import (
 
 const transactionCleanupTimeout = 5 * time.Second
 
-type Config struct {
-	Provider       string
+// StoreConfig binds an existing table in the strict current schema.
+type StoreConfig struct {
 	Pool           *pgxpool.Pool
 	SchemaName     string
 	TableName      string
 	MetadataColumn string
 	Space          vectorstore.SpaceID
-	DistanceMetric postgres.DistanceMetric
+	DistanceMetric DistanceMetric
 }
 
+// Store executes the Core vector store contracts against one pgwire table; the
+// pgvector and cockroachdb constructors provision its engine-specific schema.
 type Store struct {
-	provider       string
 	pool           *pgxpool.Pool
 	fullTable      string
 	metadataColumn string
 	metadataName   string
 	space          vectorstore.SpaceID
-	distanceMetric postgres.DistanceMetric
+	distanceMetric DistanceMetric
 }
 
-func New(ctx context.Context, config Config) (Store, error) {
+func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if config.Pool == nil || !config.DistanceMetric.Valid() {
-		return Store{}, errors.New("pgstore: incomplete construction dependencies")
+		return nil, errors.New("postgres: incomplete construction dependencies")
 	}
 	if err := config.Space.Validate(); err != nil {
-		return Store{}, err
+		return nil, err
 	}
-	store := Store{provider: config.Provider, pool: config.Pool, fullTable: pgx.Identifier{config.SchemaName, config.TableName}.Sanitize(), metadataColumn: pgx.Identifier{config.MetadataColumn}.Sanitize(), metadataName: config.MetadataColumn, space: config.Space, distanceMetric: config.DistanceMetric}
+	store := &Store{pool: config.Pool, fullTable: pgx.Identifier{config.SchemaName, config.TableName}.Sanitize(), metadataColumn: pgx.Identifier{config.MetadataColumn}.Sanitize(), metadataName: config.MetadataColumn, space: config.Space, distanceMetric: config.DistanceMetric}
 	if _, err := store.readSchema(ctx, config.Pool); err != nil {
-		return Store{}, err
+		return nil, err
 	}
 	return store, nil
 }
@@ -124,7 +122,7 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 			return errors.Join(execErr, results.Close())
 		}
 		if tag.RowsAffected() != 1 {
-			return errors.Join(errors.New("pgstore: upsert did not acknowledge one row"), results.Close())
+			return errors.Join(errors.New("postgres: upsert did not acknowledge one row"), results.Close())
 		}
 	}
 	if err = results.Close(); err != nil {
@@ -172,7 +170,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	}
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("%s.Store.Query: %w", s.provider, err)
+			err = fmt.Errorf("postgres.Store.Query: %w", err)
 		}
 	}()
 	if err = request.ValidateFor(s.space); err != nil {
@@ -245,7 +243,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("%s.Store.DeleteIDs: %w", s.provider, err)
+			err = fmt.Errorf("postgres.Store.DeleteIDs: %w", err)
 		}
 	}()
 	ids, err = vectorstore.DistinctIDs(ids)
@@ -301,37 +299,37 @@ func (s *Store) readColumns(ctx context.Context, query rowQuerier) (width, idNum
 			return 0, 0, err
 		}
 		if !required || defaults {
-			return 0, 0, errors.New("pgstore: current columns must be non-null without defaults")
+			return 0, 0, errors.New("postgres: current columns must be non-null without defaults")
 		}
 		count++
 		switch name {
 		case "id":
 			if kind != "bytea" {
-				return 0, 0, errors.New("pgstore: id must be binary")
+				return 0, 0, errors.New("postgres: id must be binary")
 			}
 			idNumber = number
 		case "content":
 			if kind != "text" {
-				return 0, 0, errors.New("pgstore: content must be text")
+				return 0, 0, errors.New("postgres: content must be text")
 			}
 		case s.metadataName:
 			if kind != "bytea" {
-				return 0, 0, errors.New("pgstore: metadata must contain Core JSON bytes")
+				return 0, 0, errors.New("postgres: metadata must contain Core JSON bytes")
 			}
 		case "embedding":
 			if kind != "vector" || modifier <= 0 {
-				return 0, 0, errors.New("pgstore: embedding must have a fixed native vector width")
+				return 0, 0, errors.New("postgres: embedding must have a fixed native vector width")
 			}
 			width = modifier
 		default:
-			return 0, 0, fmt.Errorf("pgstore: unexpected current column %q", name)
+			return 0, 0, fmt.Errorf("postgres: unexpected current column %q", name)
 		}
 	}
 	if err = rows.Err(); err != nil {
 		return 0, 0, err
 	}
 	if count != 4 || width == 0 || idNumber == 0 {
-		return 0, 0, errors.New("pgstore: current four-column schema is required")
+		return 0, 0, errors.New("postgres: current four-column schema is required")
 	}
 	return width, idNumber, nil
 }
@@ -346,14 +344,14 @@ func (s *Store) requirePrimaryKey(ctx context.Context, query rowQuerier, idNumbe
 		if err = primary.Err(); err != nil {
 			return err
 		}
-		return errors.New("pgstore: native primary key is required")
+		return errors.New("postgres: native primary key is required")
 	}
 	var keys []int16
 	if err = primary.Scan(&keys); err != nil {
 		return err
 	}
 	if len(keys) != 1 || int(keys[0]) != idNumber || primary.Next() {
-		return errors.New("pgstore: native primary key must be only the binary ID")
+		return errors.New("postgres: native primary key must be only the binary ID")
 	}
 	return primary.Err()
 }
@@ -486,7 +484,7 @@ func decodeDocument(id []byte, text string, facts []byte) (*document.Document, e
 		return nil, err
 	}
 	if strings.ContainsRune(text, 0) {
-		return nil, errors.New("pgstore: native content contains NUL")
+		return nil, errors.New("postgres: native content contains NUL")
 	}
 	return doc, nil
 }

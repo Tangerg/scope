@@ -1,4 +1,4 @@
-package pgstore_test
+package postgres_test
 
 import (
 	"errors"
@@ -7,8 +7,6 @@ import (
 	"github.com/Tangerg/scope/vectorstores/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
 )
 
 func TestConstructionPreservesClosedNativePoolError(t *testing.T) {
@@ -26,7 +24,7 @@ func TestConstructionPreservesClosedNativePoolError(t *testing.T) {
 	if closedErr == nil {
 		t.Fatal("closed pool acquired a connection")
 	}
-	_, err = pgstore.New(t.Context(), pgstore.Config{Provider: "test", Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", DistanceMetric: postgres.DistanceCosine, Space: "test"})
+	_, err = postgres.NewStore(t.Context(), postgres.StoreConfig{Pool: pool, SchemaName: "public", TableName: "documents", MetadataColumn: "facts", DistanceMetric: postgres.DistanceCosine, Space: "test"})
 	if !errors.Is(err, closedErr) {
 		t.Fatalf("construct = %v", err)
 	}

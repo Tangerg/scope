@@ -1,4 +1,4 @@
-package pgstore
+package postgres
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/vectorstore"
-
-	"github.com/Tangerg/scope/vectorstores/postgres"
 
 	"github.com/jackc/pgx/v5"
 	pgvec "github.com/pgvector/pgvector-go"
@@ -149,7 +147,7 @@ func TestNativeSourceValidatedBeforeSelection(t *testing.T) {
 				}
 				return rows, nil
 			}}
-			store := Store{distanceMetric: postgres.DistanceCosine, metadataColumn: "facts", fullTable: "documents"}
+			store := Store{distanceMetric: DistanceCosine, metadataColumn: "facts", fullTable: "documents"}
 			docs, err := store.readSource(t.Context(), transaction, 2)
 			if name == "current" {
 				if err != nil || len(docs) != 1 || docs[0].Metadata != nil {

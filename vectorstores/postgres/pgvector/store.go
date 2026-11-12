@@ -12,9 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/vectorstores/postgres/internal/pgstore"
 )
 
 const Provider = "PgVector"
@@ -109,17 +107,7 @@ func (s *StoreConfig) applyDefaults() {
 	s.IndexType = cmp.Or(s.IndexType, IndexHNSW)
 }
 
-var (
-	_ vectorstore.Upserter  = (*Store)(nil)
-	_ vectorstore.Querier   = (*Store)(nil)
-	_ vectorstore.IDDeleter = (*Store)(nil)
-)
-
-type Store struct {
-	engine pgstore.Store
-}
-
-func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
+func NewStore(ctx context.Context, config StoreConfig) (*postgres.Store, error) {
 	config.applyDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -128,8 +116,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, fmt.Errorf("pgvector.NewStore: initialize schema: %w", err)
 	}
 
-	engine, err := pgstore.New(ctx, pgstore.Config{
-		Provider:       "pgvector",
+	store, err := postgres.NewStore(ctx, postgres.StoreConfig{
 		Pool:           config.Pool,
 		SchemaName:     config.SchemaName,
 		TableName:      config.TableName,
@@ -140,7 +127,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pgvector.NewStore: %w", err)
 	}
-	return &Store{engine: engine}, nil
+	return store, nil
 }
 
 func initialize(ctx context.Context, config StoreConfig) error {
@@ -179,28 +166,4 @@ CONSTRAINT %s CHECK (true)
 		}
 	}
 	return nil
-}
-
-func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
-	return s.engine.CheckDocuments(ctx, space, docs)
-}
-
-func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
-	return s.engine.CheckQuery(ctx, space, options)
-}
-
-func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
-	return s.engine.Upsert(ctx, batch)
-}
-
-func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (*vectorstore.SearchResponse, error) {
-	return s.engine.Query(ctx, request)
-}
-
-func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
-	return s.engine.DeleteIDs(ctx, ids)
-}
-
-func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*document.Document, error) {
-	return s.engine.Scan(ctx, request)
 }
