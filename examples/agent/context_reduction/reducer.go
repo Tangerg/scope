@@ -39,57 +39,84 @@ func (duplicateToolOutputReducer) PrepareContext(ctx context.Context, _ interact
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
-	ids := make(map[string]int)
-	for _, message := range request.Messages {
-		for _, part := range message.Parts {
-			if part.Kind == chat.PartToolResult {
-				ids[part.ToolResult.ID]++
-			}
-		}
-	}
+	resultCounts := countToolResults(request.Messages)
 	type outputKey struct{ name, text string }
 	first := make(map[outputKey]string)
 	messages := request.Clone().Messages
 	for _, message := range messages {
 		for _, part := range message.Parts {
-			result := part.ToolResult
-			if part.Kind != chat.PartToolResult || result.IsError || ids[result.ID] != 1 || len(message.Metadata) != 0 || len(part.Metadata) != 0 {
+			text, eligible := duplicateCandidate(message, part, resultCounts)
+			if !eligible {
 				continue
 			}
-			content := result.Output.Content
-			if len(result.Output.Details) != 0 || len(content) != 1 || content[0].Kind != corecontent.Text || len(content[0].Citations) != 0 || len(content[0].Metadata) != 0 || len(content[0].Text) < minimumDuplicateBytes {
-				continue
-			}
-			key := outputKey{result.Name, content[0].Text}
-			id, exists := first[key]
+			key := outputKey{part.ToolResult.Name, text}
+			earlier, exists := first[key]
 			if !exists {
-				first[key] = result.ID
+				first[key] = part.ToolResult.ID
 				continue
 			}
-			reference, err := jsonv2.Marshal(duplicateOutputReference{ToolCallID: id})
-			if err != nil {
-				return nil, fmt.Errorf("encode duplicate output reference: %w", err)
-			}
-			// References stay below the eligibility floor. They cannot become
-			// another full-output candidate on later calls or after restoration.
-			if len(reference) >= minimumDuplicateBytes {
-				continue
-			}
-			replacement := toolcontract.NewTextOutput(string(reference))
-			originalBytes, err := jsonv2.Marshal(result.Output)
-			if err != nil {
-				return nil, fmt.Errorf("measure original Tool output: %w", err)
-			}
-			replacementBytes, err := jsonv2.Marshal(replacement)
-			if err != nil {
-				return nil, fmt.Errorf("measure replacement Tool output: %w", err)
-			}
-			if len(replacementBytes) < len(originalBytes) {
-				result.Output = replacement
+			if err := referenceEarlierOutput(part.ToolResult, earlier); err != nil {
+				return nil, err
 			}
 		}
 	}
 	return messages, nil
+}
+
+func countToolResults(messages []chat.Message) map[string]int {
+	counts := make(map[string]int)
+	for _, message := range messages {
+		for _, part := range message.Parts {
+			if part.Kind == chat.PartToolResult {
+				counts[part.ToolResult.ID]++
+			}
+		}
+	}
+	return counts
+}
+
+// duplicateCandidate admits only a uniquely identified, successful,
+// unannotated plain-text output large enough to be worth a reference.
+func duplicateCandidate(message chat.Message, part chat.Part, resultCounts map[string]int) (string, bool) {
+	if part.Kind != chat.PartToolResult || len(message.Metadata) != 0 || len(part.Metadata) != 0 {
+		return "", false
+	}
+	result := part.ToolResult
+	if result.IsError || resultCounts[result.ID] != 1 || len(result.Output.Details) != 0 || len(result.Output.Content) != 1 {
+		return "", false
+	}
+	block := result.Output.Content[0]
+	if block.Kind != corecontent.Text || len(block.Citations) != 0 || len(block.Metadata) != 0 || len(block.Text) < minimumDuplicateBytes {
+		return "", false
+	}
+	return block.Text, true
+}
+
+// referenceEarlierOutput replaces result's output with a reference to the
+// earlier identical one only when the reference is smaller.
+func referenceEarlierOutput(result *chat.ToolResult, earlier string) error {
+	reference, err := jsonv2.Marshal(duplicateOutputReference{ToolCallID: earlier})
+	if err != nil {
+		return fmt.Errorf("encode duplicate output reference: %w", err)
+	}
+	// References stay below the eligibility floor. They cannot become
+	// another full-output candidate on later calls or after restoration.
+	if len(reference) >= minimumDuplicateBytes {
+		return nil
+	}
+	replacement := toolcontract.NewTextOutput(string(reference))
+	originalBytes, err := jsonv2.Marshal(result.Output)
+	if err != nil {
+		return fmt.Errorf("measure original Tool output: %w", err)
+	}
+	replacementBytes, err := jsonv2.Marshal(replacement)
+	if err != nil {
+		return fmt.Errorf("measure replacement Tool output: %w", err)
+	}
+	if len(replacementBytes) < len(originalBytes) {
+		result.Output = replacement
+	}
+	return nil
 }
 
 var _ interaction.ContextProcessor = duplicateToolOutputReducer{}

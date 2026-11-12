@@ -187,30 +187,9 @@ func run(ctx context.Context) (report, error) {
 	// fixture uses only the supplied prompt and fails if its evidence is absent.
 	response, err := prepared.Call(ctx, chat.ModelFunc(func(_ context.Context, r *chat.Request) (*chat.Response, error) {
 		result.input = r.Messages[0].Text()
-		_, body, ok := strings.Cut(result.input, "\n\n---------------------\n")
-		if !ok {
-			return nil, errors.New("model input has no evidence block")
-		}
-		block, tail, ok := strings.Cut(body, "\n---------------------\n\nQuery: ")
-		if !ok || !strings.HasPrefix(tail, question+"\n") {
-			return nil, errors.New("model input lost its question")
-		}
-		var rows []struct {
-			Citation string `json:"citation"`
-			Content  string `json:"content"`
-		}
-		if parseErr := jsonv2.Unmarshal([]byte(block), &rows); parseErr != nil {
-			return nil, parseErr
-		}
-		var answer string
-		for _, row := range rows {
-			if strings.Contains(row.Content, "purchases within") {
-				answer = row.Content + " " + row.Citation
-				break
-			}
-		}
-		if answer == "" {
-			return nil, errors.New("no admitted passage answers the question")
+		answer, answerErr := answerFromEvidence(result.input)
+		if answerErr != nil {
+			return nil, answerErr
 		}
 		msg := chat.NewAssistantMessage(chat.NewTextPart(answer))
 		return chat.NewResponse(&chat.Output{Message: &msg, FinishReason: chat.FinishReasonStop}, nil)
@@ -237,6 +216,32 @@ func run(ctx context.Context) (report, error) {
 		return result, errors.New("original revision is unavailable")
 	}
 	return result, nil
+}
+
+// answerFromEvidence is the deterministic answer fixture: it reads only the
+// evidence block of the prompt and cites the passage that answers the question.
+func answerFromEvidence(prompt string) (string, error) {
+	_, body, ok := strings.Cut(prompt, "\n\n---------------------\n")
+	if !ok {
+		return "", errors.New("model input has no evidence block")
+	}
+	block, tail, ok := strings.Cut(body, "\n---------------------\n\nQuery: ")
+	if !ok || !strings.HasPrefix(tail, question+"\n") {
+		return "", errors.New("model input lost its question")
+	}
+	var rows []struct {
+		Citation string `json:"citation"`
+		Content  string `json:"content"`
+	}
+	if err := jsonv2.Unmarshal([]byte(block), &rows); err != nil {
+		return "", err
+	}
+	for _, row := range rows {
+		if strings.Contains(row.Content, "purchases within") {
+			return row.Content + " " + row.Citation, nil
+		}
+	}
+	return "", errors.New("no admitted passage answers the question")
 }
 
 func main() {

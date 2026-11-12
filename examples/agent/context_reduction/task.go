@@ -2,6 +2,7 @@ package main
 
 import (
 	startrand "crypto/rand"
+	"maps"
 
 	"context"
 	jsonv2 "encoding/json/v2"
@@ -86,63 +87,80 @@ func (c contextModel) Call(ctx context.Context, request *chat.Request) (*chat.Re
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
+	latest, count, err := readReports(request.Messages)
+	if err != nil {
+		return nil, err
+	}
+	if count < c.rounds {
+		return requestReport(count)
+	}
+	return summarizeReports(latest), nil
+}
+
+// readReports returns the latest document per source and the number of report
+// results, following each duplicate-output reference to the report it names.
+func readReports(messages []chat.Message) (map[string]contextDocument, int, error) {
 	results := make(map[string]contextDocument)
 	latest := make(map[string]contextDocument)
 	count := 0
-	for _, message := range request.Messages {
+	for _, message := range messages {
 		for _, part := range message.Parts {
 			if part.Kind != chat.PartToolResult {
 				continue
 			}
-			result := part.ToolResult
-			if result.Name != readReportToolName || result.IsError {
-				return nil, errors.New("unexpected report result")
+			document, err := reportDocument(part.ToolResult, results)
+			if err != nil {
+				return nil, 0, err
 			}
-			text, ok := result.Output.Text()
-			if !ok {
-				return nil, errors.New("report result is not text")
-			}
-			var reference duplicateOutputReference
-			var document contextDocument
-			if refErr := jsonv2.Unmarshal([]byte(text), &reference, jsonv2.RejectUnknownMembers(true)); refErr == nil && reference.ToolCallID != "" {
-				var found bool
-				document, found = results[reference.ToolCallID]
-				if !found {
-					return nil, errors.New("duplicate output reference has no preceding report")
-				}
-			} else if decodeErr := jsonv2.Unmarshal([]byte(text), &document, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
-				return nil, decodeErr
-			}
-			if document.Source == "" || document.Fact == "" || document.Constraint == "" || document.Text == "" {
-				return nil, errors.New("report lost required evidence")
-			}
-			results[result.ID], latest[document.Source] = document, document
+			results[part.ToolResult.ID], latest[document.Source] = document, document
 			count++
 		}
 	}
-	message := chat.NewAssistantMessage()
-	finish := chat.FinishReasonStop
-	if count < c.rounds {
-		arguments, err := jsonv2.Marshal(readReport{Index: count})
-		if err != nil {
-			return nil, err
-		}
-		message.Parts = []chat.Part{chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("report:%d", count), Name: readReportToolName, Arguments: string(arguments)})}
-		finish = chat.FinishReasonToolCalls
-	} else {
-		sources := make([]string, 0, len(latest))
-		for source := range latest {
-			sources = append(sources, source)
-		}
-		slices.Sort(sources)
-		lines := make([]string, 0, len(sources))
-		for _, source := range sources {
-			document := latest[source]
-			lines = append(lines, fmt.Sprintf("%s=%s [%s]", source, document.Fact, document.Constraint))
-		}
-		message.Parts = []chat.Part{chat.NewTextPart(strings.Join(lines, "\n"))}
+	return latest, count, nil
+}
+
+func reportDocument(result *chat.ToolResult, earlier map[string]contextDocument) (contextDocument, error) {
+	if result.Name != readReportToolName || result.IsError {
+		return contextDocument{}, errors.New("unexpected report result")
 	}
-	return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: finish}}, nil
+	text, ok := result.Output.Text()
+	if !ok {
+		return contextDocument{}, errors.New("report result is not text")
+	}
+	var reference duplicateOutputReference
+	var document contextDocument
+	if refErr := jsonv2.Unmarshal([]byte(text), &reference, jsonv2.RejectUnknownMembers(true)); refErr == nil && reference.ToolCallID != "" {
+		var found bool
+		document, found = earlier[reference.ToolCallID]
+		if !found {
+			return contextDocument{}, errors.New("duplicate output reference has no preceding report")
+		}
+	} else if decodeErr := jsonv2.Unmarshal([]byte(text), &document, jsonv2.RejectUnknownMembers(true)); decodeErr != nil {
+		return contextDocument{}, decodeErr
+	}
+	if document.Source == "" || document.Fact == "" || document.Constraint == "" || document.Text == "" {
+		return contextDocument{}, errors.New("report lost required evidence")
+	}
+	return document, nil
+}
+
+func requestReport(index int) (*chat.Response, error) {
+	arguments, err := jsonv2.Marshal(readReport{Index: index})
+	if err != nil {
+		return nil, err
+	}
+	message := chat.NewAssistantMessage(chat.NewToolCallPart(chat.ToolCall{ID: fmt.Sprintf("report:%d", index), Name: readReportToolName, Arguments: string(arguments)}))
+	return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonToolCalls}}, nil
+}
+
+func summarizeReports(latest map[string]contextDocument) *chat.Response {
+	lines := make([]string, 0, len(latest))
+	for _, source := range slices.Sorted(maps.Keys(latest)) {
+		document := latest[source]
+		lines = append(lines, fmt.Sprintf("%s=%s [%s]", source, document.Fact, document.Constraint))
+	}
+	message := chat.NewAssistantMessage(chat.NewTextPart(strings.Join(lines, "\n")))
+	return &chat.Response{Output: &chat.Output{Message: &message, FinishReason: chat.FinishReasonStop}}
 }
 
 func reportTool(task contextTask) (tool.Tool, error) {
