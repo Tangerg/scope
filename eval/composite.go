@@ -13,14 +13,20 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
-// PassPolicy controls categorical aggregation independently from score weights.
-type PassPolicy string
+// PassPolicy decides a composite's categorical verdict from how many components
+// passed. Its zero value decides nothing, so the composite reports only a score;
+// the at-least threshold belongs to the policy that uses it.
+type PassPolicy struct {
+	kind    passKind
+	minimum int
+}
+
+type passKind string
 
 const (
-	PassNone    PassPolicy = ""
-	PassAll     PassPolicy = "all"
-	PassAny     PassPolicy = "any"
-	PassAtLeast PassPolicy = "at_least"
+	passAll     passKind = "all"
+	passAny     passKind = "any"
+	passAtLeast passKind = "at_least"
 )
 
 const (
@@ -28,40 +34,30 @@ const (
 	defaultComponentWeight = 1
 )
 
-func (p PassPolicy) normalize() (PassPolicy, error) {
-	switch p {
-	case PassNone, PassAll, PassAny, PassAtLeast:
-		return p, nil
-	default:
-		return "", fmt.Errorf("%w: unsupported pass policy %q", ErrInvalidEvaluatorConfig, p)
-	}
-}
+// PassAll passes only when every component passes.
+func PassAll() PassPolicy { return PassPolicy{kind: passAll} }
 
-func (p PassPolicy) minimum(componentCount, configured int) (int, error) {
-	switch p {
-	case PassNone:
-		if configured != 0 {
-			return 0, fmt.Errorf("%w: minimum passed requires the at_least policy", ErrInvalidEvaluatorConfig)
-		}
+// PassAny passes when at least one component passes.
+func PassAny() PassPolicy { return PassPolicy{kind: passAny, minimum: 1} }
+
+// PassAtLeast passes when at least minimum components pass.
+func PassAtLeast(minimum int) PassPolicy { return PassPolicy{kind: passAtLeast, minimum: minimum} }
+
+func (p PassPolicy) decides() bool { return p.kind != "" }
+
+// threshold is the number of passing components the policy requires.
+func (p PassPolicy) threshold(componentCount int) (int, error) {
+	switch p.kind {
+	case "":
 		return 0, nil
-	case PassAll:
-		if configured != 0 {
-			return 0, fmt.Errorf("%w: minimum passed is only valid with the at_least policy", ErrInvalidEvaluatorConfig)
-		}
+	case passAll:
 		return componentCount, nil
-	case PassAny:
-		if configured != 0 {
-			return 0, fmt.Errorf("%w: minimum passed is only valid with the at_least policy", ErrInvalidEvaluatorConfig)
-		}
-		return 1, nil
-	case PassAtLeast:
-		if configured <= 0 || configured > componentCount {
+	case passAtLeast:
+		if p.minimum <= 0 || p.minimum > componentCount {
 			return 0, fmt.Errorf("%w: minimum passed must be between 1 and %d", ErrInvalidEvaluatorConfig, componentCount)
 		}
-		return configured, nil
-	default:
-		return 0, fmt.Errorf("%w: unsupported pass policy %q", ErrInvalidEvaluatorConfig, p)
 	}
+	return p.minimum, nil
 }
 
 // Component assigns score weight and pass criticality to one evaluator.
@@ -82,7 +78,7 @@ func (c Component[T]) normalize(index int, policy PassPolicy) (Component[T], err
 	if math.IsNaN(c.Weight) || math.IsInf(c.Weight, 0) || c.Weight < 0 {
 		return Component[T]{}, fmt.Errorf("%w: components[%d] weight must be finite and non-negative", ErrInvalidEvaluatorConfig, index)
 	}
-	if c.Required && policy == PassNone {
+	if c.Required && !policy.decides() {
 		return Component[T]{}, fmt.Errorf("%w: required components need an explicit pass policy", ErrInvalidEvaluatorConfig)
 	}
 	if c.Weight == 0 {
@@ -97,7 +93,6 @@ func (c Component[T]) normalize(index int, policy PassPolicy) (Component[T], err
 type CompositeEvaluatorConfig[T any] struct {
 	Components     []Component[T]
 	PassPolicy     PassPolicy
-	MinimumPassed  int
 	MaxConcurrency int
 }
 
@@ -127,16 +122,12 @@ func NewCompositeEvaluator[T any](config CompositeEvaluatorConfig[T]) (*Composit
 		}
 		components[index] = normalized
 	}
-	policy, err := config.PassPolicy.normalize()
-	if err != nil {
-		return nil, err
-	}
-	minimumPassed, err := policy.minimum(len(components), config.MinimumPassed)
+	minimumPassed, err := config.PassPolicy.threshold(len(components))
 	if err != nil {
 		return nil, err
 	}
 	return &CompositeEvaluator[T]{
-		components: components, passPolicy: policy, minimumPassed: minimumPassed,
+		components: components, passPolicy: config.PassPolicy, minimumPassed: minimumPassed,
 		maxConcurrency: min(cmp.Or(config.MaxConcurrency, DefaultMaxConcurrency), len(components)),
 	}, nil
 }
@@ -154,7 +145,7 @@ func (c *CompositeEvaluator[T]) Evaluate(ctx context.Context, subject T) (Report
 		if report.Score == nil {
 			return Report{}, fmt.Errorf("eval: component %d: %w: composite components require a score", index, ErrInvalidReport)
 		}
-		if c.passPolicy != PassNone && report.Decision == nil {
+		if c.passPolicy.decides() && report.Decision == nil {
 			return Report{}, fmt.Errorf("eval: component %d: %w: pass policy requires a decision", index, ErrInvalidReport)
 		}
 	}
@@ -192,7 +183,7 @@ func (c *CompositeEvaluator[T]) combine(reports []Report) (Report, error) {
 	if passed < c.minimumPassed {
 		verdict = VerdictFail
 	}
-	if c.passPolicy != PassNone {
+	if c.passPolicy.decides() {
 		decision, err := c.decisionFor(verdict)
 		if err != nil {
 			return Report{}, err
@@ -244,9 +235,9 @@ func (c *CompositeEvaluator[T]) decisionFor(verdict Verdict) (Decision, error) {
 	parameters := metadata.Map{}
 	if err := parameters.Set(metricConfigurationKey, struct {
 		Components    []componentRule `json:"components"`
-		PassPolicy    PassPolicy      `json:"pass_policy"`
+		PassPolicy    passKind        `json:"pass_policy"`
 		MinimumPassed int             `json:"minimum_passed"`
-	}{Components: rules, PassPolicy: c.passPolicy, MinimumPassed: c.minimumPassed}); err != nil {
+	}{Components: rules, PassPolicy: c.passPolicy.kind, MinimumPassed: c.minimumPassed}); err != nil {
 		return Decision{}, fmt.Errorf("eval: composite decision identity: %w", err)
 	}
 	return Decision{Policy: Policy{Name: compositePolicyName}, Parameters: parameters, Verdict: verdict}, nil

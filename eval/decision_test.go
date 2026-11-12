@@ -88,7 +88,7 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 	}
 	var baseline eval.Report
 	for _, threshold := range []eval.Score{0.5, 0.8} {
-		composite, constructErr := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(&threshold)}}, PassPolicy: eval.PassAll})
+		composite, constructErr := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(&threshold)}}, PassPolicy: eval.PassAll()})
 		if constructErr != nil {
 			t.Fatal(constructErr)
 		}
@@ -102,7 +102,7 @@ func TestCompositeAcceptsScoreOnlyAndKeepsPolicyOutOfCalculationIdentity(t *test
 			t.Fatalf("component thresholds leaked into the composite's own rule: %#v, %#v", baseline, decided)
 		}
 	}
-	explicit, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}, PassPolicy: eval.PassAll})
+	explicit, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{Components: []eval.Component[string]{{Evaluator: component(nil)}}, PassPolicy: eval.PassAll()})
 	if err != nil {
 		t.Fatal(err)
 	}

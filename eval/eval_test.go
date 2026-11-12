@@ -94,7 +94,7 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 		}), Weight: 1},
 	}
 	composite, err := eval.NewCompositeEvaluator(eval.CompositeEvaluatorConfig[string]{
-		Components: components, PassPolicy: eval.PassAtLeast, MinimumPassed: 1,
+		Components: components, PassPolicy: eval.PassAtLeast(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -120,10 +120,10 @@ func TestCompositeUsesExplicitWeightsAndPassPolicy(t *testing.T) {
 		Components []struct {
 			Required bool `json:"required"`
 		} `json:"components"`
-		PassPolicy    eval.PassPolicy `json:"pass_policy"`
-		MinimumPassed int             `json:"minimum_passed"`
+		PassPolicy    string `json:"pass_policy"`
+		MinimumPassed int    `json:"minimum_passed"`
 	}]("configuration")
-	if err != nil || !found || len(rule.Components) != 2 || !rule.Components[0].Required || rule.PassPolicy != eval.PassAtLeast || rule.MinimumPassed != 1 {
+	if err != nil || !found || len(rule.Components) != 2 || !rule.Components[0].Required || rule.PassPolicy != "at_least" || rule.MinimumPassed != 1 {
 		t.Fatalf("decision policy = (%#v, %v, %v)", rule, found, err)
 	}
 	result.Details[0].Metadata["source"][1] = 'X'
@@ -141,10 +141,8 @@ func TestCompositeValidatesConfigurationAndPreservesErrors(t *testing.T) {
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator(), Weight: -1}}},
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator(), Weight: math.NaN()}}},
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator(), Weight: math.Inf(1)}}},
-		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: "unsupported"},
-		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: eval.PassAtLeast},
-		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: eval.PassAll, MinimumPassed: 1},
-		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: eval.PassAny, MinimumPassed: 1},
+		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: eval.PassAtLeast(0)},
+		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, PassPolicy: eval.PassAtLeast(2)},
 		{Components: []eval.Component[string]{{Evaluator: validStringEvaluator()}}, MaxConcurrency: -1},
 	} {
 		if _, err := eval.NewCompositeEvaluator(config); !errors.Is(err, eval.ErrInvalidEvaluatorConfig) {
