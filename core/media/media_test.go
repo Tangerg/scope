@@ -265,3 +265,60 @@ func TestRequireMIMERejectsUnknownWithoutInferringFromSource(t *testing.T) {
 		t.Fatalf("nil RequireMIME = %v, want ErrNilMedia", err)
 	}
 }
+
+func TestTypeIsTheDeclarationWithoutParameters(t *testing.T) {
+	for _, test := range []struct {
+		declaration string
+		want        media.Type
+		topLevel    media.TopLevelType
+		subtype     string
+	}{
+		{"image/png", "image/png", media.TopLevelImage, "png"},
+		{"Audio/WAV; rate=16000", "audio/wav", media.TopLevelAudio, "wav"},
+		{"application/vnd.api+json", "application/vnd.api+json", media.TopLevelApplication, "vnd.api+json"},
+	} {
+		mediaType, err := media.ParseType(test.declaration)
+		if err != nil || mediaType != test.want || mediaType.TopLevel() != test.topLevel || mediaType.Subtype() != test.subtype {
+			t.Errorf("ParseType(%q) = %q (%q, %q), %v", test.declaration, mediaType, mediaType.TopLevel(), mediaType.Subtype(), err)
+		}
+		if rebuilt := test.topLevel.Type(test.subtype); rebuilt != test.want {
+			t.Errorf("%q.Type(%q) = %q", test.topLevel, test.subtype, rebuilt)
+		}
+		value, err := media.NewURI(test.declaration, "https://example.test/object")
+		if err != nil || value.Type() != test.want {
+			t.Errorf("Media.Type(%q) = %q, %v", test.declaration, value.Type(), err)
+		}
+	}
+	for _, declaration := range []string{"", "image", "image/", "/png", "\x00"} {
+		if mediaType, err := media.ParseType(declaration); !errors.Is(err, media.ErrInvalidMIME) {
+			t.Errorf("ParseType(%q) = %q, %v", declaration, mediaType, err)
+		}
+	}
+	if undeclared := (&media.Media{Source: media.Source{Kind: media.SourceURI, URI: "https://example.test"}}).Type(); undeclared != "" {
+		t.Fatalf("undeclared Type = %q", undeclared)
+	}
+}
+
+func TestDataURIEncodesOnlyDeclaredInlineBytes(t *testing.T) {
+	value, err := media.NewBytes("image/png; name=pixel", []byte{0x89, 'P'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uri, uriErr := value.DataURI(); uriErr != nil || uri != "data:image/png;base64,iVA=" {
+		t.Fatalf("DataURI = %q, %v", uri, uriErr)
+	}
+	remote, err := media.NewURI("image/png", "https://example.test/pixel.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, uriErr := remote.DataURI(); !errors.Is(uriErr, media.ErrInvalidSource) {
+		t.Fatalf("remote DataURI error = %v", uriErr)
+	}
+	undeclared, err := media.NewBytes("", []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, uriErr := undeclared.DataURI(); !errors.Is(uriErr, media.ErrInvalidMIME) {
+		t.Fatalf("undeclared DataURI error = %v", uriErr)
+	}
+}

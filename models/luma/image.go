@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"slices"
 	"strings"
@@ -166,7 +165,7 @@ func (i *ImageModel) generationParams(request *image.Request) (lumaagents.Genera
 }
 
 func nativeOutputFormat(mediaType string) (lumaagents.GenerationNewParamsOutputFormat, error) {
-	switch strings.TrimPrefix(mediaType, mediaTypeImagePrefix) {
+	switch media.Type(mediaType).Subtype() {
 	case string(lumaagents.GenerationNewParamsOutputFormatPng):
 		return lumaagents.GenerationNewParamsOutputFormatPng, nil
 	case string(lumaagents.GenerationNewParamsOutputFormatJpeg), outputFormatJPG:
@@ -279,10 +278,11 @@ func (i *ImageModel) downloadOutput(ctx context.Context, rawURL string) ([]byte,
 	mimeType := ""
 	contentType := strings.TrimSpace(response.Header.Get(headerContentType))
 	if contentType != "" {
-		mimeType, _, err = mime.ParseMediaType(contentType)
-		if err != nil {
-			return nil, "", fmt.Errorf("parse download content type %q: %w", contentType, err)
+		mediaType, parseErr := media.ParseType(contentType)
+		if parseErr != nil {
+			return nil, "", fmt.Errorf("download content type: %w", parseErr)
 		}
+		mimeType = string(mediaType)
 	} else {
 		mimeType = http.DetectContentType(data)
 	}

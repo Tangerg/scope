@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"mime"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
@@ -41,12 +40,8 @@ func audioFile(value *media.Media) (io.Reader, error) {
 	}
 	name := value.Name
 	if name == "" {
-		mediaType, _, err := mime.ParseMediaType(value.MIME)
-		if err != nil {
-			return nil, err
-		}
 		var extension string
-		switch mediaType {
+		switch value.Type() {
 		case audioMIMEMPEG, audioMIMEMP3:
 			extension = audioExtensionMP3
 		case audioMIMEMP4, videoMIMEMP4, audioMIMEXM4A:

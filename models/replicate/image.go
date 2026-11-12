@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -161,8 +160,10 @@ func (i ImageInputSchema) Validate() error {
 	if i.OutputFormatKey != "" && len(i.OutputFormats) == 0 {
 		return errors.New("replicate: ImageInputSchema.OutputFormatKey requires OutputFormats")
 	}
+	// Keys are matched against canonical Options.OutputFormat values, so a
+	// non-canonical key could never be selected.
 	for mimeType, value := range i.OutputFormats {
-		if !strings.HasPrefix(mimeType, mediaTypeImagePrefix) || value == "" {
+		if mediaType, err := media.ParseType(mimeType); err != nil || mediaType.TopLevel() != media.TopLevelImage || string(mediaType) != mimeType || value == "" {
 			return fmt.Errorf("replicate: ImageInputSchema.OutputFormats contains invalid mapping %q -> %q", mimeType, value)
 		}
 	}
@@ -396,9 +397,9 @@ func outputMIMEType(contentType, fallback string) (string, error) {
 	if contentType == "" {
 		return cmp.Or(fallback, mediaTypeBinary), nil
 	}
-	mimeType, _, err := mime.ParseMediaType(contentType)
+	mediaType, err := media.ParseType(contentType)
 	if err != nil {
-		return "", fmt.Errorf("parse content type %q: %w", contentType, err)
+		return "", fmt.Errorf("content type: %w", err)
 	}
-	return mimeType, nil
+	return string(mediaType), nil
 }

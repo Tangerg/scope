@@ -3,9 +3,7 @@ package image
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"mime"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Tangerg/scope/core/media"
@@ -14,8 +12,7 @@ import (
 )
 
 const (
-	imageMediaTypePrefix = "image/"
-	binaryMediaType      = "application/octet-stream"
+	binaryMediaType media.Type = "application/octet-stream"
 )
 
 type Output struct {
@@ -40,8 +37,7 @@ func (o *Output) Validate() error {
 	if err := o.Media.Validate(); err != nil {
 		return fmt.Errorf("%w: media: %w", ErrInvalidResponse, err)
 	}
-	mediaType, _, _ := mime.ParseMediaType(o.Media.MIME)
-	if !strings.HasPrefix(mediaType, imageMediaTypePrefix) && mediaType != binaryMediaType {
+	if mediaType := o.Media.Type(); mediaType.TopLevel() != media.TopLevelImage && mediaType != binaryMediaType {
 		return fmt.Errorf("%w: media MIME type %q is not an image", ErrInvalidResponse, o.Media.MIME)
 	}
 	if err := o.Metadata.Validate(); err != nil {

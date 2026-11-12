@@ -4,7 +4,6 @@ const (
 	headerContentType               = "Content-Type"
 	mediaTypeJSON                   = "application/json"
 	mediaTypeBinary                 = "application/octet-stream"
-	mediaTypeImagePrefix            = "image/"
 	mediaTypeJPEG                   = "image/jpeg"
 	mediaTypePNG                    = "image/png"
 	mediaTypeWebP                   = "image/webp"

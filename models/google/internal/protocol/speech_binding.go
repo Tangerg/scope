@@ -8,16 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	"strings"
 
 	"google.golang.org/genai"
 
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/speech"
 )
 
 const (
-	speechMediaTypePrefix         = "audio/"
 	speechResponseModalitiesField = "responseModalities"
 	speechConfigField             = "speechConfig"
 	speechVoiceConfigField        = "voiceConfig"
@@ -160,7 +159,7 @@ type speechAudioFormat string
 
 func (s *speechAudioFormat) accept(value string) error {
 	mediaType, parameters, err := mime.ParseMediaType(value)
-	if err != nil || !strings.HasPrefix(mediaType, speechMediaTypePrefix) {
+	if err != nil || media.Type(mediaType).TopLevel() != media.TopLevelAudio {
 		return fmt.Errorf("google: %w: invalid speech MIME type %q", speech.ErrInvalidResponse, value)
 	}
 	canonical := speechAudioFormat(mime.FormatMediaType(mediaType, parameters))

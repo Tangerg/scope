@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
@@ -122,7 +121,7 @@ func (i *ImageModel) buildAPIRequest(req *image.Request) (string, *generateReque
 		apiReq.Seed = effectiveOptions.Seed
 	}
 	if effectiveOptions.OutputFormat != "" {
-		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, mediaTypeImagePrefix)
+		apiReq.OutputFormat = media.Type(effectiveOptions.OutputFormat).Subtype()
 	}
 
 	// Binary responses omit the verdict needed to reject filtered generations.
@@ -164,7 +163,7 @@ func (i *ImageModel) buildResponse(body []byte, hdr http.Header, outputFormat st
 	}
 	mimeType := mediaTypePNG
 	if outputFormat != "" {
-		mimeType = mediaTypeImagePrefix + outputFormat
+		mimeType = string(media.TopLevelImage.Type(outputFormat))
 	}
 	value, err := media.NewBytes(mimeType, data)
 	if err != nil {

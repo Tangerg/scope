@@ -3,12 +3,11 @@ package image
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"mime"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/Tangerg/scope/core/internal/modelid"
 	"github.com/Tangerg/scope/core/internal/ptr"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
 
@@ -60,19 +59,15 @@ func (o Options) validateOutputFormat() error {
 	if o.OutputFormat == "" {
 		return nil
 	}
-	mediaType, parameters, err := mime.ParseMediaType(o.OutputFormat)
+	mediaType, err := media.ParseType(o.OutputFormat)
 	if err != nil {
-		return fmt.Errorf("invalid output format %q: %w", o.OutputFormat, err)
+		return fmt.Errorf("invalid output format: %w", err)
 	}
-	canonical := strings.ToLower(mediaType)
-	if !strings.HasPrefix(canonical, imageMediaTypePrefix) || len(strings.TrimPrefix(canonical, imageMediaTypePrefix)) == 0 {
+	if mediaType.TopLevel() != media.TopLevelImage {
 		return fmt.Errorf("output format %q is not an image MIME type", o.OutputFormat)
 	}
-	if len(parameters) != 0 {
-		return fmt.Errorf("output format %q must not include parameters", o.OutputFormat)
-	}
-	if canonical != o.OutputFormat {
-		return fmt.Errorf("output format must use canonical MIME form %q", canonical)
+	if string(mediaType) != o.OutputFormat {
+		return fmt.Errorf("output format must be the canonical MIME form %q without parameters", mediaType)
 	}
 	return nil
 }

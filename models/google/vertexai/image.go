@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"mime"
-	"strings"
 
 	"google.golang.org/genai"
 
@@ -29,7 +27,6 @@ func (i ImageModelConfig) Validate() error {
 
 const (
 	vertexAPIVersion           = "v1"
-	imageMediaTypePrefix       = "image/"
 	mediaTypePNG               = "image/png"
 	mediaTypeJPEG              = "image/jpeg"
 	imageNativePartMetadataKey = Provider + "/native_part"
@@ -191,18 +188,24 @@ func vertexImagePart(value *media.Media) (*genai.Part, error) {
 	if err := value.Validate(); err != nil {
 		return nil, err
 	}
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil || !strings.HasPrefix(mediaType, imageMediaTypePrefix) {
+	mediaType := value.Type()
+	if mediaType.TopLevel() != media.TopLevelImage {
 		return nil, fmt.Errorf("MIME type %q is not an image", value.MIME)
 	}
 	switch value.Source.Kind {
 	case media.SourceBytes:
-		return genai.NewPartFromBytes(value.Source.Bytes, mediaType), nil
+		return genai.NewPartFromBytes(value.Source.Bytes, string(mediaType)), nil
 	case media.SourceURI:
-		return genai.NewPartFromURI(value.Source.URI, mediaType), nil
+		return genai.NewPartFromURI(value.Source.URI, string(mediaType)), nil
 	default:
 		return nil, fmt.Errorf("source kind %q is not supported by Vertex GenerateContent", value.Source.Kind)
 	}
+}
+
+// declaresImage selects image parts; GenerateContent may interleave others.
+func declaresImage(declaration string) bool {
+	mediaType, err := media.ParseType(declaration)
+	return err == nil && mediaType.TopLevel() == media.TopLevelImage
 }
 
 func (i *ImageModel) buildResponse(apiResp *genai.GenerateContentResponse) (*image.Response, error) {
@@ -224,9 +227,9 @@ func (i *ImageModel) buildResponse(apiResp *genai.GenerateContentResponse) (*ima
 			var value *media.Media
 			var err error
 			switch {
-			case part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, imageMediaTypePrefix):
+			case part.InlineData != nil && declaresImage(part.InlineData.MIMEType):
 				value, err = media.NewBytes(part.InlineData.MIMEType, part.InlineData.Data)
-			case part.FileData != nil && strings.HasPrefix(part.FileData.MIMEType, imageMediaTypePrefix):
+			case part.FileData != nil && declaresImage(part.FileData.MIMEType):
 				value, err = media.NewURI(part.FileData.MIMEType, part.FileData.FileURI)
 			default:
 				continue

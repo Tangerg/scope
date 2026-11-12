@@ -3,7 +3,6 @@ package bedrock
 import (
 	"errors"
 	"fmt"
-	"mime"
 	"path"
 	"regexp"
 	"slices"
@@ -16,9 +15,6 @@ import (
 )
 
 const (
-	mediaFamilyImage      = "image"
-	mediaFamilyAudio      = "audio"
-	mediaFamilyVideo      = "video"
 	mediaSubtypeJPG       = "jpg"
 	mediaSubtypeXM4A      = "x-m4a"
 	mediaSubtypeQuickTime = "quicktime"
@@ -40,18 +36,13 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 	if value == nil {
 		return nil, errors.New("nil media")
 	}
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return nil, fmt.Errorf("invalid media MIME %q: %w", value.MIME, err)
+	if err := value.RequireMIME(); err != nil {
+		return nil, err
 	}
-	major, subtype, ok := strings.Cut(strings.ToLower(mediaType), "/")
-	if !ok {
-		return nil, fmt.Errorf("invalid media MIME %q", value.MIME)
-	}
-
-	switch major {
-	case mediaFamilyImage:
-		format, ok := bedrockImageFormat(subtype)
+	mediaType := value.Type()
+	switch mediaType.TopLevel() {
+	case media.TopLevelImage:
+		format, ok := bedrockImageFormat(mediaType.Subtype())
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock image MIME %q", value.MIME)
 		}
@@ -60,8 +51,8 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 			return nil, err
 		}
 		return &types.ContentBlockMemberImage{Value: types.ImageBlock{Format: format, Source: source}}, nil
-	case mediaFamilyAudio:
-		format, ok := bedrockAudioFormat(subtype)
+	case media.TopLevelAudio:
+		format, ok := bedrockAudioFormat(mediaType.Subtype())
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock audio MIME %q", value.MIME)
 		}
@@ -70,8 +61,8 @@ func mediaToBlock(value *media.Media) (types.ContentBlock, error) {
 			return nil, err
 		}
 		return &types.ContentBlockMemberAudio{Value: types.AudioBlock{Format: format, Source: source}}, nil
-	case mediaFamilyVideo:
-		format, ok := bedrockVideoFormat(subtype)
+	case media.TopLevelVideo:
+		format, ok := bedrockVideoFormat(mediaType.Subtype())
 		if !ok {
 			return nil, fmt.Errorf("unsupported Bedrock video MIME %q", value.MIME)
 		}
@@ -228,7 +219,7 @@ func bedrockVideoFormat(subtype string) (types.VideoFormat, bool) {
 	}
 }
 
-func bedrockDocumentFormat(mediaType string) (types.DocumentFormat, bool) {
+func bedrockDocumentFormat(mediaType media.Type) (types.DocumentFormat, bool) {
 	switch mediaType {
 	case documentMIMEPDF:
 		return types.DocumentFormatPdf, true

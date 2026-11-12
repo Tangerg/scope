@@ -8,8 +8,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"mime"
-	"strings"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/media"
@@ -17,12 +15,8 @@ import (
 )
 
 const (
-	mediaTypeImagePrefix = "image/"
-	mediaTypeAudioPrefix = "audio/"
-	mediaTypePDF         = "application/pdf"
-	dataURIPrefix        = "data:"
-	dataURIBase64Marker  = ";base64,"
-	emptyJSONObject      = "{}"
+	mediaTypePDF    = "application/pdf"
+	emptyJSONObject = "{}"
 )
 
 func newResponseFormat(format *corechat.OutputFormat) (*responseFormat, error) {
@@ -114,12 +108,9 @@ func mapMistralUserContent(parts []corechat.Part) (any, error) {
 }
 
 func mapMistralMedia(value *media.Media) (any, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return nil, fmt.Errorf("media MIME %q: %w", value.MIME, err)
-	}
+	mediaType := value.Type()
 	switch {
-	case strings.HasPrefix(mediaType, mediaTypeImagePrefix):
+	case mediaType.TopLevel() == media.TopLevelImage:
 		uri, err := mistralMediaURI(value)
 		if err != nil {
 			return nil, err
@@ -134,7 +125,7 @@ func mapMistralMedia(value *media.Media) (any, error) {
 			return nil, err
 		}
 		return documentURLChunk{Type: contentTypeDocumentURL, DocumentURL: uri, DocumentName: value.Name}, nil
-	case strings.HasPrefix(mediaType, mediaTypeAudioPrefix):
+	case mediaType.TopLevel() == media.TopLevelAudio:
 		if value.Source.Kind != media.SourceBytes {
 			return nil, errors.New("audio input requires a byte source")
 		}
@@ -153,11 +144,7 @@ func mistralMediaURI(value *media.Media) (string, error) {
 	case media.SourceURI:
 		return value.URI()
 	case media.SourceBytes:
-		data, err := value.Bytes()
-		if err != nil {
-			return "", err
-		}
-		return dataURIPrefix + value.MIME + dataURIBase64Marker + base64.StdEncoding.EncodeToString(data), nil
+		return value.DataURI()
 	default:
 		return "", fmt.Errorf("media source %q is unsupported", value.Source.Kind)
 	}

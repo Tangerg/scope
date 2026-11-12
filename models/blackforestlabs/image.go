@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"strings"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/invocation"
@@ -161,7 +160,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 		apiReq.Seed = effectiveOptions.Seed
 	}
 	if effectiveOptions.OutputFormat != "" {
-		apiReq.OutputFormat = strings.TrimPrefix(effectiveOptions.OutputFormat, "image/")
+		apiReq.OutputFormat = media.Type(effectiveOptions.OutputFormat).Subtype()
 	}
 	return effectiveOptions.Model, apiReq, nil
 }

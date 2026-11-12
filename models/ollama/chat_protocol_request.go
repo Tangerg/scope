@@ -6,7 +6,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"mime"
 	"strings"
 
 	corechat "github.com/Tangerg/scope/core/chat"
@@ -279,8 +278,7 @@ func mapProtocolUserMessage(message corechat.Message) (nativeMessage, error) {
 }
 
 func mapProtocolImage(value *media.Media) (nativeImageData, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil || !strings.HasPrefix(mediaType, "image/") {
+	if value.Type().TopLevel() != media.TopLevelImage {
 		return nil, fmt.Errorf("media MIME %q is not an image", value.MIME)
 	}
 	if value.Source.Kind != media.SourceBytes {

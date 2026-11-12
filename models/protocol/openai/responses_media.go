@@ -1,9 +1,6 @@
 package openai
 
 import (
-	"mime"
-	"strings"
-
 	openaisdk "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
@@ -28,11 +25,10 @@ type responsesMedia struct {
 }
 
 func projectResponsesMedia(value *media.Media) (responsesMedia, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
+	if err := value.RequireMIME(); err != nil {
 		return responsesMedia{}, err
 	}
-	if strings.HasPrefix(mediaType, "image/") {
+	if value.Type().TopLevel() == media.TopLevelImage {
 		return projectResponsesImage(value)
 	}
 	return projectResponsesFile(value)

@@ -5,10 +5,7 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"mime"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 	"github.com/samber/lo"
@@ -94,9 +91,8 @@ func (r resourceEnvelope) validate() error {
 		return fmt.Errorf("mcp: embedded resource URI: %w", err)
 	}
 	if r.MIMEType != "" {
-		mediaType, _, err := mime.ParseMediaType(r.MIMEType)
-		if err != nil || !utf8.ValidString(r.MIMEType) || !strings.Contains(mediaType, "/") {
-			return fmt.Errorf("mcp: embedded resource: %w: %q", media.ErrInvalidMIME, r.MIMEType)
+		if _, err := media.ParseType(r.MIMEType); err != nil {
+			return fmt.Errorf("mcp: embedded resource: %w", err)
 		}
 	}
 	return nil
@@ -384,20 +380,12 @@ func (c *contentEnvelope) infer(part corecontent.Block) error {
 		return nil
 	}
 	value := part.Media
-	var mediaType string
-	if value.MIME != "" {
-		var err error
-		mediaType, _, err = mime.ParseMediaType(value.MIME)
-		if err != nil {
-			return err
-		}
-	}
 	switch value.Source.Kind {
 	case media.SourceBytes:
-		switch {
-		case strings.HasPrefix(mediaType, "image/"):
+		switch value.Type().TopLevel() {
+		case media.TopLevelImage:
 			c.Kind = contentImage
-		case strings.HasPrefix(mediaType, "audio/"):
+		case media.TopLevelAudio:
 			c.Kind = contentAudio
 		default:
 			c.Kind = contentResource

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -21,7 +20,6 @@ import (
 )
 
 const (
-	imageMIMETypePrefix      = "image/"
 	imageFieldModel          = "model"
 	imageFieldPrompt         = "prompt"
 	imageFieldNegativePrompt = "negative_prompt"
@@ -112,7 +110,7 @@ func (i *ImageModel) buildAPIImageRequest(req *image.Request) (*openai.ImageGene
 	params.Prompt = req.Prompt
 
 	if effectiveOptions.OutputFormat != "" {
-		format := openai.ImagesResponseOutputFormat(strings.TrimPrefix(effectiveOptions.OutputFormat, imageMIMETypePrefix))
+		format := openai.ImagesResponseOutputFormat(media.Type(effectiveOptions.OutputFormat).Subtype())
 		if _, err := imageOutputMIMEType(format); err != nil {
 			return nil, err
 		}
@@ -169,7 +167,7 @@ func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, requestedFo
 func imageOutputMIMEType(format openai.ImagesResponseOutputFormat) (string, error) {
 	switch format {
 	case openai.ImagesResponseOutputFormatPNG, openai.ImagesResponseOutputFormatJPEG, openai.ImagesResponseOutputFormatWebP:
-		return imageMIMETypePrefix + string(format), nil
+		return string(media.TopLevelImage.Type(string(format))), nil
 	default:
 		return "", fmt.Errorf("openai: image: unsupported output format %q", format)
 	}

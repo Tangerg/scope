@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"mime"
 	"slices"
-	"strings"
 
 	corecontent "github.com/Tangerg/scope/core/content"
 
@@ -412,11 +410,8 @@ func (p *protocolMessageMapper) mapUserParts(parts []corechat.Part) ([]anthropic
 }
 
 func (p *protocolMessageMapper) mapMedia(value *media.Media) (anthropicsdk.ContentBlockParamUnion, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("media MIME %q: %w", value.MIME, err)
-	}
-	if strings.HasPrefix(mediaType, "image/") {
+	mediaType := value.Type()
+	if mediaType.TopLevel() == media.TopLevelImage {
 		switch value.Source.Kind {
 		case media.SourceBytes:
 			if !protocolImageMIME(mediaType) {
@@ -426,7 +421,7 @@ func (p *protocolMessageMapper) mapMedia(value *media.Media) (anthropicsdk.Conte
 			if bytesErr != nil {
 				return anthropicsdk.ContentBlockParamUnion{}, bytesErr
 			}
-			return anthropicsdk.NewImageBlockBase64(mediaType, base64.StdEncoding.EncodeToString(data)), nil
+			return anthropicsdk.NewImageBlockBase64(string(mediaType), base64.StdEncoding.EncodeToString(data)), nil
 		case media.SourceURI:
 			uri, uriErr := value.URI()
 			if uriErr != nil {
@@ -437,7 +432,7 @@ func (p *protocolMessageMapper) mapMedia(value *media.Media) (anthropicsdk.Conte
 			return anthropicsdk.ContentBlockParamUnion{}, fmt.Errorf("image source %q is unsupported", value.Source.Kind)
 		}
 	}
-	if mediaType == string(constant.ValueOf[constant.ApplicationPDF]()) {
+	if mediaType == media.Type(constant.ValueOf[constant.ApplicationPDF]()) {
 		var block anthropicsdk.ContentBlockParamUnion
 		switch value.Source.Kind {
 		case media.SourceBytes:
@@ -480,7 +475,7 @@ func (p *protocolMessageMapper) bindDocument(value *media.Media) {
 	p.documents = append(p.documents, source)
 }
 
-func protocolImageMIME(mediaType string) bool {
+func protocolImageMIME(mediaType media.Type) bool {
 	switch mediaType {
 	case mediaTypeImageJPEG, mediaTypeImagePNG, mediaTypeImageGIF, mediaTypeImageWebP:
 		return true

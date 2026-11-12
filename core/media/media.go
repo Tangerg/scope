@@ -1,6 +1,7 @@
 package media
 
 import (
+	"encoding/base64"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
@@ -71,6 +72,57 @@ func (s Source) validateURI() error {
 		return fmt.Errorf("%w: %q is not an absolute URI", ErrInvalidSource, s.URI)
 	}
 	return nil
+}
+
+// Type is a media type without parameters, lowercased as mime.ParseMediaType
+// returns it, such as image/png. Adapters classify and compare media by it
+// instead of parsing a MIME declaration again.
+type Type string
+
+// TopLevelType is the registered class before the slash in a Type, such as
+// image; one wire form often accepts a whole class.
+type TopLevelType string
+
+const (
+	TopLevelText        TopLevelType = "text"
+	TopLevelImage       TopLevelType = "image"
+	TopLevelAudio       TopLevelType = "audio"
+	TopLevelVideo       TopLevelType = "video"
+	TopLevelApplication TopLevelType = "application"
+)
+
+const (
+	typeSeparator = "/"
+	dataURIScheme = "data:"
+	dataURIBase64 = ";base64,"
+)
+
+// Type names subtype within this class, the inverse of Type.Subtype for an
+// adapter whose wire spells only the subtype.
+func (t TopLevelType) Type(subtype string) Type {
+	return Type(string(t) + typeSeparator + subtype)
+}
+
+// ParseType reads the Type of a MIME declaration and discards its parameters.
+func ParseType(declaration string) (Type, error) {
+	mediaType, _, err := mime.ParseMediaType(declaration)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q: %w", ErrInvalidMIME, declaration, err)
+	}
+	if _, subtype, found := strings.Cut(mediaType, typeSeparator); !found || subtype == "" {
+		return "", fmt.Errorf("%w: %q has no subtype", ErrInvalidMIME, declaration)
+	}
+	return Type(mediaType), nil
+}
+
+func (t Type) TopLevel() TopLevelType {
+	topLevel, _, _ := strings.Cut(string(t), typeSeparator)
+	return TopLevelType(topLevel)
+}
+
+func (t Type) Subtype() string {
+	_, subtype, _ := strings.Cut(string(t), typeSeparator)
+	return subtype
 }
 
 // Inline-byte construction snapshots the caller's buffer.
@@ -153,9 +205,8 @@ func (m *Media) Validate() error {
 		return errors.New("media: ID and name must be valid UTF-8")
 	}
 	if m.MIME != "" {
-		mediaType, _, err := mime.ParseMediaType(m.MIME)
-		if err != nil || !strings.Contains(mediaType, "/") {
-			return fmt.Errorf("%w: %q", ErrInvalidMIME, m.MIME)
+		if _, err := ParseType(m.MIME); err != nil {
+			return err
 		}
 	}
 	if err := m.Source.Validate(); err != nil {
@@ -165,6 +216,19 @@ func (m *Media) Validate() error {
 		return fmt.Errorf("media: metadata: %w", err)
 	}
 	return nil
+}
+
+// Type is the declared Type, empty when MIME declares none. An invalid
+// declaration is empty as well; Validate reports it.
+func (m *Media) Type() Type {
+	if m == nil || m.MIME == "" {
+		return ""
+	}
+	mediaType, err := ParseType(m.MIME)
+	if err != nil {
+		return ""
+	}
+	return mediaType
 }
 
 func (m *Media) RequireMIME() error {
@@ -201,6 +265,20 @@ func (m *Media) URI() (string, error) {
 		return "", err
 	}
 	return m.Source.URI, nil
+}
+
+// DataURI encodes inline bytes as an RFC 2397 base64 data URI, the form
+// providers accept for inline media where their wire expects a URL. It carries
+// the Type alone: RFC 2397 parameters admit no whitespace, which a MIME
+// declaration may contain.
+func (m *Media) DataURI() (string, error) {
+	if err := m.RequireMIME(); err != nil {
+		return "", err
+	}
+	if m.Source.Kind != SourceBytes {
+		return "", fmt.Errorf("%w: source kind is %q, not %q", ErrInvalidSource, m.Source.Kind, SourceBytes)
+	}
+	return dataURIScheme + string(m.Type()) + dataURIBase64 + base64.StdEncoding.EncodeToString(m.Source.Bytes), nil
 }
 
 func (m *Media) Reference() (string, error) {

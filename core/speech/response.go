@@ -3,17 +3,14 @@ package speech
 import (
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"mime"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Tangerg/scope/core/internal/modelid"
+	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 	"github.com/Tangerg/scope/core/timestamp"
 )
-
-const audioMediaTypePrefix = "audio/"
 
 // Output is one chunk of generated audio. For synchronous calls the
 // chunk is the entire audio; for streaming calls Audio is whatever
@@ -45,7 +42,7 @@ func (o *Output) Validate() error {
 	if len(o.Audio) == 0 {
 		return fmt.Errorf("%w: audio must not be empty", ErrInvalidResponse)
 	}
-	if mediaType, _, err := mime.ParseMediaType(o.MIME); err != nil || !strings.HasPrefix(mediaType, audioMediaTypePrefix) {
+	if mediaType, err := media.ParseType(o.MIME); err != nil || mediaType.TopLevel() != media.TopLevelAudio {
 		return fmt.Errorf("%w: %q is not an audio media type", ErrInvalidResponse, o.MIME)
 	}
 	if err := o.Metadata.Validate(); err != nil {

@@ -5,10 +5,10 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"mime"
-	"strings"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
+
+	"github.com/Tangerg/scope/core/media"
 )
 
 const (
@@ -130,8 +130,8 @@ func (i ImageReference) Validate() error {
 		}
 		return nil
 	}
-	mediaType, _, err := mime.ParseMediaType(i.MediaType)
-	if err != nil || !strings.HasPrefix(mediaType, mediaTypeImagePrefix) {
+	mediaType, err := media.ParseType(i.MediaType)
+	if err != nil || mediaType.TopLevel() != media.TopLevelImage {
 		return errors.New("inline image data requires an image media_type")
 	}
 	if _, err := base64.StdEncoding.DecodeString(i.Data); err != nil {

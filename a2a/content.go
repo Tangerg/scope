@@ -3,12 +3,12 @@ package a2a
 import (
 	"errors"
 	"fmt"
-	"mime"
 	"slices"
 	"strings"
 
 	sdka2a "github.com/a2aproject/a2a-go/v2/a2a"
 
+	"github.com/Tangerg/scope/core/media"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -75,7 +75,7 @@ func (t textProjection) validateModes(groups ...[]string) error {
 }
 
 func (textProjection) supportsMediaType(value string) bool {
-	mediaType, _, err := mime.ParseMediaType(value)
+	mediaType, err := media.ParseType(value)
 	return err == nil && mediaType == MediaTypePlainText
 }
 

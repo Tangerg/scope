@@ -5,8 +5,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"mime"
-	"strings"
 
 	openaisdk "github.com/openai/openai-go/v3"
 
@@ -17,8 +15,6 @@ import (
 )
 
 const (
-	mediaTypeMajorImage     = "image"
-	mediaTypeMajorAudio     = "audio"
 	chatInputAudioFormatMP3 = "mp3"
 	chatInputAudioFormatWAV = "wav"
 )
@@ -112,14 +108,12 @@ func mapUserMessage(message corechat.Message) (openaisdk.ChatCompletionMessagePa
 }
 
 func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionParam, error) {
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil {
-		return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("media MIME %q: %w", value.MIME, err)
+	if err := value.RequireMIME(); err != nil {
+		return openaisdk.ChatCompletionContentPartUnionParam{}, err
 	}
-	major, subtype, _ := strings.Cut(mediaType, "/")
-
-	switch major {
-	case mediaTypeMajorImage:
+	mediaType := value.Type()
+	switch mediaType.TopLevel() {
+	case media.TopLevelImage:
 		location, locationErr := mediaLocation(value)
 		if locationErr != nil {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("image source: %w", locationErr)
@@ -129,7 +123,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 				ImageURL: openaisdk.ChatCompletionContentPartImageImageURLParam{URL: location},
 			},
 		}, nil
-	case mediaTypeMajorAudio:
+	case media.TopLevelAudio:
 		if value.Source.Kind != media.SourceBytes {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio requires bytes, got %q", value.Source.Kind)
 		}
@@ -140,7 +134,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 		case audioMIMEWAV:
 			format = chatInputAudioFormatWAV
 		default:
-			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio MIME subtype %q is unsupported", subtype)
+			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("audio MIME subtype %q is unsupported", mediaType.Subtype())
 		}
 		data, bytesErr := value.Bytes()
 		if bytesErr != nil {
@@ -209,8 +203,7 @@ func mapAssistantMessage(message corechat.Message) (openaisdk.ChatCompletionMess
 			if audioID != "" {
 				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: Chat Completions supports at most one assistant audio part", i)
 			}
-			mediaType, _, err := mime.ParseMediaType(part.Media.MIME)
-			if err != nil || !strings.HasPrefix(mediaType, "audio/") {
+			if part.Media.Type().TopLevel() != media.TopLevelAudio {
 				return openaisdk.ChatCompletionMessageParamUnion{}, fmt.Errorf("parts[%d]: Chat Completions supports only audio assistant media", i)
 			}
 			switch part.Media.Source.Kind {

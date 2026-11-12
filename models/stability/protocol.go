@@ -5,7 +5,6 @@ const (
 	minimumCFGScale      = 1
 	maximumCFGScale      = 10
 	headerAccept         = "Accept"
-	mediaTypeImagePrefix = "image/"
 	mediaTypePNG         = "image/png"
 	outputFormatJPEG     = "jpeg"
 	outputFormatPNG      = "png"

@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"mime"
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/scope/core/image"
 	"github.com/Tangerg/scope/core/media"
@@ -16,7 +14,6 @@ const (
 	imageInteractionType             = "image"
 	imageInteractionTextType         = "text"
 	imageInteractionGoogleSearchType = "google_search"
-	imageMediaTypePrefix             = "image/"
 	mediaTypePNG                     = "image/png"
 	mediaTypeJPEG                    = "image/jpeg"
 	mediaTypeWebP                    = "image/webp"
@@ -162,16 +159,16 @@ func imageInteractionContentFromMedia(value *media.Media) (imageInteractionConte
 	if err := value.RequireMIME(); err != nil {
 		return imageInteractionContent{}, err
 	}
-	mediaType, _, err := mime.ParseMediaType(value.MIME)
-	if err != nil || !strings.HasPrefix(mediaType, imageMediaTypePrefix) {
+	mediaType := value.Type()
+	if mediaType.TopLevel() != media.TopLevelImage {
 		return imageInteractionContent{}, fmt.Errorf("MIME type %q is not an image", value.MIME)
 	}
-	if !slices.Contains([]string{
+	if !slices.Contains([]media.Type{
 		mediaTypePNG, mediaTypeJPEG, mediaTypeWebP, mediaTypeHEIC, mediaTypeHEIF, mediaTypeGIF, mediaTypeBMP, mediaTypeTIFF,
 	}, mediaType) {
 		return imageInteractionContent{}, fmt.Errorf("MIME type %q is not supported by the Interactions API", mediaType)
 	}
-	content := imageInteractionContent{Type: imageInteractionType, MIMEType: mediaType}
+	content := imageInteractionContent{Type: imageInteractionType, MIMEType: string(mediaType)}
 	switch value.Source.Kind {
 	case media.SourceBytes:
 		content.Data = slices.Clone(value.Source.Bytes)
