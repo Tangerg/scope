@@ -101,32 +101,43 @@ func (e *execution) requestModel(
 			return run.Transition{}, err
 		}
 	}
-	return e.emitModel(turn, consumedMessages, appliedSteerSignalIDs, e.definition.prepareContext)
+	if e.definition.prepareContext {
+		return e.emitPreparation(turn, consumedMessages, appliedSteerSignalIDs)
+	}
+	return e.emitModelCall(turn, consumedMessages, appliedSteerSignalIDs)
 }
 
-// emitModel requests the next model call, or its context preparation first.
-// The envelope is encoded before the state changes again, so it borrows values.
-func (e *execution) emitModel(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID, prepare bool) (run.Transition, error) {
-	call := &modelCall{
+// nextModelCall describes the next model request. Effects encode it before the
+// state changes again, so it borrows values.
+func (e *execution) nextModelCall(appliedSteerSignalIDs []run.SignalID) *modelCall {
+	return &modelCall{
 		ModelCallSequence:     e.state.ModelCallCount + 1,
 		Request:               e.state.WorkingContext,
 		Tools:                 e.definition.modelDefinitions(e.state.AdvertisedToolNames),
 		AppliedSteerSignalIDs: appliedSteerSignalIDs,
 	}
-	envelope := effectEnvelope{ModelCall: call}
-	if prepare {
-		envelope = effectEnvelope{Preparation: call}
-	}
-	effect, err := envelope.effect()
+}
+
+func (e *execution) emitModelCall(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
+	call := e.nextModelCall(appliedSteerSignalIDs)
+	effect, err := effectEnvelope{ModelCall: call}.effect()
 	if err != nil {
 		return run.Transition{}, err
 	}
 	e.state.PendingEffect = turn.EffectID(0)
-	if prepare {
-		e.state.Preparation = &contextPreparation{Applied: slices.Clone(appliedSteerSignalIDs)}
-	} else {
-		e.state.ModelCallCount = call.ModelCallSequence
+	e.state.ModelCallCount = call.ModelCallSequence
+	return run.Yield(consumedMessages, []run.Effect{effect})
+}
+
+// emitPreparation asks the ContextProcessor to prepare the next model call's
+// context before that call is counted.
+func (e *execution) emitPreparation(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
+	effect, err := effectEnvelope{Preparation: e.nextModelCall(appliedSteerSignalIDs)}.effect()
+	if err != nil {
+		return run.Transition{}, err
 	}
+	e.state.PendingEffect = turn.EffectID(0)
+	e.state.Preparation = &contextPreparation{Applied: slices.Clone(appliedSteerSignalIDs)}
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
@@ -152,7 +163,7 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 	if err != nil {
 		return run.Transition{}, err
 	}
-	return e.emitModel(turn, arrival.consumed, append(applied, extra...), false)
+	return e.emitModelCall(turn, arrival.consumed, append(applied, extra...))
 }
 
 // awaitPendingEffect keeps steering that arrived before the awaited settlement.
