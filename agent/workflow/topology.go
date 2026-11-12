@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -20,12 +21,7 @@ func (b BindingRole) Valid() bool {
 	return b == BindingRoleCall || b == BindingRoleCase || b == BindingRoleBranch || b == BindingRoleItem || b == BindingRoleBody
 }
 
-func (b BindingRole) String() string {
-	if !b.Valid() {
-		return invalidEnumName
-	}
-	return string(b)
-}
+func (b BindingRole) String() string { return enum.String(b) }
 
 // BindingTopology is a function-free projection of one exact child binding.
 // ID is present only for named Switch cases and Fork branches.

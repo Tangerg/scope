@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -30,12 +31,7 @@ func (s SettlementStatus) Valid() bool {
 	}
 }
 
-func (s SettlementStatus) String() string {
-	if !s.Valid() {
-		return invalidEnumName
-	}
-	return string(s)
-}
+func (s SettlementStatus) String() string { return enum.String(s) }
 
 // Settlement is the immutable final fact for one Effect. The Effect it answers
 // owns the EffectID, so a Settlement is addressed by where it is returned or

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -20,12 +21,7 @@ const (
 
 func (e EffectTarget) Valid() bool { return e == EffectTargetFramework || e == EffectTargetDispatcher }
 
-func (e EffectTarget) String() string {
-	if !e.Valid() {
-		return invalidEnumName
-	}
-	return string(e)
-}
+func (e EffectTarget) String() string { return enum.String(e) }
 
 // Each variant owns its operation; a payload is never inspected to guess a
 // framework operation or to distinguish a completion from external input.

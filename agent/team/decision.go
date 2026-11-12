@@ -1,6 +1,9 @@
 package team
 
-import "github.com/Tangerg/scope/agent/run"
+import (
+	"github.com/Tangerg/scope/agent/internal/enum"
+	"github.com/Tangerg/scope/agent/run"
+)
 
 type Mode string
 
@@ -16,7 +19,6 @@ const (
 )
 
 const (
-	invalidEnumName   = "invalid"
 	modeUndecidedName = "undecided"
 )
 
@@ -29,13 +31,10 @@ func (m Mode) Valid() bool {
 func (Mode) JSONSchemaEnum() []string { return []string{string(ModeContinue), string(ModeWait)} }
 
 func (m Mode) String() string {
-	if !m.Valid() {
-		return invalidEnumName
-	}
 	if m == ModeUndecided {
 		return modeUndecidedName
 	}
-	return string(m)
+	return enum.String(m)
 }
 
 // TaskRequest starts a new bounded execution of a configured worker. To follow

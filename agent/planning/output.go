@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -30,12 +31,7 @@ var outcomeVocabulary = []Outcome{OutcomeAchieved, OutcomeUnreachable, OutcomeSt
 
 func (o Outcome) Valid() bool { return slices.Contains(outcomeVocabulary, o) }
 
-func (o Outcome) String() string {
-	if !o.Valid() {
-		return invalidEnumName
-	}
-	return string(o)
-}
+func (o Outcome) String() string { return enum.String(o) }
 
 func (Outcome) JSONSchemaEnum() []string { return enumNames(outcomeVocabulary) }
 
@@ -58,12 +54,7 @@ var attemptStatusVocabulary = []AttemptStatus{AttemptSucceeded, AttemptFailed, A
 
 func (a AttemptStatus) Valid() bool { return slices.Contains(attemptStatusVocabulary, a) }
 
-func (a AttemptStatus) String() string {
-	if !a.Valid() {
-		return invalidEnumName
-	}
-	return string(a)
-}
+func (a AttemptStatus) String() string { return enum.String(a) }
 
 func (AttemptStatus) JSONSchemaEnum() []string { return enumNames(attemptStatusVocabulary) }
 

@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
-
-const invalidEnumName = "invalid"
 
 // Truth is the three-valued truth of one observed condition. TruthUnknown is
 // not a synonym for TruthFalse: it means the current WorldState does not establish either
@@ -31,12 +30,7 @@ func (t Truth) known() bool { return slices.Contains(wireTruths, t) }
 
 func (Truth) JSONSchemaEnum() []string { return enumNames(wireTruths) }
 
-func (t Truth) String() string {
-	if !t.Valid() {
-		return invalidEnumName
-	}
-	return string(t)
-}
+func (t Truth) String() string { return enum.String(t) }
 
 func (t Truth) MarshalJSON() ([]byte, error) {
 	if !t.known() {

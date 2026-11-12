@@ -144,7 +144,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 			t.Fatal("result vocabulary changed meaning")
 		}
 	}
-	if ResultInvalid.Valid() || ResultInvalid.String() != invalidEnumName || ModelOutcomeInvalid.Valid() || !ModelOutcomeUnknown.Valid() {
+	if ResultInvalid.Valid() || ResultInvalid.String() != "invalid" || ModelOutcomeInvalid.Valid() || !ModelOutcomeUnknown.Valid() {
 		t.Fatal("invalid enum acquired valid evidence")
 	}
 }

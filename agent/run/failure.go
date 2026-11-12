@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -37,12 +38,7 @@ func (f FailureKind) Valid() bool {
 	}
 }
 
-func (f FailureKind) String() string {
-	if !f.Valid() {
-		return invalidEnumName
-	}
-	return string(f)
-}
+func (f FailureKind) String() string { return enum.String(f) }
 
 func (f FailureKind) terminationCause() TerminationCause {
 	switch f {

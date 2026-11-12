@@ -113,6 +113,7 @@ package_budget=(
   "agent/examples/workflow 70.3"
   "agent/examples/workflow_patterns 72.2"
   "agent/internal/conformancetest 81.6"
+  "agent/internal/enum 100.0"
   "agent/internal/jsonwire 100.0"
   "agent/internal/panicinfo 100.0"
   "agent/messaging 88.6"

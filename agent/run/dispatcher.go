@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -17,12 +18,7 @@ const (
 
 func (r ReplayPolicy) Valid() bool { return r == ReplayPolicyNever || r == ReplayPolicySameIdentity }
 
-func (r ReplayPolicy) String() string {
-	if !r.Valid() {
-		return invalidEnumName
-	}
-	return string(r)
-}
+func (r ReplayPolicy) String() string { return enum.String(r) }
 
 type EffectPolicy struct {
 	Replay               ReplayPolicy  `json:"replay"`

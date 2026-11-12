@@ -4,9 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-)
 
-const invalidEnumName = "invalid"
+	"github.com/Tangerg/scope/agent/internal/enum"
+)
 
 var ErrInvalidStatus = errors.New("run: invalid status")
 
@@ -27,12 +27,7 @@ const (
 	StatusKilled    Status = "killed"
 )
 
-func (s Status) String() string {
-	if !s.Valid() {
-		return invalidEnumName
-	}
-	return string(s)
-}
+func (s Status) String() string { return enum.String(s) }
 
 func parseStatus(value string) (Status, error) {
 	status := Status(value)

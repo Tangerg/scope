@@ -4,11 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
 )
-
-const invalidEnumName = "invalid"
 
 const (
 	failureSuffixCaseUnknown      = "case_unknown"
@@ -45,12 +44,7 @@ func (s StageKind) Valid() bool {
 	return s == StageKindTransform || s == StageKindCall || s == StageKindSwitch || s == StageKindFork || s == StageKindMap || s == StageKindLoop
 }
 
-func (s StageKind) String() string {
-	if !s.Valid() {
-		return invalidEnumName
-	}
-	return string(s)
-}
+func (s StageKind) String() string { return enum.String(s) }
 
 // TransformFunc is a bounded, deterministic, side-effect-free reduction. It
 // must honor ctx cancellation during CPU work. External work belongs in a Call

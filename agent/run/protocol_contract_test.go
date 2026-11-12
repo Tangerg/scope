@@ -192,7 +192,7 @@ func TestTransitionConstructionRejectsIncompleteDecisions(t *testing.T) {
 			t.Fatalf("valid transition vocabulary changed: %q", kind)
 		}
 	}
-	if TransitionKindInvalid.Valid() || TransitionKind("retired").String() != invalidEnumName {
+	if TransitionKindInvalid.Valid() || TransitionKind("retired").String() != "invalid" {
 		t.Fatal("unknown transition became a public state")
 	}
 	failure := controlValue(NewFailure(FailureKindExecution, "test.failed", "step rejected"))

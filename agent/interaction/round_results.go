@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
@@ -18,19 +19,13 @@ const (
 	ResultSucceeded ResultDisposition = "succeeded"
 	ResultFailed    ResultDisposition = "failed"
 	ResultRejected  ResultDisposition = "rejected"
-	invalidEnumName                   = "invalid"
 )
 
 func (r ResultDisposition) Valid() bool {
 	return r == ResultSucceeded || r == ResultFailed || r == ResultRejected
 }
 
-func (r ResultDisposition) String() string {
-	if !r.Valid() {
-		return invalidEnumName
-	}
-	return string(r)
-}
+func (r ResultDisposition) String() string { return enum.String(r) }
 
 // A sparse round preserves the provider's indexes. Missing outcomes never
 // authorize retry, and an input request does not establish a final result.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
@@ -29,12 +30,7 @@ func (t TransitionKind) Valid() bool {
 	}
 }
 
-func (t TransitionKind) String() string {
-	if !t.Valid() {
-		return invalidEnumName
-	}
-	return string(t)
-}
+func (t TransitionKind) String() string { return enum.String(t) }
 
 type Transition struct {
 	kind     TransitionKind

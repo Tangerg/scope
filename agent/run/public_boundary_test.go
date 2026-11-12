@@ -148,7 +148,7 @@ func TestSettlementOwnsItsStatusAndDetachesPayload(t *testing.T) {
 			}
 		})
 	}
-	if SettlementStatusInvalid.Valid() || SettlementStatusInvalid.String() != invalidEnumName {
+	if SettlementStatusInvalid.Valid() || SettlementStatusInvalid.String() != "invalid" {
 		t.Fatal("absent settlement status appears valid")
 	}
 	if settlement, err := NewSettlement(SettlementStatusInvalid, controlValue(ParsePayload(json.RawMessage(`null`)))); !errors.Is(err, ErrInvalidSettlement) || settlement.Valid() {
@@ -266,7 +266,7 @@ func TestControlTerminationKeepsOneTerminalOwner(t *testing.T) {
 			t.Fatalf("competing terminal owner accepted: %s, %v", raw, err)
 		}
 	}
-	if TerminationCauseInvalid.Valid() || TerminationCauseInvalid.String() != invalidEnumName {
+	if TerminationCauseInvalid.Valid() || TerminationCauseInvalid.String() != "invalid" {
 		t.Fatal("invalid termination cause appears valid")
 	}
 }
@@ -290,7 +290,7 @@ func TestEffectPolicyAndWaitSchemasRemainOwned(t *testing.T) {
 			t.Fatal("returned capabilities rewrote effect authority")
 		}
 	}
-	if ReplayPolicyInvalid.Valid() || ReplayPolicyInvalid.String() != invalidEnumName {
+	if ReplayPolicyInvalid.Valid() || ReplayPolicyInvalid.String() != "invalid" {
 		t.Fatal("missing replay policy appears valid")
 	}
 	for _, raw := range []string{
