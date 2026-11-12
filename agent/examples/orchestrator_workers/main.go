@@ -234,7 +234,6 @@ func interactionProgram(compiler *agentrun.Compiler, name, description string, m
 func transformProgram[I, O any](
 	compiler *agentrun.Compiler,
 	name, description string,
-
 	transform workflow.TransformFunc[I, O],
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
 	stage, err := workflow.Transform("execute", transform)

@@ -360,7 +360,7 @@ func (t *treeRuntime) stepped(result stepResult) {
 	}
 	delete(t.steps, result.process)
 	job.cancel()
-	if t.failure != nil || t.stopping {
+	if !t.accepting() {
 		return
 	}
 	p := t.state.processes[result.process]
@@ -662,7 +662,7 @@ func (t *treeRuntime) childControl(parent *processState, effect Effect) ([]Recor
 // Preparing one child at a time avoids a second authority for grants and paths.
 // The actor still handles controls and inbox admissions while callbacks run.
 func (t *treeRuntime) startNextChild() error {
-	if t.preparing != nil || t.stopping || t.failure != nil {
+	if t.preparing != nil || !t.accepting() {
 		return nil
 	}
 	for len(t.childQueue) > 0 {
@@ -732,7 +732,7 @@ func (t *treeRuntime) childPrepared(result childResult) {
 	}
 	t.preparing.cancel()
 	t.preparing = nil
-	if t.failure != nil || t.stopping {
+	if !t.accepting() {
 		return
 	}
 	parent := t.state.processes[result.id.Process]

@@ -10,6 +10,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Tangerg/scope/core/jsonschema"
 )
@@ -444,8 +445,8 @@ func publicBoundaryMutateRecords(entries []Entry) {
 				if process.Terminal != nil {
 					*process.Terminal = Termination{}
 				}
-				if process.Exited != nil {
-					*process.Exited = Exited{}
+				if process.ExitedAt != nil {
+					*process.ExitedAt = time.Time{}
 				}
 				*process = ProcessCheckpoint{}
 			}

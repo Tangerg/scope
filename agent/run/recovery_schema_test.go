@@ -21,7 +21,7 @@ func TestRecoveryRejectsCheckpointOutputOutsideProgramContractBeforeActivation(t
 			terminal := Termination{output: controlValue(EncodePayload(42))}
 			captured := ProcessCheckpoint{Started: started, Terminal: &terminal, Usage: Usage{CommittedSteps: 1}}
 			if exited {
-				captured.Exited = &Exited{Process: log.Root, Termination: terminal, At: started.At}
+				captured.ExitedAt = &started.At
 			}
 			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{captured}}
 			cut := Log{Root: log.Root, Entries: []Entry{{LSN: 4, Epoch: 1, Record: checkpoint}}}
@@ -57,7 +57,7 @@ func TestRecoveryRejectsRetainedChildOutputOutsideItsProgramContract(t *testing.
 				{Started: child, Terminal: &terminal, Usage: Usage{CommittedSteps: 1}},
 			}}
 			if exited {
-				checkpoint.Processes[1].Exited = &Exited{Process: child.Process, Termination: terminal, At: child.At}
+				checkpoint.Processes[1].ExitedAt = &child.At
 				checkpoint.Processes[0].Inbox = Inbox{Exit{Child: child.Process, Termination: terminal}}
 				checkpoint.Processes[0].Usage.AcceptedMessages++
 				checkpoint.Processes[0].Yielded = false
@@ -145,8 +145,7 @@ func TestRecoveryAdmitsEachTerminalVariant(t *testing.T) {
 			log := integrityInitialLog(t)
 			started := log.Entries[0].Record.(Started)
 			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{{
-				Started: started, Terminal: &test.termination,
-				Exited: &Exited{Process: log.Root, Termination: test.termination, At: started.At},
+				Started: started, Terminal: &test.termination, ExitedAt: &started.At,
 			}}}
 			records := []Record{started, Activated{Epoch: 1}}
 			switch test.termination.Status() {
@@ -158,7 +157,7 @@ func TestRecoveryAdmitsEachTerminalVariant(t *testing.T) {
 			case StatusCanceled:
 				records = append(records, ControlRequested{Origin: ControlOriginHost, Process: log.Root, Kind: ControlCancel, Reason: test.termination.Reason(), At: started.At})
 			}
-			records = append(records, *checkpoint.Processes[0].Exited, checkpoint)
+			records = append(records, Exited{Process: log.Root, Termination: test.termination, At: started.At}, checkpoint)
 			store := NewMemoryStore()
 			if err := store.Append(t.Context(), Batch{Root: log.Root, Records: records}); err != nil {
 				t.Fatal(err)

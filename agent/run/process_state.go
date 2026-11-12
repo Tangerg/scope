@@ -283,10 +283,13 @@ func (p *processState) checkpoint() (ProcessCheckpoint, error) {
 }
 
 func (p *processState) materialize(state ExecutionState) ProcessCheckpoint {
-	value := ProcessCheckpoint{Started: p.started, State: state, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, Paused: p.paused, Yielded: p.yielded, Exited: p.exited}
+	value := ProcessCheckpoint{Started: p.started, State: state, Inbox: slices.Clone(p.inbox), Usage: p.usage, Allocated: p.allocated, Paused: p.paused, Yielded: p.yielded}
 	if p.terminal.Valid() {
 		terminal := p.terminal
 		value.Terminal = &terminal
+	}
+	if p.exited != nil {
+		value.ExitedAt = new(p.exited.At)
 	}
 	value.Receipts = slices.SortedFunc(maps.Values(p.receipts), func(a, b SignalReceipt) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 	for _, key := range slices.SortedFunc(maps.Keys(p.children), func(a, b ChildKey) int { return strings.Compare(a.String(), b.String()) }) {

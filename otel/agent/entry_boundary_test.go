@@ -78,7 +78,7 @@ func TestObservationRejectsForeignTreeFactsBeforeProjection(t *testing.T) {
 		run.ControlRequested{Process: started.Process, Kind: run.ControlCancel, Origin: run.ControlOriginHost, Reason: "stop", At: started.At},
 		run.ExecutionFailed{Process: started.Process, Failure: failure, At: started.At},
 		run.Reaped{Process: child},
-		run.Checkpoint{StartedProcesses: 1, Processes: []run.ProcessCheckpoint{{Started: started, Terminal: &exited.Termination, Exited: &exited}}},
+		run.Checkpoint{StartedProcesses: 1, Processes: []run.ProcessCheckpoint{{Started: started, Terminal: &exited.Termination, ExitedAt: &exited.At}}},
 	)
 	for _, record := range records {
 		t.Run(fmt.Sprintf("%T", record), func(t *testing.T) {

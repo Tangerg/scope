@@ -151,7 +151,7 @@ func TestCheckpointRetainsExactlyOneMatchingExitUntilItsParentConsumesIt(t *test
 	checkpoint := Checkpoint{StartedProcesses: 2, Processes: []ProcessCheckpoint{
 		{Started: parent, State: controlValue(NewExecutionState("fixture", parent.Input)), Children: []StartedChild{{Key: key, Started: 5}},
 			Inbox: Inbox{exit}, Usage: Usage{CommittedSteps: 1, PreparedEffects: 1, AcceptedMessages: 2}},
-		{Started: child, Terminal: &terminal, Exited: &Exited{Process: child.Process, Termination: terminal, At: child.At}},
+		{Started: child, Terminal: &terminal, ExitedAt: &child.At},
 	}}
 	cut := Log{Root: log.Root, Entries: []Entry{{LSN: 20, Epoch: 1, Record: checkpoint}}}
 	if err := cut.Validate(); err != nil {
@@ -228,7 +228,7 @@ func TestCheckpointRejectsConflictingTreeFacts(t *testing.T) {
 		{"exited child lacks its parent message", func(c *Checkpoint) {
 			child := &c.Processes[1]
 			child.State, child.Terminal = ExecutionState{}, &Termination{output: child.Started.Input}
-			child.Exited = &Exited{Process: child.Started.Process, Termination: *child.Terminal, At: child.Started.At}
+			child.ExitedAt = &child.Started.At
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

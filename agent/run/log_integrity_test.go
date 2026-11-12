@@ -22,11 +22,7 @@ func TestCheckpointRejectsAnInconsistentMaterialization(t *testing.T) {
 		{"terminal process with state", func(c *Checkpoint) {
 			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("done"))}
 		}},
-		{"exit without its terminal intent", func(c *Checkpoint) {
-			c.Processes[0].State = ExecutionState{}
-			c.Processes[0].Terminal = &Termination{output: controlValue(EncodePayload("done"))}
-			c.Processes[0].Exited = &Exited{Process: c.Processes[0].Started.Process, Termination: Termination{output: controlValue(EncodePayload("other"))}, At: c.Processes[0].Started.At}
-		}},
+		{"exit of a live process", func(c *Checkpoint) { c.Processes[0].ExitedAt = &c.Processes[0].Started.At }},
 		{"child the parent never adopted", func(c *Checkpoint) {
 			child := c.Processes[0]
 			child.Started.Process = controlValue(c.Processes[0].Started.Process.Child(controlValue(ParseChildKey("orphan"))))
@@ -304,7 +300,7 @@ func TestTerminalCheckpointHasNoOpaqueExecutionState(t *testing.T) {
 			if exited {
 				exit := Exited{Process: log.Root, Termination: terminal, At: started.At}
 				log = integrityAppend(log, exit)
-				process.Exited = &exit
+				process.ExitedAt = &exit.At
 			}
 			checkpoint := Checkpoint{StartedProcesses: 1, Processes: []ProcessCheckpoint{process}}
 			if err := integrityAppend(log, checkpoint).Validate(); err != nil {

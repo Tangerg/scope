@@ -3,6 +3,7 @@ package run
 import (
 	"slices"
 	"strings"
+	"time"
 )
 
 // Checkpoint materializes every acknowledged record before it. Recovery starts
@@ -84,11 +85,13 @@ type ProcessCheckpoint struct {
 	Paused    bool                `json:"paused"`
 	Yielded   bool                `json:"yielded"`
 	Terminal  *Termination        `json:"terminal,omitzero"`
-	Exited    *Exited             `json:"exited,omitzero"`
+	// ExitedAt is the only fact an Exit adds to its Terminal; the process and
+	// termination it would repeat already have their owners above.
+	ExitedAt *time.Time `json:"exited_at,omitzero"`
 }
 
-// A live process is exactly one that still owns ExecutionState; an exit must
-// repeat the terminal intent it completed.
+// A live process is exactly one that still owns ExecutionState; only a
+// terminal process can have exited.
 func (p ProcessCheckpoint) valid() bool {
 	if !p.Started.valid() || p.State.Valid() != (p.Terminal == nil) || !p.childrenValid() || !p.waitsAndReceiptsValid() || !p.pendingValid() || !p.inboxValid() || !p.resourcesValid() {
 		return false
@@ -96,7 +99,7 @@ func (p ProcessCheckpoint) valid() bool {
 	if p.Terminal != nil && (!p.Terminal.Valid() || p.Paused || p.Yielded) {
 		return false
 	}
-	return p.Exited == nil || p.Terminal != nil && p.Exited.valid() && p.Exited.Process == p.Started.Process && p.Terminal.equal(p.Exited.Termination)
+	return p.ExitedAt == nil || p.Terminal != nil && p.exit().valid()
 }
 
 func (p ProcessCheckpoint) waitsAndReceiptsValid() bool {
@@ -232,11 +235,16 @@ func (p ProcessCheckpoint) process() *processState {
 	if p.Terminal != nil {
 		process.terminal = *p.Terminal
 	}
-	if p.Exited != nil {
-		process.exited = new(*p.Exited)
+	if p.ExitedAt != nil {
+		process.exited = new(p.exit())
 		close(process.done)
 	}
 	return process
+}
+
+// exit restores the Exited record a checkpoint folds into its owners.
+func (p ProcessCheckpoint) exit() Exited {
+	return Exited{Process: p.Started.Process, Termination: *p.Terminal, At: *p.ExitedAt}
 }
 
 func (p ProcessCheckpoint) clone() ProcessCheckpoint {
@@ -251,8 +259,8 @@ func (p ProcessCheckpoint) clone() ProcessCheckpoint {
 	if p.Terminal != nil {
 		p.Terminal = new(*p.Terminal)
 	}
-	if p.Exited != nil {
-		p.Exited = new(*p.Exited)
+	if p.ExitedAt != nil {
+		p.ExitedAt = new(*p.ExitedAt)
 	}
 	return p
 }
