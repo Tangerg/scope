@@ -3,6 +3,7 @@ package interaction
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,7 +80,7 @@ func TestConcurrentToolCompletionRetainsTheProviderOrder(t *testing.T) {
 		}
 		return tool.Result{Output: tool.NewTextOutput(requestedCall(input))}, nil
 	}}
-	program := compileTest(t, runtime, Config{Tools: toolSetTest(t, executable), MaxConcurrentToolCalls: 2, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: concurrentToolSetTest(t, 2, executable), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("echo", "first"), requested("echo", "second")), nil
 	}))})
 	handle := startInteraction(t, runtime, program)
@@ -322,5 +323,18 @@ func TestReplayPolicyBelongsToEachTool(t *testing.T) {
 		if got := dispatcher.Policy(effect).Replay; got != want {
 			t.Errorf("%s replay = %s; want %s", name, got, want)
 		}
+	}
+}
+
+func TestToolSetOwnsTheCapabilitiesEveryToolCallRequires(t *testing.T) {
+	write := mustValue(run.ParseCapability("test.write"))
+	tools := mustValue(NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: []tool.Tool{scriptTool{name: "write"}}, RequiredCapabilities: mustValue(run.NewCapabilitySet(write))}))
+	definition := mustValue(newDefinition(Config{Name: "test.capability", Description: "Require a grant for every tool call.", Tools: tools}))
+	dispatcher := mustValue(newDispatcher(definition, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return nil, errors.New("must not call the model")
+	}))}))
+	effect := mustValue(toolDispatchRequest{Call: requested("write", "call")}.effect())
+	if got := dispatcher.Policy(effect).RequiredCapabilities.Values(); !slices.Equal(got, []run.Capability{write}) {
+		t.Fatalf("tool call requires %v", got)
 	}
 }

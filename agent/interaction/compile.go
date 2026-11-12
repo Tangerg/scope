@@ -27,11 +27,7 @@ type Config struct {
 	Tools ToolSet
 	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
 	// unlimited; a finite zero is rejected because an Interaction needs a model call.
-	MaxModelCalls            run.Quota
-	RequiredToolCapabilities run.CapabilitySet
-	// MaxConcurrentToolCalls bounds active calls declared safe to overlap.
-	// Zero means one; calls without a concurrency declaration execute alone.
-	MaxConcurrentToolCalls int
+	MaxModelCalls run.Quota
 	// MaxResponseBytes bounds each prepared-context and model-result
 	// settlement. Zero uses the runtime payload limit; a limit below the
 	// smallest complete model response is rejected.
@@ -67,23 +63,20 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		delegates = append(delegates, configuredDelegate{d.definition, d.child.Program.ProgramRef(), d.child.Budget, d.child.Capabilities})
 	}
 	policy := struct {
-		LocalContext, ExternalContext, ValidateCompletion             bool
-		MaxModelCalls                                                 run.Quota
-		Tools                                                         toolConfiguration
-		RequiredToolCapabilities                                      run.CapabilitySet
-		MaxConcurrentToolCalls, MaxResponseBytes, MaxStreamDeltaBytes int
-		Delegates                                                     []configuredDelegate
+		LocalContext, ExternalContext, ValidateCompletion bool
+		MaxModelCalls                                     run.Quota
+		Tools                                             toolConfiguration
+		MaxResponseBytes, MaxStreamDeltaBytes             int
+		Delegates                                         []configuredDelegate
 	}{
-		LocalContext:             cfg.ContextPolicy != nil,
-		ExternalContext:          cfg.ContextProcessor != nil,
-		ValidateCompletion:       cfg.CompletionValidator != nil,
-		MaxModelCalls:            definition.maxModelCalls,
-		Tools:                    cfg.Tools.configuration(),
-		RequiredToolCapabilities: dispatcher.requiredToolCapabilities,
-		MaxConcurrentToolCalls:   definition.maxConcurrentToolCalls,
-		MaxResponseBytes:         definition.maxResponseBytes,
-		MaxStreamDeltaBytes:      dispatcher.model.streamLimit(),
-		Delegates:                delegates,
+		LocalContext:        cfg.ContextPolicy != nil,
+		ExternalContext:     cfg.ContextProcessor != nil,
+		ValidateCompletion:  cfg.CompletionValidator != nil,
+		MaxModelCalls:       definition.maxModelCalls,
+		Tools:               cfg.Tools.configuration(),
+		MaxResponseBytes:    definition.maxResponseBytes,
+		MaxStreamDeltaBytes: dispatcher.model.streamLimit(),
+		Delegates:           delegates,
 	}
 	return run.Bind[Input, Output](compiler, run.BindingConfig{
 		Definition:    definition,

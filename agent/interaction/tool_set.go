@@ -16,13 +16,20 @@ type ToolSetConfig struct {
 	Middlewares   []tool.CallMiddleware
 	Tools         []tool.Tool
 	DeferredTools []tool.Tool
+	// RequiredCapabilities are the grants every tool call Effect requires.
+	RequiredCapabilities run.CapabilitySet
+	// MaxConcurrentCalls bounds active calls declared safe to overlap.
+	// Zero means one; calls without a concurrency declaration execute alone.
+	MaxConcurrentCalls int
 }
 
 // ToolSet freezes execution and admission policy once; the interaction's
 // dispatcher composes it without introducing a child process lifecycle.
 type ToolSet struct {
-	dispatcher *toolDispatcher
-	revision   string
+	dispatcher           *toolDispatcher
+	revision             string
+	requiredCapabilities run.CapabilitySet
+	maxConcurrentCalls   int
 }
 
 func (t ToolSet) manifest() toolManifest {
@@ -36,6 +43,9 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 	if config.Revision == "" || len(config.Tools)+len(config.DeferredTools) == 0 {
 		return ToolSet{}, fmt.Errorf("%w: Revision and at least one Tool are required", ErrInvalidToolSet)
 	}
+	if config.MaxConcurrentCalls < 0 {
+		return ToolSet{}, fmt.Errorf("%w: MaxConcurrentCalls must not be negative", ErrInvalidToolSet)
+	}
 	dispatcher := newToolDispatcher()
 	for index, executable := range config.Tools {
 		if err := dispatcher.bindTool(executable, false, config.Middlewares); err != nil {
@@ -47,10 +57,14 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
-	return ToolSet{dispatcher: dispatcher, revision: config.Revision}, nil
+	return ToolSet{dispatcher: dispatcher, revision: config.Revision, requiredCapabilities: config.RequiredCapabilities, maxConcurrentCalls: max(1, config.MaxConcurrentCalls)}, nil
 }
 
 func (t ToolSet) Configured() bool { return t.dispatcher != nil }
+
+// concurrencyLimit is one when no Tool can overlap another, including for a
+// zero ToolSet whose Delegates still run as calls.
+func (t ToolSet) concurrencyLimit() int { return max(1, t.maxConcurrentCalls) }
 
 // replayPolicy belongs to the called tool; an unbound name is rejected before
 // dispatch, so it can never be replayed.
@@ -59,7 +73,7 @@ func (t ToolSet) replayPolicy(name string) run.ReplayPolicy {
 }
 
 func (t ToolSet) configuration() toolConfiguration {
-	configuration := toolConfiguration{Revision: t.revision}
+	configuration := toolConfiguration{Revision: t.revision, RequiredCapabilities: t.requiredCapabilities, MaxConcurrentCalls: t.concurrencyLimit()}
 	for name, entry := range t.manifest().entries {
 		configuration.Entries = append(configuration.Entries, toolConfigurationEntry{
 			Name: name, Contract: entry.contract.Definition(), Deferred: entry.deferred,
@@ -73,9 +87,11 @@ func (t ToolSet) configuration() toolConfiguration {
 }
 
 type toolConfiguration struct {
-	Revision     string
-	VisibleOrder []string
-	Entries      []toolConfigurationEntry
+	Revision             string
+	VisibleOrder         []string
+	Entries              []toolConfigurationEntry
+	RequiredCapabilities run.CapabilitySet
+	MaxConcurrentCalls   int
 }
 
 type toolConfigurationEntry struct {

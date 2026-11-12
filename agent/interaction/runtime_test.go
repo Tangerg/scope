@@ -107,7 +107,12 @@ func compileTest(t testing.TB, runtime *run.Runtime, config Config) run.Program[
 
 func toolSetTest(t testing.TB, tools ...tool.Tool) ToolSet {
 	t.Helper()
-	set, err := NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: tools})
+	return concurrentToolSetTest(t, 0, tools...)
+}
+
+func concurrentToolSetTest(t testing.TB, maxConcurrentCalls int, tools ...tool.Tool) ToolSet {
+	t.Helper()
+	set, err := NewToolSet(ToolSetConfig{Revision: "test-tools", Tools: tools, MaxConcurrentCalls: maxConcurrentCalls})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +402,7 @@ func TestConcurrentResultsPreserveProposalOrder(t *testing.T) {
 			}
 		}}
 	}
-	program := compileTest(t, runtime, Config{MaxConcurrentToolCalls: 2, Tools: toolSetTest(t, makeTool("one"), makeTool("two")), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{Tools: concurrentToolSetTest(t, 2, makeTool("one"), makeTool("two")), Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 		return callResponse(requested("one", "first"), requested("two", "second")), nil
 	}))})
 	handle := startInteraction(t, runtime, program)

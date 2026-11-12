@@ -9,8 +9,8 @@ import (
 )
 
 func FuzzInteractionRestoreRoundTrip(f *testing.F) {
-	tools := toolSetTest(f, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-	definition := mustValue(newDefinition(Config{Name: "test.restore", Description: "Restore recorded interaction progress.", Tools: tools, MaxModelCalls: run.NewQuota(4), MaxConcurrentToolCalls: 2}))
+	tools := concurrentToolSetTest(f, 2, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
+	definition := mustValue(newDefinition(Config{Name: "test.restore", Description: "Restore recorded interaction progress.", Tools: tools, MaxModelCalls: run.NewQuota(4)}))
 	reference := testTurn(3).EffectID(0)
 	seeds := []executionState{
 		{WorkingContext: testInput()},

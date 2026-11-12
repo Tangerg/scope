@@ -18,9 +18,8 @@ import (
 // immutable after construction and may serve Processes concurrently when the
 // supplied model capability supports concurrent use.
 type dispatcher struct {
-	tools                    ToolSet
-	requiredToolCapabilities run.CapabilitySet
-	model                    ModelSource
+	tools ToolSet
+	model ModelSource
 	// definition owns the Tool manifest and Delegates the model may call.
 	definition       *definition
 	contextProcessor ContextProcessor
@@ -38,11 +37,8 @@ func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
 	if err := config.Model.validate(); err != nil {
 		return nil, err
 	}
-	if definition.prepareContext != (config.ContextProcessor != nil) {
-		return nil, fmt.Errorf("%w: preparation effect and ContextProcessor must be bound together", ErrInvalidConfig)
-	}
 	dispatcher := &dispatcher{
-		tools: config.Tools, requiredToolCapabilities: config.RequiredToolCapabilities,
+		tools: config.Tools,
 		model: config.Model, contextProcessor: config.ContextProcessor,
 
 		definition: definition,
@@ -87,7 +83,7 @@ func (d *dispatcher) Policy(effect run.Effect) run.EffectPolicy {
 		return policy
 	}
 	policy.Replay = d.tools.replayPolicy(envelope.ToolCall.Call.Name)
-	policy.RequiredCapabilities = d.requiredToolCapabilities
+	policy.RequiredCapabilities = d.tools.requiredCapabilities
 	return policy
 }
 

@@ -235,8 +235,8 @@ func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 }
 
 func TestRestoredContinuationCannotOwnAnotherCallsOriginalEffect(t *testing.T) {
-	tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-	definition := mustValue(newDefinition(Config{Name: "test.restore.continuation", Description: "Keep logical and resumed calls disjoint.", Tools: tools, MaxConcurrentToolCalls: 2}))
+	tools := concurrentToolSetTest(t, 2, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
+	definition := mustValue(newDefinition(Config{Name: "test.restore.continuation", Description: "Keep logical and resumed calls disjoint.", Tools: tools}))
 	first, second, third := testTurn(3).EffectID(0), testTurn(3).EffectID(1), testTurn(4).EffectID(0)
 	continued := testTurn(6).EffectID(0)
 	question := mustValue(newInputRequest([]byte(`"Approve?"`), []byte(`{"type":"boolean"}`), []byte(`null`)))
@@ -277,8 +277,8 @@ func TestRestorePreservesProviderOrderOfDirectToolEffects(t *testing.T) {
 		{"limited concurrency", 2},
 	} {
 		t.Run(row.name, func(t *testing.T) {
-			tools := toolSetTest(t, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
-			definition := mustValue(newDefinition(Config{Name: "test.restore.order", Description: "Bind results to the original provider order.", Tools: tools, MaxConcurrentToolCalls: row.concurrency}))
+			tools := concurrentToolSetTest(t, row.concurrency, scriptTool{name: "echo", classify: func(tool.Invocation) (string, bool) { return "", true }})
+			definition := mustValue(newDefinition(Config{Name: "test.restore.order", Description: "Bind results to the original provider order.", Tools: tools}))
 			execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 			advance(t, execution, 1)
 			modelOutcome := mustValue((modelCallResult{Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third"))}).settlement())

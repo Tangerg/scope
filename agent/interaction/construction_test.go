@@ -55,11 +55,6 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		{"oversized response bound", func(config *Config) { config.MaxResponseBytes = run.MaxPayloadBytes + 1 }},
 		{"response bound below any response", func(config *Config) { config.MaxResponseBytes = 1 }},
 		{"zero model admission", func(config *Config) { config.MaxModelCalls = run.NewQuota(0) }},
-		{"negative concurrency", func(config *Config) { config.MaxConcurrentToolCalls = -1 }},
-		{"unbound scheduling", func(config *Config) { config.MaxConcurrentToolCalls = 2 }},
-		{"unbound capability", func(config *Config) {
-			config.RequiredToolCapabilities = mustValue(run.NewCapabilitySet(mustValue(run.ParseCapability("test.write"))))
-		}},
 		{"negative stream bound", func(config *Config) {
 			config.Model = StreamModel(StreamModelConfig{Streamer: streamer, MaxDeltaBytes: -1})
 		}},
@@ -81,10 +76,6 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 	}
 	if program, err := Compile(nil, Config{Name: "test.valid", Description: "Require compiler identity.", Revision: "model", Model: CallModel(model)}); err == nil || program.Valid() {
 		t.Fatal("compilation succeeded without build authority")
-	}
-	definition := mustValue(newDefinition(Config{Name: "test.context", Description: "Require the declared processor.", ContextProcessor: contextProcessorFunc(nil)}))
-	if _, err := newDispatcher(definition, Config{Model: CallModel(model)}); !errors.Is(err, ErrInvalidConfig) {
-		t.Fatal("processor capability did not match compiled execution", err)
 	}
 }
 
@@ -126,6 +117,7 @@ func TestToolSetRejectsMissingBindingsAndCapabilityDefects(t *testing.T) {
 		{Revision: "duplicate", Tools: []tool.Tool{executable}, DeferredTools: []tool.Tool{executable}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "direct"}}},
 		{Revision: "panic", Tools: []tool.Tool{capabilityPanicTool{mode: "concurrent"}}},
+		{Revision: "negative concurrency", Tools: []tool.Tool{executable}, MaxConcurrentCalls: -1},
 	} {
 		if set, err := NewToolSet(config); !errors.Is(err, ErrInvalidToolSet) || set.Configured() {
 			t.Fatalf("invalid tool declaration admitted: %+v, %v", config, err)

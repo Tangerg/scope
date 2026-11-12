@@ -39,12 +39,6 @@ func newDefinition(config Config) (*definition, error) {
 	if !config.MaxModelCalls.Allows(1) {
 		return nil, fmt.Errorf("%w: MaxModelCalls must admit one model call", ErrInvalidConfig)
 	}
-	if config.MaxConcurrentToolCalls < 0 {
-		return nil, fmt.Errorf("%w: invalid Tool scheduling policy", ErrInvalidConfig)
-	}
-	if !config.Tools.Configured() && (len(config.RequiredToolCapabilities.Values()) != 0 || config.MaxConcurrentToolCalls != 0) {
-		return nil, fmt.Errorf("%w: Tool policy requires a valid ToolSet", ErrInvalidConfig)
-	}
 	descriptor, err := newDescriptor(config.Name, config.Description)
 	if err != nil {
 		return nil, err
@@ -61,7 +55,7 @@ func newDefinition(config Config) (*definition, error) {
 		delegatesByName:        names,
 		completionValidator:    config.CompletionValidator,
 		tools:                  config.Tools.manifest(),
-		maxConcurrentToolCalls: max(1, config.MaxConcurrentToolCalls),
+		maxConcurrentToolCalls: config.Tools.concurrencyLimit(),
 	}, nil
 }
 
