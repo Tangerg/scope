@@ -30,6 +30,14 @@ If the evidence does not contain the answer, say that you don't know.`
 const contextualDefaultEmptyContextMessage = `The user query is outside your knowledge base.
 Politely inform the user that you can't answer it.`
 
+// The fence lines bound the JSON evidence on both sides, so instructions, the
+// evidence block, and the query stay three separable prompt sections.
+const (
+	evidenceOpening = "\n\n---------------------\n"
+	evidenceClosing = "\n---------------------\n\nQuery: "
+	answerCue       = "\n\nAnswer:"
+)
+
 type ContextualAugmenterConfig struct {
 	// Instructions is the guidance placed before the evidence block. The
 	// augmenter always writes the evidence block and the query itself, so a
@@ -143,7 +151,7 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, cand
 	if err := ctx.Err(); err != nil {
 		return rag.Augmentation{}, err
 	}
-	return selection.Augment(c.instructions+"\n\n---------------------\n", "\n---------------------\n\nQuery: "+query.Text()+"\n\nAnswer:")
+	return selection.Augment(c.instructions+evidenceOpening, evidenceClosing+query.Text()+answerCue)
 }
 
 func (c *ContextualAugmenter) selectEvidence(ctx context.Context, candidates rag.Candidates) (rag.Evidence, error) {
