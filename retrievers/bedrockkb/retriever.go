@@ -13,7 +13,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -267,7 +266,7 @@ func (r *Retriever) retrieve(ctx context.Context, body retrievalRequest, remaini
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint+"/knowledgebases/"+url.PathEscape(r.knowledgeBaseID)+"/retrieve", bytes.NewReader(encoded))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, r.endpoint+"/knowledgebases/"+httpclient.PathSegment(r.knowledgeBaseID)+"/retrieve", bytes.NewReader(encoded))
 	if err != nil {
 		return nil, err
 	}

@@ -7,27 +7,23 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/elevenlabs"
 )
 
 func TestSpeechVoiceOwnsOnlyOnePathSegment(t *testing.T) {
-	for _, test := range []struct {
-		voice string
-		valid bool
-	}{
-		{"JBFqnCBsd6RMkjVDRZzb", true}, {"voice-id_test", true},
-		{"voice-id?enable_logging=false#", false}, {"voice#fragment", false},
-		{"voice/segment", false}, {`voice\segment`, false}, {"voice%2fsegment", false},
-		{".", false}, {"..", false}, {"%2e%2e", false},
+	for _, test := range []struct{ voice, segment string }{
+		{"JBFqnCBsd6RMkjVDRZzb", "JBFqnCBsd6RMkjVDRZzb"}, {"voice-id_test", "voice-id_test"},
+		{"voice-id?enable_logging=false#", "voice-id%3Fenable_logging=false%23"}, {"voice#fragment", "voice%23fragment"},
+		{"voice/segment", "voice%2Fsegment"}, {`voice\segment`, "voice%5Csegment"}, {"voice%2fsegment", "voice%252fsegment"},
+		{".", "%2E"}, {"..", "%2E%2E"}, {"%2e%2e", "%252e%252e"},
 	} {
 		for _, defaults := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/defaults=%t", test.voice, defaults), func(t *testing.T) {
 				var calls atomic.Int32
 				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 					calls.Add(1)
-					if request.URL.EscapedPath() != "/v1/text-to-speech/"+test.voice+"/stream" || request.URL.RawQuery != "enable_logging=true&output_format=mp3_44100_128" {
+					if request.URL.EscapedPath() != "/v1/text-to-speech/"+test.segment+"/stream" || request.URL.RawQuery != "enable_logging=true&output_format=mp3_44100_128" {
 						t.Errorf("request URI=%q", request.RequestURI)
 					}
 					writer.Header().Set("Content-Type", "audio/mpeg")
@@ -52,12 +48,8 @@ func TestSpeechVoiceOwnsOnlyOnePathSegment(t *testing.T) {
 					t.Fatal(err)
 				}
 				response, err := model.Call(t.Context(), request)
-				if test.valid {
-					if err != nil || string(response.Output.Audio) != "audio" || calls.Load() != 1 {
-						t.Fatalf("response=%v error=%v requests=%d", response, err, calls.Load())
-					}
-				} else if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
-					t.Fatalf("invalid voice response=%v error=%v requests=%d", response, err, calls.Load())
+				if err != nil || string(response.Output.Audio) != "audio" || calls.Load() != 1 {
+					t.Fatalf("response=%v error=%v requests=%d", response, err, calls.Load())
 				}
 			})
 		}

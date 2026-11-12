@@ -426,11 +426,7 @@ func (s *Store) nativeID(id string) string {
 }
 
 func (s *Store) documentPath(id string) string {
-	segment := url.PathEscape(id)
-	if segment == "." || segment == ".." {
-		segment = strings.ReplaceAll(segment, ".", "%2E")
-	}
-	return "/document/v1/" + url.PathEscape(s.namespace) + "/" + url.PathEscape(s.schemaName) + "/docid/" + segment
+	return "/document/v1/" + httpclient.PathSegment(s.namespace) + "/" + httpclient.PathSegment(s.schemaName) + "/docid/" + httpclient.PathSegment(id)
 }
 
 func (s *Store) documentID(raw string) (string, error) {

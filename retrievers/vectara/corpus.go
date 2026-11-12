@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"slices"
 	"strings"
 
@@ -52,16 +51,16 @@ func New(ctx context.Context, config Config) (*Corpus, error) {
 	return store, nil
 }
 
+func (c *Corpus) path() string {
+	return "/" + apiVersion + "/corpora/" + httpclient.PathSegment(c.corpusKey)
+}
+
 func (c *Corpus) documentsPath() string {
-	return "/" + apiVersion + "/corpora/" + url.PathEscape(c.corpusKey) + "/documents"
+	return c.path() + "/documents"
 }
 
 func (c *Corpus) documentPath(id string) string {
-	segment := url.PathEscape(id)
-	if segment == "." || segment == ".." {
-		segment = strings.ReplaceAll(segment, ".", "%2E")
-	}
-	return c.documentsPath() + "/" + segment
+	return c.documentsPath() + "/" + httpclient.PathSegment(id)
 }
 
 // ErrDocumentExists means the service rejected creation of an existing ID.
@@ -124,7 +123,7 @@ func (c *Corpus) DeleteDocument(ctx context.Context, id string) error {
 }
 
 func (c *Corpus) readCorpus(ctx context.Context) error {
-	raw, err := c.sendJSON(ctx, http.MethodGet, "/"+apiVersion+"/corpora/"+url.PathEscape(c.corpusKey), nil, http.StatusOK)
+	raw, err := c.sendJSON(ctx, http.MethodGet, c.path(), nil, http.StatusOK)
 	if err != nil {
 		return err
 	}
@@ -160,7 +159,7 @@ func (c *Corpus) Retrieve(ctx context.Context, q rag.Query) (rag.Candidates, err
 		}
 		search.MetadataFilter = c.scope.expression
 	}
-	raw, err := c.sendJSON(ctx, http.MethodPost, "/"+apiVersion+"/corpora/"+url.PathEscape(c.corpusKey)+"/query",
+	raw, err := c.sendJSON(ctx, http.MethodPost, c.path()+"/query",
 		queryRequest{Query: q.Text(), Search: search}, http.StatusOK)
 	if err != nil {
 		return nil, err

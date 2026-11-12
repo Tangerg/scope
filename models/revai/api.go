@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
@@ -180,7 +179,7 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string, opts jo
 
 func (a *api) getJob(ctx context.Context, id string) (*job, error) {
 	var out job
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(jobsPath + "/" + url.PathEscape(id))
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(jobsPath + "/" + httpclient.PathSegment(id))
 	if err != nil {
 		return nil, fmt.Errorf("revai: get job failed: %w", err)
 	}
@@ -198,7 +197,7 @@ func (a *api) getTranscriptText(ctx context.Context, id string) (string, error) 
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetHeader(headerAccept, mediaTypeText).
-		Get(jobsPath + "/" + url.PathEscape(id) + pathTranscriptSuffix)
+		Get(jobsPath + "/" + httpclient.PathSegment(id) + pathTranscriptSuffix)
 	if err != nil {
 		return "", fmt.Errorf("revai: transcript fetch failed: %w", err)
 	}

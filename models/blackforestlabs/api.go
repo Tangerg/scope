@@ -178,7 +178,7 @@ func (a *api) generate(ctx context.Context, model string, req *generateRequest) 
 		return nil, errors.New("blackforestlabs: request must not be nil")
 	}
 	var out asyncResponse
-	resp, err := a.http.R().SetContext(ctx).SetBody(req).SetResult(&out).Post("/" + url.PathEscape(model))
+	resp, err := a.http.R().SetContext(ctx).SetBody(req).SetResult(&out).Post("/" + httpclient.PathSegment(model))
 	if err != nil {
 		return nil, fmt.Errorf("blackforestlabs: request failed: %w", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
@@ -205,7 +204,7 @@ func (a *api) get(ctx context.Context, id string) (*transcriptResponse, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetResult(&out).
-		Get(pathTranscriptPrefix + url.PathEscape(id))
+		Get(pathTranscriptPrefix + httpclient.PathSegment(id))
 	if err != nil {
 		return nil, fmt.Errorf("assemblyai: get transcript failed: %w", err)
 	}

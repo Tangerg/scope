@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	lumaagents "github.com/lumalabs/luma-agents-go"
 	lumaoption "github.com/lumalabs/luma-agents-go/option"
@@ -74,7 +73,7 @@ func (a *api) getGeneration(ctx context.Context, generationID string) (*lumaagen
 	if generationID == "" {
 		return nil, errors.New("luma: generation ID is required")
 	}
-	generation, err := a.client.Generations.Get(ctx, url.PathEscape(generationID))
+	generation, err := a.client.Generations.Get(ctx, httpclient.PathSegment(generationID))
 	return admitGeneration(generation, generationID, err)
 }
 

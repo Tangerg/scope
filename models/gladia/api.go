@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 
 	"github.com/go-resty/resty/v2"
 
@@ -212,7 +211,7 @@ func (a *api) getTranscription(ctx context.Context, id string) (*transcriptionRe
 		return nil, errors.New("gladia: transcription id must not be empty")
 	}
 	var out transcriptionResult
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathTranscriptionPrefix + url.PathEscape(id))
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathTranscriptionPrefix + httpclient.PathSegment(id))
 	if err != nil {
 		return nil, fmt.Errorf("gladia: poll failed: %w", err)
 	}

@@ -115,9 +115,6 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 	if err != nil {
 		return "", nil, err
 	}
-	if effectiveOptions.Model == "." || effectiveOptions.Model == ".." || strings.ContainsAny(effectiveOptions.Model, "/\\?#%") {
-		return "", nil, errors.New("blackforestlabs: model must be a single unescaped path segment")
-	}
 	if effectiveOptions.NegativePrompt != "" {
 		return "", nil, errors.New("blackforestlabs: image: unsupported option: negative_prompt")
 	}

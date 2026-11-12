@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"mime"
-	"net/url"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -15,6 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	corecontent "github.com/Tangerg/scope/core/content"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/metadata"
 )
@@ -401,7 +401,7 @@ func (c *contentEnvelope) infer(part corecontent.Block) error {
 			c.Kind = contentAudio
 		default:
 			c.Kind = contentResource
-			c.Resource = &resourceEnvelope{URI: inlineResourceURIPrefix + url.PathEscape(value.Name)}
+			c.Resource = &resourceEnvelope{URI: inlineResourceURIPrefix + httpclient.PathSegment(value.Name)}
 		}
 	case media.SourceURI:
 		c.Kind = contentLink

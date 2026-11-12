@@ -4,10 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"net/url"
 
 	sdkmcp "github.com/Tangerg/go-sdk/mcp"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
@@ -59,9 +59,9 @@ func (t ToolDiscoveryConfig) publicName(sourceName, remoteName string) string {
 		return t.PublicName(sourceName, remoteName)
 	}
 	if sourceName == "" {
-		return url.PathEscape(remoteName)
+		return httpclient.PathSegment(remoteName)
 	}
-	return url.PathEscape(sourceName) + "/" + url.PathEscape(remoteName)
+	return httpclient.PathSegment(sourceName) + "/" + httpclient.PathSegment(remoteName)
 }
 
 func DiscoverTools(ctx context.Context, sources []ToolSource, config ToolDiscoveryConfig) ([]toolcontract.Tool, error) {

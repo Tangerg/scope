@@ -317,7 +317,7 @@ func (a *api) getPrediction(ctx context.Context, id string) (*predictionResponse
 		return nil, errors.New("replicate: prediction id must not be empty")
 	}
 	var out predictionResponse
-	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathPredictionPrefix + url.PathEscape(id))
+	resp, err := a.http.R().SetContext(ctx).SetResult(&out).Get(pathPredictionPrefix + httpclient.PathSegment(id))
 	if err != nil {
 		return nil, fmt.Errorf("replicate: poll failed: %w", err)
 	}

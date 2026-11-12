@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"iter"
 	"net/http"
-	"strings"
 	"sync"
 
 	"github.com/Tangerg/scope/core/invocation"
@@ -120,9 +119,6 @@ func (s *SpeechModel) buildAPIRequest(req *speech.Request) (voiceID, outputForma
 
 	if effectiveOptions.Voice == "" {
 		return "", "", nil, errors.New("elevenlabs: Voice (voice id) is required - set Options.Voice")
-	}
-	if effectiveOptions.Voice == "." || effectiveOptions.Voice == ".." || strings.ContainsAny(effectiveOptions.Voice, "/\\?#%") {
-		return "", "", nil, errors.New("elevenlabs: Voice must be a single unescaped path segment")
 	}
 
 	nativeFields, _, err := effectiveOptions.Extensions.Decode[map[string]any](SpeechRequestExtensionKey)

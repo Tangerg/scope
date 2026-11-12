@@ -8,19 +8,15 @@ import (
 	"testing"
 
 	"github.com/Tangerg/scope/core/image"
-	"github.com/Tangerg/scope/core/invocation"
 	"github.com/Tangerg/scope/models/blackforestlabs"
 )
 
 func TestGenerationModelOwnsOnlyOnePathSegment(t *testing.T) {
-	for _, test := range []struct {
-		model string
-		valid bool
-	}{
-		{"flux-pro-1.1", true}, {"flux-custom_1.0", true},
-		{"flux-pro-1.1?alternate=true#", false}, {"flux#fragment", false},
-		{"flux/segment", false}, {`flux\segment`, false}, {"flux%2fsegment", false},
-		{".", false}, {"..", false}, {"%2e%2e", false},
+	for _, test := range []struct{ model, segment string }{
+		{"flux-pro-1.1", "flux-pro-1.1"}, {"flux-custom_1.0", "flux-custom_1.0"},
+		{"flux-pro-1.1?alternate=true#", "flux-pro-1.1%3Falternate=true%23"}, {"flux#fragment", "flux%23fragment"},
+		{"flux/segment", "flux%2Fsegment"}, {`flux\segment`, "flux%5Csegment"}, {"flux%2fsegment", "flux%252fsegment"},
+		{".", "%2E"}, {"..", "%2E%2E"}, {"%2e%2e", "%252e%252e"},
 	} {
 		for _, defaults := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/defaults=%t", test.model, defaults), func(t *testing.T) {
@@ -31,7 +27,7 @@ func TestGenerationModelOwnsOnlyOnePathSegment(t *testing.T) {
 					writer.Header().Set("Content-Type", "application/json")
 					switch request.Method {
 					case http.MethodPost:
-						if request.URL.EscapedPath() != "/v1/"+test.model || request.URL.RawQuery != "" {
+						if request.URL.EscapedPath() != "/v1/"+test.segment || request.URL.RawQuery != "" {
 							t.Errorf("generation URI=%q", request.RequestURI)
 						}
 						_, _ = fmt.Fprintf(writer, `{"id":"task-1","polling_url":%q}`, endpoint+"/result")
@@ -61,12 +57,8 @@ func TestGenerationModelOwnsOnlyOnePathSegment(t *testing.T) {
 					t.Fatal(err)
 				}
 				response, err := model.Call(t.Context(), request)
-				if test.valid {
-					if err != nil || response.First() == nil || calls.Load() != 3 {
-						t.Fatalf("response=%v error=%v requests=%d", response, err, calls.Load())
-					}
-				} else if response != nil || invocation.ClassifyFailure(err) != invocation.FailureNotExecuted || calls.Load() != 0 {
-					t.Fatalf("invalid model response=%v error=%v requests=%d", response, err, calls.Load())
+				if err != nil || response.First() == nil || calls.Load() != 3 {
+					t.Fatalf("response=%v error=%v requests=%d", response, err, calls.Load())
 				}
 			})
 		}

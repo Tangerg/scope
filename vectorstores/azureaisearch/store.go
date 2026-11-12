@@ -137,7 +137,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 }
 
 func (s *Store) binding(ctx context.Context) (nativeMetric, int, error) {
-	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+url.PathEscape(s.indexName), nil)
+	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+httpclient.PathSegment(s.indexName), nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("azureaisearch: read native index: %w", err)
 	}
@@ -420,7 +420,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 }
 
 func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[string]json.RawMessage, error) {
-	raw, err := s.sendJSON(ctx, http.MethodPost, "/indexes/"+url.PathEscape(s.indexName)+"/docs/search", body)
+	raw, err := s.sendJSON(ctx, http.MethodPost, "/indexes/"+httpclient.PathSegment(s.indexName)+"/docs/search", body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -499,7 +499,7 @@ func (s *Store) writeActions(ctx context.Context, actions []indexingAction) erro
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	path := "/indexes/" + url.PathEscape(s.indexName) + "/docs/index"
+	path := "/indexes/" + httpclient.PathSegment(s.indexName) + "/docs/index"
 	ids := actionIDs(actions)
 	for offset, group := range prepared {
 		start := offset * maximumDocumentsPerBatch

@@ -13,6 +13,7 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/samber/lo"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/tools/internal/toolresult"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
@@ -90,7 +91,7 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 }
 
 func (s *searchRequest) path() string {
-	return "/" + url.PathEscape(s.Query)
+	return "/" + httpclient.PathSegment(s.Query)
 }
 
 func (s *searchRequest) params() url.Values {
