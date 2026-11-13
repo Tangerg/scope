@@ -69,14 +69,19 @@ type Limits struct {
 }
 
 // Result reports normalized LF text and the whole-file line count. StartLine
-// is zero-based and EndLine is exclusive.
+// is zero-based and EndLine is exclusive. OutputTruncated reports that the
+// output byte budget clipped the selected window.
 type Result struct {
 	Content         string
 	StartLine       int
 	EndLine         int
 	TotalLines      int
-	Truncated       bool
 	OutputTruncated bool
+}
+
+// Truncated reports whether Content omits any line or byte of the file.
+func (r Result) Truncated() bool {
+	return r.StartLine > 0 || r.EndLine < r.TotalLines || r.OutputTruncated
 }
 
 // Scan validates and counts the complete admitted input while retaining only
@@ -273,7 +278,7 @@ func (l *lineCollector) result() Result {
 	end := start + l.selected
 	return Result{
 		Content: l.content.String(), StartLine: start, EndLine: end, TotalLines: l.total,
-		Truncated: start > 0 || end < l.total || l.clipped, OutputTruncated: l.clipped,
+		OutputTruncated: l.clipped,
 	}
 }
 

@@ -148,7 +148,7 @@ func (l *LocalExecutor) Read(ctx context.Context, in ReadInput) (_ ReadOutput, e
 	}
 	return ReadOutput{
 		Content: result.Content, StartLine: result.StartLine, EndLine: result.EndLine,
-		TotalLines: result.TotalLines, Truncated: result.Truncated,
+		TotalLines: result.TotalLines, Truncated: result.Truncated(),
 	}, nil
 }
 

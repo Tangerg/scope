@@ -23,7 +23,7 @@ func TestScanValidatesUnselectedTailAndCountsTrailingLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Content != "first" || got.StartLine != 0 || got.EndLine != 1 || got.TotalLines != 3 || !got.Truncated {
+	if got.Content != "first" || got.StartLine != 0 || got.EndLine != 1 || got.TotalLines != 3 || !got.Truncated() {
 		t.Fatalf("Scan = %+v, want normalized first line and complete total", got)
 	}
 
@@ -121,7 +121,7 @@ func TestScanSupportsConsumerSpecificOutputBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if complete.Content != "abcd" || complete.EndLine != 1 || !complete.Truncated {
+	if complete.Content != "abcd" || complete.EndLine != 1 || !complete.Truncated() {
 		t.Fatalf("complete-line result = %+v", complete)
 	}
 
@@ -131,7 +131,7 @@ func TestScanSupportsConsumerSpecificOutputBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if partial.Content != "abcd\nef" || partial.EndLine != 2 || !partial.Truncated {
+	if partial.Content != "abcd\nef" || partial.EndLine != 2 || !partial.Truncated() {
 		t.Fatalf("partial-line result = %+v", partial)
 	}
 }
