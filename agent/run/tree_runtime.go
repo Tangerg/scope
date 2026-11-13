@@ -36,7 +36,6 @@ type treeRuntime struct {
 	emitters        map[EffectID]*deltaEmitter
 	childQueue      []EffectID
 	preparing       *childPreparation
-	recovering      bool
 	stopping        bool
 	failure         error
 	checkpointAfter uint64
@@ -179,16 +178,16 @@ func (t *treeRuntime) next() (ProcessID, bool) {
 	return ProcessID{}, false
 }
 
-// run is the tree's single owner goroutine. Pending events are served before
-// new Steps so commands, results and stop requests are never starved by ready
-// work; it returns once no owned work remains and the tree is halted or done.
+// run is the tree's single owner goroutine. It first resumes the Effects its
+// log left pending, which a newly started tree has none of. Pending events are
+// served before new Steps so commands, results and stop requests are never
+// starved by ready work; it returns once no owned work remains and the tree is
+// halted or done.
 func (t *treeRuntime) run() {
 	defer close(t.done)
 	defer t.release()
 	defer t.cancel()
-	if t.recovering {
-		t.failOn(t.resumeEffects())
-	}
+	t.failOn(t.resumeEffects())
 	events := treeEvents{host: t.host.Done(), stop: t.stopRequested}
 	for !t.finished() {
 		if t.accepting() && (t.servePending(&events) || t.advanceNext()) {
