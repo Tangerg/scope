@@ -43,7 +43,7 @@ type Transition struct {
 
 func Continue(consumed uint32, effects ...Effect) (Transition, error) {
 	t := Transition{kind: TransitionKindContinue, consumed: consumed, effects: slices.Clone(effects)}
-	if !t.Valid() {
+	if !t.wellFormed() {
 		return Transition{}, ErrInvalidTransition
 	}
 	return t, nil
@@ -51,7 +51,7 @@ func Continue(consumed uint32, effects ...Effect) (Transition, error) {
 
 func Yield(consumed uint32, effects []Effect, waits ...Wait) (Transition, error) {
 	t := Transition{kind: TransitionKindYield, consumed: consumed, effects: slices.Clone(effects), waits: slices.Clone(waits)}
-	if !t.Valid() {
+	if !t.wellFormed() {
 		return Transition{}, ErrInvalidTransition
 	}
 	return t, nil
@@ -59,7 +59,7 @@ func Yield(consumed uint32, effects []Effect, waits ...Wait) (Transition, error)
 
 func Complete(consumed uint32, output Payload) (Transition, error) {
 	t := Transition{kind: TransitionKindComplete, consumed: consumed, output: output}
-	if !t.Valid() {
+	if !t.wellFormed() {
 		return Transition{}, ErrInvalidTransition
 	}
 	return t, nil
@@ -67,7 +67,7 @@ func Complete(consumed uint32, output Payload) (Transition, error) {
 
 func Fail(consumed uint32, failure Failure) (Transition, error) {
 	t := Transition{kind: TransitionKindFail, consumed: consumed, failure: failure}
-	if !t.Valid() {
+	if !t.wellFormed() {
 		return Transition{}, ErrInvalidTransition
 	}
 	return t, nil
@@ -80,7 +80,11 @@ func (t Transition) Waits() []Wait            { return slices.Clone(t.waits) }
 func (t Transition) Output() (Payload, bool)  { return t.output, t.output.Valid() }
 func (t Transition) Failure() (Failure, bool) { return t.failure, t.failure.Valid() }
 
-func (t Transition) Valid() bool { return t.declarationsValid() && t.shapeMatchesKind() }
+// Valid reports whether t was built by a constructor or decoded; both admit
+// only well-formed transitions.
+func (t Transition) Valid() bool { return t.kind != TransitionKindInvalid }
+
+func (t Transition) wellFormed() bool { return t.declarationsValid() && t.shapeMatchesKind() }
 
 func (t Transition) declarationsValid() bool {
 	for _, effect := range t.effects {
@@ -137,7 +141,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 	if wire.Failure != nil {
 		value.failure = *wire.Failure
 	}
-	if !value.Valid() {
+	if !value.wellFormed() {
 		return ErrInvalidTransition
 	}
 	*t = value
