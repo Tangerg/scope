@@ -305,8 +305,12 @@ func optionalFloat(value *float64) param.Opt[float64] {
 func mapToolChoice(choice corechat.ToolChoice) (openaisdk.ChatCompletionToolChoiceOptionUnionParam, param.Opt[bool]) {
 	var mapped openaisdk.ChatCompletionToolChoiceOptionUnionParam
 	switch choice.Mode {
-	case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
-		mapped.OfAuto = openaisdk.String(string(choice.Mode))
+	case corechat.ToolChoiceAuto:
+		mapped.OfAuto = openaisdk.String(string(openaisdk.ChatCompletionToolChoiceOptionAutoAuto))
+	case corechat.ToolChoiceNone:
+		mapped.OfAuto = openaisdk.String(string(openaisdk.ChatCompletionToolChoiceOptionAutoNone))
+	case corechat.ToolChoiceRequired:
+		mapped.OfAuto = openaisdk.String(string(openaisdk.ChatCompletionToolChoiceOptionAutoRequired))
 	case corechat.ToolChoiceNamed:
 		mapped = openaisdk.ToolChoiceOptionFunctionToolChoice(openaisdk.ChatCompletionNamedToolChoiceFunctionParam{Name: choice.Name})
 	}

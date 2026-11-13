@@ -106,8 +106,12 @@ func (r *responsesRequestProjection) projectToolChoice() {
 		return
 	}
 	switch choice.Mode {
-	case corechat.ToolChoiceAuto, corechat.ToolChoiceNone, corechat.ToolChoiceRequired:
-		r.native.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptions(choice.Mode))
+	case corechat.ToolChoiceAuto:
+		r.native.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptionsAuto)
+	case corechat.ToolChoiceNone:
+		r.native.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptionsNone)
+	case corechat.ToolChoiceRequired:
+		r.native.ToolChoice.OfToolChoiceMode = openaisdk.Opt(responses.ToolChoiceOptionsRequired)
 	case corechat.ToolChoiceNamed:
 		r.native.ToolChoice.OfFunctionTool = &responses.ToolChoiceFunctionParam{Name: choice.Name}
 	}
