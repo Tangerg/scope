@@ -50,10 +50,3 @@ func (r *restoreCancellationContext) Err() error {
 	}
 	return err
 }
-
-// CancelAfterCheck schedules cancellation just after a successful Err check.
-// Validators can then prove they stop before examining a later malformed entry.
-func CancelAfterCheck(ctx context.Context, after int64) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(ctx)
-	return &restoreCancellationContext{Context: ctx, cancel: cancel, after: after}, cancel
-}
