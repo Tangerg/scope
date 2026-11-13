@@ -63,72 +63,22 @@ func TestRegistryResolveAndDefinitions(t *testing.T) {
 	}
 }
 
-func TestRegistryRegisterIsAtomic(t *testing.T) {
-	registry, err := tool.NewRegistry(boundStubTool(t, "existing"))
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
+func TestRegistryRejectsDuplicateAndUnboundTools(t *testing.T) {
+	if _, err := tool.NewRegistry(boundStubTool(t, "same"), boundStubTool(t, "other"), boundStubTool(t, "same")); err == nil || err.Error() != `tool: duplicate tool: "same" appears more than once` {
+		t.Fatalf("duplicate error = %v", err)
 	}
-
-	err = registry.Register(boundStubTool(t, "new"), boundStubTool(t, "existing"))
-	if !errors.Is(err, tool.ErrDuplicateTool) {
-		t.Fatalf("Register duplicate error = %v", err)
-	}
-	if _, ok := registry.Resolve("new"); ok {
-		t.Fatal("failed batch partially registered new tool")
-	}
-
-	err = registry.Register(boundStubTool(t, "same"), boundStubTool(t, "same"))
-	if !errors.Is(err, tool.ErrDuplicateTool) {
-		t.Fatalf("Register batch duplicate error = %v", err)
-	}
-}
-
-func TestRegistryReportsFirstRegisteredConflictInBatchOrder(t *testing.T) {
-	names := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
-	existing := make([]tool.Binding, len(names))
-	for index, name := range names {
-		existing[index] = boundStubTool(t, name)
-	}
-	registry, err := tool.NewRegistry(existing...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 32 {
-		batch := []tool.Binding{boundStubTool(t, "fresh")}
-		for index := len(names) - 1; index >= 0; index-- {
-			batch = append(batch, boundStubTool(t, names[index]))
-		}
-		err := registry.Register(batch...)
-		if want := `tool: duplicate tool: "h" is already registered`; err == nil || err.Error() != want {
-			t.Fatalf("Register error = %v, want %s", err, want)
-		}
-	}
-}
-
-func TestRegistryRejectsUnboundTools(t *testing.T) {
-	var registry tool.Registry
-	if err := registry.Register(boundStubTool(t, "valid"), tool.Binding{}); !errors.Is(err, tool.ErrInvalidTool) {
+	if _, err := tool.NewRegistry(boundStubTool(t, "valid"), tool.Binding{}); !errors.Is(err, tool.ErrInvalidTool) {
 		t.Fatalf("zero binding admitted: %v", err)
 	}
-	if _, ok := registry.Resolve("valid"); ok {
-		t.Fatal("invalid batch partially registered")
-	}
-	var nilRegistry *tool.Registry
-	if err := nilRegistry.Register(boundStubTool(t, "tool")); !errors.Is(err, tool.ErrInvalidRegistry) {
-		t.Fatalf("nil registry: %v", err)
-	}
-	if value, ok := nilRegistry.Resolve("tool"); ok || value.Contract().Name() != "" {
-		t.Fatal("nil registry resolved a tool")
-	}
 }
 
-func TestRegistryZeroValue(t *testing.T) {
+func TestRegistryZeroValueIsEmpty(t *testing.T) {
 	var registry tool.Registry
-	if err := registry.Register(boundStubTool(t, "zero")); err != nil {
-		t.Fatalf("zero Registry.Register: %v", err)
+	if value, ok := registry.Resolve("tool"); ok || value.Contract().Name() != "" {
+		t.Fatal("zero Registry resolved a tool")
 	}
-	if _, ok := registry.Resolve("zero"); !ok {
-		t.Fatal("zero Registry did not resolve registered tool")
+	if definitions := registry.Definitions(); len(definitions) != 0 {
+		t.Fatalf("zero Registry definitions = %v", definitions)
 	}
 }
 
