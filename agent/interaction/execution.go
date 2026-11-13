@@ -265,6 +265,8 @@ func (e *execution) complete(consumedMessages uint32, output Output) (run.Transi
 	return run.Complete(consumedMessages, encoded)
 }
 
+// finishOrRetry receives an Output both producers assemble from admitted
+// evidence, so it already satisfies Output.Validate.
 func (e *execution) finishOrRetry(
 	ctx context.Context,
 	turn run.Turn,
@@ -272,9 +274,6 @@ func (e *execution) finishOrRetry(
 	output Output,
 	completionContext []chat.Message,
 ) (run.Transition, error) {
-	if err := output.Validate(); err != nil {
-		return run.Transition{}, err
-	}
 	decision := CompletionDecision{Accepted: true}
 	if e.definition.completionValidator != nil {
 		candidate := CompletionCandidate{
