@@ -35,8 +35,8 @@ func TestRetrievalTextPreservesValidUnicodeAndNUL(t *testing.T) {
 func TestAugmentationSeparatesPreservationFromReplacement(t *testing.T) {
 	var preserved rag.Augmentation
 	text, replace := preserved.ReplacementText()
-	if err := preserved.Validate(); err != nil || replace || text != "" || preserved.Citations().Len() != 0 {
-		t.Fatalf("zero augmentation = %q, %v, %v", text, replace, err)
+	if replace || text != "" || preserved.Citations().Len() != 0 {
+		t.Fatalf("zero augmentation = %q, %v", text, replace)
 	}
 	const original = "\n  indented question\n"
 	replacement, err := rag.NewAugmentation(original)

@@ -21,19 +21,21 @@ type Query struct {
 
 // NewQuery trims surrounding whitespace and requires valid UTF-8 text.
 func NewQuery(text string) (Query, error) {
-	query := Query{text: strings.TrimSpace(text)}
-	if err := query.Validate(); err != nil {
-		return Query{}, err
+	trimmed := strings.TrimSpace(text)
+	if !utf8.ValidString(trimmed) {
+		return Query{}, fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidQuery)
 	}
-	return query, nil
+	if trimmed == "" {
+		return Query{}, fmt.Errorf("%w: text must not be blank", ErrInvalidQuery)
+	}
+	return Query{text: trimmed}, nil
 }
 
+// Validate rejects the zero Query. NewQuery is the only way to build any other
+// value, so a non-zero Query already satisfies its text rule.
 func (q Query) Validate() error {
-	if !utf8.ValidString(q.text) {
-		return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidQuery)
-	}
-	if q.text == "" || q.text != strings.TrimSpace(q.text) {
-		return fmt.Errorf("%w: text must be non-empty without surrounding whitespace", ErrInvalidQuery)
+	if q.text == "" {
+		return fmt.Errorf("%w: zero query", ErrInvalidQuery)
 	}
 	return nil
 }

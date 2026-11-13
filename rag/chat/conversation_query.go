@@ -17,27 +17,23 @@ type ConversationQuery struct {
 }
 
 func NewConversationQuery(query rag.Query, history []corechat.Message) (ConversationQuery, error) {
-	input := ConversationQuery{query: query, history: cloneHistory(history)}
-	if err := input.Validate(); err != nil {
+	if err := query.Validate(); err != nil {
 		return ConversationQuery{}, err
 	}
-	return input, nil
+	for index, message := range history {
+		if err := message.Validate(); err != nil {
+			return ConversationQuery{}, fmt.Errorf("rag: conversation history message %d: %w", index, err)
+		}
+	}
+	return ConversationQuery{query: query, history: cloneHistory(history)}, nil
 }
 
 func (c ConversationQuery) Query() rag.Query            { return c.query }
 func (c ConversationQuery) History() []corechat.Message { return cloneHistory(c.history) }
 
-func (c ConversationQuery) Validate() error {
-	if err := c.query.Validate(); err != nil {
-		return err
-	}
-	for index, message := range c.history {
-		if err := message.Validate(); err != nil {
-			return fmt.Errorf("rag: conversation history message %d: %w", index, err)
-		}
-	}
-	return nil
-}
+// Validate rejects the zero ConversationQuery. NewConversationQuery admits the
+// query and every history message once, and the snapshot is never written again.
+func (c ConversationQuery) Validate() error { return c.query.Validate() }
 
 func cloneHistory(history []corechat.Message) []corechat.Message {
 	if history == nil {

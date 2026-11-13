@@ -77,11 +77,13 @@ func CitationMarker(index int) string { return fmt.Sprintf("[%d]", index+1) }
 // NewAugmentation requires replacement even when text equals the retrieval
 // query. The non-blank UTF-8 text is preserved exactly.
 func NewAugmentation(text string) (Augmentation, error) {
-	augmentation := Augmentation{replacementText: new(text)}
-	if err := augmentation.Validate(); err != nil {
-		return Augmentation{}, err
+	if !utf8.ValidString(text) {
+		return Augmentation{}, fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidAugmentation)
 	}
-	return augmentation, nil
+	if strings.TrimSpace(text) == "" {
+		return Augmentation{}, fmt.Errorf("%w: text must not be blank", ErrInvalidAugmentation)
+	}
+	return Augmentation{replacementText: new(text)}, nil
 }
 
 // ReplacementText separates an explicit rewrite from preserving the original
@@ -95,21 +97,6 @@ func (a Augmentation) ReplacementText() (string, bool) {
 
 // Citations returns the immutable selection used for this prompt.
 func (a Augmentation) Citations() Citations { return a.citations }
-
-func (a Augmentation) Validate() error {
-	if a.replacementText != nil {
-		if !utf8.ValidString(*a.replacementText) {
-			return fmt.Errorf("%w: text must be valid UTF-8", ErrInvalidAugmentation)
-		}
-		if strings.TrimSpace(*a.replacementText) == "" {
-			return fmt.Errorf("%w: text must not be blank", ErrInvalidAugmentation)
-		}
-	}
-	if err := a.citations.selected.Validate(); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidAugmentation, err)
-	}
-	return nil
-}
 
 type Augmenter interface {
 	// Augment decides whether to replace generation text using one query and

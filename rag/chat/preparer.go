@@ -170,9 +170,6 @@ func (p *Preparer) Prepare(ctx context.Context, request *corechat.Request) (Prep
 	if err != nil {
 		return PreparedRequest{}, err
 	}
-	if augmentationErr := augmentation.Validate(); augmentationErr != nil {
-		return PreparedRequest{}, augmentationErr
-	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return PreparedRequest{}, ctxErr
 	}

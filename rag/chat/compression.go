@@ -86,9 +86,6 @@ func (c *CompressionTransformer) formatHistory(ctx context.Context, messages []c
 			return "", err
 		}
 		message := &messages[messageIndex]
-		if err := message.Validate(); err != nil {
-			return "", fmt.Errorf("rag: format chat history message %d: %w", messageIndex, err)
-		}
 		if output.Len() != 0 {
 			output.WriteString("\n\n")
 		}
