@@ -1,7 +1,6 @@
 package deepgram
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -15,13 +14,11 @@ import (
 )
 
 type SpeechModelConfig struct {
-	APIKey         string
-	DefaultOptions speech.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-	// Call must fit in memory; Stream retains incremental delivery. Zero uses
-	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
-	MaxResponseBytes int64
+	APIKey           string
+	DefaultOptions   speech.Options
+	BaseURL          string
+	HTTPClient       *http.Client
+	MaxResponseBytes speech.AudioByteLimit
 }
 
 func (s SpeechModelConfig) apiConfig() apiConfig {
@@ -29,7 +26,7 @@ func (s SpeechModelConfig) apiConfig() apiConfig {
 		APIKey:           s.APIKey,
 		BaseURL:          s.BaseURL,
 		HTTPClient:       s.HTTPClient,
-		MaxResponseBytes: cmp.Or(s.MaxResponseBytes, speech.DefaultMaxAudioBytes),
+		MaxResponseBytes: s.MaxResponseBytes.Bytes(),
 	}
 }
 

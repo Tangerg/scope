@@ -2,7 +2,6 @@ package azureopenai
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/models/protocol/openai"
@@ -15,16 +14,13 @@ const SpeechRequestExtensionKey = Provider + openai.SpeechRequestExtensionSuffix
 type SpeechModelConfig struct {
 	Config
 	DefaultOptions   speech.Options
-	MaxResponseBytes int64
+	MaxResponseBytes speech.AudioByteLimit
 }
 
 func (s SpeechModelConfig) resolve() (endpointConfig, error) {
 	endpoint, err := s.resolveModel(s.DefaultOptions.Model, s.DefaultOptions.Validate)
 	if err != nil {
 		return endpointConfig{}, err
-	}
-	if s.MaxResponseBytes < 0 {
-		return endpointConfig{}, errors.New("azureopenai: MaxResponseBytes must not be negative")
 	}
 	return endpoint, nil
 }

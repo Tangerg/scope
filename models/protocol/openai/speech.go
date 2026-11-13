@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,14 +16,12 @@ import (
 )
 
 type SpeechModelConfig struct {
-	Provider       string
-	APIKey         string
-	DefaultOptions speech.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-	// Call must fit in memory; Stream retains incremental delivery. Zero uses
-	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
-	MaxResponseBytes int64
+	Provider         string
+	APIKey           string
+	DefaultOptions   speech.Options
+	BaseURL          string
+	HTTPClient       *http.Client
+	MaxResponseBytes speech.AudioByteLimit
 }
 
 func (s SpeechModelConfig) Validate() error {
@@ -37,8 +34,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if s.MaxResponseBytes < 0 {
-		return errors.New("openai: MaxResponseBytes must not be negative")
+	if err := s.MaxResponseBytes.Validate(); err != nil {
+		return fmt.Errorf("openai: MaxResponseBytes: %w", err)
 	}
 	return nil
 }
@@ -71,7 +68,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 		api:              api,
 		provider:         config.Provider,
 		defaultOptions:   config.DefaultOptions.Clone(),
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
+		maxResponseBytes: config.MaxResponseBytes.Bytes(),
 	}, nil
 }
 

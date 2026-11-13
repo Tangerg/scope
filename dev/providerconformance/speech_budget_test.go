@@ -24,32 +24,32 @@ type speechBudgetCase struct {
 	// contentType is the HTTP declaration of the body: binary audio for
 	// unframed speech, a framing type for providers that carry MIME inline.
 	contentType string
-	newModel    func(context.Context, *http.Client, int64) (speech.Model, error)
+	newModel    func(context.Context, *http.Client, speech.AudioByteLimit) (speech.Model, error)
 }
 
 func speechBudgetCases() []speechBudgetCase {
 	const stream = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;rate=24000\",\"data\":\"YWJj\"}}]}}]}\n\ndata: {\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;rate=24000\",\"data\":\"ZGVm\"}}]},\"finishReason\":\"STOP\"}]}\n\n"
 	const unary = `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"audio/L16;rate=24000","data":"YWJj"}},{"inlineData":{"mimeType":"audio/L16;rate=24000","data":"ZGVm"}}]},"finishReason":"STOP"}]}`
 	return []speechBudgetCase{
-		{name: "openai", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "openai", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return openai.NewSpeechModel(ctx, openai.SpeechModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: "tts-1", Voice: "alloy"}, MaxResponseBytes: limit})
 		}},
-		{name: "elevenlabs", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "elevenlabs", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return elevenlabs.NewSpeechModel(ctx, elevenlabs.SpeechModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: "eleven_v3", Voice: "voice"}, MaxResponseBytes: limit})
 		}},
-		{name: "deepgram", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "deepgram", body: "abcdef", contentType: "audio/mpeg", newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return deepgram.NewSpeechModel(ctx, deepgram.SpeechModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: "aura-2-thalia-en"}, MaxResponseBytes: limit})
 		}},
-		{name: "google streaming", body: stream, newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "google streaming", body: stream, newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return google.NewStreamingSpeechModel(ctx, google.SpeechModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: google.ModelGemini31FlashTTSPreview, Voice: "Kore"}, MaxResponseBytes: limit})
 		}},
-		{name: "vertex streaming", body: stream, newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "vertex streaming", body: stream, newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return vertexai.NewStreamingSpeechModel(ctx, vertexai.SpeechModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: responseBudgetEndpoint, HTTPClient: client}, DefaultOptions: speech.Options{Model: google.ModelGemini31FlashTTSPreview, Voice: "Kore"}, MaxResponseBytes: limit})
 		}},
-		{name: "google unary", body: unary, newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "google unary", body: unary, newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return google.NewSpeechModel(ctx, google.SpeechModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: speech.Options{Model: google.ModelGemini25FlashPreviewTTS, Voice: "Kore"}, MaxResponseBytes: limit})
 		}},
-		{name: "vertex unary", body: unary, newModel: func(ctx context.Context, client *http.Client, limit int64) (speech.Model, error) {
+		{name: "vertex unary", body: unary, newModel: func(ctx context.Context, client *http.Client, limit speech.AudioByteLimit) (speech.Model, error) {
 			return vertexai.NewSpeechModel(ctx, vertexai.SpeechModelConfig{Client: vertexai.ClientConfig{Project: "project", Location: "global", BaseURL: responseBudgetEndpoint, HTTPClient: client}, DefaultOptions: speech.Options{Model: google.ModelGemini25FlashPreviewTTS, Voice: "Kore"}, MaxResponseBytes: limit})
 		}},
 	}
@@ -63,7 +63,7 @@ func (s speechBudgetReader) Read(buffer []byte) (int, error) {
 
 func TestSpeechCallBoundsAggregateAudioAndLeavesStreamIncremental(t *testing.T) {
 	for _, sample := range speechBudgetCases() {
-		for _, limit := range []int64{5, 6, 7} {
+		for _, limit := range []speech.AudioByteLimit{5, 6, 7} {
 			t.Run(fmt.Sprintf("%s/%d", sample.name, limit), func(t *testing.T) {
 				transport := &responseBudgetTransport{status: http.StatusOK, contentType: cmp.Or(sample.contentType, "text/event-stream"), reader: func(*http.Request) io.Reader { return speechBudgetReader{reader: strings.NewReader(sample.body)} }}
 				model, err := sample.newModel(t.Context(), &http.Client{Transport: transport}, limit)

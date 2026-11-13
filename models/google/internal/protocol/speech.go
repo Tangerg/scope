@@ -10,12 +10,10 @@ import (
 )
 
 type SpeechModelConfig struct {
-	Provider       string
-	Client         ClientConfig
-	DefaultOptions speech.Options
-	// Call must fit in memory; Stream retains incremental delivery. Zero uses
-	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
-	MaxResponseBytes int64
+	Provider         string
+	Client           ClientConfig
+	DefaultOptions   speech.Options
+	MaxResponseBytes speech.AudioByteLimit
 }
 
 func (s SpeechModelConfig) Validate() error {
@@ -31,8 +29,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if s.MaxResponseBytes < 0 {
-		return errors.New("google: MaxResponseBytes must not be negative")
+	if err := s.MaxResponseBytes.Validate(); err != nil {
+		return fmt.Errorf("google: MaxResponseBytes: %w", err)
 	}
 	return nil
 }

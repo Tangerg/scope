@@ -1,7 +1,6 @@
 package elevenlabs
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -45,13 +44,11 @@ type speechResponseMetadata struct {
 }
 
 type SpeechModelConfig struct {
-	APIKey         string
-	DefaultOptions speech.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-	// Call must fit in memory; Stream retains incremental delivery. Zero uses
-	// speech.DefaultMaxAudioBytes, and a negative limit is invalid.
-	MaxResponseBytes int64
+	APIKey           string
+	DefaultOptions   speech.Options
+	BaseURL          string
+	HTTPClient       *http.Client
+	MaxResponseBytes speech.AudioByteLimit
 }
 
 func (s SpeechModelConfig) apiConfig() apiConfig {
@@ -72,8 +69,8 @@ func (s SpeechModelConfig) Validate() error {
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
 	}
-	if s.MaxResponseBytes < 0 {
-		return errors.New("elevenlabs: MaxResponseBytes must not be negative")
+	if err := s.MaxResponseBytes.Validate(); err != nil {
+		return fmt.Errorf("elevenlabs: MaxResponseBytes: %w", err)
 	}
 	return nil
 }
@@ -107,7 +104,7 @@ func NewSpeechModel(ctx context.Context, config SpeechModelConfig) (*SpeechModel
 	return &SpeechModel{
 		api:              api,
 		defaultOptions:   config.DefaultOptions.Clone(),
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
+		maxResponseBytes: config.MaxResponseBytes.Bytes(),
 	}, nil
 }
 

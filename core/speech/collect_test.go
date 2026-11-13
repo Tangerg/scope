@@ -119,3 +119,18 @@ func TestCollectRejectsAudioThatChangesEncoding(t *testing.T) {
 		t.Fatalf("Collect = %#v, %v", response, err)
 	}
 }
+
+func TestAudioByteLimitSelectsDefaultAndRejectsNegative(t *testing.T) {
+	if got := AudioByteLimit(0).Bytes(); got != DefaultMaxAudioBytes {
+		t.Fatalf("zero limit = %d, want %d", got, DefaultMaxAudioBytes)
+	}
+	if got := AudioByteLimit(7).Bytes(); got != 7 {
+		t.Fatalf("explicit limit = %d, want 7", got)
+	}
+	if err := AudioByteLimit(0).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := AudioByteLimit(-1).Validate(); !errors.Is(err, ErrInvalidOptions) {
+		t.Fatalf("negative limit error = %v, want ErrInvalidOptions", err)
+	}
+}

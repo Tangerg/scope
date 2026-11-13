@@ -1,11 +1,25 @@
 package speech
 
 import (
+	"cmp"
 	"fmt"
 	"iter"
 )
 
 const DefaultMaxAudioBytes int64 = 32 << 20
+
+// AudioByteLimit bounds the audio a Call collects in memory; a Stream delivers
+// audio incrementally instead. The zero value selects DefaultMaxAudioBytes.
+type AudioByteLimit int64
+
+func (a AudioByteLimit) Validate() error {
+	if a < 0 {
+		return fmt.Errorf("%w: audio byte limit must not be negative", ErrInvalidOptions)
+	}
+	return nil
+}
+
+func (a AudioByteLimit) Bytes() int64 { return cmp.Or(int64(a), DefaultMaxAudioBytes) }
 
 // Collect publishes a complete result only after the stream succeeds. It
 // retains the terminal chunk's metadata without mutating borrowed responses.

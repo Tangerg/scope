@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
@@ -43,7 +42,7 @@ func newSpeechBinding(ctx context.Context, config SpeechModelConfig) (*speechBin
 		api:              api,
 		provider:         config.Provider,
 		defaultOptions:   config.DefaultOptions.Clone(),
-		maxResponseBytes: cmp.Or(config.MaxResponseBytes, speech.DefaultMaxAudioBytes),
+		maxResponseBytes: config.MaxResponseBytes.Bytes(),
 	}, nil
 }
 
