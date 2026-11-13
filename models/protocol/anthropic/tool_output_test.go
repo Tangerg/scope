@@ -53,10 +53,7 @@ func TestToolResultRejectsUnsupportedMedia(t *testing.T) {
 
 func TestToolCallWithBlankArgumentsReplaysAsTheEmptyObject(t *testing.T) {
 	for _, arguments := range []string{"", " \n\t"} {
-		block, err := mapProtocolToolCall(corechat.ToolCall{ID: "call-1", Name: "lookup", Arguments: arguments})
-		if err != nil {
-			t.Fatal(err)
-		}
+		block := mapProtocolToolCall(corechat.ToolCall{ID: "call-1", Name: "lookup", Arguments: arguments})
 		if input, ok := block.OfToolUse.Input.(json.RawMessage); !ok || string(input) != "{}" {
 			t.Fatalf("arguments %q replayed as %#v", arguments, block.OfToolUse.Input)
 		}

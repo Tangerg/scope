@@ -508,8 +508,7 @@ func mapProtocolAssistantPart(index int, part corechat.Part, provider string) (a
 	case corechat.PartReasoning:
 		return mapProtocolReasoningPart(index, part, provider)
 	case corechat.PartToolCall:
-		block, err := mapProtocolToolCall(*part.ToolCall)
-		return block, true, err
+		return mapProtocolToolCall(*part.ToolCall), true, nil
 	case corechat.PartRefusal:
 		return anthropicsdk.NewTextBlock(part.Text), true, nil
 	default:
@@ -535,8 +534,8 @@ func mapProtocolReasoningPart(index int, part corechat.Part, provider string) (a
 	}
 }
 
-func mapProtocolToolCall(call corechat.ToolCall) (anthropicsdk.ContentBlockParamUnion, error) {
-	return anthropicsdk.NewToolUseBlock(call.ID, json.RawMessage(call.Request().Input()), call.Name), nil
+func mapProtocolToolCall(call corechat.ToolCall) anthropicsdk.ContentBlockParamUnion {
+	return anthropicsdk.NewToolUseBlock(call.ID, json.RawMessage(call.Request().Input()), call.Name)
 }
 
 func mapProtocolTools(definitions []toolcontract.Definition) ([]anthropicsdk.ToolUnionParam, error) {
