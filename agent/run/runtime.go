@@ -112,11 +112,7 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 	if handle.tree != nil {
 		handle.tree.stop()
 		<-handle.tree.done
-		r.mu.Lock()
-		if r.roots[handle.id] == handle.tree {
-			delete(r.roots, handle.id)
-		}
-		r.mu.Unlock()
+		r.unpublish(handle.tree)
 	}
 	if err != nil {
 		if handle.tree != nil {
@@ -372,12 +368,9 @@ func (r *Runtime) ReleaseTree(ctx context.Context, root ProcessID) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.roots[root] != tree {
+	if !r.unpublish(tree) {
 		return ErrTreeNotFound
 	}
-	delete(r.roots, root)
 	return nil
 }
 
@@ -425,6 +418,17 @@ func (r *Runtime) publish(tree *treeRuntime) error {
 	}
 	r.roots[tree.state.root] = tree
 	return nil
+}
+
+// unpublish removes tree unless a recovering writer has replaced it.
+func (r *Runtime) unpublish(tree *treeRuntime) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.roots[tree.state.root] != tree {
+		return false
+	}
+	delete(r.roots, tree.state.root)
+	return true
 }
 
 func (r *Runtime) validateProgram(program Program[Payload, Payload]) error {
