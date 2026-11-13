@@ -51,10 +51,9 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 	}, nil
 }
 
-func (d Delegate) Valid() bool {
-	return d.definition.Validate() == nil && run.ValidDescription(d.definition.Description) &&
-		d.child.Valid()
-}
+// Valid reports whether d came from NewDelegate, which admits the complete
+// model contract once.
+func (d Delegate) Valid() bool { return d.child.Valid() }
 
 func (d Delegate) validateInput(input run.Payload) error {
 	if !d.Valid() {

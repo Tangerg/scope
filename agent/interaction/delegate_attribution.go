@@ -20,7 +20,6 @@ func (d DelegateAttribution) ChildKey() run.ChildKey          { key, _ := d.proc
 func (d DelegateAttribution) ProcessID() run.ProcessID        { return d.processID }
 func (d DelegateAttribution) Reference() (run.EffectID, bool) { return d.reference, d.Valid() }
 
-func (d DelegateAttribution) Valid() bool {
-	parent, child := d.processID.Parent()
-	return child && parent == d.reference.Process && d.reference.Valid() && d.modelCallSequence > 0 && d.toolCall.Validate() == nil
-}
+// Valid reports whether d came from a HistoryProjection, which builds it only
+// from an admitted delegated call and its committed child start.
+func (d DelegateAttribution) Valid() bool { return d.reference.Valid() }
