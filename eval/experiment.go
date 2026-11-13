@@ -1,13 +1,24 @@
 package eval
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 
 	"golang.org/x/sync/errgroup"
 )
 
 const DefaultMaxConcurrency = 4
+
+// maxConcurrency is the one concurrency rule of composites, Suites and
+// Experiments: zero selects the owner's default and a negative limit is invalid.
+func maxConcurrency(configured, fallback int) (int, error) {
+	if configured < 0 {
+		return 0, errors.New("maximum concurrency must not be negative")
+	}
+	return cmp.Or(configured, fallback), nil
+}
 
 // ErrorPolicy controls whether independent failures are collected or stop new
 // scheduling at the Suite or Experiment boundary that owns the policy.
@@ -58,20 +69,17 @@ func NewExperiment[T any](config ExperimentConfig[T]) (Experiment[T], error) {
 	if config.Suite == nil || len(config.Suite.assessments) == 0 {
 		return Experiment[T]{}, fmt.Errorf("%w: suite is uninitialized", ErrInvalidExperiment)
 	}
-	if config.MaxConcurrency < 0 {
-		return Experiment[T]{}, fmt.Errorf("%w: maximum concurrency must not be negative", ErrInvalidExperiment)
+	concurrency, err := maxConcurrency(config.MaxConcurrency, DefaultMaxConcurrency)
+	if err != nil {
+		return Experiment[T]{}, fmt.Errorf("%w: %w", ErrInvalidExperiment, err)
 	}
 	policy, err := config.ErrorPolicy.normalize()
 	if err != nil {
 		return Experiment[T]{}, fmt.Errorf("%w: %w", ErrInvalidExperiment, err)
 	}
-	maxConcurrency := config.MaxConcurrency
-	if maxConcurrency == 0 {
-		maxConcurrency = DefaultMaxConcurrency
-	}
 	return Experiment[T]{
 		dataset: config.Dataset, suite: config.Suite,
-		maxConcurrency: maxConcurrency, errorPolicy: policy,
+		maxConcurrency: concurrency, errorPolicy: policy,
 	}, nil
 }
 

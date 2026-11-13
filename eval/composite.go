@@ -1,7 +1,6 @@
 package eval
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -106,9 +105,6 @@ func NewCompositeEvaluator[T any](config CompositeEvaluatorConfig[T]) (*Composit
 	if len(config.Components) == 0 {
 		return nil, fmt.Errorf("%w: at least one component is required", ErrInvalidEvaluatorConfig)
 	}
-	if config.MaxConcurrency < 0 {
-		return nil, fmt.Errorf("%w: maximum concurrency must not be negative", ErrInvalidEvaluatorConfig)
-	}
 
 	components := make([]Component[T], len(config.Components))
 	for index, component := range config.Components {
@@ -122,9 +118,13 @@ func NewCompositeEvaluator[T any](config CompositeEvaluatorConfig[T]) (*Composit
 	if err != nil {
 		return nil, err
 	}
+	concurrency, err := maxConcurrency(config.MaxConcurrency, DefaultMaxConcurrency)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidEvaluatorConfig, err)
+	}
 	return &CompositeEvaluator[T]{
 		components: components, passPolicy: config.PassPolicy, minimumPassed: minimumPassed,
-		maxConcurrency: min(cmp.Or(config.MaxConcurrency, DefaultMaxConcurrency), len(components)),
+		maxConcurrency: min(concurrency, len(components)),
 	}, nil
 }
 

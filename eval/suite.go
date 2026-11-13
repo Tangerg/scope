@@ -34,9 +34,6 @@ func NewSuite[T any](config SuiteConfig[T]) (*Suite[T], error) {
 	if len(config.Assessments) == 0 {
 		return nil, fmt.Errorf("%w: at least one assessment is required", ErrInvalidEvaluatorConfig)
 	}
-	if config.MaxConcurrency < 0 {
-		return nil, fmt.Errorf("%w: maximum concurrency must not be negative", ErrInvalidEvaluatorConfig)
-	}
 	seen := make(map[AssessmentID]struct{}, len(config.Assessments))
 	for _, assessment := range config.Assessments {
 		if err := assessment.Validate(); err != nil {
@@ -51,9 +48,9 @@ func NewSuite[T any](config SuiteConfig[T]) (*Suite[T], error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidEvaluatorConfig, err)
 	}
-	concurrency := config.MaxConcurrency
-	if concurrency == 0 {
-		concurrency = DefaultSuiteConcurrency
+	concurrency, err := maxConcurrency(config.MaxConcurrency, DefaultSuiteConcurrency)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidEvaluatorConfig, err)
 	}
 	return &Suite[T]{
 		assessments:    slices.Clone(config.Assessments),
