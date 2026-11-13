@@ -36,6 +36,9 @@ func newIndexSchema(index *types.Index, bucket, name string, space vectorstore.S
 }
 
 func (i indexSchema) narrow(vector []float64) ([]float32, error) {
+	if err := vectorstore.RequireWidth(vector, i.dimensions); err != nil {
+		return nil, err
+	}
 	narrowed := corevector.Float32(vector)
 	if err := i.validateVector(narrowed); err != nil {
 		return nil, err

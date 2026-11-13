@@ -137,6 +137,9 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err
 	}
+	if err := vectorstore.RequireWidth(batch.Records[0].Values, s.vectors.dimensions); err != nil {
+		return err
+	}
 	payloads := make([][]byte, 0, len(batch.Records))
 	ids := make([]string, 0, len(batch.Records))
 	for _, r := range batch.Records {
@@ -175,6 +178,9 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	}
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, fmt.Errorf("couchbase.Store.QueryByScan: %w", err)
+	}
+	if err := vectorstore.RequireWidth(request.Values, s.vectors.dimensions); err != nil {
+		return nil, err
 	}
 	if err := s.vectors.validate(request.Values); err != nil {
 		return nil, err

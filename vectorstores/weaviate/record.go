@@ -183,22 +183,14 @@ func (n nativeSchema) score(raw float64, mode vectorstore.SearchMode) (vectorsto
 	}
 }
 
-func nativeVector(values []float64, dimensions int) ([]float32, error) {
+// nativeVector narrows request coordinates. The collection declares no width
+// before a search, so hits are held to the query's own width instead.
+func nativeVector(values []float64) ([]float32, error) {
 	vector := corevector.Float32(values)
-	if err := validateVector(vector, dimensions); err != nil {
+	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
 		return nil, err
 	}
 	return vector, nil
-}
-
-func validateVector(vector []float32, dimensions int) error {
-	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {
-		return err
-	}
-	if len(vector) == 0 || dimensions != 0 && len(vector) != dimensions {
-		return fmt.Errorf("weaviate: vector width %d differs from observed native dimension %d", len(vector), dimensions)
-	}
-	return nil
 }
 
 func decodeDocument(id, text, facts string, reported []string) (*document.Document, error) {

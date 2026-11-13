@@ -194,6 +194,9 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.config.Space); err != nil {
 		return err
 	}
+	if err := vectorstore.RequireWidth(batch.Records[0].Values, s.index.schema.Dimensions()); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -298,6 +301,9 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 		if err = s.index.schema.CheckFilteredSearch(); err != nil {
 			return nil, err
 		}
+	}
+	if err = vectorstore.RequireWidth(request.Values, s.index.schema.Dimensions()); err != nil {
+		return nil, err
 	}
 	query := vector.Float32(request.Values)
 	if err = s.index.schema.ValidateQueryVector(query); err != nil {

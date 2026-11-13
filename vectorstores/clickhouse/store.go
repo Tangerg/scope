@@ -260,8 +260,8 @@ func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, d
 }
 
 func (s *Store) narrow(values []float64) ([]float32, error) {
-	if len(values) != s.dimensions {
-		return nil, fmt.Errorf("%w: %d coordinates for ClickHouse width %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
+	if err := vectorstore.RequireWidth(values, s.dimensions); err != nil {
+		return nil, err
 	}
 	v := corevector.Float32(values)
 	if err := corevector.Coordinates[float32](v).Validate(); err != nil {

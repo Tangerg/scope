@@ -52,6 +52,16 @@ func (s SpaceID) Require(expected SpaceID) error {
 	return nil
 }
 
+// RequireWidth rejects request coordinates whose width differs from the width
+// of the vectors a store holds: they cannot come from the space the store is
+// bound to, although equal widths alone never establish that they do.
+func RequireWidth[T float32 | float64](values vector.Coordinates[T], width int) error {
+	if len(values) != width {
+		return fmt.Errorf("%w: %d coordinates for native width %d", ErrIncompatibleSpace, len(values), width)
+	}
+	return nil
+}
+
 // Record associates an indexed document with already-computed coordinates.
 type Record struct {
 	Document *document.Document          `json:"document"`

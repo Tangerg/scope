@@ -167,6 +167,8 @@ func (n nativeSchema) admitMethod(method string) error {
 	return nil
 }
 
+func (n nativeSchema) Dimensions() int { return n.dimensions }
+
 func (n nativeSchema) ValidateIndexedVector(vector []float32) error {
 	if err := n.ValidateQueryVector(vector); err != nil {
 		return err

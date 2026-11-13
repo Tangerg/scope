@@ -162,8 +162,8 @@ func decodeDocument(id v2.DocumentID, text v2.Document, facts v2.DocumentMetadat
 }
 
 func (s *Store) coordinates(values []float64) ([]float32, error) {
-	if len(values) != s.dimensions {
-		return nil, fmt.Errorf("chroma: %w: got %d coordinates, want %d", vectorstore.ErrIncompatibleSpace, len(values), s.dimensions)
+	if err := vectorstore.RequireWidth(values, s.dimensions); err != nil {
+		return nil, err
 	}
 	native := corevector.Float32(values)
 	if err := corevector.Coordinates[float32](native).Validate(); err != nil {

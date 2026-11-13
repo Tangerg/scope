@@ -37,6 +37,9 @@ func (n *nativeSchema) read(info *qdrantclient.CollectionInfo) error {
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
+	if err := vectorstore.RequireWidth(values, n.dimensions); err != nil {
+		return nil, err
+	}
 	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err

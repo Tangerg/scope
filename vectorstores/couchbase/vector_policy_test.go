@@ -1,6 +1,7 @@
 package couchbase
 
 import (
+	"cmp"
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"math"
@@ -20,6 +21,9 @@ func TestNativeVectorDomainAtEveryBoundary(t *testing.T) {
 				values     []float64
 				invalid    bool
 				cosineOnly bool
+				// queryErr classifies the request when it differs from
+				// ErrInvalidRequest.
+				queryErr error
 			}{
 				{name: "float32 boundary", values: []float64{math.MaxFloat32, -math.MaxFloat32}},
 				{name: "float64 precision", values: []float64{math.Nextafter(1, 2), 0}},
@@ -28,7 +32,7 @@ func TestNativeVectorDomainAtEveryBoundary(t *testing.T) {
 				{name: "negative overflow", values: []float64{math.Nextafter(-math.MaxFloat32, math.Inf(-1)), 0}, invalid: true},
 				{name: "zero", values: []float64{0, 0}, cosineOnly: true},
 				{name: "squared norm underflow", values: []float64{1e-200, 0}, cosineOnly: true},
-				{name: "dimension", values: []float64{1}, invalid: true},
+				{name: "dimension", values: []float64{1}, invalid: true, queryErr: vectorstore.ErrIncompatibleSpace},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					policy := vectorPolicy{dimensions: 2, similarity: metric}
@@ -66,7 +70,7 @@ func TestNativeVectorDomainAtEveryBoundary(t *testing.T) {
 					}
 					query := &vectorstore.Query{Space: "s", Values: test.values}
 					budget := vectorstore.ScanBudget{MaxRecords: 10, MaxBytes: 1 << 20, Timeout: time.Second}
-					if result, err := store.QueryByScan(t.Context(), query, budget); result != nil || !errors.Is(err, vectorstore.ErrInvalidRequest) {
+					if result, err := store.QueryByScan(t.Context(), query, budget); result != nil || !errors.Is(err, cmp.Or(test.queryErr, vectorstore.ErrInvalidRequest)) {
 						t.Fatalf("invalid query reached collection I/O: %v", err)
 					}
 				})

@@ -44,6 +44,9 @@ func encodeRecord(record vectorstore.Record, width int) (nativeRecord, error) {
 	if err != nil {
 		return nativeRecord{}, err
 	}
+	if err = vectorstore.RequireWidth(record.Values, width); err != nil {
+		return nativeRecord{}, err
+	}
 	values, err := floatVector(record.Values, width)
 	if err != nil {
 		return nativeRecord{}, err

@@ -214,15 +214,15 @@ func (s *Store) Upsert(ctx context.Context, request *vectorstore.Batch) error {
 	if err := request.ValidateFor(s.space); err != nil {
 		return err
 	}
+	if err := vectorstore.RequireWidth(request.Records[0].Values, s.dimensions); err != nil {
+		return err
+	}
 	rows := make([]map[string]any, 0, len(request.Records))
 	vectors := make([][]float64, 0, len(request.Records))
 	ids := make([]string, 0, len(request.Records))
 	for _, r := range request.Records {
 		if r.Document.Media != nil {
 			return vectorstore.ErrInvalidDocument
-		}
-		if len(r.Values) != s.dimensions {
-			return fmt.Errorf("neo4j: wrong coordinate width: %w", vectorstore.ErrInvalidRequest)
 		}
 		props, err := s.documentProperties(r.Document, r.Values)
 		if err != nil {
@@ -461,8 +461,8 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 			response = nil
 		}
 	}()
-	if len(request.Values) != s.dimensions {
-		return nil, vectorstore.ErrInvalidRequest
+	if err = vectorstore.RequireWidth(request.Values, s.dimensions); err != nil {
+		return nil, err
 	}
 	meter, err := budget.Begin(ctx)
 	if err != nil {

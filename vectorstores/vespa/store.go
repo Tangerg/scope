@@ -99,6 +99,9 @@ func (s *Store) QueryByScan(ctx context.Context, request *vectorstore.Query, bud
 	if err := request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, err
 	}
+	if err := vectorstore.RequireWidth(request.Values, s.dimensions); err != nil {
+		return nil, err
+	}
 	narrowed, err := floatVector(request.Values, s.dimensions)
 	if err != nil {
 		return nil, err

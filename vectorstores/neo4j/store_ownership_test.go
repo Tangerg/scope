@@ -217,7 +217,7 @@ func TestUnindexedLabelCannotPromiseANativeQuery(t *testing.T) {
 		t.Fatal("unbudgeted full label read")
 	}
 	batch := &vectorstore.Batch{Space: fixtureSpace, Records: []vectorstore.Record{{Document: &document.Document{ID: "doc", Text: "x"}, Values: []float64{1}}}}
-	if err := s.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrInvalidRequest) {
+	if err := s.Upsert(t.Context(), batch); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
 		t.Fatal(err)
 	}
 }

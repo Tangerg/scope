@@ -102,8 +102,8 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := batch.ValidateFor(s.space); err != nil {
 		return err
 	}
-	if len(batch.Records[0].Values) != s.dimensions {
-		return fmt.Errorf("%w: vector dimension %d; want %d", vectorstore.ErrIncompatibleSpace, len(batch.Records[0].Values), s.dimensions)
+	if err := vectorstore.RequireWidth(batch.Records[0].Values, s.dimensions); err != nil {
+		return err
 	}
 	owned := make([]record, len(batch.Records))
 	for i, r := range batch.Records {
@@ -178,8 +178,8 @@ func (s *Store) searchCandidates(ctx context.Context, query []float64, options v
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(query) != s.dimensions {
-		return nil, fmt.Errorf("%w: query dimensions %d do not match index dimensions %d", vectorstore.ErrIncompatibleSpace, len(query), s.dimensions)
+	if err := vectorstore.RequireWidth(query, s.dimensions); err != nil {
+		return nil, err
 	}
 	candidates := make([]scoredDocument, 0, len(s.records))
 	for _, rec := range s.records {

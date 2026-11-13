@@ -62,6 +62,8 @@ type listSchema struct {
 
 type behaviorSchema struct{ dimensions int }
 
+func (b behaviorSchema) Dimensions() int { return b.dimensions }
+
 func (b behaviorSchema) ValidateIndexedVector(vector []float32) error {
 	return b.ValidateQueryVector(vector)
 }

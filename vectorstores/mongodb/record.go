@@ -104,6 +104,9 @@ func (n nativeSchema) scoped(where bson.M) bson.M {
 }
 
 func (n nativeSchema) vector(values []float64) ([]float32, error) {
+	if err := vectorstore.RequireWidth(values, n.dimensions); err != nil {
+		return nil, err
+	}
 	vector := corevector.Float32(values)
 	if err := n.validateVector(vector); err != nil {
 		return nil, err

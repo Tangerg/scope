@@ -103,8 +103,8 @@ func (n *nativePolicy) readMetric(description milvusclient.IndexDescription) err
 }
 
 func (n nativePolicy) vector(values []float64) ([]float32, error) {
-	if len(values) != n.dimensions {
-		return nil, fmt.Errorf("milvus: vector has width %d, want %d", len(values), n.dimensions)
+	if err := vectorstore.RequireWidth(values, n.dimensions); err != nil {
+		return nil, err
 	}
 	result := corevector.Float32(values)
 	if err := n.validateVector(result); err != nil {

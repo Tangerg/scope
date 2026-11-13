@@ -23,6 +23,8 @@ type Engine interface {
 // index before every mutation and query and compares the two schemas with ==,
 // so implementations must be comparable values.
 type Schema interface {
+	// Dimensions is the width of every vector the index holds.
+	Dimensions() int
 	// ValidateIndexedVector checks a vector the index stores or returns.
 	ValidateIndexedVector(vector []float32) error
 	// ValidateQueryVector checks a vector the index searches with.

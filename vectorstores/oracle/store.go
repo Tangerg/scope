@@ -434,8 +434,8 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	if err != nil {
 		return err
 	}
-	if len(batch.Records[0].Values) != width {
-		return fmt.Errorf("%w: native vector width is %d", vectorstore.ErrInvalidRequest, width)
+	if err = vectorstore.RequireWidth(batch.Records[0].Values, width); err != nil {
+		return err
 	}
 	ids, rows, err := upsertRows(ctx, batch.Records)
 	if err != nil {
@@ -583,8 +583,8 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err != nil {
 		return nil, err
 	}
-	if len(request.Values) != width {
-		return nil, vectorstore.ErrInvalidRequest
+	if err = vectorstore.RequireWidth(request.Values, width); err != nil {
+		return nil, err
 	}
 	vectorJSON, err := jsonv2.Marshal(corevector.Float32(request.Values))
 	if err != nil {

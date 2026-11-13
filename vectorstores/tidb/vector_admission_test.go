@@ -69,7 +69,6 @@ func TestNativeVectorEncodingAppliesMetricAfterFloat32Conversion(t *testing.T) {
 		{"inner product zero", DistanceNegativeIP, []float64{0, 0}, true},
 		{"L2 float32 underflow", DistanceL2, []float64{math.SmallestNonzeroFloat64, 0}, true},
 		{"float32 overflow", DistanceCosine, []float64{math.MaxFloat64, 0}, false},
-		{"native width", DistanceCosine, []float64{1}, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			encoded, err := test.metric.encodeVector(test.values, 2)
@@ -81,5 +80,8 @@ func TestNativeVectorEncodingAppliesMetricAfterFloat32Conversion(t *testing.T) {
 				t.Fatalf("encoded=%q error=%v", encoded, err)
 			}
 		})
+	}
+	if encoded, err := DistanceCosine.encodeVector([]float64{1}, 2); !errors.Is(err, vectorstore.ErrIncompatibleSpace) || encoded != "" {
+		t.Fatalf("foreign width: encoded=%q error=%v", encoded, err)
 	}
 }

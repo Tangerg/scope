@@ -108,6 +108,9 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 	if err != nil {
 		return err
 	}
+	if err = vectorstore.RequireWidth(batch.Records[0].Values, width); err != nil {
+		return err
+	}
 	prepared := &pgx.Batch{}
 	statement := fmt.Sprintf("INSERT INTO %s (id,content,%s,embedding) VALUES ($1,$2,$3,$4) ON CONFLICT(id) DO UPDATE SET content=EXCLUDED.content,%s=EXCLUDED.%s,embedding=EXCLUDED.embedding", s.fullTable, s.metadataColumn, s.metadataColumn, s.metadataColumn)
 	for _, record := range batch.Records {
@@ -206,6 +209,9 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, err
 	}
 	response = &vectorstore.SearchResponse{Results: []*vectorstore.SearchResult{}}
+	if err = vectorstore.RequireWidth(request.Values, width); err != nil {
+		return nil, err
+	}
 	queryVector, err := s.distanceMetric.Vector(request.Values, width)
 	if err != nil {
 		return nil, err

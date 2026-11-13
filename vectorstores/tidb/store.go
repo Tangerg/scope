@@ -81,8 +81,8 @@ func (d DistanceMetric) score(distance float64) vectorstore.Score {
 }
 
 func (d DistanceMetric) encodeVector(values []float64, width int) (string, error) {
-	if len(values) != width {
-		return "", fmt.Errorf("%w: native vector width is %d", vectorstore.ErrInvalidRequest, width)
+	if err := vectorstore.RequireWidth(values, width); err != nil {
+		return "", err
 	}
 	vector := corevector.Float32(values)
 	if err := corevector.Coordinates[float32](vector).Validate(); err != nil {

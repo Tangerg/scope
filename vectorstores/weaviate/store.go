@@ -105,7 +105,7 @@ func (s *Store) Upsert(ctx context.Context, b *vectorstore.Batch) error {
 		if err != nil {
 			return err
 		}
-		vector, err := nativeVector(r.Values, len(b.Records[0].Values))
+		vector, err := nativeVector(r.Values)
 		if err != nil {
 			return err
 		}
@@ -205,7 +205,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 			response = nil
 		}
 	}()
-	query, err := nativeVector(request.Values, len(request.Values))
+	query, err := nativeVector(request.Values)
 	if err != nil {
 		return nil, err
 	}

@@ -149,3 +149,13 @@ func TestCapabilityInterfacesStayMinimal(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireWidthRejectsCoordinatesOfAnotherWidth(t *testing.T) {
+	if err := vectorstore.RequireWidth([]float64{1, 2}, 2); err != nil {
+		t.Fatalf("native width: %v", err)
+	}
+	err := vectorstore.RequireWidth([]float32{1}, 2)
+	if !errors.Is(err, vectorstore.ErrIncompatibleSpace) || err.Error() != "vectorstore: incompatible vector space: 1 coordinates for native width 2" {
+		t.Fatalf("other width: %v", err)
+	}
+}

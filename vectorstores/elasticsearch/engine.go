@@ -86,6 +86,8 @@ type nativeSchema struct {
 	similarity nativeSimilarity
 }
 
+func (n nativeSchema) Dimensions() int { return n.dimensions }
+
 func (n nativeSchema) ValidateIndexedVector(vector []float32) error { return n.validateVector(vector) }
 
 func (n nativeSchema) ValidateQueryVector(vector []float32) error { return n.validateVector(vector) }

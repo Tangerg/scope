@@ -162,8 +162,8 @@ func (s *Store) verify(ctx context.Context) error {
 }
 
 func (s *Store) coordinates(values []float64) ([]float32, error) {
-	if len(values) != s.dimensions {
-		return nil, fmt.Errorf("azureaisearch: %w: expected %d coordinates", vectorstore.ErrIncompatibleSpace, s.dimensions)
+	if err := vectorstore.RequireWidth(values, s.dimensions); err != nil {
+		return nil, err
 	}
 	native := corevector.Float32(values)
 	if err := s.validateVector(native); err != nil {

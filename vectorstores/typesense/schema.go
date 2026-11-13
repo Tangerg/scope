@@ -94,6 +94,9 @@ func cosineEmbedding(field api.Field) bool {
 }
 
 func (c collectionSchema) narrow(vector []float64) ([]float32, error) {
+	if err := vectorstore.RequireWidth(vector, c.dimensions); err != nil {
+		return nil, err
+	}
 	narrowed := corevector.Float32(vector)
 	if err := c.validateVector(narrowed); err != nil {
 		return nil, err
