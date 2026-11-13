@@ -182,7 +182,7 @@ func answerFailure(err error) error {
 	switch {
 	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
 		return err
-	case errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrInvalidMessage) || errors.Is(err, run.ErrInvalidPayload):
+	case errors.Is(err, run.ErrSignalConflict) || errors.Is(err, run.ErrSignalRejected) || errors.Is(err, run.ErrInvalidPayload):
 		return sdk.NewError(sdk.ErrInvalidRequest, "answer does not match the external wait")
 	case errors.Is(err, run.ErrEpochConflict):
 		return sdk.ErrUnsupportedOperation
