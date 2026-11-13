@@ -17,6 +17,8 @@ func TestChatRejectsUnknownNativeControlsBeforeIO(t *testing.T) {
 	for _, native := range []string{
 		`{"max_tokens":10}`,
 		`{"guardrail":{"identifier":"guard","version":"1","stream_processing_mode":"async"}}`,
+		`{"guardrail":{"identifier":"guard"}}`,
+		`{"guardrail":{"version":"1"}}`,
 		`null`,
 	} {
 		t.Run(native, func(t *testing.T) {

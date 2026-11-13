@@ -56,6 +56,9 @@ func (c *ChatRequestOptions) UnmarshalJSON(data []byte) error {
 	if err := validateAdditionalModelRequestFields(decoded.AdditionalModelRequestFields); err != nil {
 		return err
 	}
+	if decoded.Guardrail != nil && (decoded.Guardrail.Identifier == "" || decoded.Guardrail.Version == "") {
+		return errors.New("bedrock: guardrail requires identifier and version")
+	}
 	*c = ChatRequestOptions(*decoded)
 	return nil
 }
