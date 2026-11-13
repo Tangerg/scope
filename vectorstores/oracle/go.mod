@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/oracle
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
 	github.com/sijms/go-ora/v3 v3.0.1
 )
 

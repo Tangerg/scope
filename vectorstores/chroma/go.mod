@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/chroma
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
 	github.com/amikos-tech/chroma-go v0.4.1
 	github.com/samber/lo v1.53.0
 )

@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/weaviate
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.53.0
 	github.com/weaviate/weaviate-go-client/v6 v6.0.0

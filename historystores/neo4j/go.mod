@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/historystores/neo4j
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
 	github.com/neo4j/neo4j-go-driver/v6 v6.4.0
 	github.com/samber/lo v1.53.0
 )
