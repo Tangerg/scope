@@ -41,9 +41,6 @@ func (o Options) Validate() error {
 	if math.IsNaN(o.Speed) || math.IsInf(o.Speed, 0) || o.Speed < 0 {
 		return fmt.Errorf("%w: speed must be finite and non-negative", ErrInvalidOptions)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

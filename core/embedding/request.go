@@ -64,9 +64,6 @@ func (o Options) Validate() error {
 	if o.Dimensions != nil && *o.Dimensions <= 0 {
 		return fmt.Errorf("%w: dimensions must be positive", ErrInvalidOptions)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

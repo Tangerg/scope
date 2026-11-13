@@ -118,9 +118,6 @@ func (o Options) Validate() error {
 	if err := o.validateOutputFormat(); err != nil {
 		return fmt.Errorf("%w: output format: %w", ErrInvalidOptions, err)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

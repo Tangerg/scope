@@ -68,9 +68,6 @@ func (o Options) Validate() error {
 	if o.Language != "" && strings.TrimSpace(o.Language) != o.Language {
 		return fmt.Errorf("%w: language must not have surrounding whitespace", ErrInvalidOptions)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

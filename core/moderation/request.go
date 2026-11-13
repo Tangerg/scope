@@ -23,9 +23,6 @@ func (o Options) Validate() error {
 	if err := modelid.Validate(o.Model); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOptions, err)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

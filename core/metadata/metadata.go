@@ -112,8 +112,13 @@ func (m *Map) Merge(source Map) error {
 	if err := source.Validate(); err != nil {
 		return fmt.Errorf("metadata: merge source: %w", err)
 	}
+	m.merge(source)
+	return nil
+}
+
+func (m *Map) merge(source Map) {
 	if len(source) == 0 {
-		return nil
+		return
 	}
 	if *m == nil {
 		*m = make(Map, len(source))
@@ -121,7 +126,6 @@ func (m *Map) Merge(source Map) error {
 	for key, value := range source {
 		(*m)[key] = bytes.Clone(value)
 	}
-	return nil
 }
 
 func (m Map) Decode[T any](key string) (T, bool, error) {

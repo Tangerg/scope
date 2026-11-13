@@ -146,9 +146,6 @@ func (o Options) Validate() error {
 	if err := validateFloat("top_p", o.TopP, minimumTopP, maximumTopP); err != nil {
 		return err
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

@@ -36,14 +36,14 @@ func (e Extensions) Decode[T any](key string) (T, bool, error) {
 	return e.values.Decode[T](key)
 }
 
+// Merge copies source over e. Set and UnmarshalJSON are the only writers of an
+// Extensions value and each admits what it writes, so neither side is checked again.
 func (e *Extensions) Merge(source Extensions) error {
 	if e == nil {
 		return ErrNilMap
 	}
-	if err := source.Validate(); err != nil {
-		return fmt.Errorf("metadata: merge extensions: %w", err)
-	}
-	return e.values.Merge(source.values)
+	e.values.merge(source.values)
+	return nil
 }
 
 func (e Extensions) Clone() Extensions {
@@ -56,7 +56,7 @@ func (e Extensions) Equal(other Extensions) bool {
 
 func (e Extensions) IsZero() bool { return len(e.values) == 0 }
 
-func (e Extensions) Validate() error {
+func (e Extensions) validate() error {
 	for key := range e.values {
 		if !validExtensionKey(key) {
 			return fmt.Errorf("metadata: extension key %q must use namespace/name", key)
@@ -66,9 +66,6 @@ func (e Extensions) Validate() error {
 }
 
 func (e Extensions) MarshalJSON() ([]byte, error) {
-	if err := e.Validate(); err != nil {
-		return nil, err
-	}
 	return jsonv2.Marshal(e.values, jsonv2.Deterministic(true))
 }
 
@@ -81,7 +78,7 @@ func (e *Extensions) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("metadata: decode extensions: %w", err)
 	}
 	candidate := Extensions{values: values}
-	if err := candidate.Validate(); err != nil {
+	if err := candidate.validate(); err != nil {
 		return err
 	}
 	*e = candidate

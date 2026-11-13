@@ -57,9 +57,6 @@ func (o Options) Validate() error {
 	if o.TopK != nil && *o.TopK < 0 {
 		return fmt.Errorf("%w: top K must not be negative", ErrInvalidOptions)
 	}
-	if err := o.Extensions.Validate(); err != nil {
-		return fmt.Errorf("%w: extensions: %w", ErrInvalidOptions, err)
-	}
 	return nil
 }
 

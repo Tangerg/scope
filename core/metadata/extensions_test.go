@@ -93,7 +93,4 @@ func TestExtensionsValidateKeySegments(t *testing.T) {
 	if err := extensions.Set("供应商.v2_0/选项-name1", true); err != nil {
 		t.Fatalf("Set() rejected valid Unicode key: %v", err)
 	}
-	if err := extensions.Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
-	}
 }
