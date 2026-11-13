@@ -173,13 +173,13 @@ func TestProviderAdmissionOwnsCorrectableFailuresBeforeIO(t *testing.T) {
 			switch provider.name {
 			case "brave":
 				searchCases = append(searchCases,
-					searchAdmission{web.SearchRequest{Query: "scope", Recency: web.RecencyHour}, web.ErrUnsupportedFilter, "brave: web: search filter is not supported by provider: hourly recency"},
+					searchAdmission{web.SearchRequest{Query: "scope", Recency: web.RecencyHour}, web.ErrUnsupportedFilter, "brave: web: search filter is not supported by provider: hour recency"},
 					searchAdmission{web.SearchRequest{Query: strings.Repeat("a", 601)}, web.ErrInvalidQuery, "brave: web: invalid search query: final query must contain at most 600 characters and 75 words"},
 					searchAdmission{web.SearchRequest{Query: strings.Repeat("word ", 76)}, web.ErrInvalidQuery, "brave: web: invalid search query: final query must contain at most 600 characters and 75 words"},
 					searchAdmission{web.SearchRequest{Query: strings.Repeat("a", 595), AllowedDomains: []string{"example.com"}}, web.ErrInvalidQuery, "brave: web: invalid search query: final query must contain at most 600 characters and 75 words"})
 			case "tavily":
 				searchCases = append(searchCases,
-					searchAdmission{web.SearchRequest{Query: "scope", Recency: web.RecencyHour}, web.ErrUnsupportedFilter, "tavily: web: search filter is not supported by provider: hourly recency"},
+					searchAdmission{web.SearchRequest{Query: "scope", Recency: web.RecencyHour}, web.ErrUnsupportedFilter, "tavily: web: search filter is not supported by provider: hour recency"},
 					searchAdmission{web.SearchRequest{Query: strings.Repeat("a", 401)}, web.ErrInvalidQuery, "tavily: web: invalid search query: query must contain at most 400 characters"})
 			case "jina":
 				searchCases = append(searchCases,

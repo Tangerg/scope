@@ -13,18 +13,20 @@ func TestRecencyMappingMatchesBraveFreshness(t *testing.T) {
 		name    string
 		recency web.Recency
 		want    string
+		ok      bool
 	}{
-		{name: "day", recency: web.RecencyDay, want: "pd"},
-		{name: "week", recency: web.RecencyWeek, want: "pw"},
-		{name: "month", recency: web.RecencyMonth, want: "pm"},
-		{name: "year", recency: web.RecencyYear, want: "py"},
-		{name: "unset"},
+		{name: "day", recency: web.RecencyDay, want: "pd", ok: true},
+		{name: "week", recency: web.RecencyWeek, want: "pw", ok: true},
+		{name: "month", recency: web.RecencyMonth, want: "pm", ok: true},
+		{name: "year", recency: web.RecencyYear, want: "py", ok: true},
+		{name: "unset", ok: true},
+		{name: "hour", recency: web.RecencyHour},
 		{name: "unsupported", recency: web.Recency("unsupported")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := recencyToFreshness(test.recency); got != test.want {
-				t.Fatalf("recencyToFreshness(%q) = %q, want %q", test.recency, got, test.want)
+			if got, ok := recencyFreshness(test.recency); got != test.want || ok != test.ok {
+				t.Fatalf("recencyFreshness(%q) = %q, %t; want %q, %t", test.recency, got, ok, test.want, test.ok)
 			}
 		})
 	}

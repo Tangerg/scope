@@ -19,6 +19,11 @@ const (
 	baseURL              = "https://api.perplexity.ai"
 	searchPath           = "/search"
 	excludedDomainPrefix = "-"
+	recencyFilterHour    = "hour"
+	recencyFilterDay     = "day"
+	recencyFilterWeek    = "week"
+	recencyFilterMonth   = "month"
+	recencyFilterYear    = "year"
 )
 
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
@@ -59,7 +64,11 @@ type searchRequest struct {
 // newSearchRequest relies on web.SearchRequest.Prepare for the mutually
 // exclusive domain lists and their 20-entry cap, which matches Perplexity's
 // own limit on search_domain_filter.
-func newSearchRequest(request *web.SearchRequest) *searchRequest {
+func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
+	recencyFilter, supported := searchRecencyFilter(request.Recency)
+	if !supported {
+		return nil, fmt.Errorf("perplexity: %w: %s recency", web.ErrUnsupportedFilter, request.Recency)
+	}
 	domains := request.AllowedDomains
 	if len(request.BlockedDomains) > 0 {
 		domains = make([]string, len(request.BlockedDomains))
@@ -71,7 +80,28 @@ func newSearchRequest(request *web.SearchRequest) *searchRequest {
 		Query:               request.Query,
 		MaxResults:          request.MaxResults,
 		SearchDomainFilter:  domains,
-		SearchRecencyFilter: string(request.Recency),
+		SearchRecencyFilter: recencyFilter,
+	}, nil
+}
+
+// searchRecencyFilter maps a recency onto Perplexity's search_recency_filter;
+// an unset recency sends none.
+func searchRecencyFilter(recency web.Recency) (string, bool) {
+	switch recency {
+	case "":
+		return "", true
+	case web.RecencyHour:
+		return recencyFilterHour, true
+	case web.RecencyDay:
+		return recencyFilterDay, true
+	case web.RecencyWeek:
+		return recencyFilterWeek, true
+	case web.RecencyMonth:
+		return recencyFilterMonth, true
+	case web.RecencyYear:
+		return recencyFilterYear, true
+	default:
+		return "", false
 	}
 }
 
@@ -115,8 +145,12 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 		cause := fmt.Errorf("perplexity: prepare search request: %w", err)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
+	native, err := newSearchRequest(prepared)
+	if err != nil {
+		return nil, toolresult.Correctable(err.Error(), err)
+	}
 	var raw searchResponse
-	httpRequest := c.http.R().SetContext(ctx).SetBody(newSearchRequest(prepared))
+	httpRequest := c.http.R().SetContext(ctx).SetBody(native)
 	if err := providerhttp.Execute(httpRequest, http.MethodPost, searchPath, &raw); err != nil {
 		return nil, fmt.Errorf("perplexity: search request: %w", err)
 	}

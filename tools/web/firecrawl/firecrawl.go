@@ -23,6 +23,8 @@ const (
 	scrapePath               = "/scrape"
 	defaultSearchResultCount = 10
 	maxQueryCharacters       = 500
+	scrapeFormatMarkdown     = "markdown"
+	scrapeFormatHTML         = "html"
 )
 
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
@@ -143,14 +145,15 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	format := prepared.Format
-	if format == web.FormatText {
+	scrapeFormat, supported := contentScrapeFormat(format)
+	if !supported {
 		cause := fmt.Errorf("firecrawl: %w: %s", web.ErrUnsupportedFormat, format)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{
 		URL:             prepared.URL,
-		Formats:         []fetchFormat{{Type: string(format)}},
+		Formats:         []fetchFormat{{Type: scrapeFormat}},
 		OnlyMainContent: true,
 	})
 	err = providerhttp.Execute(httpRequest, http.MethodPost, scrapePath, &raw)
@@ -169,4 +172,17 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		return nil, fmt.Errorf("firecrawl: %w", err)
 	}
 	return result, nil
+}
+
+// contentScrapeFormat maps a content format onto Firecrawl's scrape format,
+// which has no plain-text rendering.
+func contentScrapeFormat(format web.ContentFormat) (string, bool) {
+	switch format {
+	case web.FormatMarkdown:
+		return scrapeFormatMarkdown, true
+	case web.FormatHTML:
+		return scrapeFormatHTML, true
+	default:
+		return "", false
+	}
 }

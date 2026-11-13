@@ -32,6 +32,9 @@ const (
 	snippetEllipsis       = "..."
 	respondWithHeader     = "X-Respond-With"
 	respondWithoutContent = "no-content"
+	respondWithMarkdown   = "markdown"
+	respondWithHTML       = "html"
+	respondWithText       = "text"
 	retainImagesHeader    = "X-Retain-Images"
 	retainNoImages        = "none"
 )
@@ -179,9 +182,14 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		cause := fmt.Errorf("jina: prepare fetch request: %w", err)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
+	respondWith, supported := contentRespondWith(prepared.Format)
+	if !supported {
+		cause := fmt.Errorf("jina: %w: %s", web.ErrUnsupportedFormat, prepared.Format)
+		return nil, toolresult.Correctable(cause.Error(), cause)
+	}
 	var raw fetchResponse
 	httpRequest := c.fetchHTTP.R().SetContext(ctx).
-		SetHeader(respondWithHeader, string(prepared.Format)).
+		SetHeader(respondWithHeader, respondWith).
 		SetBody(&fetchRequest{URL: prepared.URL})
 	if err := providerhttp.Execute(httpRequest, http.MethodPost, fetchPath, &raw); err != nil {
 		return nil, fmt.Errorf("jina: fetch request: %w", err)
@@ -196,4 +204,19 @@ func parseDate(s string) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// contentRespondWith maps a content format onto the Reader's X-Respond-With
+// value.
+func contentRespondWith(format web.ContentFormat) (string, bool) {
+	switch format {
+	case web.FormatMarkdown:
+		return respondWithMarkdown, true
+	case web.FormatHTML:
+		return respondWithHTML, true
+	case web.FormatText:
+		return respondWithText, true
+	default:
+		return "", false
+	}
 }

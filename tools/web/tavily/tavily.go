@@ -27,6 +27,8 @@ const (
 	timeRangeWeek            = "week"
 	timeRangeMonth           = "month"
 	timeRangeYear            = "year"
+	extractFormatMarkdown    = "markdown"
+	extractFormatText        = "text"
 )
 
 // Config configures a [Client]. APIKey is required; an empty BaseURL selects
@@ -72,12 +74,16 @@ func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
 	if utf8.RuneCountInString(request.Query) > maximumQueryCharacters {
 		return nil, fmt.Errorf("tavily: %w: query must contain at most %d characters", web.ErrInvalidQuery, maximumQueryCharacters)
 	}
+	timeRange, supported := recencyTimeRange(request.Recency)
+	if !supported {
+		return nil, fmt.Errorf("tavily: %w: %s recency", web.ErrUnsupportedFilter, request.Recency)
+	}
 	return &searchRequest{
 		Query:          request.Query,
 		SearchDepth:    depthBasic,
 		Topic:          topicGeneral,
 		MaxResults:     cmp.Or(request.MaxResults, defaultSearchResultCount),
-		TimeRange:      recencyToTimeRange(request.Recency),
+		TimeRange:      timeRange,
 		IncludeDomains: request.AllowedDomains,
 		ExcludeDomains: request.BlockedDomains,
 		IncludeFavicon: true,
@@ -124,10 +130,6 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 		cause := fmt.Errorf("tavily: prepare search request: %w", err)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
-	if prepared.Recency == web.RecencyHour {
-		cause := fmt.Errorf("tavily: %w: hourly recency", web.ErrUnsupportedFilter)
-		return nil, toolresult.Correctable(cause.Error(), cause)
-	}
 	native, err := newSearchRequest(prepared)
 	if err != nil {
 		return nil, toolresult.Correctable(err.Error(), err)
@@ -147,7 +149,8 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
 	format := prepared.Format
-	if format == web.FormatHTML {
+	extractFormat, supported := contentExtractFormat(format)
+	if !supported {
 		cause := fmt.Errorf("tavily: %w: %s", web.ErrUnsupportedFormat, format)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
@@ -155,7 +158,7 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	httpRequest := c.http.R().SetContext(ctx).SetBody(&fetchRequest{
 		URLs:         []string{prepared.URL},
 		ExtractDepth: depthBasic,
-		Format:       string(format),
+		Format:       extractFormat,
 	})
 	if err = providerhttp.Execute(httpRequest, http.MethodPost, extractPath, &raw); err != nil {
 		return nil, fmt.Errorf("tavily: fetch request: %w", err)
@@ -171,16 +174,34 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	return result, nil
 }
 
-func recencyToTimeRange(r web.Recency) string {
-	switch r {
+// recencyTimeRange maps a recency onto Tavily's time range. Tavily has no
+// hourly range, and an unset recency sends none.
+func recencyTimeRange(recency web.Recency) (string, bool) {
+	switch recency {
+	case "":
+		return "", true
 	case web.RecencyDay:
-		return timeRangeDay
+		return timeRangeDay, true
 	case web.RecencyWeek:
-		return timeRangeWeek
+		return timeRangeWeek, true
 	case web.RecencyMonth:
-		return timeRangeMonth
+		return timeRangeMonth, true
 	case web.RecencyYear:
-		return timeRangeYear
+		return timeRangeYear, true
+	default:
+		return "", false
 	}
-	return ""
+}
+
+// contentExtractFormat maps a content format onto Tavily's extract format,
+// which has no HTML rendering.
+func contentExtractFormat(format web.ContentFormat) (string, bool) {
+	switch format {
+	case web.FormatMarkdown:
+		return extractFormatMarkdown, true
+	case web.FormatText:
+		return extractFormatText, true
+	default:
+		return "", false
+	}
 }

@@ -72,10 +72,14 @@ func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
 	if utf8.RuneCountInString(query) > maximumQueryCharacters || len(strings.Fields(query)) > maximumQueryWords {
 		return nil, fmt.Errorf("brave: %w: final query must contain at most %d characters and %d words", web.ErrInvalidQuery, maximumQueryCharacters, maximumQueryWords)
 	}
+	freshness, supported := recencyFreshness(request.Recency)
+	if !supported {
+		return nil, fmt.Errorf("brave: %w: %s recency", web.ErrUnsupportedFilter, request.Recency)
+	}
 	return &searchRequest{
 		Q:         query,
 		Count:     cmp.Or(request.MaxResults, defaultSearchResultCount),
-		Freshness: recencyToFreshness(request.Recency),
+		Freshness: freshness,
 	}, nil
 }
 
@@ -110,10 +114,6 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 		cause := fmt.Errorf("brave: prepare search request: %w", err)
 		return nil, toolresult.Correctable(cause.Error(), cause)
 	}
-	if prepared.Recency == web.RecencyHour {
-		cause := fmt.Errorf("brave: %w: hourly recency", web.ErrUnsupportedFilter)
-		return nil, toolresult.Correctable(cause.Error(), cause)
-	}
 	native, err := newSearchRequest(prepared)
 	if err != nil {
 		return nil, toolresult.Correctable(err.Error(), err)
@@ -126,18 +126,23 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	return raw.toSearchResponse(prepared)
 }
 
-func recencyToFreshness(r web.Recency) string {
-	switch r {
+// recencyFreshness maps a recency onto Brave's freshness window. Brave has no
+// hourly window, and an unset recency sends none.
+func recencyFreshness(recency web.Recency) (string, bool) {
+	switch recency {
+	case "":
+		return "", true
 	case web.RecencyDay:
-		return freshnessPastDay
+		return freshnessPastDay, true
 	case web.RecencyWeek:
-		return freshnessPastWeek
+		return freshnessPastWeek, true
 	case web.RecencyMonth:
-		return freshnessPastMonth
+		return freshnessPastMonth, true
 	case web.RecencyYear:
-		return freshnessPastYear
+		return freshnessPastYear, true
+	default:
+		return "", false
 	}
-	return ""
 }
 
 func (s *searchResponse) toSearchResponse(request *web.SearchRequest) (*web.SearchResponse, error) {
