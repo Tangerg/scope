@@ -115,7 +115,6 @@ package_budget=(
   "agent/internal/conformancetest 81.6"
   "agent/internal/enum 100.0"
   "agent/internal/jsonwire 100.0"
-  "agent/internal/panicinfo 100.0"
   "agent/messaging 88.6"
   "agent/team 85.5"
   "agent/coordination 80.1"

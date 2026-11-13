@@ -1,10 +1,6 @@
 package run
 
-import (
-	"errors"
-
-	"github.com/Tangerg/scope/agent/internal/panicinfo"
-)
+import "errors"
 
 // callbackError seals the classifications consumed by the runtime while still
 // retaining the original error chain for explicit Host inspection. The runtime
@@ -36,12 +32,8 @@ func sealCallbackError(err error) error {
 }
 
 func callbackPanic(operation string, value any) error {
-	captured, _ := panicinfo.Capture(value)
-	message := "run: " + operation + " panicked: " + captured
 	cause := &CallbackPanicError{Operation: operation, Value: value}
-	return &callbackError{
-		cause: cause, message: message, panicked: true,
-	}
+	return &callbackError{cause: cause, message: cause.Error(), panicked: true}
 }
 
 // invokeCallback is the single Host callback boundary. A panic becomes a

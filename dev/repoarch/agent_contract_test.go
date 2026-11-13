@@ -190,7 +190,7 @@ func TestAgentKernelDependencyDirection(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			shared := slices.Contains([]string{"enum", "jsonwire", "panicinfo"}, strings.TrimPrefix(importPath, repositoryModulePrefix+"/agent/internal/"))
+			shared := slices.Contains([]string{"enum", "jsonwire"}, strings.TrimPrefix(importPath, repositoryModulePrefix+"/agent/internal/"))
 			if strings.HasPrefix(importPath, repositoryModulePrefix+"/agent/") && importPath != kernel && !strings.HasPrefix(importPath, kernel+"/") && !shared {
 				t.Errorf("%s: the runtime kernel cannot depend on a strategy: %s", fset.Position(specification.Pos()), importPath)
 			}
