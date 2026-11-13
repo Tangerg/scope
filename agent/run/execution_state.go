@@ -57,9 +57,7 @@ func (e ExecutionState) Decode[T any](kind string) (T, error) {
 	return value, nil
 }
 
-func (e ExecutionState) Valid() bool {
-	return ValidQualifiedName(e.kind) && e.payload.Valid()
-}
+func (e ExecutionState) Valid() bool { return e.kind != "" }
 
 func (e ExecutionState) MarshalJSON() ([]byte, error) {
 	if !e.Valid() {

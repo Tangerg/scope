@@ -24,7 +24,7 @@ func NewPlannedAction(name string) (PlannedAction, error) {
 
 func (p PlannedAction) Name() string { return p.name }
 
-func (p PlannedAction) Valid() bool { return run.ValidQualifiedName(p.name) }
+func (p PlannedAction) Valid() bool { return p.name != "" }
 
 func (p PlannedAction) MarshalJSON() ([]byte, error) {
 	if !p.Valid() {

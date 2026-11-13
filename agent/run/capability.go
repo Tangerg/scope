@@ -28,7 +28,7 @@ func (c Capability) String() string { return c.name }
 
 func (c Capability) compare(other Capability) int { return strings.Compare(c.name, other.name) }
 
-func (c Capability) Valid() bool { return ValidQualifiedName(c.name) }
+func (c Capability) Valid() bool { return c.name != "" }
 
 func (c Capability) MarshalText() ([]byte, error) {
 	if !c.Valid() {
