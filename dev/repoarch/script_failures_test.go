@@ -241,6 +241,9 @@ func newScriptFailureFixture(t *testing.T, script string) scriptFailureFixture {
 			"SCRIPT_ROOT="+root,
 			"SCRIPT_CALLS="+filepath.Join(root, "calls"),
 			"SCRIPT_REAL_JQ="+realJQ,
+			// A present snapshot keeps the vulnerability script off the network
+			// and out of any database directory the enclosing check pass shares.
+			"VULN_DB_DIR="+filepath.Join(root, "vulndb"),
 		),
 	}
 	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "scripts", script))
@@ -248,6 +251,7 @@ func newScriptFailureFixture(t *testing.T, script string) scriptFailureFixture {
 		t.Fatal(err)
 	}
 	fixture.write(t, "scripts/"+script, string(data))
+	fixture.write(t, "vulndb/db/index/db.json", "{}\n")
 	fixture.write(t, "core/go.mod", "module github.com/Tangerg/scope/core\n")
 	fixture.write(t, "consumer/go.mod", "module github.com/Tangerg/scope/consumer\n")
 	return fixture

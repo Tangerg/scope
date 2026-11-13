@@ -74,6 +74,14 @@ for check in "${CHECKS[@]}"; do
   fi
 done
 
+# The first vuln check fills this directory with one database snapshot and every
+# later module in the pass reads the same copy.
+if [[ " ${MODULE_CHECKS[*]-} " == *" vuln "* ]]; then
+  VULN_DB_DIR=$(mktemp -d)
+  trap 'rm -rf "$VULN_DB_DIR"' EXIT
+  export VULN_DB_DIR
+fi
+
 run_in_module() {
   local mod=$1
   local check=$2
