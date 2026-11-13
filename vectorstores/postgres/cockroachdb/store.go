@@ -33,10 +33,8 @@ type StoreConfig struct {
 	Space          vectorstore.SpaceID
 	DistanceMetric postgres.DistanceMetric
 
-	// CreateDimensions provisions the schema and table with this vector width
-	// when they do not exist; zero opens an existing table. The native column
-	// owns the width, so an existing table must already declare it.
-	CreateDimensions int
+	// CreateDimensions also provisions a missing schema.
+	CreateDimensions vectorstore.CreateDimensions
 }
 
 func (s *StoreConfig) applyDefaults() {
@@ -58,8 +56,8 @@ func (s StoreConfig) Validate() error {
 		return err
 	}
 
-	if s.CreateDimensions < 0 {
-		return errors.New("cockroachdb: CreateDimensions must not be negative")
+	if err := s.CreateDimensions.Validate(); err != nil {
+		return fmt.Errorf("cockroachdb: CreateDimensions: %w", err)
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("cockroachdb: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -89,20 +87,20 @@ func NewStore(ctx context.Context, config StoreConfig) (*postgres.Store, error) 
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	if config.CreateDimensions > 0 {
-		if err := create(ctx, config); err != nil {
+	if width, creates := config.CreateDimensions.Width(); creates {
+		if err := create(ctx, config, width); err != nil {
 			return nil, fmt.Errorf("cockroachdb.NewStore: create schema: %w", err)
 		}
 	}
 
 	store, err := postgres.NewStore(ctx, postgres.StoreConfig{
-		Pool:               config.Pool,
-		SchemaName:         config.SchemaName,
-		TableName:          config.TableName,
-		MetadataColumn:     config.MetadataColumn,
-		Space:              config.Space,
-		DistanceMetric:     config.DistanceMetric,
-		ExpectedDimensions: config.CreateDimensions,
+		Pool:             config.Pool,
+		SchemaName:       config.SchemaName,
+		TableName:        config.TableName,
+		MetadataColumn:   config.MetadataColumn,
+		Space:            config.Space,
+		DistanceMetric:   config.DistanceMetric,
+		CreateDimensions: config.CreateDimensions,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cockroachdb.NewStore: %w", err)
@@ -110,8 +108,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*postgres.Store, error) 
 	return store, nil
 }
 
-func create(ctx context.Context, config StoreConfig) error {
-	dimensions := config.CreateDimensions
+func create(ctx context.Context, config StoreConfig, dimensions int) error {
 	if _, err := config.Pool.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", pgx.Identifier{config.SchemaName}.Sanitize())); err != nil {
 		return fmt.Errorf("create schema %s: %w", config.SchemaName, err)
 	}

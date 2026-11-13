@@ -99,10 +99,8 @@ type StoreConfig struct {
 
 	DistanceMetric DistanceMetric
 
-	// CreateDimensions provisions the table with this vector width when it
-	// does not exist; zero opens an existing table. The native length
-	// constraint owns the width, so an existing table must already declare it.
-	CreateDimensions int
+	// The table's native length constraint owns its width.
+	CreateDimensions vectorstore.CreateDimensions
 }
 
 func (s StoreConfig) Validate() error {
@@ -113,8 +111,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.CreateDimensions < 0 {
-		return errors.New("clickhouse: CreateDimensions must not be negative")
+	if err := s.CreateDimensions.Validate(); err != nil {
+		return fmt.Errorf("clickhouse: CreateDimensions: %w", err)
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("clickhouse: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -209,8 +207,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		idColumn: config.IDColumn, contentColumn: config.ContentColumn, metadataColumn: config.MetadataColumn, embeddingColumn: config.EmbeddingColumn,
 		space: config.Space, distanceMetric: config.DistanceMetric,
 	}
-	if config.CreateDimensions > 0 {
-		if err = store.create(ctx, config.CreateDimensions); err != nil {
+	if width, creates := config.CreateDimensions.Width(); creates {
+		if err = store.create(ctx, width); err != nil {
 			return nil, err
 		}
 	}
@@ -219,8 +217,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		return nil, err
 	}
 	store.dimensions = width
-	if config.CreateDimensions > 0 && config.CreateDimensions != width {
-		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, width, config.CreateDimensions)
+	if err := config.CreateDimensions.Admit(width); err != nil {
+		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
 	return store, nil
 }

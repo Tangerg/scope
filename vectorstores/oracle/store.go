@@ -97,10 +97,7 @@ type StoreConfig struct {
 
 	DistanceMetric DistanceMetric
 
-	// CreateDimensions provisions the table with this vector width when it
-	// does not exist; zero opens an existing table. The native column owns the
-	// width, so an existing table must already declare it.
-	CreateDimensions int
+	CreateDimensions vectorstore.CreateDimensions
 }
 
 func (s StoreConfig) Validate() error {
@@ -111,8 +108,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.CreateDimensions < 0 {
-		return errors.New("oracle: CreateDimensions must not be negative")
+	if err := s.CreateDimensions.Validate(); err != nil {
+		return fmt.Errorf("oracle: CreateDimensions: %w", err)
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("oracle: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -203,8 +200,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err = store.requireContentCharacterSet(ctx); err != nil {
 		return nil, err
 	}
-	if config.CreateDimensions > 0 {
-		if _, err = store.db.ExecContext(ctx, store.createTableStatement(config.CreateDimensions)); err != nil {
+	if width, creates := config.CreateDimensions.Width(); creates {
+		if _, err = store.db.ExecContext(ctx, store.createTableStatement(width)); err != nil {
 			return nil, fmt.Errorf("oracle: create table %s: %w", store.tableSQL(), err)
 		}
 	}
@@ -215,8 +212,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.CreateDimensions > 0 && width != config.CreateDimensions {
-		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, width, config.CreateDimensions)
+	if err := config.CreateDimensions.Admit(width); err != nil {
+		return nil, fmt.Errorf("oracle: %w", err)
 	}
 	return store, nil
 }

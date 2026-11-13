@@ -159,3 +159,24 @@ func TestRequireWidthRejectsCoordinatesOfAnotherWidth(t *testing.T) {
 		t.Fatalf("other width: %v", err)
 	}
 }
+
+func TestCreateDimensionsProvisionsAndAdmitsTableWidth(t *testing.T) {
+	if err := vectorstore.CreateDimensions(-1).Validate(); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("negative width error = %v, want ErrIncompatibleSpace", err)
+	}
+	if width, creates := vectorstore.CreateDimensions(0).Width(); creates || width != 0 {
+		t.Fatalf("zero width = %d, %t; want an existing table", width, creates)
+	}
+	if width, creates := vectorstore.CreateDimensions(3).Width(); !creates || width != 3 {
+		t.Fatalf("positive width = %d, %t; want creation at 3", width, creates)
+	}
+	if err := vectorstore.CreateDimensions(0).Admit(5); err != nil {
+		t.Fatalf("open request rejected declared width: %v", err)
+	}
+	if err := vectorstore.CreateDimensions(3).Admit(3); err != nil {
+		t.Fatalf("matching width rejected: %v", err)
+	}
+	if err := vectorstore.CreateDimensions(3).Admit(4); !errors.Is(err, vectorstore.ErrIncompatibleSpace) {
+		t.Fatalf("mismatched width error = %v, want ErrIncompatibleSpace", err)
+	}
+}

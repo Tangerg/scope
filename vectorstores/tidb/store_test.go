@@ -101,7 +101,7 @@ func TestConstructionPreservesNativeErrors(t *testing.T) {
 }
 
 // creationWidth is the fixture width when a test provisions its table.
-func creationWidth(create bool) int {
+func creationWidth(create bool) vectorstore.CreateDimensions {
 	if create {
 		return 2
 	}

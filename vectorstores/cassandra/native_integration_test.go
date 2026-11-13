@@ -101,7 +101,7 @@ func (n *nativeFixture) Query(statement string, values ...any) *gocql.Query {
 }
 
 func (n *nativeFixture) config(metric SimilarityFunction, create bool) StoreConfig {
-	dimensions := 0
+	var dimensions vectorstore.CreateDimensions
 	if create {
 		dimensions = 2
 	}

@@ -122,10 +122,7 @@ type StoreConfig struct {
 
 	DistanceMetric DistanceMetric
 
-	// CreateDimensions provisions the table with this vector width when it
-	// does not exist; zero opens an existing table. The native column owns the
-	// width, so an existing table must already declare it.
-	CreateDimensions int
+	CreateDimensions vectorstore.CreateDimensions
 }
 
 func (s StoreConfig) Validate() error {
@@ -136,8 +133,8 @@ func (s StoreConfig) Validate() error {
 	if err := s.Space.Validate(); err != nil {
 		return err
 	}
-	if s.CreateDimensions < 0 {
-		return errors.New("tidb: CreateDimensions must not be negative")
+	if err := s.CreateDimensions.Validate(); err != nil {
+		return fmt.Errorf("tidb: CreateDimensions: %w", err)
 	}
 	if !s.DistanceMetric.Valid() {
 		return fmt.Errorf("tidb: unsupported DistanceMetric %q", s.DistanceMetric)
@@ -212,8 +209,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		space:           config.Space,
 		distanceMetric:  config.DistanceMetric,
 	}
-	if config.CreateDimensions > 0 {
-		if err = store.create(ctx, config.CreateDimensions); err != nil {
+	if width, creates := config.CreateDimensions.Width(); creates {
+		if err = store.create(ctx, width); err != nil {
 			return nil, fmt.Errorf("tidb: create store: %w", err)
 		}
 	}
@@ -224,8 +221,8 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.CreateDimensions > 0 && binding.dimensions != config.CreateDimensions {
-		return nil, fmt.Errorf("%w: table declares %d dimensions, not %d", vectorstore.ErrIncompatibleSpace, binding.dimensions, config.CreateDimensions)
+	if err := config.CreateDimensions.Admit(binding.dimensions); err != nil {
+		return nil, fmt.Errorf("tidb: %w", err)
 	}
 	return store, nil
 }

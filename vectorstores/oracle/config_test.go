@@ -17,7 +17,7 @@ func TestConfigValidationOwnsConstructionRequirements(t *testing.T) {
 	}{
 		{"space", "space ID", func(c *StoreConfig) { c.Space = "" }},
 		{"database", "DB is required", func(config *StoreConfig) { config.DB = nil }},
-		{"negative_width", "CreateDimensions must not be negative", func(config *StoreConfig) { config.CreateDimensions = -1 }},
+		{"negative_width", "create dimensions must not be negative", func(config *StoreConfig) { config.CreateDimensions = -1 }},
 		{"metric", "unsupported DistanceMetric", func(config *StoreConfig) { config.DistanceMetric = "unsupported" }},
 		{"schema", "SchemaName", func(config *StoreConfig) { config.SchemaName = "bad.schema" }},
 		{"table", "TableName", func(config *StoreConfig) { config.TableName = "bad.table" }},
