@@ -106,8 +106,9 @@ func (c *callInvocation) acceptAnswer(call chat.ToolCall, signal run.Signal, nex
 
 // acceptToolSettlement records the outcome of the call's pending Effect: a
 // question, a result, or the definite dispatch failure that ends the
-// interaction.
-func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run.Completion) (bool, *run.Failure, error) {
+// interaction. A Host may resolve the Effect with any settlement, so the
+// result's advertisements are admitted here against the bound deferred Tools.
+func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run.Completion, tools toolManifest) (bool, *run.Failure, error) {
 	if c.Pending == nil || completion.Effect != *c.Pending {
 		return false, nil, nil
 	}
@@ -126,6 +127,9 @@ func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run
 	}
 	if callErr := outcome.Completion.validateCall(call); callErr != nil {
 		return false, nil, callErr
+	}
+	if advertisementErr := tools.validateAdvertisements(outcome.Completion.AdvertisedToolNames); advertisementErr != nil {
+		return false, nil, fmt.Errorf("%w: tool_result advertised Tools: %w", ErrInvalidProtocol, advertisementErr)
 	}
 	c.Result = outcome.Completion
 	if outcome.AdvertisementFailure == "" {

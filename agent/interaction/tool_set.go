@@ -124,15 +124,12 @@ func (t toolManifest) completesDirectly(name string) bool {
 	return t.entries[name].direct
 }
 
-// mergeAdvertisements admits additions read from a settlement into the
-// current set the Interaction state already owns.
-func (t toolManifest) mergeAdvertisements(current, additions []string) ([]string, error) {
-	if err := t.validateAdvertisements(additions); err != nil {
-		return nil, err
-	}
+// mergeAdvertisements adds names already admitted with their settlement to the
+// set the Interaction state owns.
+func mergeAdvertisements(current, additions []string) []string {
 	merged := append(slices.Clone(current), additions...)
 	slices.Sort(merged)
-	return slices.Compact(merged), nil
+	return slices.Compact(merged)
 }
 
 // advertisedAliases reads the Tool identities an AdvertisingTool declares as

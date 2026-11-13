@@ -65,3 +65,37 @@ func TestAdvertisementDefectPreservesCompletedExternalWork(t *testing.T) {
 		})
 	}
 }
+
+// A Host may resolve a pending tool Effect with any settlement, so its
+// advertisements are admitted when the settlement arrives, not when the round
+// later closes.
+func TestToolSettlementAdmitsOnlyBoundDeferredAdvertisements(t *testing.T) {
+	manifest := toolManifest{entries: map[string]toolManifestEntry{"write": {}, "hidden": {deferred: true}}}
+	call := chat.ToolCall{ID: "call", Name: "write", Arguments: `{}`}
+	for _, row := range []struct {
+		name       string
+		advertised []string
+		admitted   bool
+	}{
+		{"bound deferred Tool", []string{"hidden"}, true},
+		{"visible Tool", []string{"write"}, false},
+		{"unbound Tool", []string{"missing"}, false},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			effect := testTurn(1).EffectID(0)
+			invocation := &callInvocation{Reference: effect, Pending: &effect}
+			completion := &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("done"), AdvertisedToolNames: row.advertised}
+			outcome := mustValue(toolDispatchResult{Completion: completion}.settlement())
+			matched, failure, err := invocation.acceptToolSettlement(call, run.Completion{Effect: effect, Outcome: outcome}, manifest)
+			if row.admitted {
+				if !matched || failure != nil || err != nil || invocation.Result == nil {
+					t.Fatalf("matched=%t failure=%v err=%v", matched, failure, err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrInvalidProtocol) || invocation.Result != nil {
+				t.Fatalf("admitted %v: err=%v", row.advertised, err)
+			}
+		})
+	}
+}

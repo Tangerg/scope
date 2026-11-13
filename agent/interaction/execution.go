@@ -467,7 +467,7 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		active++
 	}
 	if active == 0 {
-		names, finishErr := e.state.ToolRound.finishCalls(e.definition.tools, e.state.AdvertisedToolNames)
+		names, finishErr := e.state.ToolRound.finishCalls(e.state.AdvertisedToolNames)
 		if finishErr != nil {
 			return run.Transition{}, finishErr
 		}
@@ -520,7 +520,7 @@ func (e *execution) advanceCalls(turn run.Turn) (run.Transition, error) {
 	if e.state.ToolRound.Batch.active() != 0 {
 		return run.Yield(consumed, nil)
 	}
-	names, err := e.state.ToolRound.finishCalls(e.definition.tools, e.state.AdvertisedToolNames)
+	names, err := e.state.ToolRound.finishCalls(e.state.AdvertisedToolNames)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -541,7 +541,7 @@ func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.Too
 		}
 		return matched, nil, err
 	case run.Completion:
-		return invocation.acceptToolSettlement(call, value)
+		return invocation.acceptToolSettlement(call, value, e.definition.tools)
 	default:
 		return false, nil, nil
 	}

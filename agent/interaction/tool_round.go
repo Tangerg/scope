@@ -85,17 +85,13 @@ func (t *toolCallRound) beginCalls(batch *callBatch) {
 	t.Batch = batch
 }
 
-func (t *toolCallRound) finishCalls(tools toolManifest, advertisedNames []string) ([]string, error) {
+func (t *toolCallRound) finishCalls(advertisedNames []string) ([]string, error) {
 	results := make([]toolCallResult, 0, len(t.Batch.Invocations))
 	for _, invocation := range t.Batch.Invocations {
 		if invocation == nil || invocation.Result == nil {
 			return nil, ErrInvalidExecutionState
 		}
-		names, err := tools.mergeAdvertisements(advertisedNames, invocation.Result.AdvertisedToolNames)
-		if err != nil {
-			return nil, err
-		}
-		advertisedNames = names
+		advertisedNames = mergeAdvertisements(advertisedNames, invocation.Result.AdvertisedToolNames)
 		// The Interaction's advertised set now owns these names.
 		result := *invocation.Result
 		result.AdvertisedToolNames = nil
