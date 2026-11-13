@@ -147,31 +147,39 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 		textProperty: config.TextProperty, metadataProperty: config.MetadataProperty,
 		space: config.Space, dimensions: config.Dimensions, similarity: config.Similarity,
 	}
-	if err := store.initialize(ctx, config.InitializeSchema); err != nil {
-		return nil, fmt.Errorf("neo4j: initialize: %w", err)
+	if config.InitializeSchema {
+		if err := store.createConstraint(ctx); err != nil {
+			return nil, fmt.Errorf("neo4j: initialize schema: %w", err)
+		}
+	}
+	if err := store.verify(ctx); err != nil {
+		return nil, fmt.Errorf("neo4j: verify schema: %w", err)
 	}
 	return store, nil
 }
 
-func (s *Store) initialize(ctx context.Context, create bool) error {
-	// Neo4j permits only one uniqueness constraint per label/property schema.
-	// The physical constraint name attests this label's immutable space/width.
-	// A pre-existing foreign constraint is never silently adopted.
-	binding := fmt.Sprintf("scope_%x", sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q/%d", s.label, s.idProperty, s.space, s.dimensions))))
-	if create {
-		query := fmt.Sprintf("CREATE CONSTRAINT %s IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE", quoteIdentifier(binding), quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
-		if _, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
-			result, err := tx.Run(ctx, query, nil)
-			if err != nil {
-				return nil, err
-			}
-			return result.Consume(ctx)
-		}); err != nil {
-			return err
+// constraintName attests this label's immutable space and width. Neo4j permits
+// only one uniqueness constraint per label/property schema, so a pre-existing
+// foreign constraint is never silently adopted.
+func (s *Store) constraintName() string {
+	return fmt.Sprintf("scope_%x", sha256.Sum256([]byte(fmt.Sprintf("%q/%q/%q/%d", s.label, s.idProperty, s.space, s.dimensions))))
+}
+
+func (s *Store) createConstraint(ctx context.Context) error {
+	query := fmt.Sprintf("CREATE CONSTRAINT %s IF NOT EXISTS FOR (n:%s) REQUIRE n.%s IS UNIQUE", quoteIdentifier(s.constraintName()), quoteIdentifier(s.label), quoteIdentifier(s.idProperty))
+	_, err := s.transact(ctx, neo4j.AccessModeWrite, func(tx neo4j.ManagedTransaction) (any, error) {
+		result, err := tx.Run(ctx, query, nil)
+		if err != nil {
+			return nil, err
 		}
-	}
+		return result.Consume(ctx)
+	})
+	return err
+}
+
+func (s *Store) verify(ctx context.Context) error {
 	_, err := s.transact(ctx, neo4j.AccessModeRead, func(tx neo4j.ManagedTransaction) (any, error) {
-		result, err := tx.Run(ctx, "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties WHERE name=$binding AND type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$label] AND properties = [$property] RETURN count(*) AS count", map[string]any{"binding": binding, "label": s.label, "property": s.idProperty})
+		result, err := tx.Run(ctx, "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties WHERE name=$binding AND type = 'UNIQUENESS' AND entityType = 'NODE' AND labelsOrTypes = [$label] AND properties = [$property] RETURN count(*) AS count", map[string]any{"binding": s.constraintName(), "label": s.label, "property": s.idProperty})
 		if err != nil {
 			return nil, err
 		}
