@@ -29,11 +29,14 @@ type CallError struct {
 }
 
 func NewCallError(config CallErrorConfig) (*CallError, error) {
-	c := &CallError{cause: config.Cause, evidence: config.Evidence.Clone()}
-	if err := c.Validate(); err != nil {
-		return nil, err
+	if lo.IsNil(config.Cause) {
+		return nil, fmt.Errorf("%w: cause is required", ErrInvalidCallError)
 	}
-	return c, nil
+	evidence := config.Evidence.Clone()
+	if err := evidence.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: evidence: %w", ErrInvalidCallError, err)
+	}
+	return &CallError{cause: config.Cause, evidence: evidence}, nil
 }
 
 func (c *CallError) Error() string {
@@ -50,12 +53,10 @@ func (c *CallError) Unwrap() error {
 	return c.cause
 }
 
+// Validate rejects nil and zero values; NewCallError admits every other one.
 func (c *CallError) Validate() error {
-	if c == nil || lo.IsNil(c.cause) {
+	if c == nil || c.cause == nil {
 		return fmt.Errorf("%w: cause is required", ErrInvalidCallError)
-	}
-	if err := c.evidence.Validate(); err != nil {
-		return fmt.Errorf("%w: evidence: %w", ErrInvalidCallError, err)
 	}
 	return nil
 }

@@ -27,19 +27,19 @@ type InputRejection struct {
 }
 
 func NewInputRejection(config InputRejectionConfig) (*InputRejection, error) {
-	rejection := &InputRejection{message: config.Message, cause: config.Cause}
-	if err := rejection.Validate(); err != nil {
-		return nil, err
+	if strings.TrimSpace(config.Message) == "" || !utf8.ValidString(config.Message) {
+		return nil, fmt.Errorf("%w: message must be nonempty UTF-8", ErrInvalidInputRejection)
 	}
-	return rejection, nil
+	if config.Cause != nil && lo.IsNil(config.Cause) {
+		return nil, fmt.Errorf("%w: cause is typed nil", ErrInvalidInputRejection)
+	}
+	return &InputRejection{message: config.Message, cause: config.Cause}, nil
 }
 
+// Validate rejects nil and zero values; NewInputRejection admits every other one.
 func (i *InputRejection) Validate() error {
-	if i == nil || strings.TrimSpace(i.message) == "" || !utf8.ValidString(i.message) {
-		return fmt.Errorf("%w: message must be nonempty UTF-8", ErrInvalidInputRejection)
-	}
-	if i.cause != nil && lo.IsNil(i.cause) {
-		return fmt.Errorf("%w: cause is typed nil", ErrInvalidInputRejection)
+	if i == nil || i.message == "" {
+		return ErrInvalidInputRejection
 	}
 	return nil
 }

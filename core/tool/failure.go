@@ -46,11 +46,23 @@ type Failure struct {
 // may be a policy decision without an error. Wrapping the returned Failure with
 // %w preserves its outcome; inspect Cause explicitly for internal diagnostics.
 func NewFailure(config FailureConfig) (*Failure, error) {
-	failure := &Failure{kind: config.Kind, cause: config.Cause, output: config.Output.Clone()}
-	if err := failure.Validate(); err != nil {
-		return nil, err
+	switch config.Kind {
+	case FailureKindFailed:
+		if lo.IsNil(config.Cause) {
+			return nil, fmt.Errorf("%w: failed outcome requires a cause", ErrInvalidFailure)
+		}
+	case FailureKindRejected:
+		if config.Cause != nil && lo.IsNil(config.Cause) {
+			return nil, fmt.Errorf("%w: rejection cause is typed nil", ErrInvalidFailure)
+		}
+	default:
+		return nil, fmt.Errorf("%w: kind %q", ErrInvalidFailure, config.Kind)
 	}
-	return failure, nil
+	output := config.Output.Clone()
+	if err := output.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: output: %w", ErrInvalidFailure, err)
+	}
+	return &Failure{kind: config.Kind, cause: config.Cause, output: output}, nil
 }
 
 func (f *Failure) Error() string {
@@ -79,25 +91,11 @@ func (f *Failure) Kind() FailureKind {
 	return f.kind
 }
 
-// Validate rejects zero and typed-nil values crossing a Tool boundary.
+// Validate rejects nil and zero values crossing a Tool boundary. NewFailure is
+// the only way to build any other value, and it admits the whole outcome.
 func (f *Failure) Validate() error {
-	if f == nil {
+	if f == nil || f.kind == "" {
 		return ErrInvalidFailure
-	}
-	switch f.kind {
-	case FailureKindFailed:
-		if lo.IsNil(f.cause) {
-			return fmt.Errorf("%w: failed outcome requires a cause", ErrInvalidFailure)
-		}
-	case FailureKindRejected:
-		if f.cause != nil && lo.IsNil(f.cause) {
-			return fmt.Errorf("%w: rejection cause is typed nil", ErrInvalidFailure)
-		}
-	default:
-		return fmt.Errorf("%w: kind %q", ErrInvalidFailure, f.kind)
-	}
-	if err := f.output.Validate(); err != nil {
-		return fmt.Errorf("%w: output: %w", ErrInvalidFailure, err)
 	}
 	return nil
 }
