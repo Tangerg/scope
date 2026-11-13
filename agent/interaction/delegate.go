@@ -76,18 +76,15 @@ func (d Delegate) validateOutput(output run.Payload) error {
 	return d.child.Program.Descriptor().ValidateOutput(output)
 }
 
-// admitResultOutput is validateOutput for a raw result: a success carrying no
+// validateResultOutput is validateOutput for a raw result: a success carrying no
 // structured Details is rejected here, before it reaches the model context or an
 // archived record.
-func (d Delegate) admitResultOutput(output toolcontract.Output) (run.Payload, error) {
+func (d Delegate) validateResultOutput(output toolcontract.Output) error {
 	payload, err := run.ParsePayload(output.Details)
 	if err != nil {
-		return run.Payload{}, fmt.Errorf("Delegate result output: %w", err)
+		return fmt.Errorf("Delegate result output: %w", err)
 	}
-	if err := d.validateOutput(payload); err != nil {
-		return run.Payload{}, err
-	}
-	return payload, nil
+	return d.validateOutput(payload)
 }
 
 // delegateCallResult is the result a terminated delegated child gives its call.

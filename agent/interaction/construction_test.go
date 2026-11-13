@@ -148,7 +148,7 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 			t.Fatal("delegate output contract was bypassed")
 		}
 	}
-	if _, err := delegate.admitResultOutput(tool.NewTextOutput("untyped")); err == nil {
+	if err := delegate.validateResultOutput(tool.NewTextOutput("untyped")); err == nil {
 		t.Fatal("unstructured delegate output admitted")
 	}
 	if _, err := delegate.prepareInput(chat.ToolCall{ID: "bad", Name: "worker", Arguments: `{`}); err == nil {

@@ -201,7 +201,7 @@ func (c callInvocation) validateDelegate(call chat.ToolCall, sequence uint64, in
 	}
 	if c.Result != nil {
 		if c.Result.Disposition == ResultSucceeded {
-			if _, err := delegate.admitResultOutput(c.Result.Output); err != nil {
+			if err := delegate.validateResultOutput(c.Result.Output); err != nil {
 				return fmt.Errorf("%w: delegated result: %w", ErrInvalidExecutionState, err)
 			}
 		}

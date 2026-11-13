@@ -154,7 +154,7 @@ func (e executionState) validateRoundDelegateOutputs(definition *definition, cal
 		if !delegated || result.Disposition != ResultSucceeded {
 			continue
 		}
-		if _, err := delegate.admitResultOutput(result.Output); err != nil {
+		if err := delegate.validateResultOutput(result.Output); err != nil {
 			return fmt.Errorf("%w: round Delegate result %d: %w", ErrInvalidExecutionState, index, err)
 		}
 	}
