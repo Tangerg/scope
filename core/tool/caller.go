@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -86,7 +85,7 @@ func (c *callContinuation) validate(result Result) error {
 		}
 		return nil
 	}
-	if c.input == nil || !bytes.Equal(c.input.prompt, result.InputRequest.prompt) || !bytes.Equal(c.input.continuationState, result.InputRequest.continuationState) || !c.input.responseSchema.Equal(result.InputRequest.responseSchema) {
+	if c.input == nil || !c.input.Equal(*result.InputRequest) {
 		return fmt.Errorf("%w: middleware cannot originate or replace an input request", ErrInvalidResult)
 	}
 	return nil
