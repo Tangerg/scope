@@ -348,3 +348,38 @@ func TestConverseStreamPreservesNativeDocuments(t *testing.T) {
 		t.Fatalf("invalid native document = %v, %v", delta, err)
 	}
 }
+
+func TestRedactedReasoningPartReplaysAsRedactedContent(t *testing.T) {
+	if _, err := NewRedactedReasoningPart(nil); err == nil {
+		t.Fatal("empty redacted reasoning admitted")
+	}
+	part, err := NewRedactedReasoningPart([]byte("opaque"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, found, err := ReasoningBlockKindOf(part)
+	if err != nil || !found || kind != ReasoningBlockRedacted {
+		t.Fatalf("kind = %q, %t, %v; want redacted", kind, found, err)
+	}
+	if textKind, textFound, textErr := ReasoningBlockKindOf(corechat.NewTextPart("plain")); textErr != nil || textFound || textKind != "" {
+		t.Fatalf("text part kind = %q, %t, %v; want none", textKind, textFound, textErr)
+	}
+	request := &corechat.Request{Messages: []corechat.Message{
+		corechat.NewUserMessage(corechat.NewTextPart("question")),
+		corechat.NewAssistantMessage(part, corechat.NewTextPart("answer")),
+		corechat.NewUserMessage(corechat.NewTextPart("follow up")),
+	}}
+	model := &Chat{api: &api{}, defaults: corechat.Options{Model: "anthropic.claude-test"}}
+	input, _, err := model.buildConverseStreamInput(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, ok := input.Messages[1].Content[0].(*types.ContentBlockMemberReasoningContent)
+	if !ok {
+		t.Fatalf("assistant content[0] = %T, want reasoning content", input.Messages[1].Content[0])
+	}
+	redacted, ok := block.Value.(*types.ReasoningContentBlockMemberRedactedContent)
+	if !ok || string(redacted.Value) != "opaque" {
+		t.Fatalf("reasoning block = %#v, want redacted opaque bytes", block.Value)
+	}
+}
