@@ -25,7 +25,6 @@ type passKind string
 
 const (
 	passAll     passKind = "all"
-	passAny     passKind = "any"
 	passAtLeast passKind = "at_least"
 )
 
@@ -37,9 +36,6 @@ const (
 // PassAll passes only when every component passes.
 func PassAll() PassPolicy { return PassPolicy{kind: passAll} }
 
-// PassAny passes when at least one component passes.
-func PassAny() PassPolicy { return PassPolicy{kind: passAny, minimum: 1} }
-
 // PassAtLeast passes when at least minimum components pass.
 func PassAtLeast(minimum int) PassPolicy { return PassPolicy{kind: passAtLeast, minimum: minimum} }
 
@@ -48,16 +44,16 @@ func (p PassPolicy) decides() bool { return p.kind != "" }
 // threshold is the number of passing components the policy requires.
 func (p PassPolicy) threshold(componentCount int) (int, error) {
 	switch p.kind {
-	case "":
-		return 0, nil
 	case passAll:
 		return componentCount, nil
 	case passAtLeast:
 		if p.minimum <= 0 || p.minimum > componentCount {
 			return 0, fmt.Errorf("%w: minimum passed must be between 1 and %d", ErrInvalidEvaluatorConfig, componentCount)
 		}
+		return p.minimum, nil
+	default:
+		return 0, nil
 	}
-	return p.minimum, nil
 }
 
 // Component assigns score weight and pass criticality to one evaluator.
