@@ -68,7 +68,7 @@ func NewMetric(config MetricConfig) (Metric, error) {
 		direction:  config.Direction,
 		parameters: config.Parameters.Clone(),
 	}
-	if err := metric.Validate(); err != nil {
+	if err := metric.wellFormed(); err != nil {
 		return Metric{}, err
 	}
 	for key, raw := range metric.parameters {
@@ -91,7 +91,16 @@ func (m Metric) String() string {
 	return qualifiedName(m.namespace, string(m.name))
 }
 
+// Validate rejects the zero Metric. NewMetric admits every other value,
+// including decoded ones, and nothing writes a Metric afterwards.
 func (m Metric) Validate() error {
+	if m.name == "" {
+		return fmt.Errorf("%w: zero metric", ErrInvalidMetric)
+	}
+	return nil
+}
+
+func (m Metric) wellFormed() error {
 	if err := validateMetricPart("namespace", m.namespace, true); err != nil {
 		return err
 	}
