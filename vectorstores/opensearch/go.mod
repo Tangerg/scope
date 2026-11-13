@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/vectorstores/opensearch
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
-	github.com/Tangerg/scope/vectorstores/protocol/elastic v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/vectorstores/protocol/elastic v0.62.0
 	github.com/opensearch-project/opensearch-go/v5 v5.1.3
 	github.com/samber/lo v1.53.0
 )

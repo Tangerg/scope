@@ -3,8 +3,8 @@ module github.com/Tangerg/scope/retrievers/bedrockkb
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/core v0.61.0
-	github.com/Tangerg/scope/rag v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/rag v0.62.0
 	github.com/aws/aws-sdk-go-v2 v1.47.5
 	github.com/aws/aws-sdk-go-v2/config v1.33.13
 	github.com/aws/aws-sdk-go-v2/service/bedrockagentruntime v1.66.0

@@ -4,8 +4,8 @@ go 1.27.4
 
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
-	github.com/Tangerg/scope/core v0.61.0
-	github.com/Tangerg/scope/etl v0.61.0
+	github.com/Tangerg/scope/core v0.62.0
+	github.com/Tangerg/scope/etl v0.62.0
 	github.com/andybalholm/cascadia v1.3.5
 	golang.org/x/net v0.62.0
 )
