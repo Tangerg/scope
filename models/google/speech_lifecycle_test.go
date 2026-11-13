@@ -44,6 +44,8 @@ func writeSpeechAudio(w http.ResponseWriter, audio string) {
 	fmt.Fprintf(w, "data: {\"modelVersion\":\"served-model\",\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"inlineData\":{\"mimeType\":\"audio/L16;rate=24000\",\"data\":%q}}]}}]}\n\n", base64.StdEncoding.EncodeToString([]byte(audio)))
 }
 
+var speechResponseDate = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC).Format(http.TimeFormat)
+
 func TestStreamingSpeechAggregateAndStream(t *testing.T) {
 	for _, provider := range []string{"google", "vertexai"} {
 		t.Run(provider, func(t *testing.T) {
@@ -51,6 +53,9 @@ func TestStreamingSpeechAggregateAndStream(t *testing.T) {
 				if !strings.Contains(r.URL.Path, google.ModelGemini31FlashTTSPreview+":streamGenerateContent") {
 					t.Errorf("wrong endpoint: %s", r.URL.Path)
 				}
+				// The native metadata keeps the HTTP envelope, so both calls must
+				// receive identical headers for their metadata to compare equal.
+				w.Header().Set("Date", speechResponseDate)
 				w.Header().Set("Content-Type", "text/event-stream")
 				writeSpeechAudio(w, "first")
 				writeSpeechAudio(w, "second")
