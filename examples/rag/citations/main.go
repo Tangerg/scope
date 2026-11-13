@@ -15,6 +15,7 @@ import (
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/embedding"
 	"github.com/Tangerg/scope/core/embeddingclient"
+	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/core/vectorstore"
 	"github.com/Tangerg/scope/core/vectorstore/inmemory"
 	"github.com/Tangerg/scope/etl"
@@ -166,7 +167,11 @@ func run(ctx context.Context) (report, error) {
 		}
 		return candidates, nil
 	})
-	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{MaxContextTokens: contextTokenBudget, TokenCounter: wordCounter{}})
+	contextTokens, err := tokenizer.NewLimit(contextTokenBudget, wordCounter{})
+	if err != nil {
+		return result, err
+	}
+	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{ContextTokens: contextTokens})
 	if err != nil {
 		return result, err
 	}

@@ -26,33 +26,27 @@ type TokenCountBatcherConfig struct {
 	Formatter document.Formatter
 }
 
-func (t TokenCountBatcherConfig) normalize() (TokenCountBatcherConfig, error) {
-	if lo.IsNil(t.Counter) {
-		return TokenCountBatcherConfig{}, errors.New("etl: token counter is required")
-	}
-	if t.MaxTokens <= 0 {
-		return TokenCountBatcherConfig{}, errors.New("etl: maximum batch tokens must be positive")
+// tokenLimit holds Reserve back from the configured limit.
+func (t TokenCountBatcherConfig) tokenLimit() (tokenizer.Limit, error) {
+	configured, err := tokenizer.NewLimit(t.MaxTokens, t.Counter)
+	if err != nil {
+		return tokenizer.Limit{}, fmt.Errorf("etl: %w", err)
 	}
 	if math.IsNaN(t.Reserve) || math.IsInf(t.Reserve, 0) || t.Reserve < 0 || t.Reserve >= 1 {
-		return TokenCountBatcherConfig{}, errors.New("etl: token reserve must be in [0, 1)")
+		return tokenizer.Limit{}, errors.New("etl: token reserve must be in [0, 1)")
 	}
-	effective := t.MaxTokens
-	if t.Reserve > 0 {
-		usable := float64(t.MaxTokens) * (1 - t.Reserve)
-		if usable >= float64(t.MaxTokens) {
-			effective = t.MaxTokens - 1
-		} else {
-			effective = int(math.Floor(usable))
-		}
+	if t.Reserve == 0 {
+		return configured, nil
+	}
+	usable := float64(t.MaxTokens) * (1 - t.Reserve)
+	effective := int(math.Floor(usable))
+	if usable >= float64(t.MaxTokens) {
+		effective = t.MaxTokens - 1
 	}
 	if effective < 1 {
-		return TokenCountBatcherConfig{}, errors.New("etl: token reserve leaves no usable batch budget")
+		return tokenizer.Limit{}, errors.New("etl: token reserve leaves no usable batch budget")
 	}
-	t.MaxTokens = effective
-	if t.Formatter != nil && lo.IsNil(t.Formatter) {
-		return TokenCountBatcherConfig{}, errors.New("etl: formatter must not be a typed nil")
-	}
-	return t, nil
+	return tokenizer.NewLimit(effective, t.Counter)
 }
 
 // TokenCountBatcher preserves document order and rejects any document that
@@ -63,13 +57,15 @@ type TokenCountBatcher struct {
 }
 
 func NewTokenCountBatcher(config TokenCountBatcherConfig) (*TokenCountBatcher, error) {
-	config, err := config.normalize()
+	tokens, err := config.tokenLimit()
 	if err != nil {
 		return nil, err
 	}
-
+	if config.Formatter != nil && lo.IsNil(config.Formatter) {
+		return nil, errors.New("etl: formatter must not be a typed nil")
+	}
 	return &TokenCountBatcher{
-		batching:  tokenizer.BatchConfig{Counter: config.Counter, MaxTokens: config.MaxTokens},
+		batching:  tokenizer.BatchConfig{Tokens: tokens},
 		formatter: config.Formatter,
 	}, nil
 }

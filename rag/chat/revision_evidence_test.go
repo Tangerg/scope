@@ -82,7 +82,7 @@ func TestSelectedPromptMarkersResolveBackToExactSourceBytes(t *testing.T) {
 	if rewriteErr != nil {
 		t.Fatal(rewriteErr)
 	}
-	augmenter, augErr := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{Formatter: formatter, TokenCounter: contextBytesCounter{}, MaxContextTokens: 320})
+	augmenter, augErr := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{Formatter: formatter, ContextTokens: contextLimit(t, 320, contextBytesCounter{})})
 	if augErr != nil {
 		t.Fatal(augErr)
 	}

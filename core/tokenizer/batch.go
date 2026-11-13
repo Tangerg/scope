@@ -4,22 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/samber/lo"
 )
 
-// BatchConfig bounds an ordered group of rendered texts by item count, token
-// count or both. The zero value keeps all texts in one group. Counter is
-// required exactly when MaxTokens is positive.
+// BatchConfig bounds an ordered group of rendered texts by item count, tokens
+// or both. The zero value keeps all texts in one group.
 type BatchConfig struct {
-	MaxItems  int
-	MaxTokens int
-	Counter   TextCounter
+	MaxItems int
+	Tokens   Limit
 }
 
 func (b BatchConfig) Validate() error {
-	if b.MaxItems < 0 || b.MaxTokens < 0 || b.Counter != nil && lo.IsNil(b.Counter) || (b.Counter != nil) != (b.MaxTokens > 0) {
-		return errors.New("tokenizer: nonnegative batch limits and a counter for token limits are required")
+	if b.MaxItems < 0 {
+		return errors.New("tokenizer: batch item limit must not be negative")
 	}
 	return nil
 }
@@ -39,21 +35,17 @@ func (b BatchConfig) Batches(ctx context.Context, texts []string) ([][]string, e
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		n := 0
-		if b.Counter != nil {
-			var err error
-			n, err = b.Counter.CountText(ctx, text)
-			if err != nil {
-				return nil, fmt.Errorf("tokenizer: count text %d: %w", i, err)
-			}
-			if err = ctx.Err(); err != nil {
-				return nil, err
-			}
-			if n < 0 || n > b.MaxTokens {
-				return nil, fmt.Errorf("tokenizer: text %d costs %d tokens, budget %d", i, n, b.MaxTokens)
-			}
+		n, err := b.Tokens.Count(ctx, text)
+		if err != nil {
+			return nil, fmt.Errorf("tokenizer: count text %d: %w", i, err)
 		}
-		if i > start && (b.MaxItems > 0 && i-start >= b.MaxItems || b.MaxTokens > 0 && n > b.MaxTokens-tokens) {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+		if b.Tokens.Bounded() && n > b.Tokens.Max() {
+			return nil, fmt.Errorf("tokenizer: text %d costs %d tokens, budget %d", i, n, b.Tokens.Max())
+		}
+		if i > start && (b.MaxItems > 0 && i-start >= b.MaxItems || b.Tokens.Bounded() && n > b.Tokens.Max()-tokens) {
 			groups = append(groups, texts[start:i:i])
 			start = i
 			tokens = 0

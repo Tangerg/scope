@@ -80,7 +80,7 @@ func TestPreparationAndEncoderPurpose(t *testing.T) {
 	c := &counter{}
 	out := &sink{space: space}
 	calls := 0
-	writer, err := index.NewWriter(index.WriterConfig{Destination: out, Encoder: e, Batching: tokenizer.BatchConfig{Counter: c, MaxTokens: 6},
+	writer, err := index.NewWriter(index.WriterConfig{Destination: out, Encoder: e, Batching: tokenizer.BatchConfig{Tokens: tokenLimit(t, 6, c)},
 		Formatter: document.FormatterFunc(func(d *document.Document) (string, error) {
 			calls++
 			d.ID = "temporary"
@@ -145,7 +145,7 @@ func TestRejectedPreparationDoesNotSpendOrPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := &sink{space: space}
-	for _, cfg := range []index.WriterConfig{{Encoder: encoder}, {Destination: target}, {Encoder: encoder, Destination: target, Batching: tokenizer.BatchConfig{MaxTokens: 3}}, {Encoder: encoder, Destination: target, Batching: tokenizer.BatchConfig{Counter: new(counter)}}, {Encoder: encoder, Destination: target, Batching: tokenizer.BatchConfig{MaxItems: -1}}} {
+	for _, cfg := range []index.WriterConfig{{Encoder: encoder}, {Destination: target}, {Encoder: encoder, Destination: target, Batching: tokenizer.BatchConfig{MaxItems: -1}}} {
 		if w, configErr := index.NewWriter(cfg); configErr == nil || w != nil {
 			t.Fatalf("accepted invalid sizing configuration: %v", cfg)
 		}
@@ -161,7 +161,9 @@ func TestRejectedPreparationDoesNotSpendOrPublish(t *testing.T) {
 				return d.Text, nil
 			})
 		},
-		"oversize": func(c *index.WriterConfig) { c.Batching = tokenizer.BatchConfig{Counter: new(counter), MaxTokens: 1} },
+		"oversize": func(c *index.WriterConfig) {
+			c.Batching = tokenizer.BatchConfig{Tokens: tokenLimit(t, 1, new(counter))}
+		},
 		"empty model input": func(c *index.WriterConfig) {
 			c.Formatter = document.FormatterFunc(func(*document.Document) (string, error) { return "", nil })
 		},
@@ -199,4 +201,13 @@ func TestUnboundEncoderCannotReachEitherModel(t *testing.T) {
 	if len(model.texts) != 0 {
 		t.Fatal("invalid space reached the model")
 	}
+}
+
+func tokenLimit(t *testing.T, maximum int, counter tokenizer.TextCounter) tokenizer.Limit {
+	t.Helper()
+	limit, err := tokenizer.NewLimit(maximum, counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limit
 }

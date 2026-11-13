@@ -10,6 +10,7 @@ import (
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/chatclient"
 	"github.com/Tangerg/scope/core/document"
+	"github.com/Tangerg/scope/core/tokenizer"
 	"github.com/Tangerg/scope/rag"
 	ragchat "github.com/Tangerg/scope/rag/chat"
 )
@@ -180,8 +181,7 @@ func TestContextualAugmenter_ZeroQuery(t *testing.T) {
 
 func TestContextualAugmenterAppliesWholeDocumentTokenBudget(t *testing.T) {
 	augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-		MaxContextTokens: 2,
-		TokenCounter:     evidenceCountCounter{},
+		ContextTokens: contextLimit(t, 2, evidenceCountCounter{}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestContextualAugmenterSkipsOversizedCandidates(t *testing.T) {
 		{"tiny", strings.Repeat("oversized", 100), "small"},
 	} {
 		augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-			MaxContextTokens: 128, TokenCounter: contextBytesCounter{},
+			ContextTokens: contextLimit(t, 128, contextBytesCounter{}),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -304,23 +304,20 @@ func TestContextualAugmenterEncodesEvidenceAsUntrustedJSON(t *testing.T) {
 	}
 }
 
-func TestContextualAugmenterValidatesTokenBudgetConfiguration(t *testing.T) {
-	for _, config := range []ragchat.ContextualAugmenterConfig{
-		{MaxContextTokens: -1},
-		{MaxContextTokens: 1},
-		{TokenCounter: evidenceCountCounter{}},
-	} {
-		if _, err := ragchat.NewContextualAugmenter(config); !errors.Is(err, ragchat.ErrInvalidContextBudget) {
-			t.Fatalf("NewContextualAugmenter(%#v) error = %v", config, err)
-		}
+func contextLimit(t *testing.T, maximum int, counter tokenizer.TextCounter) tokenizer.Limit {
+	t.Helper()
+	limit, err := tokenizer.NewLimit(maximum, counter)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return limit
 }
 
 func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 	for name, count := range map[string]int{"negative": -1, "zero": 0} {
 		t.Run(name, func(t *testing.T) {
 			augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-				MaxContextTokens: 1, TokenCounter: fixedContextTokenCounter(count),
+				ContextTokens: contextLimit(t, 1, fixedContextTokenCounter(count)),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -335,7 +332,7 @@ func TestContextualAugmenterRejectsNegativeTokenMeasurements(t *testing.T) {
 			}
 			augmentation, err := augmenter.Augment(t.Context(), query, rag.Candidates{{Document: doc, Score: 1}})
 			if count < 0 {
-				if text, replace := augmentation.ReplacementText(); !errors.Is(err, ragchat.ErrInvalidContextBudget) || replace || text != "" {
+				if text, replace := augmentation.ReplacementText(); !errors.Is(err, tokenizer.ErrInvalidLimit) || replace || text != "" {
 					t.Fatalf("invalid measurement produced replacement %q, %v, error %v", text, replace, err)
 				}
 				return
@@ -650,7 +647,7 @@ func TestTranslationTransformer_PropagatesError(t *testing.T) {
 func TestContextualAugmenterRejectsUnusableEvidenceBudget(t *testing.T) {
 	for _, allowEmpty := range []bool{false, true} {
 		augmenter, err := ragchat.NewContextualAugmenter(ragchat.ContextualAugmenterConfig{
-			MaxContextTokens: 1, TokenCounter: fixedContextTokenCounter(2), AllowEmptyContext: allowEmpty,
+			ContextTokens: contextLimit(t, 1, fixedContextTokenCounter(2)), AllowEmptyContext: allowEmpty,
 		})
 		if err != nil {
 			t.Fatal(err)

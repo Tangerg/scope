@@ -13,9 +13,6 @@ import (
 	"github.com/Tangerg/scope/rag"
 )
 
-// ErrInvalidContextBudget identifies an invalid context window or token measurement.
-var ErrInvalidContextBudget = errors.New("rag: invalid context token budget")
-
 // ErrContextBudgetExceeded means retrieved evidence exists but no complete
 // candidate fits the configured context budget.
 var ErrContextBudgetExceeded = errors.New("rag: context token budget cannot admit evidence")
@@ -56,51 +53,27 @@ type ContextualAugmenterConfig struct {
 	// rejects media with [document.ErrUnsupportedMedia].
 	Formatter document.Formatter
 
-	// MaxContextTokens limits the encoded evidence block. Zero leaves context
-	// unbounded. A positive value requires TokenCounter. Only complete
-	// candidates that fit are included, in retrieval order. Oversized candidates
-	// are skipped so later candidates can still fit. If none fits, Augment returns
-	// ErrContextBudgetExceeded regardless of AllowEmptyContext.
-	MaxContextTokens int
-	TokenCounter     tokenizer.TextCounter
+	// ContextTokens limits the encoded evidence block; its zero value leaves
+	// context unbounded. Only complete candidates that fit are included, in
+	// retrieval order. Oversized candidates are skipped so later candidates can
+	// still fit. If none fits, Augment returns ErrContextBudgetExceeded
+	// regardless of AllowEmptyContext.
+	ContextTokens tokenizer.Limit
 }
 
-type contextBudget struct {
-	maxTokens int
-	counter   tokenizer.TextCounter
-}
-
-func newContextBudget(maxTokens int, counter tokenizer.TextCounter) (contextBudget, error) {
-	if maxTokens < 0 {
-		return contextBudget{}, fmt.Errorf("%w: MaxContextTokens must not be negative", ErrInvalidContextBudget)
-	}
-	if maxTokens > 0 && lo.IsNil(counter) {
-		return contextBudget{}, fmt.Errorf("%w: TokenCounter is required when MaxContextTokens is positive", ErrInvalidContextBudget)
-	}
-	if maxTokens == 0 && !lo.IsNil(counter) {
-		return contextBudget{}, fmt.Errorf("%w: TokenCounter requires a positive MaxContextTokens", ErrInvalidContextBudget)
-	}
-	return contextBudget{maxTokens: maxTokens, counter: counter}, nil
-}
-
-func (c contextBudget) limited() bool { return c.maxTokens > 0 }
-
-// admit measures the complete encoded evidence block rather than summing
+// fitsContext measures the complete encoded evidence block rather than summing
 // per-candidate counts, because JSON framing and vocabulary merges across
 // entries make those sums inexact.
-func (c contextBudget) admit(ctx context.Context, evidence rag.Evidence) (bool, error) {
+func fitsContext(ctx context.Context, limit tokenizer.Limit, evidence rag.Evidence) (bool, error) {
 	block, err := evidence.Render()
 	if err != nil {
 		return false, err
 	}
-	tokens, err := c.counter.CountText(ctx, block)
+	tokens, err := limit.Count(ctx, block)
 	if err != nil {
 		return false, fmt.Errorf("rag: count context tokens: %w", err)
 	}
-	if tokens < 0 {
-		return false, fmt.Errorf("%w: TokenCounter returned %d", ErrInvalidContextBudget, tokens)
-	}
-	return tokens <= c.maxTokens, nil
+	return tokens <= limit.Max(), nil
 }
 
 var _ rag.Augmenter = (*ContextualAugmenter)(nil)
@@ -110,14 +83,10 @@ type ContextualAugmenter struct {
 	emptyContextMessage string
 	allowEmptyContext   bool
 	formatter           document.Formatter
-	budget              contextBudget
+	contextTokens       tokenizer.Limit
 }
 
 func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmenter, error) {
-	budget, err := newContextBudget(config.MaxContextTokens, config.TokenCounter)
-	if err != nil {
-		return nil, err
-	}
 	formatter := config.Formatter
 	if lo.IsNil(formatter) {
 		formatter = document.TextFormatter{}
@@ -128,7 +97,7 @@ func NewContextualAugmenter(config ContextualAugmenterConfig) (*ContextualAugmen
 		emptyContextMessage: cmp.Or(config.EmptyContextMessage, contextualDefaultEmptyContextMessage),
 		allowEmptyContext:   config.AllowEmptyContext,
 		formatter:           formatter,
-		budget:              budget,
+		contextTokens:       config.ContextTokens,
 	}, nil
 }
 
@@ -168,8 +137,8 @@ func (c *ContextualAugmenter) selectEvidence(ctx context.Context, candidates rag
 			return nil, fmt.Errorf("rag: format context candidate %d: %w", i, err)
 		}
 		proposed := append(selected, rag.Excerpt{Candidate: candidate, Content: content})
-		if c.budget.limited() {
-			fits, err := c.budget.admit(ctx, proposed)
+		if c.contextTokens.Bounded() {
+			fits, err := fitsContext(ctx, c.contextTokens, proposed)
 			if err != nil {
 				return nil, err
 			}
