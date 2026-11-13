@@ -71,6 +71,19 @@ func TestSearchModeIsExplicitAndCapabilityChecked(t *testing.T) {
 	}
 }
 
+func TestRequireResultLimitBoundsTheEffectiveLimit(t *testing.T) {
+	if err := (vectorstore.SearchOptions{}).RequireResultLimit(vectorstore.DefaultTopK); err != nil {
+		t.Fatalf("default limit at the maximum: %v", err)
+	}
+	err := (vectorstore.SearchOptions{}).RequireResultLimit(vectorstore.DefaultTopK - 1)
+	if !errors.Is(err, vectorstore.ErrInvalidOptions) || err.Error() != "vectorstore: invalid options: top K 5 exceeds the native maximum 4" {
+		t.Fatalf("default limit above the maximum: %v", err)
+	}
+	if err := (vectorstore.SearchOptions{TopK: 11}).RequireResultLimit(10); !errors.Is(err, vectorstore.ErrInvalidOptions) {
+		t.Fatalf("explicit limit above the maximum: %v", err)
+	}
+}
+
 func TestSearchOptionsZeroValueUsesDefaultLimit(t *testing.T) {
 	var options vectorstore.SearchOptions
 	if err := options.Validate(); err != nil {

@@ -130,7 +130,13 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := s.binding.admitQuery(space, opts); err != nil {
+	if err := space.Require(s.binding.space); err != nil {
+		return err
+	}
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if _, err := admitQuery(opts); err != nil {
 		return err
 	}
 	return s.binding.verify(ctx)
@@ -143,7 +149,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err = request.ValidateFor(s.binding.space); err != nil {
 		return nil, err
 	}
-	where, err := s.binding.admitQuery(request.Space, request.Options)
+	where, err := admitQuery(request.Options)
 	if err != nil {
 		return nil, err
 	}

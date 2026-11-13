@@ -49,15 +49,14 @@ func (i indexBinding) verify(ctx context.Context) error {
 	return nil
 }
 
-func (i indexBinding) admitQuery(space vectorstore.SpaceID, options vectorstore.SearchOptions) (*pineconesdk.MetadataFilter, error) {
-	if err := space.Require(i.space); err != nil {
-		return nil, err
-	}
+// admitQuery holds validated options to what one native query can answer and
+// translates their filter.
+func admitQuery(options vectorstore.SearchOptions) (*pineconesdk.MetadataFilter, error) {
 	if err := options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return nil, err
 	}
-	if options.ResultLimit() > MaxTopK {
-		return nil, fmt.Errorf("%w: TopK exceeds native limit %d", vectorstore.ErrInvalidOptions, MaxTopK)
+	if err := options.RequireResultLimit(MaxTopK); err != nil {
+		return nil, err
 	}
 	return nativeFilter(options.Filter)
 }

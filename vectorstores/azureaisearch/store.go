@@ -304,8 +304,8 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return err
 	}
-	if opts.ResultLimit() > maximumResultsPerPage {
-		return fmt.Errorf("azureaisearch: %w: native top K cannot exceed %d", vectorstore.ErrInvalidOptions, maximumResultsPerPage)
+	if err := opts.RequireResultLimit(maximumResultsPerPage); err != nil {
+		return err
 	}
 	if opts.Filter != nil {
 		return vectorstore.ErrUnsupportedFilter

@@ -148,20 +148,25 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) (err error
 // Metadata is stored as opaque Core JSON bytes. Without an equivalent native
 // predicate, rejecting the request preserves tenant isolation and global top K.
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
-	if err := s.validateQuery(ctx, space, options); err != nil {
-		return err
-	}
-	_, err := s.readSchema(ctx, s.pool)
-	return err
-}
-
-func (s *Store) validateQuery(ctx context.Context, space vectorstore.SpaceID, options vectorstore.SearchOptions) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
+	if err := options.Validate(); err != nil {
+		return err
+	}
+	if err := admitOptions(options); err != nil {
+		return err
+	}
+	_, err := s.readSchema(ctx, s.pool)
+	return err
+}
+
+// admitOptions holds validated options to what one native nearest-neighbor
+// statement can answer; it carries no metadata predicate.
+func admitOptions(options vectorstore.SearchOptions) error {
 	if err := options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return err
 	}
@@ -183,7 +188,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = s.validateQuery(ctx, request.Space, request.Options); err != nil {
+	if err = admitOptions(request.Options); err != nil {
 		return nil, err
 	}
 	transaction, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})

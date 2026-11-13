@@ -203,10 +203,10 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err := opts.Validate(); err != nil {
 		return err
 	}
-	if _, err := s.searchCandidates(opts.ResultLimit()); err != nil {
+	if err := admitOptions(opts); err != nil {
 		return err
 	}
 	if opts.Filter != nil {
@@ -244,7 +244,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = admitOptions(request.Options); err != nil {
 		return nil, err
 	}
 	defer func() {
@@ -255,10 +255,7 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 			response = nil
 		}
 	}()
-	candidates, err := s.searchCandidates(request.Options.ResultLimit())
-	if err != nil {
-		return nil, err
-	}
+	candidates := s.searchCandidates(request.Options.ResultLimit())
 	query, err := s.schema.vector(request.Values)
 	if err != nil {
 		return nil, err
@@ -521,9 +518,15 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	return nil
 }
 
-func (s *Store) searchCandidates(limit int) (int, error) {
-	if limit > MaxNumCandidates {
-		return 0, fmt.Errorf("mongodb.Store.Query: TopK %d exceeds the %d candidates $vectorSearch can consider", limit, MaxNumCandidates)
+// admitOptions holds validated options to what one $vectorSearch can answer:
+// it never considers more than MaxNumCandidates candidates.
+func admitOptions(opts vectorstore.SearchOptions) error {
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
 	}
-	return max(s.numCandidates, limit), nil
+	return opts.RequireResultLimit(MaxNumCandidates)
+}
+
+func (s *Store) searchCandidates(limit int) int {
+	return max(s.numCandidates, limit)
 }

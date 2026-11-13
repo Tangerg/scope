@@ -190,27 +190,25 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	if err := s.checkOptions(opts, false); err != nil {
+	if err := opts.Validate(); err != nil {
 		return err
+	}
+	if err := admitOptions(opts); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
 	}
 	_, err := s.readPolicy(ctx)
 	return err
 }
 
-func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
-	if err := opts.Validate(); err != nil {
-		return err
-	}
+// admitOptions holds validated options to what one native search can answer.
+func admitOptions(opts vectorstore.SearchOptions) error {
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return err
 	}
-	if opts.ResultLimit() > nativeMaxTopK {
-		return errors.New("milvus: result limit exceeds the native topK limit")
-	}
-	if opts.Filter != nil && !allowFilter {
-		return vectorstore.ErrUnsupportedFilter
-	}
-	return nil
+	return opts.RequireResultLimit(nativeMaxTopK)
 }
 
 func (s *Store) Query(ctx context.Context, q *vectorstore.Query) (*vectorstore.SearchResponse, error) {
@@ -233,8 +231,11 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 	if err := request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err := s.checkOptions(request.Options, meter != nil); err != nil {
+	if err := admitOptions(request.Options); err != nil {
 		return nil, err
+	}
+	if meter == nil && request.Options.Filter != nil {
+		return nil, vectorstore.ErrUnsupportedFilter
 	}
 	policy, err := s.readPolicy(ctx)
 	if err != nil {

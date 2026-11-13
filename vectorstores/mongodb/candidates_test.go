@@ -1,8 +1,11 @@
 package mongodb
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/Tangerg/scope/core/vectorstore"
 )
 
 // Atlas rejects a numCandidates below limit, so the configured value can only
@@ -23,10 +26,7 @@ func TestSearchCandidatesNeverFallBelowResultLimit(t *testing.T) {
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			store := &Store{numCandidates: sample.configured}
-			got, err := store.searchCandidates(sample.limit)
-			if err != nil {
-				t.Fatalf("searchCandidates(%d) = %v, want nil", sample.limit, err)
-			}
+			got := store.searchCandidates(sample.limit)
 			if got != sample.want {
 				t.Fatalf("searchCandidates(%d) = %d, want %d", sample.limit, got, sample.want)
 			}
@@ -39,13 +39,15 @@ func TestSearchCandidatesNeverFallBelowResultLimit(t *testing.T) {
 
 // A TopK past the ceiling cannot be served at all, so it fails locally instead
 // of as an opaque provider validation error.
-func TestSearchCandidatesRejectsUnservableResultLimit(t *testing.T) {
+func TestAdmitOptionsRejectsUnservableResultLimit(t *testing.T) {
 	t.Parallel()
 
-	store := &Store{numCandidates: DefaultNumCandidates}
-	_, err := store.searchCandidates(MaxNumCandidates + 1)
-	if err == nil || !strings.Contains(err.Error(), "exceeds the 10000 candidates") {
-		t.Fatalf("searchCandidates() = %v, want a ceiling error", err)
+	if err := admitOptions(vectorstore.SearchOptions{TopK: MaxNumCandidates}); err != nil {
+		t.Fatalf("admitOptions(ceiling) = %v, want nil", err)
+	}
+	err := admitOptions(vectorstore.SearchOptions{TopK: MaxNumCandidates + 1})
+	if !errors.Is(err, vectorstore.ErrInvalidOptions) {
+		t.Fatalf("admitOptions(above ceiling) = %v, want %v", err, vectorstore.ErrInvalidOptions)
 	}
 }
 

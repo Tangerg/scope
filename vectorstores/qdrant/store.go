@@ -137,6 +137,9 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
+	if err := opts.Validate(); err != nil {
+		return err
+	}
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return err
 	}

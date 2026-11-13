@@ -231,16 +231,24 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.config.Space); err != nil {
 		return err
 	}
-	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := s.admitOptions(opts); err != nil {
 		return err
 	}
 	if opts.Filter != nil {
 		return vectorstore.ErrUnsupportedFilter
 	}
-	if opts.ResultLimit() > s.index.resultWindow {
-		return vectorstore.ErrInvalidOptions
-	}
 	return s.verify(ctx)
+}
+
+// admitOptions holds validated options to what one native kNN search can answer.
+func (s *Store) admitOptions(opts vectorstore.SearchOptions) error {
+	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+		return err
+	}
+	return opts.RequireResultLimit(s.index.resultWindow)
 }
 
 // Query only sends native nearest-neighbor searches; the mapping keeps metadata
@@ -283,19 +291,13 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, budget *ve
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err = request.ValidateFor(s.config.Space); err != nil {
-		return nil, err
-	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic); err != nil {
+	if err = s.admitOptions(request.Options); err != nil {
 		return nil, err
 	}
 	if request.Options.Filter != nil {
 		if err = s.index.schema.CheckFilteredSearch(); err != nil {
 			return nil, err
 		}
-	}
-	if request.Options.ResultLimit() > s.index.resultWindow {
-		return nil, fmt.Errorf("%w: TopK exceeds native result window %d", vectorstore.ErrInvalidOptions, s.index.resultWindow)
 	}
 	query := vector.Float32(request.Values)
 	if err = s.index.schema.ValidateQueryVector(query); err != nil {

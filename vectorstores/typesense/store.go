@@ -7,7 +7,6 @@ import (
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -277,18 +276,14 @@ func (s *Store) QueryByScan(ctx context.Context, q *vectorstore.Query, budget ve
 	return s.rank(meter.Context(), q, meter)
 }
 
-func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
-	if err := opts.Validate(); err != nil {
-		return err
-	}
+// admitOptions holds validated options to what native ranking can answer.
+// Hybrid fusion changes between pages, so a hybrid result must fit one page.
+func admitOptions(opts vectorstore.SearchOptions) error {
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return err
 	}
-	if opts.Mode == vectorstore.SearchModeHybrid && opts.ResultLimit() > MaxResultsPerPage {
-		return fmt.Errorf("%w: typesense hybrid TopK must not exceed %d because fusion changes between pages", vectorstore.ErrInvalidOptions, MaxResultsPerPage)
-	}
-	if opts.Filter != nil && !allowFilter {
-		return vectorstore.ErrUnsupportedFilter
+	if opts.Mode == vectorstore.SearchModeHybrid {
+		return opts.RequireResultLimit(MaxResultsPerPage)
 	}
 	return nil
 }
@@ -297,8 +292,14 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	if err := s.checkOptions(opts, false); err != nil {
+	if err := opts.Validate(); err != nil {
 		return err
+	}
+	if err := admitOptions(opts); err != nil {
+		return err
+	}
+	if opts.Filter != nil {
+		return vectorstore.ErrUnsupportedFilter
 	}
 	return s.checkBinding(ctx)
 }
@@ -310,8 +311,11 @@ func (s *Store) rank(ctx context.Context, request *vectorstore.Query, meter *vec
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = s.checkOptions(request.Options, meter != nil); err != nil {
+	if err = admitOptions(request.Options); err != nil {
 		return nil, err
+	}
+	if meter == nil && request.Options.Filter != nil {
+		return nil, vectorstore.ErrUnsupportedFilter
 	}
 	query, err := s.schema.narrow(request.Values)
 	if err != nil {

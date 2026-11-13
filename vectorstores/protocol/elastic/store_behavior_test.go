@@ -814,7 +814,7 @@ func TestStorePreflightChecksAdmitWhatTheOperationsAccept(t *testing.T) {
 		want    error
 	}{
 		"hybrid":       {vectorstore.SearchOptions{Mode: vectorstore.SearchModeHybrid}, nil},
-		"filter":       {vectorstore.SearchOptions{Filter: filter.IsNull("tenant")}, vectorstore.ErrUnsupportedFilter},
+		"filter":       {vectorstore.SearchOptions{TopK: 1, Filter: filter.IsNull("tenant")}, vectorstore.ErrUnsupportedFilter},
 		"above window": {vectorstore.SearchOptions{TopK: 3}, vectorstore.ErrInvalidOptions},
 	} {
 		if err := store.CheckQuery(ctx, behaviorSpace, test.options); err == nil || test.want != nil && !errors.Is(err, test.want) {

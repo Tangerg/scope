@@ -159,15 +159,14 @@ func batchOutcome(ids []string, reply *pb.BatchObjectsReply, cause error) error 
 	return vectorstore.NewWriteError(errors.Join(reasons...), outcome)
 }
 
-func (s *Store) prepareQuery(ctx context.Context, space vectorstore.SpaceID, o vectorstore.SearchOptions) (*pb.Filters, error) {
-	if err := space.Require(s.space); err != nil {
-		return nil, err
-	}
+// prepareQuery holds validated options to what one native search can answer
+// and translates their filter.
+func (s *Store) prepareQuery(ctx context.Context, o vectorstore.SearchOptions) (*pb.Filters, error) {
 	if err := o.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return nil, err
 	}
-	if o.ResultLimit() > math.MaxInt32 {
-		return nil, errors.New("weaviate: native result limit exceeds int32")
+	if err := o.RequireResultLimit(math.MaxInt32); err != nil {
+		return nil, err
 	}
 	var where *pb.Filters
 	if p := o.Filter; p != nil {
@@ -181,7 +180,13 @@ func (s *Store) prepareQuery(ctx context.Context, space vectorstore.SpaceID, o v
 }
 
 func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, o vectorstore.SearchOptions) error {
-	_, err := s.prepareQuery(ctx, space, o)
+	if err := space.Require(s.space); err != nil {
+		return err
+	}
+	if err := o.Validate(); err != nil {
+		return err
+	}
+	_, err := s.prepareQuery(ctx, o)
 	return err
 }
 
@@ -190,9 +195,6 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 		return nil, err
 	}
 	if err = request.ValidateFor(s.space); err != nil {
-		return nil, err
-	}
-	if err = request.Options.RequireMode(vectorstore.SearchModeSemantic, vectorstore.SearchModeHybrid); err != nil {
 		return nil, err
 	}
 	defer func() {
@@ -207,7 +209,7 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err != nil {
 		return nil, err
 	}
-	where, err := s.prepareQuery(ctx, request.Space, request.Options)
+	where, err := s.prepareQuery(ctx, request.Options)
 	if err != nil {
 		return nil, err
 	}

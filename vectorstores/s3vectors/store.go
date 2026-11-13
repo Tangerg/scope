@@ -263,17 +263,16 @@ type rankedResult struct {
 	result   *vectorstore.SearchResult
 }
 
-func (s *Store) checkOptions(opts vectorstore.SearchOptions, allowFilter bool) error {
-	if err := opts.Validate(); err != nil {
-		return err
-	}
+// admitOptions holds validated options to what one native QueryVectors call
+// can answer; it carries no metadata predicate.
+func admitOptions(opts vectorstore.SearchOptions) error {
 	if err := opts.RequireMode(vectorstore.SearchModeSemantic); err != nil {
 		return err
 	}
-	if opts.ResultLimit() > MaxTopK {
-		return fmt.Errorf("s3vectors: %w: TopK exceeds %d", vectorstore.ErrInvalidOptions, MaxTopK)
+	if err := opts.RequireResultLimit(MaxTopK); err != nil {
+		return err
 	}
-	if opts.Filter != nil && !allowFilter {
+	if opts.Filter != nil {
 		return vectorstore.ErrUnsupportedFilter
 	}
 	return nil
@@ -283,7 +282,10 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, opts 
 	if err := space.Require(s.space); err != nil {
 		return err
 	}
-	if err := s.checkOptions(opts, false); err != nil {
+	if err := opts.Validate(); err != nil {
+		return err
+	}
+	if err := admitOptions(opts); err != nil {
 		return err
 	}
 	return s.checkBinding(ctx)
@@ -296,7 +298,10 @@ func (s *Store) Query(ctx context.Context, request *vectorstore.Query) (response
 	if err = request.ValidateFor(s.space); err != nil {
 		return nil, err
 	}
-	if err = s.CheckQuery(ctx, request.Space, request.Options); err != nil {
+	if err = admitOptions(request.Options); err != nil {
+		return nil, err
+	}
+	if err = s.checkBinding(ctx); err != nil {
 		return nil, err
 	}
 	defer func() {

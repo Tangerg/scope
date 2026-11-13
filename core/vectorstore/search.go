@@ -86,12 +86,9 @@ func (s SearchOptions) Validate() error {
 	return nil
 }
 
-// RequireMode rejects a valid request mode before provider I/O when the store
-// cannot implement it without changing its semantics.
+// RequireMode rejects the mode of already validated options before provider
+// I/O when the store cannot implement it without changing its semantics.
 func (s SearchOptions) RequireMode(supported ...SearchMode) error {
-	if err := s.Validate(); err != nil {
-		return err
-	}
 	if slices.Contains(supported, s.Mode) {
 		return nil
 	}
@@ -103,6 +100,15 @@ func (s SearchOptions) ResultLimit() int {
 		return DefaultTopK
 	}
 	return s.TopK
+}
+
+// RequireResultLimit rejects an effective result limit above what the store
+// can return from one native search; truncating it would change the results.
+func (s SearchOptions) RequireResultLimit(maximum int) error {
+	if limit := s.ResultLimit(); limit > maximum {
+		return fmt.Errorf("%w: top K %d exceeds the native maximum %d", ErrInvalidOptions, limit, maximum)
+	}
+	return nil
 }
 
 func (s SearchOptions) MarshalJSON() ([]byte, error) {
