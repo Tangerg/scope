@@ -84,8 +84,6 @@ func newSearchRequest(request *web.SearchRequest) (*searchRequest, error) {
 	}, nil
 }
 
-// searchRecencyFilter maps a recency onto Perplexity's search_recency_filter;
-// an unset recency sends none.
 func searchRecencyFilter(recency web.Recency) (string, bool) {
 	switch recency {
 	case "":

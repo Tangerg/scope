@@ -206,8 +206,6 @@ func parseDate(s string) time.Time {
 	return time.Time{}
 }
 
-// contentRespondWith maps a content format onto the Reader's X-Respond-With
-// value.
 func contentRespondWith(format web.ContentFormat) (string, bool) {
 	switch format {
 	case web.FormatMarkdown:
