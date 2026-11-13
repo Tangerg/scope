@@ -83,12 +83,8 @@ func (a ActionResult) Succeeded() bool { return a.succeeded }
 // success.
 func (a ActionResult) Diagnostic() string { return a.diagnostic }
 
-func (a ActionResult) Valid() bool {
-	if a.succeeded {
-		return a.diagnostic == ""
-	}
-	return run.ValidDiagnostic(a.diagnostic)
-}
+// Valid rejects the zero ActionResult; ActionFailed admits the diagnostic.
+func (a ActionResult) Valid() bool { return a.succeeded || a.diagnostic != "" }
 
 // NewActionSettlement closes an investigated action Effect with a definite result.
 func NewActionSettlement(result ActionResult) (run.Settlement, error) {

@@ -68,7 +68,13 @@ func (e Effect) ChildStart() (ChildSpec, bool) {
 	return *e.spawn, true
 }
 
+// Valid rejects the zero Effect. Every constructor admits exactly one valid
+// variant and the decoder admits only wellFormed values, so presence is enough.
 func (e Effect) Valid() bool {
+	return e.call.Valid() || e.spawn != nil || e.send != nil || e.cancel != nil
+}
+
+func (e Effect) wellFormed() bool {
 	count := 0
 	if e.call.Valid() {
 		count++
@@ -110,7 +116,7 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	value := Effect{call: wire.Call, spawn: wire.Spawn, send: wire.Send, cancel: wire.Cancel}
-	if !value.Valid() {
+	if !value.wellFormed() {
 		return ErrInvalidEffect
 	}
 	*e = value

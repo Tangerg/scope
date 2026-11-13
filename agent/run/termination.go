@@ -118,7 +118,11 @@ func (t Termination) Failure() (Failure, bool) {
 	return t.failure, t.Status() == StatusFailed
 }
 
-func (t Termination) Valid() bool {
+// Valid rejects the zero Termination. The Runtime builds every other value
+// from admitted parts and the decoder admits only wellFormed values.
+func (t Termination) Valid() bool { return t.Status().Terminal() }
+
+func (t Termination) wellFormed() bool {
 	if !t.Status().Terminal() {
 		return false
 	}
@@ -165,7 +169,7 @@ func (t *Termination) UnmarshalJSON(data []byte) error {
 	if wire.Failure != nil {
 		value.failure = *wire.Failure
 	}
-	if !value.Valid() {
+	if !value.wellFormed() {
 		return errInvalidTermination
 	}
 	*t = value

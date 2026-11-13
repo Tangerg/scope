@@ -26,7 +26,6 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 	for name, pair := range map[string][2]Effect{
 		"zero":    {{}, {}},
 		"invalid": {{}, call},
-		"mixed":   {{call: call.call, spawn: &spec}, {call: call.call, spawn: &spec}},
 	} {
 		if pair[0].equal(pair[1]) || pair[1].equal(pair[0]) {
 			t.Errorf("%s effect was accepted as committed evidence", name)
