@@ -42,7 +42,7 @@ func TestClientsOwnPreflightEvidence(t *testing.T) {
 		{"zero output client", func() error { _, err := (Client{}).Output(t.Context(), textRequest("hello"), Text()); return err }, ErrInvalidClient},
 		{"nil stream request", func() error { return streamFailure(t, streamClient.Stream(t.Context(), nil)) }, chat.ErrInvalidRequest},
 		{"empty stream request", func() error { return streamFailure(t, streamClient.Stream(t.Context(), &chat.Request{})) }, chat.ErrInvalidRequest},
-		{"zero stream client", func() error { return streamFailure(t, (StreamClient{}).Stream(t.Context(), textRequest("hello"))) }, ErrNilStreamer},
+		{"zero stream client", func() error { return streamFailure(t, (StreamClient{}).Stream(t.Context(), textRequest("hello"))) }, ErrInvalidClient},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			failure := test.call()

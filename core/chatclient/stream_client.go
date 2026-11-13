@@ -32,7 +32,7 @@ func NewStreamClient(streamer chat.Streamer) (StreamClient, error) {
 // iteration; stopping iteration synchronously releases the provider resources.
 func (s StreamClient) Stream(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 	if lo.IsNil(s.streamer) {
-		return errorSequence(&invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrNilStreamer})
+		return errorSequence(&invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrInvalidClient})
 	}
 	prepared, err := prepareRequest(request, nil)
 	if err != nil {
