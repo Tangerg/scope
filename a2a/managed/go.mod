@@ -3,14 +3,14 @@ module github.com/Tangerg/scope/a2a/managed
 go 1.27.4
 
 require (
-	github.com/Tangerg/scope/a2a v0.61.0
-	github.com/Tangerg/scope/agent v0.61.0
-	github.com/Tangerg/scope/core v0.61.0
+	github.com/Tangerg/scope/a2a v0.62.0
+	github.com/Tangerg/scope/agent v0.62.0
+	github.com/Tangerg/scope/core v0.62.0
 	github.com/a2aproject/a2a-go/v2 v2.7.0
 )
 
 require (
-	github.com/Tangerg/scope/otel v0.61.0 // indirect
+	github.com/Tangerg/scope/otel v0.62.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
