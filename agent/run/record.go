@@ -10,6 +10,10 @@ import (
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
 
+// recordedNow is the instant a record or delta carries: UTC without a
+// monotonic reading, so equal instants encode, and therefore digest, identically.
+func recordedNow() time.Time { return time.Now().Round(0).UTC() }
+
 // RecordKind is the storage discriminator of a Record; a Store persists it
 // beside the encoded body so DecodeRecord can restore the exact variant.
 type RecordKind string

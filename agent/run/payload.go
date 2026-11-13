@@ -7,7 +7,6 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -26,10 +25,6 @@ const nullJSON = "null"
 
 // nullPayload is the result of an Effect whose outcome is unknown.
 var nullPayload = Payload{data: json.RawMessage(nullJSON)}
-
-// recordedNow is the instant a record or delta carries: UTC without a
-// monotonic reading, so equal instants encode, and therefore digest, identically.
-func recordedNow() time.Time { return time.Now().Round(0).UTC() }
 
 var ErrInvalidPayload = errors.New("run: invalid payload")
 
