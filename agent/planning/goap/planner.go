@@ -3,7 +3,6 @@ package goap
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/Tangerg/scope/agent/planning"
 	"github.com/Tangerg/scope/agent/run"
@@ -64,12 +63,6 @@ func (p *Planner) Plan(ctx context.Context, problem planning.Problem) (planning.
 	}
 	plan, err := search.plan(ctx, goal)
 	if err != nil {
-		return planning.Plan{}, false, err
-	}
-	if _, err := problem.EvaluatePlan(ctx, plan); err != nil {
-		return planning.Plan{}, false, fmt.Errorf("goap: validate result: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
 		return planning.Plan{}, false, err
 	}
 	return plan, true, nil
