@@ -34,7 +34,7 @@ func TestBulkReceiptSurvivesReadAndCloseFailures(t *testing.T) {
 	} {
 		t.Run(sample.name, func(t *testing.T) {
 			transport := &scriptedTransport{t: t, replies: []wireReply{sample.reply}}
-			plan := bulkPlan(t, Index, 0, false)
+			plan := bulkPlan(t, Index, 0)
 			for _, id := range []string{"one", "two"} {
 				if err := plan.Index(id, struct {
 					Text string `json:"text"`
@@ -66,7 +66,7 @@ func TestBulkReceiptSurvivesReadAndCloseFailures(t *testing.T) {
 func TestBulkPublicationPartitionsAndPreservesSegmentEvidence(t *testing.T) {
 	const receipt = `{"errors":false,"items":[{"index":{"_index":"documents","_id":"one","status":201}}]}`
 	transport := &scriptedTransport{t: t, replies: []wireReply{{status: 200, body: receipt}, {status: 200, body: `{`}}}
-	plan := bulkPlan(t, Index, 100, false)
+	plan := bulkPlan(t, Index, 100)
 	for _, id := range []string{"one", "two", "three"} {
 		if err := plan.Index(id, struct {
 			Text string `json:"text"`
@@ -96,7 +96,7 @@ func TestDeletePlanOwnsVersionAndAbsenceSemantics(t *testing.T) {
 	for _, conditional := range []bool{false, true} {
 		t.Run(fmt.Sprint(conditional), func(t *testing.T) {
 			transport := &scriptedTransport{t: t, replies: []wireReply{{status: http.StatusOK, body: missing}}}
-			plan := bulkPlan(t, Delete, 0, !conditional)
+			plan := bulkPlan(t, Delete, 0)
 			var version *Version
 			if conditional {
 				version = &Version{SeqNo: 3, PrimaryTerm: 1}
@@ -119,14 +119,13 @@ func TestBulkPlanRejectsInvalidAdmissionWithoutPublication(t *testing.T) {
 	for _, config := range []BulkConfig{
 		{Index: "documents", Operation: Index, MaxBytes: -1},
 		{Index: "documents", Operation: "update"},
-		{Index: "documents", Operation: Index, AllowMissing: true},
 		{Index: "documents,*", Operation: Index},
 	} {
 		if plan, err := NewBulkPlan(config); plan != nil || err == nil {
 			t.Fatalf("invalid plan=%v error=%v", plan, err)
 		}
 	}
-	plan := bulkPlan(t, Index, 70, false)
+	plan := bulkPlan(t, Index, 70)
 	if err := plan.Index("one", true); err != nil {
 		t.Fatal(err)
 	}
@@ -145,11 +144,7 @@ func TestBulkPlanRejectsInvalidAdmissionWithoutPublication(t *testing.T) {
 	if err := plan.Delete("one", nil); err == nil {
 		t.Fatal("mixed operation admitted")
 	}
-	identityDeletion := bulkPlan(t, Delete, 0, true)
-	if err := identityDeletion.Delete("one", &Version{SeqNo: 0, PrimaryTerm: 1}); err == nil {
-		t.Fatal("conditional deletion admitted with missing-record success")
-	}
-	deletion := bulkPlan(t, Delete, 0, false)
+	deletion := bulkPlan(t, Delete, 0)
 	if err := deletion.Index("one", true); err == nil {
 		t.Fatal("mixed operation admitted")
 	}
@@ -170,7 +165,7 @@ func TestBulkResponseLimitKeepsCompleteItemPrefix(t *testing.T) {
 	const prefix = `{"errors":false,"items":[{"index":{"_index":"documents","_id":"one","status":201}},`
 	const suffix = `{"index":{"_index":"documents","_id":"two","status":201}}]}`
 	transport := &scriptedTransport{t: t, replies: []wireReply{{status: http.StatusOK, body: prefix + suffix}}}
-	plan := bulkPlan(t, Index, 0, false)
+	plan := bulkPlan(t, Index, 0)
 	for _, id := range []string{"one", "two"} {
 		if err := plan.Index(id, true); err != nil {
 			t.Fatal(err)

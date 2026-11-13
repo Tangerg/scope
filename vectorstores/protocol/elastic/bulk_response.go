@@ -16,7 +16,7 @@ type bulkResponse struct {
 	Items  []bulkItem `json:"items"`
 }
 
-func (b bulkResponse) validate(operation Operation, index string, ids []string, allowMissing bool) error {
+func (b bulkResponse) validate(operation Operation, index string, ids []string, absenceCompletes map[string]bool) error {
 	if b.Errors == nil || len(b.Items) != len(ids) {
 		return errors.New("elastic: native bulk did not acknowledge every document")
 	}
@@ -25,7 +25,7 @@ func (b bulkResponse) validate(operation Operation, index string, ids []string, 
 		if result == nil {
 			return errors.New("elastic: native bulk acknowledgment differs from the requested operation or identity")
 		}
-		if !result.accepted(allowMissing) {
+		if !result.accepted(absenceCompletes[ids[i]]) {
 			return fmt.Errorf("elastic: native bulk %s failed for %q: status=%d, error=%s", operation, ids[i], *result.Status, result.Error)
 		}
 	}
@@ -78,11 +78,11 @@ type bulkItemResult struct {
 	Error  json.RawMessage `json:"error,omitzero"`
 }
 
-func (b bulkItemResult) accepted(allowMissing bool) bool {
+func (b bulkItemResult) accepted(absenceCompletes bool) bool {
 	if b.Status == nil || b.Error != nil {
 		return false
 	}
-	return *b.Status >= http.StatusOK && *b.Status < http.StatusMultipleChoices || allowMissing && *b.Status == http.StatusNotFound
+	return *b.Status >= http.StatusOK && *b.Status < http.StatusMultipleChoices || absenceCompletes && *b.Status == http.StatusNotFound
 }
 
 type bulkItem struct {

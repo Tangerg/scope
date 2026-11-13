@@ -28,10 +28,9 @@ const (
 )
 
 type BulkConfig struct {
-	Index        string
-	Operation    Operation
-	MaxBytes     int
-	AllowMissing bool
+	Index     string
+	Operation Operation
+	MaxBytes  int
 }
 
 func (b BulkConfig) Validate() error {
@@ -40,9 +39,6 @@ func (b BulkConfig) Validate() error {
 	}
 	if b.Operation != Index && b.Operation != Delete {
 		return errors.New("elastic: unsupported bulk operation")
-	}
-	if b.AllowMissing && b.Operation != Delete {
-		return errors.New("elastic: only identity deletion may allow missing records")
 	}
 	if b.MaxBytes < 0 {
 		return errors.New("elastic: negative MaxBulkBytes")
@@ -55,7 +51,10 @@ func (b BulkConfig) Validate() error {
 type BulkPlan struct {
 	config       BulkConfig
 	publications []bulkPublication
-	ids          map[string]struct{}
+	// absenceCompletes holds every admitted ID and whether a missing document
+	// completes its action: an unconditional delete has nothing left to remove,
+	// while a conditional delete requires the exact version it selected.
+	absenceCompletes map[string]bool
 }
 
 func NewBulkPlan(config BulkConfig) (*BulkPlan, error) {
@@ -63,7 +62,7 @@ func NewBulkPlan(config BulkConfig) (*BulkPlan, error) {
 		return nil, err
 	}
 	config.MaxBytes = cmp.Or(config.MaxBytes, DefaultMaxBulkBytes)
-	return &BulkPlan{config: config, ids: make(map[string]struct{})}, nil
+	return &BulkPlan{config: config, absenceCompletes: make(map[string]bool)}, nil
 }
 
 func (b *BulkPlan) Index(id string, doc any) error {
@@ -79,7 +78,7 @@ func (b *BulkPlan) Index(id string, doc any) error {
 	if err != nil {
 		return err
 	}
-	return b.add(id, body)
+	return b.add(id, body, false)
 }
 
 func (b *BulkPlan) Delete(id string, version *Version) error {
@@ -88,9 +87,6 @@ func (b *BulkPlan) Delete(id string, version *Version) error {
 	}
 	target := bulkActionTarget{Index: b.config.Index, ID: id}
 	if version != nil {
-		if b.config.AllowMissing {
-			return errors.New("elastic: conditional deletion cannot allow missing records")
-		}
 		if err := version.Validate(); err != nil {
 			return err
 		}
@@ -100,14 +96,14 @@ func (b *BulkPlan) Delete(id string, version *Version) error {
 	if err != nil {
 		return err
 	}
-	return b.add(id, body)
+	return b.add(id, body, version == nil)
 }
 
-func (b *BulkPlan) add(id string, body []byte) error {
+func (b *BulkPlan) add(id string, body []byte, absenceCompletes bool) error {
 	if err := DocumentID(id).Validate(); err != nil {
 		return err
 	}
-	if _, duplicate := b.ids[id]; duplicate {
+	if _, duplicate := b.absenceCompletes[id]; duplicate {
 		return vectorstore.ErrDuplicateDocumentID
 	}
 	if len(body) > b.config.MaxBytes {
@@ -123,7 +119,7 @@ func (b *BulkPlan) add(id string, body []byte) error {
 	}
 	publication.body = append(publication.body, body...)
 	publication.ids = append(publication.ids, id)
-	b.ids[id] = struct{}{}
+	b.absenceCompletes[id] = absenceCompletes
 	return nil
 }
 
@@ -167,7 +163,7 @@ func (b *BulkPlan) publish(ctx context.Context, client *Client, publication bulk
 	if decodeErr != nil && !errors.Is(decodeErr, io.ErrUnexpectedEOF) {
 		return cause
 	}
-	cause = errors.Join(cause, response.validate(b.config.Operation, b.config.Index, publication.ids, b.config.AllowMissing))
+	cause = errors.Join(cause, response.validate(b.config.Operation, b.config.Index, publication.ids, b.absenceCompletes))
 	if cause == nil || b.config.Operation != Index {
 		return cause
 	}

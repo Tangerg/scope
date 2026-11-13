@@ -77,9 +77,9 @@ func protocolClient(t *testing.T, transport *scriptedTransport, limit int64) *Cl
 	return client
 }
 
-func bulkPlan(t *testing.T, operation Operation, budget int, allowMissing bool) *BulkPlan {
+func bulkPlan(t *testing.T, operation Operation, budget int) *BulkPlan {
 	t.Helper()
-	plan, err := NewBulkPlan(BulkConfig{Index: "documents", Operation: operation, MaxBytes: budget, AllowMissing: allowMissing})
+	plan, err := NewBulkPlan(BulkConfig{Index: "documents", Operation: operation, MaxBytes: budget})
 	if err != nil {
 		t.Fatal(err)
 	}

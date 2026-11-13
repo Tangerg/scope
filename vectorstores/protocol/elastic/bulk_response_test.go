@@ -23,7 +23,7 @@ func TestBulkAcknowledgmentsCannotInventSuccess(t *testing.T) {
 		if err := jsonv2.Unmarshal([]byte(raw), &response); err != nil {
 			t.Fatal(err)
 		}
-		if err := response.validate(Index, "documents", []string{"one"}, false); err == nil {
+		if err := response.validate(Index, "documents", []string{"one"}, nil); err == nil {
 			t.Fatalf("invalid acknowledgment accepted: %s", raw)
 		}
 	}
@@ -31,10 +31,10 @@ func TestBulkAcknowledgmentsCannotInventSuccess(t *testing.T) {
 	if err := jsonv2.Unmarshal([]byte(`{"errors":false,"items":[{"delete":{"_index":"documents","_id":"one","status":404}}]}`), &missing); err != nil {
 		t.Fatal(err)
 	}
-	if err := missing.validate(Delete, "documents", []string{"one"}, true); err != nil {
+	if err := missing.validate(Delete, "documents", []string{"one"}, map[string]bool{"one": true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := missing.validate(Delete, "documents", []string{"one"}, false); err == nil {
+	if err := missing.validate(Delete, "documents", []string{"one"}, map[string]bool{"one": false}); err == nil {
 		t.Fatal("conditional deletion accepted a vanished snapshot member")
 	}
 }

@@ -475,9 +475,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	if len(unique) == 0 {
 		return nil
 	}
-	config := s.config.bulk(Delete)
-	config.AllowMissing = true
-	plan, err := NewBulkPlan(config)
+	plan, err := NewBulkPlan(s.config.bulk(Delete))
 	if err != nil {
 		return err
 	}
