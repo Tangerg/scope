@@ -105,6 +105,12 @@ func (b Batch) EncodedMessages() json.RawMessage { return bytes.Clone(b.encoded)
 func (b Batch) Digest() string                   { return b.digest }
 func (b Batch) Len() int                         { return len(b.messages) }
 
+// Receipt is the acknowledgment a Writer returns once this batch's atomic
+// append is committed.
+func (b Batch) Receipt() Receipt {
+	return Receipt{ConversationID: b.conversationID, ID: b.id, Digest: b.digest}
+}
+
 func (b Batch) Validate() error {
 	if len(b.encoded) == 0 {
 		return ErrInvalidBatch

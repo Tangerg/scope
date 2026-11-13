@@ -59,7 +59,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 		stored.messages = append(stored.messages, batch.Messages()...)
 		stored.appends[batch.ID()] = batch.Digest()
 	}
-	return history.Receipt{ConversationID: id, ID: batch.ID(), Digest: batch.Digest()}, nil
+	return batch.Receipt(), nil
 }
 
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {

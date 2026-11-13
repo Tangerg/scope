@@ -153,7 +153,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	if err := s.initialize(ctx, batch.ConversationID(), false); err != nil {
 		return history.Receipt{}, fmt.Errorf("cassandra: append gate: %w", err)
 	}
-	receipt := history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}
+	receipt := batch.Receipt()
 	for {
 		if err := ctx.Err(); err != nil {
 			return history.Receipt{}, err

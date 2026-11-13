@@ -189,7 +189,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	if err != nil {
 		return history.Receipt{}, fmt.Errorf("mongodb: append transaction: %w", err)
 	}
-	return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
+	return batch.Receipt(), nil
 }
 
 func (s *Store) Read(ctx context.Context, id history.ConversationID) ([]chat.Message, error) {

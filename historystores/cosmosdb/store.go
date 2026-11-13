@@ -184,7 +184,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 		if duplicate && stored.Digest != batch.Digest() {
 			return history.Receipt{}, history.ErrAppendConflict
 		}
-		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
+		return batch.Receipt(), nil
 	}
 }
 

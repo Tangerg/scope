@@ -135,7 +135,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	case scriptClosed:
 		return history.Receipt{}, history.ErrConversationClosed
 	case scriptAccepted:
-		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
+		return batch.Receipt(), nil
 	default:
 		return history.Receipt{}, fmt.Errorf("redis: unexpected append acknowledgment %d", status)
 	}

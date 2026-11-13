@@ -188,7 +188,7 @@ func TestBatchOwnsItsSnapshotAndSurvivesSerialization(t *testing.T) {
 
 func TestReceiptConfirmsOnlyItsExactBatch(t *testing.T) {
 	batch := mustBatch(t, "conversation", "append", chat.NewUserMessage(chat.NewTextPart("question")))
-	receipt := history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}
+	receipt := batch.Receipt()
 	if err := receipt.ValidateFor(batch); err != nil {
 		t.Fatal(err)
 	}

@@ -188,7 +188,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (history.Receip
 	if digest != batch.Digest() {
 		return history.Receipt{}, history.ErrAppendConflict
 	}
-	return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: digest}, nil
+	return batch.Receipt(), nil
 }
 
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {

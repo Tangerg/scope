@@ -180,7 +180,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (receipt histor
 		if digest != batch.Digest() {
 			return receipt, history.ErrAppendConflict
 		}
-		return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: digest}, nil
+		return batch.Receipt(), nil
 	case !errors.Is(err, pgx.ErrNoRows):
 		return receipt, fmt.Errorf("postgres: append: read receipt: %w", err)
 	}
@@ -194,7 +194,7 @@ func (s *Store) Append(ctx context.Context, batch history.Batch) (receipt histor
 	if err = transaction.Commit(ctx); err != nil {
 		return receipt, fmt.Errorf("postgres: append: commit: %w", err)
 	}
-	return history.Receipt{ConversationID: batch.ConversationID(), ID: batch.ID(), Digest: batch.Digest()}, nil
+	return batch.Receipt(), nil
 }
 
 func (s *Store) Read(ctx context.Context, conversationID history.ConversationID) ([]chat.Message, error) {
