@@ -218,9 +218,9 @@ func (e executionState) validateActiveCallState(ctx context.Context, definition 
 	return round.Batch.validateBindings(ctx, definition, active, round.calls()[round.nextCallIndex():], e.ModelCallCount)
 }
 
-// replaceModelContext and appendToContext take ownership of messages and keep
-// WorkingContext a valid model request. A failed check fails the Step, which
-// ends the Execution, so neither restores the previous context.
+// replaceModelContext takes ownership of a prepared context and admits it as a
+// whole model request. A failed check fails the Step, which ends the
+// Execution, so it never restores the previous context.
 func (e *executionState) replaceModelContext(messages []chat.Message) error {
 	e.WorkingContext.Messages = messages
 	if err := e.WorkingContext.Validate(); err != nil {
@@ -229,12 +229,12 @@ func (e *executionState) replaceModelContext(messages []chat.Message) error {
 	return nil
 }
 
-func (e *executionState) appendToContext(purpose string, messages ...chat.Message) error {
+// appendToContext takes ownership of messages admitted at their own boundary:
+// a validated model response, admitted tool results, collected steering, or
+// CompletionDecision feedback. None is a system message, so the context stays
+// a valid model request without revalidating every earlier message.
+func (e *executionState) appendToContext(messages ...chat.Message) {
 	e.WorkingContext.Messages = append(e.WorkingContext.Messages, messages...)
-	if err := e.WorkingContext.Validate(); err != nil {
-		return fmt.Errorf("%w: %s: %w", ErrInvalidExecutionState, purpose, err)
-	}
-	return nil
 }
 
 // addSteer queues steering collected from delivered Signals. Collection
@@ -252,16 +252,14 @@ func (e *executionState) addSteer(batch steerBatch) {
 	e.PendingSteer.SignalIDs = append(e.PendingSteer.SignalIDs, batch.SignalIDs...)
 }
 
-func (e *executionState) applyPendingSteer() ([]run.SignalID, error) {
+func (e *executionState) applyPendingSteer() []run.SignalID {
 	if e.PendingSteer == nil {
-		return nil, nil
+		return nil
 	}
-	if err := e.appendToContext("steered model request", e.PendingSteer.Messages...); err != nil {
-		return nil, err
-	}
+	e.appendToContext(e.PendingSteer.Messages...)
 	appliedSignalIDs := slices.Clone(e.PendingSteer.SignalIDs)
 	e.PendingSteer = nil
-	return appliedSignalIDs, nil
+	return appliedSignalIDs
 }
 
 func (e executionState) validateArtifacts(ctx context.Context, definition *definition) error {

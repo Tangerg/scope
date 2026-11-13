@@ -43,11 +43,7 @@ func (e *execution) startModelCall(ctx context.Context, turn run.Turn) (run.Tran
 	if err != nil {
 		return run.Transition{}, err
 	}
-	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	return e.requestModel(ctx, turn, consumed, appliedSteerSignalIDs)
+	return e.requestModel(ctx, turn, consumed, e.state.applyPendingSteer())
 }
 
 func (e *execution) continueToolRound(ctx context.Context, turn run.Turn) (run.Transition, error) {
@@ -159,11 +155,7 @@ func (e *execution) acceptContext(turn run.Turn) (run.Transition, error) {
 	applied := e.state.Preparation.Applied
 	e.state.Preparation = nil
 	e.state.addSteer(arrival.steer)
-	extra, err := e.state.applyPendingSteer()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	return e.emitModelCall(turn, arrival.consumed, append(applied, extra...))
+	return e.emitModelCall(turn, arrival.consumed, append(applied, e.state.applyPendingSteer()...))
 }
 
 // awaitPendingEffect keeps steering that arrived before the awaited settlement.
@@ -235,14 +227,8 @@ func (e *execution) acceptFinalModelResponse(
 			ModelCalls:    e.state.ModelCallCount,
 		}, []chat.Message{*message})
 	}
-	if err := e.state.appendToContext("steered final response", *message); err != nil {
-		return run.Transition{}, err
-	}
-	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	return e.requestModel(ctx, turn, consumedMessages, appliedSteerSignalIDs)
+	e.state.appendToContext(*message)
+	return e.requestModel(ctx, turn, consumedMessages, e.state.applyPendingSteer())
 }
 
 // complete admits an Output by the canonical payload encoding the Runtime
@@ -307,9 +293,7 @@ func (e *execution) finishOrRetry(
 		return e.complete(consumedMessages, output)
 	}
 	feedback := chat.NewUserMessage(chat.NewTextPart(decision.Feedback()))
-	if err := e.state.appendToContext("completion retry request", slices.Concat(completionContext, []chat.Message{feedback})...); err != nil {
-		return run.Transition{}, err
-	}
+	e.state.appendToContext(slices.Concat(completionContext, []chat.Message{feedback})...)
 	return e.requestModel(ctx, turn, consumedMessages, nil)
 }
 
@@ -350,14 +334,8 @@ func (e *execution) finishToolCallBatch(
 			ModelCalls:        e.state.ModelCallCount,
 		}, completionContext)
 	}
-	if err := e.state.appendToContext("continuation request", completionContext...); err != nil {
-		return run.Transition{}, err
-	}
-	appliedSteerSignalIDs, err := e.state.applyPendingSteer()
-	if err != nil {
-		return run.Transition{}, err
-	}
-	return e.requestModel(ctx, turn, consumedMessages, appliedSteerSignalIDs)
+	e.state.appendToContext(completionContext...)
+	return e.requestModel(ctx, turn, consumedMessages, e.state.applyPendingSteer())
 }
 
 func collectSteerSignals(messages []run.Message) (steerBatch, uint32, error) {
