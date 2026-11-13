@@ -57,7 +57,7 @@ func NewToolSet(config ToolSetConfig) (ToolSet, error) {
 			return ToolSet{}, fmt.Errorf("%w: DeferredTools[%d]: %w", ErrInvalidToolSet, index, err)
 		}
 	}
-	return ToolSet{dispatcher: dispatcher, revision: config.Revision, requiredCapabilities: config.RequiredCapabilities, maxConcurrentCalls: max(1, config.MaxConcurrentCalls)}, nil
+	return ToolSet{dispatcher: dispatcher, revision: config.Revision, requiredCapabilities: config.RequiredCapabilities, maxConcurrentCalls: config.MaxConcurrentCalls}, nil
 }
 
 func (t ToolSet) Configured() bool { return t.dispatcher != nil }
