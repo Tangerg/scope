@@ -125,7 +125,7 @@ func TestCompletionCancellationDoesNotCommitACandidate(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	definition := mustValue(newDefinition(Config{Name: "test.validator.cancel", Description: "Honor cancellation before accepting output.", CompletionValidator: func(context.Context, CompletionCandidate) (CompletionDecision, error) {
 		cancel()
-		return CompletionDecision{Accepted: true}, nil
+		return AcceptCompletion(), nil
 	}}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)

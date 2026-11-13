@@ -18,6 +18,8 @@ var (
 	ErrInvalidToolSet           = errors.New("interaction: invalid tool set")
 	ErrInvalidDelegate          = errors.New("interaction: invalid delegate")
 	ErrInvalidInput             = errors.New("interaction: invalid input")
+
+	ErrInvalidCompletionDecision = errors.New("interaction: invalid completion decision")
 )
 
 // Execution sentinels own the Failure persisted when they reach Step. Wrapping

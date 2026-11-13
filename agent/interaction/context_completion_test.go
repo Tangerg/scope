@@ -192,13 +192,13 @@ func TestCompletionValidatorRetriesWithOwnedCandidateCopies(t *testing.T) {
 			if candidate.Output().DirectToolResults[0].ID == "mutated" {
 				return CompletionDecision{}, errors.New("direct result aliases candidate")
 			}
-			return CompletionDecision{Feedback: "Explain the evidence."}, nil
+			return RejectCompletion("Explain the evidence.")
 		}
 		output.ModelResponse.Output.Message = nil
 		if candidate.Output().ModelResponse.Text() != "explained" {
 			return CompletionDecision{}, errors.New("response aliases candidate")
 		}
-		return CompletionDecision{Accepted: true}, nil
+		return AcceptCompletion(), nil
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -242,7 +242,7 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 			return CompletionDecision{}, errors.New("evidence cannot be validated")
 		}, run.FailureKindExecution, failureCodeInteractionCompletionValidatorFailed},
 		{"bounded retry", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
-			return CompletionDecision{Feedback: "Add evidence."}, nil
+			return RejectCompletion("Add evidence.")
 		}, run.FailureKindExecution, failureCodeInteractionLimitModelCalls},
 	} {
 		t.Run(row.name, func(t *testing.T) {
@@ -265,14 +265,18 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 }
 
 func TestCompletionDecisionRejectsAmbiguousOrUnboundedFeedback(t *testing.T) {
-	for _, decision := range []CompletionDecision{{Accepted: true}, {Feedback: "Add evidence."}, {Feedback: "补充证据"}, {Feedback: strings.Repeat("界", 1365) + "a"}} {
-		if !decision.Valid() {
-			t.Fatalf("valid decision rejected: %+v", decision)
+	if !AcceptCompletion().Valid() || (CompletionDecision{}).Valid() {
+		t.Fatal("acceptance or the zero decision was misclassified")
+	}
+	for _, feedback := range []string{"Add evidence.", "补充证据", strings.Repeat("界", 1365) + "a"} {
+		decision, err := RejectCompletion(feedback)
+		if err != nil || !decision.Valid() || decision.Accepted() || decision.Feedback() != feedback {
+			t.Fatalf("RejectCompletion(%q) = %+v, %v", feedback, decision, err)
 		}
 	}
-	for _, decision := range []CompletionDecision{{}, {Accepted: true, Feedback: "unused"}, {Feedback: " retry"}, {Feedback: "\xff"}, {Feedback: strings.Repeat("界", 1366)}} {
-		if decision.Valid() {
-			t.Fatalf("invalid decision admitted: %+v", decision)
+	for _, feedback := range []string{"", " retry", "\xff", strings.Repeat("界", 1366)} {
+		if _, err := RejectCompletion(feedback); !errors.Is(err, ErrInvalidCompletionDecision) {
+			t.Fatalf("RejectCompletion(%q) error = %v", feedback, err)
 		}
 	}
 }

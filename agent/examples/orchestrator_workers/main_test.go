@@ -77,7 +77,7 @@ func newPlanningDelegateRoot(
 func validatePlanningCompletion(_ context.Context, candidate interaction.CompletionCandidate) (interaction.CompletionDecision, error) {
 	artifacts := candidate.Artifacts()
 	if len(artifacts) != 2 {
-		return interaction.CompletionDecision{Feedback: "Complete both planned review tasks."}, nil
+		return interaction.RejectCompletion("Complete both planned review tasks.")
 	}
 	for index, artifact := range artifacts {
 		output, err := artifact.Output().Decode[planning.Output]()
@@ -88,7 +88,7 @@ func validatePlanningCompletion(_ context.Context, candidate interaction.Complet
 			return interaction.CompletionDecision{}, fmt.Errorf("planning artifact %d was not achieved", index)
 		}
 	}
-	return interaction.CompletionDecision{Accepted: true}, nil
+	return interaction.AcceptCompletion(), nil
 }
 
 func runPlanningDelegate(t *testing.T, runtime *agentrun.Runtime, root agentrun.Program[agentrun.Payload, agentrun.Payload]) agentrun.Result[agentrun.Payload] {

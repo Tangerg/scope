@@ -2,15 +2,12 @@ package interaction
 
 import (
 	"context"
+	"fmt"
 	"slices"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 )
-
-const maxCompletionFeedbackBytes = 4096
 
 // Artifact is one successful, schema-validated Delegate output, identified by
 // its exact Delegate binding rather than a Go type.
@@ -67,22 +64,29 @@ func (c CompletionCandidate) Output() Output { return c.output.clone() }
 // in original model ToolCall order across model calls. Each Artifact is immutable.
 func (c CompletionCandidate) Artifacts() []Artifact { return slices.Clone(c.artifacts) }
 
-// CompletionDecision is the explicit result of a CompletionValidator.
-// Accepted=true requires empty Feedback. Accepted=false requires concise,
-// non-empty Feedback that will be appended as a user message before the next
-// model call.
+// CompletionDecision is the explicit result of a CompletionValidator. Its zero
+// value is invalid.
 type CompletionDecision struct {
-	Accepted bool
-	Feedback string
+	accepted bool
+	feedback string
 }
 
-func (c CompletionDecision) Valid() bool {
-	if c.Accepted {
-		return c.Feedback == ""
+func AcceptCompletion() CompletionDecision { return CompletionDecision{accepted: true} }
+
+// RejectCompletion carries Feedback that is appended as a user message before
+// the next model call, so it must be concise, trimmed and non-empty.
+func RejectCompletion(feedback string) (CompletionDecision, error) {
+	if !run.ValidDiagnostic(feedback) {
+		return CompletionDecision{}, fmt.Errorf("%w: completion feedback must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidCompletionDecision, run.MaxDiagnosticBytes)
 	}
-	return utf8.ValidString(c.Feedback) && c.Feedback != "" && strings.TrimSpace(c.Feedback) == c.Feedback &&
-		len(c.Feedback) <= maxCompletionFeedbackBytes
+	return CompletionDecision{feedback: feedback}, nil
 }
+
+func (c CompletionDecision) Accepted() bool { return c.accepted }
+
+func (c CompletionDecision) Feedback() string { return c.feedback }
+
+func (c CompletionDecision) Valid() bool { return c.accepted || c.feedback != "" }
 
 // CompletionValidator decides whether a model or direct-Tool candidate is a
 // valid semantic completion. It must be bounded, deterministic and

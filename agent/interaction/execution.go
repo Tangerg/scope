@@ -274,7 +274,7 @@ func (e *execution) finishOrRetry(
 	output Output,
 	completionContext []chat.Message,
 ) (run.Transition, error) {
-	decision := CompletionDecision{Accepted: true}
+	decision := AcceptCompletion()
 	if e.definition.completionValidator != nil {
 		candidate := CompletionCandidate{
 			workingContext: e.state.WorkingContext.request(),
@@ -303,10 +303,10 @@ func (e *execution) finishOrRetry(
 			"CompletionValidator returned an invalid decision",
 		)
 	}
-	if decision.Accepted {
+	if decision.Accepted() {
 		return e.complete(consumedMessages, output)
 	}
-	feedback := chat.NewUserMessage(chat.NewTextPart(decision.Feedback))
+	feedback := chat.NewUserMessage(chat.NewTextPart(decision.Feedback()))
 	if err := e.state.appendToContext("completion retry request", slices.Concat(completionContext, []chat.Message{feedback})...); err != nil {
 		return run.Transition{}, err
 	}

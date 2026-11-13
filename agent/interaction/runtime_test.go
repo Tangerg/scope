@@ -496,7 +496,7 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 		if decodeErr != nil || value.Value != 6 {
 			return CompletionDecision{}, errors.New("artifact output changed")
 		}
-		return CompletionDecision{Accepted: true}, nil
+		return AcceptCompletion(), nil
 	}})
 	handle := startInteraction(t, runtime, program)
 	awaitOutput(t, handle)

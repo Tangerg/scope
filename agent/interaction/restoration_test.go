@@ -31,7 +31,7 @@ func TestDelegateArtifactsRestoreWithTheOriginalCallOrder(t *testing.T) {
 		if candidate.Artifacts()[0].ToolCallID() != "first" {
 			return CompletionDecision{}, errors.New("artifact projection aliases state")
 		}
-		return CompletionDecision{Accepted: true}, nil
+		return AcceptCompletion(), nil
 	}}))
 	models := 0
 	dispatcher := mustValue(newDispatcher(definition, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
