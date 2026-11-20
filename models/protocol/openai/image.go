@@ -41,11 +41,8 @@ type ImageModelConfig struct {
 }
 
 func (i ImageModelConfig) Validate() error {
-	if err := validateBinding(i.Provider, i.APIKey, i.BaseURL); err != nil {
+	if err := validateBinding(i.Provider, i.APIKey, i.BaseURL, i.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if i.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := i.DefaultOptions.Validate(); err != nil {
 		return err
@@ -197,7 +194,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := i.api.image(ctx, apiReq)
+	apiResp, err := i.api.image(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

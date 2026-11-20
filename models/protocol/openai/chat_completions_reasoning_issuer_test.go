@@ -49,7 +49,7 @@ func TestReasoningDetailsReplayOnlyIssuerPlainText(t *testing.T) {
 				fmt.Fprint(writer, "data: {\"id\":\"response\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"content\":\"answer\"}}]}\n\ndata: [DONE]\n\n")
 			}))
 			t.Cleanup(server.Close)
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 				APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: chat.Options{Model: "model"},
 			}, openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
 				TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,

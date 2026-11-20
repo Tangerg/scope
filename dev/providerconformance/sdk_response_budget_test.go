@@ -173,7 +173,7 @@ func boundedJSONCalls() []responseBudgetCall {
 			return err
 		}},
 		{name: "openai token count", attempts: 1, call: func(ctx context.Context, client *http.Client) error {
-			model, err := openai.NewResponses(ctx, openai.ResponsesConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
+			model, err := openai.NewResponses(ctx, openai.ChatModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
 			if err != nil {
 				return err
 			}
@@ -247,7 +247,7 @@ func TestLumaPollMetadataUsesTheSameJSONBudget(t *testing.T) {
 func sdkStreamingCalls() []responseBudgetCall {
 	return []responseBudgetCall{
 		{name: "openai chat", attempts: 1, call: func(ctx context.Context, client *http.Client) error {
-			model, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
+			model, err := openai.NewChatCompletions(ctx, openai.ChatModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
 			if err != nil {
 				return err
 			}
@@ -255,7 +255,7 @@ func sdkStreamingCalls() []responseBudgetCall {
 			return err
 		}},
 		{name: "openai responses", attempts: 1, call: func(ctx context.Context, client *http.Client) error {
-			model, err := openai.NewResponses(ctx, openai.ResponsesConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
+			model, err := openai.NewResponses(ctx, openai.ChatModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt"}})
 			if err != nil {
 				return err
 			}
@@ -330,7 +330,7 @@ func TestSSEBudgetResetsBetweenWireEvents(t *testing.T) {
 			strings.NewReader("data: {\"id\":\"m\",\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"),
 		)
 	}}
-	model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: &http.Client{Transport: transport}, DefaultOptions: chat.Options{Model: "gpt"}})
+	model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: responseBudgetEndpoint, HTTPClient: &http.Client{Transport: transport}, DefaultOptions: chat.Options{Model: "gpt"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,11 +23,8 @@ type EmbeddingModelConfig struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if err := validateBinding(e.Provider, e.APIKey, e.BaseURL); err != nil {
+	if err := validateBinding(e.Provider, e.APIKey, e.BaseURL, e.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if e.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err
@@ -154,7 +151,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := e.api.embedding(ctx, apiReq)
+	apiResp, err := e.api.embedding(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

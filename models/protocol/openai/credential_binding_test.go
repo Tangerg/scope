@@ -14,11 +14,15 @@ func TestMetadataCannotReplaceBoundOpenAICredentials(t *testing.T) {
 				transport := new(bindingTransport)
 				client := &http.Client{Transport: transport}
 				headers := http.Header{name: values}
-				chatModel, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "bound-key", BaseURL: "https://api.example", HTTPClient: client, Headers: headers}, testChatDialect())
+				config := openai.ChatModelConfig{APIKey: "bound-key", BaseURL: "https://api.example", HTTPClient: client, Headers: headers}
+				if err := config.Validate(); err == nil {
+					t.Fatal("Validate accepted credential metadata")
+				}
+				chatModel, err := openai.NewChatCompletions(t.Context(), config, testChatDialect())
 				if err == nil || chatModel != nil {
 					t.Fatalf("chat accepted credential metadata: model=%v error=%v", chatModel, err)
 				}
-				responses, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "bound-key", BaseURL: "https://api.example", HTTPClient: client, Headers: headers}, testResponsesDialect())
+				responses, err := openai.NewResponses(t.Context(), config, testResponsesDialect())
 				if err == nil || responses != nil {
 					t.Fatalf("Responses accepted credential metadata: model=%v error=%v", responses, err)
 				}
@@ -31,10 +35,11 @@ func TestMetadataCannotReplaceBoundOpenAICredentials(t *testing.T) {
 }
 
 func TestMetadataRejectsAmbiguousHeaderCasing(t *testing.T) {
-	_, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
-		APIKey: "key", BaseURL: "https://api.example", Headers: http.Header{"X-App": {"one"}, "x-app": {"two"}},
-	}, testChatDialect())
-	if err == nil {
+	config := openai.ChatModelConfig{APIKey: "key", BaseURL: "https://api.example", Headers: http.Header{"X-App": {"one"}, "x-app": {"two"}}}
+	if err := config.Validate(); err == nil {
+		t.Fatal("Validate accepted a duplicate canonical metadata header")
+	}
+	if _, err := openai.NewChatCompletions(t.Context(), config, testChatDialect()); err == nil {
 		t.Fatal("duplicate canonical metadata header was accepted")
 	}
 }

@@ -34,8 +34,8 @@ func (c ChatCompletionsConfig) Validate() error {
 	return nil
 }
 
-func (c ChatCompletionsConfig) protocol() openai.ChatCompletionsConfig {
-	return openai.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
+func (c ChatCompletionsConfig) protocol() openai.ChatModelConfig {
+	return openai.ChatModelConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURL), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {

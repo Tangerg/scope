@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"iter"
 	"maps"
-	"net/http"
 	"slices"
 
 	openaisdk "github.com/openai/openai-go/v3"
@@ -25,26 +24,6 @@ const (
 	StreamChunkExtensionKey = ProviderID + "/stream_chunk"
 )
 
-// DefaultOptions are copied during construction; callers may select the model
-// per request.
-type ChatCompletionsConfig struct {
-	APIKey         string
-	DefaultOptions corechat.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-	Headers        http.Header
-}
-
-func (c ChatCompletionsConfig) Validate() error {
-	if err := (apiConfig{APIKey: c.APIKey, BaseURL: c.BaseURL}).validate(); err != nil {
-		return err
-	}
-	if err := c.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("openai: default options: %w", err)
-	}
-	return nil
-}
-
 var (
 	_ corechat.Model    = (*ChatCompletions)(nil)
 	_ corechat.Streamer = (*ChatCompletions)(nil)
@@ -58,9 +37,14 @@ type ChatCompletions struct {
 	dialect  chatDialect
 }
 
+const (
+	streamOptionsField = "stream_options"
+	includeUsageField  = "include_usage"
+)
+
 func RequestStreamUsage(_ *corechat.Request, target *CompatibleRequest) error {
 	options := make(map[string]any)
-	if value, supplied := target.extraFields["stream_options"]; supplied {
+	if value, supplied := target.extraFields[streamOptionsField]; supplied {
 		if value == nil {
 			return nil
 		}
@@ -70,17 +54,17 @@ func RequestStreamUsage(_ *corechat.Request, target *CompatibleRequest) error {
 		}
 		maps.Copy(options, fields)
 	}
-	if value, supplied := options["include_usage"]; supplied {
+	if value, supplied := options[includeUsageField]; supplied {
 		if _, ok := value.(bool); !ok {
 			return errors.New("openai: stream_options.include_usage must be a boolean")
 		}
 	} else {
-		options["include_usage"] = true
+		options[includeUsageField] = true
 	}
-	return target.SetExtraField("stream_options", options)
+	return target.SetExtraField(streamOptionsField, options)
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, dialect DialectConfig) (*ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatModelConfig, dialect DialectConfig) (*ChatCompletions, error) {
 	if err := requireBindingEndpoint(dialect.Provider, config.BaseURL); err != nil {
 		return nil, err
 	}
@@ -91,12 +75,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig, diale
 	if err != nil {
 		return nil, fmt.Errorf("openai: dialect: %w", err)
 	}
-	api, err := newAPI(ctx, apiConfig{
-		APIKey:     config.APIKey,
-		BaseURL:    config.BaseURL,
-		HTTPClient: config.HTTPClient,
-		Headers:    config.Headers,
-	})
+	api, err := newAPI(ctx, config.api())
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +112,7 @@ func (c *ChatCompletions) Stream(ctx context.Context, req *corechat.Request) ite
 			return
 		}
 
-		stream, err := c.api.chatCompletionStream(ctx, params)
-		if err != nil {
-			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
-			return
-		}
+		stream := c.api.chatCompletionStream(ctx, *params)
 		defer stream.Close()
 
 		state := newOpenAIStreamState(c.dialect)

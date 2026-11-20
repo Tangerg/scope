@@ -25,11 +25,8 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) Validate() error {
-	if err := validateBinding(s.Provider, s.APIKey, s.BaseURL); err != nil {
+	if err := validateBinding(s.Provider, s.APIKey, s.BaseURL, s.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if s.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err
@@ -140,7 +137,7 @@ func (s *SpeechModel) Stream(ctx context.Context, req *speech.Request) iter.Seq2
 			return
 		}
 
-		apiResp, err := s.api.speech(ctx, apiReq)
+		apiResp, err := s.api.speech(ctx, *apiReq)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return

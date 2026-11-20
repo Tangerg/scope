@@ -169,7 +169,7 @@ func newToolStreamModel(t *testing.T, toolDeltas []string) corechat.Streamer {
 	}))
 	t.Cleanup(server.Close)
 
-	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatModelConfig{
 		APIKey:         "test-key",
 		BaseURL:        server.URL,
 		DefaultOptions: corechat.Options{Model: "gpt-5.2"},

@@ -74,7 +74,7 @@ func TestChatTopKHasOneCoreOwner(t *testing.T) {
 					return target.SetExtraField("seed", 5)
 				},
 			}
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model", TopK: test.defaultTopK}}, dialect)
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model", TopK: test.defaultTopK}}, dialect)
 			if err != nil {
 				t.Fatal(err)
 			}

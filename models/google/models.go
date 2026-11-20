@@ -119,7 +119,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		return nil, err
 	}
 	protocol, err := openaiprotocol.NewChatCompletions(ctx,
-		openaiprotocol.ChatCompletionsConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
+		openaiprotocol.ChatModelConfig{APIKey: config.APIKey, DefaultOptions: config.DefaultOptions, BaseURL: cmp.Or(config.BaseURL, BaseURLOpenAI), HTTPClient: config.HTTPClient},
 		openaiprotocol.DialectConfig{Provider: Provider, TokenLimitField: openaiprotocol.TokenLimitMaxTokens},
 	)
 	if err != nil {

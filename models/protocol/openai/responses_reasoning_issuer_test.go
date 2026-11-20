@@ -25,7 +25,7 @@ func TestResponsesReasoningReplaysOnlyToItsIssuer(t *testing.T) {
 				_, _ = fmt.Fprint(writer, "data: "+`{"type":"response.completed","response":{"id":"origin","model":"model","status":"completed","output":[`+item+`]}}`+"\n\n")
 			}))
 			defer origin.Close()
-			source, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{
+			source, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{
 				APIKey: "source-key", BaseURL: origin.URL, DefaultOptions: chat.Options{Model: "model"},
 			}, openai.ResponsesDialect{Provider: issuer})
 			if err != nil {
@@ -65,7 +65,7 @@ func TestResponsesReasoningReplaysOnlyToItsIssuer(t *testing.T) {
 						_, _ = fmt.Fprint(writer, "data: "+`{"type":"response.completed","response":{"id":"destination","model":"model","status":"completed","output":[]}}`+"\n\n")
 					}))
 					defer destination.Close()
-					target, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{
+					target, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{
 						APIKey: "target-key", BaseURL: destination.URL, DefaultOptions: chat.Options{Model: "model"},
 					}, openai.ResponsesDialect{Provider: provider})
 					if err != nil {

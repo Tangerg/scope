@@ -172,10 +172,10 @@ func invocationBoundaryBindings(t *testing.T) []invocationBoundaryBinding {
 	}
 	return []invocationBoundaryBinding{
 		{name: "openai-chat-completions", retry: true, create: func(client *http.Client) func(bool) error {
-			return chatCall(openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}}))
+			return chatCall(openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}}))
 		}},
 		{name: "openai-responses", retry: true, create: func(client *http.Client) func(bool) error {
-			return chatCall(openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}}))
+			return chatCall(openai.NewResponses(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}}))
 		}},
 		{name: "anthropic-messages", retry: true, create: func(client *http.Client) func(bool) error {
 			return chatCall(anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "claude-sonnet-4-6"}}))
@@ -413,7 +413,7 @@ func TestGeneratedChatTextCannotBorrowLaterReadFailureEvidence(t *testing.T) {
 				body := io.NopCloser(io.MultiReader(strings.NewReader("data: {\"id\":\"response\",\"model\":\"test-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"already generated\"}}]}\n\n"), invocationBoundaryBody{cause: &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: sentinel}}))
 				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body, Request: request}, nil
 			})}
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "test-model"}})
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "test-model"}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -449,10 +449,10 @@ func TestForeignMetadataOnlyAssistantCannotDisappearFromReplay(t *testing.T) {
 		create func(*http.Client) (chat.Model, error)
 	}{
 		{"openai-chat-completions", func(client *http.Client) (chat.Model, error) {
-			return openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}})
+			return openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}})
 		}},
 		{"openai-responses", func(client *http.Client) (chat.Model, error) {
-			return openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}})
+			return openai.NewResponses(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "gpt-5"}})
 		}},
 		{"anthropic-messages", func(client *http.Client) (chat.Model, error) {
 			return anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", HTTPClient: client, DefaultOptions: chat.Options{Model: "claude-sonnet-4-6"}})

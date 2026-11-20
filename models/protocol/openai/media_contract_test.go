@@ -50,7 +50,7 @@ func TestChatAudioRetainsPayloadAndReplayIdentity(t *testing.T) {
 				fmt.Fprint(writer, "data: [DONE]\n\n")
 			}))
 			defer server.Close()
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 				APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "audio-model"},
 			}, testChatDialect(),
 			)
@@ -145,7 +145,7 @@ func TestChatMediaInputWireContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			value.Name = "file.pdf"
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "test-model"}}, testChatDialect())
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "test-model"}}, testChatDialect())
 			if err != nil {
 				t.Fatal(err)
 			}

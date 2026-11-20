@@ -25,7 +25,7 @@ func ExampleResponses_ListModels() {
 		_, _ = io.WriteString(writer, `{"error":{"message":"slow down","type":"rate_limit_error"}}`)
 	}))
 	defer server.Close()
-	model, err := openai.NewResponses(context.Background(), openai.ResponsesConfig{
+	model, err := openai.NewResponses(context.Background(), openai.ChatModelConfig{
 		APIKey: "test-key", BaseURL: server.URL + "/v1", HTTPClient: server.Client(),
 	}, testResponsesDialect(),
 	)

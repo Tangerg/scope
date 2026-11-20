@@ -63,10 +63,10 @@ func newChatBinding(t *testing.T, ctx context.Context, entry chatcheck.Entry, cl
 	var streamer chat.Streamer
 	switch entry.ID {
 	case "openai-chat":
-		adapter, constructErr := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: key, BaseURL: entry.BaseURL, HTTPClient: client, DefaultOptions: chat.Options{Model: modelID}})
+		adapter, constructErr := openai.NewChatCompletions(ctx, openai.ChatModelConfig{APIKey: key, BaseURL: entry.BaseURL, HTTPClient: client, DefaultOptions: chat.Options{Model: modelID}})
 		err, model, streamer = constructErr, adapter, adapter
 	case "openai-responses":
-		adapter, constructErr := openai.NewResponses(ctx, openai.ResponsesConfig{APIKey: key, BaseURL: entry.BaseURL, HTTPClient: client, DefaultOptions: chat.Options{Model: modelID}})
+		adapter, constructErr := openai.NewResponses(ctx, openai.ChatModelConfig{APIKey: key, BaseURL: entry.BaseURL, HTTPClient: client, DefaultOptions: chat.Options{Model: modelID}})
 		err, model, streamer = constructErr, adapter, adapter
 	case "anthropic-messages":
 		adapter, constructErr := anthropic.NewMessages(ctx, anthropic.MessagesConfig{APIKey: key, BaseURL: entry.BaseURL, HTTPClient: client, DefaultOptions: chat.Options{Model: modelID}})

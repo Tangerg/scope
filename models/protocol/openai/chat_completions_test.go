@@ -32,7 +32,7 @@ func newCoreChatModel(t *testing.T) (corechat.Model, corechat.Streamer) {
 	server := newCoreChatServer(t)
 	t.Cleanup(server.Close)
 	adapter, err := scopeopenai.NewChatCompletions(t.Context(),
-		scopeopenai.ChatCompletionsConfig{
+		scopeopenai.ChatModelConfig{
 			APIKey:         "test-key",
 			DefaultOptions: corechat.Options{Model: "gpt-default-must-be-overridden"},
 			BaseURL:        server.URL,
@@ -135,7 +135,7 @@ func assertCoreChatAggregated(t *testing.T, response *corechat.Response) {
 func TestCompatibleChatRejectsMultipleProviderChoices(t *testing.T) {
 	server := modeltest.OpenAISSEServer([]string{`{ "id":"chatcmpl-multiple","model":"gpt-5.2","choices":[ {"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":"first"}}, {"index":1,"finish_reason":"stop","delta":{"role":"assistant","content":"second"}} ] }`})
 	t.Cleanup(server.Close)
-	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatModelConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"},
 	}, scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 	if err != nil {
@@ -157,7 +157,7 @@ func TestCompatibleChatRejectsResultCountOption(t *testing.T) {
 				t.Error("result count reached provider transport")
 			})
 			t.Cleanup(server.Close)
-			config := scopeopenai.ChatCompletionsConfig{
+			config := scopeopenai.ChatModelConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "test-model"},
 			}
 			dialect := scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens}

@@ -22,7 +22,7 @@ func TestProtocolHTTPDefaultsPreserveHeaderDeadline(t *testing.T) {
 		call func(context.Context, *http.Client) error
 	}{
 		{name: "openai", call: func(ctx context.Context, client *http.Client) error {
-			model, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: "test-key", BaseURL: "http://scope.test", HTTPClient: client})
+			model, err := openai.NewChatCompletions(ctx, openai.ChatModelConfig{APIKey: "test-key", BaseURL: "http://scope.test", HTTPClient: client})
 			if err != nil {
 				return err
 			}

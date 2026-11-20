@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -23,11 +22,8 @@ type AudioTranslationModelConfig struct {
 }
 
 func (a AudioTranslationModelConfig) Validate() error {
-	if err := validateBinding(a.Provider, a.APIKey, a.BaseURL); err != nil {
+	if err := validateBinding(a.Provider, a.APIKey, a.BaseURL, a.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if a.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := a.DefaultOptions.Validate(); err != nil {
 		return err
@@ -113,7 +109,7 @@ func (a *AudioTranslationModel) Call(ctx context.Context, req *transcription.Req
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := a.api.translation(ctx, apiReq)
+	apiResp, err := a.api.translation(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

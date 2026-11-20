@@ -122,7 +122,7 @@ func TestResponsesRejectsCoreOwnedExtensions(t *testing.T) {
 				if err := options.Extensions.Set(openai.ResponsesRequestExtensionKey, test.fields); err != nil {
 					t.Fatal(err)
 				}
-				config := openai.ResponsesConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}}
+				config := openai.ChatModelConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", DefaultOptions: chat.Options{Model: "test-model"}}
 				request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("hello"))}}
 				if defaults {
 					config.DefaultOptions.Extensions = options.Extensions

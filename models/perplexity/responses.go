@@ -19,8 +19,8 @@ type ResponsesConfig struct {
 
 func (r ResponsesConfig) Validate() error { return r.protocol().Validate() }
 
-func (r ResponsesConfig) protocol() openai.ResponsesConfig {
-	return openai.ResponsesConfig{APIKey: r.APIKey, DefaultOptions: r.DefaultOptions, BaseURL: cmp.Or(r.BaseURL, BaseURL), HTTPClient: r.HTTPClient}
+func (r ResponsesConfig) protocol() openai.ChatModelConfig {
+	return openai.ChatModelConfig{APIKey: r.APIKey, DefaultOptions: r.DefaultOptions, BaseURL: cmp.Or(r.BaseURL, BaseURL), HTTPClient: r.HTTPClient}
 }
 
 // Responses implements Perplexity's Agent API through its officially supported

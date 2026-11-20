@@ -2,7 +2,6 @@ package openai
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -22,11 +21,8 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) Validate() error {
-	if err := validateBinding(t.Provider, t.APIKey, t.BaseURL); err != nil {
+	if err := validateBinding(t.Provider, t.APIKey, t.BaseURL, t.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if t.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err
@@ -111,7 +107,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := t.api.transcription(ctx, apiReq)
+	apiResp, err := t.api.transcription(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

@@ -14,14 +14,14 @@ import (
 func TestUnsupportedOutputSchemaDoesNotDispatch(t *testing.T) {
 	boundary := new(numericTransport)
 	client := &http.Client{Transport: boundary}
-	chatModel, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+	chatModel, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 		APIKey: "test", BaseURL: "https://provider.example.test", HTTPClient: client,
 		DefaultOptions: chat.Options{Model: "test"},
 	}, testChatDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
-	responsesModel, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{
+	responsesModel, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{
 		APIKey: "test", BaseURL: "https://provider.example.test", HTTPClient: client,
 		DefaultOptions: chat.Options{Model: "test"},
 	}, testResponsesDialect())

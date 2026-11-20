@@ -9,7 +9,7 @@ import (
 )
 
 func ExampleNewChatCompletions() {
-	model, err := openai.NewChatCompletions(context.Background(), openai.ChatCompletionsConfig{
+	model, err := openai.NewChatCompletions(context.Background(), openai.ChatModelConfig{
 		APIKey:         "example-key",
 		DefaultOptions: chat.Options{Model: "example-model"},
 	})

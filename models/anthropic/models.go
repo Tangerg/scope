@@ -50,8 +50,8 @@ type ChatCompletionsConfig struct {
 
 func (c ChatCompletionsConfig) Validate() error { return c.protocol().Validate() }
 
-func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
-	return openaiprotocol.ChatCompletionsConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURLOpenAI), HTTPClient: c.HTTPClient}
+func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatModelConfig {
+	return openaiprotocol.ChatModelConfig{APIKey: c.APIKey, DefaultOptions: c.DefaultOptions, BaseURL: cmp.Or(c.BaseURL, BaseURLOpenAI), HTTPClient: c.HTTPClient}
 }
 
 func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*corechat.StreamModel, error) {

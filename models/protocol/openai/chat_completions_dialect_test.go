@@ -48,7 +48,7 @@ func TestChatCompletionsOwnsDialectPolicy(t *testing.T) {
 			dialect := scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens, MaxTemperature: &limit, IgnoredOptions: ignored}
 			var models [2]*scopeopenai.ChatCompletions
 			for index := range models {
-				model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+				model, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatModelConfig{
 					APIKey: "test-key", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "model"},
 				}, dialect)
 				if err != nil {
@@ -92,7 +92,7 @@ func testTextReasoningDialect(t *testing.T, test textReasoningDialectCase) {
 	server := newTextReasoningServer(t, test.responseField, &requestBody)
 	t.Cleanup(server.Close)
 
-	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatCompletionsConfig{
+	adapter, err := scopeopenai.NewChatCompletions(t.Context(), scopeopenai.ChatModelConfig{
 		APIKey:         "test-key",
 		DefaultOptions: corechat.Options{Model: "provider-model"},
 		BaseURL:        server.URL,
@@ -168,15 +168,15 @@ func assertTextReasoningReplay(t *testing.T, assistant map[string]any, wantField
 func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 	tests := []struct {
 		name      string
-		construct func(context.Context, scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error)
+		construct func(context.Context, scopeopenai.ChatModelConfig) (*scopeopenai.ChatCompletions, error)
 		wantField string
 	}{
-		{name: "native", construct: func(ctx context.Context, config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
+		{name: "native", construct: func(ctx context.Context, config scopeopenai.ChatModelConfig) (*scopeopenai.ChatCompletions, error) {
 			return scopeopenai.NewChatCompletions(ctx, config, testChatDialect())
 		}, wantField: "max_completion_tokens"},
 		{
 			name: "compatible",
-			construct: func(ctx context.Context, config scopeopenai.ChatCompletionsConfig) (*scopeopenai.ChatCompletions, error) {
+			construct: func(ctx context.Context, config scopeopenai.ChatModelConfig) (*scopeopenai.ChatCompletions, error) {
 				return scopeopenai.NewChatCompletions(ctx, config, scopeopenai.DialectConfig{Provider: "test", TokenLimitField: scopeopenai.TokenLimitMaxTokens})
 			},
 			wantField: "max_tokens",
@@ -198,7 +198,7 @@ func TestChatTokenLimitFieldMatchesProtocol(t *testing.T) {
 			t.Cleanup(server.Close)
 
 			maxTokens := int64(321)
-			adapter, err := test.construct(t.Context(), scopeopenai.ChatCompletionsConfig{
+			adapter, err := test.construct(t.Context(), scopeopenai.ChatModelConfig{
 				APIKey: "test-key",
 				DefaultOptions: corechat.Options{
 					Model:           "model",

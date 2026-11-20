@@ -34,7 +34,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 	if err != nil {
 		return nil, err
 	}
-	protocol, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.DialectConfig{
+	protocol, err := openai.NewChatCompletions(ctx, openai.ChatModelConfig{APIKey: endpoint.apiKey, DefaultOptions: config.DefaultOptions, BaseURL: endpoint.baseURL, HTTPClient: endpoint.httpClient}, openai.DialectConfig{
 		Provider: Provider,
 		// Azure documents that reasoning models "will only work with the
 		// max_completion_tokens parameter when using the Chat Completions

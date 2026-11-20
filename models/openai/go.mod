@@ -5,6 +5,7 @@ go 1.27.4
 require (
 	github.com/Tangerg/scope/core v0.62.0
 	github.com/Tangerg/scope/models/protocol/openai v0.62.0
+	github.com/openai/openai-go/v3 v3.91.0
 )
 
 require (
@@ -13,7 +14,6 @@ require (
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
-	github.com/openai/openai-go/v3 v3.91.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/samber/lo v1.53.0 // indirect

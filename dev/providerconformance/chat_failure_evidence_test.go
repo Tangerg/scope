@@ -19,10 +19,10 @@ import (
 func TestChatLocalRejectionPreservesNonExecutionEvidence(t *testing.T) {
 	for name, create := range map[string]func(*testing.T, string) (chat.Model, error){
 		"openai-chat": func(t *testing.T, url string) (chat.Model, error) {
-			return openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", BaseURL: url, DefaultOptions: chat.Options{Model: "test"}})
+			return openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: url, DefaultOptions: chat.Options{Model: "test"}})
 		},
 		"openai-responses": func(t *testing.T, url string) (chat.Model, error) {
-			return openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", BaseURL: url, DefaultOptions: chat.Options{Model: "test"}})
+			return openai.NewResponses(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: url, DefaultOptions: chat.Options{Model: "test"}})
 		},
 		"anthropic": func(t *testing.T, url string) (chat.Model, error) {
 			return anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test", BaseURL: url, DefaultOptions: chat.Options{Model: "test", MaxOutputTokens: new(int64(32))}})

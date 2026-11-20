@@ -15,26 +15,30 @@ import (
 
 const Provider = openaiprotocol.ProviderID
 
-// Construction does no network I/O; per-call overrides remain in chat.Request.
-type ChatCompletionsConfig struct {
+// ChatModelConfig configures both chat endpoints. Construction does no network
+// I/O, and per-call overrides remain in chat.Request. MaxRetries has the
+// meaning documented on [openaiprotocol.ChatModelConfig].
+type ChatModelConfig struct {
 	APIKey         string
 	DefaultOptions corechat.Options
 	BaseURL        string
 	HTTPClient     *http.Client
+	MaxRetries     *int
 }
 
-func (c ChatCompletionsConfig) Validate() error { return c.protocol().Validate() }
+func (c ChatModelConfig) Validate() error { return c.protocol().Validate() }
 
-func (c ChatCompletionsConfig) protocol() openaiprotocol.ChatCompletionsConfig {
-	return openaiprotocol.ChatCompletionsConfig{
+func (c ChatModelConfig) protocol() openaiprotocol.ChatModelConfig {
+	return openaiprotocol.ChatModelConfig{
 		APIKey:         c.APIKey,
 		DefaultOptions: c.DefaultOptions,
 		BaseURL:        c.BaseURL,
 		HTTPClient:     c.HTTPClient,
+		MaxRetries:     c.MaxRetries,
 	}
 }
 
-func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*openaiprotocol.ChatCompletions, error) {
+func NewChatCompletions(ctx context.Context, config ChatModelConfig) (*openaiprotocol.ChatCompletions, error) {
 	return openaiprotocol.NewChatCompletions(ctx, config.protocol(), openaiprotocol.DialectConfig{
 		Provider:        Provider,
 		TokenLimitField: openaiprotocol.TokenLimitMaxCompletionTokens,
@@ -42,27 +46,7 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*ope
 	})
 }
 
-// Responses is configured independently from Chat Completions because their
-// transport capabilities differ.
-type ResponsesConfig struct {
-	APIKey         string
-	DefaultOptions corechat.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-}
-
-func (r ResponsesConfig) Validate() error { return r.protocol().Validate() }
-
-func (r ResponsesConfig) protocol() openaiprotocol.ResponsesConfig {
-	return openaiprotocol.ResponsesConfig{
-		APIKey:         r.APIKey,
-		DefaultOptions: r.DefaultOptions,
-		BaseURL:        r.BaseURL,
-		HTTPClient:     r.HTTPClient,
-	}
-}
-
-func NewResponses(ctx context.Context, config ResponsesConfig) (*openaiprotocol.Responses, error) {
+func NewResponses(ctx context.Context, config ChatModelConfig) (*openaiprotocol.Responses, error) {
 	return openaiprotocol.NewResponses(ctx, config.protocol(), openaiprotocol.ResponsesDialect{Provider: Provider})
 }
 

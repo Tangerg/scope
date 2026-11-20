@@ -9,11 +9,11 @@ import (
 func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
 		"NewChatCompletions": func() error {
-			_, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{})
+			_, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{})
 			return err
 		},
 		"NewResponses": func() error {
-			_, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{})
+			_, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{})
 			return err
 		},
 		"NewEmbeddingModel": func() error {
@@ -52,8 +52,7 @@ func TestConstructorsRejectAnAbsentCredential(t *testing.T) {
 
 func TestConfigsRejectAnAbsentCredential(t *testing.T) {
 	cases := map[string]func() error{
-		"chat":          func() error { return (openai.ChatCompletionsConfig{}).Validate() },
-		"responses":     func() error { return (openai.ResponsesConfig{}).Validate() },
+		"chat":          func() error { return (openai.ChatModelConfig{}).Validate() },
 		"embedding":     func() error { return (openai.EmbeddingModelConfig{}).Validate() },
 		"transcription": func() error { return (openai.TranscriptionModelConfig{}).Validate() },
 		"translation":   func() error { return (openai.AudioTranslationModelConfig{}).Validate() },

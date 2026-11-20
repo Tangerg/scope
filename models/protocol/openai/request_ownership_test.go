@@ -54,7 +54,7 @@ func TestResponsesUnsupportedCoreOptionsCannotUseNativeFields(t *testing.T) {
 					if null {
 						value = nil
 					}
-					config := openai.ResponsesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}
+					config := openai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}
 					binding := openai.ResponsesDialect{Provider: "openai"}
 					request := &chat.Request{Messages: []chat.Message{chat.NewUserMessage(chat.NewTextPart("question"))}}
 					switch source {
@@ -167,7 +167,7 @@ func TestResponsesPreservesIndependentNativeControls(t *testing.T) {
 			return target.SetExtraField("metadata", metadata)
 		},
 	}
-	model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}, binding)
+	model, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}, binding)
 	if err != nil {
 		t.Fatal(err)
 	}

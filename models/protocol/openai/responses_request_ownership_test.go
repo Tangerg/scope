@@ -18,7 +18,7 @@ func TestResponsesInstructionsBelongToCoreMessages(t *testing.T) {
 			for _, dialect := range []bool{false, true} {
 				calls := 0
 				server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
-				config := openai.ResponsesConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}
+				config := openai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"}}
 				binding := openai.ResponsesDialect{Provider: "openai"}
 				if dialect {
 					binding.PrepareRequest = func(_ *chat.Request, target *openai.CompatibleResponsesRequest) error {

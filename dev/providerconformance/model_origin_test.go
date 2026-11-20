@@ -142,7 +142,7 @@ func modelOriginCalls() []modelOriginCall {
 			return err
 		}},
 		{name: "openai", header: "Authorization", call: func(ctx context.Context, endpoint string, client *http.Client) error {
-			model, err := openai.NewChatCompletions(ctx, openai.ChatCompletionsConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client})
+			model, err := openai.NewChatCompletions(ctx, openai.ChatModelConfig{APIKey: "sentinel", BaseURL: endpoint, HTTPClient: client})
 			if err != nil {
 				return err
 			}

@@ -63,7 +63,7 @@ func TestChatUsageRequestPolicy(t *testing.T) {
 				fmt.Fprint(w, "data: [DONE]\n\n")
 			}))
 			defer server.Close()
-			config := scopeopenai.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"}}
+			config := scopeopenai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: corechat.Options{Model: "gpt-5.2"}}
 			key := scopeopenai.RequestExtensionKey
 			var model *scopeopenai.ChatCompletions
 			var err error

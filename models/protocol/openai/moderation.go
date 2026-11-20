@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,11 +22,8 @@ type ModerationModelConfig struct {
 }
 
 func (m ModerationModelConfig) Validate() error {
-	if err := validateBinding(m.Provider, m.APIKey, m.BaseURL); err != nil {
+	if err := validateBinding(m.Provider, m.APIKey, m.BaseURL, m.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if m.DefaultOptions.Model == "" {
-		return errors.New("openai: DefaultOptions.Model is required")
 	}
 	if err := m.DefaultOptions.Validate(); err != nil {
 		return err
@@ -155,7 +151,7 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*m
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := m.api.moderation(ctx, apiReq)
+	apiResp, err := m.api.moderation(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

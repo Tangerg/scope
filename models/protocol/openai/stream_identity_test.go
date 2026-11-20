@@ -27,7 +27,7 @@ func TestCompletionBindsItsUsageAndToolsToTheGeneratingResponse(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			server := modeltest.OpenAISSEServer([]string{start, finish, tc.tail})
 			defer server.Close()
-			model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "gpt"}}, testChatDialect())
+			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "gpt"}}, testChatDialect())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestCompletionRequiresReportedChoiceIndex(t *testing.T) {
 func TestDeprecatedFunctionCallCannotEscapeTypedToolAdmission(t *testing.T) {
 	for _, name := range []string{"functions", "function_call"} {
 		transport := new(numericTransport)
-		model, err := openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{APIKey: "test", BaseURL: "https://api.example", HTTPClient: &http.Client{Transport: transport}, DefaultOptions: chat.Options{Model: "m"}}, testChatDialect())
+		model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{APIKey: "test", BaseURL: "https://api.example", HTTPClient: &http.Client{Transport: transport}, DefaultOptions: chat.Options{Model: "m"}}, testChatDialect())
 		if err != nil {
 			t.Fatal(err)
 		}

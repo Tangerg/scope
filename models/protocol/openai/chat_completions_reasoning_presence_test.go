@@ -53,7 +53,7 @@ func TestReasoningDetailsPreserveArrayPresence(t *testing.T) {
 				fmt.Fprint(writer, "data: {\"id\":\"chat-1\",\"model\":\"model\",\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"delta\":{\"content\":\"answer\"}}]}\n\ndata: [DONE]\n\n")
 			}))
 			t.Cleanup(server.Close)
-			config := openai.ChatCompletionsConfig{
+			config := openai.ChatModelConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 			}
 			dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{

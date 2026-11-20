@@ -70,14 +70,14 @@ func TestPrepareRequestReceivesOwnedSnapshot(t *testing.T) {
 
 				var model chat.Model
 				if protocol == "chat" {
-					model, err = openai.NewChatCompletions(t.Context(), openai.ChatCompletionsConfig{
+					model, err = openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 						APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 					}, openai.DialectConfig{
 						Provider: "test", TokenLimitField: openai.TokenLimitMaxCompletionTokens,
 						PrepareRequest: func(source *chat.Request, _ *openai.CompatibleRequest) error { return mutate(source) },
 					})
 				} else {
-					model, err = openai.NewResponses(t.Context(), openai.ResponsesConfig{
+					model, err = openai.NewResponses(t.Context(), openai.ChatModelConfig{
 						APIKey: "test", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
 					}, openai.ResponsesDialect{
 						Provider: "test", PrepareRequest: func(source *chat.Request, _ *openai.CompatibleResponsesRequest) error { return mutate(source) },

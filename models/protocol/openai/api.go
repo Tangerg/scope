@@ -20,6 +20,7 @@ import (
 
 const (
 	defaultAPIBaseURL            = "https://api.openai.com/v1/"
+	baseURLEnvironment           = "OPENAI_BASE_URL"
 	defaultResponseHeaderTimeout = 10 * time.Minute
 )
 
@@ -36,6 +37,7 @@ type apiConfig struct {
 	BaseURL    string
 	HTTPClient *http.Client
 	Headers    http.Header
+	MaxRetries *int
 }
 
 // A compatible provider must never send its credential to the official
@@ -47,31 +49,51 @@ func requireBindingEndpoint(provider, endpoint string) error {
 	return nil
 }
 
-// validateBinding admits the provider, credential, and endpoint every
-// OpenAI-protocol model binds before it is constructed.
-func validateBinding(provider, apiKey, baseURL string) error {
+// validateBinding admits the provider, credential, endpoint, and default
+// model every non-chat OpenAI-protocol model binds before it is constructed.
+// Only chat requests can name their model per call.
+func validateBinding(provider, apiKey, baseURL, model string) error {
 	if err := requireBindingEndpoint(provider, baseURL); err != nil {
 		return err
 	}
 	if err := validateProvider(provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
-	return apiConfig{APIKey: apiKey, BaseURL: baseURL}.validate()
+	if _, _, err := (apiConfig{APIKey: apiKey, BaseURL: baseURL}).admit(); err != nil {
+		return err
+	}
+	if model == "" {
+		return errors.New("openai: DefaultOptions.Model is required")
+	}
+	return nil
 }
 
-func (a apiConfig) validate() error {
-	_, err := a.endpoint()
-	return err
+// admit is the one validation of the binding settings. Construction applies it
+// to build the SDK options from its results, so Validate and construction can
+// never disagree.
+func (a apiConfig) admit() (string, http.Header, error) {
+	if a.APIKey == "" {
+		return "", nil, errors.New("openai: APIKey is required")
+	}
+	if a.MaxRetries != nil && *a.MaxRetries < 0 {
+		return "", nil, errors.New("openai: MaxRetries must not be negative")
+	}
+	baseURL, err := a.endpoint()
+	if err != nil {
+		return "", nil, err
+	}
+	headers, err := a.headers()
+	if err != nil {
+		return "", nil, err
+	}
+	return baseURL, headers, nil
 }
 
 func (a apiConfig) endpoint() (string, error) {
-	if a.APIKey == "" {
-		return "", errors.New("openai: APIKey is required")
-	}
 	baseURL, source, present := a.BaseURL, "BaseURL", a.BaseURL != ""
 	if !present {
-		baseURL, present = os.LookupEnv("OPENAI_BASE_URL")
-		source = "OPENAI_BASE_URL"
+		baseURL, present = os.LookupEnv(baseURLEnvironment)
+		source = baseURLEnvironment
 	}
 	if !present {
 		baseURL = defaultAPIBaseURL
@@ -79,21 +101,10 @@ func (a apiConfig) endpoint() (string, error) {
 	if _, err := httpclient.ParseBaseURL(baseURL); err != nil {
 		return "", fmt.Errorf("openai: %s: %w", source, err)
 	}
-
 	return baseURL, nil
 }
 
-func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, error) {
-	baseURL, err := a.endpoint()
-	if err != nil {
-		return nil, err
-	}
-	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: a.httpClient(), BaseURL: baseURL})
-	if err != nil {
-		return nil, err
-	}
-	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
-	options = append(options, option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+func (a apiConfig) headers() (http.Header, error) {
 	headers := make(http.Header, len(a.Headers))
 	for name, values := range a.Headers {
 		key := http.CanonicalHeaderKey(name)
@@ -105,6 +116,23 @@ func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, 
 			return nil, fmt.Errorf("openai: duplicate header %q", key)
 		}
 		headers[key] = values
+	}
+	return headers, nil
+}
+
+func (a apiConfig) requestOptions(ctx context.Context) ([]option.RequestOption, error) {
+	baseURL, headers, err := a.admit()
+	if err != nil {
+		return nil, err
+	}
+	client, err := httpclient.New(ctx, httpclient.Config{HTTPClient: a.httpClient(), BaseURL: baseURL})
+	if err != nil {
+		return nil, err
+	}
+	options := []option.RequestOption{option.WithAPIKey(a.APIKey)}
+	options = append(options, option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+	if a.MaxRetries != nil {
+		options = append(options, option.WithMaxRetries(*a.MaxRetries))
 	}
 	for name, values := range headers {
 		for _, value := range values {
@@ -188,28 +216,16 @@ func (a *api) listModels(ctx context.Context, maxModels int, maxResponseBytes in
 	return ids, nil
 }
 
-func (a *api) chatCompletionStream(ctx context.Context, req *openai.ChatCompletionNewParams, opts ...option.RequestOption) (*ssestream.Stream[openai.ChatCompletionChunk], error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
-	return a.chat.NewStreaming(ctx, *req, opts...), nil
+func (a *api) chatCompletionStream(ctx context.Context, req openai.ChatCompletionNewParams) *ssestream.Stream[openai.ChatCompletionChunk] {
+	return a.chat.NewStreaming(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 }
 
-func (a *api) responseNewStream(ctx context.Context, req *responses.ResponseNewParams, opts ...option.RequestOption) (*ssestream.Stream[responses.ResponseStreamEventUnion], error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
-	return a.responses.NewStreaming(ctx, *req, opts...), nil
+func (a *api) responseNewStream(ctx context.Context, req responses.ResponseNewParams) *ssestream.Stream[responses.ResponseStreamEventUnion] {
+	return a.responses.NewStreaming(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 }
 
-func (a *api) responseInputTokensCount(ctx context.Context, req *responses.InputTokenCountParams, opts ...option.RequestOption) (int64, error) {
-	if req == nil {
-		return 0, errors.New("openai: input token count request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	response, err := a.wrapResult(a.responses.InputTokens.Count(ctx, *req, opts...))
+func (a *api) responseInputTokensCount(ctx context.Context, req responses.InputTokenCountParams) (int64, error) {
+	response, err := a.wrapResult(a.responses.InputTokens.Count(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 	if err != nil {
 		return 0, err
 	}
@@ -223,56 +239,32 @@ func (a *api) responseInputTokensCount(ctx context.Context, req *responses.Input
 	return count, nil
 }
 
-func (a *api) embedding(ctx context.Context, req *openai.EmbeddingNewParams, opts ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	return a.wrapResult(a.embeddings.New(ctx, *req, opts...))
+func (a *api) embedding(ctx context.Context, req openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error) {
+	return a.wrapResult(a.embeddings.New(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 }
 
-func (a *api) image(ctx context.Context, req *openai.ImageGenerateParams, opts ...option.RequestOption) (*openai.ImagesResponse, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	return a.wrapResult(a.images.Generate(ctx, *req, opts...))
+func (a *api) image(ctx context.Context, req openai.ImageGenerateParams) (*openai.ImagesResponse, error) {
+	return a.wrapResult(a.images.Generate(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 }
 
-func (a *api) moderation(ctx context.Context, req *openai.ModerationNewParams, opts ...option.RequestOption) (*openai.ModerationNewResponse, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	return a.wrapResult(a.moderations.New(ctx, *req, opts...))
+func (a *api) moderation(ctx context.Context, req openai.ModerationNewParams) (*openai.ModerationNewResponse, error) {
+	return a.wrapResult(a.moderations.New(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 }
 
-func (a *api) speech(ctx context.Context, req *openai.AudioSpeechNewParams, opts ...option.RequestOption) (*http.Response, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyErrors))
-	return a.wrapResult(a.audio.Speech.New(ctx, *req, opts...))
+func (a *api) speech(ctx context.Context, req openai.AudioSpeechNewParams) (*http.Response, error) {
+	return a.wrapResult(a.audio.Speech.New(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyErrors)))
 }
 
-func (a *api) transcription(ctx context.Context, req *openai.AudioTranscriptionNewParams, opts ...option.RequestOption) (*openai.AudioTranscriptionNewResponseUnion, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	return a.wrapResult(a.audio.Transcriptions.New(ctx, *req, opts...))
+func (a *api) transcription(ctx context.Context, req openai.AudioTranscriptionNewParams) (*openai.AudioTranscriptionNewResponseUnion, error) {
+	return a.wrapResult(a.audio.Transcriptions.New(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 }
 
-func (a *api) translation(ctx context.Context, req *openai.AudioTranslationNewParams, opts ...option.RequestOption) (*openai.Translation, error) {
-	if req == nil {
-		return nil, errors.New("openai: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
+func (a *api) translation(ctx context.Context, req openai.AudioTranslationNewParams) (*openai.Translation, error) {
 	// Compatible endpoints still expose synchronous multipart translation.
 	// Realtime translation has a different transport and request lifecycle.
 	client := openai.Client{Options: a.audio.Options}
 	var response *openai.Translation
-	err := client.Post(ctx, "audio/translations", *req, &response, opts...)
+	err := client.Post(ctx, "audio/translations", req, &response, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
 	return a.wrapResult(response, err)
 }
 

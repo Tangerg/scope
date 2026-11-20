@@ -6,33 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"iter"
-	"net/http"
 
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/invocation"
 )
-
-// DefaultOptions are copied during construction; callers may select the model
-// per request.
-type ResponsesConfig struct {
-	APIKey         string
-	DefaultOptions corechat.Options
-	BaseURL        string
-	HTTPClient     *http.Client
-	Headers        http.Header
-}
-
-func (r ResponsesConfig) Validate() error {
-	if err := (apiConfig{APIKey: r.APIKey, BaseURL: r.BaseURL}).validate(); err != nil {
-		return err
-	}
-	if err := r.DefaultOptions.Validate(); err != nil {
-		return fmt.Errorf("openai responses: default options: %w", err)
-	}
-	return nil
-}
 
 const (
 	ResponsesRequestExtensionSuffix  = "/responses_request"
@@ -65,7 +44,7 @@ var (
 // NewResponses shares the Responses event lifecycle with a provider
 // that explicitly implements it. Provider wrappers expose only supported
 // optional capabilities such as model discovery or input-token counting.
-func NewResponses(ctx context.Context, config ResponsesConfig, dialect ResponsesDialect) (*Responses, error) {
+func NewResponses(ctx context.Context, config ChatModelConfig, dialect ResponsesDialect) (*Responses, error) {
 	if err := requireBindingEndpoint(dialect.Provider, config.BaseURL); err != nil {
 		return nil, err
 	}
@@ -75,7 +54,7 @@ func NewResponses(ctx context.Context, config ResponsesConfig, dialect Responses
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	api, err := newAPI(ctx, apiConfig{APIKey: config.APIKey, BaseURL: config.BaseURL, HTTPClient: config.HTTPClient, Headers: config.Headers})
+	api, err := newAPI(ctx, config.api())
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +85,7 @@ func (r *Responses) CountInputTokens(ctx context.Context, req *corechat.Request)
 	if err != nil {
 		return 0, err
 	}
-	return r.api.responseInputTokensCount(ctx, countParams)
+	return r.api.responseInputTokensCount(ctx, *countParams)
 }
 
 // Stream performs one streaming Responses API request and yields ordered Core
@@ -123,11 +102,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
-		stream, err := r.api.responseNewStream(ctx, params)
-		if err != nil {
-			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
-			return
-		}
+		stream := r.api.responseNewStream(ctx, *params)
 		defer stream.Close()
 
 		state := newResponsesStreamState(r.dialect.Provider)

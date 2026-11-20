@@ -40,7 +40,7 @@ func TestOpenJSONNumbersRemainExactOnTheWire(t *testing.T) {
 			if err := options.Extensions.Set(openai.RequestExtensionKey, map[string]any{"seed": int64(9007199254740993), "future": map[string]any{"number": json.Number("12345678901234567890.0123456789")}}); err != nil {
 				t.Fatal(err)
 			}
-			config := openai.ChatCompletionsConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test"}
+			config := openai.ChatModelConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test"}
 			if defaults {
 				config.DefaultOptions = options
 			}
@@ -81,7 +81,7 @@ func TestOpenJSONNumbersRemainExactOnTheWire(t *testing.T) {
 
 func TestResponsesGenerationAndCountingKeepExactSchemas(t *testing.T) {
 	boundary := new(numericTransport)
-	model, err := openai.NewResponses(t.Context(), openai.ResponsesConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}}, testResponsesDialect())
+	model, err := openai.NewResponses(t.Context(), openai.ChatModelConfig{APIKey: "test", HTTPClient: &http.Client{Transport: boundary}, BaseURL: "https://provider.example.test", DefaultOptions: chat.Options{Model: "test"}}, testResponsesDialect())
 	if err != nil {
 		t.Fatal(err)
 	}
