@@ -322,3 +322,27 @@ func TestDataURIEncodesOnlyDeclaredInlineBytes(t *testing.T) {
 		t.Fatalf("undeclared DataURI error = %v", uriErr)
 	}
 }
+
+func TestURLCarriesRemoteOrInlineMedia(t *testing.T) {
+	remote, err := media.NewURI("image/png", "https://example.test/pixel.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url, urlErr := remote.URL(); urlErr != nil || url != "https://example.test/pixel.png" {
+		t.Fatalf("remote URL = %q, %v", url, urlErr)
+	}
+	inline, err := media.NewBytes("image/png", []byte{0x89, 'P'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if url, urlErr := inline.URL(); urlErr != nil || url != "data:image/png;base64,iVA=" {
+		t.Fatalf("inline URL = %q, %v", url, urlErr)
+	}
+	reference, err := media.NewReference("image/png", "file-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, urlErr := reference.URL(); !errors.Is(urlErr, media.ErrInvalidSource) {
+		t.Fatalf("reference URL error = %v", urlErr)
+	}
+}

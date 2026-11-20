@@ -110,7 +110,7 @@ func mapMistralMedia(value *media.Media) (any, error) {
 	mediaType := value.Type()
 	switch {
 	case mediaType.TopLevel() == media.TopLevelImage:
-		uri, err := mistralMediaURI(value)
+		uri, err := value.URL()
 		if err != nil {
 			return nil, err
 		}
@@ -135,17 +135,6 @@ func mapMistralMedia(value *media.Media) (any, error) {
 		return audioChunk{Type: contentTypeInputAudio, InputAudio: base64.StdEncoding.EncodeToString(data)}, nil
 	default:
 		return nil, fmt.Errorf("media MIME %q is unsupported", mediaType)
-	}
-}
-
-func mistralMediaURI(value *media.Media) (string, error) {
-	switch value.Source.Kind {
-	case media.SourceURI:
-		return value.URI()
-	case media.SourceBytes:
-		return value.DataURI()
-	default:
-		return "", fmt.Errorf("media source %q is unsupported", value.Source.Kind)
 	}
 }
 

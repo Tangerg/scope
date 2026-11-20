@@ -44,7 +44,7 @@ func projectResponsesImage(value *media.Media) (responsesMedia, error) {
 		projected.fileID = reference
 		return projected, nil
 	}
-	location, err := mediaLocation(value)
+	location, err := value.URL()
 	if err != nil {
 		return responsesMedia{}, err
 	}
@@ -68,7 +68,7 @@ func projectResponsesFile(value *media.Media) (responsesMedia, error) {
 		}
 		projected.fileURL = uri
 	case media.SourceBytes:
-		location, err := mediaLocation(value)
+		location, err := value.URL()
 		if err != nil {
 			return responsesMedia{}, err
 		}

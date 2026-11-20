@@ -281,6 +281,23 @@ func (m *Media) DataURI() (string, error) {
 	return dataURIScheme + string(m.Type()) + dataURIBase64 + base64.StdEncoding.EncodeToString(m.Source.Bytes), nil
 }
 
+// URL returns a URL that carries the media: the source URI itself, or a data
+// URI of inline bytes. A reference source has none, because only its issuing
+// provider can resolve it.
+func (m *Media) URL() (string, error) {
+	if m == nil {
+		return "", ErrNilMedia
+	}
+	switch m.Source.Kind {
+	case SourceURI:
+		return m.URI()
+	case SourceBytes:
+		return m.DataURI()
+	default:
+		return "", fmt.Errorf("%w: source kind %q has no URL", ErrInvalidSource, m.Source.Kind)
+	}
+}
+
 func (m *Media) Reference() (string, error) {
 	if m == nil {
 		return "", ErrNilMedia

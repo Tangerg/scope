@@ -114,7 +114,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 	mediaType := value.Type()
 	switch mediaType.TopLevel() {
 	case media.TopLevelImage:
-		location, locationErr := mediaLocation(value)
+		location, locationErr := value.URL()
 		if locationErr != nil {
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("image source: %w", locationErr)
 		}
@@ -158,7 +158,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 			}
 			file.FileID = openaisdk.String(ref)
 		case media.SourceBytes:
-			location, locationErr := mediaLocation(value)
+			location, locationErr := value.URL()
 			if locationErr != nil {
 				return openaisdk.ChatCompletionContentPartUnionParam{}, locationErr
 			}
