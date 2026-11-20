@@ -518,7 +518,7 @@ func TestPlanningInvalidExecutorResultRemainsUnknown(t *testing.T) {
 
 func TestPlanningFailureDiagnosticsRequireAnExplicitDefiniteResult(t *testing.T) {
 	for _, diagnostic := range []string{"", " untrimmed ", string([]byte{0xff}), strings.Repeat("x", run.MaxDiagnosticBytes+1)} {
-		if result, err := ActionFailed(diagnostic); err == nil || result.Valid() {
+		if result, err := ActionFailed(diagnostic); !errors.Is(err, ErrInvalidResult) || result.Valid() {
 			t.Fatalf("invalid diagnostic manufactured a definite result: %+v %v", result, err)
 		}
 	}

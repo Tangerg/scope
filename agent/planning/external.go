@@ -2,7 +2,7 @@ package planning
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
@@ -72,7 +72,7 @@ func ActionSucceeded() ActionResult { return ActionResult{succeeded: true} }
 
 func ActionFailed(diagnostic string) (ActionResult, error) {
 	if !run.ValidDiagnostic(diagnostic) {
-		return ActionResult{}, errors.New("planning: Action failure diagnostic must be non-empty, trimmed, and bounded")
+		return ActionResult{}, fmt.Errorf("%w: Action failure diagnostic must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidResult, run.MaxDiagnosticBytes)
 	}
 	return ActionResult{diagnostic: diagnostic}, nil
 }
