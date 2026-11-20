@@ -135,7 +135,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 }
 
 func (s *Store) binding(ctx context.Context) (nativeMetric, int, error) {
-	raw, err := s.sendJSON(ctx, http.MethodGet, "/indexes/"+httpclient.PathSegment(s.indexName), nil)
+	raw, err := s.sendJSON(ctx, http.MethodGet, s.indexPath(""), nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("azureaisearch: read native index: %w", err)
 	}
@@ -411,7 +411,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 }
 
 func (s *Store) searchPage(ctx context.Context, body any) ([]metadata.Map, map[string]json.RawMessage, error) {
-	raw, err := s.sendJSON(ctx, http.MethodPost, "/indexes/"+httpclient.PathSegment(s.indexName)+"/docs/search", body)
+	raw, err := s.sendJSON(ctx, http.MethodPost, s.indexPath(searchDocumentsPath), body)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -490,7 +490,7 @@ func (s *Store) writeActions(ctx context.Context, actions []indexingAction) erro
 	if err := s.verify(ctx); err != nil {
 		return err
 	}
-	path := "/indexes/" + httpclient.PathSegment(s.indexName) + "/docs/index"
+	path := s.indexPath(indexDocumentsPath)
 	ids := actionIDs(actions)
 	for offset, group := range prepared {
 		start := offset * maximumDocumentsPerBatch
@@ -513,6 +513,18 @@ func (s *Store) writeActions(ctx context.Context, actions []indexingAction) erro
 		}
 	}
 	return nil
+}
+
+const (
+	indexesPath         = "/indexes/"
+	searchDocumentsPath = "/docs/search"
+	indexDocumentsPath  = "/docs/index"
+)
+
+// indexPath addresses suffix under the bound index, escaping its name as one
+// path segment.
+func (s *Store) indexPath(suffix string) string {
+	return indexesPath + httpclient.PathSegment(s.indexName) + suffix
 }
 
 func (s *Store) sendJSON(ctx context.Context, method, path string, body any) ([]byte, error) {
