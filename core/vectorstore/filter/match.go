@@ -28,10 +28,15 @@ func (e *evaluator) Visit(predicate Predicate) error {
 }
 
 // Match reports whether a document's metadata facts satisfy a predicate.
+// An absent predicate admits every document; whether a filter is required is
+// the caller's own rule. A typed nil expression is not absent but invalid.
 // Numbers are compared exactly without conversion through float64. Invalid
 // predicates, undecodable facts and type mismatches return errors rather than
 // silently omitting matching documents.
 func Match(expr Predicate, facts metadata.Map) (bool, error) {
+	if expr == nil {
+		return true, nil
+	}
 	values, err := facts.Values()
 	if err != nil {
 		return false, fmt.Errorf("filter: decode metadata: %w", err)

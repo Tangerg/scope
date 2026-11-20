@@ -105,7 +105,7 @@ func (s *Store) selectDocuments(ctx context.Context, policy nativePolicy, predic
 				return nil, errors.New("milvus: source identities do not advance")
 			}
 			cursor = record.doc.ID
-			matches, err := matchesMetadata(predicate, record.doc)
+			matches, err := filter.Match(predicate, record.doc.Metadata)
 			if err != nil {
 				return nil, err
 			}
@@ -341,7 +341,7 @@ func (s *Store) searchGroup(ctx context.Context, policy nativePolicy, query []fl
 // admitHit rechecks the filter against the returned metadata and drops a hit
 // below the minimum score.
 func admitHit(policy nativePolicy, options vectorstore.SearchOptions, record nativeRecord, raw float64) (rankedDocument, bool, error) {
-	matches, err := matchesMetadata(options.Filter, record.doc)
+	matches, err := filter.Match(options.Filter, record.doc.Metadata)
 	if err != nil {
 		return rankedDocument{}, false, err
 	}

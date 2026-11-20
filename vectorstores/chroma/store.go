@@ -172,13 +172,6 @@ func (s *Store) coordinates(values []float64) ([]float32, error) {
 	return native, nil
 }
 
-func matches(doc *document.Document, predicate filter.Predicate) (bool, error) {
-	if predicate == nil {
-		return true, nil
-	}
-	return filter.Match(predicate, doc.Metadata)
-}
-
 func (s *Store) CheckDocuments(ctx context.Context, space vectorstore.SpaceID, docs []*document.Document) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -426,7 +419,7 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 			if err != nil {
 				return nil, err
 			}
-			match, err := matches(doc, request.Filter)
+			match, err := filter.Match(request.Filter, doc.Metadata)
 			if err != nil {
 				return nil, fmt.Errorf("chroma: filter document %q: %w", doc.ID, err)
 			}

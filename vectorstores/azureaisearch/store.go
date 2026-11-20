@@ -230,13 +230,6 @@ func requiredString(row metadata.Map, field, label string) (string, error) {
 	return *value, nil
 }
 
-func matches(doc *document.Document, predicate filter.Predicate) (bool, error) {
-	if predicate == nil {
-		return true, nil
-	}
-	return filter.Match(predicate, doc.Metadata)
-}
-
 func (s *Store) selectedFields() string {
 	return strings.Join([]string{s.idField, s.contentField, s.embeddingField, s.metadataField}, ",")
 }
@@ -606,7 +599,7 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 				return nil, err
 			}
 			last = doc.ID
-			ok, err := matches(doc, request.Filter)
+			ok, err := filter.Match(request.Filter, doc.Metadata)
 			if err != nil {
 				return nil, err
 			}

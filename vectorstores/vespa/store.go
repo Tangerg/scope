@@ -211,7 +211,7 @@ func (s *Store) admitHit(hit queryHit, expected map[string]bool, ranking exactRa
 	if err = score.Validate(); err != nil {
 		return nil, err
 	}
-	matches, err := matchesMetadata(ranking.options.Filter, record.document.Metadata)
+	matches, err := filter.Match(ranking.options.Filter, record.document.Metadata)
 	if err != nil || !matches || score < ranking.options.MinScore {
 		return nil, err
 	}
@@ -482,7 +482,7 @@ type queryCoverage struct {
 func selectRecords(records []nativeRecord, predicate filter.Predicate) ([]nativeRecord, error) {
 	selected := make([]nativeRecord, 0, len(records))
 	for _, record := range records {
-		matches, err := matchesMetadata(predicate, record.document.Metadata)
+		matches, err := filter.Match(predicate, record.document.Metadata)
 		if err != nil {
 			return nil, err
 		}
@@ -491,11 +491,4 @@ func selectRecords(records []nativeRecord, predicate filter.Predicate) ([]native
 		}
 	}
 	return selected, nil
-}
-
-func matchesMetadata(predicate filter.Predicate, facts metadata.Map) (bool, error) {
-	if predicate == nil {
-		return true, nil
-	}
-	return filter.Match(predicate, facts)
 }

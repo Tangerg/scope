@@ -10,7 +10,6 @@ import (
 
 	"github.com/Tangerg/scope/core/document"
 	"github.com/Tangerg/scope/core/vectorstore"
-	"github.com/Tangerg/scope/core/vectorstore/filter"
 )
 
 type nativeRecord struct {
@@ -158,11 +157,4 @@ func (n nativeColumns) varChar(name string, position int) (string, error) {
 		return "", fmt.Errorf("milvus: column %s is not a non-null VARCHAR", name)
 	}
 	return value, nil
-}
-
-func matchesMetadata(predicate filter.Predicate, doc *document.Document) (bool, error) {
-	if predicate == nil {
-		return true, nil
-	}
-	return filter.Match(predicate, doc.Metadata)
 }

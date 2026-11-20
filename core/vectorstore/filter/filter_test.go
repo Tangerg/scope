@@ -222,8 +222,11 @@ func TestParse_NotInRejectsNonIn(t *testing.T) {
 	}
 }
 
-func TestMatchRejectsNilPredicates(t *testing.T) {
-	for _, predicate := range []filter.Predicate{nil, (*filter.BinaryExpr)(nil), (*filter.UnaryExpr)(nil)} {
+func TestMatchAdmitsAnAbsentPredicateAndRejectsNilExpressions(t *testing.T) {
+	if matched, err := filter.Match(nil, nil); err != nil || !matched {
+		t.Fatalf("Match(nil) = %v, %v; want an absent predicate to admit the document", matched, err)
+	}
+	for _, predicate := range []filter.Predicate{(*filter.BinaryExpr)(nil), (*filter.UnaryExpr)(nil)} {
 		func() {
 			defer func() {
 				if value := recover(); value != nil {

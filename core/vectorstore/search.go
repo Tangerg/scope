@@ -176,9 +176,6 @@ func (s *SearchResult) Validate() error {
 }
 
 func (s *SearchResult) validateFilter(predicate filter.Predicate) error {
-	if predicate == nil {
-		return nil
-	}
 	matches, err := filter.Match(predicate, s.Document.Metadata)
 	if err != nil {
 		return fmt.Errorf("evaluate metadata filter: %w", err)

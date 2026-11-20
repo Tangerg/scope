@@ -43,13 +43,6 @@ type record struct {
 	embedding []float64
 }
 
-func (r record) matches(predicate filter.Predicate) (bool, error) {
-	if lo.IsNil(predicate) {
-		return true, nil
-	}
-	return filter.Match(predicate, r.doc.Metadata)
-}
-
 var (
 	_ vectorstore.Upserter      = (*Store)(nil)
 	_ vectorstore.Querier       = (*Store)(nil)
@@ -186,7 +179,7 @@ func (s *Store) searchCandidates(ctx context.Context, query []float64, options v
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		matched, err := rec.matches(options.Filter)
+		matched, err := filter.Match(options.Filter, rec.doc.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("inmemory: search: %w", err)
 		}
@@ -225,7 +218,7 @@ func (s *Store) DeleteWhere(ctx context.Context, expr filter.Predicate) error {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("inmemory: delete by filter: %w", err)
 		}
-		match, err := rec.matches(expr)
+		match, err := filter.Match(expr, rec.doc.Metadata)
 		if err != nil {
 			return fmt.Errorf("inmemory: delete by filter: %w", err)
 		}
