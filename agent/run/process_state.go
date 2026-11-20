@@ -349,7 +349,7 @@ func (p *processState) pendingWaits() []Wait {
 }
 
 func (p *processState) orderedPending() []PendingCheckpoint {
-	return slices.SortedFunc(maps.Values(p.pending), func(a, b PendingCheckpoint) int { return a.Intent.ID.compare(b.Intent.ID) })
+	return slices.SortedFunc(maps.Values(p.pending), func(a, b PendingCheckpoint) int { return a.Intent.ID.Compare(b.Intent.ID) })
 }
 
 func (p *processState) admitTransition(transition Transition, limits TreeLimits, delivered uint32) error {

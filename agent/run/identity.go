@@ -218,8 +218,9 @@ type EffectID struct {
 func (e EffectID) Valid() bool  { return e.Process.Valid() && e.Step > 0 }
 func (e EffectID) IsZero() bool { return e == EffectID{} }
 
-// compare orders Effects by process, then by declaration within the process.
-func (e EffectID) compare(other EffectID) int {
+// Compare is the canonical Effect order: by process path, then by declaration
+// within the process. Checkpoints, inspection and recovery list Effects in it.
+func (e EffectID) Compare(other EffectID) int {
 	return cmp.Or(e.Process.compare(other.Process), cmp.Compare(e.Step, other.Step), cmp.Compare(e.Index, other.Index))
 }
 

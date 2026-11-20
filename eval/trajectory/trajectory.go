@@ -1,7 +1,6 @@
 package trajectory
 
 import (
-	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -120,7 +119,7 @@ func (t Trajectory) ModelCalls() []ModelCall {
 	for _, call := range t.calls.models {
 		calls = append(calls, call.Clone())
 	}
-	slices.SortFunc(calls, func(left, right ModelCall) int { return compareEffects(left.EffectID, right.EffectID) })
+	slices.SortFunc(calls, func(left, right ModelCall) int { return left.EffectID.Compare(right.EffectID) })
 	return calls
 }
 
@@ -129,7 +128,7 @@ func (t Trajectory) ToolCalls() []ToolCall {
 	for _, call := range t.calls.tools {
 		calls = append(calls, call.Clone())
 	}
-	slices.SortFunc(calls, func(left, right ToolCall) int { return compareEffects(left.EffectID, right.EffectID) })
+	slices.SortFunc(calls, func(left, right ToolCall) int { return left.EffectID.Compare(right.EffectID) })
 	return calls
 }
 
@@ -267,14 +266,4 @@ func (t Trajectory) consistencyReport(baseline Trajectory, project eval.Projecti
 		return eval.Report{}, err
 	}
 	return binaryReport(MetricConsistency, passed, feedback, parameters)
-}
-
-func compareEffects(left, right run.EffectID) int {
-	if order := cmp.Compare(left.Process.String(), right.Process.String()); order != 0 {
-		return order
-	}
-	if order := cmp.Compare(left.Step, right.Step); order != 0 {
-		return order
-	}
-	return cmp.Compare(left.Index, right.Index)
 }

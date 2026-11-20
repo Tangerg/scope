@@ -128,7 +128,7 @@ func (p ProcessCheckpoint) waitsAndReceiptsValid() bool {
 func (p ProcessCheckpoint) pendingValid() bool {
 	for index, pending := range p.Pending {
 		id := pending.Intent.ID
-		if !pending.valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects || !p.Started.Capabilities.Allows(pending.Intent.Policy.RequiredCapabilities) || index > 0 && p.Pending[index-1].Intent.ID.compare(id) >= 0 {
+		if !pending.valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects || !p.Started.Capabilities.Allows(pending.Intent.Policy.RequiredCapabilities) || index > 0 && p.Pending[index-1].Intent.ID.Compare(id) >= 0 {
 			return false
 		}
 	}
@@ -192,7 +192,7 @@ func (p ProcessCheckpoint) completionOwed(completion Completion) bool {
 	if !completion.Valid() || id.Process != p.Started.Process || id.Step > p.Usage.CommittedSteps || uint64(id.Index) >= p.Usage.PreparedEffects {
 		return false
 	}
-	_, pending := slices.BinarySearchFunc(p.Pending, id, func(pending PendingCheckpoint, id EffectID) int { return pending.Intent.ID.compare(id) })
+	_, pending := slices.BinarySearchFunc(p.Pending, id, func(pending PendingCheckpoint, id EffectID) int { return pending.Intent.ID.Compare(id) })
 	return !pending
 }
 

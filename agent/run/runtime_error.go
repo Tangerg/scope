@@ -52,6 +52,6 @@ func (r *RuntimeError) PendingEffectIDs() []EffectID { return slices.Clone(r.pen
 
 func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 	canonical := slices.Clone(effectIDs)
-	slices.SortFunc(canonical, EffectID.compare)
+	slices.SortFunc(canonical, EffectID.Compare)
 	return slices.Compact(canonical)
 }
