@@ -163,7 +163,7 @@ func (e *EmbeddingModel) Call(ctx context.Context, req *embedding.Request) (*emb
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := e.api.embed(ctx, apiReq)
+	apiResp, err := e.api.embed(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

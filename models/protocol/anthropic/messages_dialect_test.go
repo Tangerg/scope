@@ -88,7 +88,7 @@ func TestBindingOwnsCredentialAndWireRevision(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err = bound.countTokens(t.Context(), &anthropicsdk.MessageCountTokensParams{Model: "test", Messages: []anthropicsdk.MessageParam{anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("x"))}}); err != nil {
+			if _, err = bound.countTokens(t.Context(), anthropicsdk.MessageCountTokensParams{Model: "test", Messages: []anthropicsdk.MessageParam{anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock("x"))}}); err != nil {
 				t.Fatal(err)
 			}
 		})

@@ -135,10 +135,7 @@ type jsonResponse struct {
 	Seed         *int64 `json:"seed,omitzero"`
 }
 
-func (a *api) generate(ctx context.Context, path string, req *generateRequest) ([]byte, http.Header, error) {
-	if req == nil {
-		return nil, nil, errors.New("stability: request must not be nil")
-	}
+func (a *api) generate(ctx context.Context, path string, req generateRequest) ([]byte, http.Header, error) {
 
 	r := a.http.R().
 		SetContext(ctx).

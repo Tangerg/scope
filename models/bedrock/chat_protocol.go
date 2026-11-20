@@ -95,11 +95,7 @@ var (
 
 // converseAPI consumes only the streaming capability of the runtime client.
 type converseAPI interface {
-	converseStream(
-		ctx context.Context,
-		params *bedrockruntime.ConverseStreamInput,
-		opts ...func(*bedrockruntime.Options),
-	) (*bedrockruntime.ConverseStreamEventStream, error)
+	converseStream(ctx context.Context, params bedrockruntime.ConverseStreamInput) (*bedrockruntime.ConverseStreamEventStream, error)
 }
 
 // Chat implements Core chat through Bedrock's provider-neutral Converse API.
@@ -142,7 +138,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
-		stream, err := c.api.converseStream(ctx, input)
+		stream, err := c.api.converseStream(ctx, *input)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return

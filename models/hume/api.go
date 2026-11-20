@@ -207,10 +207,7 @@ func (t *ttsResponse) decodeAudio() ([]byte, error) {
 	return audio, nil
 }
 
-func (a *api) ttsStream(ctx context.Context, req *ttsRequest) (io.ReadCloser, error) {
-	if req == nil {
-		return nil, errors.New("hume: request must not be nil")
-	}
+func (a *api) ttsStream(ctx context.Context, req ttsRequest) (io.ReadCloser, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetBody(req).
@@ -231,10 +228,7 @@ func (a *api) ttsStream(ctx context.Context, req *ttsRequest) (io.ReadCloser, er
 	return resp.RawBody(), nil
 }
 
-func (a *api) tts(ctx context.Context, req *ttsRequest) (*ttsResponse, error) {
-	if req == nil {
-		return nil, errors.New("hume: request must not be nil")
-	}
+func (a *api) tts(ctx context.Context, req ttsRequest) (*ttsResponse, error) {
 	var out ttsResponse
 	resp, err := a.http.R().SetContext(ctx).SetBody(req).SetResult(&out).Post("/tts")
 	if err != nil {

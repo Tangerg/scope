@@ -85,13 +85,7 @@ type embeddingResponse struct {
 	} `json:"usage"`
 }
 
-func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingResponse, error) {
-	if req == nil {
-		return nil, errors.New("nomic: request must not be nil")
-	}
-	if len(req.Texts) == 0 {
-		return nil, errors.New("nomic: texts must not be empty")
-	}
+func (a *api) embedding(ctx context.Context, req embeddingRequest) (*embeddingResponse, error) {
 
 	var out embeddingResponse
 	resp, err := a.http.R().

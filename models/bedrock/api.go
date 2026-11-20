@@ -172,20 +172,14 @@ func (b *boundedResponseBody) Close() error { return b.closeBody() }
 // stream and nothing else a caller reads. It also keeps the surface one the SDK
 // can be tested against — an output's stream field is unexported with no
 // setter, while an event stream exposes its Reader for exactly that purpose.
-func (a *api) converseStream(ctx context.Context, params *bedrockruntime.ConverseStreamInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.ConverseStreamEventStream, error) {
-	if params == nil {
-		return nil, errors.New("bedrock: request must not be nil")
-	}
-	output, err := a.client.ConverseStream(ctx, params, opts...)
+func (a *api) converseStream(ctx context.Context, params bedrockruntime.ConverseStreamInput) (*bedrockruntime.ConverseStreamEventStream, error) {
+	output, err := a.client.ConverseStream(ctx, &params)
 	if err != nil {
 		return nil, err
 	}
 	return output.GetStream(), nil
 }
 
-func (a *api) invokeModel(ctx context.Context, params *bedrockruntime.InvokeModelInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error) {
-	if params == nil {
-		return nil, errors.New("bedrock: request must not be nil")
-	}
-	return a.client.InvokeModel(ctx, params, opts...)
+func (a *api) invokeModel(ctx context.Context, params bedrockruntime.InvokeModelInput) (*bedrockruntime.InvokeModelOutput, error) {
+	return a.client.InvokeModel(ctx, &params)
 }

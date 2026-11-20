@@ -109,10 +109,7 @@ func (j *jobRequest) setOptionalConfig(field string, value *int64) error {
 
 // Prodia's synchronous endpoint returns binary output when Accept selects an
 // image media type; the model's open config remains a lossless JSON subtree.
-func (a *api) job(ctx context.Context, req *jobRequest, accept string) ([]byte, http.Header, error) {
-	if req == nil {
-		return nil, nil, errors.New("prodia: request must not be nil")
-	}
+func (a *api) job(ctx context.Context, req jobRequest, accept string) ([]byte, http.Header, error) {
 	resp, err := a.http.R().
 		SetContext(ctx).
 		SetHeader(headerContentType, mediaTypeJSON).

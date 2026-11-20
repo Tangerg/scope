@@ -17,11 +17,7 @@ type scriptedConverse struct {
 	events []types.ConverseStreamOutput
 }
 
-func (s *scriptedConverse) converseStream(
-	_ context.Context,
-	_ *bedrockruntime.ConverseStreamInput,
-	_ ...func(*bedrockruntime.Options),
-) (*bedrockruntime.ConverseStreamEventStream, error) {
+func (s *scriptedConverse) converseStream(context.Context, bedrockruntime.ConverseStreamInput) (*bedrockruntime.ConverseStreamEventStream, error) {
 	events := make(chan types.ConverseStreamOutput, len(s.events))
 	for _, event := range s.events {
 		events <- event

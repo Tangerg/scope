@@ -465,7 +465,7 @@ func decodeCohereFloatEmbeddings(raw json.RawMessage) ([]corevector.Coordinates[
 }
 
 func (e *EmbeddingModel) invokeEmbedding(ctx context.Context, modelID string, body []byte) ([]byte, error) {
-	output, err := e.api.invokeModel(ctx, &bedrockruntime.InvokeModelInput{
+	output, err := e.api.invokeModel(ctx, bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(modelID),
 		ContentType: aws.String(embeddingMediaTypeJSON),
 		Accept:      aws.String(embeddingMediaTypeJSON),

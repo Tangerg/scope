@@ -55,26 +55,20 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 	return &api{v2: cohereclientv2.NewClient(reqOpts), http: client}, nil
 }
 
-func (a *api) rerank(ctx context.Context, req *cohere.V2RerankRequest) (*nativeResponse[*cohere.V2RerankResponse], error) {
-	if req == nil {
-		return nil, errors.New("cohere: request must not be nil")
-	}
+func (a *api) rerank(ctx context.Context, req cohere.V2RerankRequest) (*nativeResponse[*cohere.V2RerankResponse], error) {
 	response := new(nativeResponse[*cohere.V2RerankResponse])
 	var err error
-	response.value, err = a.v2.Rerank(ctx, req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
+	response.value, err = a.v2.Rerank(ctx, &req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
 	if err != nil {
 		return nil, err
 	}
 	return response, nil
 }
 
-func (a *api) embed(ctx context.Context, req *cohere.V2EmbedRequest) (*nativeResponse[*cohere.EmbedByTypeResponse], error) {
-	if req == nil {
-		return nil, errors.New("cohere: request must not be nil")
-	}
+func (a *api) embed(ctx context.Context, req cohere.V2EmbedRequest) (*nativeResponse[*cohere.EmbedByTypeResponse], error) {
 	response := new(nativeResponse[*cohere.EmbedByTypeResponse])
 	var err error
-	response.value, err = a.v2.Embed(ctx, req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
+	response.value, err = a.v2.Embed(ctx, &req, option.WithHTTPClient(&apiHTTPClient{client: a.http, usage: &response.usage}))
 	if err != nil {
 		return nil, err
 	}

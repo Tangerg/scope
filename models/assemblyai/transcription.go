@@ -133,7 +133,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		apiReq.AudioURL = uploaded.UploadURL
 	}
 
-	job, err := t.api.createTranscript(ctx, apiReq)
+	job, err := t.api.createTranscript(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

@@ -173,10 +173,7 @@ type pollResult struct {
 }
 
 // generate posts to /<model> (e.g. "flux-pro-1.1", "flux-kontext-pro").
-func (a *api) generate(ctx context.Context, model string, req *generateRequest) (*asyncResponse, error) {
-	if req == nil {
-		return nil, errors.New("blackforestlabs: request must not be nil")
-	}
+func (a *api) generate(ctx context.Context, model string, req generateRequest) (*asyncResponse, error) {
 	var out asyncResponse
 	resp, err := a.http.R().SetContext(ctx).SetBody(req).SetResult(&out).Post("/" + httpclient.PathSegment(model))
 	if err != nil {

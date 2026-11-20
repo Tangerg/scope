@@ -40,7 +40,7 @@ func TestNativeValidationKeepsSDKBodyOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = api.embed(t.Context(), &cohereapi.V2EmbedRequest{Model: "embed-v4.0", Texts: []string{"text"}, InputType: cohereapi.EmbedInputTypeSearchDocument, EmbeddingTypes: []cohereapi.EmbeddingType{cohereapi.EmbeddingTypeFloat}})
+	_, err = api.embed(t.Context(), cohereapi.V2EmbedRequest{Model: "embed-v4.0", Texts: []string{"text"}, InputType: cohereapi.EmbedInputTypeSearchDocument, EmbeddingTypes: []cohereapi.EmbeddingType{cohereapi.EmbeddingTypeFloat}})
 	if !errors.Is(err, embedding.ErrInvalidResponse) || transport.calls != 1 || body.closed != 1 || host.Transport != transport {
 		t.Fatalf("error=%v requests=%d closes=%d", err, transport.calls, body.closed)
 	}

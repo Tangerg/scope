@@ -104,7 +104,7 @@ func (m *Messages) CountInputTokens(ctx context.Context, req *corechat.Request) 
 	if err != nil {
 		return 0, err
 	}
-	return m.api.countTokens(ctx, countParams)
+	return m.api.countTokens(ctx, *countParams)
 }
 
 // Stream performs one streaming Messages API request and yields provider
@@ -116,11 +116,7 @@ func (m *Messages) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
-		stream := m.api.chatCompletionStream(ctx, request.params)
-		if stream == nil {
-			yield(nil, errors.New("anthropic: nil stream"))
-			return
-		}
+		stream := m.api.chatCompletionStream(ctx, *request.params)
 		closeStream := sync.OnceValue(stream.Close)
 		defer func() { _ = closeStream() }()
 

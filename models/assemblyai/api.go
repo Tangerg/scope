@@ -169,10 +169,7 @@ func (a *api) upload(ctx context.Context, audio []byte) (*uploadResponse, error)
 	return &out, nil
 }
 
-func (a *api) createTranscript(ctx context.Context, req *transcriptRequest) (*transcriptResponse, error) {
-	if req == nil {
-		return nil, errors.New("assemblyai: request must not be nil")
-	}
+func (a *api) createTranscript(ctx context.Context, req transcriptRequest) (*transcriptResponse, error) {
 
 	var out transcriptResponse
 	resp, err := a.http.R().

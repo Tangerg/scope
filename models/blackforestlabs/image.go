@@ -166,7 +166,7 @@ func (i *ImageModel) buildRequest(req *image.Request) (string, *generateRequest,
 }
 
 func (i *ImageModel) runGeneration(ctx context.Context, model string, request *generateRequest) (*asyncResponse, *pollResult, error) {
-	async, err := i.api.generate(ctx, model, request)
+	async, err := i.api.generate(ctx, model, *request)
 	if err != nil {
 		return nil, nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

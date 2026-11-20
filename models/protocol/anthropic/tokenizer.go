@@ -26,7 +26,7 @@ type TextCounter struct {
 // CountText returns the prompt-token count Anthropic would charge if
 // text were sent as a single user message under the configured model.
 func (t *TextCounter) CountText(ctx context.Context, text string) (int, error) {
-	tokens, err := t.api.countTokens(ctx, &anthropicsdk.MessageCountTokensParams{
+	tokens, err := t.api.countTokens(ctx, anthropicsdk.MessageCountTokensParams{
 		Model: anthropicsdk.Model(t.model),
 		Messages: []anthropicsdk.MessageParam{
 			anthropicsdk.NewUserMessage(anthropicsdk.NewTextBlock(text)),

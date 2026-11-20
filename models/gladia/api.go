@@ -183,10 +183,7 @@ func (a *api) upload(ctx context.Context, audio []byte, mimeType string) (*uploa
 	return &out, nil
 }
 
-func (a *api) createTranscription(ctx context.Context, req *transcriptionRequest) (*transcriptionCreateResponse, error) {
-	if req == nil {
-		return nil, errors.New("gladia: request must not be nil")
-	}
+func (a *api) createTranscription(ctx context.Context, req transcriptionRequest) (*transcriptionCreateResponse, error) {
 	var out transcriptionCreateResponse
 	resp, err := a.http.R().
 		SetContext(ctx).

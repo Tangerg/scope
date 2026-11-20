@@ -210,20 +210,12 @@ func jsonBoolean(field respjson.Field) bool {
 	return kind == jsontext.KindTrue || kind == jsontext.KindFalse
 }
 
-func (a *api) chatCompletionStream(ctx context.Context, req *anthropicsdk.MessageNewParams, opts ...option.RequestOption) *ssestream.Stream[anthropicsdk.MessageStreamEventUnion] {
-	if req == nil {
-		return nil
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
-	return a.client.Messages.NewStreaming(ctx, *req, opts...)
+func (a *api) chatCompletionStream(ctx context.Context, req anthropicsdk.MessageNewParams) *ssestream.Stream[anthropicsdk.MessageStreamEventUnion] {
+	return a.client.Messages.NewStreaming(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).ApplyEventStream))
 }
 
-func (a *api) countTokens(ctx context.Context, req *anthropicsdk.MessageCountTokensParams, opts ...option.RequestOption) (int64, error) {
-	if req == nil {
-		return 0, errors.New("anthropic: request must not be nil")
-	}
-	opts = append(opts, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply))
-	response, err := a.wrapResult(a.client.Messages.CountTokens(ctx, *req, opts...))
+func (a *api) countTokens(ctx context.Context, req anthropicsdk.MessageCountTokensParams) (int64, error) {
+	response, err := a.wrapResult(a.client.Messages.CountTokens(ctx, req, option.WithMiddleware(httpclient.ResponseBodyLimit(httpclient.DefaultMaxJSONResponseBytes).Apply)))
 	if err != nil {
 		return 0, err
 	}

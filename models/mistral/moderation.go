@@ -66,7 +66,7 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*m
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	apiResp, err := m.api.moderation(ctx, &moderationRequest{
+	apiResp, err := m.api.moderation(ctx, moderationRequest{
 		Model: effectiveOptions.Model,
 		Input: req.Texts,
 	})

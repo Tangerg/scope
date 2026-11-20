@@ -212,7 +212,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 
-	body, hdr, err := i.api.generate(ctx, endpoint, apiReq)
+	body, hdr, err := i.api.generate(ctx, endpoint, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

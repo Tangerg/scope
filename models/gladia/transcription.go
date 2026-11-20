@@ -86,7 +86,7 @@ func (t *TranscriptionModel) Call(ctx context.Context, req *transcription.Reques
 		}
 		apiReq.AudioURL = uploaded.AudioURL
 	}
-	job, err := t.api.createTranscription(ctx, apiReq)
+	job, err := t.api.createTranscription(ctx, *apiReq)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

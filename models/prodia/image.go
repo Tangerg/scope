@@ -79,7 +79,7 @@ func (i *ImageModel) Call(ctx context.Context, req *image.Request) (*image.Respo
 	default:
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("prodia: image: output_format must be image/jpeg, image/png, or image/webp")}
 	}
-	body, hdr, err := i.api.job(ctx, apiReq, accept)
+	body, hdr, err := i.api.job(ctx, *apiReq, accept)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

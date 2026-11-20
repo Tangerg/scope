@@ -59,10 +59,7 @@ func newAPI(ctx context.Context, config apiConfig) (*api, error) {
 
 // chat decodes Ollama's newline-delimited response for both streaming and
 // non-streaming requests. With stream=false the daemon returns one frame.
-func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeChatResponse) error) (err error) {
-	if req == nil {
-		return errors.New("ollama: request must not be nil")
-	}
+func (a *api) chat(ctx context.Context, req nativeChatRequest, fn func(nativeChatResponse) error) (err error) {
 	response, err := a.request(ctx, "/api/chat", req, "application/x-ndjson")
 	if err != nil {
 		return err
@@ -95,10 +92,7 @@ func (a *api) chat(ctx context.Context, req *nativeChatRequest, fn func(nativeCh
 	return nil
 }
 
-func (a *api) embed(ctx context.Context, req *nativeEmbedRequest) (*nativeEmbedResponse, error) {
-	if req == nil {
-		return nil, errors.New("ollama: request must not be nil")
-	}
+func (a *api) embed(ctx context.Context, req nativeEmbedRequest) (*nativeEmbedResponse, error) {
 	var response nativeEmbedResponse
 	if err := a.call(ctx, "/api/embed", req, &response); err != nil {
 		if errors.Is(err, corevector.ErrInvalidCoordinates) {

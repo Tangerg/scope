@@ -46,7 +46,7 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("hume: speech stream: include_timestamp_types cannot be represented by Core audio-only stream responses")})
 			return
 		}
-		body, err := s.binding.api.ttsStream(ctx, request)
+		body, err := s.binding.api.ttsStream(ctx, *request)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err})
 			return

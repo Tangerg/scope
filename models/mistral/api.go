@@ -81,10 +81,7 @@ type moderationResponse struct {
 	} `json:"results"`
 }
 
-func (a *api) moderation(ctx context.Context, req *moderationRequest) (*moderationResponse, error) {
-	if req == nil {
-		return nil, errors.New("mistral: request must not be nil")
-	}
+func (a *api) moderation(ctx context.Context, req moderationRequest) (*moderationResponse, error) {
 	var out moderationResponse
 	resp, err := a.http.R().SetContext(ctx).SetBody(req).SetResult(&out).Post("/moderations")
 	if err != nil {

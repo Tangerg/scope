@@ -79,7 +79,7 @@ func (s *SpeechModel) Call(ctx context.Context, req *speech.Request) (*speech.Re
 	if body.InstantMode != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("hume: speech: instant_mode is only supported by streaming endpoints")}
 	}
-	apiResp, err := s.binding.api.tts(ctx, body)
+	apiResp, err := s.binding.api.tts(ctx, *body)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: err}
 	}

@@ -116,13 +116,7 @@ type rerankResponse struct {
 	} `json:"usage"`
 }
 
-func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingResponse, error) {
-	if req == nil {
-		return nil, errors.New("jina: request must not be nil")
-	}
-	if len(req.Input) == 0 {
-		return nil, errors.New("jina: input must not be empty")
-	}
+func (a *api) embedding(ctx context.Context, req embeddingRequest) (*embeddingResponse, error) {
 
 	out, err := a.postJSON[embeddingResponse](ctx, embeddingEndpointPath, req)
 	if errors.Is(err, corevector.ErrInvalidCoordinates) {
@@ -131,10 +125,7 @@ func (a *api) embedding(ctx context.Context, req *embeddingRequest) (*embeddingR
 	return out, err
 }
 
-func (a *api) rerank(ctx context.Context, req *rerankRequest) (*rerankResponse, error) {
-	if req == nil {
-		return nil, errors.New("jina: request must not be nil")
-	}
+func (a *api) rerank(ctx context.Context, req rerankRequest) (*rerankResponse, error) {
 	return a.postJSON[rerankResponse](ctx, rerankEndpointPath, req)
 }
 

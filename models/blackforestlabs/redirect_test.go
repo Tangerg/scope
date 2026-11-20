@@ -38,7 +38,7 @@ func TestRedirectCredentialBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = adapter.generate(t.Context(), "generate", &generateRequest{Prompt: "test"})
+			_, err = adapter.generate(t.Context(), "generate", generateRequest{Prompt: "test"})
 			if foreign && err == nil {
 				t.Fatal("foreign redirect accepted")
 			}

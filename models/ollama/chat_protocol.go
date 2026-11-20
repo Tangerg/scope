@@ -65,7 +65,7 @@ func (c *Chat) Stream(ctx context.Context, req *corechat.Request) iter.Seq2[*cor
 		mapper := newProtocolResponseMapper()
 		consumerStopped := false
 		var terminal *corechat.ResponseDelta
-		err = c.api.chat(ctx, apiReq, func(chunk nativeChatResponse) error {
+		err = c.api.chat(ctx, *apiReq, func(chunk nativeChatResponse) error {
 			mapped, mapErr := mapper.mapDelta(apiReq.Model, chunk)
 			if mapErr != nil {
 				return mapErr
