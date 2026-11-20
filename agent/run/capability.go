@@ -78,6 +78,9 @@ func (c CapabilitySet) Contains(capability Capability) bool {
 	return found
 }
 
+// Equal reports whether both sets grant exactly the same capabilities.
+func (c CapabilitySet) Equal(other CapabilitySet) bool { return slices.Equal(c.values, other.values) }
+
 func (c CapabilitySet) Allows(requested CapabilitySet) bool {
 	for _, capability := range requested.values {
 		if !c.Contains(capability) {

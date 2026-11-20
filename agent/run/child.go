@@ -2,7 +2,6 @@ package run
 
 import (
 	"errors"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
 )
@@ -49,9 +48,11 @@ type ChildSpec struct {
 
 func (c ChildSpec) Valid() bool { return c.Key.Valid() && c.ProgramRef.Valid() && c.Input.Valid() }
 
-func (c ChildSpec) equal(other ChildSpec) bool {
+// Equal reports whether both specs start the same child: one key, Program,
+// input and resource grant.
+func (c ChildSpec) Equal(other ChildSpec) bool {
 	return c.Key == other.Key && c.ProgramRef == other.ProgramRef && c.Budget == other.Budget &&
-		slices.Equal(c.Capabilities.values, other.Capabilities.values) && c.Input.Equal(other.Input)
+		c.Capabilities.Equal(other.Capabilities) && c.Input.Equal(other.Input)
 }
 
 func (c *ChildSpec) UnmarshalJSON(data []byte) error {

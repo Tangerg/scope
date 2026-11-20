@@ -2,7 +2,6 @@ package run
 
 import (
 	"context"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/internal/enum"
 	"github.com/Tangerg/scope/agent/internal/jsonwire"
@@ -28,7 +27,7 @@ type EffectPolicy struct {
 func (e EffectPolicy) Valid() bool { return e.Replay.Valid() }
 
 func (e EffectPolicy) equal(other EffectPolicy) bool {
-	return e.Replay == other.Replay && slices.Equal(e.RequiredCapabilities.values, other.RequiredCapabilities.values)
+	return e.Replay == other.Replay && e.RequiredCapabilities.Equal(other.RequiredCapabilities)
 }
 
 func (e *EffectPolicy) UnmarshalJSON(data []byte) error {

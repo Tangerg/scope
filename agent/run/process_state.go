@@ -202,7 +202,7 @@ func (p *processState) withdrawWaits() {
 }
 
 func (p *processState) prepare(intent EffectIntent) error {
-	if intent.ID.Step != p.usage.CommittedSteps || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].equal(intent.Effect) {
+	if intent.ID.Step != p.usage.CommittedSteps || int(intent.ID.Index) >= len(p.stepEffects) || !p.stepEffects[intent.ID.Index].Equal(intent.Effect) {
 		return ErrInvalidLog
 	}
 	if _, ok := p.pending[intent.ID]; ok {
@@ -265,7 +265,7 @@ func (p *processState) settle(pending PendingCheckpoint, settled EffectSettled) 
 // spawns reports whether a pending Spawn authorizes exactly this child.
 func (p *processState) spawns(spec ChildSpec) bool {
 	for _, pending := range p.pending {
-		if spawn := pending.Intent.Effect.spawn; spawn != nil && spawn.equal(spec) {
+		if spawn := pending.Intent.Effect.spawn; spawn != nil && spawn.Equal(spec) {
 			return true
 		}
 	}

@@ -127,7 +127,7 @@ func TestEffectsAndTransitionsUseOneCurrentWireSchema(t *testing.T) {
 	for _, effect := range effects {
 		wire := controlValue(jsonv2.Marshal(effect))
 		var restored Effect
-		if err := jsonv2.Unmarshal(wire, &restored); err != nil || !restored.equal(effect) {
+		if err := jsonv2.Unmarshal(wire, &restored); err != nil || !restored.Equal(effect) {
 			t.Fatalf("effect wire %s: %v", wire, err)
 		}
 		transition := controlValue(Yield(0, []Effect{effect}, kernelWait()))

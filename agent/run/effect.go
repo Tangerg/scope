@@ -123,10 +123,11 @@ func (e *Effect) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// equal never treats an invalid Effect as evidence of a committed one. Each
-// variant's value objects own their equality, so log validation compares
-// normalized facts instead of re-encoding payloads that grow with history.
-func (e Effect) equal(other Effect) bool {
+// Equal reports whether both Effects declare the same operation. An invalid
+// Effect equals nothing, so it is never evidence of a committed one. Each
+// variant's value objects own their equality, so comparison reads normalized
+// facts instead of re-encoding payloads that grow with history.
+func (e Effect) Equal(other Effect) bool {
 	if !e.Valid() || !other.Valid() {
 		return false
 	}
@@ -134,7 +135,7 @@ func (e Effect) equal(other Effect) bool {
 	case e.call.Valid():
 		return e.call.Equal(other.call)
 	case e.spawn != nil:
-		return other.spawn != nil && e.spawn.equal(*other.spawn)
+		return other.spawn != nil && e.spawn.Equal(*other.spawn)
 	case e.send != nil:
 		return other.send != nil && e.send.equal(*other.send)
 	default:

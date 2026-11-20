@@ -27,30 +27,30 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 		"zero":    {{}, {}},
 		"invalid": {{}, call},
 	} {
-		if pair[0].equal(pair[1]) || pair[1].equal(pair[0]) {
+		if pair[0].Equal(pair[1]) || pair[1].Equal(pair[0]) {
 			t.Errorf("%s effect was accepted as committed evidence", name)
 		}
 	}
 	variants := []Effect{call, spawn, send, cancel}
 	for i, left := range variants {
 		restored := roundTrip[Effect](t, left)
-		if !left.equal(restored) || !restored.equal(left) {
+		if !left.Equal(restored) || !restored.Equal(left) {
 			t.Errorf("variant %d changed across its wire form", i)
 		}
 		for j, right := range variants {
-			if i != j && left.equal(right) {
+			if i != j && left.Equal(right) {
 				t.Errorf("variants %d and %d compared equal", i, j)
 			}
 		}
 	}
 
-	if !call.equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(` { "a" : "x", "b" : [1.0, -0.0] } `)))))) {
+	if !call.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(` { "a" : "x", "b" : [1.0, -0.0] } `)))))) {
 		t.Error("canonically equal payloads compared unequal")
 	}
 	raw := []byte(`{"n":1}`)
 	owned := controlValue(NewDispatcherEffect(controlValue(ParsePayload(raw))))
 	raw[5] = '2'
-	if !owned.equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"n":1}`)))))) {
+	if !owned.Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`{"n":1}`)))))) {
 		t.Error("caller bytes changed a constructed effect")
 	}
 	otherProgram := spec.ProgramRef
@@ -74,12 +74,12 @@ func TestCommittedFactEqualityFollowsEncodedFacts(t *testing.T) {
 		"cancel reason":     controlValue(NewChildCancelEffect(child, "superseded")),
 	} {
 		for _, original := range variants {
-			if original.equal(changed) || changed.equal(original) {
+			if original.Equal(changed) || changed.Equal(original) {
 				t.Errorf("%s compared equal to an original effect", name)
 			}
 		}
 	}
-	if !controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))))).equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`)))))) {
+	if !controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`))))).Equal(controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`1`)))))) {
 		t.Error("identical literal payloads compared unequal")
 	}
 

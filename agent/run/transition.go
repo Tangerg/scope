@@ -152,7 +152,7 @@ func (t *Transition) UnmarshalJSON(data []byte) error {
 // effect or wait lists encode identically and are therefore the same.
 func (t Transition) equal(other Transition) bool {
 	return t.Valid() && other.Valid() && t.kind == other.kind && t.consumed == other.consumed &&
-		slices.EqualFunc(t.effects, other.effects, Effect.equal) &&
+		slices.EqualFunc(t.effects, other.effects, Effect.Equal) &&
 		slices.EqualFunc(t.waits, other.waits, Wait.equal) &&
 		t.output.Equal(other.output) && t.failure == other.failure
 }

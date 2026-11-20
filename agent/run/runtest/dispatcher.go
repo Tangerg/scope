@@ -1,9 +1,7 @@
 package runtest
 
 import (
-	"bytes"
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -38,10 +36,10 @@ type ScriptedDispatcherConfig struct {
 }
 
 type frozenCall struct {
-	expectedEffectJSON []byte
-	deltas             []run.Payload
-	settlement         run.Settlement
-	err                error
+	expectedEffect *run.Effect
+	deltas         []run.Payload
+	settlement     run.Settlement
+	err            error
 }
 
 // ScriptedDispatcher is a concurrency-safe finite Dispatcher fixture. It
@@ -80,11 +78,7 @@ func freezeCall(source ScriptedCall) (frozenCall, error) {
 		if !source.ExpectedEffect.Valid() {
 			return frozenCall{}, run.ErrInvalidEffect
 		}
-		encoded, err := jsonv2.Marshal(*source.ExpectedEffect)
-		if err != nil {
-			return frozenCall{}, fmt.Errorf("encode expected Effect: %w", err)
-		}
-		call.expectedEffectJSON = encoded
+		call.expectedEffect = new(*source.ExpectedEffect)
 	}
 	for index, delta := range source.Deltas {
 		if !delta.Valid() {
@@ -133,11 +127,10 @@ func (f frozenCall) dispatch(
 	request run.EffectRequest,
 	emit run.DeltaEmitter,
 ) (run.Settlement, error) {
-	matches, err := f.matches(request.Effect())
-	if err != nil {
-		return run.Settlement{}, fmt.Errorf("%w: %w", ErrEffectMismatch, err)
-	}
-	if !matches {
+	if expected := f.expectedEffect; expected != nil && !expected.Equal(request.Effect()) {
+		if !request.Effect().Valid() {
+			return run.Settlement{}, fmt.Errorf("%w: %w", ErrEffectMismatch, run.ErrInvalidEffect)
+		}
 		return run.Settlement{}, ErrEffectMismatch
 	}
 	for _, delta := range f.deltas {
@@ -147,17 +140,6 @@ func (f frozenCall) dispatch(
 		return run.Settlement{}, f.err
 	}
 	return f.settlement, nil
-}
-
-func (f frozenCall) matches(effect run.Effect) (bool, error) {
-	if f.expectedEffectJSON == nil {
-		return true, nil
-	}
-	actual, err := jsonv2.Marshal(effect)
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(f.expectedEffectJSON, actual), nil
 }
 
 func (s *ScriptedDispatcher) Policy(effect run.Effect) run.EffectPolicy {

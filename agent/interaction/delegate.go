@@ -2,7 +2,6 @@ package interaction
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
@@ -144,8 +143,7 @@ func (d Delegate) validateChild(spec run.ChildSpec, sequence uint64, call chat.T
 	if err != nil {
 		return err
 	}
-	if spec.Key != expected.Key || spec.ProgramRef != expected.ProgramRef || spec.Budget != expected.Budget ||
-		!spec.Input.Equal(expected.Input) || !slices.Equal(spec.Capabilities.Values(), expected.Capabilities.Values()) {
+	if !spec.Equal(expected) {
 		return fmt.Errorf("%w: child intent differs from its declared delegation", ErrInvalidDelegate)
 	}
 	return nil
