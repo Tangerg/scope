@@ -111,7 +111,7 @@ func delegateDiagnostic(diagnostic string) toolcontract.Output {
 // rejectedDelegateStartResult is shared by live execution and SettledResults so
 // both report the same model-visible refusal.
 func rejectedDelegateStartResult(failure run.Failure) toolCallResult {
-	result := failedCallResult(delegateDiagnostic("child start failed: " + failure.Code() + ": " + failure.Message()))
+	result := failedCallResult(delegateDiagnostic("child start failed: " + failure.String()))
 	result.Disposition = ResultRejected
 	return result
 }

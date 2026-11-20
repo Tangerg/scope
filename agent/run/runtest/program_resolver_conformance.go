@@ -216,15 +216,6 @@ func requireSameBinding(want, got run.Program[run.Payload, run.Payload]) error {
 	return nil
 }
 
-func callResolve(
-	resolver run.ProgramResolver,
-	reference run.ProgramRef,
-) (program run.Program[run.Payload, run.Payload], err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			program = run.Program[run.Payload, run.Payload]{}
-			err = &run.CallbackPanicError{Operation: "ProgramResolver.Resolve", Value: recovered}
-		}
-	}()
-	return resolver.Resolve(reference)
+func callResolve(resolver run.ProgramResolver, reference run.ProgramRef) (run.Program[run.Payload, run.Payload], error) {
+	return contain("ProgramResolver.Resolve", func() (run.Program[run.Payload, run.Payload], error) { return resolver.Resolve(reference) })
 }

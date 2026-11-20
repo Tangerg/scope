@@ -19,7 +19,6 @@ func TestStableFailureVocabulary(t *testing.T) {
 		"runtime.child.request.invalid":         failureCodeRuntimeChildRequestInvalid,
 		"runtime.counter.exhausted":             failureCodeRuntimeCounterExhausted,
 		"runtime.dispatch.failed":               failureCodeRuntimeDispatchFailed,
-		"runtime.dispatch.panicked":             failureCodeRuntimeDispatchPanicked,
 		"runtime.dispatch.settlement.invalid":   failureCodeRuntimeDispatchSettlementInvalid,
 		"runtime.effect.recovery.invalid":       failureCodeRuntimeEffectRecoveryInvalid,
 		"runtime.process.snapshot.failed":       failureCodeRuntimeProcessSnapshotFailed,

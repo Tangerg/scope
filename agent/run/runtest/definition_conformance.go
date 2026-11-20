@@ -452,26 +452,31 @@ func requireEquivalent(label string, left, right any) error {
 	return nil
 }
 
-func callDescriptor(definition run.Definition) (descriptor run.Descriptor, err error) {
+// contain runs one Host callback the way the Runtime does, so a panic reaches
+// the suite as the CallbackPanicError a Runtime would report.
+func contain[T any](operation string, call func() (T, error)) (value T, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &run.CallbackPanicError{Operation: "Definition.Descriptor", Value: recovered}
+			var zero T
+			value, err = zero, &run.CallbackPanicError{Operation: operation, Value: recovered}
 		}
 	}()
-	descriptor = definition.Descriptor()
+	return call()
+}
+
+func callDescriptor(definition run.Definition) (run.Descriptor, error) {
+	descriptor, err := contain("Definition.Descriptor", func() (run.Descriptor, error) { return definition.Descriptor(), nil })
+	if err != nil {
+		return run.Descriptor{}, err
+	}
 	if !descriptor.Valid() {
 		return run.Descriptor{}, errors.New("runtest: Definition.Descriptor returned an invalid Descriptor")
 	}
 	return descriptor, nil
 }
 
-func callStart(definition run.Definition, input run.Payload) (execution run.Execution, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = &run.CallbackPanicError{Operation: "Definition.Start", Value: recovered}
-		}
-	}()
-	execution, err = definition.Start(input)
+func callStart(definition run.Definition, input run.Payload) (run.Execution, error) {
+	execution, err := contain("Definition.Start", func() (run.Execution, error) { return definition.Start(input) })
 	if err != nil {
 		return nil, fmt.Errorf("runtest: Definition.Start: %w", err)
 	}
@@ -481,13 +486,8 @@ func callStart(definition run.Definition, input run.Payload) (execution run.Exec
 	return execution, nil
 }
 
-func callRestore(ctx context.Context, definition run.Definition, state run.ExecutionState) (execution run.Execution, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = &run.CallbackPanicError{Operation: "Definition.Restore", Value: recovered}
-		}
-	}()
-	execution, err = definition.Restore(ctx, state)
+func callRestore(ctx context.Context, definition run.Definition, state run.ExecutionState) (run.Execution, error) {
+	execution, err := contain("Definition.Restore", func() (run.Execution, error) { return definition.Restore(ctx, state) })
 	if err != nil {
 		return nil, fmt.Errorf("runtest: Definition.Restore: %w", err)
 	}
@@ -497,28 +497,18 @@ func callRestore(ctx context.Context, definition run.Definition, state run.Execu
 	return execution, nil
 }
 
-func callStep(ctx context.Context, execution run.Execution, turn run.Turn) (transition run.Transition, err error) {
+func callStep(ctx context.Context, execution run.Execution, turn run.Turn) (run.Transition, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = &run.CallbackPanicError{Operation: "Execution.Step", Value: recovered}
-		}
-	}()
-	transition, err = execution.Step(ctx, turn)
+	transition, err := contain("Execution.Step", func() (run.Transition, error) { return execution.Step(ctx, turn) })
 	if err != nil {
 		return run.Transition{}, fmt.Errorf("runtest: Execution.Step: %w", err)
 	}
 	return transition, nil
 }
 
-func callSnapshot(execution run.Execution) (state run.ExecutionState, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = &run.CallbackPanicError{Operation: "Execution.Snapshot", Value: recovered}
-		}
-	}()
-	state, err = execution.Snapshot()
+func callSnapshot(execution run.Execution) (run.ExecutionState, error) {
+	state, err := contain("Execution.Snapshot", execution.Snapshot)
 	if err != nil {
 		return run.ExecutionState{}, fmt.Errorf("runtest: Execution.Snapshot: %w", err)
 	}

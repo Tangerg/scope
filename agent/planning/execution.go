@@ -154,7 +154,7 @@ func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
 	if failure.Kind() == run.FailureKindContract {
 		return run.Fail(1, *failure)
 	}
-	e.state.recordFailedAction(name, failureDiagnostic(*failure))
+	e.state.recordFailedAction(name, failure.String())
 	return e.requestSense(turn, 1, "")
 }
 
@@ -188,10 +188,10 @@ func (e *execution) advanceChild(turn run.Turn) (run.Transition, error) {
 // childFailure explains a finished child Action that did not complete.
 func childFailure(invocation child.Invocation) (string, bool) {
 	if rejection := invocation.Rejection; rejection != nil {
-		return failureDiagnostic(*rejection), true
+		return rejection.String(), true
 	}
 	if failure, failed := invocation.Termination.Failure(); failed {
-		return failureDiagnostic(failure), true
+		return failure.String(), true
 	}
 	if outcome := invocation.Termination; outcome.Status() != run.StatusCompleted {
 		return outcome.Reason(), true
@@ -205,12 +205,6 @@ func (e *execution) complete(consumedMessages uint32) (run.Transition, error) {
 		return run.Transition{}, err
 	}
 	return run.Complete(consumedMessages, erased)
-}
-
-// failureDiagnostic is the one Attempt diagnostic of a definite Failure,
-// whichever execution path reported it; the code keeps distinct failures apart.
-func failureDiagnostic(failure run.Failure) string {
-	return failure.Code() + ": " + failure.Message()
 }
 
 func planningChildKey(action string, attempt uint64) (run.ChildKey, error) {

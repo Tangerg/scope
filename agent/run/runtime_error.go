@@ -55,12 +55,3 @@ func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 	slices.SortFunc(canonical, EffectID.compare)
 	return slices.Compact(canonical)
 }
-
-func dispatchFailure(err error) Failure {
-	kind := failureKindForError(err, FailureKindExternal)
-	code := failureCodeRuntimeDispatchFailed
-	if kind == FailureKindPanic {
-		code = failureCodeRuntimeDispatchPanicked
-	}
-	return newRuntimeFailure(kind, code, err)
-}

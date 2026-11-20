@@ -103,10 +103,11 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 		name     string
 		dispatch func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error)
 		kind     FailureKind
+		code     string
 	}{
-		{"invalid settlement", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, nil }, FailureKindContract},
-		{"transport error", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, cause }, FailureKindExternal},
-		{"dispatch panic", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { panic(cause) }, FailureKindPanic},
+		{"invalid settlement", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, nil }, FailureKindContract, failureCodeRuntimeDispatchSettlementInvalid},
+		{"transport error", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, cause }, FailureKindExternal, failureCodeRuntimeDispatchFailed},
+		{"dispatch panic", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { panic(cause) }, FailureKindPanic, failureCodeRuntimeDispatchFailed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{})
@@ -117,7 +118,7 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 			id := lifecycleUnknown(t, ctx, handle)
 			inspection := controlValue(handle.Inspect(ctx))
 			process, found := inspection.Process(handle.ID())
-			if !found || process.Status.Terminal() || len(process.PendingEffects) != 1 || process.PendingEffects[0].Failure == nil || process.PendingEffects[0].Failure.Kind() != test.kind || process.Usage.AcceptedMessages != 0 {
+			if !found || process.Status.Terminal() || len(process.PendingEffects) != 1 || process.PendingEffects[0].Failure == nil || process.PendingEffects[0].Failure.Kind() != test.kind || process.PendingEffects[0].Failure.Code() != test.code || process.Usage.AcceptedMessages != 0 {
 				t.Fatalf("uncertain dispatch invented a completion: %+v", process)
 			}
 			if err := handle.ReplayUnknownEffect(ctx, id); !errors.Is(err, ErrEffectReplayForbidden) {

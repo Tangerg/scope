@@ -121,6 +121,10 @@ func (f Failure) Code() string { return f.code }
 
 func (f Failure) Message() string { return f.message }
 
+// String renders the code beside the diagnostic, so distinct failures stay
+// apart wherever a Failure becomes text.
+func (f Failure) String() string { return f.code + ": " + f.message }
+
 func (f Failure) Classification() FailureClassification {
 	return FailureClassification{kind: f.kind, code: f.code}
 }
@@ -193,7 +197,6 @@ const (
 	failureCodeRuntimeChildRequestInvalid         = "runtime.child.request.invalid"
 	failureCodeRuntimeCounterExhausted            = "runtime.counter.exhausted"
 	failureCodeRuntimeDispatchFailed              = "runtime.dispatch.failed"
-	failureCodeRuntimeDispatchPanicked            = "runtime.dispatch.panicked"
 	failureCodeRuntimeDispatchSettlementInvalid   = "runtime.dispatch.settlement.invalid"
 	failureCodeRuntimeEffectRecoveryInvalid       = "runtime.effect.recovery.invalid"
 	failureCodeRuntimeProcessSnapshotFailed       = "runtime.process.snapshot.failed"

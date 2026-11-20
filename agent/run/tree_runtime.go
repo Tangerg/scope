@@ -13,7 +13,7 @@ const dispatchResultCapacity = 32
 
 // Reasons for the controls the runtime originates rather than a Host.
 const (
-	reasonParentCompleted         = "parent completed"
+	reasonParentFinished          = "parent finished"
 	reasonContextCanceled         = "execution context canceled"
 	reasonContextDeadlineExceeded = "execution context deadline exceeded"
 )
@@ -335,7 +335,8 @@ func (t *treeRuntime) advance(id ProcessID) error {
 		return nil
 	}
 	if p.usage.CommittedSteps == math.MaxUint64 {
-		return t.reject(p, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeCounterExhausted, ErrCounterExhausted))
+		failure, _ := StepFailure(ErrCounterExhausted)
+		return t.reject(p, failure)
 	}
 	turn := Turn{Process: id, Step: p.usage.CommittedSteps + 1, Messages: slices.Clone([]Message(p.inbox))}
 	ctx, cancel := context.WithCancel(t.ctx)
@@ -472,7 +473,7 @@ func (t *treeRuntime) finish(p *processState) error {
 		if child.exited != nil {
 			records = append(records, Reaped{Process: id})
 		} else if !child.terminal.Valid() {
-			records = append(records, ControlRequested{Origin: ControlOriginParent, Process: id, Kind: ControlCancel, Reason: reasonParentCompleted, At: recordedNow()})
+			records = append(records, ControlRequested{Origin: ControlOriginParent, Process: id, Kind: ControlCancel, Reason: reasonParentFinished, At: recordedNow()})
 		}
 	}
 	if len(records) > 0 {
@@ -594,7 +595,7 @@ func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 		outcome, err := invokeCallback("Dispatcher.Dispatch", func() (Settlement, error) { return dispatcher.Dispatch(ctx, request, emit) })
 		var failure *Failure
 		if err != nil {
-			value := dispatchFailure(err)
+			value := newRuntimeFailure(failureKindForError(err, FailureKindExternal), failureCodeRuntimeDispatchFailed, err)
 			failure = &value
 			outcome = unknownSettlement()
 		}
