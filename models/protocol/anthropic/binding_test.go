@@ -67,7 +67,7 @@ func TestConstructorsValidateHTTPBindingWithoutIO(t *testing.T) {
 }
 
 func TestBindingValidatesSelectedEnvironmentURLBeforeIO(t *testing.T) {
-	for _, environmentURL := range []string{"%", "", "/relative", "ftp://example.test"} {
+	for _, environmentURL := range []string{"%", "/relative", "ftp://example.test"} {
 		t.Run(environmentURL, func(t *testing.T) {
 			t.Setenv("ANTHROPIC_BASE_URL", environmentURL)
 			transport := &bindingTransport{}
@@ -206,6 +206,17 @@ func TestBindingUsesSDKDefaultWhenEnvironmentIsAbsent(t *testing.T) {
 	if err := os.Unsetenv("ANTHROPIC_BASE_URL"); err != nil {
 		t.Fatal(err)
 	}
+	assertDefaultEndpoint(t)
+}
+
+// The SDK treats an empty ANTHROPIC_BASE_URL as unset since v2.12.0.
+func TestBindingUsesSDKDefaultWhenEnvironmentIsEmpty(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	assertDefaultEndpoint(t)
+}
+
+func assertDefaultEndpoint(t *testing.T) {
+	t.Helper()
 	transport := &bindingTransport{}
 	model, err := anthropic.NewMessages(t.Context(), anthropic.MessagesConfig{APIKey: "test-key", HTTPClient: &http.Client{Transport: transport}}, testMessagesDialect())
 	if err != nil {

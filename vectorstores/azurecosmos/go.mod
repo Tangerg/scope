@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/azurecosmos
 go 1.27.4
 
 require (
-	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.3
+	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.24.0
 	github.com/Azure/azure-sdk-for-go/sdk/data/azcosmos v1.5.0
 	github.com/Tangerg/scope/core v0.62.0
 )

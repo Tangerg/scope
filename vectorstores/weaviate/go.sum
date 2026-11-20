@@ -67,10 +67,10 @@ github.com/speakeasy-api/yaml-jsonpath v0.0.0-20261016002013-07e5f48e6d17 h1:Gcz
 github.com/speakeasy-api/yaml-jsonpath v0.0.0-20261016002013-07e5f48e6d17/go.mod h1:EMfEapMn2EVhphaczz62z+JnkJgCFixiF1G7z3tUbzg=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/weaviate/weaviate-go-client/v6 v6.0.0 h1:iSfSqUHTzYG09WIPZC89poyRacv8xK6GQEUs6Wayncc=
-github.com/weaviate/weaviate-go-client/v6 v6.0.0/go.mod h1:HSMzxWoE4e1TOITfnol+Aqn+ohFFTdEdhb7D8t0wTTw=
-github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261028093924-075fe4065cb2 h1:7+ccUuQLjpuYEuXEuNiFpEwfBbVAl50Zfd3NH5eJT+I=
-github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261028093924-075fe4065cb2/go.mod h1:1RncLOcarCYyc3fUu12nFuvVvcm+87Mf9g6gXgvfEA4=
+github.com/weaviate/weaviate-go-client/v6 v6.0.1 h1:jH/yUJj9ayEbnqdQ+d4++HyfT/TbXSpu5wkBD/3CPaA=
+github.com/weaviate/weaviate-go-client/v6 v6.0.1/go.mod h1:aPQ+gEPihqsXIXye3sDAd53ACpFHV8Ex3zZXfHkqMVw=
+github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261119143451-0532492aaebf h1:LmcMedbY2Mi7CazcyVDvq/zSr/pbWcb6m+2UhBB84cI=
+github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261119143451-0532492aaebf/go.mod h1:1RncLOcarCYyc3fUu12nFuvVvcm+87Mf9g6gXgvfEA4=
 go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
 go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 go.yaml.in/yaml/v4 v4.0.0-rc.7 h1:rnko0DesMIemBxRd6usQOfV432Xsx/OeMHMVECvzE2o=

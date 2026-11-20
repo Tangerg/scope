@@ -3,7 +3,7 @@ module github.com/Tangerg/scope/vectorstores/clickhouse
 go 1.27.4
 
 require (
-	github.com/ClickHouse/clickhouse-go/v2 v2.50.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.51.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/Tangerg/scope/core v0.62.0
 )
@@ -19,7 +19,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
-	github.com/paulmach/orb v0.13.0 // indirect
+	github.com/paulmach/orb v0.14.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pierrec/lz4/v4 v4.1.33 // indirect

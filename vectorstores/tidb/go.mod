@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/scope/core v0.62.0
-	github.com/go-sql-driver/mysql v1.10.1
+	github.com/go-sql-driver/mysql v1.10.2
 )
 
 require (

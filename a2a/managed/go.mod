@@ -6,7 +6,7 @@ require (
 	github.com/Tangerg/scope/a2a v0.62.0
 	github.com/Tangerg/scope/agent v0.62.0
 	github.com/Tangerg/scope/core v0.62.0
-	github.com/a2aproject/a2a-go/v2 v2.7.0
+	github.com/a2aproject/a2a-go/v2 v2.9.0
 )
 
 require (

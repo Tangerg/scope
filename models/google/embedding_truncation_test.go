@@ -20,9 +20,11 @@ import (
 func TestVertexEmbeddingPreservesTruncationPresence(t *testing.T) {
 	for _, endpoint := range []struct {
 		name, model, action, container, response string
+		texts                                    []string
 	}{
-		{"predict", "text-embedding-005", ":predict", "parameters", `{"predictions":[{"embeddings":{"values":[1,2]}}]}`},
-		{"embed content", "gemini-embedding-2", ":embedContent", "embedContentConfig", `{"embedding":{"values":[1,2]}}`},
+		{"predict", "text-embedding-005", ":predict", "parameters", `{"predictions":[{"embeddings":{"values":[1,2]}}]}`, []string{"canonical text"}},
+		{"embed content", "gemini-embedding-2", ":embedContent", "embedContentConfig", `{"embedding":{"values":[1,2]}}`, []string{"canonical text"}},
+		{"batch embed contents", "gemini-embedding-2", ":batchEmbedContents", "requests", `{"embeddings":[{"values":[1,2]},{"values":[3,4]}]}`, []string{"first text", "second text"}},
 	} {
 		for _, source := range []string{"request", "defaults"} {
 			for _, raw := range []string{"", "false", "true"} {
@@ -41,25 +43,20 @@ func TestVertexEmbeddingPreservesTruncationPresence(t *testing.T) {
 								t.Error(err)
 								return
 							}
-							var config map[string]json.RawMessage
-							if value, present := body[endpoint.container]; present {
-								if err := jsonv2.Unmarshal(value, &config); err != nil {
-									t.Error(err)
-									return
+							for _, config := range truncationConfigs(t, body, endpoint.container) {
+								if got := string(config["autoTruncate"]); got != raw {
+									t.Errorf("autoTruncate = %q, want %q", got, raw)
 								}
-							}
-							if got := string(config["autoTruncate"]); got != raw {
-								t.Errorf("autoTruncate = %q, want %q", got, raw)
-							}
-							if dimensions != nil && string(config["outputDimensionality"]) != "2" {
-								t.Errorf("outputDimensionality = %s, want 2", config["outputDimensionality"])
+								if dimensions != nil && string(config["outputDimensionality"]) != "2" {
+									t.Errorf("outputDimensionality = %s, want 2", config["outputDimensionality"])
+								}
 							}
 							writer.Header().Set("Content-Type", "application/json")
 							_, _ = writer.Write([]byte(endpoint.response))
 						}))
 						t.Cleanup(server.Close)
 						defaults := embedding.Options{Model: endpoint.model, Dimensions: dimensions}
-						request := &embedding.Request{Texts: []string{"canonical text"}}
+						request := &embedding.Request{Texts: endpoint.texts}
 						if raw != "" {
 							extensions := &request.Options.Extensions
 							if source == "defaults" {
@@ -84,6 +81,34 @@ func TestVertexEmbeddingPreservesTruncationPresence(t *testing.T) {
 			}
 		}
 	}
+}
+
+// truncationConfigs returns the native configuration objects of one request
+// body; a batch request carries one per entry.
+func truncationConfigs(t *testing.T, body map[string]json.RawMessage, container string) []map[string]json.RawMessage {
+	t.Helper()
+	value, present := body[container]
+	if !present {
+		return []map[string]json.RawMessage{nil}
+	}
+	if container != "requests" {
+		var config map[string]json.RawMessage
+		if err := jsonv2.Unmarshal(value, &config); err != nil {
+			t.Error(err)
+		}
+		return []map[string]json.RawMessage{config}
+	}
+	var entries []struct {
+		Config map[string]json.RawMessage `json:"embedContentConfig"`
+	}
+	if err := jsonv2.Unmarshal(value, &entries); err != nil {
+		t.Error(err)
+	}
+	configs := make([]map[string]json.RawMessage, 0, len(entries))
+	for _, entry := range entries {
+		configs = append(configs, entry.Config)
+	}
+	return configs
 }
 
 func TestGeminiEmbeddingRejectsTruncationBeforeIO(t *testing.T) {

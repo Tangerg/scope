@@ -21,6 +21,7 @@ import (
 
 const (
 	defaultAPIBaseURL            = "https://api.anthropic.com/"
+	baseURLEnvironment           = "ANTHROPIC_BASE_URL"
 	defaultResponseHeaderTimeout = 10 * time.Minute
 )
 
@@ -42,12 +43,13 @@ func (a apiConfig) endpoint() (string, error) {
 	if a.APIKey == "" {
 		return "", errors.New("anthropic: APIKey is required")
 	}
-	baseURL, source, present := a.BaseURL, "BaseURL", a.BaseURL != ""
-	if !present {
-		baseURL, present = os.LookupEnv("ANTHROPIC_BASE_URL")
-		source = "ANTHROPIC_BASE_URL"
+	baseURL, source := a.BaseURL, "BaseURL"
+	if baseURL == "" {
+		// The SDK treats an empty variable as unset, and this binding replaces
+		// the SDK's environment defaults, so it must agree.
+		baseURL, source = os.Getenv(baseURLEnvironment), baseURLEnvironment
 	}
-	if !present {
+	if baseURL == "" {
 		baseURL = defaultAPIBaseURL
 	}
 	if _, err := httpclient.ParseBaseURL(baseURL); err != nil {

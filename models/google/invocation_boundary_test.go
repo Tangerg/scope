@@ -118,8 +118,9 @@ func TestVertexEmbeddingLocalSDKRejectionIsNotExecuted(t *testing.T) {
 		return nil, errors.New("unexpected HTTP")
 	})}
 	model, err := vertexai.NewEmbeddingModel(t.Context(), vertexai.EmbeddingModelConfig{
-		Client:         vertexai.ClientConfig{Project: "test", Location: "global", BaseURL: "https://vertex.example.test", HTTPClient: client},
-		DefaultOptions: embedding.Options{Model: google.ModelGeminiEmbedding2},
+		Client: vertexai.ClientConfig{Project: "test", Location: "global", BaseURL: "https://vertex.example.test", HTTPClient: client},
+		// The SDK embeds one content at a time for a Model-as-a-Service model.
+		DefaultOptions: embedding.Options{Model: "multilingual-e5-large-maas"},
 	})
 	if err != nil {
 		t.Fatal(err)

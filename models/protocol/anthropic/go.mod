@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/scope/core v0.62.0
-	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.12.0
 )
 
 require (

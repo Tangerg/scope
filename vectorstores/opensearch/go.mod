@@ -5,7 +5,7 @@ go 1.27.4
 require (
 	github.com/Tangerg/scope/core v0.62.0
 	github.com/Tangerg/scope/vectorstores/protocol/elastic v0.62.0
-	github.com/opensearch-project/opensearch-go/v5 v5.1.3
+	github.com/opensearch-project/opensearch-go/v5 v5.2.0
 	github.com/samber/lo v1.53.0
 )
 
@@ -16,6 +16,7 @@ require (
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/rs/dnscache v0.0.0-20230804202142-fc85eb664529 // indirect
+	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )

@@ -74,7 +74,7 @@ func NewTextSplitter(config TextSplitterConfig) (*TextSplitter, error) {
 	if config.MaxChunks == 0 {
 		config.MaxChunks = defaultMaxChunks
 	}
-	references, err := newReferenceResolver(parser.New(parser.WithExtensions(extension.TableParser)), config.MaxExpandedBytes)
+	references, err := newReferenceResolver(parser.New(parser.WithExtensions(extension.NewTableParser())), config.MaxExpandedBytes)
 	if err != nil {
 		return nil, err
 	}

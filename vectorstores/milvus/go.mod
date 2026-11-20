@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/scope/core v0.62.0
-	github.com/milvus-io/milvus-proto/go-api/v3 v3.0.5
+	github.com/milvus-io/milvus-proto/go-api/v3 v3.0.6
 	github.com/milvus-io/milvus/client/v3 v3.0.0
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.85.0

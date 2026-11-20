@@ -6,8 +6,8 @@ require (
 	github.com/Tangerg/scope/core v0.62.0
 	github.com/google/uuid v1.6.0
 	github.com/samber/lo v1.53.0
-	github.com/weaviate/weaviate-go-client/v6 v6.0.0
-	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261028093924-075fe4065cb2
+	github.com/weaviate/weaviate-go-client/v6 v6.0.1
+	github.com/weaviate/weaviate/grpc/generated/protocol v0.0.0-20261119143451-0532492aaebf
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )

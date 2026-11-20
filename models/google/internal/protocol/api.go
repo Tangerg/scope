@@ -14,6 +14,12 @@ import (
 	"github.com/Tangerg/scope/core/metadata"
 )
 
+// geminiAPIVersion is the Gemini API version a binding uses unless
+// ClientConfig.APIVersion names another. The SDK defaults to v1 since v1.78.0,
+// but speech synthesis, preview models and Interactions are served only on
+// v1beta.
+const geminiAPIVersion = "v1beta"
+
 type ClientConfig struct {
 	APIKey string
 
@@ -36,7 +42,9 @@ type ClientConfig struct {
 	// BaseURL overrides the genai client endpoint. Optional —
 	// production users should leave it empty (the SDK picks the right
 	// host per Backend). Useful for mock servers / corporate proxies.
-	BaseURL    string
+	BaseURL string
+	// APIVersion selects the REST API version. Empty selects v1beta on the
+	// Gemini API and the SDK's default on Vertex AI.
 	APIVersion string
 
 	// HTTPClient remains owned by the caller; the SDK borrows a shallow copy.
@@ -104,6 +112,9 @@ func newAPI(ctx context.Context, config ClientConfig) (*api, error) {
 	}
 	if config.Backend == 0 {
 		clientCfg.Backend = genai.BackendGeminiAPI
+	}
+	if clientCfg.Backend == genai.BackendGeminiAPI {
+		clientCfg.HTTPOptions.APIVersion = geminiAPIVersion
 	}
 	if config.APIKey != "" {
 		clientCfg.APIKey = config.APIKey

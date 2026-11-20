@@ -7,7 +7,7 @@ require (
 	github.com/Tangerg/scope/models/protocol/openai v0.62.0
 	github.com/Tangerg/sse v0.0.6
 	github.com/go-resty/resty/v2 v2.17.2
-	google.golang.org/genai v1.77.0
+	google.golang.org/genai v1.79.1
 )
 
 require (

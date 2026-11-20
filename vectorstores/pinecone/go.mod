@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/Tangerg/scope/core v0.62.0
-	github.com/pinecone-io/go-pinecone/v7 v7.1.0
+	github.com/pinecone-io/go-pinecone/v7 v7.2.0
 	github.com/samber/lo v1.53.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
