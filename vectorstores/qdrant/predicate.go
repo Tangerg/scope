@@ -35,56 +35,43 @@ func nativeCondition(expr filter.Expr) (*qdrantclient.Condition, error) {
 			if err != nil {
 				return nil, err
 			}
-			return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{MustNot: []*qdrantclient.Condition{right}}), nil
+			return mustNot(right), nil
 		}
 	case *filter.BinaryExpr:
-		switch e.Operator() {
-		case filter.OpAnd, filter.OpOr:
-			l, err := nativeCondition(e.Left())
-			if err != nil {
-				return nil, err
+		if e.Operator() == filter.OpAnd || e.Operator() == filter.OpOr {
+			return nativeJunction(e)
+		}
+		condition, ok, err := keyword.Lower(e)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			term := qdrantclient.NewMatchKeyword(termsField, condition.Term)
+			if condition.Negated {
+				return mustNot(term), nil
 			}
-			r, err := nativeCondition(e.Right())
-			if err != nil {
-				return nil, err
-			}
-			terms := []*qdrantclient.Condition{l, r}
-			if e.Operator() == filter.OpAnd {
-				return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{Must: terms}), nil
-			}
-			return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{Should: terms}), nil
-		case filter.OpEqual, filter.OpNotEqual, filter.OpIs:
-			path, err := e.Path()
-			if err != nil || len(path) != 1 {
-				break
-			}
-			key, ok := path[0].Key()
-			if !ok {
-				break
-			}
-			var term string
-			negate := false
-			if e.Operator() == filter.OpIs {
-				term = keyword.Presence(key)
-				negate = true
-			} else {
-				v, err := e.Value()
-				if err != nil {
-					return nil, err
-				}
-				str, ok := v.(string)
-				if !ok {
-					break
-				}
-				term = keyword.String(key, str)
-				negate = e.Operator() == filter.OpNotEqual
-			}
-			c := qdrantclient.NewMatchKeyword(termsField, term)
-			if negate {
-				return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{MustNot: []*qdrantclient.Condition{c}}), nil
-			}
-			return c, nil
+			return term, nil
 		}
 	}
 	return nil, fmt.Errorf("%w: qdrant cannot lower %s", vectorstore.ErrUnsupportedFilter, expr)
+}
+
+func nativeJunction(e *filter.BinaryExpr) (*qdrantclient.Condition, error) {
+	left, err := nativeCondition(e.Left())
+	if err != nil {
+		return nil, err
+	}
+	right, err := nativeCondition(e.Right())
+	if err != nil {
+		return nil, err
+	}
+	terms := []*qdrantclient.Condition{left, right}
+	if e.Operator() == filter.OpAnd {
+		return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{Must: terms}), nil
+	}
+	return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{Should: terms}), nil
+}
+
+func mustNot(condition *qdrantclient.Condition) *qdrantclient.Condition {
+	return qdrantclient.NewFilterAsCondition(&qdrantclient.Filter{MustNot: []*qdrantclient.Condition{condition}})
 }
