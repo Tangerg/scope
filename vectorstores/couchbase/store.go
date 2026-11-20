@@ -273,14 +273,12 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate,
 		if err != nil {
 			return err
 		}
-		if predicate != nil {
-			match, err := filter.Match(predicate, candidate.document.Metadata)
-			if err != nil {
-				return fmt.Errorf("couchbase: evaluate filter for %s: %w", candidate.document.ID, err)
-			}
-			if !match {
-				return nil
-			}
+		match, err := filter.Match(predicate, candidate.document.Metadata)
+		if err != nil {
+			return fmt.Errorf("couchbase: evaluate filter for %s: %w", candidate.document.ID, err)
+		}
+		if !match {
+			return nil
 		}
 		candidates = append(candidates, candidate)
 		return nil

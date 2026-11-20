@@ -205,14 +205,12 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) ([]*d
 			if err != nil {
 				return nil, err
 			}
-			if request.Filter != nil {
-				matched, err := filter.Match(request.Filter, doc.Metadata)
-				if err != nil {
-					return nil, fmt.Errorf("s3vectors: evaluate Core predicate: %w", err)
-				}
-				if !matched {
-					continue
-				}
+			matched, err := filter.Match(request.Filter, doc.Metadata)
+			if err != nil {
+				return nil, fmt.Errorf("s3vectors: evaluate Core predicate: %w", err)
+			}
+			if !matched {
+				continue
 			}
 			docs = append(docs, doc)
 		}

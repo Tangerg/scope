@@ -513,14 +513,12 @@ func selectRecords(ctx context.Context, docs []*document.Document, predicate fil
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if predicate != nil {
-			matches, err := filter.Match(predicate, doc.Metadata)
-			if err != nil {
-				return nil, err
-			}
-			if !matches {
-				continue
-			}
+		matches, err := filter.Match(predicate, doc.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		if !matches {
+			continue
 		}
 		ids = append(ids, doc)
 	}

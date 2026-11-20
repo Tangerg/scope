@@ -430,12 +430,9 @@ func (s *Store) selectDocuments(ctx context.Context, predicate filter.Predicate,
 			return nil, errors.New("mongodb: native enumeration repeated an identity")
 		}
 		seen[doc.ID] = struct{}{}
-		matched := true
-		if predicate != nil {
-			matched, err = filter.Match(predicate, doc.Metadata)
-			if err != nil {
-				return nil, err
-			}
+		matched, matchErr := filter.Match(predicate, doc.Metadata)
+		if matchErr != nil {
+			return nil, matchErr
 		}
 		if matched {
 			selected = append(selected, selectedDocument{id: doc.ID, metadataJSON: facts})

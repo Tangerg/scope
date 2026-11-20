@@ -351,11 +351,9 @@ func (s *Store) selectItems(ctx context.Context, request vectorstore.ScanRequest
 			return errors.New("azurecosmos: partition scan repeated an item ID")
 		}
 		seen[doc.ID] = true
-		if request.Filter != nil {
-			matched, matchErr := filter.Match(request.Filter, doc.Metadata)
-			if matchErr != nil || !matched {
-				return matchErr
-			}
+		matched, matchErr := filter.Match(request.Filter, doc.Metadata)
+		if matchErr != nil || !matched {
+			return matchErr
 		}
 		selected = append(selected, selectedItem{doc: doc, etag: etag})
 		return nil

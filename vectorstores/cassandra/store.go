@@ -407,14 +407,12 @@ func (s *Store) selectCandidates(meter *vectorstore.ScanMeter, predicate filter.
 		if vectorErr := s.validateNativeVector(ctx, record.vector); vectorErr != nil {
 			return nil, vectorErr
 		}
-		if predicate != nil {
-			match, matchErr := filter.Match(predicate, doc.Metadata)
-			if matchErr != nil {
-				return nil, fmt.Errorf("cassandra: filter document %q: %w", doc.ID, matchErr)
-			}
-			if !match {
-				continue
-			}
+		match, matchErr := filter.Match(predicate, doc.Metadata)
+		if matchErr != nil {
+			return nil, fmt.Errorf("cassandra: filter document %q: %w", doc.ID, matchErr)
+		}
+		if !match {
+			continue
 		}
 		selected = append(selected, storedCandidate{record: record, document: doc})
 	}

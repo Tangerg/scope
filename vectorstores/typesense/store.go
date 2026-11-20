@@ -247,14 +247,12 @@ func (s *Store) matchingKeys(ctx context.Context, predicate filter.Predicate, me
 			return nil, errors.New("typesense: export repeated a native key")
 		}
 		seen[*record.ID] = struct{}{}
-		if predicate != nil {
-			matched, matchErr := filter.Match(predicate, doc.Metadata)
-			if matchErr != nil {
-				return nil, matchErr
-			}
-			if !matched {
-				continue
-			}
+		matched, matchErr := filter.Match(predicate, doc.Metadata)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if !matched {
+			continue
 		}
 		keys = append(keys, *record.ID)
 	}

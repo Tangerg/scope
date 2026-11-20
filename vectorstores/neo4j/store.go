@@ -387,10 +387,6 @@ func (s *Store) selectNodes(ctx context.Context, tx neo4j.ManagedTransaction, pr
 			return nil, fmt.Errorf("neo4j: duplicate document ID %q", node.document.ID)
 		}
 		seen[node.document.ID] = struct{}{}
-		if predicate == nil {
-			selected = append(selected, node)
-			continue
-		}
 		match, err := filter.Match(predicate, node.document.Metadata)
 		if err != nil {
 			return nil, fmt.Errorf("neo4j: filter node %q: %w", node.document.ID, err)
