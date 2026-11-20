@@ -94,7 +94,7 @@ func TestChildProtocolRejectsMalformedOrOutOfPhaseMessages(t *testing.T) {
 	if accepted, err := invocation.Accept(run.Exit{Child: parent}); accepted || err != nil {
 		t.Fatal("unrelated exit consumed")
 	}
-	if _, _, err := Start(run.Turn{}, 0, run.ChildSpec{}); err == nil {
+	if _, _, err := Start(run.EffectID{}, run.ChildSpec{}); err == nil {
 		t.Fatal("invalid start accepted")
 	}
 }

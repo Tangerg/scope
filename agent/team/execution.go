@@ -138,7 +138,7 @@ func (e *execution) startTurn(runtimeTurn run.Turn, consumed uint32) (run.Transi
 	if err != nil {
 		return run.Transition{}, err
 	}
-	invocation, effect, err := child.Start(runtimeTurn, 0, spec)
+	invocation, effect, err := child.Start(runtimeTurn.EffectID(0), spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -164,7 +164,7 @@ func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision D
 		if err != nil {
 			return run.Transition{}, err
 		}
-		invocation, effect, err := child.Start(turn, uint32(len(effects)), spec)
+		invocation, effect, err := child.Start(turn.NextEffectID(effects), spec)
 		if err != nil {
 			return run.Transition{}, err
 		}
@@ -177,7 +177,7 @@ func (e *execution) applyDecision(ctx context.Context, turn run.Turn, decision D
 		if err != nil {
 			return run.Transition{}, err
 		}
-		e.state.Controls = append(e.state.Controls, controlState{Control: control, Effect: new(turn.EffectID(uint32(len(effects))))})
+		e.state.Controls = append(e.state.Controls, controlState{Control: control, Effect: new(turn.NextEffectID(effects))})
 		effects = append(effects, effect)
 	}
 	e.state.Coordinator = nil

@@ -114,14 +114,14 @@ func (f *firstSuccessExecution) start(turn run.Turn) (run.Transition, error) {
 	if len(turn.Messages) != 0 {
 		return run.Transition{}, ErrInvalidProtocol
 	}
-	effects := make([]run.Effect, len(f.state.Candidates))
-	calls := make([]child.Invocation, len(effects))
-	for index, candidate := range f.state.Candidates {
-		invocation, effect, err := child.Start(turn, uint32(index), candidate)
+	effects := make([]run.Effect, 0, len(f.state.Candidates))
+	calls := make([]child.Invocation, 0, len(f.state.Candidates))
+	for _, candidate := range f.state.Candidates {
+		invocation, effect, err := child.Start(turn.NextEffectID(effects), candidate)
 		if err != nil {
 			return run.Transition{}, err
 		}
-		calls[index], effects[index] = invocation, effect
+		calls, effects = append(calls, invocation), append(effects, effect)
 	}
 	f.state.Calls = calls
 	return run.Yield(0, effects)
@@ -162,7 +162,7 @@ func (f *firstSuccessExecution) cancelRemaining(turn run.Turn, consumed uint32) 
 		if err != nil {
 			return run.Transition{}, err
 		}
-		f.state.Cancellations = append(f.state.Cancellations, turn.EffectID(uint32(len(effects))))
+		f.state.Cancellations = append(f.state.Cancellations, turn.NextEffectID(effects))
 		effects = append(effects, effect)
 	}
 	if len(effects) == 0 && f.state.drained() {

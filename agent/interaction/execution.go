@@ -406,11 +406,12 @@ func (e *execution) prepareDelegateCalls(ctx context.Context, turn run.Turn, cal
 		if err != nil {
 			return nil, fmt.Errorf("%w: admitted delegation: %w", ErrInvalidExecutionState, err)
 		}
-		invocation, effect, err := child.Start(turn, uint32(len(effects)), spec)
+		id := turn.NextEffectID(effects)
+		invocation, effect, err := child.Start(id, spec)
 		if err != nil {
 			return nil, err
 		}
-		batch.Invocations = append(batch.Invocations, &callInvocation{Reference: turn.EffectID(uint32(len(effects))), Child: &invocation})
+		batch.Invocations = append(batch.Invocations, &callInvocation{Reference: id, Child: &invocation})
 		effects = append(effects, effect)
 	}
 	e.state.ToolRound.beginCalls(batch)
@@ -438,7 +439,7 @@ func (e *execution) scheduleTools(turn run.Turn, consumed uint32, effects []run.
 		if effectErr != nil {
 			return run.Transition{}, effectErr
 		}
-		id := turn.EffectID(uint32(len(effects)))
+		id := turn.NextEffectID(effects)
 		batch.Invocations[index] = &callInvocation{Reference: id, Pending: &id}
 		effects = append(effects, effect)
 		active++
@@ -512,7 +513,7 @@ func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.Too
 	}
 	switch value := message.(type) {
 	case run.Signal:
-		effect, matched, err := invocation.acceptAnswer(call, value, turn.EffectID(uint32(len(*effects))))
+		effect, matched, err := invocation.acceptAnswer(call, value, turn.NextEffectID(*effects))
 		if matched && err == nil {
 			*effects = append(*effects, effect)
 		}

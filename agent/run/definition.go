@@ -34,8 +34,16 @@ type Turn struct {
 	Messages []Message
 }
 
+// EffectID is the identity the Runtime gives the Effect at index in the
+// Transition this Step returns. A Step that records an Effect's identity in
+// its state names it here before the Runtime commits it.
 func (t Turn) EffectID(index uint32) EffectID {
 	return EffectID{Process: t.Process, Step: t.Step, Index: index}
+}
+
+// NextEffectID is the identity of the Effect a Step appends after effects.
+func (t Turn) NextEffectID(effects []Effect) EffectID {
+	return t.EffectID(uint32(len(effects)))
 }
 
 func (t Turn) Valid() bool {

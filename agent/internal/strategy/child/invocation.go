@@ -27,12 +27,13 @@ type Invocation struct {
 	Rejection   *run.Failure     `json:"rejection,omitzero"`
 }
 
-func Start(turn run.Turn, index uint32, spec run.ChildSpec) (Invocation, run.Effect, error) {
+// Start prepares the child start Effect the Runtime will commit as request.
+func Start(request run.EffectID, spec run.ChildSpec) (Invocation, run.Effect, error) {
 	effect, err := run.NewChildStartEffect(spec)
 	if err != nil {
 		return Invocation{}, run.Effect{}, err
 	}
-	return Invocation{Request: new(turn.EffectID(index))}, effect, nil
+	return Invocation{Request: &request}, effect, nil
 }
 
 func (i Invocation) Valid() bool {

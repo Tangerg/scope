@@ -90,7 +90,7 @@ func (e *execution) startSingleChild(turn run.Turn, consumedMessages uint32, bin
 	if err != nil {
 		return run.Transition{}, err
 	}
-	invocation, effect, err := child.Start(turn, 0, spec)
+	invocation, effect, err := child.Start(turn.EffectID(0), spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -232,7 +232,7 @@ func (e *execution) startFanoutWindow(ctx context.Context, turn run.Turn, consum
 		if err != nil {
 			return run.Transition{}, err
 		}
-		invocation, effect, err := child.Start(turn, uint32(len(effects)), spec)
+		invocation, effect, err := child.Start(turn.NextEffectID(effects), spec)
 		if err != nil {
 			return run.Transition{}, err
 		}

@@ -132,7 +132,7 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding a
 	if err != nil {
 		return stepfail.Transition(consumedMessages, run.FailureKindContract, failureCodePlanningChildInputInvalid, err.Error())
 	}
-	invocation, effect, err := child.Start(turn, 0, spec)
+	invocation, effect, err := child.Start(turn.EffectID(0), spec)
 	if err != nil {
 		return run.Transition{}, err
 	}
