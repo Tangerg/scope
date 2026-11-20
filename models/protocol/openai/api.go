@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Tangerg/scope/core/httpclient"
+	"github.com/Tangerg/scope/core/metadata"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -56,7 +57,7 @@ func validateBinding(provider, apiKey, baseURL, model string) error {
 	if err := requireBindingEndpoint(provider, baseURL); err != nil {
 		return err
 	}
-	if err := validateProvider(provider); err != nil {
+	if err := metadata.ValidateExtensionNamespace(provider); err != nil {
 		return fmt.Errorf("openai: Provider: %w", err)
 	}
 	if _, _, err := (apiConfig{APIKey: apiKey, BaseURL: baseURL}).admit(); err != nil {

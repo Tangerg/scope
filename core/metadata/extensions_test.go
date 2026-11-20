@@ -94,3 +94,20 @@ func TestExtensionsValidateKeySegments(t *testing.T) {
 		t.Fatalf("Set() rejected valid Unicode key: %v", err)
 	}
 }
+
+func TestExtensionNamespaceMatchesTheKeyGrammar(t *testing.T) {
+	for _, namespace := range []string{"openai", "azure-openai", "x.ai", "vertex_ai"} {
+		if err := metadata.ValidateExtensionNamespace(namespace); err != nil {
+			t.Errorf("namespace %q rejected: %v", namespace, err)
+		}
+		var extensions metadata.Extensions
+		if err := extensions.Set(namespace+"/request", true); err != nil {
+			t.Errorf("an admitted namespace %q cannot name a key: %v", namespace, err)
+		}
+	}
+	for _, namespace := range []string{"", "my provider", "a/b", " openai", "open:ai"} {
+		if err := metadata.ValidateExtensionNamespace(namespace); err == nil {
+			t.Errorf("namespace %q admitted", namespace)
+		}
+	}
+}

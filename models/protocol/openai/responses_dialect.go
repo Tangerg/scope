@@ -10,6 +10,7 @@ import (
 	"github.com/openai/openai-go/v3/shared/constant"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 // ResponsesDialect binds one provider's Responses-compatible endpoint. The
@@ -25,7 +26,7 @@ type ResponsesDialect struct {
 	PreserveStreamEvents       bool
 }
 
-func (r ResponsesDialect) Validate() error { return validateProvider(r.Provider) }
+func (r ResponsesDialect) Validate() error { return metadata.ValidateExtensionNamespace(r.Provider) }
 
 // CompatibleResponsesRequest exposes only provider-owned Responses controls.
 // BuiltInTools are appended to Core's function tools; a non-nil empty slice

@@ -162,7 +162,7 @@ type DialectConfig struct {
 }
 
 func (d DialectConfig) Validate() error {
-	if err := validateProvider(d.Provider); err != nil {
+	if err := metadata.ValidateExtensionNamespace(d.Provider); err != nil {
 		return fmt.Errorf("provider: %w", err)
 	}
 	if !d.TokenLimitField.Valid() {
@@ -265,13 +265,6 @@ func protocolRequestExtensionKey(provider string) string {
 		return RequestExtensionKey
 	}
 	return provider + CompatibleRequestExtensionSuffix
-}
-
-func validateProvider(provider string) error {
-	if provider == "" || strings.TrimSpace(provider) != provider || strings.Contains(provider, "/") {
-		return errors.New("provider is required, must not contain '/', and must not have surrounding whitespace")
-	}
-	return nil
 }
 
 func protocolStreamChunkExtensionKey(provider string) string {

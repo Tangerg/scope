@@ -17,14 +17,8 @@ type SpeechModelConfig struct {
 }
 
 func (s SpeechModelConfig) Validate() error {
-	if err := validateProvider(s.Provider); err != nil {
-		return fmt.Errorf("google: Provider: %w", err)
-	}
-	if err := s.Client.Validate(); err != nil {
+	if err := validateModelBinding(s.Provider, s.Client, s.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if s.DefaultOptions.Model == "" {
-		return errors.New("google: DefaultOptions.Model is required")
 	}
 	if err := s.DefaultOptions.Validate(); err != nil {
 		return err

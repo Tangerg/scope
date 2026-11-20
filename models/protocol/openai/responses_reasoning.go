@@ -13,6 +13,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -163,7 +164,7 @@ type responsesReasoningFrame struct {
 }
 
 func (r responsesReasoningFrame) validate() error {
-	if err := validateProvider(r.Issuer); err != nil {
+	if err := metadata.ValidateExtensionNamespace(r.Issuer); err != nil {
 		return fmt.Errorf("reasoning issuer: %w", err)
 	}
 	return r.State.validate()

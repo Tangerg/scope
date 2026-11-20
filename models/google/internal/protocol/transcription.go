@@ -21,14 +21,8 @@ type TranscriptionModelConfig struct {
 }
 
 func (t TranscriptionModelConfig) Validate() error {
-	if err := validateProvider(t.Provider); err != nil {
-		return fmt.Errorf("google: Provider: %w", err)
-	}
-	if err := t.Client.Validate(); err != nil {
+	if err := validateModelBinding(t.Provider, t.Client, t.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if t.DefaultOptions.Model == "" {
-		return errors.New("google: DefaultOptions.Model is required")
 	}
 	if err := t.DefaultOptions.Validate(); err != nil {
 		return err

@@ -85,6 +85,16 @@ func (e *Extensions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// ValidateExtensionNamespace admits the namespace half of an extension key.
+// A binding applies it to its provider identity at construction, so a provider
+// it accepts can always name its extension keys.
+func ValidateExtensionNamespace(namespace string) error {
+	if !validExtensionSegment(namespace) {
+		return fmt.Errorf("metadata: extension namespace %q must be non-empty letters, digits, '.', '_' or '-'", namespace)
+	}
+	return nil
+}
+
 func validExtensionKey(key string) bool {
 	if strings.Count(key, "/") != 1 {
 		return false

@@ -19,10 +19,7 @@ type ChatConfig struct {
 }
 
 func (c ChatConfig) Validate() error {
-	if err := validateProvider(c.Provider); err != nil {
-		return fmt.Errorf("google: Provider: %w", err)
-	}
-	if err := c.Client.Validate(); err != nil {
+	if err := validateBinding(c.Provider, c.Client); err != nil {
 		return err
 	}
 	if err := c.DefaultOptions.Validate(); err != nil {

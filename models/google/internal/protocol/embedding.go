@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 	"math"
 
@@ -33,14 +32,8 @@ type embeddingRequestOptions struct {
 }
 
 func (e EmbeddingModelConfig) Validate() error {
-	if err := validateProvider(e.Provider); err != nil {
-		return fmt.Errorf("google: Provider: %w", err)
-	}
-	if err := e.Client.Validate(); err != nil {
+	if err := validateModelBinding(e.Provider, e.Client, e.DefaultOptions.Model); err != nil {
 		return err
-	}
-	if e.DefaultOptions.Model == "" {
-		return errors.New("google: DefaultOptions.Model is required")
 	}
 	if err := e.DefaultOptions.Validate(); err != nil {
 		return err

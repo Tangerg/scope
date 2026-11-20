@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/invocation"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 type ClientConfig struct {
@@ -39,6 +41,25 @@ type ClientConfig struct {
 
 	// HTTPClient remains owned by the caller; the SDK borrows a shallow copy.
 	HTTPClient *http.Client
+}
+
+func validateBinding(provider string, client ClientConfig) error {
+	if err := metadata.ValidateExtensionNamespace(provider); err != nil {
+		return fmt.Errorf("google: Provider: %w", err)
+	}
+	return client.Validate()
+}
+
+// validateModelBinding also requires a default model, because only chat
+// requests can name their model per call.
+func validateModelBinding(provider string, client ClientConfig, model string) error {
+	if err := validateBinding(provider, client); err != nil {
+		return err
+	}
+	if model == "" {
+		return errors.New("google: DefaultOptions.Model is required")
+	}
+	return nil
 }
 
 func (c ClientConfig) Validate() error {

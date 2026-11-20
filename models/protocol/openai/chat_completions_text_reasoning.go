@@ -11,6 +11,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/respjson"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/metadata"
 )
 
 const (
@@ -196,7 +197,7 @@ func textReasoningDeltas(fields map[string]respjson.Field, provider, fieldName s
 // NewTextReasoningPart retains the issuing field because providers require the
 // same property during replay even when another model uses a different one.
 func NewTextReasoningPart(provider string, field TextReasoningField, text string) (corechat.Part, error) {
-	if err := validateProvider(provider); err != nil {
+	if err := metadata.ValidateExtensionNamespace(provider); err != nil {
 		return corechat.Part{}, fmt.Errorf("openai: text reasoning provider: %w", err)
 	}
 	if !field.valid() {
