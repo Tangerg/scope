@@ -616,3 +616,9 @@ func TestRequestBodiesAreBoundedBeforeDecoding(t *testing.T) {
 		}
 	}
 }
+
+func TestNewHTTPHandlerRejectsAnIncompleteConfiguration(t *testing.T) {
+	if _, err := managed.NewHTTPHandler(managed.Config{}); !errors.Is(err, managed.ErrInvalidConfig) {
+		t.Fatalf("incomplete configuration = %v", err)
+	}
+}

@@ -2,7 +2,7 @@ package postgres
 
 import (
 	_ "embed"
-	"errors"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
@@ -23,7 +23,7 @@ var schemaTemplate string
 
 func namespace(name string) (string, error) {
 	if name == "" || len(name) > maxIdentifierBytes || !utf8.ValidString(name) || strings.ContainsRune(name, 0) {
-		return "", errors.New("postgres: invalid schema name")
+		return "", fmt.Errorf("%w: invalid schema name", ErrInvalidConfig)
 	}
 	return pgx.Identifier{name}.Sanitize(), nil
 }

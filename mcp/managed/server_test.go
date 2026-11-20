@@ -430,3 +430,14 @@ func pendingOwner(t *testing.T, view run.TreeInspection) (run.ProcessID, run.Wai
 	}
 	return owner, wait
 }
+
+func TestRegisterRejectsAnIncompleteConfiguration(t *testing.T) {
+	s := newService(t)
+	incomplete := s.cfg
+	incomplete.TokenLifetime = 0
+	for _, cfg := range []managed.Config[request, decision]{{}, incomplete} {
+		if err := managed.Register(s.server, cfg); !errors.Is(err, managed.ErrInvalidConfig) {
+			t.Fatalf("incomplete configuration = %v", err)
+		}
+	}
+}

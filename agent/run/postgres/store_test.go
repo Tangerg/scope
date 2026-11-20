@@ -17,8 +17,8 @@ func TestInvalidConfigurationAndAddressesDoNotUseThePool(t *testing.T) {
 		{},
 		{Pool: &pgxpool.Pool{}, Schema: "invalid\x00schema", Timeout: time.Second},
 	} {
-		if got, err := New(t.Context(), config); got != nil || err == nil {
-			t.Fatal("invalid configuration reached the pool")
+		if got, err := New(t.Context(), config); got != nil || !errors.Is(err, ErrInvalidConfig) {
+			t.Fatal("invalid configuration reached the pool", err)
 		}
 	}
 	var store Store

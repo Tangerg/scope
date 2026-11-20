@@ -18,7 +18,13 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-const remoteLogPollInterval = 250 * time.Millisecond
+const (
+	remoteLogPollInterval = 250 * time.Millisecond
+	cancellationReason    = "A2A cancellation requested"
+)
+
+// ErrInvalidConfig rejects a handler configuration missing an owner it needs.
+var ErrInvalidConfig = errors.New("a2a/managed: invalid configuration")
 
 type Config struct {
 	Runtime *run.Runtime
@@ -56,7 +62,7 @@ var _ a2asrv.RequestHandler = (*handler)(nil)
 // the protocol endpoint cannot maintain an independent task store.
 func NewHTTPHandler(cfg Config) (http.Handler, error) {
 	if cfg.Card == nil || cfg.Runtime == nil || !cfg.Program.Valid() || cfg.Authority == nil || strings.TrimSpace(cfg.Service) == "" || !utf8.ValidString(cfg.Service) {
-		return nil, errors.New("a2a/managed: runtime, program, card, service and authority are required")
+		return nil, fmt.Errorf("%w: runtime, program, card, service and authority are required", ErrInvalidConfig)
 	}
 	card := *cfg.Card
 	card.Capabilities.Extensions = slices.Clone(card.Capabilities.Extensions)
@@ -236,7 +242,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 	if !ok || !local.Writes(head) {
 		return nil, sdk.ErrTaskNotCancelable
 	}
-	if err = local.Cancel(ctx, "A2A cancellation requested"); err != nil {
+	if err = local.Cancel(ctx, cancellationReason); err != nil {
 		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrEpochConflict) {
 			return nil, sdk.ErrTaskNotCancelable
 		}

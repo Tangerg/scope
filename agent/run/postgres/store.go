@@ -15,6 +15,10 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
+// ErrInvalidConfig rejects a Store configuration or a Prepare result that
+// cannot form a valid append.
+var ErrInvalidConfig = errors.New("postgres: invalid configuration")
+
 const rootLockSeed int64 = 0
 
 // rootLockSQL takes the transaction-scoped lock that serializes appends to one
@@ -59,7 +63,7 @@ type Store struct {
 
 func New(ctx context.Context, config Config) (*Store, error) {
 	if config.Pool == nil || config.Timeout <= 0 {
-		return nil, errors.New("postgres: pool and positive storage timeout are required")
+		return nil, fmt.Errorf("%w: pool and positive storage timeout are required", ErrInvalidConfig)
 	}
 	schema, err := namespace(config.Schema)
 	if err != nil {
@@ -197,7 +201,7 @@ func (s *Store) Append(ctx context.Context, batch run.Batch) (err error) {
 			return err
 		}
 		if mutation.Apply == nil {
-			return errors.New("postgres: host mutation has no Apply function")
+			return fmt.Errorf("%w: Prepare returned a Mutation without Apply", ErrInvalidConfig)
 		}
 	}
 	if err := s.writeEntries(op, tx, batch.Root, batch.Entries()); err != nil {

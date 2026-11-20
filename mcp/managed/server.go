@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	jsonv2 "encoding/json/v2"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Tangerg/go-sdk/jsonrpc"
@@ -34,12 +35,15 @@ type Config[I, O any] struct {
 	TokenLifetime time.Duration
 }
 
+// ErrInvalidConfig rejects a registration missing an owner it needs.
+var ErrInvalidConfig = errors.New("mcp/managed: invalid configuration")
+
 func (c Config[I, O]) Validate() error {
 	if c.Runtime == nil || !c.Program.Valid() || c.Authorize == nil || c.Project == nil {
-		return errors.New("managed: runtime, program, authorization and output projection are required")
+		return fmt.Errorf("%w: runtime, program, authorization and output projection are required", ErrInvalidConfig)
 	}
 	if c.ResumeKey == ([resumeKeyBytes]byte{}) || c.TokenLifetime <= 0 {
-		return errors.New("managed: resume key and token lifetime are required")
+		return fmt.Errorf("%w: resume key and token lifetime are required", ErrInvalidConfig)
 	}
 	return nil
 }
@@ -55,6 +59,9 @@ const (
 	CodeUnsupportedForm     = -32056
 	CodeStartUnknown        = -32057
 )
+
+// terminatedRunNotice prefixes the status of a run that ended without output.
+const terminatedRunNotice = "Managed run ended: "
 
 func rpc(code int64, message string) *jsonrpc.Error {
 	return &jsonrpc.Error{Code: code, Message: message}
@@ -288,7 +295,7 @@ func (b *binding[I, O]) project(head run.TreeInspection, auth []byte) (*sdk.Call
 	if root.Termination.Valid() {
 		v, ok := root.Termination.Output()
 		if !ok {
-			return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: "Managed run ended: " + root.Termination.Status().String()}}}, nil
+			return &sdk.CallToolResult{IsError: true, Content: []sdk.Content{&sdk.TextContent{Text: terminatedRunNotice + root.Termination.Status().String()}}}, nil
 		}
 		value, err := b.cfg.Program.Descriptor().DecodeOutput[O](v)
 		if err != nil {
