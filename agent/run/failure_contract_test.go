@@ -20,7 +20,7 @@ func TestInitializationFailureDiagnosticsSurviveJSON(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			cause := errors.New(test.message)
-			failure := newRuntimeFailure(FailureKindExecution, failureCodeRuntimeProcessStartFailed, cause)
+			failure := newRuntimeFailure(failureRuntimeProcessStartFailed, cause)
 			if failure.Kind() != FailureKindExecution || failure.Code() != "runtime.process.start.failed" || failure.Message() != test.want {
 				t.Errorf("failure kind/code = %s/%s, diagnostic matches = %t", failure.Kind(), failure.Code(), failure.Message() == test.want)
 			}

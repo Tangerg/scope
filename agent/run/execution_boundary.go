@@ -55,23 +55,17 @@ func initializeExecution(
 	}
 	execution, err := startExecution(definition, input)
 	if err != nil {
-		failure := newRuntimeFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessStartFailed, err,
-		)
+		failure := newRuntimeFailure(failureRuntimeProcessStartFailed, err)
 		return nil, failure, fmt.Errorf("start Execution: %w", err)
 	}
 	state, err := captureExecution(execution)
 	if err != nil {
-		failure := newRuntimeFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessSnapshotFailed, err,
-		)
+		failure := newRuntimeFailure(failureRuntimeProcessSnapshotFailed, err)
 		return nil, failure, fmt.Errorf("capture initial Execution state: %w", err)
 	}
 	restored, err := restoreExecution(ctx, definition, state)
 	if err != nil {
-		failure := newRuntimeFailure(
-			failureKindForError(err, FailureKindExecution), failureCodeRuntimeProcessSnapshotUnrestorable, err,
-		)
+		failure := newRuntimeFailure(failureRuntimeProcessSnapshotUnrestorable, err)
 		return nil, failure, fmt.Errorf("validate initial Execution state: %w", err)
 	}
 	return restored, Failure{}, nil

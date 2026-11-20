@@ -815,7 +815,7 @@ func TestFrameworkControlsCannotActOnAnotherParentsChild(t *testing.T) {
 						return Transition{}, errors.New("unauthorized framework operation succeeded")
 					}
 					failure, _ := completion.Outcome.Failure()
-					if failure.Kind() != FailureKindContract || failure.Code() != failureCodeRuntimeChildRequestInvalid {
+					if failure.Kind() != FailureKindContract || failure.Code() != failureRuntimeChildRequestInvalid.Code() {
 						return Transition{}, errors.New("framework rejection lost its contract classification")
 					}
 					return Complete(1, controlValue(EncodePayload(1)))
@@ -904,7 +904,7 @@ func TestMutatedChildBindingCannotReachItsExecution(t *testing.T) {
 				t.Fatal("mutated child declaration acquired a successful receipt")
 			}
 			failure, _ := record.Outcome.Failure()
-			rejected = failure.Kind() == FailureKindContract && failure.Code() == failureCodeRuntimeChildRequestInvalid
+			rejected = failure.Kind() == FailureKindContract && failure.Code() == failureRuntimeChildRequestInvalid.Code()
 		}
 	}
 	if !rejected {

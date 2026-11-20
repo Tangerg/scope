@@ -51,5 +51,5 @@ func StepFailure(err error) (Failure, bool) {
 	if !ok {
 		return Failure{}, false
 	}
-	return newRuntimeFailure(classified.failure.Kind(), classified.failure.Code(), err), true
+	return newRuntimeFailure(classified.failure.Classification(), err), true
 }

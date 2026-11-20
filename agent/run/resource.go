@@ -9,14 +9,12 @@ import (
 )
 
 // ErrResourceLimitExceeded reports a designed execution bound, not a Runtime defect.
-var ErrResourceLimitExceeded = NewClassifiedError(FailureKindExecution, failureCodeRuntimeResourceLimitExceeded, "run: resource limit exceeded")
+var ErrResourceLimitExceeded = NewClassifiedError(failureRuntimeResourceLimitExceeded.Kind(), failureRuntimeResourceLimitExceeded.Code(), "run: resource limit exceeded")
 
 // ErrCounterExhausted reports exhausted numeric identity or accounting space,
 // independently of the Host's quota policy. Work stops before a counter wraps.
 // Strategies exhausting their own counters report this same sentinel.
-var ErrCounterExhausted = NewClassifiedError(
-	FailureKindExecution, failureCodeRuntimeCounterExhausted, "run: counter exhausted",
-)
+var ErrCounterExhausted = NewClassifiedError(failureRuntimeCounterExhausted.Kind(), failureRuntimeCounterExhausted.Code(), "run: counter exhausted")
 
 const (
 	defaultMaxPendingMessages uint64 = 10_000

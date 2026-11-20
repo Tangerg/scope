@@ -92,9 +92,8 @@ func (f FailureClassification) validate() error {
 // alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
 // must exclude secrets.
 type Failure struct {
-	kind    FailureKind
-	code    string
-	message string
+	classification FailureClassification
+	message        string
 }
 
 // NewFailure records message as NormalizeDiagnostic renders it, so any error's
@@ -106,32 +105,29 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 // strictFailure is the form decoding uses: persisted text must already be
 // normalized, because normalizing it would change what the log recorded.
 func strictFailure(kind FailureKind, code, message string) (Failure, error) {
-	if err := (FailureClassification{kind: kind, code: code}).validate(); err != nil {
+	classification := FailureClassification{kind: kind, code: code}
+	if err := classification.validate(); err != nil {
 		return Failure{}, err
 	}
 	if !ValidDiagnostic(message) {
 		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, MaxDiagnosticBytes)
 	}
-	return Failure{kind: kind, code: code, message: message}, nil
+	return Failure{classification: classification, message: message}, nil
 }
 
-func (f Failure) Kind() FailureKind { return f.kind }
+func (f Failure) Kind() FailureKind { return f.classification.kind }
 
-func (f Failure) Code() string { return f.code }
+func (f Failure) Code() string { return f.classification.code }
 
 func (f Failure) Message() string { return f.message }
 
 // String renders the code beside the diagnostic, so distinct failures stay
 // apart wherever a Failure becomes text.
-func (f Failure) String() string { return f.code + ": " + f.message }
+func (f Failure) String() string { return f.classification.code + ": " + f.message }
 
-func (f Failure) Classification() FailureClassification {
-	return FailureClassification{kind: f.kind, code: f.code}
-}
+func (f Failure) Classification() FailureClassification { return f.classification }
 
-func (f Failure) Valid() bool {
-	return f.kind.Valid()
-}
+func (f Failure) Valid() bool { return f.classification.kind.Valid() }
 
 func failureKindForError(err error, fallback FailureKind) FailureKind {
 	if sealed, ok := errors.AsType[*callbackError](err); ok && sealed != nil && sealed.panicked {
@@ -140,14 +136,15 @@ func failureKindForError(err error, fallback FailureKind) FailureKind {
 	return fallback
 }
 
-// Kernel classifications are fixed by their owning boundary. An invalid kind or
-// code is a programming error; substituting another Failure would hide its cause.
-func newRuntimeFailure(kind FailureKind, code string, err error) Failure {
+// newRuntimeFailure records err under a kernel classification. A contained
+// callback panic keeps the code but reports FailureKindPanic, so the boundary
+// that recovered it, not the classification, decides the kind.
+func newRuntimeFailure(classification FailureClassification, err error) Failure {
 	message := ""
 	if err != nil {
 		message = err.Error()
 	}
-	failure, failureErr := NewFailure(kind, code, message)
+	failure, failureErr := NewFailure(failureKindForError(err, classification.kind), classification.code, message)
 	if failureErr != nil {
 		panic(failureErr)
 	}
@@ -158,7 +155,7 @@ func (f Failure) MarshalJSON() ([]byte, error) {
 	if !f.Valid() {
 		return nil, ErrInvalidFailure
 	}
-	return jsonv2.Marshal(failureWire{Kind: f.kind, Code: f.code, Message: f.message})
+	return jsonv2.Marshal(failureWire{Kind: f.classification.kind, Code: f.classification.code, Message: f.message})
 }
 
 func (f *Failure) UnmarshalJSON(data []byte) error {
@@ -189,20 +186,22 @@ func (f Failure) termination() Termination {
 	return Termination{failure: f}
 }
 
-const (
-	failureCodeRuntimeResourceLimitExceeded       = "runtime.resource.limit_exceeded"
-	failureCodeRuntimeCapabilityDenied            = "runtime.capability.denied"
-	failureCodeRuntimeChildAdmissionRejected      = "runtime.child.admission.rejected"
-	failureCodeRuntimeChildRequestCanceled        = "runtime.child.request.canceled"
-	failureCodeRuntimeChildRequestInvalid         = "runtime.child.request.invalid"
-	failureCodeRuntimeCounterExhausted            = "runtime.counter.exhausted"
-	failureCodeRuntimeDispatchFailed              = "runtime.dispatch.failed"
-	failureCodeRuntimeDispatchSettlementInvalid   = "runtime.dispatch.settlement.invalid"
-	failureCodeRuntimeEffectRecoveryInvalid       = "runtime.effect.recovery.invalid"
-	failureCodeRuntimeProcessSnapshotFailed       = "runtime.process.snapshot.failed"
-	failureCodeRuntimeProcessSnapshotUnrestorable = "runtime.process.snapshot.unrestorable"
-	failureCodeRuntimeProcessStartFailed          = "runtime.process.start.failed"
-	failureCodeExecutionEffectInvalid             = "execution.effect.invalid"
-	failureCodeExecutionStepFailed                = "execution.step.failed"
-	failureCodeExecutionTransitionInvalid         = "execution.transition.invalid"
+// The kernel's classifications: each code is reported with the kind of the
+// boundary that owns it.
+var (
+	failureRuntimeResourceLimitExceeded       = NewFailureClassification(FailureKindExecution, "runtime.resource.limit_exceeded")
+	failureRuntimeCapabilityDenied            = NewFailureClassification(FailureKindContract, "runtime.capability.denied")
+	failureRuntimeChildAdmissionRejected      = NewFailureClassification(FailureKindExternal, "runtime.child.admission.rejected")
+	failureRuntimeChildRequestCanceled        = NewFailureClassification(FailureKindExecution, "runtime.child.request.canceled")
+	failureRuntimeChildRequestInvalid         = NewFailureClassification(FailureKindContract, "runtime.child.request.invalid")
+	failureRuntimeCounterExhausted            = NewFailureClassification(FailureKindExecution, "runtime.counter.exhausted")
+	failureRuntimeDispatchFailed              = NewFailureClassification(FailureKindExternal, "runtime.dispatch.failed")
+	failureRuntimeDispatchSettlementInvalid   = NewFailureClassification(FailureKindContract, "runtime.dispatch.settlement.invalid")
+	failureRuntimeEffectRecoveryInvalid       = NewFailureClassification(FailureKindExternal, "runtime.effect.recovery.invalid")
+	failureRuntimeProcessSnapshotFailed       = NewFailureClassification(FailureKindExecution, "runtime.process.snapshot.failed")
+	failureRuntimeProcessSnapshotUnrestorable = NewFailureClassification(FailureKindExecution, "runtime.process.snapshot.unrestorable")
+	failureRuntimeProcessStartFailed          = NewFailureClassification(FailureKindExecution, "runtime.process.start.failed")
+	failureExecutionEffectInvalid             = NewFailureClassification(FailureKindContract, "execution.effect.invalid")
+	failureExecutionStepFailed                = NewFailureClassification(FailureKindExecution, "execution.step.failed")
+	failureExecutionTransitionInvalid         = NewFailureClassification(FailureKindContract, "execution.transition.invalid")
 )

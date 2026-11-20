@@ -388,13 +388,13 @@ func (t *treeRuntime) stepped(result stepResult) {
 		}
 		failure, classified := StepFailure(result.err)
 		if !classified {
-			failure = newRuntimeFailure(failureKindForError(result.err, FailureKindExecution), failureCodeExecutionStepFailed, result.err)
+			failure = newRuntimeFailure(failureExecutionStepFailed, result.err)
 		}
 		t.failOn(t.reject(p, failure))
 		return
 	}
 	if int(result.transition.Consumed()) > len(job.turn.Messages) {
-		t.failOn(t.reject(p, newRuntimeFailure(FailureKindContract, failureCodeExecutionTransitionInvalid, ErrInvalidTransition)))
+		t.failOn(t.reject(p, newRuntimeFailure(failureExecutionTransitionInvalid, ErrInvalidTransition)))
 		return
 	}
 	t.failOn(t.commitStep(p, job.turn, result.transition))
@@ -404,7 +404,7 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 	if err := p.admitTransition(transition, t.state.limits, uint32(len(turn.Messages))); err != nil {
 		failure, classified := StepFailure(err)
 		if !classified {
-			failure = newRuntimeFailure(FailureKindContract, failureCodeExecutionTransitionInvalid, err)
+			failure = newRuntimeFailure(failureExecutionTransitionInvalid, err)
 		}
 		return t.reject(p, failure)
 	}
@@ -412,11 +412,11 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 	for index, effect := range transition.effects {
 		policy, err := p.effectPolicy(effect)
 		if err != nil {
-			code := failureCodeExecutionEffectInvalid
+			classification := failureExecutionEffectInvalid
 			if _, callback := errors.AsType[*callbackError](err); !callback && errors.Is(err, ErrInvalidCapability) {
-				code = failureCodeRuntimeCapabilityDenied
+				classification = failureRuntimeCapabilityDenied
 			}
-			return t.reject(p, newRuntimeFailure(failureKindForError(err, FailureKindContract), code, err))
+			return t.reject(p, newRuntimeFailure(classification, err))
 		}
 		records = append(records, EffectIntent{ID: turn.EffectID(uint32(index)), Effect: effect, Policy: policy, At: recordedNow()})
 	}
@@ -537,9 +537,9 @@ func (t *treeRuntime) resumeEffects() error {
 func (t *treeRuntime) resumeEffect(p *processState, intent EffectIntent) error {
 	switch {
 	case intent.Effect.Target() == EffectTargetFramework && p.terminal.Valid():
-		return t.settleChildRequest(intent.ID, nil, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished))
+		return t.settleChildRequest(intent.ID, nil, newRuntimeFailure(failureRuntimeChildRequestCanceled, ErrProcessFinished))
 	case intent.Policy.Replay == ReplayPolicyNever || p.terminal.Valid():
-		failure := newRuntimeFailure(FailureKindExternal, failureCodeRuntimeEffectRecoveryInvalid, ErrEffectOutcomeUnknown)
+		failure := newRuntimeFailure(failureRuntimeEffectRecoveryInvalid, ErrEffectOutcomeUnknown)
 		return t.append(t.ctx, []Record{unknownRecord(intent.ID, failure)})
 	default:
 		return t.dispatch(intent.ID, nil)
@@ -575,12 +575,12 @@ func (t *treeRuntime) dispatch(id EffectID, reply chan commandResponse) error {
 		outcome, err := invokeCallback("Dispatcher.Dispatch", func() (Settlement, error) { return dispatcher.Dispatch(ctx, request, emit) })
 		var failure *Failure
 		if err != nil {
-			value := newRuntimeFailure(failureKindForError(err, FailureKindExternal), failureCodeRuntimeDispatchFailed, err)
+			value := newRuntimeFailure(failureRuntimeDispatchFailed, err)
 			failure = &value
 			outcome = unknownSettlement()
 		}
 		if !outcome.Valid() {
-			value := newRuntimeFailure(FailureKindContract, failureCodeRuntimeDispatchSettlementInvalid, ErrInvalidSettlement)
+			value := newRuntimeFailure(failureRuntimeDispatchSettlementInvalid, ErrInvalidSettlement)
 			failure = &value
 			outcome = unknownSettlement()
 		}
@@ -623,7 +623,7 @@ func (t *treeRuntime) framework(parent *processState, intent EffectIntent) error
 	var outcome Settlement
 	if err != nil {
 		records = nil
-		outcome, err = NewFailedSettlement(newRuntimeFailure(failureKindForError(err, FailureKindContract), failureCodeRuntimeChildRequestInvalid, err), Payload{})
+		outcome, err = NewFailedSettlement(newRuntimeFailure(failureRuntimeChildRequestInvalid, err), Payload{})
 	} else {
 		outcome, err = appliedSettlement()
 	}
@@ -674,14 +674,14 @@ func (t *treeRuntime) startNextChild() error {
 			return ErrEffectNotPending
 		}
 		if parent.terminal.Valid() {
-			if err := t.settleChildRequest(id, nil, newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished)); err != nil {
+			if err := t.settleChildRequest(id, nil, newRuntimeFailure(failureRuntimeChildRequestCanceled, ErrProcessFinished)); err != nil {
 				return err
 			}
 			continue
 		}
 		spec := *pending.Intent.Effect.spawn
 		if _, err := t.state.admitChild(parent, spec); err != nil {
-			if settleErr := t.settleChildRequest(id, nil, newRuntimeFailure(FailureKindContract, failureCodeRuntimeChildRequestInvalid, err)); settleErr != nil {
+			if settleErr := t.settleChildRequest(id, nil, newRuntimeFailure(failureRuntimeChildRequestInvalid, err)); settleErr != nil {
 				return settleErr
 			}
 			continue
@@ -697,28 +697,28 @@ func (t *treeRuntime) startNextChild() error {
 }
 
 func (t *treeRuntime) prepareChild(ctx context.Context, id EffectID, parent Program[Payload, Payload], process ProcessID, spec ChildSpec) childResult {
-	rejected := func(err error, kind FailureKind, code string) childResult {
-		return childResult{id: id, failure: newRuntimeFailure(failureKindForError(err, kind), code, err)}
+	rejected := func(err error, classification FailureClassification) childResult {
+		return childResult{id: id, failure: newRuntimeFailure(classification, err)}
 	}
 	child, err := process.Child(spec.Key)
 	if err != nil {
-		return rejected(err, FailureKindContract, failureCodeRuntimeChildRequestInvalid)
+		return rejected(err, failureRuntimeChildRequestInvalid)
 	}
 	program, err := t.runtime.resolve(parent, spec.ProgramRef)
 	if err != nil {
-		return rejected(err, FailureKindContract, failureCodeRuntimeChildRequestInvalid)
+		return rejected(err, failureRuntimeChildRequestInvalid)
 	}
 	if inputErr := program.descriptor.ValidateInput(spec.Input); inputErr != nil {
-		return rejected(inputErr, FailureKindContract, failureCodeRuntimeChildRequestInvalid)
+		return rejected(inputErr, failureRuntimeChildRequestInvalid)
 	}
 	admission := ProcessAdmission{process: child, program: program.ProgramRef(), descriptor: program.descriptor, budget: spec.Budget, capabilities: spec.Capabilities}
 	if admissionErr := requestProcessAdmission(ctx, t.runtime.admitter, admission); admissionErr != nil {
-		return rejected(admissionErr, FailureKindExternal, failureCodeRuntimeChildAdmissionRejected)
+		return rejected(admissionErr, failureRuntimeChildAdmissionRejected)
 	}
 	execution, failure, err := initializeExecution(ctx, program.definition, spec.Input)
 	if err != nil {
 		if !failure.Valid() {
-			return rejected(err, FailureKindExecution, failureCodeRuntimeChildRequestCanceled)
+			return rejected(err, failureRuntimeChildRequestCanceled)
 		}
 		return childResult{id: id, failure: failure}
 	}
@@ -738,12 +738,12 @@ func (t *treeRuntime) childPrepared(result childResult) {
 	parent := t.state.processes[result.id.Process]
 	if parent.terminal.Valid() {
 		result.child = nil
-		result.failure = newRuntimeFailure(FailureKindExecution, failureCodeRuntimeChildRequestCanceled, ErrProcessFinished)
+		result.failure = newRuntimeFailure(failureRuntimeChildRequestCanceled, ErrProcessFinished)
 	} else if result.child != nil {
 		spec := parent.pending[result.id].Intent.Effect.spawn
 		if _, err := t.state.admitChild(parent, *spec); err != nil {
 			result.child = nil
-			result.failure = newRuntimeFailure(FailureKindContract, failureCodeRuntimeChildRequestInvalid, err)
+			result.failure = newRuntimeFailure(failureRuntimeChildRequestInvalid, err)
 		}
 	}
 	if err := t.settleChildRequest(result.id, result.child, result.failure); err != nil {

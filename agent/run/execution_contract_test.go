@@ -28,7 +28,7 @@ func TestInvalidStepCandidatesCannotPublishProgress(t *testing.T) {
 			handle := controlValue(runtime.Start(t.Context(), program, StartRequest[int]{ID: hostStartID()}))
 			result := controlValue(handle.Await(t.Context()))
 			failure, failed := result.Termination().Failure()
-			if !failed || failure.Kind() != FailureKindContract || failure.Code() != failureCodeExecutionTransitionInvalid {
+			if !failed || failure.Kind() != FailureKindContract || failure.Code() != failureExecutionTransitionInvalid.Code() {
 				t.Fatalf("malformed Step did not fail at its contract: %+v", failure)
 			}
 			log, _, err := store.Load(t.Context(), handle.ID())
@@ -64,9 +64,9 @@ func TestInvalidEffectPolicyRejectsTheWholeStepBeforeDispatch(t *testing.T) {
 		wantCode   string
 		dispatcher bool
 	}{
-		{"missing dispatcher", nil, FailureKindContract, failureCodeExecutionEffectInvalid, false},
-		{"invalid replay policy", func(Effect) EffectPolicy { return EffectPolicy{} }, FailureKindContract, failureCodeExecutionEffectInvalid, true},
-		{"policy panic", func(Effect) EffectPolicy { panic("policy failed") }, FailureKindPanic, failureCodeExecutionEffectInvalid, true},
+		{"missing dispatcher", nil, FailureKindContract, failureExecutionEffectInvalid.Code(), false},
+		{"invalid replay policy", func(Effect) EffectPolicy { return EffectPolicy{} }, FailureKindContract, failureExecutionEffectInvalid.Code(), true},
+		{"policy panic", func(Effect) EffectPolicy { panic("policy failed") }, FailureKindPanic, failureExecutionEffectInvalid.Code(), true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := NewMemoryStore()
@@ -105,9 +105,9 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 		kind     FailureKind
 		code     string
 	}{
-		{"invalid settlement", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, nil }, FailureKindContract, failureCodeRuntimeDispatchSettlementInvalid},
-		{"transport error", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, cause }, FailureKindExternal, failureCodeRuntimeDispatchFailed},
-		{"dispatch panic", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { panic(cause) }, FailureKindPanic, failureCodeRuntimeDispatchFailed},
+		{"invalid settlement", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, nil }, FailureKindContract, failureRuntimeDispatchSettlementInvalid.Code()},
+		{"transport error", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { return Settlement{}, cause }, FailureKindExternal, failureRuntimeDispatchFailed.Code()},
+		{"dispatch panic", func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) { panic(cause) }, FailureKindPanic, failureRuntimeDispatchFailed.Code()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			runtime := kernelRuntime(t, Config{})
