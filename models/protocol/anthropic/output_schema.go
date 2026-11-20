@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp/syntax"
@@ -70,14 +71,14 @@ func nativeOutputSchema(format *corechat.OutputFormat) (map[string]any, error) {
 
 func (o *outputSchema) validate(document json.RawMessage, references map[string]bool, intersection bool) error {
 	if o == nil {
-		return fmt.Errorf("boolean and null schemas are unsupported")
+		return errors.New("boolean and null schemas are unsupported")
 	}
 	if err := o.validateConstraints(); err != nil {
 		return err
 	}
 	if o.Reference != "" {
 		if intersection || len(o.AllOf) != 0 {
-			return fmt.Errorf("allOf with $ref is unsupported")
+			return errors.New("allOf with $ref is unsupported")
 		}
 		if references[o.Reference] {
 			return fmt.Errorf("recursive $ref %q is unsupported", o.Reference)
@@ -129,18 +130,18 @@ func (o *outputSchema) validateConstraints() error {
 		}
 	}
 	if o.AdditionalProperties != nil && *o.AdditionalProperties {
-		return fmt.Errorf("additionalProperties must be false")
+		return errors.New("additionalProperties must be false")
 	}
 	if (slices.Contains(types, outputSchemaTypeObject) || o.Properties != nil) && o.AdditionalProperties == nil {
-		return fmt.Errorf("objects require additionalProperties:false")
+		return errors.New("objects require additionalProperties:false")
 	}
 	if o.MinItems != nil && *o.MinItems > 1 {
-		return fmt.Errorf("minItems supports only 0 or 1")
+		return errors.New("minItems supports only 0 or 1")
 	}
 	for _, value := range o.Enum {
 		value = bytes.TrimSpace(value)
 		if len(value) != 0 && (value[0] == '{' || value[0] == '[') {
-			return fmt.Errorf("enum values must be scalar")
+			return errors.New("enum values must be scalar")
 		}
 	}
 	if err := validateOutputSchemaFormat(o.Format); err != nil {
@@ -221,7 +222,7 @@ func validateOutputSchemaFormat(format string) error {
 
 func validateOutputSchemaPattern(pattern *syntax.Regexp) error {
 	if pattern.Op == syntax.OpWordBoundary || pattern.Op == syntax.OpNoWordBoundary {
-		return fmt.Errorf("pattern word boundaries are unsupported")
+		return errors.New("pattern word boundaries are unsupported")
 	}
 	for _, child := range pattern.Sub {
 		if err := validateOutputSchemaPattern(child); err != nil {

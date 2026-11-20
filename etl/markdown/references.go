@@ -135,7 +135,7 @@ func collectReferenceEdits(ctx context.Context, root ast.Node, source []byte) (r
 		}
 		indices := reference.Value.Indices()
 		if len(indices) == 0 {
-			return ast.WalkStop, fmt.Errorf("markdown: reference has no source range")
+			return ast.WalkStop, errors.New("markdown: reference has no source range")
 		}
 		end := indices[len(indices)-1].Stop + 1
 		start := indices[0].Start - 1
@@ -143,7 +143,7 @@ func collectReferenceEdits(ctx context.Context, root ast.Node, source []byte) (r
 			start = end
 		}
 		if start < node.Pos() || end < start || end > len(source) {
-			return ast.WalkStop, fmt.Errorf("markdown: invalid reference source range")
+			return ast.WalkStop, errors.New("markdown: invalid reference source range")
 		}
 		edits = append(edits, referenceEdit{start: start, end: end, destination: destination, title: title})
 		return ast.WalkContinue, nil
@@ -196,7 +196,7 @@ func (r referenceEdits) unchangedBytes(ctx context.Context, total int) (int, err
 			return 0, err
 		}
 		if edit.start < offset {
-			return 0, fmt.Errorf("markdown: overlapping reference tails")
+			return 0, errors.New("markdown: overlapping reference tails")
 		}
 		total -= edit.end - edit.start
 		offset = edit.end

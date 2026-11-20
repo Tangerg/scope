@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"math/big"
 	"slices"
@@ -101,7 +102,7 @@ func (o outputSchema) normalize() error {
 			return err
 		}
 		if _, exists := o[outputSchemaAnyOf]; exists || !disjointOutputTypes(children) {
-			return fmt.Errorf("oneOf cannot be represented losslessly as anyOf")
+			return errors.New("oneOf cannot be represented losslessly as anyOf")
 		}
 		delete(o, outputSchemaOneOf)
 		o[outputSchemaAnyOf] = raw
@@ -165,14 +166,14 @@ func (o outputSchema) set(key outputSchemaKeyword, value any) error {
 
 func (o outputSchema) intersect(other outputSchema) error {
 	if _, closed := other[outputSchemaAdditionalProperties]; closed && o.hasConstraints() {
-		return fmt.Errorf("allOf with an independently closed object is unsupported")
+		return errors.New("allOf with an independently closed object is unsupported")
 	}
 	closed := falseJSON(o[outputSchemaAdditionalProperties])
 	for key, right := range other {
 		left, collision := o[key]
 		if !collision {
 			if key == outputSchemaProperties && closed {
-				return fmt.Errorf("allOf cannot add properties to a closed object")
+				return errors.New("allOf cannot add properties to a closed object")
 			}
 			o[key] = right
 			continue
@@ -273,7 +274,7 @@ func (o outputSchema) validate(root bool) error {
 		return err
 	}
 	if root && (!slices.Equal(types, []string{outputTypeObject}) || o[outputSchemaAnyOf] != nil) {
-		return fmt.Errorf("root must be an object without anyOf")
+		return errors.New("root must be an object without anyOf")
 	}
 	if slices.Contains(types, outputTypeObject) {
 		if err := o.validateObject(); err != nil {
@@ -281,21 +282,21 @@ func (o outputSchema) validate(root bool) error {
 		}
 	}
 	if len(types) == 0 && o[outputSchemaRef] == nil && o[outputSchemaAnyOf] == nil {
-		return fmt.Errorf("schema requires a type, $ref or anyOf")
+		return errors.New("schema requires a type, $ref or anyOf")
 	}
 	for key, raw := range o {
 		switch key {
 		case outputSchemaProperties, outputSchemaDefinitions, outputSchemaLegacyDefinitions, outputSchemaItems, outputSchemaAnyOf:
 		case outputSchemaRef:
 			if len(o) != 1 {
-				return fmt.Errorf("$ref with sibling keywords is unsupported; supply the explicit intersected schema")
+				return errors.New("$ref with sibling keywords is unsupported; supply the explicit intersected schema")
 			}
 			var reference string
 			if err := jsonv2.Unmarshal(raw, &reference); err != nil {
 				return err
 			}
 			if !strings.HasPrefix(reference, "#") {
-				return fmt.Errorf("external $ref is unsupported")
+				return errors.New("external $ref is unsupported")
 			}
 		case outputSchemaFormat:
 			if err := validateOutputSchemaFormat(raw); err != nil {
@@ -314,7 +315,7 @@ func (o outputSchema) validate(root bool) error {
 
 func (o outputSchema) validateObject() error {
 	if !falseJSON(o[outputSchemaAdditionalProperties]) {
-		return fmt.Errorf("objects require additionalProperties:false")
+		return errors.New("objects require additionalProperties:false")
 	}
 	var properties map[string]json.RawMessage
 	if raw := o[outputSchemaProperties]; raw != nil {
@@ -329,7 +330,7 @@ func (o outputSchema) validateObject() error {
 		}
 	}
 	if len(required) != len(properties) {
-		return fmt.Errorf("every object property must be required")
+		return errors.New("every object property must be required")
 	}
 	for name := range properties {
 		if !slices.Contains(required, name) {

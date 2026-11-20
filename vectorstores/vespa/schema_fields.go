@@ -1,6 +1,9 @@
 package vespa
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 const (
 	metadataField     = "scope_metadata"
@@ -13,7 +16,7 @@ type schemaFields struct{ content, embedding string }
 
 func (s schemaFields) validate() error {
 	if s.content == s.embedding {
-		return fmt.Errorf("vespa: content and embedding fields must differ")
+		return errors.New("vespa: content and embedding fields must differ")
 	}
 	for _, name := range []string{s.content, s.embedding} {
 		switch name {

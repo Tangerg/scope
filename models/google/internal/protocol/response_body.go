@@ -99,7 +99,7 @@ func (n *nativeResponseBody) validate(raw []byte) error {
 			return fmt.Errorf("google: decode countTokens response: %w", err)
 		}
 		if response.TotalTokens == nil || *response.TotalTokens < 0 {
-			return fmt.Errorf("google: countTokens response requires nonnegative totalTokens")
+			return errors.New("google: countTokens response requires nonnegative totalTokens")
 		}
 		return nil
 	}

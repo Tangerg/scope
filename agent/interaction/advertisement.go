@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -39,7 +40,7 @@ func validateAdvertisedToolNames(names []string) error {
 		seen[name] = struct{}{}
 	}
 	if !slices.IsSorted(names) {
-		return fmt.Errorf("advertised Tool names are not in canonical order")
+		return errors.New("advertised Tool names are not in canonical order")
 	}
 	return nil
 }

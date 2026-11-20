@@ -90,7 +90,7 @@ func (h httpClientObservation) validate(owned []*http.Client) error {
 	if h.borrowed.Transport != h.configuration.Transport || h.borrowed.Jar != h.configuration.Jar || h.borrowed.Timeout != h.configuration.Timeout || http.DefaultTransport != h.defaultTransport {
 		return errors.New("construction changed borrowed HTTP configuration")
 	}
-	request, err := http.NewRequest(http.MethodGet, httpClientProbeURL, nil)
+	request, err := http.NewRequest(http.MethodGet, httpClientProbeURL, http.NoBody)
 	if err != nil {
 		return err
 	}

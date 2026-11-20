@@ -141,7 +141,7 @@ func (c *Client) request(ctx context.Context, method string, u *url.URL) (*http.
 	if c.closed.Load() {
 		return nil, net.ErrClosed
 	}
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), http.NoBody)
 	if err != nil {
 		return nil, err
 	}

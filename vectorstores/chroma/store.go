@@ -257,7 +257,7 @@ func (s *Store) CheckQuery(ctx context.Context, space vectorstore.SpaceID, optio
 
 func distanceScore(space v2.Space, distance float64) (vectorstore.Score, error) {
 	if math.IsNaN(distance) || math.IsInf(distance, 0) {
-		return 0, fmt.Errorf("chroma: nonfinite distance")
+		return 0, errors.New("chroma: nonfinite distance")
 	}
 	var score vectorstore.Score
 	switch space {

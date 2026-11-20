@@ -199,7 +199,7 @@ func (e *Evaluator[T]) aggregate(outputs []modelReport) (eval.Report, error) {
 	feedback := strings.TrimSpace(outputs[middle].Feedback)
 	if len(outputs)%2 == 0 {
 		score = (outputs[middle-1].Score + outputs[middle].Score) / 2
-		feedback = strings.TrimSpace(strings.Join([]string{outputs[middle-1].Feedback, outputs[middle].Feedback}, "\n\n"))
+		feedback = strings.TrimSpace(outputs[middle-1].Feedback + "\n\n" + outputs[middle].Feedback)
 	}
 	reportMetadata := metadata.Map{}
 	if len(outputs) > 1 {

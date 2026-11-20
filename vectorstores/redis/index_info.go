@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -104,7 +105,6 @@ func (i *indexInfo) readDefinition(raw any) error {
 	return nil
 }
 
-// filteredByOptions reports whether the index options declare a FILTER.
 func filteredByOptions(raw any) (bool, error) {
 	options, ok := raw.([]any)
 	if !ok {
@@ -150,12 +150,12 @@ func validateTermsAttribute(attribute map[string]any) error {
 		separator, ok = attribute[infoSeparatorLower].(string)
 	}
 	if !ok || separator != termsSeparator {
-		return fmt.Errorf("redis: metadata_terms requires the comma TAG separator")
+		return errors.New("redis: metadata_terms requires the comma TAG separator")
 	}
 	flags, _ := attribute[infoFlags].([]any)
 	for _, flag := range flags {
 		if strings.EqualFold(fmt.Sprint(flag), infoNoIndexFlag) {
-			return fmt.Errorf("redis: metadata_terms must be indexed")
+			return errors.New("redis: metadata_terms must be indexed")
 		}
 	}
 	return nil

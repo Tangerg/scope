@@ -57,7 +57,7 @@ func (c conversationKeyspace) conversation(key string) (history.ConversationID, 
 		return "", false, err
 	}
 	if c.messages(id) != key {
-		return "", false, fmt.Errorf("redis: noncanonical history key")
+		return "", false, errors.New("redis: noncanonical history key")
 	}
 	return id, true, nil
 }

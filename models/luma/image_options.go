@@ -58,7 +58,6 @@ func (i ImageRequestOptions) Validate() error {
 	return nil
 }
 
-// apply sets the native controls these options carry on params.
 func (i ImageRequestOptions) apply(params *lumaagents.GenerationNewParams) {
 	if i.Type != "" {
 		params.Type = lumaagents.F(lumaagents.GenerationNewParamsType(i.Type))

@@ -1,6 +1,7 @@
 package run
 
 import (
+	"bytes"
 	jsonv2 "encoding/json/v2"
 	"math"
 
@@ -125,7 +126,7 @@ func (b Batch) admitValidated(current Epoch, head LSN, existing []Entry) (next E
 			return current, false, encodeErr
 		}
 		right, encodeErr := jsonv2.Marshal(existing[index])
-		if encodeErr != nil || string(left) != string(right) {
+		if encodeErr != nil || !bytes.Equal(left, right) {
 			return current, false, ErrCommitConflict
 		}
 	}

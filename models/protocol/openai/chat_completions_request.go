@@ -164,7 +164,7 @@ func mapUserMedia(value *media.Media) (openaisdk.ChatCompletionContentPartUnionP
 			}
 			file.FileData = openaisdk.String(location)
 		case media.SourceURI:
-			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("chat completions does not support file URIs; use bytes or a provider reference")
+			return openaisdk.ChatCompletionContentPartUnionParam{}, errors.New("chat completions does not support file URIs; use bytes or a provider reference")
 		default:
 			return openaisdk.ChatCompletionContentPartUnionParam{}, fmt.Errorf("unsupported file source %q", value.Source.Kind)
 		}

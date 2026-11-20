@@ -553,7 +553,7 @@ func fetchSource(ctx context.Context, source string) ([]byte, error) {
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		deadline, cancel := context.WithTimeout(ctx, sourceTimeout)
 		defer cancel()
-		request, err := http.NewRequestWithContext(deadline, http.MethodGet, source, nil)
+		request, err := http.NewRequestWithContext(deadline, http.MethodGet, source, http.NoBody)
 		if err != nil {
 			return nil, err
 		}

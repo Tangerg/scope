@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/samber/lo"
@@ -89,7 +88,7 @@ func (i *instrumentedCaller) Call(ctx context.Context, invocation coretool.Invoc
 	startedAt := time.Now()
 	ctx, span := i.middleware.tracer.Start(
 		ctx,
-		strings.Join([]string{operation.Value.AsString(), name}, " "),
+		operation.Value.AsString()+" "+name,
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithTimestamp(startedAt),
 		trace.WithAttributes(attributes...),

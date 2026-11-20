@@ -253,7 +253,7 @@ func (i *ImageModel) mapResponse(ctx context.Context, generation *lumaagents.Gen
 }
 
 func (i *ImageModel) downloadOutput(ctx context.Context, rawURL string) ([]byte, string, error) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return nil, "", fmt.Errorf("build download request: %w", err)
 	}
