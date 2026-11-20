@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,7 +53,7 @@ func lifecycleUnknown(t *testing.T, ctx context.Context, handle *Handle[int]) Ef
 	return EffectID{}
 }
 
-func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
+func TestKillExitsWithItsUncertaintyRetained(t *testing.T) {
 	store := NewMemoryStore()
 	runtime := kernelRuntime(t, Config{Store: store})
 	var calls atomic.Int32
@@ -65,60 +66,53 @@ func TestKillRetainsUncertaintyAcrossRecoveryUntilReconciled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	effect := lifecycleUnknown(t, ctx, handle)
-	if err := handle.Cancel(ctx, "stop requested"); err != nil {
-		t.Fatal(err)
-	}
 	if err := handle.Kill(ctx, "kill requested"); err != nil {
 		t.Fatal(err)
 	}
-	inspection := controlValue(handle.Inspect(ctx))
-	process, found := inspection.Process(handle.ID())
-	if !found || process.Status != StatusDraining || len(process.PendingEffects) != 1 {
-		t.Fatalf("kill discarded unresolved work: %+v", process)
-	}
-	if err := handle.ReplayUnknownEffect(ctx, effect); !errors.Is(err, ErrEffectReplayForbidden) {
-		t.Fatalf("killed process replayed external work: %v", err)
-	}
-	if err := handle.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`)))))); !errors.Is(err, ErrEffectNotPending) {
-		t.Fatalf("uncertainty resolved itself: %v", err)
-	}
-	if err := runtime.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
-	_, stopped := handle.Await(ctx)
-	var stoppedRuntime *RuntimeError
-	if !errors.As(stopped, &stoppedRuntime) || !errors.Is(stopped, ErrClosed) || len(stoppedRuntime.UnresolvedEffectIDs()) != 1 {
-		t.Fatalf("close hid retained uncertainty: %v", stopped)
-	}
-	replacement := kernelRuntime(t, Config{Store: store})
-	recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, dispatcher), handle.ID()))
-	if recovered.Epoch() != handle.Epoch()+1 || calls.Load() != 1 {
-		t.Fatal("recovery changed the pending effect identity or replayed killed work")
-	}
-	if err := recovered.ResolveUnknownEffect(ctx, effect, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
-		t.Fatal(err)
-	}
-	result := controlValue(recovered.Await(ctx))
+	result := controlValue(handle.Await(ctx))
 	if result.Termination().Status() != StatusKilled || result.Termination().Reason() != "kill requested" || calls.Load() != 1 {
-		t.Fatalf("reconciliation changed the terminal cause: %+v", result.Termination())
+		t.Fatalf("kill waited on or replaced its uncertain work: %+v calls=%d", result.Termination(), calls.Load())
+	}
+	process, found := controlValue(handle.Inspect(ctx)).Process(handle.ID())
+	if !found || process.Status != StatusKilled || len(process.PendingEffects) != 1 || process.PendingEffects[0].Request.ID() != effect || process.PendingEffects[0].Outcome.Status() != SettlementStatusUnknown {
+		t.Fatalf("exit discarded the unknown outcome: %+v", process)
 	}
 	log, _, err := store.Load(ctx, handle.ID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var settledAt, exitedAt LSN
+	var unknownAt, exitedAt LSN
 	for _, entry := range log.Entries {
 		switch record := entry.Record.(type) {
 		case EffectSettled:
 			if record.Outcome.Status() != SettlementStatusUnknown {
-				settledAt = entry.LSN
+				t.Fatalf("kill invented a definite outcome: %+v", record)
 			}
+			unknownAt = entry.LSN
 		case Exited:
 			exitedAt = entry.LSN
 		}
 	}
-	if settledAt == 0 || exitedAt <= settledAt {
-		t.Fatal("Exit preceded reconciliation")
+	if unknownAt == 0 || exitedAt <= unknownAt {
+		t.Fatalf("unknown=%d exited=%d, want the Unknown recorded before the Exit", unknownAt, exitedAt)
+	}
+	// The Exit closes the process history: no later record can settle the
+	// Effect the exited process still reports as Unknown.
+	late := log
+	late.Entries = append(slices.Clone(log.Entries), Entry{LSN: log.Head() + 1, Epoch: log.Entries[len(log.Entries)-1].Epoch, Record: EffectSettled{ID: effect, Outcome: controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))), At: recordedNow()}})
+	if err := late.Validate(); !errors.Is(err, ErrInvalidLog) {
+		t.Fatalf("a settlement after Exit was admitted: %v", err)
+	}
+	checkpoint := controlValue(controlValue(projectLog(log)).checkpoint())
+	segment := Log{Root: log.Root, Entries: []Entry{{LSN: log.Head() + 1, Epoch: log.Entries[len(log.Entries)-1].Epoch, Record: checkpoint}}}
+	restored, found := controlValue(segment.Inspect()).Process(handle.ID())
+	if !found || restored.Status != StatusKilled || len(restored.PendingEffects) != 1 || restored.PendingEffects[0].Outcome.Status() != SettlementStatusUnknown {
+		t.Fatalf("checkpoint lost the exited process's Unknown Effect: %+v", restored)
+	}
+	replacement := kernelRuntime(t, Config{Store: store})
+	recovered := controlValue(replacement.Recover(ctx, lifecycleCallProgram(t, replacement, dispatcher), handle.ID()))
+	if result := controlValue(recovered.Await(ctx)); result.Termination().Status() != StatusKilled || calls.Load() != 1 {
+		t.Fatalf("recovery replayed killed work or changed its Exit: %+v calls=%d", result.Termination(), calls.Load())
 	}
 }
 
@@ -536,12 +530,12 @@ func TestRuntimeErrorPreservesStoreCauseAndAcknowledgedCoordinates(t *testing.T)
 			if !errors.Is(err, cause) || !errors.As(err, &runtimeErr) {
 				t.Fatalf("runtime lost underlying storage failure: %v", err)
 			}
-			pending := runtimeErr.UnresolvedEffectIDs()
+			pending := runtimeErr.PendingEffectIDs()
 			if runtimeErr.ProcessID() != handle.ID() || runtimeErr.Epoch() != handle.Epoch() || len(pending) != 1 || pending[0].Process != handle.ID() || !strings.Contains(runtimeErr.Error(), handle.ID().String()) {
 				t.Fatalf("runtime failure has misleading coordinates: %+v", runtimeErr)
 			}
 			pending[0] = EffectID{}
-			if !runtimeErr.UnresolvedEffectIDs()[0].Valid() {
+			if !runtimeErr.PendingEffectIDs()[0].Valid() {
 				t.Fatal("caller mutation changed unresolved diagnostic identities")
 			}
 			log, _, loadErr := store.Load(ctx, handle.ID())
@@ -963,5 +957,67 @@ func TestInvalidAnswerEnvelopesCannotConsumeTheWait(t *testing.T) {
 	}
 	if result := controlValue(handle.Await(ctx)); controlValue(result.Output()) != 42 {
 		t.Fatal("valid answer could not complete the untouched wait")
+	}
+}
+
+func TestTerminationWaitsForAnInFlightReplay(t *testing.T) {
+	store := NewMemoryStore()
+	runtime := kernelRuntime(t, Config{Store: store})
+	var calls atomic.Int32
+	replaying, release := make(chan struct{}), make(chan struct{})
+	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicySameIdentity}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+		if calls.Add(1) == 1 {
+			return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
+		}
+		// The replay ignores cancellation, so its settlement arrives only after
+		// the Host has terminated the process.
+		close(replaying)
+		<-release
+		return NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`))))
+	}}
+	program := lifecycleCallProgram(t, runtime, dispatcher)
+	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
+	defer cancel()
+	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
+	effect := lifecycleUnknown(t, ctx, handle)
+	replayed := make(chan error, 1)
+	go func() { replayed <- handle.ReplayUnknownEffect(ctx, effect) }()
+	select {
+	case <-replaying:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := handle.Cancel(ctx, "stop during replay"); err != nil {
+		t.Fatal(err)
+	}
+	process, found := controlValue(handle.Inspect(ctx)).Process(handle.ID())
+	if !found || process.Status != StatusDraining {
+		t.Fatalf("process exited while its replay was in flight: %+v", process)
+	}
+	close(release)
+	if err := <-replayed; err != nil {
+		t.Fatal(err)
+	}
+	result := controlValue(handle.Await(ctx))
+	if result.Termination().Status() != StatusCanceled || calls.Load() != 2 {
+		t.Fatalf("termination=%+v calls=%d", result.Termination(), calls.Load())
+	}
+	log, _, err := store.Load(ctx, handle.ID())
+	if err != nil || log.Validate() != nil {
+		t.Fatalf("log invalid after a replay settled during termination: %v", err)
+	}
+	var settledAt, exitedAt LSN
+	for _, entry := range log.Entries {
+		switch record := entry.Record.(type) {
+		case EffectSettled:
+			if record.Outcome.Status() == SettlementStatusSucceeded {
+				settledAt = entry.LSN
+			}
+		case Exited:
+			exitedAt = entry.LSN
+		}
+	}
+	if settledAt == 0 || exitedAt <= settledAt {
+		t.Fatalf("settled=%d exited=%d, want the replay settled before the Exit", settledAt, exitedAt)
 	}
 }

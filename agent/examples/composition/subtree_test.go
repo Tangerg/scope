@@ -86,27 +86,14 @@ func TestUnknownChildSettlementSurvivesCompositionRecovery(t *testing.T) {
 	}
 }
 
-func TestCanceledCompositionCannotPublishExitBeforeUnknownDescendantResolves(t *testing.T) {
+func TestCanceledCompositionExitsWithItsUnknownDescendantRecorded(t *testing.T) {
 	store := agentrun.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, agentrun.Config{Store: store})
 	var calls atomic.Int32
-	program, model := unknownComposition(t, runtime, &calls)
+	program, _ := unknownComposition(t, runtime, &calls)
 	handle := compositionValue(runtime.Start(t.Context(), program, agentrun.StartRequest[compositionInput]{ID: agentrun.StartID{Scope: "test", Key: t.Name()}, Input: compositionInput{Prompt: "cancel"}}))
 	pending := awaitUnknown(t, handle)
 	if err := handle.Cancel(t.Context(), "request withdrawn"); err != nil {
-		t.Fatal(err)
-	}
-	log, _, err := store.Load(t.Context(), handle.ID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range log.Entries {
-		if exited, ok := entry.Record.(agentrun.Exited); ok && (exited.Process == handle.ID() || exited.Process == pending.Request.ID().Process) {
-			t.Fatal("uncertain work was reported drained")
-		}
-	}
-	response := &chat.Response{Output: &chat.Output{Message: new(chat.NewAssistantMessage(chat.NewTextPart("remote completed"))), FinishReason: chat.FinishReasonStop}}
-	if err := handle.ResolveUnknownEffect(t.Context(), pending.Request.ID(), compositionValue(interaction.SettleModelResult(model, pending.Request, response))); err != nil {
 		t.Fatal(err)
 	}
 	result := compositionValue(handle.Await(t.Context()))
@@ -115,5 +102,31 @@ func TestCanceledCompositionCannotPublishExitBeforeUnknownDescendantResolves(t *
 	}
 	if _, present := result.Termination().Output(); present {
 		t.Fatal("canceled composition published partial output")
+	}
+	log, _, err := store.Load(t.Context(), handle.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var unknownAt, descendantExitAt, rootExitAt agentrun.LSN
+	for _, entry := range log.Entries {
+		switch record := entry.Record.(type) {
+		case agentrun.EffectSettled:
+			if record.ID == pending.Request.ID() {
+				if record.Outcome.Status() != agentrun.SettlementStatusUnknown {
+					t.Fatal("cancellation invented a definite model outcome")
+				}
+				unknownAt = entry.LSN
+			}
+		case agentrun.Exited:
+			switch record.Process {
+			case pending.Request.ID().Process:
+				descendantExitAt = entry.LSN
+			case handle.ID():
+				rootExitAt = entry.LSN
+			}
+		}
+	}
+	if unknownAt == 0 || descendantExitAt <= unknownAt || rootExitAt <= descendantExitAt {
+		t.Fatalf("unknown=%d descendant exit=%d root exit=%d, want the unknown outcome recorded before each Exit", unknownAt, descendantExitAt, rootExitAt)
 	}
 }

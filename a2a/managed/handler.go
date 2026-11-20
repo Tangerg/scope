@@ -240,7 +240,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 		if errors.Is(err, run.ErrProcessFinished) || errors.Is(err, run.ErrEpochConflict) {
 			return nil, sdk.ErrTaskNotCancelable
 		}
-		if errors.Is(err, run.ErrClosed) || errors.Is(err, run.ErrInvalidProcessControl) {
+		if errors.Is(err, run.ErrClosed) {
 			if current, readErr := h.load(ctx, k); readErr == nil && terminalRoot(current) {
 				return nil, sdk.ErrTaskNotCancelable
 			}

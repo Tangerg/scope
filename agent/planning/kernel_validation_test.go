@@ -475,7 +475,7 @@ func TestPlanningCompileRejectsMissingExecutionAuthorityAndInvalidDomain(t *test
 	}
 }
 
-func TestPlanningInvalidExecutorResultRemainsUnknownUntilResolved(t *testing.T) {
+func TestPlanningInvalidExecutorResultRemainsUnknown(t *testing.T) {
 	config := validationConfig(t)
 	binding := planningValue(NewDispatcherBinding(DispatcherBindingConfig{Action: config.actions[0].action, Executor: ActionExecutorFunc(func(context.Context, ActionRequest) (ActionResult, error) {
 		return ActionResult{}, nil
@@ -504,15 +504,15 @@ func TestPlanningInvalidExecutorResultRemainsUnknownUntilResolved(t *testing.T) 
 	if err := handle.ReplayUnknownEffect(ctx, unknown); !errors.Is(err, run.ErrEffectReplayForbidden) {
 		t.Fatalf("invalid action outcome was implicitly replayable: %v", err)
 	}
-	if err := handle.Cancel(ctx, "stop after reconciliation"); err != nil {
-		t.Fatal(err)
-	}
-	settlement := planningValue(NewActionSettlement(planningValue(ActionFailed("operator confirmed failure"))))
-	if err := handle.ResolveUnknownEffect(ctx, unknown, settlement); err != nil {
+	if err := handle.Cancel(ctx, "stop with the action outcome unknown"); err != nil {
 		t.Fatal(err)
 	}
 	if result := planningValue(handle.Await(ctx)); result.Termination().Status() != run.StatusCanceled {
-		t.Fatalf("reconciliation replaced the terminal intent: %s", result.Termination().Status())
+		t.Fatalf("unknown action outcome replaced the terminal intent: %s", result.Termination().Status())
+	}
+	process, found := planningValue(handle.Inspect(ctx)).Process(handle.ID())
+	if !found || len(process.PendingEffects) != 1 || process.PendingEffects[0].Request.ID() != unknown || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
+		t.Fatalf("canceled plan lost its unknown action outcome: %+v", process)
 	}
 }
 

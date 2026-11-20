@@ -23,7 +23,7 @@
 // explicit input carrying prior results or application-owned context.
 //
 // Completion asks the Runtime to cancel and drain remaining descendants before
-// publishing this process's Exit. No task outcome bypasses unresolved external
-// effects. The Runtime's Log and inspection are the authoritative history and
+// publishing this process's Exit. A task outcome is only the task's Exit, which
+// the Runtime publishes after the task's in-flight work drains. The Runtime's Log and inspection are the authoritative history and
 // live projection; team owns no scheduler, mailbox, persistence, or session.
 package team

@@ -56,12 +56,13 @@ func TestMCPProcessBoundary(t *testing.T) {
 		}
 		peer.await(t, ctx, expertCanceled)
 		awaitUnknown(t, ctx, root)
+		if _, err := root.Await(ctx); err != nil {
+			t.Fatal(err)
+		}
 		if status := peer.status(t, ctx); status.Calls != 1 || status.Canceled != 1 {
 			t.Fatalf("peer cancellation=%+v", status)
 		}
-		log := loadLog(t, ctx, store, root.ID())
-		unknownRequest(t, log)
-		assertUnresolved(t, log)
+		assertCanceledWithUnknown(t, loadLog(t, ctx, store, root.ID()))
 	})
 	t.Run("reconnection cannot replay or settle an uncertain call", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
@@ -110,9 +111,11 @@ func TestMCPProcessBoundary(t *testing.T) {
 		if cancelErr := restored.Cancel(ctx, "leave the remote outcome unresolved"); cancelErr != nil {
 			t.Fatal(cancelErr)
 		}
+		if _, awaitErr := restored.Await(ctx); awaitErr != nil {
+			t.Fatal(awaitErr)
+		}
 		unresolved := loadLog(t, ctx, store, before.Root)
-		assertUnresolved(t, unresolved)
-		if unknownRequest(t, unresolved).ID() != original.ID() {
+		if assertCanceledWithUnknown(t, unresolved).ID() != original.ID() {
 			t.Fatal("cancellation erased uncertainty")
 		}
 		fresh := peerProgram(t, ctx, replacement.Compiler(), reconnected, true, briefingQuery)
@@ -210,19 +213,20 @@ func unknownRequest(t *testing.T, log agentrun.Log) agentrun.EffectRequest {
 	return requests[0]
 }
 
-func assertUnresolved(t *testing.T, log agentrun.Log) {
+func assertCanceledWithUnknown(t *testing.T, log agentrun.Log) agentrun.EffectRequest {
 	t.Helper()
 	inspection, err := log.Inspect()
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, found := inspection.Process(inspection.Root)
-	if !found || root.Status.Terminal() {
-		t.Fatal("unresolved tree published a terminal status")
+	if root, found := inspection.Process(inspection.Root); !found || root.Status != agentrun.StatusCanceled {
+		t.Fatal("cancellation did not end the tree")
 	}
+	request := unknownRequest(t, log)
 	for _, entry := range log.Entries {
-		if _, exited := entry.Record.(agentrun.Exited); exited {
-			t.Fatal("unresolved tree published Exited")
+		if settled, ok := entry.Record.(agentrun.EffectSettled); ok && settled.ID == request.ID() && settled.Outcome.Status() != agentrun.SettlementStatusUnknown {
+			t.Fatal("cancellation invented the lost call's outcome")
 		}
 	}
+	return request
 }

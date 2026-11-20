@@ -25,7 +25,8 @@
 // answer routing; tool call names and model call IDs do not.
 //
 // Delegate calls use Spawn and consume the child's Exit. An Exit establishes
-// that the entire subtree drained, including uncertain external work. Delegates
+// that no work in the entire subtree remains in flight; a terminated child's
+// Unknown external outcomes stay in the log instead of delaying it. Delegates
 // and tools retain results in model proposal order even when they complete out
 // of order. Tool concurrency and resource classification bound admission;
 // completed siblings need not wait for unrelated tools before freeing a slot.

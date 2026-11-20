@@ -171,9 +171,9 @@ func (t *treeState) settle(settled EffectSettled) error {
 	if err != nil {
 		return err
 	}
-	pending, exists := process.pending[settled.ID]
-	if !exists {
-		return ErrEffectNotPending
+	pending, err := process.settleable(settled.ID)
+	if err != nil {
+		return err
 	}
 	effect := pending.Intent.Effect
 	if effect.Target() == EffectTargetFramework {
@@ -189,7 +189,8 @@ func (t *treeState) settle(settled EffectSettled) error {
 	if t.unsettledChild.Valid() {
 		return ErrInvalidLog
 	}
-	return process.settle(settled)
+	process.settle(pending, settled)
+	return nil
 }
 
 func (t *treeState) confirmFrameworkEffect(parent ProcessID, effect Effect, outcome Settlement) error {
@@ -283,7 +284,7 @@ func (t *treeState) exit(exited Exited) error {
 	if err != nil {
 		return err
 	}
-	if p.exited != nil || p.activeChildren != 0 || len(p.pending) != 0 || p.retainedChildren != 0 || !p.terminal.equal(exited.Termination) {
+	if p.exited != nil || !p.drained() || !p.terminal.equal(exited.Termination) {
 		return ErrInvalidLog
 	}
 	p.exited = &exited
@@ -332,8 +333,8 @@ func (t *treeState) control(control ControlRequested) error {
 	if err != nil {
 		return err
 	}
-	if !p.acceptsControl(control.Kind) {
-		return ErrInvalidProcessControl
+	if err := p.admitControl(control.Kind); err != nil {
+		return err
 	}
 	switch control.Kind {
 	case ControlPause:

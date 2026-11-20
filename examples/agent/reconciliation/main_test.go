@@ -23,8 +23,8 @@ func TestRun(t *testing.T) {
 		}
 		const want = `confirmed: completed unknown=0 writes=1 attempts=1 model_calls=2 result="stored:release note" reason=""
 rejected: completed unknown=0 writes=0 attempts=1 model_calls=2 result="rejected: write denied" reason=""
-missing: unresolved unknown=1 writes=1 attempts=1 model_calls=1 result="" reason="remote receipt not found; outcome unresolved"
-unavailable: unresolved unknown=1 writes=1 attempts=1 model_calls=1 result="" reason="remote: receipt query unavailable"
+missing: canceled unknown=1 writes=1 attempts=1 model_calls=1 result="" reason="remote receipt not found; outcome unresolved"
+unavailable: canceled unknown=1 writes=1 attempts=1 model_calls=1 result="" reason="remote: receipt query unavailable"
 `
 		if output.String() != want {
 			t.Fatalf("output=%q, want %q", output.String(), want)
@@ -95,17 +95,23 @@ func TestReconciliationPreservesExecutionAndBusinessFacts(t *testing.T) {
 				if err != nil || retained.ID() != original.ID() || !strings.Contains(result.Reason, "remote") {
 					t.Fatalf("unresolved identity or diagnostic lost: request=%+v reason=%q error=%v", retained, result.Reason, err)
 				}
-				canceled := false
+				var canceledAt, exitedAt agentrun.LSN
 				for _, entry := range result.Head.Entries {
 					switch record := entry.Record.(type) {
 					case agentrun.ControlRequested:
-						canceled = canceled || record.Kind == agentrun.ControlCancel
+						if record.Kind == agentrun.ControlCancel {
+							canceledAt = entry.LSN
+						}
+					case agentrun.EffectSettled:
+						if record.ID == original.ID() && record.Outcome.Status() != agentrun.SettlementStatusUnknown {
+							t.Fatal("unresolved cancellation invented a definite outcome")
+						}
 					case agentrun.Exited:
-						t.Fatal("unresolved cancellation published a terminal fact")
+						exitedAt = entry.LSN
 					}
 				}
-				if !canceled || head.Processes[0].Status.Terminal() {
-					t.Fatal("cancellation must remain pending until the uncertain effect is resolved")
+				if canceledAt == 0 || exitedAt <= canceledAt || head.Processes[0].Status != agentrun.StatusCanceled {
+					t.Fatal("cancellation did not end the interaction with the uncertain effect retained")
 				}
 			})
 		})

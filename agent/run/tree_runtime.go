@@ -51,10 +51,19 @@ func newTreeRuntime(runtime *Runtime, state *treeState, ctx context.Context) *tr
 
 func (t *treeRuntime) stop() { t.stopOnce.Do(func() { close(t.stopRequested); t.cancel() }) }
 
+// failureError answers a request the stopped writer can no longer serve. A
+// tree that stopped because its root exited reports the same
+// ErrProcessFinished its live writer gave, so the answer never depends on
+// whether the writer had already returned.
 func (t *treeRuntime) failureError() error {
 	t.mu.RLock()
 	cause := t.failure
+	root := t.state.processes[t.state.root]
+	exited := root != nil && root.exited != nil
 	t.mu.RUnlock()
+	if cause == nil && exited {
+		return ErrProcessFinished
+	}
 	if cause == nil {
 		cause = ErrClosed
 	}
@@ -70,7 +79,7 @@ func (t *treeRuntime) interrupted(cause error) error {
 			ids = append(ids, id)
 		}
 	}
-	return &RuntimeError{process: t.state.root, epoch: t.state.epoch, after: t.state.head, unresolved: canonicalEffectIDs(ids), cause: cause}
+	return &RuntimeError{process: t.state.root, epoch: t.state.epoch, after: t.state.head, pending: canonicalEffectIDs(ids), cause: cause}
 }
 
 func (t *treeRuntime) append(ctx context.Context, records []Record) error {
@@ -475,10 +484,22 @@ func (t *treeRuntime) finish(p *processState) error {
 	if err := t.startNextChild(); err != nil {
 		return err
 	}
-	if p.activeChildren != 0 || p.retainedChildren != 0 || len(p.pending) != 0 {
+	if !p.drained() || t.dispatching(p.started.Process) {
 		return nil
 	}
 	return t.append(t.ctx, []Record{Exited{Process: p.started.Process, Termination: p.terminal, At: recordedNow()}})
+}
+
+// dispatching reports a job still running for one of process's Effects. A
+// replay of an Unknown Effect may yet settle it, and that settlement must
+// precede the Exit.
+func (t *treeRuntime) dispatching(process ProcessID) bool {
+	for id := range t.jobs {
+		if id.Process == process {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *treeRuntime) cancelJobs(root ProcessID) {
@@ -519,7 +540,7 @@ func (t *treeRuntime) resumeEffects() error {
 	for _, id := range t.state.ordered() {
 		p := t.state.processes[id]
 		for _, pending := range p.orderedPending() {
-			if pending.Outcome != nil {
+			if pending.unknown() {
 				continue
 			}
 			if err := t.resumeEffect(p, pending.Intent); err != nil {
@@ -838,9 +859,11 @@ func (t *treeRuntime) commitRequested(request treeCommand, records []Record) err
 // replay redispatches an Unknown Effect that its policy allows to repeat; the
 // reply waits for the new settlement.
 func (t *treeRuntime) replay(request treeCommand, p *processState, id EffectID) {
-	pending, ok := p.pending[id]
+	pending, err := p.settleable(id)
 	switch {
-	case !ok || pending.Outcome == nil || t.jobs[id] != nil:
+	case err != nil:
+		request.reply <- commandResponse{err: err}
+	case !pending.unknown() || t.jobs[id] != nil:
 		request.reply <- commandResponse{err: ErrEffectNotPending}
 	case pending.Intent.Policy.Replay != ReplayPolicySameIdentity || p.terminal.Valid():
 		request.reply <- commandResponse{err: ErrEffectReplayForbidden}

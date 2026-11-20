@@ -24,9 +24,10 @@
 // writer activation. Ordinary tool calls remain in the interaction process.
 //
 // Cancellation notifies the peer without closing its session. A lost outcome
-// remains Unknown through reconnection and cancellation; the tree cannot emit
-// Exited until the outcome is resolved. Runtime.Close stops local work while
-// retaining that fact. A fresh execution can make a new call without advancing
-// the unresolved log. Connection health supplies no receipt or replay authority.
+// remains Unknown through reconnection and cancellation; the canceled Exit
+// retains it in the log instead of inventing a result. Runtime.Close stops local
+// work while retaining that fact. A fresh execution can make a new call without
+// advancing the canceled log. Connection health supplies no receipt or replay
+// authority.
 // The reconciliation example demonstrates external receipt investigation.
 package main

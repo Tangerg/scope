@@ -55,16 +55,12 @@ func run(ctx context.Context, output io.Writer) error {
 			return errors.New("example: root absent from committed log")
 		}
 		unknown := unknownCount(inspection)
-		status := root.Status.String()
-		if unknown != 0 {
-			status = "unresolved"
-		}
 		message, err := result.message()
 		if err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(output, "%s: %s unknown=%d writes=%d attempts=%d model_calls=%d result=%q reason=%q\n",
-			scenario.name, status, unknown, result.Remote.Writes, result.Remote.Attempts,
+			scenario.name, root.Status, unknown, result.Remote.Writes, result.Remote.Attempts,
 			result.ModelCalls, message, result.Reason); err != nil {
 			return err
 		}
@@ -155,12 +151,13 @@ func runScenario(ctx context.Context, remote *remoteLedger) (result scenarioResu
 	if err != nil {
 		return result, err
 	}
-	if resolved {
-		if _, awaitErr := restored.Await(ctx); awaitErr != nil {
-			return result, awaitErr
+	if !resolved {
+		if cancelErr := restored.Cancel(ctx, reason); cancelErr != nil {
+			return result, cancelErr
 		}
-	} else if cancelErr := restored.Cancel(ctx, reason); cancelErr != nil {
-		return result, cancelErr
+	}
+	if _, awaitErr := restored.Await(ctx); awaitErr != nil {
+		return result, awaitErr
 	}
 	head, found, err := store.Load(ctx, root.ID())
 	if err != nil || !found {

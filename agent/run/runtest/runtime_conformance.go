@@ -17,7 +17,7 @@ func runRuntimeConformance(t *testing.T, factory func(*testing.T) run.Store) {
 	t.Run("settled effect intent cannot be repeated", func(t *testing.T) { checkRepeatedEffectIntent(t, factory(t)) })
 	t.Run("initial record respects its declared byte bound", func(t *testing.T) { checkInitialRecordLimit(t, factory(t)) })
 	t.Run("loads cannot substitute another root", func(t *testing.T) { checkLoadRootIsolation(t, factory(t)) })
-	t.Run("canceling uncertainty waits for reconciliation", func(t *testing.T) { checkUnresolvedCancellation(t, factory(t)) })
+	t.Run("canceling uncertainty exits with the outcome still unknown", func(t *testing.T) { checkUnresolvedCancellation(t, factory(t)) })
 	t.Run("checkpoint recovery keeps the same local wait", func(t *testing.T) { checkCheckpointWait(t, factory(t)) })
 }
 
@@ -287,15 +287,14 @@ func checkUnresolvedCancellation(t *testing.T, store run.Store) {
 		t.Fatal(err)
 	}
 	waitForUnknownSettlement(t, handle)
-	if cancelErr := handle.Cancel(t.Context(), "stop after the external outcome is reconciled"); cancelErr != nil {
+	if cancelErr := handle.Cancel(t.Context(), "stop with the external outcome unknown"); cancelErr != nil {
 		t.Fatal(cancelErr)
 	}
-	log := loadStoreLog(t, store, handle.ID())
-	for _, entry := range log.Entries {
-		if _, exited := entry.Record.(run.Exited); exited {
-			t.Fatal("cancellation published Exit before the unknown outcome was resolved")
-		}
+	result, err := handle.Await(t.Context())
+	if err != nil || result.Termination().Status() != run.StatusCanceled || len(dispatcher.Requests()) != 1 {
+		t.Fatalf("cancellation status=%s calls=%d error=%v", result.Termination().Status(), len(dispatcher.Requests()), err)
 	}
+	requireUnknownBeforeExit(t, loadStoreLog(t, store, handle.ID()))
 	inspection, err := handle.Inspect(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -304,20 +303,24 @@ func checkUnresolvedCancellation(t *testing.T, store run.Store) {
 	if !found || len(process.PendingEffects) != 1 || process.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
 		t.Fatal("cancellation discarded the unknown effect")
 	}
-	confirmed, err := run.EncodePayload("confirmed")
-	if err != nil {
-		t.Fatal(err)
+}
+
+func requireUnknownBeforeExit(t *testing.T, log run.Log) {
+	t.Helper()
+	var unknownAt, exitedAt run.LSN
+	for _, entry := range log.Entries {
+		switch record := entry.Record.(type) {
+		case run.EffectSettled:
+			if record.Outcome.Status() != run.SettlementStatusUnknown {
+				t.Fatal("cancellation invented a definite outcome")
+			}
+			unknownAt = entry.LSN
+		case run.Exited:
+			exitedAt = entry.LSN
+		}
 	}
-	settlement, err := run.NewSettlement(run.SettlementStatusSucceeded, confirmed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolveErr := handle.ResolveUnknownEffect(t.Context(), process.PendingEffects[0].Request.ID(), settlement); resolveErr != nil {
-		t.Fatal(resolveErr)
-	}
-	result, err := handle.Await(t.Context())
-	if err != nil || result.Termination().Status() != run.StatusCanceled || len(dispatcher.Requests()) != 1 {
-		t.Fatalf("reconciled cancellation status=%s calls=%d error=%v", result.Termination().Status(), len(dispatcher.Requests()), err)
+	if unknownAt == 0 || exitedAt <= unknownAt {
+		t.Fatal("canceled Exit did not follow the unknown outcome")
 	}
 }
 

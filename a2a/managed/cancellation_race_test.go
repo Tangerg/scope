@@ -65,7 +65,7 @@ func TestCancelTaskClassifiesTheCommittedOutcomeAfterAdmissionRaces(t *testing.T
 	}{
 		{name: "completed", complete: true, wantErrorCode: -32002},
 		{name: "writer-shutdown", wantErrorCode: -32603},
-		{name: "completed-but-unreadable", complete: true, unreadable: true, wantErrorCode: -32603},
+		{name: "completed-but-unreadable", complete: true, unreadable: true, wantErrorCode: -32002},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)

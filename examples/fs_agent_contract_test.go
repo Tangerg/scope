@@ -78,17 +78,14 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 					settled, ok := record.(run.EffectSettled)
 					return ok && settled.Outcome.Status() == run.SettlementStatusUnknown
 				}).Record.(run.EffectSettled)
-				if err := process.Cancel(ctx, "retain unknown result until investigated"); err != nil {
+				if err := process.Cancel(ctx, "stop with the edit outcome unknown"); err != nil {
 					t.Fatal(err)
 				}
+				contractValue(process.Await(ctx))
 				view := contractValue(process.Inspect(ctx))
 				owner, ok := view.Process(process.ID())
-				if !ok || owner.Termination.Valid() || len(owner.PendingEffects) != 1 || calls.Load() != 1 {
+				if !ok || len(owner.PendingEffects) != 1 || owner.PendingEffects[0].Request.ID() != committed.ID || owner.PendingEffects[0].Outcome.Status() != run.SettlementStatusUnknown {
 					t.Fatal("cancel hid unknown filesystem work")
-				}
-				settlement := contractValue(interaction.SettleToolResult(root, owner.PendingEffects[0].Request, tool.Result{Output: tool.NewTextOutput("investigation confirmed edit failure")}, interaction.ResultFailed, nil))
-				if err := process.ResolveUnknownEffect(ctx, committed.ID, settlement); err != nil {
-					t.Fatal(err)
 				}
 			}
 			result := contractValue(process.Await(ctx))
@@ -99,10 +96,11 @@ func TestFilesystemEditOutcomeThroughInteraction(t *testing.T) {
 			if result.Termination().Status() != wantStatus || calls.Load() != wantCalls {
 				t.Fatalf("status=%s calls=%d", result.Termination().Status(), calls.Load())
 			}
-			view := contractValue(process.Inspect(ctx))
-			for _, owner := range view.Processes {
-				if len(owner.PendingEffects) != 0 {
-					t.Fatal("terminal tree retained unresolved effects")
+			if !unknown {
+				for _, owner := range contractValue(process.Inspect(ctx)).Processes {
+					if len(owner.PendingEffects) != 0 {
+						t.Fatal("terminal tree retained unresolved effects")
+					}
 				}
 			}
 			if data := contractValue(os.ReadFile(path)); string(data) != "original" {

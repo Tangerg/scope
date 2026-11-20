@@ -68,7 +68,7 @@ func awaitContractRecord[O any](t *testing.T, ctx context.Context, handle *run.H
 	return run.Entry{}
 }
 
-func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
+func TestStrategiesDrainCanceledUnknownDelegateSubtrees(t *testing.T) {
 	for _, strategy := range []string{"interaction", "planning"} {
 		t.Run(strategy, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -145,27 +145,7 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 				control, ok := record.(run.ControlRequested)
 				return ok && control.Process == unknown.ID.Process && control.Kind == run.ControlCancel
 			})
-			view = contractValue(handle.Inspect(ctx))
-			root, _ := view.Process(handle.ID())
-			if root.Termination.Valid() || rootCalls.Load() != 1 {
-				t.Fatal("parent continued before unknown descendant drained", rootCalls.Load())
-			}
-			if err := runtime.Close(ctx); err != nil {
-				t.Fatal(err)
-			}
-			replacement := contractValue(run.New(ctx, run.Config{Store: store, Build: contractBuild, ProgramResolver: resolver}))
-			defer replacement.Close(context.WithoutCancel(ctx))
-			recovered := contractValue(replacement.Recover(ctx, program, handle.ID()))
-			view = contractValue(recovered.Inspect(ctx))
-			owner, ok := view.Process(unknown.ID.Process)
-			if !ok || len(owner.PendingEffects) != 1 {
-				t.Fatal("recovery lost pending descendant")
-			}
-			settlement := contractValue(interaction.SettleModelResult(loser, owner.PendingEffects[0].Request, contractText("investigated outcome")))
-			if err := recovered.ResolveUnknownEffect(ctx, unknown.ID, settlement); err != nil {
-				t.Fatal(err)
-			}
-			result := contractValue(recovered.Await(ctx))
+			result := contractValue(handle.Await(ctx))
 			if result.Termination().Status() != run.StatusCompleted || rootCalls.Load() != 2 || loserCalls.Load() != 1 {
 				t.Fatalf("drained result=%v root=%d loser=%d", result.Termination(), rootCalls.Load(), loserCalls.Load())
 			}
@@ -174,6 +154,7 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 				t.Fatal(found, err)
 			}
 			exits := make(map[run.ProcessID]run.LSN)
+			var unknownAt, parentContinuedAt run.LSN
 			var raceID, delegateID run.ProcessID
 			for _, entry := range log.Entries {
 				switch record := entry.Record.(type) {
@@ -184,12 +165,23 @@ func TestStrategiesDrainUnknownDelegateSubtreesAcrossRecovery(t *testing.T) {
 					if record.Program == delegate.ProgramRef() {
 						delegateID = record.Process
 					}
+				case run.EffectSettled:
+					if record.ID == unknown.ID {
+						if record.Outcome.Status() != run.SettlementStatusUnknown {
+							t.Fatal("cancellation invented a definite descendant outcome")
+						}
+						unknownAt = entry.LSN
+					}
+				case run.EffectIntent:
+					if record.ID.Process == handle.ID() {
+						parentContinuedAt = entry.LSN
+					}
 				case run.Exited:
 					exits[record.Process] = entry.LSN
 				}
 			}
-			if exits[unknown.ID.Process] == 0 || exits[unknown.ID.Process] >= exits[raceID] || exits[raceID] >= exits[delegateID] || exits[delegateID] >= exits[handle.ID()] {
-				t.Fatalf("exit order did not drain child subtrees: %v", exits)
+			if unknownAt == 0 || exits[unknown.ID.Process] <= unknownAt || exits[unknown.ID.Process] >= exits[raceID] || exits[raceID] >= exits[delegateID] || exits[delegateID] >= parentContinuedAt || parentContinuedAt >= exits[handle.ID()] {
+				t.Fatalf("unknown=%d parent continued=%d exit order did not drain child subtrees: %v", unknownAt, parentContinuedAt, exits)
 			}
 		})
 	}

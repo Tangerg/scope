@@ -110,26 +110,37 @@ func answerSignal(wait WaitKey, payload Payload) Signal {
 }
 
 func (h *Handle[O]) Pause(ctx context.Context, reason string) error {
-	_, err := h.request(ctx, h.id, controlCommand{kind: ControlPause, reason: reason})
-	return err
+	return h.control(ctx, ControlPause, reason)
 }
 
 func (h *Handle[O]) Resume(ctx context.Context) error {
-	_, err := h.request(ctx, h.id, controlCommand{kind: ControlResume})
-	return err
+	return h.control(ctx, ControlResume, "")
 }
 
 func (h *Handle[O]) Cancel(ctx context.Context, reason string) error {
-	_, err := h.request(ctx, h.id, controlCommand{kind: ControlCancel, reason: reason})
-	return err
+	return h.control(ctx, ControlCancel, reason)
 }
 
 func (h *Handle[O]) Kill(ctx context.Context, reason string) error {
-	_, err := h.request(ctx, h.id, controlCommand{kind: ControlKill, reason: reason})
+	return h.control(ctx, ControlKill, reason)
+}
+
+func (h *Handle[O]) control(ctx context.Context, kind ControlKind, reason string) error {
+	if !kind.admitsReason(reason) {
+		return fmt.Errorf("%w: invalid %s reason", ErrInvalidProcessControl, kind)
+	}
+	_, err := h.request(ctx, h.id, controlCommand{kind: kind, reason: reason})
 	return err
 }
 
+// ResolveUnknownEffect records the definite outcome the Host established for
+// an Effect that settled Unknown. An exited process closed its history, so
+// its Unknown Effects stay Unknown and resolution fails with
+// ErrProcessFinished.
 func (h *Handle[O]) ResolveUnknownEffect(ctx context.Context, id EffectID, outcome Settlement) error {
+	if !outcome.Valid() || outcome.Status() == SettlementStatusUnknown {
+		return fmt.Errorf("%w: a resolution must be a definite outcome", ErrInvalidSettlement)
+	}
 	if !h.id.Contains(id.Process) {
 		return ErrEffectNotPending
 	}
@@ -137,6 +148,8 @@ func (h *Handle[O]) ResolveUnknownEffect(ctx context.Context, id EffectID, outco
 	return err
 }
 
+// ReplayUnknownEffect redispatches an Unknown Effect under its own identity.
+// Only a ReplayPolicySameIdentity Effect of a running process may repeat.
 func (h *Handle[O]) ReplayUnknownEffect(ctx context.Context, id EffectID) error {
 	if !h.id.Contains(id.Process) {
 		return ErrEffectNotPending
@@ -411,11 +424,10 @@ type controlCommand struct {
 func (controlCommand) command() {}
 
 func (c controlCommand) records(_ *treeRuntime, p *processState) ([]Record, error) {
-	control := ControlRequested{Origin: ControlOriginHost, Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: recordedNow()}
-	if !control.valid() || !p.acceptsControl(c.kind) {
-		return nil, ErrInvalidProcessControl
+	if err := p.admitControl(c.kind); err != nil {
+		return nil, err
 	}
-	return []Record{control}, nil
+	return []Record{ControlRequested{Origin: ControlOriginHost, Process: p.started.Process, Kind: c.kind, Reason: c.reason, At: recordedNow()}}, nil
 }
 
 type resolveCommand struct {
@@ -426,7 +438,11 @@ type resolveCommand struct {
 func (resolveCommand) command() {}
 
 func (r resolveCommand) records(t *treeRuntime, p *processState) ([]Record, error) {
-	if !p.unknownEffect(r.id) || !r.outcome.Valid() || r.outcome.Status() == SettlementStatusUnknown || t.jobs[r.id] != nil {
+	pending, err := p.settleable(r.id)
+	if err != nil {
+		return nil, err
+	}
+	if !pending.unknown() || t.jobs[r.id] != nil {
 		return nil, ErrEffectNotPending
 	}
 	return []Record{EffectSettled{ID: r.id, Outcome: r.outcome, At: recordedNow()}}, nil

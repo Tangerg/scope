@@ -85,7 +85,7 @@ func publicConformanceFailures() []conformanceFailure {
 		{"descendant exit cannot commit", "descendant exits precede their parents", "probe cannot commit child exit", brokenStoreSuite(refuseChildExit)},
 		{"signal append fails", "local waits have no handshake", "probe cannot admit signal", brokenStoreSuite(refuseSignalReceipt)},
 		{"recovery activation fails", "durable observations survive takeover", "probe cannot activate writer", brokenStoreSuite(refuseActivation)},
-		{"unknown outcome resolution fails", "canceling uncertainty waits for reconciliation", "probe cannot reconcile outcome", brokenStoreSuite(refuseResolution)},
+		{"unknown outcome resolution fails", "crash effect_intent after append", "probe cannot reconcile outcome", brokenStoreSuite(refuseResolution)},
 		{"round trip reports false acknowledgment", "append and load preserve records", "committed log is missing", brokenStoreSuite(omitEveryAppend)},
 		{"nil Definition", "", "Definition conformance Definition is nil", func(t *testing.T) { RunDefinitionConformance(t, DefinitionConformanceConfig{}) }},
 		{"invalid Descriptor", "descriptor is stable", "invalid Descriptor", invalidDescriptorSuite},

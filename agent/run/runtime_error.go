@@ -33,22 +33,22 @@ func requireContext(ctx context.Context) context.Context {
 }
 
 type RuntimeError struct {
-	process    ProcessID
-	epoch      Epoch
-	after      LSN
-	unresolved []EffectID
-	cause      error
+	process ProcessID
+	epoch   Epoch
+	after   LSN
+	pending []EffectID
+	cause   error
 }
 
 func (r *RuntimeError) Error() string {
 	return fmt.Sprintf("run: runtime for %s stopped at %d: %v", r.process, r.after, r.cause)
 }
 
-func (r *RuntimeError) Unwrap() error                   { return r.cause }
-func (r *RuntimeError) ProcessID() ProcessID            { return r.process }
-func (r *RuntimeError) Epoch() Epoch                    { return r.epoch }
-func (r *RuntimeError) After() LSN                      { return r.after }
-func (r *RuntimeError) UnresolvedEffectIDs() []EffectID { return slices.Clone(r.unresolved) }
+func (r *RuntimeError) Unwrap() error                { return r.cause }
+func (r *RuntimeError) ProcessID() ProcessID         { return r.process }
+func (r *RuntimeError) Epoch() Epoch                 { return r.epoch }
+func (r *RuntimeError) After() LSN                   { return r.after }
+func (r *RuntimeError) PendingEffectIDs() []EffectID { return slices.Clone(r.pending) }
 
 func canonicalEffectIDs(effectIDs []EffectID) []EffectID {
 	canonical := slices.Clone(effectIDs)

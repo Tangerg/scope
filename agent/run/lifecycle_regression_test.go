@@ -10,7 +10,13 @@ import (
 func TestDrainingProcessDoesNotAdvertiseUnanswerableWait(t *testing.T) {
 	runtime := kernelRuntime(t, Config{})
 	effect := controlValue(NewDispatcherEffect(controlValue(ParsePayload([]byte(`0`)))))
+	entered, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	// The dispatch ignores cancellation, so the canceled process drains until
+	// the job returns.
 	dispatcher := boundaryDispatcher{policy: EffectPolicy{Replay: ReplayPolicyNever}, dispatch: func(context.Context, EffectRequest, DeltaEmitter) (Settlement, error) {
+		close(entered)
+		<-release
 		return NewSettlement(SettlementStatusUnknown, controlValue(ParsePayload([]byte(`null`))))
 	}}
 	definition := &boundaryDefinition{descriptor: kernelDescriptor(t, "test.draining_wait"), step: func(context.Context, Turn) (Transition, error) {
@@ -20,7 +26,11 @@ func TestDrainingProcessDoesNotAdvertiseUnanswerableWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), kernelTestTimeout)
 	defer cancel()
 	handle := controlValue(runtime.Start(ctx, program, StartRequest[int]{ID: hostStartID()}))
-	lifecycleUnknown(t, ctx, handle)
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 	if err := handle.Cancel(ctx, "user canceled"); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +140,7 @@ func TestForegroundRunJoinsDispatchAndRetainsRecoveryIdentity(t *testing.T) {
 	select {
 	case err := <-returned:
 		var interrupted *RuntimeError
-		if !errors.Is(err, context.Canceled) || !errors.As(err, &interrupted) || interrupted.ProcessID() != id.Process || len(interrupted.UnresolvedEffectIDs()) != 1 || interrupted.UnresolvedEffectIDs()[0] != id || !joined.Load() {
+		if !errors.Is(err, context.Canceled) || !errors.As(err, &interrupted) || interrupted.ProcessID() != id.Process || len(interrupted.PendingEffectIDs()) != 1 || interrupted.PendingEffectIDs()[0] != id || !joined.Load() {
 			t.Fatalf("Run returned before joining or lost unresolved work: joined=%v error=%v", joined.Load(), err)
 		}
 	case <-observation.Done():
@@ -145,7 +155,11 @@ func TestForegroundRunJoinsDispatchAndRetainsRecoveryIdentity(t *testing.T) {
 	}
 	view := controlValue(runtime.Inspect(observation, id.Process))
 	process, found := view.Process(id.Process)
-	if !found || process.Status != StatusDraining || len(process.PendingEffects) != 1 {
+	// Run's cancellation both records the Host cancellation and stops the
+	// writer, so the Exit of a process left with only an Unknown Effect may or
+	// may not commit first. Either way the Effect stays Unknown.
+	drained := process.Status == StatusCanceled && process.Termination.Cause() == TerminationCauseHostCancellation
+	if !found || process.Status != StatusDraining && !drained || len(process.PendingEffects) != 1 || process.PendingEffects[0].Request.ID() != id || process.PendingEffects[0].Outcome.Status() != SettlementStatusUnknown {
 		t.Fatalf("interrupted Run invented a definite result: %+v", process)
 	}
 }

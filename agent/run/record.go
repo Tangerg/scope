@@ -189,6 +189,16 @@ func (c ControlKind) Valid() bool {
 	}
 }
 
+// admitsReason is the one reason rule. Host commands apply it at the Handle
+// boundary and record validation applies it again: Resume carries no reason,
+// and every other control carries a termination reason.
+func (c ControlKind) admitsReason(reason string) bool {
+	if c == ControlResume {
+		return reason == ""
+	}
+	return c.Valid() && validateTerminationReason(reason) == nil
+}
+
 // terminationCause preserves the requester independently of the target path.
 func (c ControlKind) terminationCause(origin ControlOrigin) TerminationCause {
 	switch {
@@ -235,7 +245,7 @@ func (c ControlRequested) valid() bool {
 	if c.Origin == ControlOriginParent && (c.Process.Depth() == 0 || c.Kind != ControlCancel && c.Kind != ControlDeadline) {
 		return false
 	}
-	return c.Kind == ControlResume && c.Reason == "" || c.Kind != ControlResume && validateTerminationReason(c.Reason) == nil
+	return c.Kind.admitsReason(c.Reason)
 }
 
 func validateRecord(record Record) error {

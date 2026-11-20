@@ -15,7 +15,7 @@ import (
 // pending recovery can safely repeat that operation with the same identity.
 // A reached deadline settles Succeeded with an empty object. Business
 // cancellation before the deadline settles Failed to drain the timer, but
-// local writer shutdown leaves it unresolved for an explicit SameIdentity replay.
+// local writer shutdown leaves it Unknown for an explicit SameIdentity replay.
 type deadlineDispatcher struct{}
 
 type timerRequest struct {

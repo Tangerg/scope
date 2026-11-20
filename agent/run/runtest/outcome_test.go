@@ -89,7 +89,7 @@ func TestObserveCancellationPreservesUnknownAndStorageFailures(t *testing.T) {
 		storeError error
 		want       error
 	}{
-		{"unknown external effect", recoveryEffect, run.RecordKindEffectSettled, nil, run.ErrEffectOutcomeUnknown},
+		{"unknown external effect", recoveryEffect, run.RecordKindEffectSettled, nil, nil},
 		{"cancellation write failure", recoveryWait, run.RecordKindStepped, storeFailure, storeFailure},
 		{"known local cancellation", recoveryWait, run.RecordKindStepped, nil, nil},
 	} {
@@ -127,7 +127,7 @@ func TestObserveCancellationPreservesUnknownAndStorageFailures(t *testing.T) {
 			case observed := <-finished:
 				if test.want == nil {
 					if observed.err != nil || observed.result.Termination().Status() != run.StatusCanceled {
-						t.Fatalf("known cancellation did not drain: %+v %v", observed.result, observed.err)
+						t.Fatalf("cancellation did not drain: %+v %v", observed.result, observed.err)
 					}
 				} else if !errors.Is(observed.err, test.want) || !errors.Is(observed.err, context.Canceled) || observed.result.Valid() {
 					t.Fatalf("cancellation obscured pending work or its store failure: %+v %v", observed.result, observed.err)
@@ -135,13 +135,8 @@ func TestObserveCancellationPreservesUnknownAndStorageFailures(t *testing.T) {
 			case <-response.Done():
 				t.Fatal("Observe ignored cancellation while waiting for an outcome that cannot become terminal")
 			}
-			if errors.Is(test.want, run.ErrEffectOutcomeUnknown) {
-				log := loadStoreLog(t, store, root)
-				for _, entry := range log.Entries {
-					if _, exited := entry.Record.(run.Exited); exited {
-						t.Fatal("Observe manufactured an Exit for unresolved external work")
-					}
-				}
+			if test.mode == recoveryEffect {
+				requireUnknownBeforeExit(t, loadStoreLog(t, store, root))
 			}
 		})
 	}

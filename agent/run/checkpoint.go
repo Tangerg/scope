@@ -284,6 +284,10 @@ type PendingCheckpoint struct {
 	Failure *Failure     `json:"failure,omitzero"`
 }
 
+// A definite settlement removes its entry, so only an Unknown one records an
+// Outcome.
+func (p PendingCheckpoint) unknown() bool { return p.Outcome != nil }
+
 func (p PendingCheckpoint) valid() bool {
 	if !p.Intent.valid() {
 		return false

@@ -52,21 +52,43 @@ func (p *processState) status() Status {
 	}
 }
 
-func (p *processState) acceptsControl(kind ControlKind) bool {
+// admitControl is the one rule deciding whether p accepts a control. Host
+// commands apply it before append and the fold applies it again, so an exited
+// process answers every command with ErrProcessFinished.
+func (p *processState) admitControl(kind ControlKind) error {
+	if p.exited != nil {
+		return ErrProcessFinished
+	}
+	var accepted bool
 	switch kind {
 	case ControlPause:
-		return p.exited == nil && !p.terminal.Valid() && !p.paused
+		accepted = !p.terminal.Valid() && !p.paused
 	case ControlResume:
-		return p.exited == nil && !p.terminal.Valid() && p.paused
+		accepted = !p.terminal.Valid() && p.paused
 	default:
-		return p.exited == nil && kind.Valid()
+		accepted = kind.Valid()
 	}
+	if !accepted {
+		return ErrInvalidProcessControl
+	}
+	return nil
 }
 
-// unknownEffect reports whether id settled Unknown and awaits resolution.
-func (p *processState) unknownEffect(id EffectID) bool {
-	pending, ok := p.pending[id]
-	return ok && pending.Outcome != nil && pending.Outcome.Status() == SettlementStatusUnknown
+// drained reports whether a terminal p may exit: every child has exited and
+// been reaped, and every Effect it still holds settled Unknown. Only the Host
+// can learn an Unknown outcome, and no later Step can consume it, so the
+// Unknown stays on the exited process as evidence instead of withholding the
+// Exit its recorded termination already decided.
+func (p *processState) drained() bool {
+	if p.activeChildren != 0 || p.retainedChildren != 0 {
+		return false
+	}
+	for _, pending := range p.pending {
+		if !pending.unknown() {
+			return false
+		}
+	}
+	return true
 }
 
 func (p *processState) ready() bool {
@@ -194,21 +216,30 @@ func (p *processState) prepare(intent EffectIntent) error {
 	return nil
 }
 
-func (p *processState) settle(settled EffectSettled) error {
-	pending, ok := p.pending[settled.ID]
-	if !ok {
-		return ErrEffectNotPending
+// settleable is the one rule deciding whether a settlement of id may be
+// recorded. Host commands apply it before append and the fold applies it
+// again, so no log can settle an Effect after its process exited.
+func (p *processState) settleable(id EffectID) (PendingCheckpoint, error) {
+	if p.exited != nil {
+		return PendingCheckpoint{}, ErrProcessFinished
 	}
+	pending, ok := p.pending[id]
+	if !ok {
+		return PendingCheckpoint{}, ErrEffectNotPending
+	}
+	return pending, nil
+}
+
+func (p *processState) settle(pending PendingCheckpoint, settled EffectSettled) {
 	if settled.Outcome.Status() == SettlementStatusUnknown {
 		pending.Outcome = &settled.Outcome
 		pending.Failure = settled.Failure
 		p.pending[settled.ID] = pending
-		return nil
+		return
 	}
 	delete(p.pending, settled.ID)
 	p.inbox = append(p.inbox, Completion{Effect: settled.ID, Outcome: settled.Outcome})
 	p.yielded = false
-	return nil
 }
 
 // spawns reports whether a pending Spawn authorizes exactly this child.
@@ -267,7 +298,7 @@ func (p *processState) restoredConsistently(limits TreeLimits, granted resourceA
 	if !p.allocated.covers(granted) || !limits.admitsChildren(p.startedChildren(), uint64(p.activeChildren)) || p.admitMessages(limits, 0, nil, 0) != nil {
 		return false
 	}
-	return p.exited == nil || p.retainedChildren == 0 && len(p.pending) == 0
+	return p.exited == nil || p.drained()
 }
 
 func (p *processState) checkpoint() (ProcessCheckpoint, error) {

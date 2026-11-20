@@ -123,6 +123,9 @@ func TestDispatchDefectsRemainUncertainUntilExplicitResolution(t *testing.T) {
 			if err := handle.ReplayUnknownEffect(ctx, id); !errors.Is(err, ErrEffectReplayForbidden) {
 				t.Fatalf("Never effect was replayed: %v", err)
 			}
+			if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusUnknown, nullPayload))); !errors.Is(err, ErrInvalidSettlement) {
+				t.Fatalf("an Unknown outcome resolved the Effect: %v", err)
+			}
 			if err := handle.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`7`)))))); err != nil {
 				t.Fatal(err)
 			}
@@ -256,7 +259,7 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 	defer cancel()
 	_, err := handle.Await(ctx)
 	runtimeError, stopped := errors.AsType[*RuntimeError](err)
-	if !stopped || !errors.Is(err, cause) || len(runtimeError.UnresolvedEffectIDs()) != 2 || calls.Load() != 2 {
+	if !stopped || !errors.Is(err, cause) || len(runtimeError.PendingEffectIDs()) != 2 || calls.Load() != 2 {
 		t.Fatalf("writer failure lost pending dispatch ownership: calls=%d error=%v", calls.Load(), err)
 	}
 	log, _, err := store.Load(ctx, handle.ID())
@@ -283,7 +286,7 @@ func TestWriterFailureJoinsOtherDispatchesWithoutInventingTheirOutcomes(t *testi
 			}
 		}
 	}
-	for _, id := range runtimeError.UnresolvedEffectIDs() {
+	for _, id := range runtimeError.PendingEffectIDs() {
 		if err := recovered.ResolveUnknownEffect(ctx, id, controlValue(NewSettlement(SettlementStatusSucceeded, controlValue(ParsePayload([]byte(`1`)))))); err != nil {
 			t.Fatal(err)
 		}

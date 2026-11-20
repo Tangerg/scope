@@ -13,10 +13,10 @@
 // program keeps the ordinary tool call within its interaction process.
 //
 // A missing receipt or failed query establishes neither failure nor permission
-// to repeat the write. Cancellation requests a stop, but the tree cannot publish
-// Exited while its external outcome remains Unknown. Runtime.Close joins local
-// work and retains that unresolved fact for a later reconciliation. A confirmed
-// receipt becomes interaction.SettleToolResult followed by ResolveUnknownEffect.
+// to repeat the write. Cancellation then ends the interaction without inventing
+// an outcome: its Exit records the cancellation, and the write stays Unknown in
+// the log for reconciliation against the ledger. A confirmed receipt becomes
+// interaction.SettleToolResult followed by ResolveUnknownEffect.
 // A completed interaction can report a confirmed business rejection, so its
 // terminal status alone does not establish business success.
 package main

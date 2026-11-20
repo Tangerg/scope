@@ -27,7 +27,7 @@
 // result, so concurrent completion cannot conceal caller cancellation. A later
 // observation can still read the committed outcome.
 // Close cancels and joins local work without declaring an uncertain
-// external operation stopped; unresolved Effects remain in the durable log.
+// external operation stopped; pending Effects remain in the durable log.
 // ReleaseTree joins an exited root's local writer before relinquishing it;
 // a writer already stopped by Close can be released even without a root Exit.
 //
@@ -40,9 +40,14 @@
 // of that child's subtree, from its Started record to its Reaped record.
 //
 // Completion carries a definite Effect outcome. An Unknown outcome stays pending
-// until explicit resolution or a permitted replay under the same EffectID. Exit
-// and Result are published only after all descendants and uncertain operations
-// have drained, including after cancellation or failure. Yield declares local
+// until explicit resolution or a permitted replay under the same EffectID.
+// Exit and Result are published only after all descendants have exited and no
+// Step, dispatch, or child start of the process remains in flight, including
+// after cancellation or failure. A terminated process does not wait for Host
+// resolution: the termination it recorded decides its Exit, and each Unknown
+// Effect stays Unknown in its history, and in Inspection until the process is
+// reaped. Exit closes that history, so the outcome can no longer be resolved
+// there. Yield declares local
 // Wait values directly; the inbox never contains a wait-opening handshake.
 // A WaitKey permanently identifies its first question, answer schema and byte
 // limit. Withdrawal stops answer admission but retains that contract in the
