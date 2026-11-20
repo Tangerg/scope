@@ -286,27 +286,27 @@ func DecodeRecord(kind RecordKind, data []byte) (Record, error) {
 	var err error
 	switch kind {
 	case RecordKindStarted:
-		value, err = decodeLogRecord[Started](data)
+		value, err = jsonwire.Decode[Started](data)
 	case RecordKindActivated:
-		value, err = decodeLogRecord[Activated](data)
+		value, err = jsonwire.Decode[Activated](data)
 	case RecordKindSignalAdmitted:
-		value, err = decodeLogRecord[SignalAdmitted](data)
+		value, err = jsonwire.Decode[SignalAdmitted](data)
 	case RecordKindStepped:
-		value, err = decodeLogRecord[Stepped](data)
+		value, err = jsonwire.Decode[Stepped](data)
 	case RecordKindEffectIntent:
-		value, err = decodeLogRecord[EffectIntent](data)
+		value, err = jsonwire.Decode[EffectIntent](data)
 	case RecordKindEffectSettled:
-		value, err = decodeLogRecord[EffectSettled](data)
+		value, err = jsonwire.Decode[EffectSettled](data)
 	case RecordKindExited:
-		value, err = decodeLogRecord[Exited](data)
+		value, err = jsonwire.Decode[Exited](data)
 	case RecordKindExecutionFailed:
-		value, err = decodeLogRecord[ExecutionFailed](data)
+		value, err = jsonwire.Decode[ExecutionFailed](data)
 	case RecordKindReaped:
-		value, err = decodeLogRecord[Reaped](data)
+		value, err = jsonwire.Decode[Reaped](data)
 	case RecordKindCheckpoint:
-		value, err = decodeLogRecord[Checkpoint](data)
+		value, err = jsonwire.Decode[Checkpoint](data)
 	case RecordKindControlRequested:
-		value, err = decodeLogRecord[ControlRequested](data)
+		value, err = jsonwire.Decode[ControlRequested](data)
 	default:
 		return nil, ErrInvalidLog
 	}
@@ -318,8 +318,6 @@ func DecodeRecord(kind RecordKind, data []byte) (Record, error) {
 	}
 	return value, nil
 }
-
-func decodeLogRecord[T Record](data []byte) (T, error) { return jsonwire.Decode[T](data) }
 
 func recordProcess(record Record) ProcessID {
 	switch value := record.(type) {

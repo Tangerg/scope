@@ -191,7 +191,7 @@ func (h *Handle[O]) awaitLocal(ctx context.Context) (Result[O], error) {
 	if h.process.exited == nil {
 		return Result[O]{}, h.tree.failureError()
 	}
-	return projectResult[O](h.process.result()), nil
+	return Result[O](h.process.result()), nil
 }
 
 // awaitCommitted serves a tree another writer owns: it waits on the committed
@@ -202,7 +202,7 @@ func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
 		return Result[O]{}, err
 	}
 	if process := state.processes[h.id]; process != nil && process.exited != nil {
-		return projectResult[O](process.result()), nil
+		return Result[O](process.result()), nil
 	}
 	for entry, err := range h.Observe(ctx, state.head) {
 		if err != nil {
@@ -219,7 +219,7 @@ func (h *Handle[O]) awaitCommitted(ctx context.Context) (Result[O], error) {
 	if process == nil || process.exited == nil {
 		return Result[O]{}, ErrProcessNotFound
 	}
-	return projectResult[O](process.result()), nil
+	return Result[O](process.result()), nil
 }
 
 // A terminal tree may acquire later writer epochs without another Exit. The
@@ -362,10 +362,6 @@ type Result[O any] struct {
 	finishedAt  time.Time
 	termination Termination
 	usage       Usage
-}
-
-func projectResult[O any](r Result[Payload]) Result[O] {
-	return Result[O](r)
 }
 
 func (r Result[O]) Output() (O, error) {
