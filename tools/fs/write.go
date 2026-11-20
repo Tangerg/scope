@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/tools/internal/toolinput"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 
 	"github.com/samber/lo"
 
@@ -71,7 +72,7 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse, error) {
 	res, err := w.executor.Write(ctx, req)
 	if err != nil {
-		return WriteResponse{}, mutationError("fs.write", res, err)
+		return WriteResponse{}, toolresult.Classify("fs.write", res, err, ErrMutationRejected)
 	}
 	return res, nil
 }

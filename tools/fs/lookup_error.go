@@ -5,7 +5,7 @@ import (
 	"fmt"
 	iofs "io/fs"
 
-	"github.com/Tangerg/scope/tools/internal/toolresult"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 // correctableLookupErrors are the read, glob, and grep outcomes a model can
@@ -20,9 +20,16 @@ var correctableLookupErrors = []error{
 func lookupError(operation string, cause error) error {
 	cause = fmt.Errorf("%s: %w", operation, cause)
 	for _, target := range correctableLookupErrors {
-		if errors.Is(cause, target) {
-			return toolresult.Correctable(fmt.Sprintf("%s: %s", operation, target), cause)
+		if !errors.Is(cause, target) {
+			continue
 		}
+		failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
+			Kind: toolcontract.FailureKindFailed, Cause: cause, Output: toolcontract.NewTextOutput(fmt.Sprintf("%s: %s", operation, target)),
+		})
+		if err != nil {
+			return errors.Join(cause, err)
+		}
+		return failure
 	}
 	return cause
 }

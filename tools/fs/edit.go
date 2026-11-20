@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Tangerg/scope/tools/internal/toolinput"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 
 	"github.com/samber/lo"
 
@@ -76,7 +77,7 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, error) {
 	res, err := e.executor.Edit(ctx, req)
 	if err != nil {
-		return EditResponse{}, mutationError("fs.edit", res, err)
+		return EditResponse{}, toolresult.Classify("fs.edit", res, err, ErrMutationRejected)
 	}
 	return res, nil
 }

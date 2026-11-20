@@ -14,7 +14,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/Tangerg/scope/core/httpclient"
-	"github.com/Tangerg/scope/tools/internal/toolresult"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 	"github.com/Tangerg/scope/tools/web"
 	"github.com/Tangerg/scope/tools/web/internal/providerhttp"
 )
@@ -157,15 +157,15 @@ func (c *Client) Search(ctx context.Context, request *web.SearchRequest) (*web.S
 	prepared, err := request.Prepare()
 	if err != nil {
 		cause := fmt.Errorf("jina: prepare search request: %w", err)
-		return nil, toolresult.Correctable(cause.Error(), cause)
+		return nil, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 	}
 	if len(prepared.BlockedDomains) > 0 {
 		cause := fmt.Errorf("jina: %w: blocked_domains", web.ErrUnsupportedFilter)
-		return nil, toolresult.Correctable(cause.Error(), cause)
+		return nil, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 	}
 	if prepared.Recency != "" {
 		cause := fmt.Errorf("jina: %w: recency", web.ErrUnsupportedFilter)
-		return nil, toolresult.Correctable(cause.Error(), cause)
+		return nil, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 	}
 	search := newSearchRequest(prepared)
 	var raw searchResponse
@@ -180,12 +180,12 @@ func (c *Client) Fetch(ctx context.Context, request *web.FetchRequest) (*web.Fet
 	prepared, err := request.Prepare()
 	if err != nil {
 		cause := fmt.Errorf("jina: prepare fetch request: %w", err)
-		return nil, toolresult.Correctable(cause.Error(), cause)
+		return nil, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 	}
 	respondWith, supported := contentRespondWith(prepared.Format)
 	if !supported {
 		cause := fmt.Errorf("jina: %w: %s", web.ErrUnsupportedFormat, prepared.Format)
-		return nil, toolresult.Correctable(cause.Error(), cause)
+		return nil, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 	}
 	var raw fetchResponse
 	httpRequest := c.fetchHTTP.R().SetContext(ctx).

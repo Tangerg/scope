@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/Tangerg/scope/tools/internal/toolinput"
+	"github.com/Tangerg/scope/tools/internal/toolresult"
 
 	"github.com/samber/lo"
 
@@ -153,7 +154,7 @@ func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
 	res, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
-		return ApplyPatchResponse{}, mutationError("fs.apply_patch", res, err)
+		return ApplyPatchResponse{}, toolresult.Classify("fs.apply_patch", res, err, ErrMutationRejected)
 	}
 	return res, nil
 }

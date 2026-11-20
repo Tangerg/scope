@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Tangerg/scope/tools/internal/toolresult"
+	toolcontract "github.com/Tangerg/scope/core/tool"
 )
 
 // invokePort is the one call path of every web Tool. A request the model can
@@ -19,7 +19,7 @@ func invokePort[Q any, R interface{ ValidateFor(*Q) error }](
 	var zero R
 	prepared, err := request.Prepare()
 	if err != nil {
-		return zero, toolresult.Correctable(err.Error(), err)
+		return zero, toolcontract.FailureFromCause(toolcontract.FailureKindFailed, err)
 	}
 	response, err := perform(ctx, prepared)
 	if err != nil {

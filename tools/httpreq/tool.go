@@ -54,7 +54,7 @@ func (t *Tool) request(ctx context.Context, request Request) (*Response, error) 
 		return nil, admissionFailure(admission)
 	}
 	if err != nil && response != nil {
-		return nil, toolresult.WithEvidence("httpreq: request", response, err)
+		return nil, toolresult.Classify("httpreq: request", response, err)
 	}
 	return response, err
 }

@@ -4,14 +4,18 @@ import (
 	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Tangerg/scope/core/tool"
 )
 
-// WithEvidence preserves a backend's explicit outcome or evidence before
-// projecting its typed response. A normal backend error does not establish a
-// final outcome, even when the response acknowledges some effects.
-func WithEvidence(operation string, response any, cause error) error {
+// Classify projects a backend error into the Tool outcome it establishes. An
+// outcome or evidence the backend attached wins. An error matching one of the
+// correctable sentinels is one the model can fix by changing its arguments, so
+// it becomes a definite failure the model sees, unless an outcome is joined
+// beside it. Any other error stays uncertain and carries the typed response as
+// execution evidence, even when that response acknowledges some effects.
+func Classify(operation string, response any, cause error, correctable ...error) error {
 	cause = fmt.Errorf("%s: %w", operation, cause)
 	if _, definite := tool.ClassifyFailure(cause); definite {
 		return cause
@@ -21,6 +25,10 @@ func WithEvidence(operation string, response any, cause error) error {
 			return errors.Join(cause, err)
 		}
 		return cause
+	}
+	_, joined := errors.AsType[*tool.Failure](cause)
+	if !joined && slices.ContainsFunc(correctable, func(target error) bool { return errors.Is(cause, target) }) {
+		return tool.FailureFromCause(tool.FailureKindFailed, cause)
 	}
 	encoded, err := jsonv2.Marshal(response)
 	if err != nil {

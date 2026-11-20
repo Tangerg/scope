@@ -3,7 +3,6 @@ package shell
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -112,11 +111,5 @@ func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
 	if err == nil {
 		return response, nil
 	}
-	_, containsFailure := errors.AsType[*toolcontract.Failure](err)
-	_, containsEvidence := errors.AsType[*toolcontract.CallError](err)
-	if !containsFailure && !containsEvidence && (errors.Is(err, ErrEmptyCommand) || errors.Is(err, ErrInvalidInput)) {
-		cause := fmt.Errorf("shell.tool: run: %w", err)
-		return Response{}, toolresult.Correctable(cause.Error(), cause)
-	}
-	return Response{}, toolresult.WithEvidence("shell.tool: run", response, err)
+	return Response{}, toolresult.Classify("shell.tool: run", response, err, ErrEmptyCommand, ErrInvalidInput)
 }
