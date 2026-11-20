@@ -55,6 +55,16 @@ func (s Started) valid() bool {
 	return s.Process.Valid() && s.Program.Valid() && s.Input.Valid() && !s.At.IsZero() && (s.Process.Depth() > 0 && s.Limits == (TreeLimits{}) || s.Process.Depth() == 0 && s.Limits.Valid())
 }
 
+// permits is the one rule deciding whether this process may prepare an Effect
+// under policy: its Start grant must cover the capabilities the policy needs.
+// Live preparation, the log fold and checkpoint admission all apply it.
+func (s Started) permits(policy EffectPolicy) error {
+	if !s.Capabilities.Allows(policy.RequiredCapabilities) {
+		return ErrInvalidCapability
+	}
+	return nil
+}
+
 // IntentDigest is derived from the accepted declaration. Persisting a separately
 // writable digest would let a stale cache accept a conflicting idempotent Start.
 func (s Started) IntentDigest() (Digest, error) {

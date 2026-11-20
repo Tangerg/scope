@@ -208,12 +208,32 @@ func (p *processState) prepare(intent EffectIntent) error {
 	if _, ok := p.pending[intent.ID]; ok {
 		return ErrInvalidLog
 	}
-	if !p.started.Capabilities.Allows(intent.Policy.RequiredCapabilities) {
-		return ErrInvalidEffect
+	if err := p.started.permits(intent.Policy); err != nil {
+		return err
 	}
 	p.stepEffects[intent.ID.Index] = Effect{}
 	p.pending[intent.ID] = PendingCheckpoint{Intent: intent}
 	return nil
+}
+
+// effectPolicy resolves the policy p prepares effect under: the kernel's own
+// for a framework Effect, otherwise its Program's Dispatcher's, which p's
+// Start grant must permit.
+func (p *processState) effectPolicy(effect Effect) (EffectPolicy, error) {
+	if intrinsic, owned := effect.intrinsicPolicy(); owned {
+		return intrinsic, nil
+	}
+	if p.program.dispatcher == nil {
+		return EffectPolicy{}, ErrInvalidEffect
+	}
+	policy, err := invokeCallback("Dispatcher.Policy", func() (EffectPolicy, error) { return p.program.dispatcher.Policy(effect), nil })
+	if err != nil {
+		return EffectPolicy{}, err
+	}
+	if !policy.Valid() {
+		return EffectPolicy{}, ErrInvalidEffect
+	}
+	return policy, p.started.permits(policy)
 }
 
 // settleable is the one rule deciding whether a settlement of id may be

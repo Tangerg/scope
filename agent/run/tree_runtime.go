@@ -410,7 +410,7 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 	}
 	records := []Record{Stepped{Process: turn.Process, Step: turn.Step, Delivered: uint32(len(turn.Messages)), Transition: transition}}
 	for index, effect := range transition.effects {
-		policy, err := t.policy(p, effect)
+		policy, err := p.effectPolicy(effect)
 		if err != nil {
 			code := failureCodeExecutionEffectInvalid
 			if _, callback := errors.AsType[*callbackError](err); !callback && errors.Is(err, ErrInvalidCapability) {
@@ -437,26 +437,6 @@ func (t *treeRuntime) commitStep(p *processState, turn Turn, transition Transiti
 		t.checkpointAfter++
 	}
 	return nil
-}
-
-func (t *treeRuntime) policy(p *processState, effect Effect) (EffectPolicy, error) {
-	if intrinsic, owned := effect.intrinsicPolicy(); owned {
-		return intrinsic, nil
-	}
-	if p.program.dispatcher == nil {
-		return EffectPolicy{}, ErrInvalidEffect
-	}
-	policy, err := invokeCallback("Dispatcher.Policy", func() (EffectPolicy, error) { return p.program.dispatcher.Policy(effect), nil })
-	if err != nil {
-		return EffectPolicy{}, err
-	}
-	if !policy.Valid() {
-		return EffectPolicy{}, ErrInvalidEffect
-	}
-	if !p.started.Capabilities.Allows(policy.RequiredCapabilities) {
-		return EffectPolicy{}, ErrInvalidCapability
-	}
-	return policy, nil
 }
 
 func (t *treeRuntime) reject(p *processState, failure Failure) error {
