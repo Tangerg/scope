@@ -11,5 +11,5 @@ const (
 	// including search results, citations, server tool output, and cost.
 	ResponseExtensionKey = Provider + openai.ResponsesResponseExtensionSuffix
 	// StreamEventExtensionKey preserves each exact native SSE event.
-	StreamEventExtensionKey = Provider + "/responses_stream_event"
+	StreamEventExtensionKey = Provider + openai.ResponsesStreamEventExtensionSuffix
 )

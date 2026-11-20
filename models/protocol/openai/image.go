@@ -143,7 +143,7 @@ func (i *ImageModel) buildImageResponse(resp *openai.ImagesResponse, requestedFo
 		}
 		var outputMetadata metadata.Map
 		if generated.RevisedPrompt != "" {
-			if setErr := outputMetadata.Set(i.provider+"/revised_prompt", generated.RevisedPrompt); setErr != nil {
+			if setErr := outputMetadata.Set(i.provider+ImageRevisedPromptMetadataSuffix, generated.RevisedPrompt); setErr != nil {
 				return nil, setErr
 			}
 		}

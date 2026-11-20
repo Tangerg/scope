@@ -13,6 +13,9 @@ const (
 	EmbeddingRequestExtensionSuffix     = "/embedding_request"
 	ImageRequestExtensionSuffix         = "/image_request"
 	ModerationRequestExtensionSuffix    = "/moderation_request"
+	// ImageRevisedPromptMetadataSuffix keys an image output's prompt as the
+	// provider revised it before generating.
+	ImageRevisedPromptMetadataSuffix = "/revised_prompt"
 
 	SpeechRequestExtensionKey        = ProviderID + SpeechRequestExtensionSuffix
 	TranscriptionRequestExtensionKey = ProviderID + TranscriptionRequestExtensionSuffix

@@ -503,14 +503,12 @@ func mapProtocolAssistant(message corechat.Message, provider string) ([]anthropi
 
 func mapProtocolAssistantPart(index int, part corechat.Part, provider string) (anthropicsdk.ContentBlockParamUnion, bool, error) {
 	switch part.Kind {
-	case corechat.PartText:
+	case corechat.PartText, corechat.PartRefusal:
 		return anthropicsdk.NewTextBlock(part.Text), true, nil
 	case corechat.PartReasoning:
 		return mapProtocolReasoningPart(index, part, provider)
 	case corechat.PartToolCall:
 		return mapProtocolToolCall(*part.ToolCall), true, nil
-	case corechat.PartRefusal:
-		return anthropicsdk.NewTextBlock(part.Text), true, nil
 	default:
 		return anthropicsdk.ContentBlockParamUnion{}, false, fmt.Errorf("parts[%d]: unsupported assistant part %q", index, part.Kind)
 	}

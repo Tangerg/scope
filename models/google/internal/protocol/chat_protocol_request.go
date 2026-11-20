@@ -290,9 +290,7 @@ func mapProtocolAssistantParts(provider string, parts []corechat.Part) ([]*genai
 		}
 		mapped = append(mapped, state.Before...)
 		switch part.Kind {
-		case corechat.PartText:
-			mapped = append(mapped, genai.NewPartFromText(part.Text))
-		case corechat.PartRefusal:
+		case corechat.PartText, corechat.PartRefusal:
 			mapped = append(mapped, genai.NewPartFromText(part.Text))
 		case corechat.PartReasoning:
 			reasoning := &genai.Part{Text: part.Text, Thought: true}

@@ -16,6 +16,9 @@ import (
 const (
 	ResponsesRequestExtensionSuffix  = "/responses_request"
 	ResponsesResponseExtensionSuffix = "/responses_response"
+	// ResponsesStreamEventExtensionSuffix keys each exact native SSE event when
+	// the dialect preserves stream events.
+	ResponsesStreamEventExtensionSuffix = "/responses_stream_event"
 	// Native fields without a Core equivalent retain the binding's namespace.
 	ResponsesRequestExtensionKey  = ProviderID + ResponsesRequestExtensionSuffix
 	ResponsesResponseExtensionKey = ProviderID + ResponsesResponseExtensionSuffix
@@ -124,7 +127,7 @@ func (r *Responses) Stream(ctx context.Context, req *corechat.Request) iter.Seq2
 				if response.Metadata == nil {
 					response.Metadata = &corechat.ResponseMetadata{}
 				}
-				if err := response.Metadata.Extra.Set(r.dialect.Provider+"/responses_stream_event", json.RawMessage(stream.Current().RawJSON())); err != nil {
+				if err := response.Metadata.Extra.Set(r.dialect.Provider+ResponsesStreamEventExtensionSuffix, json.RawMessage(stream.Current().RawJSON())); err != nil {
 					yield(nil, err)
 					return
 				}

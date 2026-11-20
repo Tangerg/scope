@@ -300,9 +300,7 @@ func mapProtocolAssistantMessage(message corechat.Message) (nativeMessage, error
 	for i := range message.Parts {
 		part := message.Parts[i]
 		switch part.Kind {
-		case corechat.PartText:
-			text.WriteString(part.Text)
-		case corechat.PartRefusal:
+		case corechat.PartText, corechat.PartRefusal:
 			text.WriteString(part.Text)
 		case corechat.PartReasoning:
 			if len(part.ReasoningState) > 0 {

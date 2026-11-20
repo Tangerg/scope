@@ -144,9 +144,7 @@ func mapProtocolMessages(messages []corechat.Message) ([]types.SystemContentBloc
 
 func mapProtocolPart(part corechat.Part) (types.ContentBlock, bool, error) {
 	switch part.Kind {
-	case corechat.PartText:
-		return &types.ContentBlockMemberText{Value: part.Text}, true, nil
-	case corechat.PartRefusal:
+	case corechat.PartText, corechat.PartRefusal:
 		return &types.ContentBlockMemberText{Value: part.Text}, true, nil
 	case corechat.PartMedia:
 		block, err := mediaToBlock(part.Media)
