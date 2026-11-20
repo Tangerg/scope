@@ -197,7 +197,7 @@ func (b *binding[I, O]) resume(ctx context.Context, call admittedCall[I], params
 		return nil, answerFailure(err)
 	}
 	root, active := b.cfg.Runtime.Process(head.Root)
-	owns := active && root.Epoch() == head.Epoch
+	owns := active && root.Writes(head)
 	if !acknowledged {
 		if !destination.pendingIn(head) {
 			return nil, errContinuation

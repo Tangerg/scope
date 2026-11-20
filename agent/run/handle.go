@@ -27,6 +27,22 @@ func (h *Handle[O]) ID() ProcessID          { return h.id }
 func (h *Handle[O]) ProgramRef() ProgramRef { return h.program }
 func (h *Handle[O]) Epoch() Epoch           { return h.epoch }
 
+// Writes reports whether this Handle's local writer committed head and can
+// still act on it: the same tree, at head's writer Epoch, with the writer
+// running. Only such a Handle can admit input or controls for that head;
+// another Runtime that recovered the tree, or a writer Close stopped, cannot.
+func (h *Handle[O]) Writes(head TreeInspection) bool {
+	if h.tree == nil || head.Root != h.id.Root() || head.Epoch != h.epoch {
+		return false
+	}
+	select {
+	case <-h.tree.done:
+		return false
+	default:
+		return true
+	}
+}
+
 func (h *Handle[O]) Inspect(ctx context.Context) (TreeInspection, error) {
 	return h.runtime.Inspect(ctx, h.id.Root())
 }

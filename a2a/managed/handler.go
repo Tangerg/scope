@@ -166,7 +166,7 @@ func (h *handler) answerWait(ctx context.Context, key taskKey, metadata map[stri
 		return nil
 	}
 	local, attached := h.runtime.Process(process)
-	if !attached || local.Epoch() != head.Epoch {
+	if !attached || !local.Writes(head) {
 		return fmt.Errorf("%w: run writer is not attached here", sdk.ErrUnsupportedOperation)
 	}
 	if err = local.Answer(ctx, wait, payload); err != nil {
@@ -233,7 +233,7 @@ func (h *handler) CancelTask(ctx context.Context, p *sdk.CancelTaskRequest) (*sd
 		return nil, sdk.ErrTaskNotCancelable
 	}
 	local, ok := h.runtime.Process(head.Root)
-	if !ok || local.Epoch() != head.Epoch {
+	if !ok || !local.Writes(head) {
 		return nil, sdk.ErrTaskNotCancelable
 	}
 	if err = local.Cancel(ctx, "A2A cancellation requested"); err != nil {

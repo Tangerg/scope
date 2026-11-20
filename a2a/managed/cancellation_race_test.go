@@ -64,7 +64,9 @@ func TestCancelTaskClassifiesTheCommittedOutcomeAfterAdmissionRaces(t *testing.T
 		wantErrorCode int
 	}{
 		{name: "completed", complete: true, wantErrorCode: -32002},
-		{name: "writer-shutdown", wantErrorCode: -32603},
+		// A writer stopped before admission no longer writes the head, exactly
+		// like a tree another host owns.
+		{name: "writer-shutdown", wantErrorCode: -32002},
 		{name: "completed-but-unreadable", complete: true, unreadable: true, wantErrorCode: -32002},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
