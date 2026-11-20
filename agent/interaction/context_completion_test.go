@@ -13,9 +13,9 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-type contextProcessorFunc func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error)
+type contextPreparerFunc func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error)
 
-func (c contextProcessorFunc) PrepareContext(ctx context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+func (c contextPreparerFunc) PrepareContext(ctx context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 	return c(ctx, invocation, request)
 }
 
@@ -35,17 +35,17 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 	policy := func(_ context.Context, input Input) ([]chat.Message, error) {
 		return append(input.Messages, chat.NewUserMessage(chat.NewTextPart("local policy"))), nil
 	}
-	definition, err := newDefinition(Config{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, ContextProcessor: contextProcessorFunc(nil)})
+	definition, err := newDefinition(Config{Name: "test.context.discovery", Description: "Prepare context before using discovered tools.", Tools: tools, ContextPolicy: policy, ContextPreparer: contextPreparerFunc(nil)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var prepared []ContextInvocation
-	processor := contextProcessorFunc(func(_ context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+	preparer := contextPreparerFunc(func(_ context.Context, invocation ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 		if request.Messages[len(request.Messages)-1].Text() != "local policy" || invocation.Sequence != uint64(len(prepared)+1) {
 			return nil, errors.New("preparation was not bound to the next model call")
 		}
 		prepared = append(prepared, invocation)
-		request.Tools[0].Name = "changed only in processor copy"
+		request.Tools[0].Name = "changed only in preparer copy"
 		return append(request.Messages, chat.NewUserMessage(chat.NewTextPart("retrieved evidence"))), nil
 	})
 	models := 0
@@ -69,7 +69,7 @@ func TestPreparationAndDeferredToolsRestoreAtEveryCommittedBoundary(t *testing.T
 		}
 		return callResponse(requested("hidden", "use-evidence")), nil
 	})
-	dispatcher, err := newDispatcher(definition, Config{Model: CallModel(model), Tools: tools, ContextProcessor: processor})
+	dispatcher, err := newDispatcher(definition, Config{Model: CallModel(model), Tools: tools, ContextPreparer: preparer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,11 +91,11 @@ func TestUnknownContextCanBeResolvedWithoutRepeatingPreparation(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store})
 	preparations, models := 0, 0
-	processor := contextProcessorFunc(func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
+	preparer := contextPreparerFunc(func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 		preparations++
 		return nil, errors.New("retrieval acknowledgement lost")
 	})
-	program := compileTest(t, runtime, Config{ContextProcessor: processor, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
+	program := compileTest(t, runtime, Config{ContextPreparer: preparer, Model: CallModel(chat.ModelFunc(func(_ context.Context, request *chat.Request) (*chat.Response, error) {
 		models++
 		return finalResponse(request.Messages[len(request.Messages)-1].Text()), nil
 	}))})
@@ -140,10 +140,10 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 	// The Step terminates with the Failure its settlement recorded: a Host
 	// refusal stays external, while a contract breach stays a contract defect.
 	for _, row := range []struct {
-		name      string
-		processor contextProcessorFunc
-		limit     int
-		want      run.FailureClassification
+		name     string
+		preparer contextPreparerFunc
+		limit    int
+		want     run.FailureClassification
 	}{
 		{"definite refusal", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 			failure := &ContextFailure{Cause: cause}
@@ -159,7 +159,7 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
-			program := compileTest(t, runtime, Config{MaxResponseBytes: row.limit, ContextProcessor: row.processor, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+			program := compileTest(t, runtime, Config{MaxResponseBytes: row.limit, ContextPreparer: row.preparer, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
 				t.Error("invalid prepared context dispatched to model")
 				return finalResponse("unexpected"), nil
 			}))})

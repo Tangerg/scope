@@ -35,7 +35,7 @@ var (
 )
 
 type Store struct {
-	client         RedisClient
+	client         Client
 	scanNodes      func(context.Context, func(context.Context, *goredis.Client) error) error
 	indexName      string
 	schema         nativeSchema

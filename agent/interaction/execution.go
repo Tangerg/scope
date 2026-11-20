@@ -125,7 +125,7 @@ func (e *execution) emitModelCall(turn run.Turn, consumedMessages uint32, applie
 	return run.Yield(consumedMessages, []run.Effect{effect})
 }
 
-// emitPreparation asks the ContextProcessor to prepare the next model call's
+// emitPreparation asks the ContextPreparer to prepare the next model call's
 // context before that call is counted.
 func (e *execution) emitPreparation(turn run.Turn, consumedMessages uint32, appliedSteerSignalIDs []run.SignalID) (run.Transition, error) {
 	effect, err := effectEnvelope{Preparation: e.nextModelCall(appliedSteerSignalIDs)}.effect()

@@ -1,6 +1,6 @@
 // Command context_reduction compares one deterministic message reduction with
 // the unchanged context on 64-round report-reading tasks. It reuses Interaction's
-// ContextProcessor and committed WorkingContext; no history store or replay
+// ContextPreparer and committed WorkingContext; no history store or replay
 // layer participates in reduction. Run go run ./examples/agent/context_reduction
 // from the workspace root, or GOWORK=off go run ./agent/context_reduction from
 // examples to use the published dependencies selected by its go.mod.

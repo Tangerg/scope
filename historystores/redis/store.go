@@ -44,12 +44,12 @@ var scanPatternEscaper = strings.NewReplacer(
 	`]`, `\]`,
 )
 
-type RedisClient interface {
+type Client interface {
 	Eval(context.Context, string, []string, ...any) *goredis.Cmd
 }
 
 type StoreConfig struct {
-	Client RedisClient
+	Client Client
 
 	// ScanNodes must visit every authoritative node in Client's keyspace and
 	// return an error if any node cannot be visited. ClusterClient.ForEachMaster
@@ -88,7 +88,7 @@ var (
 // append, durable receipt and message expiry share one script. Receipts and
 // closed conversation markers never inherit the message TTL.
 type Store struct {
-	client    RedisClient
+	client    Client
 	scanNodes func(context.Context, func(context.Context, *goredis.Client) error) error
 	keys      conversationKeyspace
 	ttl       time.Duration

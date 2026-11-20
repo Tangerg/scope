@@ -21,8 +21,8 @@ type dispatcher struct {
 	tools ToolSet
 	model ModelSource
 	// definition owns the Tool manifest and Delegates the model may call.
-	definition       *definition
-	contextProcessor ContextProcessor
+	definition      *definition
+	contextPreparer ContextPreparer
 }
 
 // newDispatcher takes the executable half of config; definition already holds
@@ -31,15 +31,15 @@ func newDispatcher(definition *definition, config Config) (*dispatcher, error) {
 	switch {
 	case lo.IsNil(config.Model):
 		return nil, fmt.Errorf("%w: Model is required", ErrInvalidConfig)
-	case config.ContextProcessor != nil && lo.IsNil(config.ContextProcessor):
-		return nil, fmt.Errorf("%w: ContextProcessor is typed nil", ErrInvalidConfig)
+	case config.ContextPreparer != nil && lo.IsNil(config.ContextPreparer):
+		return nil, fmt.Errorf("%w: ContextPreparer is typed nil", ErrInvalidConfig)
 	}
 	if err := config.Model.validate(); err != nil {
 		return nil, err
 	}
 	dispatcher := &dispatcher{
 		tools: config.Tools,
-		model: config.Model, contextProcessor: config.ContextProcessor,
+		model: config.Model, contextPreparer: config.ContextPreparer,
 
 		definition: definition,
 	}
@@ -94,10 +94,10 @@ func (d *dispatcher) dispatchModel(ctx context.Context, call *modelCall, emit ru
 }
 
 func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, call *modelCall) (run.Settlement, error) {
-	if d.contextProcessor == nil {
+	if d.contextPreparer == nil {
 		return failedSettlement(ErrInvalidConfig)
 	}
-	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, call.request())
+	messages, err := d.contextPreparer.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, call.request())
 	if err != nil {
 		if _, definite := errors.AsType[*ContextFailure](err); definite {
 			return stepfail.Settlement(FailureContextRejected.Kind(), FailureContextRejected.Code(), err.Error())

@@ -50,7 +50,7 @@ func TestCompileRejectsIncompleteOrContradictoryAuthority(t *testing.T) {
 		{"missing model", func(config *Config) { config.Model = nil }},
 		{"typed nil model", func(config *Config) { config.Model = CallModel(chat.ModelFunc(nil)) }},
 		{"typed nil streamer", func(config *Config) { config.Model = StreamModel(StreamModelConfig{Streamer: chat.StreamerFunc(nil)}) }},
-		{"typed nil processor", func(config *Config) { config.ContextProcessor = contextProcessorFunc(nil) }},
+		{"typed nil preparer", func(config *Config) { config.ContextPreparer = contextPreparerFunc(nil) }},
 		{"negative response bound", func(config *Config) { config.MaxResponseBytes = -1 }},
 		{"oversized response bound", func(config *Config) { config.MaxResponseBytes = run.MaxPayloadBytes + 1 }},
 		{"response bound below any response", func(config *Config) { config.MaxResponseBytes = 1 }},

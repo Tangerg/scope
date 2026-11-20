@@ -37,7 +37,7 @@ func SettleModelResult[I, O any](program run.Program[I, O], request run.EffectRe
 }
 
 // SettlePreparedContext validates investigated messages for a context effect
-// without repeating the processor or the model.
+// without repeating the preparer or the model.
 func SettlePreparedContext[I, O any](program run.Program[I, O], request run.EffectRequest, messages []chat.Message) (run.Settlement, error) {
 	definition, err := recoveryDefinition(program, request)
 	if err != nil {

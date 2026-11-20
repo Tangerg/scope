@@ -67,7 +67,7 @@ func TestPendingSteeringSurvivesRestoreAndRevisesACompletedCandidate(t *testing.
 }
 
 func TestSteeringAdmittedDuringContextPreparationReachesTheModel(t *testing.T) {
-	definition := mustValue(newDefinition(Config{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", ContextProcessor: contextProcessorFunc(nil)}))
+	definition := mustValue(newDefinition(Config{Name: "test.prepare.steer", Description: "Apply guidance after external preparation.", ContextPreparer: contextPreparerFunc(nil)}))
 	execution := mustValue(definition.Start(mustValue(run.EncodePayload(testInput()))))
 	advance(t, execution, 1)
 	empty := advance(t, execution, 2)

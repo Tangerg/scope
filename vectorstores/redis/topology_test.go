@@ -69,7 +69,7 @@ func TestDecoratedClusterPreservesCompleteScan(t *testing.T) {
 	t.Cleanup(func() { _ = cluster.Close() })
 	for _, tc := range []struct {
 		name   string
-		client RedisClient
+		client Client
 	}{
 		{"native", cluster},
 		{"decorated", &decoratedCluster{cluster}},

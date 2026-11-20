@@ -258,7 +258,7 @@ func TestDelegateResultProjectionRequiresTheDeclaredOutputContract(t *testing.T)
 func TestToolProjectionRequiresTheExactProposalAndOutcomeVariant(t *testing.T) {
 	store := run.NewMemoryStore()
 	runtime := conformancetest.Runtime(t, run.Config{Store: store, CheckpointInterval: 1000})
-	program := compileTest(t, runtime, Config{ContextProcessor: contextProcessorFunc(func(_ context.Context, _ ContextInvocation, request *chat.Request) ([]chat.Message, error) {
+	program := compileTest(t, runtime, Config{ContextPreparer: contextPreparerFunc(func(_ context.Context, _ ContextInvocation, request *chat.Request) ([]chat.Message, error) {
 		return request.Messages, nil
 	}), Tools: toolSetTest(t, scriptTool{name: "echo", direct: true, invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
 		return tool.Result{Output: tool.NewTextOutput("done")}, nil

@@ -20,7 +20,7 @@ const (
 
 type contextPolicy struct {
 	ID      string
-	Reducer interaction.ContextProcessor
+	Reducer interaction.ContextPreparer
 }
 
 type duplicateOutputReference struct {
@@ -119,4 +119,4 @@ func referenceEarlierOutput(result *chat.ToolResult, earlier string) error {
 	return nil
 }
 
-var _ interaction.ContextProcessor = duplicateToolOutputReducer{}
+var _ interaction.ContextPreparer = duplicateToolOutputReducer{}

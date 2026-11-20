@@ -48,7 +48,7 @@ func newDefinition(config Config) (*definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, prepareContext: config.ContextProcessor != nil,
+	return &definition{maxResponseBytes: limit, contextPolicy: config.ContextPolicy, prepareContext: config.ContextPreparer != nil,
 		descriptor:             descriptor,
 		maxModelCalls:          config.MaxModelCalls,
 		delegates:              delegates,

@@ -16,13 +16,13 @@ type Config struct {
 	// by Revision. Nil accepts every otherwise valid completion.
 	CompletionValidator CompletionValidator
 	ContextPolicy       ContextPolicy
-	// ContextProcessor, when set, prepares every model context as an external
+	// ContextPreparer, when set, prepares every model context as an external
 	// Effect before the model call. Nil sends WorkingContext unchanged.
-	ContextProcessor ContextProcessor
-	Name             string
-	Description      string
-	Revision         string
-	Model            ModelSource
+	ContextPreparer ContextPreparer
+	Name            string
+	Description     string
+	Revision        string
+	Model           ModelSource
 	// Tools freezes tool admission and execution policy.
 	Tools ToolSet
 	// MaxModelCalls bounds model Effects in one Interaction. Its zero value is
@@ -70,7 +70,7 @@ func Compile(compiler *run.Compiler, cfg Config) (run.Program[Input, Output], er
 		Delegates                                         []configuredDelegate
 	}{
 		LocalContext:        cfg.ContextPolicy != nil,
-		ExternalContext:     cfg.ContextProcessor != nil,
+		ExternalContext:     cfg.ContextPreparer != nil,
 		ValidateCompletion:  cfg.CompletionValidator != nil,
 		MaxModelCalls:       definition.maxModelCalls,
 		Tools:               cfg.Tools.configuration(),

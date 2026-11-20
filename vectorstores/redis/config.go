@@ -32,16 +32,16 @@ type hashReader interface {
 	Eval(context.Context, string, []string, ...any) *goredis.Cmd
 }
 
-// RedisClient supplies host-owned native commands. StoreConfig.ScanNodes owns
+// Client supplies host-owned native commands. StoreConfig.ScanNodes owns
 // complete keyspace traversal independently of command-client decorators.
-type RedisClient interface {
+type Client interface {
 	hashReader
 	Do(context.Context, ...any) *goredis.Cmd
 	Pipeline() goredis.Pipeliner
 }
 
 type StoreConfig struct {
-	Client    RedisClient
+	Client    Client
 	IndexName string
 	Space     vectorstore.SpaceID
 	// ScanNodes visits every authoritative node in Client's keyspace and fails

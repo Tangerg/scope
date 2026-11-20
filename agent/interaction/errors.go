@@ -72,7 +72,7 @@ var (
 	FailureToolCallsNotCompleted = run.NewFailureClassification(run.FailureKindExternal, "interaction.model.tool_calls_not_completed")
 	FailureModelFailed           = run.NewFailureClassification(run.FailureKindExternal, "interaction.model.failed")
 	FailureModelNotExecuted      = run.NewFailureClassification(run.FailureKindExternal, "interaction.model.not_executed")
-	// FailureContextRejected reports a ContextFailure from the ContextProcessor.
+	// FailureContextRejected reports a ContextFailure from the ContextPreparer.
 	FailureContextRejected = run.NewFailureClassification(run.FailureKindExternal, "interaction.context.rejected")
 	// FailureDispatchRejected reports an Effect the Interaction dispatcher
 	// cannot serve, such as one whose collaborator is not configured.
