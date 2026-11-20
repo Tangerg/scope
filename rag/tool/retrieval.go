@@ -5,7 +5,6 @@ package tool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -67,13 +66,5 @@ func NewRetrieval(config RetrievalConfig) (coretool.Func[RetrievalRequest, Retri
 // inputFailure reports a query rejected before the retriever runs as a definite,
 // model-visible Tool failure rather than an uncertain error.
 func inputFailure(cause error) error {
-	failure, err := coretool.NewFailure(coretool.FailureConfig{
-		Kind:   coretool.FailureKindFailed,
-		Output: coretool.NewTextOutput(cause.Error()),
-		Cause:  cause,
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
+	return coretool.FailureFromCause(coretool.FailureKindFailed, cause)
 }

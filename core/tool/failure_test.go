@@ -102,3 +102,21 @@ func TestFailureKindAndDiagnosticsHaveSeparateAuthority(t *testing.T) {
 		}
 	}
 }
+
+func TestFailureFromCauseShowsTheCauseToTheModel(t *testing.T) {
+	cause := errors.New("query must not be empty")
+	err := tool.FailureFromCause(tool.FailureKindRejected, cause)
+	failure, ok := errors.AsType[*tool.Failure](err)
+	if !ok || failure.Kind() != tool.FailureKindRejected || !errors.Is(failure.Cause(), cause) {
+		t.Fatalf("failure = %v", err)
+	}
+	if text, _ := failure.Output().Text(); text != cause.Error() {
+		t.Fatalf("model-visible output = %q, want the cause text", text)
+	}
+	// Text an Output cannot hold leaves an ordinary, uncertain error.
+	malformed := errors.New("\xff")
+	err = tool.FailureFromCause(tool.FailureKindFailed, malformed)
+	if _, definite := errors.AsType[*tool.Failure](err); definite || !errors.Is(err, malformed) || !errors.Is(err, tool.ErrInvalidFailure) {
+		t.Fatalf("malformed cause = %v, want it joined with the construction error", err)
+	}
+}

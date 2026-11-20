@@ -27,15 +27,7 @@ var errEmptyToolName = errors.New("a2a: tool name must not be empty")
 // inputFailure reports arguments rejected before the remote agent is called as a
 // definite, model-visible Tool failure rather than an uncertain error.
 func inputFailure(cause error) error {
-	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind:   toolcontract.FailureKindFailed,
-		Output: toolcontract.NewTextOutput(cause.Error()),
-		Cause:  cause,
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
+	return toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 }
 
 type callArguments struct {

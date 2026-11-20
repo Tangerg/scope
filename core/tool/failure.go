@@ -65,6 +65,18 @@ func NewFailure(config FailureConfig) (*Failure, error) {
 	return &Failure{kind: config.Kind, cause: config.Cause, output: output}, nil
 }
 
+// FailureFromCause reports cause as a definite outcome of kind whose
+// model-visible output is the cause's text. If the Failure cannot be built,
+// the result is cause joined with that error, which stays an ordinary,
+// uncertain error.
+func FailureFromCause(kind FailureKind, cause error) error {
+	failure, err := NewFailure(FailureConfig{Kind: kind, Output: NewTextOutput(cause.Error()), Cause: cause})
+	if err != nil {
+		return errors.Join(cause, err)
+	}
+	return failure
+}
+
 func (f *Failure) Error() string {
 	if f == nil || f.kind == "" {
 		return ErrInvalidFailure.Error()

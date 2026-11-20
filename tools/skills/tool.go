@@ -3,7 +3,6 @@ package skills
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
-	"errors"
 	"fmt"
 
 	"github.com/samber/lo"
@@ -208,13 +207,5 @@ func (t *toolSet) readResource(ctx context.Context, request ReadSkillResourceReq
 // inputFailure reports rejected requests and unreadable pages as definite,
 // model-visible failures. These read-only tools have no uncertain external effect.
 func inputFailure(cause error) error {
-	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind:   toolcontract.FailureKindFailed,
-		Output: toolcontract.NewTextOutput(cause.Error()),
-		Cause:  cause,
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
+	return toolcontract.FailureFromCause(toolcontract.FailureKindFailed, cause)
 }

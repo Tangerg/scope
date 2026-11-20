@@ -66,12 +66,5 @@ func admissionFailure(admission *admissionError) error {
 	if errors.Is(admission, ErrHostNotAllowed) || errors.Is(admission, ErrMethodNotAllowed) {
 		kind = toolcontract.FailureKindRejected
 	}
-	cause := fmt.Errorf("httpreq: request: %w", admission)
-	failure, err := toolcontract.NewFailure(toolcontract.FailureConfig{
-		Kind: kind, Cause: cause, Output: toolcontract.NewTextOutput(cause.Error()),
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	return failure
+	return toolcontract.FailureFromCause(kind, fmt.Errorf("httpreq: request: %w", admission))
 }
