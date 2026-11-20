@@ -53,9 +53,10 @@ func (t ToolSequence) report(actual []ToolCall) (eval.Report, error) {
 	return binaryReport(MetricToolCalls, passed, feedback, parameters)
 }
 
-// ToolArguments is one exact semantic JSON argument assertion. Its empty value
-// matches a Tool call that supplied no argument text. Non-empty values must be
-// strict RFC 7493 JSON; number spelling and precision remain intact.
+// ToolArguments is one exact semantic JSON argument assertion. Blank text
+// denotes the empty object, as it does for every Tool call, so it matches a
+// call that supplied no argument text or {}. Other values must be strict
+// RFC 7493 JSON; number spelling and precision remain intact.
 type ToolArguments string
 
 func (t ToolArguments) Validate() error {

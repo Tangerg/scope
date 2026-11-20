@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	"github.com/Tangerg/scope/agent/interaction"
 	"github.com/Tangerg/scope/agent/run"
@@ -231,11 +230,10 @@ func (b *behaviorProjection) sortRecords() {
 	})
 }
 
+// canonicalArguments reads arguments as the JSON document core assigns them,
+// so blank arguments and an explicit empty object are the same call.
 func canonicalArguments(arguments string) (json.RawMessage, error) {
-	if strings.TrimSpace(arguments) == "" {
-		return nil, nil
-	}
-	value := jsontext.Value(arguments)
+	value := jsontext.Value(toolcontract.Request{Arguments: arguments}.Input())
 	if err := value.Format(jsontext.ReorderRawObjects(true)); err != nil {
 		return nil, err
 	}
