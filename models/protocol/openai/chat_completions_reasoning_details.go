@@ -45,7 +45,7 @@ var reasoningDetailFrameMagic = [4]byte{'L', 'Y', 'R', 'D'}
 // shared by several OpenAI-compatible providers. The final binding supplies
 // the issuer, so this wire configuration cannot select another replay owner.
 type ReasoningDetailsConfig struct {
-	TextField    string
+	TextField    TextReasoningField
 	DetailsField string
 	// ReplayPlainText replays only text issued by this provider and wire field.
 	// Foreign native state never becomes a plain-text replay for this issuer.
@@ -53,13 +53,13 @@ type ReasoningDetailsConfig struct {
 }
 
 func (r ReasoningDetailsConfig) Validate() error {
-	if r.TextField != reasoningField && r.TextField != reasoningContentField {
+	if !r.TextField.valid() {
 		return fmt.Errorf("openai: unsupported reasoning text field %q", r.TextField)
 	}
 	if r.DetailsField == "" {
 		return errors.New("openai: reasoning details field is required")
 	}
-	if r.DetailsField == r.TextField || strings.TrimSpace(r.DetailsField) != r.DetailsField {
+	if r.DetailsField == string(r.TextField) || strings.TrimSpace(r.DetailsField) != r.DetailsField {
 		return errors.New("openai: reasoning details field must be distinct and have no surrounding whitespace")
 	}
 	switch r.DetailsField {
@@ -113,7 +113,7 @@ func (r reasoningDetailsCodec) prepareMessage(messageIndex, wireIndex int, messa
 		extraFields[r.config.DetailsField] = details
 	}
 	if plainReasoning != "" && r.config.ReplayPlainText {
-		extraFields[r.config.TextField] = plainReasoning
+		extraFields[string(r.config.TextField)] = plainReasoning
 	}
 	if len(extraFields) > 0 {
 		target.Messages[wireIndex].OfAssistant.SetExtraFields(extraFields)
@@ -259,7 +259,7 @@ func (r reasoningDetailsCodec) plainReasoning(part corechat.Part) (string, error
 	if err != nil || !owned {
 		return "", err
 	}
-	if string(field) != r.config.TextField {
+	if field != r.config.TextField {
 		return "", fmt.Errorf("invalid reasoning field %q for %s", field, r.provider)
 	}
 	return part.Text, nil

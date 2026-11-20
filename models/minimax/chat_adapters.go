@@ -14,6 +14,8 @@ import (
 // Namespacing preserves provider-specific data without promoting it into the
 // shared Core protocol or colliding with another provider.
 const (
+	reasoningDetailsField = "reasoning_details"
+
 	OpenAIStreamChunkExtensionKey    = Provider + openai.CompatibleStreamExtensionSuffix
 	AnthropicRequestExtensionKey     = Provider + anthropic.CompatibleRequestExtensionSuffix
 	AnthropicStreamEventExtensionKey = Provider + anthropic.CompatibleStreamExtensionSuffix
@@ -45,8 +47,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		Provider:        Provider,
 		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
 		ReasoningDetails: &openai.ReasoningDetailsConfig{
-			TextField:       "reasoning_content",
-			DetailsField:    "reasoning_details",
+			TextField:       openai.TextReasoningContent,
+			DetailsField:    reasoningDetailsField,
 			ReplayPlainText: true,
 		},
 		PrepareRequest:             prepareOpenAIRequest,

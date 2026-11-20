@@ -52,7 +52,7 @@ func TestReasoningDetailsReplayOnlyIssuerPlainText(t *testing.T) {
 			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 				APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client(), DefaultOptions: chat.Options{Model: "model"},
 			}, openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-				TextField: "reasoning", DetailsField: "reasoning_details", ReplayPlainText: true,
+				TextField: openai.TextReasoning, DetailsField: "reasoning_details", ReplayPlainText: true,
 			}})
 			if err != nil {
 				t.Fatal(err)

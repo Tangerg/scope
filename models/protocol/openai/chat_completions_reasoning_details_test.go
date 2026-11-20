@@ -15,7 +15,7 @@ import (
 
 func TestReasoningDetailsConfigValidate(t *testing.T) {
 	valid := openai.ReasoningDetailsConfig{
-		TextField:    "reasoning",
+		TextField:    openai.TextReasoning,
 		DetailsField: "reasoning_details",
 	}
 	if err := valid.Validate(); err != nil {
@@ -55,7 +55,7 @@ func TestReasoningDetailsReplayUsesCoreText(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 			dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-				TextField: "reasoning", DetailsField: "reasoning_details",
+				TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 			}}
 			model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 				APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
@@ -100,7 +100,7 @@ func TestReasoningDetailsRejectInvalidNativeState(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-		TextField: "reasoning", DetailsField: "reasoning_details",
+		TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 	}}
 	model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},
@@ -157,7 +157,7 @@ func testAnonymousReasoningBoundaries(t *testing.T, identity string) {
 	}))
 	t.Cleanup(server.Close)
 	dialect := openai.DialectConfig{Provider: "provider", TokenLimitField: openai.TokenLimitMaxTokens, ReasoningDetails: &openai.ReasoningDetailsConfig{
-		TextField: "reasoning", DetailsField: "reasoning_details",
+		TextField: openai.TextReasoning, DetailsField: "reasoning_details",
 	}}
 	model, err := openai.NewChatCompletions(t.Context(), openai.ChatModelConfig{
 		APIKey: "test-key", BaseURL: server.URL, DefaultOptions: chat.Options{Model: "model"},

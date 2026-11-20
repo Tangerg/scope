@@ -26,6 +26,7 @@ const (
 
 const (
 	reasoningField          = "reasoning"
+	reasoningDetailsField   = "reasoning_details"
 	reasoningEffortField    = "effort"
 	reasoningEnabledField   = "enabled"
 	reasoningMaxTokensField = "max_tokens"
@@ -65,8 +66,8 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		TokenLimitField: openai.TokenLimitMaxCompletionTokens,
 		SupportsTopK:    true,
 		ReasoningDetails: &openai.ReasoningDetailsConfig{
-			TextField:       "reasoning",
-			DetailsField:    "reasoning_details",
+			TextField:       openai.TextReasoning,
+			DetailsField:    reasoningDetailsField,
 			ReplayPlainText: true,
 		},
 	}

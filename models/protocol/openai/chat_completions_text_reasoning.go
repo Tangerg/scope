@@ -17,8 +17,8 @@ import (
 const (
 	reasoningContentField    = "reasoning_content"
 	reasoningField           = "reasoning"
-	textReasoningProviderKey = "openai/reasoning_provider"
-	textReasoningFieldKey    = "openai/reasoning_field"
+	textReasoningProviderKey = ProviderID + "/reasoning_provider"
+	textReasoningFieldKey    = ProviderID + "/reasoning_field"
 )
 
 type TextReasoningField string
@@ -182,12 +182,12 @@ func decodeTextReasoning(fields map[string]respjson.Field, fieldName string) (st
 	return reasoning, nil
 }
 
-func textReasoningDeltas(fields map[string]respjson.Field, provider, fieldName string) ([]reasoningDelta, error) {
-	reasoning, err := decodeTextReasoning(fields, fieldName)
+func textReasoningDeltas(fields map[string]respjson.Field, provider string, field TextReasoningField) ([]reasoningDelta, error) {
+	reasoning, err := decodeTextReasoning(fields, string(field))
 	if err != nil || reasoning == "" {
 		return nil, err
 	}
-	part, err := NewTextReasoningPart(provider, TextReasoningField(fieldName), reasoning)
+	part, err := NewTextReasoningPart(provider, field, reasoning)
 	if err != nil {
 		return nil, err
 	}
