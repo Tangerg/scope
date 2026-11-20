@@ -124,7 +124,7 @@ func (a Action) Apply(source WorldState) (WorldState, error) {
 	if !a.Valid() {
 		return WorldState{}, ErrInvalidAction
 	}
-	return source.apply(a.effects), nil
+	return source.applyAdmitted(a.effects), nil
 }
 
 func (a Action) Valid() bool { return a.cost != nil }

@@ -300,7 +300,7 @@ func (l *Literal) integerIndex() (uint64, bool) {
 	return number.Num().Uint64(), true
 }
 
-func (l *Literal) validate() error {
+func (l *Literal) validateNode() error {
 	if l == nil {
 		return errors.New("filter: literal is nil")
 	}

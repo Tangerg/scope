@@ -34,11 +34,11 @@ func ProvenanceConformance(t *testing.T, roundTrip func(*testing.T, *document.Do
 			if _, present := facts["source"]; present {
 				selection = filter.EQ("source", "catalog")
 			}
-			res, err := roundTrip(t, want.Clone(), selection)
-			if err != nil || res == nil || len(res.Results) != 1 || res.Results[0] == nil {
-				t.Fatalf("business predicate did not retrieve the record: %v, %v", res, err)
+			response, err := roundTrip(t, want.Clone(), selection)
+			if err != nil || response == nil || len(response.Results) != 1 || response.Results[0] == nil {
+				t.Fatalf("business predicate did not retrieve the record: %v, %v", response, err)
 			}
-			got := res.Results[0].Document
+			got := response.Results[0].Document
 			if got == nil || !reflect.DeepEqual(got, want) {
 				t.Fatalf("stored document differs: got %#v, want %#v", got, want)
 			}

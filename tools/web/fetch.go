@@ -70,17 +70,17 @@ func (f *FetchRequest) Prepare() (*FetchRequest, error) {
 		return nil, err
 	}
 	prepared.Format = format
-	if err := prepared.validate(); err != nil {
+	if err := prepared.inputError(); err != nil {
 		return nil, err
 	}
 	return &prepared, nil
 }
 
 func (f *FetchRequest) Validate() error {
-	return toolinput.Rejection(f.validate())
+	return toolinput.Rejection(f.inputError())
 }
 
-func (f *FetchRequest) validate() error {
+func (f *FetchRequest) inputError() error {
 	if f == nil {
 		return ErrMissingFetchRequest
 	}

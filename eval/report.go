@@ -153,10 +153,10 @@ func canonicalIdentity(value any) (string, error) {
 }
 
 func (r Report) Validate() error {
-	return r.validate(1)
+	return r.validateAt(1)
 }
 
-func (r Report) validate(depth int) error {
+func (r Report) validateAt(depth int) error {
 	if depth > MaxReportDepth {
 		return fmt.Errorf("%w: detail depth exceeds %d", ErrInvalidReport, MaxReportDepth)
 	}
@@ -176,7 +176,7 @@ func (r Report) validate(depth int) error {
 		return fmt.Errorf("%w: at least one decision, score, measurement, feedback, or detail is required", ErrInvalidReport)
 	}
 	for index, detail := range r.Details {
-		if err := detail.validate(depth + 1); err != nil {
+		if err := detail.validateAt(depth + 1); err != nil {
 			return fmt.Errorf("%w: details[%d]: %w", ErrInvalidReport, index, err)
 		}
 	}

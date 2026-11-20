@@ -68,7 +68,7 @@ func (s *SubstringMatcher) NewScan() Scan {
 	return &substringScan{matcher: s}
 }
 
-func (s *SubstringMatcher) match(text string) Match {
+func (s *SubstringMatcher) matchText(text string) Match {
 	for _, term := range s.terms {
 		if !strings.Contains(text, term.match) {
 			continue
@@ -98,7 +98,7 @@ func (s *substringScan) Add(ctx context.Context, fragment string) (Match, error)
 		fragment = cases.Fold().String(fragment)
 	}
 	text := s.tail + fragment
-	s.match = s.matcher.match(text)
+	s.match = s.matcher.matchText(text)
 	// The folded suffix can start inside a rune: matching is byte-based and it
 	// is never folded again. Copying prevents retention of a large provider chunk.
 	s.tail = strings.Clone(text[max(0, len(text)-s.matcher.overlapBytes):])

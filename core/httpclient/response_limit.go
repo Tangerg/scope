@@ -14,13 +14,13 @@ import (
 type ResponseBodyLimit int64
 
 func (r ResponseBodyLimit) Apply(request *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
-	return r.apply(request, next, false)
+	return r.limit(request, next, false)
 }
 
 // Successful streaming bodies have a per-event contract, so their error
 // envelopes must be bounded without imposing a limit on the entire stream.
 func (r ResponseBodyLimit) ApplyErrors(request *http.Request, next func(*http.Request) (*http.Response, error)) (*http.Response, error) {
-	return r.apply(request, next, true)
+	return r.limit(request, next, true)
 }
 
 // For SDKs with LF/CRLF SSE framing, each wire event has its own budget,
@@ -36,7 +36,7 @@ func (r ResponseBodyLimit) ApplyEventStream(request *http.Request, next func(*ht
 	return response, nil
 }
 
-func (r ResponseBodyLimit) apply(request *http.Request, next func(*http.Request) (*http.Response, error), errorsOnly bool) (*http.Response, error) {
+func (r ResponseBodyLimit) limit(request *http.Request, next func(*http.Request) (*http.Response, error), errorsOnly bool) (*http.Response, error) {
 	if r <= 0 {
 		return nil, errors.New("httpclient: response body limit must be positive")
 	}

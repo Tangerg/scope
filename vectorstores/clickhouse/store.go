@@ -469,7 +469,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 
 func (s *Store) deleteSelected(transaction *nativeTransaction, ids []string) error {
 	for chunk := range slices.Chunk(ids, metadataPageSize) {
-		if err := s.deleteIDs(transaction, chunk); err != nil {
+		if err := s.deleteInTransaction(transaction, chunk); err != nil {
 			return err
 		}
 	}
@@ -479,7 +479,7 @@ func (s *Store) deleteSelected(transaction *nativeTransaction, ids []string) err
 	return nil
 }
 
-func (s *Store) deleteIDs(transaction *nativeTransaction, ids []string) error {
+func (s *Store) deleteInTransaction(transaction *nativeTransaction, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
@@ -592,9 +592,9 @@ func (s *Store) admitColumns(ctx context.Context) (err error) {
 	return nil
 }
 
-// scan visits FINAL records in one native transaction, one ID-ordered page at
-// a time, until a page comes back empty.
-func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filter.Predicate) ([]*document.Document, error) {
+// selectMatching visits FINAL records in one native transaction, one
+// ID-ordered page at a time, until a page comes back empty.
+func (s *Store) selectMatching(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filter.Predicate) ([]*document.Document, error) {
 	var after string
 	var docs []*document.Document
 	for {
@@ -680,7 +680,7 @@ func (s *Store) Scan(ctx context.Context, request vectorstore.ScanRequest) (foun
 			found = nil
 		}
 	}()
-	found, err = s.scan(tx, m, request.Filter)
+	found, err = s.selectMatching(tx, m, request.Filter)
 	if err != nil {
 		return nil, err
 	}
@@ -710,7 +710,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		return err
 	}
 	defer func() { err = errors.Join(err, tx.Close()) }()
-	docs, err := s.scan(tx, m, request.Filter)
+	docs, err := s.selectMatching(tx, m, request.Filter)
 	if err != nil {
 		return err
 	}

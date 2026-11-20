@@ -24,10 +24,10 @@ type GlobRequest struct {
 }
 
 func (g GlobRequest) Validate() error {
-	return toolinput.Rejection(g.validate())
+	return toolinput.Rejection(g.inputError())
 }
 
-func (g GlobRequest) validate() error {
+func (g GlobRequest) inputError() error {
 	_, err := g.resultLimit()
 	return err
 }
@@ -88,11 +88,11 @@ func (g *GlobTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bo
 }
 
 func (g *GlobTool) glob(ctx context.Context, req GlobRequest) (GlobResponse, error) {
-	res, err := g.executor.Glob(ctx, req)
+	response, err := g.executor.Glob(ctx, req)
 	if err != nil {
 		return GlobResponse{}, lookupError("fs.glob", err)
 	}
-	return res, nil
+	return response, nil
 }
 
 func (GlobRequest) JSONSchemaConstraints() jsonschema.Constraints {

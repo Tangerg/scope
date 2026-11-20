@@ -18,7 +18,7 @@ type InputValidatingTool interface {
 	InputValidator() func([]byte) error
 }
 
-func inputValidator(executable Tool) (validator func([]byte) error, err error) {
+func validatorOf(executable Tool) (validator func([]byte) error, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			validator = nil

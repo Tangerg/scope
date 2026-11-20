@@ -101,7 +101,7 @@ func BenchmarkMatchLargeExponent(b *testing.B) {
 	values := map[string]any{"n": json.Number("1e1000000")}
 	b.ReportAllocs()
 	for b.Loop() {
-		matched, err := match(predicate, values)
+		matched, err := matchValues(predicate, values)
 		if err != nil || !matched {
 			b.Fatalf("Match = %t, %v", matched, err)
 		}

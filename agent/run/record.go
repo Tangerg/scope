@@ -268,12 +268,12 @@ func EncodeRecord(record Record) (RecordKind, []byte, error) {
 	if err := validateRecord(record); err != nil {
 		return "", nil, err
 	}
-	return encodeRecord(record)
+	return encodeAdmittedRecord(record)
 }
 
 // Structural admission precedes this encoding so a batch or byte-budget check
 // does not traverse a checkpoint's process tree a second time.
-func encodeRecord(record Record) (RecordKind, []byte, error) {
+func encodeAdmittedRecord(record Record) (RecordKind, []byte, error) {
 	encoded, err := jsonv2.Marshal(record, jsonv2.Deterministic(true))
 	if err != nil {
 		return "", nil, fmt.Errorf("%w: %w", ErrInvalidLog, err)

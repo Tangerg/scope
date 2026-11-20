@@ -719,7 +719,7 @@ func (s *Store) DeleteMatching(ctx context.Context, predicate filter.Predicate, 
 		if pageErr != nil {
 			return pageErr
 		}
-		if deleteErr := s.deleteIDs(ctx, transaction, page.ids); deleteErr != nil {
+		if deleteErr := s.deleteInTransaction(ctx, transaction, page.ids); deleteErr != nil {
 			return deleteErr
 		}
 		if page.count < filterPageSize {
@@ -742,10 +742,10 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) error {
 	for index, id := range ids {
 		args[index] = []byte(id)
 	}
-	return s.deleteIDs(ctx, nil, args)
+	return s.deleteInTransaction(ctx, nil, args)
 }
 
-func (s *Store) deleteIDs(ctx context.Context, transaction *sql.Tx, ids []any) error {
+func (s *Store) deleteInTransaction(ctx context.Context, transaction *sql.Tx, ids []any) error {
 	if len(ids) == 0 {
 		return nil
 	}

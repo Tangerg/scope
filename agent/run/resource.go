@@ -246,7 +246,7 @@ func (t TreeLimits) admitRecord(record Record) error {
 	if bounded := t.MaxRecordBytes.limited || checkpoint && t.MaxCheckpointBytes.limited; !bounded {
 		return nil
 	}
-	_, encoded, err := encodeRecord(record)
+	_, encoded, err := encodeAdmittedRecord(record)
 	if err != nil {
 		return err
 	}

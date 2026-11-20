@@ -67,7 +67,7 @@ func (r *ReadTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bo
 }
 
 func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, error) {
-	res, err := r.executor.Read(ctx, ReadInput{
+	response, err := r.executor.Read(ctx, ReadInput{
 		Path:   req.Path,
 		Offset: max(req.StartLine-1, 0),
 		Limit:  req.MaxLines,
@@ -76,10 +76,10 @@ func (r *ReadTool) read(ctx context.Context, req ReadRequest) (ReadResponse, err
 		return ReadResponse{}, lookupError("fs.read", err)
 	}
 	return ReadResponse{
-		Content:    res.Content,
-		StartLine:  res.StartLine + 1,
-		EndLine:    res.EndLine,
-		TotalLines: res.TotalLines,
-		Truncated:  res.Truncated,
+		Content:    response.Content,
+		StartLine:  response.StartLine + 1,
+		EndLine:    response.EndLine,
+		TotalLines: response.TotalLines,
+		Truncated:  response.Truncated,
 	}, nil
 }

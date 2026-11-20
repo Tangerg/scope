@@ -112,11 +112,11 @@ func (m *Map) Merge(source Map) error {
 	if err := source.Validate(); err != nil {
 		return fmt.Errorf("metadata: merge source: %w", err)
 	}
-	m.merge(source)
+	m.mergeAdmitted(source)
 	return nil
 }
 
-func (m *Map) merge(source Map) {
+func (m *Map) mergeAdmitted(source Map) {
 	if len(source) == 0 {
 		return
 	}

@@ -74,12 +74,12 @@ func (m Middleware) Call(next chat.Model) chat.Model {
 func (m Middleware) Stream(next chat.Streamer) chat.Streamer {
 	return chat.StreamerFunc(func(ctx context.Context, request *chat.Request) iter.Seq2[*chat.ResponseDelta, error] {
 		return func(yield func(*chat.ResponseDelta, error) bool) {
-			m.stream(ctx, next, request, yield)
+			m.streamTurn(ctx, next, request, yield)
 		}
 	})
 }
 
-func (m Middleware) stream(
+func (m Middleware) streamTurn(
 	ctx context.Context,
 	next chat.Streamer,
 	request *chat.Request,

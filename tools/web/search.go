@@ -92,10 +92,10 @@ func (s *SearchRequest) Prepare() (*SearchRequest, error) {
 }
 
 func (s *SearchRequest) Validate() error {
-	return toolinput.Rejection(s.validate())
+	return toolinput.Rejection(s.inputError())
 }
 
-func (s *SearchRequest) validate() error {
+func (s *SearchRequest) inputError() error {
 	if s == nil {
 		return ErrMissingSearchRequest
 	}

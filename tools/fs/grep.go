@@ -35,10 +35,10 @@ type GrepRequest struct {
 }
 
 func (g GrepRequest) Validate() error {
-	return toolinput.Rejection(g.validate())
+	return toolinput.Rejection(g.inputError())
 }
 
-func (g GrepRequest) validate() error {
+func (g GrepRequest) inputError() error {
 	if _, err := g.resultLimit(); err != nil {
 		return err
 	}
@@ -132,11 +132,11 @@ func (g *GrepTool) ConcurrencyPolicy() func(toolcontract.Invocation) (string, bo
 }
 
 func (g *GrepTool) grep(ctx context.Context, req GrepRequest) (GrepResponse, error) {
-	res, err := g.executor.Grep(ctx, req)
+	response, err := g.executor.Grep(ctx, req)
 	if err != nil {
 		return GrepResponse{}, lookupError("fs.grep", err)
 	}
-	return res, nil
+	return response, nil
 }
 
 func (GrepRequest) JSONSchemaConstraints() jsonschema.Constraints {

@@ -121,10 +121,10 @@ func nonempty(value string) bool { return value != "" && value == strings.TrimSp
 
 func pathComponent(value string) bool {
 	return value != "" && value != "." && value != ".." &&
-		!strings.ContainsFunc(value, func(character rune) bool { return !safePathRune(character) })
+		!strings.ContainsFunc(value, func(character rune) bool { return !portablePathRune(character) })
 }
 
-func safePathRune(character rune) bool {
+func portablePathRune(character rune) bool {
 	return 'a' <= character && character <= 'z' || 'A' <= character && character <= 'Z' ||
 		'0' <= character && character <= '9' || character == '_' || character == '-' || character == '.'
 }

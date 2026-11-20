@@ -220,7 +220,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 		if page >= r.pageLimit {
 			return nil, errors.New("bedrockkb: retrieval page budget exhausted")
 		}
-		raw, retrieveErr := r.retrieve(ctx, body, remaining)
+		raw, retrieveErr := r.retrievePage(ctx, body, remaining)
 		if retrieveErr != nil {
 			return nil, retrieveErr
 		}
@@ -261,7 +261,7 @@ func (r *Retriever) Retrieve(ctx context.Context, query rag.Query) (rag.Candidat
 	return ranked[:min(len(ranked), config.Count)], nil
 }
 
-func (r *Retriever) retrieve(ctx context.Context, body retrievalRequest, remaining int64) ([]byte, error) {
+func (r *Retriever) retrievePage(ctx context.Context, body retrievalRequest, remaining int64) ([]byte, error) {
 	encoded, err := jsonv2.Marshal(body)
 	if err != nil {
 		return nil, err

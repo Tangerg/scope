@@ -23,10 +23,10 @@ type ApplyPatchRequest struct {
 }
 
 func (a ApplyPatchRequest) Validate() error {
-	return toolinput.Rejection(a.validate())
+	return toolinput.Rejection(a.inputError())
 }
 
-func (a ApplyPatchRequest) validate() error {
+func (a ApplyPatchRequest) inputError() error {
 	_, err := parseUnifiedPatch(a.Patch)
 	return err
 }
@@ -152,9 +152,9 @@ func (a *ApplyPatchTool) MutationPaths(arguments []byte) ([]string, error) {
 }
 
 func (a *ApplyPatchTool) apply(ctx context.Context, req ApplyPatchRequest) (ApplyPatchResponse, error) {
-	res, err := a.executor.ApplyPatch(ctx, req)
+	response, err := a.executor.ApplyPatch(ctx, req)
 	if err != nil {
-		return ApplyPatchResponse{}, toolresult.Classify("fs.apply_patch", res, err, ErrMutationRejected)
+		return ApplyPatchResponse{}, toolresult.Classify("fs.apply_patch", response, err, ErrMutationRejected)
 	}
-	return res, nil
+	return response, nil
 }

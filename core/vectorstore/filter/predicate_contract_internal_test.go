@@ -187,10 +187,10 @@ func TestLiteralAndListConstructors(t *testing.T) {
 	if got := NewLiterals([]string{"a", "b"}); len(got) != 2 || got[1].text != "b" {
 		t.Fatalf("NewLiterals() = %#v", got)
 	}
-	if _, err := newLiteral(nil); err == nil {
+	if _, err := literalOf(nil); err == nil {
 		t.Fatal("newLiteral accepted nil")
 	}
-	if _, err := newLiteral(struct{}{}); err == nil {
+	if _, err := literalOf(struct{}{}); err == nil {
 		t.Fatal("newLiteral accepted a struct")
 	}
 
@@ -201,16 +201,16 @@ func TestLiteralAndListConstructors(t *testing.T) {
 		[]*Literal{stringLiteral},
 	}
 	for _, input := range listInputs {
-		list, err := newListLiteral(input)
+		list, err := listLiteralOf(input)
 		if err != nil || len(list.values) != 1 {
 			t.Fatalf("newListLiteral(%T) = %#v, %v", input, list, err)
 		}
 	}
 	existingList := &ListLiteral{values: []*Literal{stringLiteral}}
-	if got, err := newListLiteral(existingList); err != nil || got != existingList {
+	if got, err := listLiteralOf(existingList); err != nil || got != existingList {
 		t.Fatalf("newListLiteral(existing) = %#v, %v", got, err)
 	}
-	if _, err := newListLiteral(struct{}{}); err == nil {
+	if _, err := listLiteralOf(struct{}{}); err == nil {
 		t.Fatal("newListLiteral accepted a struct")
 	}
 	if got := NewListLiteral([]int{1, 2}); len(got.values) != 2 {

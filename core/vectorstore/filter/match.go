@@ -41,10 +41,10 @@ func Match(expr Predicate, facts metadata.Map) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("filter: decode metadata: %w", err)
 	}
-	return match(expr, values)
+	return matchValues(expr, values)
 }
 
-func match(expr Predicate, values map[string]any) (bool, error) {
+func matchValues(expr Predicate, values map[string]any) (bool, error) {
 	visitor := evaluator{values: values}
 	if err := accept(expr, &visitor); err != nil {
 		return false, err

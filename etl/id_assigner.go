@@ -65,15 +65,15 @@ func (i *IDAssigner) Assign(ctx context.Context, docs []*document.Document) ([]*
 		} else if doc.ID != "" {
 			continue
 		}
-		if err := i.assign(ctx, doc); err != nil {
+		if err := i.assignDocument(ctx, doc); err != nil {
 			return nil, fmt.Errorf("etl: assign ID to document %d: %w", index, err)
 		}
 	}
 	return owned, nil
 }
 
-// assign gives an owned, ID-less document its generated identity.
-func (i *IDAssigner) assign(ctx context.Context, doc *document.Document) error {
+// assignDocument gives an owned, ID-less document its generated identity.
+func (i *IDAssigner) assignDocument(ctx context.Context, doc *document.Document) error {
 	generated, err := i.generator.Generate(ctx, doc.Clone())
 	if err != nil {
 		return err

@@ -27,7 +27,7 @@ const (
 	cohereV4ModelIdentifier             = "cohere.embed-v4"
 	cohereEnglishV3ModelIdentifier      = "cohere.embed-english-v3"
 	cohereMultilingualV3ModelIdentifier = "cohere.embed-multilingual-v3"
-	embeddingMediaTypeJSON              = "application/json"
+	mediaTypeJSON                       = "application/json"
 )
 
 const (
@@ -467,8 +467,8 @@ func decodeCohereFloatEmbeddings(raw json.RawMessage) ([]corevector.Coordinates[
 func (e *EmbeddingModel) invokeEmbedding(ctx context.Context, modelID string, body []byte) ([]byte, error) {
 	output, err := e.api.invokeModel(ctx, bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(modelID),
-		ContentType: aws.String(embeddingMediaTypeJSON),
-		Accept:      aws.String(embeddingMediaTypeJSON),
+		ContentType: aws.String(mediaTypeJSON),
+		Accept:      aws.String(mediaTypeJSON),
 		Body:        body,
 	})
 	if err != nil {

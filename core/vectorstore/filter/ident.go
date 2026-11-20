@@ -24,7 +24,7 @@ func (i *Ident) Name() string {
 }
 
 func (i *Ident) Path() ([]PathSegment, error) {
-	if err := i.validate(); err != nil {
+	if err := i.validateNode(); err != nil {
 		return nil, err
 	}
 	return []PathSegment{{key: i.name}}, nil
@@ -49,7 +49,7 @@ func (i *Ident) Equal(other Expr) bool {
 	return ok && i != nil && o != nil && i.name == o.name
 }
 
-func (i *Ident) validate() error {
+func (i *Ident) validateNode() error {
 	if i == nil {
 		return errors.New("filter: identifier is nil")
 	}

@@ -64,7 +64,7 @@ func (l *ListLiteral) Equal(other Expr) bool {
 }
 
 func (l *ListLiteral) Values() (any, error) {
-	if err := l.validate(); err != nil {
+	if err := l.validateNode(); err != nil {
 		return nil, err
 	}
 	first := l.values[0]
@@ -166,7 +166,7 @@ func signedListValues(values []any) []int64 {
 	return out
 }
 
-func (l *ListLiteral) validate() error {
+func (l *ListLiteral) validateNode() error {
 	if l == nil {
 		return errors.New("filter: list literal is nil")
 	}
@@ -181,7 +181,7 @@ func (l *ListLiteral) validate() error {
 	if first.IsNull() {
 		return fmt.Errorf("filter: list elements cannot be NULL at %s", first.Start())
 	}
-	if err := first.validate(); err != nil {
+	if err := first.validateNode(); err != nil {
 		return err
 	}
 
@@ -195,7 +195,7 @@ func (l *ListLiteral) validate() error {
 				index+1, value.kind, first.kind, value.Start(),
 			)
 		}
-		if err := value.validate(); err != nil {
+		if err := value.validateNode(); err != nil {
 			return err
 		}
 	}

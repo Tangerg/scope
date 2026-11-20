@@ -42,7 +42,7 @@ func (e *Extensions) Merge(source Extensions) error {
 	if e == nil {
 		return ErrNilMap
 	}
-	e.values.merge(source.values)
+	e.values.mergeAdmitted(source.values)
 	return nil
 }
 

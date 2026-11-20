@@ -27,10 +27,10 @@ type Request struct {
 }
 
 func (r Request) Validate() error {
-	return toolinput.Rejection(r.validate())
+	return toolinput.Rejection(r.inputError())
 }
 
-func (r Request) validate() error {
+func (r Request) inputError() error {
 	if r.TimeoutMS < 0 || int64(r.TimeoutMS) > maximumToolTimeout.Milliseconds() {
 		return fmt.Errorf("%w: timeout must be between zero and %d milliseconds", ErrInvalidInput, maximumToolTimeout.Milliseconds())
 	}
@@ -98,15 +98,15 @@ func NewTool(config Config) (*Tool, error) {
 }
 
 func (t *Tool) run(ctx context.Context, req Request) (Response, error) {
-	res, err := t.executor.Run(ctx, req.input())
+	result, err := t.executor.Run(ctx, req.input())
 	response := Response{
-		Stdout:               content.New(res.Stdout),
-		Stderr:               content.New(res.Stderr),
-		StdoutDroppedBytes:   res.StdoutDroppedBytes,
-		StderrDroppedBytes:   res.StderrDroppedBytes,
-		ExitCode:             res.ExitCode,
-		CancellationObserved: res.CancellationObserved,
-		Duration:             res.Duration.String(),
+		Stdout:               content.New(result.Stdout),
+		Stderr:               content.New(result.Stderr),
+		StdoutDroppedBytes:   result.StdoutDroppedBytes,
+		StderrDroppedBytes:   result.StderrDroppedBytes,
+		ExitCode:             result.ExitCode,
+		CancellationObserved: result.CancellationObserved,
+		Duration:             result.Duration.String(),
 	}
 	if err == nil {
 		return response, nil

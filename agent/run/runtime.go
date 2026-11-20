@@ -86,7 +86,7 @@ func (r *Runtime) Start[I, O any](ctx context.Context, program Program[I, O], re
 	if err != nil {
 		return nil, err
 	}
-	handle, err := r.start(ctx, context.WithoutCancel(requireContext(ctx)), program.Erase(), request.ID, input)
+	handle, err := r.startErased(ctx, context.WithoutCancel(requireContext(ctx)), program.Erase(), request.ID, input)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 	if err != nil {
 		return zero, err
 	}
-	handle, err := r.start(ctx, ctx, program.Erase(), foregroundStartID(), payload)
+	handle, err := r.startErased(ctx, ctx, program.Erase(), foregroundStartID(), payload)
 	if err != nil {
 		return zero, err
 	}
@@ -123,7 +123,7 @@ func (r *Runtime) Run[I, O any](ctx context.Context, program Program[I, O], inpu
 	return result.Output()
 }
 
-func (r *Runtime) start(ctx, work context.Context, program Program[Payload, Payload], id StartID, input Payload) (*Handle[Payload], error) {
+func (r *Runtime) startErased(ctx, work context.Context, program Program[Payload, Payload], id StartID, input Payload) (*Handle[Payload], error) {
 	if err := requireContext(ctx).Err(); err != nil {
 		return nil, err
 	}

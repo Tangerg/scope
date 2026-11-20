@@ -68,12 +68,12 @@ func (w WorldState) Apply(effects ...Condition) (WorldState, error) {
 			canonical = append(canonical, effect)
 		}
 	}
-	return w.apply(canonical), nil
+	return w.applyAdmitted(canonical), nil
 }
 
 // Both inputs already own sorted, unique conditions. Preserve that invariant
 // while constructing the successor instead of rebuilding an untrusted state.
-func (w WorldState) apply(effects []Condition) WorldState {
+func (w WorldState) applyAdmitted(effects []Condition) WorldState {
 	if len(effects) == 0 {
 		return w
 	}

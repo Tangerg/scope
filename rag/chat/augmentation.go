@@ -110,7 +110,7 @@ func (c *ContextualAugmenter) Augment(ctx context.Context, query rag.Query, cand
 	}
 
 	if len(candidates) == 0 {
-		return c.handleEmptyContext()
+		return c.emptyContextAugmentation()
 	}
 
 	selection, err := c.selectEvidence(ctx, candidates)
@@ -154,7 +154,7 @@ func (c *ContextualAugmenter) selectEvidence(ctx context.Context, candidates rag
 	return selected, nil
 }
 
-func (c *ContextualAugmenter) handleEmptyContext() (rag.Augmentation, error) {
+func (c *ContextualAugmenter) emptyContextAugmentation() (rag.Augmentation, error) {
 	if c.allowEmptyContext {
 		return rag.Augmentation{}, nil
 	}

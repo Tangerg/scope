@@ -17,7 +17,7 @@ const (
 	maxImageInteractionResponseBytes = 256 << 20
 	imageInteractionsPath            = "/v1beta/interactions"
 	imageAPIKeyHeader                = "x-goog-api-key"
-	imageJSONMediaType               = "application/json"
+	mediaTypeJSON                    = "application/json"
 )
 
 type imageTransport struct{ client *resty.Client }
@@ -33,7 +33,7 @@ func newImageTransport(ctx context.Context, config ImageModelConfig) (*imageTran
 		SetJSONUnmarshaler(func(data []byte, value any) error { return jsonv2.Unmarshal(data, value) }).
 		SetBaseURL(endpoint).
 		SetHeader(imageAPIKeyHeader, config.APIKey).
-		SetHeader("Content-Type", imageJSONMediaType)
+		SetHeader("Content-Type", mediaTypeJSON)
 	return &imageTransport{client: client}, nil
 }
 

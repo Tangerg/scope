@@ -53,7 +53,7 @@ func (u *UnaryExpr) Equal(other Expr) bool {
 
 func (u *UnaryExpr) Validate() error { return validatePredicate(u) }
 
-func (u *UnaryExpr) validate() error {
+func (u *UnaryExpr) validateNode() error {
 	if u == nil {
 		return errors.New("filter: unary expression is nil")
 	}

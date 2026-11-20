@@ -24,10 +24,10 @@ type EditRequest struct {
 }
 
 func (e EditRequest) Validate() error {
-	return toolinput.Rejection(e.validate())
+	return toolinput.Rejection(e.inputError())
 }
 
-func (e EditRequest) validate() error {
+func (e EditRequest) inputError() error {
 	if e.Path == "" {
 		return ErrEmptyPath
 	}
@@ -75,9 +75,9 @@ func NewEditTool(executor Editor) (*EditTool, error) {
 }
 
 func (e *EditTool) edit(ctx context.Context, req EditRequest) (EditResponse, error) {
-	res, err := e.executor.Edit(ctx, req)
+	response, err := e.executor.Edit(ctx, req)
 	if err != nil {
-		return EditResponse{}, toolresult.Classify("fs.edit", res, err, ErrMutationRejected)
+		return EditResponse{}, toolresult.Classify("fs.edit", response, err, ErrMutationRejected)
 	}
-	return res, nil
+	return response, nil
 }

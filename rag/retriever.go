@@ -76,7 +76,7 @@ func Transform(next Retriever, transformers ...Transformer) (*PipelineRetriever,
 	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
 		current := query
 		for i, transformer := range owned {
-			transformed, err := transform(ctx, transformer, current)
+			transformed, err := transformQuery(ctx, transformer, current)
 			if err != nil {
 				return nil, fmt.Errorf("rag: transformer %d: %w", i, err)
 			}
@@ -117,7 +117,7 @@ func Expand(config ExpansionConfig) (*PipelineRetriever, error) {
 	}
 
 	return &PipelineRetriever{run: func(ctx context.Context, query Query) (Candidates, error) {
-		queries, err := expand(ctx, config.Expander, query)
+		queries, err := expandQuery(ctx, config.Expander, query)
 		if err != nil {
 			return nil, fmt.Errorf("rag: expand query: %w", err)
 		}
@@ -151,7 +151,7 @@ func Refine(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
 			return nil, err
 		}
 		for i, refiner := range owned {
-			docs, err = refine(ctx, refiner, query, docs)
+			docs, err = refineCandidates(ctx, refiner, query, docs)
 			if err != nil {
 				return nil, fmt.Errorf("rag: refiner %d: %w", i, err)
 			}
@@ -160,7 +160,7 @@ func Refine(next Retriever, refiners ...Refiner) (*PipelineRetriever, error) {
 	}}, nil
 }
 
-func transform(ctx context.Context, transformer Transformer, query Query) (Query, error) {
+func transformQuery(ctx context.Context, transformer Transformer, query Query) (Query, error) {
 	if err := ctx.Err(); err != nil {
 		return Query{}, err
 	}
@@ -177,7 +177,7 @@ func transform(ctx context.Context, transformer Transformer, query Query) (Query
 	return transformed, nil
 }
 
-func expand(ctx context.Context, expander Expander, query Query) ([]Query, error) {
+func expandQuery(ctx context.Context, expander Expander, query Query) ([]Query, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func expand(ctx context.Context, expander Expander, query Query) ([]Query, error
 	return queries, nil
 }
 
-func refine(ctx context.Context, refiner Refiner, query Query, candidates Candidates) (Candidates, error) {
+func refineCandidates(ctx context.Context, refiner Refiner, query Query, candidates Candidates) (Candidates, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -194,7 +194,7 @@ func (b *BinaryExpr) Equal(other Expr) bool {
 
 func (b *BinaryExpr) Validate() error { return validatePredicate(b) }
 
-func (b *BinaryExpr) validate() error {
+func (b *BinaryExpr) validateNode() error {
 	if b == nil {
 		return errors.New("filter: binary expression is nil")
 	}
@@ -301,7 +301,7 @@ func (b *BinaryExpr) validateComparison(numeric bool) error {
 	if numeric && !literal.IsNumber() {
 		return fmt.Errorf("filter: %s right operand must be numeric, got %s at %s", b.operator.Name(), literal.kind, literal.Start())
 	}
-	return literal.validate()
+	return literal.validateNode()
 }
 
 func (b *BinaryExpr) validateMembership() error {
@@ -309,7 +309,7 @@ func (b *BinaryExpr) validateMembership() error {
 	if !ok || list == nil {
 		return fmt.Errorf("filter: IN right operand must be a list, got %T at %s", b.right, b.Start())
 	}
-	return list.validate()
+	return list.validateNode()
 }
 
 func (b *BinaryExpr) validateCollectionMembership() error {
@@ -320,7 +320,7 @@ func (b *BinaryExpr) validateCollectionMembership() error {
 	if literal.IsNull() {
 		return fmt.Errorf("filter: HAS cannot test NULL at %s", b.Start())
 	}
-	return literal.validate()
+	return literal.validateNode()
 }
 
 func (b *BinaryExpr) validateLike() error {
@@ -328,7 +328,7 @@ func (b *BinaryExpr) validateLike() error {
 	if !ok || literal == nil || !literal.IsString() {
 		return fmt.Errorf("filter: LIKE right operand must be a string literal, got %T at %s", b.right, b.Start())
 	}
-	return literal.validate()
+	return literal.validateNode()
 }
 
 func (b *BinaryExpr) validateNullTest() error {
@@ -336,5 +336,5 @@ func (b *BinaryExpr) validateNullTest() error {
 	if !ok || literal == nil || !literal.IsNull() {
 		return fmt.Errorf("filter: IS right operand must be NULL, got %T at %s", b.right, b.Start())
 	}
-	return literal.validate()
+	return literal.validateNode()
 }

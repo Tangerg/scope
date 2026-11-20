@@ -131,7 +131,7 @@ func (b *BulkPlan) Publish(ctx context.Context, client *Client) error {
 		return err
 	}
 	for i, publication := range b.publications {
-		if err := b.publish(ctx, client, publication); err != nil {
+		if err := b.send(ctx, client, publication); err != nil {
 			if b.config.Operation != Index {
 				return err
 			}
@@ -151,7 +151,7 @@ func (b *BulkPlan) Publish(ctx context.Context, client *Client) error {
 	return nil
 }
 
-func (b *BulkPlan) publish(ctx context.Context, client *Client, publication bulkPublication) error {
+func (b *BulkPlan) send(ctx context.Context, client *Client, publication bulkPublication) error {
 	raw, readErr := client.Read(ctx, http.MethodPost, bulkPath, nil, publication.body, 0)
 	_, invalidStatus := errors.AsType[*httpclient.ResponseError](readErr)
 	if invalidStatus {

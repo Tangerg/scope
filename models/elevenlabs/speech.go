@@ -24,7 +24,7 @@ const (
 
 const (
 	characterCostHeader                 = "character-cost"
-	contentTypeHeader                   = "Content-Type"
+	headerContentType                   = "Content-Type"
 	requestIDHeader                     = "request-id"
 	traceIDHeader                       = "x-trace-id"
 	metadataCharacterCost               = "elevenlabs/character_cost"
@@ -168,7 +168,7 @@ func (s *SpeechModel) buildResponse(audio []byte, hdr http.Header) (*speech.Resp
 		return nil, errors.New("elevenlabs: speech response contained no audio")
 	}
 	details := speechResponseMetadata{
-		ContentType:   hdr.Get(contentTypeHeader),
+		ContentType:   hdr.Get(headerContentType),
 		CharacterCost: hdr.Get(characterCostHeader),
 		RequestID:     hdr.Get(requestIDHeader),
 		TraceID:       hdr.Get(traceIDHeader),

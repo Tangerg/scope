@@ -21,10 +21,10 @@ type WriteRequest struct {
 }
 
 func (w WriteRequest) Validate() error {
-	return toolinput.Rejection(w.validate())
+	return toolinput.Rejection(w.inputError())
 }
 
-func (w WriteRequest) validate() error {
+func (w WriteRequest) inputError() error {
 	if w.Path == "" {
 		return ErrEmptyPath
 	}
@@ -70,9 +70,9 @@ func NewWriteTool(executor Writer) (*WriteTool, error) {
 }
 
 func (w *WriteTool) write(ctx context.Context, req WriteRequest) (WriteResponse, error) {
-	res, err := w.executor.Write(ctx, req)
+	response, err := w.executor.Write(ctx, req)
 	if err != nil {
-		return WriteResponse{}, toolresult.Classify("fs.write", res, err, ErrMutationRejected)
+		return WriteResponse{}, toolresult.Classify("fs.write", response, err, ErrMutationRejected)
 	}
-	return res, nil
+	return response, nil
 }

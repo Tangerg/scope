@@ -89,7 +89,7 @@ func Bind(executable Tool, middlewares ...CallMiddleware) (Binding, error) {
 			return Binding{}, fmt.Errorf("%w: middleware[%d] is nil", ErrInvalidTool, index)
 		}
 	}
-	validator, err := inputValidator(executable)
+	validator, err := validatorOf(executable)
 	if err != nil {
 		return Binding{}, fmt.Errorf("%w: input validation: %w", ErrInvalidTool, err)
 	}
@@ -229,7 +229,7 @@ func (b Binding) Call(ctx context.Context, invocation Invocation) (Result, error
 	if !b.bound() || invocation.contract != b.contract.state {
 		return Result{}, fmt.Errorf("%w: invocation does not belong to binding", ErrInvalidInvocation)
 	}
-	result, err := b.call(ctx, invocation, 0)
+	result, err := b.callFrom(ctx, invocation, 0)
 	if err == nil {
 		err = b.contract.ValidateResult(result)
 	}
@@ -251,12 +251,12 @@ func (i Invocation) Continuation() (Continuation, bool) {
 	return *i.continuation, true
 }
 
-func (b Binding) call(ctx context.Context, invocation Invocation, index int) (Result, error) {
+func (b Binding) callFrom(ctx context.Context, invocation Invocation, index int) (Result, error) {
 	if index == len(b.middlewares) {
 		return b.executable.Call(ctx, invocation)
 	}
 	forward := &callContinuation{invocation: invocation, next: CallerFunc(func(ctx context.Context, invocation Invocation) (Result, error) {
-		return b.call(ctx, invocation, index+1)
+		return b.callFrom(ctx, invocation, index+1)
 	})}
 	defer forward.close()
 	next := b.middlewares[index](forward)

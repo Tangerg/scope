@@ -42,7 +42,7 @@ func (i *IndexExpr) Path() ([]PathSegment, error) {
 		if node.index == nil {
 			return nil, fmt.Errorf("filter: index is nil at %s", node.Start())
 		}
-		if err := node.index.validate(); err != nil {
+		if err := node.index.validateNode(); err != nil {
 			return nil, err
 		}
 		segment, err := node.index.pathSegment()
@@ -54,7 +54,7 @@ func (i *IndexExpr) Path() ([]PathSegment, error) {
 		case *IndexExpr:
 			node = base
 		case *Ident:
-			if err := base.validate(); err != nil {
+			if err := base.validateNode(); err != nil {
 				return nil, err
 			}
 			segments = append(segments, PathSegment{key: base.name})
@@ -86,7 +86,7 @@ func (i *IndexExpr) Equal(other Expr) bool {
 	return ok && i != nil && o != nil && equalExpr(i.left, o.left) && equalExpr(i.index, o.index)
 }
 
-func (i *IndexExpr) validate() error {
+func (i *IndexExpr) validateNode() error {
 	_, err := i.Path()
 	return err
 }

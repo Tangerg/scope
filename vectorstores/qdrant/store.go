@@ -113,16 +113,16 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := s.verifyCollection(ctx); err != nil {
 		return err
 	}
-	res, err := s.client.Upsert(ctx, req)
+	result, err := s.client.Upsert(ctx, req)
 	if err == nil {
-		err = requireAppliedUpdate(res, "upsert")
+		err = requireAppliedUpdate(result, "upsert")
 	}
 	if err != nil {
 		ids := make([]string, len(batch.Records))
 		for i, r := range batch.Records {
 			ids[i] = r.Document.ID
 		}
-		if res.GetStatus() == qdrantclient.UpdateStatus_ClockRejected {
+		if result.GetStatus() == qdrantclient.UpdateStatus_ClockRejected {
 			return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Rejected: ids})
 		}
 		return vectorstore.NewWriteError(err, vectorstore.WriteOutcome{Unconfirmed: ids})

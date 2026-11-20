@@ -44,7 +44,7 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format For
 		return zero, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}
 	}
 	contract := format.Contract()
-	response, err := c.call(ctx, req, &contract)
+	response, err := c.callWithFormat(ctx, req, &contract)
 	return format.decodeResponse(response, err)
 }
 
@@ -53,10 +53,10 @@ func (c Client) Call(ctx context.Context, req *chat.Request) (*chat.Response, er
 	if !c.valid() {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: ErrInvalidClient}
 	}
-	return c.call(ctx, req, nil)
+	return c.callWithFormat(ctx, req, nil)
 }
 
-func (c Client) call(ctx context.Context, req *chat.Request, format *chat.OutputFormat) (*chat.Response, error) {
+func (c Client) callWithFormat(ctx context.Context, req *chat.Request, format *chat.OutputFormat) (*chat.Response, error) {
 	prepared, err := prepareRequest(req, format)
 	if err != nil {
 		return nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err}

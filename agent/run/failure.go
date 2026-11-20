@@ -100,12 +100,12 @@ type Failure struct {
 // NewFailure records message as NormalizeDiagnostic renders it, so any error's
 // text forms a valid Failure. Callers remain responsible for excluding secrets.
 func NewFailure(kind FailureKind, code, message string) (Failure, error) {
-	return newFailure(kind, code, NormalizeDiagnostic(message))
+	return strictFailure(kind, code, NormalizeDiagnostic(message))
 }
 
-// newFailure is the strict form decoding uses: persisted text must already be
+// strictFailure is the form decoding uses: persisted text must already be
 // normalized, because normalizing it would change what the log recorded.
-func newFailure(kind FailureKind, code, message string) (Failure, error) {
+func strictFailure(kind FailureKind, code, message string) (Failure, error) {
 	if err := (FailureClassification{kind: kind, code: code}).validate(); err != nil {
 		return Failure{}, err
 	}
@@ -169,7 +169,7 @@ func (f *Failure) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("%w: decode: %w", ErrInvalidFailure, err)
 	}
-	value, err := newFailure(wire.Kind, wire.Code, wire.Message)
+	value, err := strictFailure(wire.Kind, wire.Code, wire.Message)
 	if err != nil {
 		return err
 	}

@@ -95,7 +95,7 @@ func validatePredicate(root Predicate) error {
 		stack = append(stack, frame{node: current.node, finish: true})
 		switch node := current.node.(type) {
 		case *BinaryExpr:
-			if err := node.validate(); err != nil {
+			if err := node.validateNode(); err != nil {
 				return err
 			}
 			if node.operator.IsLogicalOperator() {
@@ -103,7 +103,7 @@ func validatePredicate(root Predicate) error {
 				stack = append(stack, frame{node: node.right.(Predicate), depth: child}, frame{node: node.left.(Predicate), depth: child})
 			}
 		case *UnaryExpr:
-			if err := node.validate(); err != nil {
+			if err := node.validateNode(); err != nil {
 				return err
 			}
 			stack = append(stack, frame{node: node.right, depth: current.depth + 1})
@@ -115,9 +115,9 @@ func validatePredicate(root Predicate) error {
 func validateSelector(expr Expr) error {
 	switch node := expr.(type) {
 	case *Ident:
-		return node.validate()
+		return node.validateNode()
 	case *IndexExpr:
-		return node.validate()
+		return node.validateNode()
 	default:
 		if lo.IsNil(expr) {
 			return errors.New("selector is nil")

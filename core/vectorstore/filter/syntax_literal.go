@@ -19,7 +19,7 @@ type LiteralValue interface {
 	Number | string | bool | *Literal
 }
 
-func newLiteral(value any) (*Literal, error) {
+func literalOf(value any) (*Literal, error) {
 	if value != nil {
 		reflected := reflect.ValueOf(value)
 		switch reflected.Kind() {
@@ -57,7 +57,7 @@ func newLiteral(value any) (*Literal, error) {
 }
 
 func NewLiteral[T LiteralValue](value T) *Literal {
-	literal, err := newLiteral(value)
+	literal, err := literalOf(value)
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +105,7 @@ type ListValue interface {
 		[]*Literal | *ListLiteral
 }
 
-func newListLiteral(value any) (*ListLiteral, error) {
+func listLiteralOf(value any) (*ListLiteral, error) {
 	switch typed := value.(type) {
 	case *ListLiteral:
 		return typed, nil
@@ -118,7 +118,7 @@ func newListLiteral(value any) (*ListLiteral, error) {
 	}
 	values := make([]*Literal, reflected.Len())
 	for index := range values {
-		literal, err := newLiteral(reflected.Index(index).Interface())
+		literal, err := literalOf(reflected.Index(index).Interface())
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +128,7 @@ func newListLiteral(value any) (*ListLiteral, error) {
 }
 
 func NewListLiteral[T ListValue](value T) *ListLiteral {
-	list, err := newListLiteral(value)
+	list, err := listLiteralOf(value)
 	if err != nil {
 		panic(err)
 	}

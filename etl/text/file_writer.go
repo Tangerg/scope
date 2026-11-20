@@ -93,7 +93,7 @@ func (f *FileWriter) appendPayload(payload string) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, file.Close()) }()
-	return f.write(payload, file)
+	return f.writePayload(payload, file)
 }
 
 // replace keeps POSIX rename atomic by writing a sibling file in the
@@ -127,7 +127,7 @@ func (f *FileWriter) replace(payload string) (err error) {
 			return errors.Join(err, file.Close())
 		}
 	}
-	if err = f.write(payload, file); err != nil {
+	if err = f.writePayload(payload, file); err != nil {
 		return errors.Join(err, file.Close())
 	}
 	if err = file.Close(); err != nil {
@@ -170,7 +170,7 @@ func (f *FileWriter) render(ctx context.Context, docs []*document.Document) (str
 
 // The payload is fully rendered in memory and written once, so buffering adds
 // nothing; a single WriteString followed by Sync commits it durably.
-func (*FileWriter) write(payload string, file *os.File) error {
+func (*FileWriter) writePayload(payload string, file *os.File) error {
 	if _, err := file.WriteString(payload); err != nil {
 		return err
 	}

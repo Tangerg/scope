@@ -80,11 +80,11 @@ func (m *ModerationModel) Call(ctx context.Context, req *moderation.Request) (*m
 		if err != nil {
 			return nil, err
 		}
-		res, err := moderation.NewOutput(cats, nil)
+		output, err := moderation.NewOutput(cats, nil)
 		if err != nil {
 			return nil, err
 		}
-		outputs = append(outputs, res)
+		outputs = append(outputs, output)
 	}
 
 	meta := &moderation.ResponseMetadata{

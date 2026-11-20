@@ -42,7 +42,7 @@ func (b Batch) Validate() error {
 		if err := entry.ValidateFor(b.Root); err != nil {
 			return err
 		}
-		if _, _, err := encodeRecord(entry.Record); err != nil {
+		if _, _, err := encodeAdmittedRecord(entry.Record); err != nil {
 			return err
 		}
 	}

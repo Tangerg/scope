@@ -207,8 +207,8 @@ func (s *Store) Upsert(ctx context.Context, batch *vectorstore.Batch) error {
 	if err := s.checkBinding(ctx); err != nil {
 		return err
 	}
-	res, sendErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert), ReturnId: new(true)}, mediaTypeJSONL, &payload)
-	raw, err := s.readResponse(res, sendErr)
+	response, sendErr := s.client.ImportDocumentsWithBody(ctx, s.collectionName, &api.ImportDocumentsParams{Action: new(api.Upsert), ReturnId: new(true)}, importMediaType, &payload)
+	raw, err := s.readResponse(response, sendErr)
 	return validateImport(raw, ids, err)
 }
 
