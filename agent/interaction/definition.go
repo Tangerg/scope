@@ -191,6 +191,16 @@ func (d *definition) delegate(name string) (Delegate, bool) {
 
 var _ run.Definition = (*definition)(nil)
 
+// definitionOf returns the definition an Interaction Program binds; any other
+// Program is run.ErrInvalidProgram.
+func definitionOf[I, O any](program run.Program[I, O]) (*definition, error) {
+	definition, bound := program.Definition().(*definition)
+	if !program.Valid() || !bound {
+		return nil, fmt.Errorf("%w: not an Interaction Program", run.ErrInvalidProgram)
+	}
+	return definition, nil
+}
+
 // modelDefinitions reads advertisedToolNames as the state owns them: Restore
 // and every merge already admitted them against this manifest.
 func (d *definition) modelDefinitions(advertisedToolNames []string) []tool.Definition {

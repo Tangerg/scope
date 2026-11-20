@@ -343,7 +343,7 @@ func TestDelegateProjectionDistinguishesAdmissionRejectionAndChildFailure(t *tes
 	if missing.Valid() {
 		t.Fatal("empty attribution invented an admitted child")
 	}
-	if _, found := missing.Reference(); found {
+	if missing.Reference().Valid() {
 		t.Fatal("empty attribution invented a spawn reference")
 	}
 }

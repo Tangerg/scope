@@ -30,12 +30,9 @@ type HistoryProjection struct {
 // NewHistoryProjection binds a projection to a compiled interaction Program.
 // Programs with the same Go types but another definition are rejected.
 func NewHistoryProjection[I, O any](program run.Program[I, O]) (*HistoryProjection, error) {
-	if !program.Valid() {
-		return nil, ErrInvalidResult
-	}
-	definition, bound := program.Definition().(*definition)
-	if !bound {
-		return nil, ErrInvalidResult
+	definition, err := definitionOf(program)
+	if err != nil {
+		return nil, err
 	}
 	return &HistoryProjection{program: program.ProgramRef(), definition: definition}, nil
 }

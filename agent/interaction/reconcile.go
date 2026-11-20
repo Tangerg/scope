@@ -9,12 +9,12 @@ import (
 )
 
 func recoveryDefinition[I, O any](program run.Program[I, O], request run.EffectRequest) (*definition, error) {
-	if !request.Valid() || !program.Valid() || program.ProgramRef() != request.ProgramRef() {
-		return nil, fmt.Errorf("%w: exact bound program and captured effect required", ErrInvalidProtocol)
+	definition, err := definitionOf(program)
+	if err != nil {
+		return nil, err
 	}
-	definition, bound := program.Definition().(*definition)
-	if !bound {
-		return nil, ErrInvalidConfig
+	if !request.Valid() || program.ProgramRef() != request.ProgramRef() {
+		return nil, fmt.Errorf("%w: exact bound program and captured effect required", ErrInvalidProtocol)
 	}
 	return definition, nil
 }

@@ -71,11 +71,12 @@ func TestPortableToolRecoveryEnforcesTheCompleteResultContract(t *testing.T) {
 	if _, err := SettleToolResult(program, request, tool.Result{}, ResultSucceeded, []string{"report_read"}); !errors.Is(err, ErrInvalidProtocol) {
 		t.Fatal("recovery accepted a model alias as a Tool identity", err)
 	}
+	if settlement, err := SettleToolResult(run.Program[Input, Output]{}, request, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, run.ErrInvalidProgram) || settlement.Valid() {
+		t.Fatal("an unbound Program settled the effect", err)
+	}
 	foreign := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(model), MaxModelCalls: run.NewQuota(1)})
-	for _, candidate := range []run.Program[Input, Output]{{}, foreign} {
-		if settlement, err := SettleToolResult(candidate, request, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
-			t.Fatal("foreign binding settled the effect", err)
-		}
+	if settlement, err := SettleToolResult(foreign, request, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
+		t.Fatal("foreign binding settled the effect", err)
 	}
 	if settlement, err := SettleToolResult(program, run.EffectRequest{}, tool.Result{}, ResultSucceeded, nil); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
 		t.Fatal("recovery fabricated a missing request", err)
@@ -147,11 +148,11 @@ func TestPortableModelRecoveryRejectsForeignOrUndeliverableEvidence(t *testing.T
 		}
 	}
 	foreign := compileTest(t, runtime, Config{Model: CallModel(model), MaxResponseBytes: 1024})
-	for _, candidate := range []run.Program[Input, Output]{{}, foreign} {
-		if settlement, err := SettleModelResult(candidate, request, finalResponse("done")); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
+	for candidate, want := range map[*run.Program[Input, Output]]error{{}: run.ErrInvalidProgram, &foreign: ErrInvalidProtocol} {
+		if settlement, err := SettleModelResult(*candidate, request, finalResponse("done")); !errors.Is(err, want) || settlement.Valid() {
 			t.Fatal("model recovery did not enforce exact configuration", err)
 		}
-		if settlement, err := SettlePreparedContext(candidate, request, testInput().Messages); !errors.Is(err, ErrInvalidProtocol) || settlement.Valid() {
+		if settlement, err := SettlePreparedContext(*candidate, request, testInput().Messages); !errors.Is(err, want) || settlement.Valid() {
 			t.Fatal("context recovery did not enforce exact configuration", err)
 		}
 	}

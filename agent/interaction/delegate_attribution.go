@@ -13,12 +13,12 @@ type DelegateAttribution struct {
 	processID         run.ProcessID
 }
 
-func (d DelegateAttribution) ModelCallSequence() uint64       { return d.modelCallSequence }
-func (d DelegateAttribution) ToolCallIndex() uint32           { return d.toolCallIndex }
-func (d DelegateAttribution) ToolCall() chat.ToolCall         { return d.toolCall }
-func (d DelegateAttribution) ChildKey() run.ChildKey          { key, _ := d.processID.Key(); return key }
-func (d DelegateAttribution) ProcessID() run.ProcessID        { return d.processID }
-func (d DelegateAttribution) Reference() (run.EffectID, bool) { return d.reference, d.Valid() }
+func (d DelegateAttribution) ModelCallSequence() uint64 { return d.modelCallSequence }
+func (d DelegateAttribution) ToolCallIndex() uint32     { return d.toolCallIndex }
+func (d DelegateAttribution) ToolCall() chat.ToolCall   { return d.toolCall }
+func (d DelegateAttribution) ChildKey() run.ChildKey    { key, _ := d.processID.Key(); return key }
+func (d DelegateAttribution) ProcessID() run.ProcessID  { return d.processID }
+func (d DelegateAttribution) Reference() run.EffectID   { return d.reference }
 
 // Valid reports whether d came from a HistoryProjection, which builds it only
 // from an admitted delegated call and its committed child start.

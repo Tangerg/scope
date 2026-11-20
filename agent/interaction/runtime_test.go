@@ -507,8 +507,8 @@ func TestDelegatesComposeThroughSpawnExitAndArtifactAdmission(t *testing.T) {
 	}
 	for _, attribution := range attributed {
 		key, _ := attribution.ProcessID().Key()
-		reference, found := attribution.Reference()
-		if !found || !attribution.Valid() || attribution.ModelCallSequence() != 1 || attribution.ToolCallIndex() != 0 || attribution.ToolCall().ID != "delegation" || attribution.ChildKey() != key || reference.Process != handle.ID() {
+		reference := attribution.Reference()
+		if !attribution.Valid() || attribution.ModelCallSequence() != 1 || attribution.ToolCallIndex() != 0 || attribution.ToolCall().ID != "delegation" || attribution.ChildKey() != key || reference.Process != handle.ID() {
 			t.Fatal("delegation attribution lost its intent or child identity")
 		}
 	}
