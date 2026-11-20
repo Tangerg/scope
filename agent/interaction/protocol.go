@@ -70,6 +70,17 @@ func (m modelCall) validate() error {
 	return nil
 }
 
+func cloneToolDefinitions(definitions []tool.Definition) []tool.Definition {
+	if definitions == nil {
+		return nil
+	}
+	cloned := make([]tool.Definition, len(definitions))
+	for index, definition := range definitions {
+		cloned[index] = definition.Clone()
+	}
+	return cloned
+}
+
 // toolDispatchRequest carries the model's call; the model owns its ID and name,
 // and the EffectID owns execution correlation.
 type toolDispatchRequest struct {

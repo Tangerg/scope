@@ -75,6 +75,17 @@ func (o Output) clone() Output {
 	return cloned
 }
 
+func cloneToolResults(results []chat.ToolResult) []chat.ToolResult {
+	if results == nil {
+		return nil
+	}
+	cloned := make([]chat.ToolResult, len(results))
+	for index := range results {
+		cloned[index] = results[index].Clone()
+	}
+	return cloned
+}
+
 // finishedMessage is the assistant message a response finished with, or nil
 // when the response has not finished one. Admitting a final model response and
 // validating an Output apply this one rule.

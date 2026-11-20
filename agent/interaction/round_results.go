@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
@@ -61,7 +62,7 @@ func (r RoundResults) Entries() []ResultEntry {
 }
 
 func (r *RoundResults) seal() error {
-	slices.SortFunc(r.entries, func(left, right ResultEntry) int { return int(left.ToolCallIndex) - int(right.ToolCallIndex) })
+	slices.SortFunc(r.entries, func(left, right ResultEntry) int { return cmp.Compare(left.ToolCallIndex, right.ToolCallIndex) })
 	data, err := jsonv2.Marshal(roundResultsWire{Model: r.model, Sequence: r.sequence, CallCount: uint32(len(r.calls)), Entries: r.entries}, jsonv2.Deterministic(true))
 	if err != nil {
 		return err

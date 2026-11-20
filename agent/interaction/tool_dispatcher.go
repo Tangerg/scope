@@ -163,7 +163,7 @@ func (t *toolDispatcher) advertisedNames(ctx context.Context, name string, invoc
 func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admission) (preparedToolCall, *toolCallResult, error) {
 	binding, found := t.bindings[call.Name]
 	if !found {
-		return preparedToolCall{}, new(rejectedCallResult(fmt.Sprintf("tool %q is not available", call.Name))), nil
+		return preparedToolCall{}, new(rejectedCallResult(unavailableTool(call.Name))), nil
 	}
 	invocation, err := t.manifest.entries[call.Name].prepare(call, admission)
 	if err != nil {
@@ -171,7 +171,7 @@ func (t *toolDispatcher) prepareToolCall(call chat.ToolCall, admission tool.Admi
 		if !public {
 			return preparedToolCall{}, nil, err
 		}
-		return preparedToolCall{}, new(rejectedCallResult("invalid arguments: " + run.NormalizeDiagnostic(rejection.Message()))), nil
+		return preparedToolCall{}, new(rejectedCallResult(invalidArguments(call.Name, rejection.Message()))), nil
 	}
 	return preparedToolCall{call: call, binding: binding, invocation: invocation}, nil, nil
 }

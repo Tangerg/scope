@@ -130,10 +130,10 @@ func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run
 		return true, nil, nil
 	}
 	if callErr := outcome.Completion.validateCall(call); callErr != nil {
-		return false, nil, callErr
+		return true, nil, callErr
 	}
 	if advertisementErr := tools.validateAdvertisements(outcome.Completion.AdvertisedToolNames); advertisementErr != nil {
-		return false, nil, fmt.Errorf("%w: tool_result advertised Tools: %w", ErrInvalidProtocol, advertisementErr)
+		return true, nil, fmt.Errorf("%w: tool_result advertised Tools: %w", ErrInvalidProtocol, advertisementErr)
 	}
 	c.Result = outcome.Completion
 	if outcome.AdvertisementFailure == "" {

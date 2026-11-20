@@ -248,6 +248,10 @@ func (d *definition) settlePreparedContext(preparation *modelCall, messages []ch
 	return outcome, nil
 }
 
+// rejectedBatchPrefix tells the model that one refused call kept every call
+// of its proposal from running.
+const rejectedBatchPrefix = "tool batch was not executed: "
+
 // Admission examines the complete model proposal before any child can execute.
 // A later invalid argument must not strand effects from an earlier sibling.
 func (d *definition) admitProposals(ctx context.Context, calls []chat.ToolCall, advertised []string) (string, error) {
@@ -263,7 +267,7 @@ func (d *definition) admitProposals(ctx context.Context, calls []chat.ToolCall, 
 		} else {
 			entry, found := d.tools.entries[call.Name]
 			if !found || (entry.deferred && !slices.Contains(advertised, call.Name)) {
-				return fmt.Sprintf("tool batch was not executed: tool %q is not available", call.Name), nil
+				return rejectedBatchPrefix + unavailableTool(call.Name), nil
 			}
 			if _, err := entry.prepare(call, tool.Admission{}); err != nil {
 				rejection, public := tool.ClassifyInputRejection(err)
@@ -274,7 +278,7 @@ func (d *definition) admitProposals(ctx context.Context, calls []chat.ToolCall, 
 			}
 		}
 		if message != "" {
-			return fmt.Sprintf("tool batch was not executed: %q has invalid arguments: %s", call.Name, run.NormalizeDiagnostic(message)), nil
+			return rejectedBatchPrefix + invalidArguments(call.Name, message), nil
 		}
 	}
 	return "", nil

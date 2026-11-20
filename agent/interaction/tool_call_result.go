@@ -3,6 +3,7 @@ package interaction
 import (
 	"fmt"
 
+	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/tool"
 )
@@ -24,6 +25,14 @@ func succeededCallResult(output tool.Output) toolCallResult {
 
 func failedCallResult(output tool.Output) toolCallResult {
 	return toolCallResult{Disposition: ResultFailed, Output: output}
+}
+
+// unavailableTool and invalidArguments are the model-visible reasons a call is
+// refused before its Tool runs; batch admission and dispatch both give them.
+func unavailableTool(name string) string { return fmt.Sprintf("tool %q is not available", name) }
+
+func invalidArguments(name, diagnostic string) string {
+	return fmt.Sprintf("%q has invalid arguments: %s", name, run.NormalizeDiagnostic(diagnostic))
 }
 
 // rejectedCallResult refuses a call before its Tool runs; diagnostic is the

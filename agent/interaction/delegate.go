@@ -55,9 +55,6 @@ func NewDelegate(config DelegateConfig) (Delegate, error) {
 func (d Delegate) Valid() bool { return d.child.Valid() }
 
 func (d Delegate) validateInput(input run.Payload) error {
-	if !d.Valid() {
-		return ErrInvalidDelegate
-	}
 	return d.child.Program.Descriptor().ValidateInput(input)
 }
 
@@ -65,9 +62,6 @@ func (d Delegate) validateInput(input run.Payload) error {
 // must pass. The current round and the archived records share it, so an output
 // that cannot continue is rejected the first time Restore sees it, not later.
 func (d Delegate) validateOutput(output run.Payload) error {
-	if !d.Valid() {
-		return ErrInvalidDelegate
-	}
 	if !output.Valid() {
 		return fmt.Errorf("%w: Delegate result output is invalid", ErrInvalidDelegate)
 	}

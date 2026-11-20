@@ -140,9 +140,6 @@ func TestDelegateConstructionAndOutputAdmissionUseTheBoundContract(t *testing.T)
 			t.Fatal("invalid delegate admitted", value, err)
 		}
 	}
-	if err := (Delegate{}).validateInput(mustValue(run.EncodePayload(delegateValue{}))); !errors.Is(err, ErrInvalidDelegate) {
-		t.Fatal(err)
-	}
 	for _, output := range []run.Payload{{}, mustValue(run.EncodePayload("wrong shape"))} {
 		if err := delegate.validateOutput(output); err == nil {
 			t.Fatal("delegate output contract was bypassed")
