@@ -120,6 +120,7 @@ package_budget=(
   "agent/coordination 80.1"
   "agent none"
   "agent/interaction 84.2"
+  "agent/internal/strategy/awaited 100.0"
   "agent/internal/strategy/child 95.3"
   "agent/internal/strategy/restore 100.0"
   "agent/internal/strategy/stepfail 100.0"

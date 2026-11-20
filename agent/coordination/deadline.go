@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/awaited"
 	"github.com/Tangerg/scope/agent/internal/strategy/restore"
 	"github.com/Tangerg/scope/agent/run"
 	"github.com/Tangerg/scope/core/jsonschema"
@@ -95,19 +96,12 @@ func (d *deadlineExecution) Step(ctx context.Context, turn run.Turn) (run.Transi
 }
 
 func (d *deadlineExecution) acceptTimer(messages []run.Message) (run.Transition, error) {
-	if len(messages) != 1 {
-		return run.Transition{}, fmt.Errorf("%w: deadline requires one timer settlement", ErrInvalidProtocol)
+	_, failure, err := awaited.Settlement[timerReached](messages, d.state.Timer, ErrInvalidProtocol)
+	if err != nil {
+		return run.Transition{}, err
 	}
-	completion, ok := messages[0].(run.Completion)
-	if !ok || completion.Effect != d.state.Timer {
-		return run.Transition{}, ErrInvalidProtocol
-	}
-	settlement := completion.Outcome
-	if failure, failed := settlement.Failure(); failed {
-		return run.Fail(1, failure)
-	}
-	if _, err := settlement.Payload().Decode[timerReached](); err != nil {
-		return run.Transition{}, fmt.Errorf("%w: decode timer settlement: %w", ErrInvalidProtocol, err)
+	if failure != nil {
+		return run.Fail(1, *failure)
 	}
 	output, err := run.EncodePayload(d.state.Deadline)
 	if err != nil {

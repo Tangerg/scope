@@ -101,25 +101,3 @@ func senseSettlement(state WorldState, cause error) (run.Settlement, error) {
 	}
 	return run.NewSettlement(run.SettlementStatusSucceeded, payload)
 }
-
-// decodeSettlement reads the single dispatcher settlement of the awaited
-// operation. A failed settlement returns its explanation instead of a result.
-func decodeSettlement[T any](messages []run.Message, expected run.EffectID) (T, *run.Failure, error) {
-	var result T
-	if len(messages) != 1 {
-		return result, nil, fmt.Errorf("%w: exactly one settlement Signal is required", ErrInvalidProtocol)
-	}
-	completion, ok := messages[0].(run.Completion)
-	if !ok || completion.Effect != expected {
-		return result, nil, ErrInvalidProtocol
-	}
-	settlement := completion.Outcome
-	if failure, failed := settlement.Failure(); failed {
-		return result, &failure, nil
-	}
-	result, err := settlement.Payload().Decode[T]()
-	if err != nil {
-		return result, nil, fmt.Errorf("%w: decode settlement: %w", ErrInvalidProtocol, err)
-	}
-	return result, nil, nil
-}

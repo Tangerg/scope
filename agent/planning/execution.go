@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/Tangerg/scope/agent/internal/strategy/awaited"
 	"github.com/Tangerg/scope/agent/internal/strategy/child"
 	"github.com/Tangerg/scope/agent/internal/strategy/stepfail"
 	"github.com/Tangerg/scope/agent/run"
@@ -53,7 +54,7 @@ func (e *execution) requestSense(turn run.Turn, consumedMessages uint32, confirm
 }
 
 func (e *execution) acceptSense(ctx context.Context, turn run.Turn) (run.Transition, error) {
-	sensed, failure, err := decodeSettlement[senseResult](turn.Messages, e.state.Sense.Effect)
+	sensed, failure, err := awaited.Settlement[senseResult](turn.Messages, e.state.Sense.Effect, ErrInvalidProtocol)
 	if err != nil {
 		return run.Transition{}, err
 	}
@@ -142,7 +143,7 @@ func (e *execution) startChild(turn run.Turn, consumedMessages uint32, binding a
 
 func (e *execution) acceptAction(turn run.Turn) (run.Transition, error) {
 	name := e.state.Action.Name
-	_, failure, err := decodeSettlement[actionCompleted](turn.Messages, e.state.Action.Effect)
+	_, failure, err := awaited.Settlement[actionCompleted](turn.Messages, e.state.Action.Effect, ErrInvalidProtocol)
 	if err != nil {
 		return run.Transition{}, err
 	}
