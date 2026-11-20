@@ -75,6 +75,9 @@ func (t ToolCall) Outcome() interaction.ToolOutcome {
 type callProjection struct {
 	models map[run.EffectID]ModelCall
 	tools  map[run.EffectID]ToolCall
+	// undeclared is the first dispatcher Effect whose Program the Coverage does
+	// not name, or zero when every one is declared.
+	undeclared run.EffectID
 }
 
 func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
@@ -82,23 +85,20 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 	if coverage == nil {
 		return projection, nil
 	}
-	roles, err := coverage.classifications()
+	protocols, err := coverage.protocols()
 	if err != nil {
 		return callProjection{}, err
 	}
-	seen := make(map[run.EffectID]bool, len(roles))
+	programs := make(map[run.ProcessID]run.ProgramRef)
 	for _, entry := range log.Entries {
 		switch record := entry.Record.(type) {
+		case run.Started:
+			programs[record.Process] = record.Program
 		case run.EffectIntent:
-			role := roles[record.ID]
-			if role == effectRoleInvalid {
+			if record.Effect.Target() != run.EffectTargetDispatcher {
 				continue
 			}
-			if record.Effect.Target() != run.EffectTargetDispatcher {
-				return callProjection{}, fmt.Errorf("%w: coverage names a kernel effect", ErrInvalidTrajectory)
-			}
-			seen[record.ID] = true
-			if err := projection.intent(record, role); err != nil {
+			if err := projection.intent(record, protocols[programs[record.ID.Process]]); err != nil {
 				return callProjection{}, err
 			}
 		case run.EffectSettled:
@@ -107,32 +107,35 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 			}
 		}
 	}
-	if len(seen) != len(roles) {
-		return callProjection{}, fmt.Errorf("%w: coverage names an absent effect", ErrInvalidTrajectory)
-	}
 	return projection, nil
 }
 
-func (c *callProjection) intent(record run.EffectIntent, role effectRole) error {
-	switch role {
-	case effectRoleModel:
-		intent, recognized, err := interaction.ModelCallFromEffect(record.Effect)
-		if err != nil {
-			return fmt.Errorf("%w: model intent %s: %w", ErrInvalidTrajectory, record.ID, err)
+// intent records a dispatcher Effect under the protocol of the Program that
+// emitted it. An Interaction Program's context preparation stays opaque.
+func (c *callProjection) intent(record run.EffectIntent, protocol protocol) error {
+	switch protocol {
+	case protocolUndeclared:
+		if !c.undeclared.Valid() {
+			c.undeclared = record.ID
 		}
-		if !recognized {
-			return fmt.Errorf("%w: model intent %s has a different protocol", ErrInvalidTrajectory, record.ID)
-		}
-		c.models[record.ID] = ModelCall{EffectID: record.ID, Sequence: intent.Sequence, Request: intent.Request.Clone()}
-	case effectRoleTool:
-		intent, recognized, err := interaction.ToolCallFromEffect(record.Effect)
-		if err != nil {
-			return fmt.Errorf("%w: tool intent %s: %w", ErrInvalidTrajectory, record.ID, err)
-		}
-		if !recognized {
-			return fmt.Errorf("%w: tool intent %s has a different protocol", ErrInvalidTrajectory, record.ID)
-		}
-		c.tools[record.ID] = ToolCall{EffectID: record.ID, ContinuationOf: intent.ContinuationOf, Call: intent.Call}
+		return nil
+	case protocolOpaque:
+		return nil
+	}
+	model, isModel, err := interaction.ModelCallFromEffect(record.Effect)
+	if err != nil {
+		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, record.ID, err)
+	}
+	if isModel {
+		c.models[record.ID] = ModelCall{EffectID: record.ID, Sequence: model.Sequence, Request: model.Request.Clone()}
+		return nil
+	}
+	call, isTool, err := interaction.ToolCallFromEffect(record.Effect)
+	if err != nil {
+		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, record.ID, err)
+	}
+	if isTool {
+		c.tools[record.ID] = ToolCall{EffectID: record.ID, ContinuationOf: call.ContinuationOf, Call: call.Call}
 	}
 	return nil
 }

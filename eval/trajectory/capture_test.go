@@ -165,7 +165,7 @@ func TestBackwardWallClockCannotProduceAnElapsedMeasurement(t *testing.T) {
 func TestInvalidSemanticSettlementIsRejectedWithoutAlternativeDecoding(t *testing.T) {
 	actual := coveredInteraction(t)
 	config := trajectoryConfig(t, actual)
-	target := config.Coverage.Tools[0]
+	target := actual.ToolCalls()[0].EffectID
 	for index, entry := range config.Log.Entries {
 		settled, ok := entry.Record.(run.EffectSettled)
 		if !ok || settled.ID != target {

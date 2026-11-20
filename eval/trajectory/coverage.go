@@ -7,50 +7,50 @@ import (
 	"github.com/Tangerg/scope/agent/run"
 )
 
-// Coverage declares the protocol of each dispatcher intent independently of
-// its result. Only declared interaction effects are decoded as model or tool
-// calls; arbitrary dispatcher payloads remain opaque.
+// Coverage declares the protocol each Program speaks. Every dispatcher Effect
+// of a process that runs an Interactions Program is decoded as a model or tool
+// call; the Effects of an Opaque Program are never interpreted. The Program
+// that emits an Effect owns its protocol, so the declaration names Programs
+// rather than Effects and cannot disagree with a payload.
 type Coverage struct {
-	Models []run.EffectID `json:"models,omitempty"`
-	Tools  []run.EffectID `json:"tools,omitempty"`
-	Other  []run.EffectID `json:"other,omitempty"`
+	Interactions []run.ProgramRef `json:"interactions,omitempty"`
+	Opaque       []run.ProgramRef `json:"opaque,omitempty"`
 }
 
 func (c *Coverage) clone() *Coverage {
 	if c == nil {
 		return nil
 	}
-	return &Coverage{Models: slices.Clone(c.Models), Tools: slices.Clone(c.Tools), Other: slices.Clone(c.Other)}
+	return &Coverage{Interactions: slices.Clone(c.Interactions), Opaque: slices.Clone(c.Opaque)}
 }
 
 func (c Coverage) Validate() error {
-	_, err := c.classifications()
+	_, err := c.protocols()
 	return err
 }
 
-func (c Coverage) classifications() (map[run.EffectID]effectRole, error) {
-	seen := make(map[run.EffectID]effectRole, len(c.Models)+len(c.Tools)+len(c.Other))
+func (c Coverage) protocols() (map[run.ProgramRef]protocol, error) {
+	protocols := make(map[run.ProgramRef]protocol, len(c.Interactions)+len(c.Opaque))
 	for _, group := range [...]struct {
-		role    effectRole
-		effects []run.EffectID
+		protocol protocol
+		programs []run.ProgramRef
 	}{
-		{effectRoleModel, c.Models}, {effectRoleTool, c.Tools}, {effectRoleOther, c.Other},
+		{protocolInteraction, c.Interactions}, {protocolOpaque, c.Opaque},
 	} {
-		for _, id := range group.effects {
-			if !id.Valid() || seen[id] != effectRoleInvalid {
-				return nil, fmt.Errorf("%w: coverage requires unique valid effect identities", ErrInvalidTrajectory)
+		for _, program := range group.programs {
+			if !program.Valid() || protocols[program] != protocolUndeclared {
+				return nil, fmt.Errorf("%w: coverage requires unique valid Program references", ErrInvalidTrajectory)
 			}
-			seen[id] = group.role
+			protocols[program] = group.protocol
 		}
 	}
-	return seen, nil
+	return protocols, nil
 }
 
-type effectRole uint8
+type protocol uint8
 
 const (
-	effectRoleInvalid effectRole = iota
-	effectRoleModel
-	effectRoleTool
-	effectRoleOther
+	protocolUndeclared protocol = iota
+	protocolInteraction
+	protocolOpaque
 )

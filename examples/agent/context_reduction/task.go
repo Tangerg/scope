@@ -221,40 +221,9 @@ func runTask(ctx context.Context, task contextTask, policy contextPolicy) (recor
 	return captureContext(ctx, root)
 }
 
+// captureContext records a tree whose only Program is the interaction root.
 func captureContext(ctx context.Context, root *agentrun.Handle[interaction.Output]) (trajectory.Trajectory, error) {
-	raw, err := trajectory.Capture(ctx, root, nil)
-	if err != nil {
-		return trajectory.Trajectory{}, err
-	}
-	log, err := raw.Log()
-	if err != nil {
-		return trajectory.Trajectory{}, err
-	}
-	coverage := new(trajectory.Coverage)
-	for _, entry := range log.Entries {
-		intent, ok := entry.Record.(agentrun.EffectIntent)
-		if !ok || intent.Effect.Target() != agentrun.EffectTargetDispatcher {
-			continue
-		}
-		_, isModel, err := interaction.ModelCallFromEffect(intent.Effect)
-		if err != nil {
-			return trajectory.Trajectory{}, err
-		}
-		if isModel {
-			coverage.Models = append(coverage.Models, intent.ID)
-			continue
-		}
-		_, isTool, err := interaction.ToolCallFromEffect(intent.Effect)
-		if err != nil {
-			return trajectory.Trajectory{}, err
-		}
-		if isTool {
-			coverage.Tools = append(coverage.Tools, intent.ID)
-		} else {
-			coverage.Other = append(coverage.Other, intent.ID)
-		}
-	}
-	return trajectory.New(trajectory.Config{Log: log, Coverage: coverage})
+	return trajectory.Capture(ctx, root, &trajectory.Coverage{Interactions: []agentrun.ProgramRef{root.ProgramRef()}})
 }
 
 func contextInput() interaction.Input {

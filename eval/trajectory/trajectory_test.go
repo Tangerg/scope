@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -250,30 +251,14 @@ func startInteraction(t *testing.T, model chat.Model, tools []tool.Tool, store r
 	return handle, runtime, program
 }
 
+// interactionCoverage declares every Program of an interaction-only test tree
+// as speaking the interaction protocol.
 func interactionCoverage(t *testing.T, log run.Log) *trajectory.Coverage {
 	t.Helper()
 	coverage := new(trajectory.Coverage)
 	for _, entry := range log.Entries {
-		intent, ok := entry.Record.(run.EffectIntent)
-		if !ok || intent.Effect.Target() != run.EffectTargetDispatcher {
-			continue
-		}
-		_, model, err := interaction.ModelCallFromEffect(intent.Effect)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if model {
-			coverage.Models = append(coverage.Models, intent.ID)
-			continue
-		}
-		_, call, err := interaction.ToolCallFromEffect(intent.Effect)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if call {
-			coverage.Tools = append(coverage.Tools, intent.ID)
-		} else {
-			coverage.Other = append(coverage.Other, intent.ID)
+		if started, ok := entry.Record.(run.Started); ok && !slices.Contains(coverage.Interactions, started.Program) {
+			coverage.Interactions = append(coverage.Interactions, started.Program)
 		}
 	}
 	return coverage
@@ -379,7 +364,7 @@ func TestPortableLogOwnsEveryOutcomeAndDetachedProjection(t *testing.T) {
 	first := config.Log.Entries[0].Record.(run.Started)
 	first.Input, _ = run.EncodePayload("changed input")
 	config.Log.Entries[0].Record = first
-	config.Coverage.Models = nil
+	config.Coverage.Interactions = nil
 	models, tools := recorded.ModelCalls(), recorded.ToolCalls()
 	models[0].Request.Messages = nil
 	models[0].Settlement.Response.Output.Message.Parts = nil

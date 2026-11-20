@@ -10,21 +10,37 @@ import (
 	"github.com/Tangerg/scope/eval/trajectory"
 )
 
-func TestCoverageCannotClassifyOneEffectTwiceOrInventOwnership(t *testing.T) {
+func TestCoverageDeclaresEachProgramOnce(t *testing.T) {
 	actual := coveredInteraction(t)
 	config := trajectoryConfig(t, actual)
+	program := config.Coverage.Interactions[0]
 	for _, coverage := range []*trajectory.Coverage{
-		{Models: []run.EffectID{config.Coverage.Models[0], config.Coverage.Models[0]}},
-		{Models: []run.EffectID{config.Coverage.Models[0]}, Other: []run.EffectID{config.Coverage.Models[0]}},
-		{Tools: []run.EffectID{{}}},
-		{Models: []run.EffectID{{Process: config.Log.Root, Step: 999, Index: 0}}},
-		{Models: config.Coverage.Tools},
-		{Tools: config.Coverage.Models},
+		{Interactions: []run.ProgramRef{program, program}},
+		{Interactions: []run.ProgramRef{program}, Opaque: []run.ProgramRef{program}},
+		{Opaque: []run.ProgramRef{{}}},
 	} {
 		config.Coverage = coverage
 		if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-			t.Fatalf("invalid classification admitted: %+v %v", coverage, err)
+			t.Fatalf("invalid declaration admitted: %+v %v", coverage, err)
 		}
+	}
+}
+
+// An opaque Program's Effects are complete evidence without being decoded, so
+// they prove neither calls nor tokens yet leave nothing undeclared.
+func TestOpaqueProgramIsDeclaredWithoutInterpretingItsEffects(t *testing.T) {
+	actual := coveredInteraction(t)
+	config := trajectoryConfig(t, actual)
+	config.Coverage = &trajectory.Coverage{Opaque: config.Coverage.Interactions}
+	opaque, err := trajectory.New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := opaque.CheckCoverage(); err != nil {
+		t.Fatal("declared opaque Program left the recording incomplete", err)
+	}
+	if len(opaque.ModelCalls()) != 0 || len(opaque.ToolCalls()) != 0 {
+		t.Fatal("opaque payloads were interpreted")
 	}
 }
 

@@ -261,14 +261,4 @@ func TestNestedDelegateBehaviorIgnoresProviderIdentityAndPublicationTime(t *test
 	if err != nil || before != after {
 		t.Fatalf("provider identity changed nested behavior: %s %s %v", before, after, err)
 	}
-	config := trajectoryConfig(t, first)
-	for _, entry := range config.Log.Entries {
-		if intent, ok := entry.Record.(run.EffectIntent); ok && intent.Effect.Target() == run.EffectTargetFramework {
-			config.Coverage.Other = append(config.Coverage.Other, intent.ID)
-			break
-		}
-	}
-	if _, err := trajectory.New(config); !errors.Is(err, trajectory.ErrInvalidTrajectory) {
-		t.Fatal("kernel effect was accepted as dispatcher evidence", err)
-	}
 }

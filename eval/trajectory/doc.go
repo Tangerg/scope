@@ -2,9 +2,10 @@
 //
 // The append log is the only portable runtime evidence. Calls, terminal output,
 // usage, elapsed time, and behavior comparisons are derived projections. A host
-// classifies dispatcher intents with Coverage before model or tool payloads are
-// interpreted; arbitrary dispatcher payloads remain opaque. Token accounting is
-// never inferred from a successful model response without explicit provider usage.
+// declares with Coverage which Programs speak the interaction protocol before
+// their payloads are interpreted; the Effects of every other Program remain
+// opaque. Token accounting is never inferred from a successful model response
+// without explicit provider usage.
 // New requires history from the tree's Start: recovery checkpoints omit earlier
 // calls and reaped children, so they cannot support trajectory evaluation.
 //

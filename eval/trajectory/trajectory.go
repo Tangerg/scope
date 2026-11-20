@@ -161,18 +161,8 @@ func (t Trajectory) CheckCoverage() error {
 	if t.coverage == nil {
 		return fmt.Errorf("%w: semantic coverage is undeclared", ErrIncompleteRecording)
 	}
-	roles, err := t.coverage.classifications()
-	if err != nil {
-		return err
-	}
-	for _, entry := range t.log.Entries {
-		record, ok := entry.Record.(run.EffectIntent)
-		if !ok || record.Effect.Target() != run.EffectTargetDispatcher {
-			continue
-		}
-		if roles[record.ID] == effectRoleInvalid {
-			return fmt.Errorf("%w: dispatcher effect %s is unclassified", ErrIncompleteRecording, record.ID)
-		}
+	if t.calls.undeclared.Valid() {
+		return fmt.Errorf("%w: dispatcher effect %s runs an undeclared Program", ErrIncompleteRecording, t.calls.undeclared)
 	}
 	for _, call := range t.calls.models {
 		if call.Settlement == nil {
