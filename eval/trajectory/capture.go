@@ -21,7 +21,7 @@ type Source interface {
 
 // Capture uses the committed head as a fence. It never waits for future work or
 // consumes the source, so unresolved effects and repeated exports remain useful.
-// Await or Join before Capture when a terminal trajectory is required.
+// Await before Capture when a terminal trajectory is required.
 func Capture(ctx context.Context, source Source, coverage *Coverage) (Trajectory, error) {
 	if lo.IsNil(source) || !source.ID().Valid() || source.ID().Depth() != 0 {
 		return Trajectory{}, fmt.Errorf("%w: root log source is required", ErrIncompleteRecording)

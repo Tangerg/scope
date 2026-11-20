@@ -262,6 +262,10 @@ func (r *Runtime) Recover[I, O any](ctx context.Context, program Program[I, O], 
 	return handle, nil
 }
 
+// Process returns a Handle for an unreaped process of a tree this Runtime
+// holds: one it started or recovered, until ReleaseTree or the end of Run
+// releases it. It reports false for any other tree; read such a tree through
+// Inspect or History instead.
 func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
 	if r == nil {
 		return nil, false
@@ -281,6 +285,8 @@ func (r *Runtime) Process(id ProcessID) (*Handle[Payload], bool) {
 	return &Handle[Payload]{runtime: r, tree: tree, process: p, id: id, program: p.started.Program, epoch: tree.state.epoch}, true
 }
 
+// Inspect projects the tree's recovery cut from the Store, so it reports the
+// newest state any writer acknowledged, including trees another Runtime writes.
 func (r *Runtime) Inspect(ctx context.Context, root ProcessID) (TreeInspection, error) {
 	if r == nil {
 		return TreeInspection{}, ErrInvalidConfig

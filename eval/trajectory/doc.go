@@ -9,7 +9,7 @@
 // calls and reaped children, so they cannot support trajectory evaluation.
 //
 // Capture reads through the head observed at entry. It is repeatable and can
-// export an unresolved tree; callers Await or Join before Capture when their
+// export an unresolved tree; callers Await before Capture when their
 // evaluation requires terminal evidence. Stable log positions retain history
 // through recovery, without callback queues or a second recording lifecycle.
 //

@@ -132,10 +132,13 @@ func (t Trajectory) ToolCalls() []ToolCall {
 	return calls
 }
 
-// A root exit is published only after its descendants and effects settle.
-// Recovery changes Epoch, never the completeness of retained log history.
+// HistoryComplete reports whether the root has exited. New admits only a log
+// that begins at the tree start, and a root exits only after its descendants
+// exit, so the retained history then holds every Step of the tree. An Effect
+// that settled Unknown stays Unknown in it. Recovery changes Epoch, never the
+// completeness of retained log history.
 func (t Trajectory) HistoryComplete() bool {
-	return t.log.Complete() && t.Termination().Valid()
+	return t.Termination().Valid()
 }
 
 func (t Trajectory) TreeUsage() (run.Usage, error) {

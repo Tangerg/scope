@@ -47,8 +47,8 @@
 // resolution: the termination it recorded decides its Exit, and each Unknown
 // Effect stays Unknown in its history, and in Inspection until the process is
 // reaped. Exit closes that history, so the outcome can no longer be resolved
-// there. Yield declares local
-// Wait values directly; the inbox never contains a wait-opening handshake.
+// there. Yield declares local Wait values directly; the inbox never contains a
+// wait-opening handshake.
 // A WaitKey permanently identifies its first question, answer schema and byte
 // limit. Withdrawal stops answer admission but retains that contract in the
 // process and its Checkpoints; reintroduction must repeat it exactly. An

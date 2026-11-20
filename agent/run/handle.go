@@ -31,6 +31,12 @@ func (h *Handle[O]) Inspect(ctx context.Context) (TreeInspection, error) {
 	return h.runtime.Inspect(ctx, h.id.Root())
 }
 
+// DeliverSignals admits signals to this process as one batch. It reports true
+// when the batch admitted at least one new Signal, and false with a nil error
+// when every Signal was already admitted with the same payload, so an exact
+// retry after a lost acknowledgment is confirmed rather than repeated. Reusing
+// a SignalID with a different payload is ErrSignalConflict. Once this writer
+// can no longer admit input, only an exact retry succeeds.
 func (h *Handle[O]) DeliverSignals(ctx context.Context, signals ...Signal) (bool, error) {
 	if err := requireContext(ctx).Err(); err != nil {
 		return false, err
@@ -93,6 +99,10 @@ func (h *Handle[O]) committedSignals(ctx context.Context, signals []Signal) erro
 	return ErrProcessNotActive
 }
 
+// Answer delivers value to the process's pending Wait. The SignalID derives
+// from the WaitKey, so repeating the same answer is confirmed without being
+// admitted twice, and a different answer to an answered Wait is
+// ErrSignalConflict. An answer the Wait does not admit is ErrSignalRejected.
 func (h *Handle[O]) Answer[A any](ctx context.Context, wait WaitKey, value A) error {
 	if !wait.Valid() {
 		return ErrSignalRejected
