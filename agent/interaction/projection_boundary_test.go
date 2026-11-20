@@ -74,7 +74,7 @@ func TestPublicSettlementDecodersRequireTheMatchingEvidenceVariant(t *testing.T)
 	call := requested("echo", "one")
 	model := mustValue((modelCallResult{Response: finalResponse("done")}).settlement())
 	toolResult := mustValue((toolDispatchResult{Completion: &toolCallResult{Disposition: ResultSucceeded, Output: tool.NewTextOutput("echo")}}).settlement())
-	failure := mustValue(run.NewFailure(run.FailureKindExternal, failureCodeModelFailed, "rejected"))
+	failure := mustValue(run.NewFailure(FailureModelFailed.Kind(), FailureModelFailed.Code(), "rejected"))
 	nullDetails := mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(`null`)))))
 	for _, outcome := range []run.Settlement{{}, toolResult, mustValue(run.NewSettlement(run.SettlementStatusSucceeded, mustValue(run.ParsePayload([]byte(`{}`))))), nullDetails} {
 		if _, err := ModelSettlementFromRecord(run.EffectSettled{Outcome: outcome}); err == nil {

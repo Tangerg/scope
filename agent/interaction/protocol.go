@@ -269,7 +269,7 @@ func decodeEnvelope[E interface{ validate() error }](payload run.Payload, role s
 // failedSettlement settles a dispatcher Effect the Interaction protocol
 // itself rejects: a malformed Effect or an unconfigured collaborator.
 func failedSettlement(cause error) (run.Settlement, error) {
-	return stepfail.Settlement(run.FailureKindContract, failureCodeDispatchRejected, cause.Error())
+	return stepfail.Settlement(FailureDispatchRejected.Kind(), FailureDispatchRejected.Code(), cause.Error())
 }
 
 // decodeSettlement reads the settlement a delivered Completion carries for an
@@ -295,7 +295,7 @@ func decodeSettlement(settlement run.Settlement, expected operation) (resultEnve
 func (o operation) failedResponse(outcome run.Settlement) (*chat.Response, error) {
 	failure, _ := outcome.Failure()
 	if o != operationModelCall {
-		if outcome.Payload().Valid() || failure.Code() == failureCodeModelFailed || failure.Code() == failureCodeModelNotExecuted {
+		if classification := failure.Classification(); outcome.Payload().Valid() || classification == FailureModelFailed || classification == FailureModelNotExecuted {
 			return nil, ErrInvalidProtocol
 		}
 		return nil, nil
@@ -303,7 +303,7 @@ func (o operation) failedResponse(outcome run.Settlement) (*chat.Response, error
 	if !outcome.Payload().Valid() {
 		return nil, nil
 	}
-	if failure.Code() != failureCodeModelFailed {
+	if failure.Classification() != FailureModelFailed {
 		return nil, ErrInvalidProtocol
 	}
 	details, err := outcome.Payload().Decode[failedModelDetails]()

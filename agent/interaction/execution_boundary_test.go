@@ -41,41 +41,9 @@ func TestTruncatedProposalIsRejectedAsOneAtomicRound(t *testing.T) {
 	}
 }
 
-func TestUnfinishedOrAmbiguousModelCallsCannotExecuteTools(t *testing.T) {
-	for _, row := range []struct {
-		name     string
-		response *chat.Response
-		code     string
-	}{
-		{"stop with calls", func() *chat.Response {
-			response := callResponse(requested("write", "call"))
-			response.Output.FinishReason = chat.FinishReasonStop
-			return response
-		}(), failureCodeInteractionModelToolCallsNotCompleted},
-		{"no finished assistant message", &chat.Response{Output: &chat.Output{FinishReason: chat.FinishReasonStop}}, "interaction.model.invalid_response"},
-	} {
-		t.Run(row.name, func(t *testing.T) {
-			runtime := conformancetest.Runtime(t, run.Config{})
-			tools := toolSetTest(t, scriptTool{name: "write", invoke: func(context.Context, tool.Invocation) (tool.Result, error) {
-				t.Error("invalid model proposal executed a tool")
-				return tool.Result{}, nil
-			}})
-			program := compileTest(t, runtime, Config{Tools: tools, Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) { return row.response, nil }))})
-			result, err := startInteraction(t, runtime, program).Await(t.Context())
-			if err != nil {
-				t.Fatal(err)
-			}
-			failure, ok := result.Termination().Failure()
-			if !ok || failure.Code() != row.code || failure.Kind() != run.FailureKindExternal {
-				t.Fatalf("termination=%+v", result.Termination())
-			}
-		})
-	}
-}
-
 func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
-	codes := map[invocation.FailureKind]string{invocation.FailureFailed: failureCodeModelFailed, invocation.FailureNotExecuted: failureCodeModelNotExecuted}
-	for kind, code := range codes {
+	classifications := map[invocation.FailureKind]run.FailureClassification{invocation.FailureFailed: FailureModelFailed, invocation.FailureNotExecuted: FailureModelNotExecuted}
+	for kind, want := range classifications {
 		runtime := conformancetest.Runtime(t, run.Config{})
 		calls := 0
 		program := compileTest(t, runtime, Config{Model: CallModel(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
@@ -87,7 +55,7 @@ func TestDefiniteModelFailureTerminatesWithoutAnotherModelCall(t *testing.T) {
 			t.Fatal(err)
 		}
 		failure, ok := result.Termination().Failure()
-		if !ok || failure.Kind() != run.FailureKindExternal || failure.Code() != code || calls != 1 {
+		if !ok || failure.Classification() != want || calls != 1 {
 			t.Fatalf("model failure=%+v calls=%d", failure, calls)
 		}
 	}

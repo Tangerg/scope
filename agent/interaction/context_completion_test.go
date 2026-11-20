@@ -143,8 +143,7 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 		name      string
 		processor contextProcessorFunc
 		limit     int
-		kind      run.FailureKind
-		code      string
+		want      run.FailureClassification
 	}{
 		{"definite refusal", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 			failure := &ContextFailure{Cause: cause}
@@ -152,11 +151,11 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 				t.Fatal("context failure lost cause")
 			}
 			return nil, failure
-		}, 0, run.FailureKindExternal, failureCodeContextRejected},
-		{"invalid messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) { return nil, nil }, 0, run.FailureKindContract, failureCodeDispatchRejected},
+		}, 0, FailureContextRejected},
+		{"invalid messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) { return nil, nil }, 0, FailureDispatchRejected},
 		{"oversized messages", func(context.Context, ContextInvocation, *chat.Request) ([]chat.Message, error) {
 			return []chat.Message{chat.NewUserMessage(chat.NewTextPart(strings.Repeat("evidence", 100)))}, nil
-		}, 128, run.FailureKindContract, failureCodeDispatchRejected},
+		}, 128, FailureDispatchRejected},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
@@ -169,7 +168,7 @@ func TestInvalidContextFailsBeforeModelDispatch(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, ok := result.Termination().Failure()
-			if !ok || failure.Kind() != row.kind || failure.Code() != row.code {
+			if !ok || failure.Classification() != row.want {
 				t.Fatalf("termination=%+v", result.Termination())
 			}
 		})
@@ -232,18 +231,17 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 	for _, row := range []struct {
 		name      string
 		validator CompletionValidator
-		kind      run.FailureKind
-		code      string
+		want      run.FailureClassification
 	}{
 		{"invalid decision", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
 			return CompletionDecision{}, nil
-		}, run.FailureKindContract, failureCodeInteractionCompletionDecisionInvalid},
+		}, FailureCompletionDecisionInvalid},
 		{"callback failure", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
 			return CompletionDecision{}, errors.New("evidence cannot be validated")
-		}, run.FailureKindExecution, failureCodeInteractionCompletionValidatorFailed},
+		}, FailureCompletionValidatorFailed},
 		{"bounded retry", func(context.Context, CompletionCandidate) (CompletionDecision, error) {
 			return RejectCompletion("Add evidence.")
-		}, run.FailureKindExecution, failureCodeInteractionLimitModelCalls},
+		}, FailureModelCallLimit},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			runtime := conformancetest.Runtime(t, run.Config{})
@@ -257,7 +255,7 @@ func TestCompletionFailureClassificationAndModelCallBound(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, ok := result.Termination().Failure()
-			if !ok || failure.Kind() != row.kind || failure.Code() != row.code || models != 1 {
+			if !ok || failure.Classification() != row.want || models != 1 {
 				t.Fatalf("failure=%+v models=%d", failure, models)
 			}
 		})

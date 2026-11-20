@@ -140,7 +140,7 @@ func TestToolMessagesCannotChangeAnUnrelatedObligation(t *testing.T) {
 	execution, effect := pendingToolExecution(t, definition)
 	transition := advance(t, execution, 4, run.Completion{Effect: effect, Outcome: mustValue(failedSettlement(errors.New("dispatcher refused")))})
 	failure, found := transition.Failure()
-	if !found || transition.Kind() != run.TransitionKindFail || transition.Consumed() != 1 || failure.Kind() != run.FailureKindContract || failure.Code() != failureCodeDispatchRejected || failure.Message() != "dispatcher refused" {
+	if !found || transition.Kind() != run.TransitionKindFail || transition.Consumed() != 1 || failure.Classification() != FailureDispatchRejected || failure.Message() != "dispatcher refused" {
 		t.Fatal("definite dispatch failure lost its committed classification")
 	}
 }

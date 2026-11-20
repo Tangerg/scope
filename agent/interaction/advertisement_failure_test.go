@@ -40,7 +40,7 @@ func TestAdvertisementDefectPreservesCompletedExternalWork(t *testing.T) {
 				t.Fatal(err)
 			}
 			failure, ok := result.Termination().Failure()
-			if !ok || failure.Kind() != run.FailureKindContract || failure.Code() != failureCodeInteractionToolAdvertisementInvalid || calls != 1 {
+			if !ok || failure.Classification() != FailureToolAdvertisementInvalid || calls != 1 {
 				t.Fatalf("termination=%+v calls=%d", result.Termination(), calls)
 			}
 			log := completedLog(t, store, handle.ID())

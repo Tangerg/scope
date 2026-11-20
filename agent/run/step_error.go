@@ -26,6 +26,12 @@ func NewClassifiedError(kind FailureKind, code, message string) *ClassifiedError
 
 func (c *ClassifiedError) Error() string { return c.failure.Message() }
 
+// Classification is what a Host compares with Failure.Classification to
+// recognize this sentinel in a recorded Failure.
+func (c *ClassifiedError) Classification() FailureClassification {
+	return c.failure.Classification()
+}
+
 // StepFailure reports the Failure the Runtime persists when Execution.Step
 // returns an error wrapping a ClassifiedError. Its message includes the complete
 // wrapped diagnostic. It reports false for an error the Runtime records as

@@ -26,7 +26,7 @@ func TestCommittedEvidenceRejectsContradictoryOpaqueOutcomes(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			var outcome run.Settlement
 			if row.status == run.SettlementStatusFailed {
-				failure := mustValue(run.NewFailure(run.FailureKindContract, failureCodeDispatchRejected, "rejected"))
+				failure := mustValue(run.NewFailure(FailureDispatchRejected.Kind(), FailureDispatchRejected.Code(), "rejected"))
 				outcome = mustValue(run.NewFailedSettlement(failure, mustValue(run.ParsePayload([]byte(row.wire)))))
 			} else {
 				outcome = mustValue(run.NewSettlement(row.status, mustValue(run.ParsePayload([]byte(row.wire)))))

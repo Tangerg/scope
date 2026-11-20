@@ -100,7 +100,7 @@ func (d *dispatcher) prepareContext(ctx context.Context, req run.EffectRequest, 
 	messages, err := d.contextProcessor.PrepareContext(ctx, ContextInvocation{Effect: req, Sequence: call.ModelCallSequence}, call.request())
 	if err != nil {
 		if _, definite := errors.AsType[*ContextFailure](err); definite {
-			return stepfail.Settlement(run.FailureKindExternal, failureCodeContextRejected, err.Error())
+			return stepfail.Settlement(FailureContextRejected.Kind(), FailureContextRejected.Code(), err.Error())
 		}
 		return run.Settlement{}, err
 	}

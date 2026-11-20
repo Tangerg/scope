@@ -38,7 +38,7 @@ func TestCompleteFailsDefinitelyWhenFinalOutputExceedsDeliverableSize(t *testing
 		t.Fatalf("undeliverable output returned an opaque error, not a definite failure: %v", completeErr)
 	}
 	failure, failed := transition.Failure()
-	if !failed || failure.Kind() != run.FailureKindExecution || failure.Code() != "interaction.limit.response_bytes" {
+	if !failed || failure.Classification() != FailureResponseByteLimit {
 		t.Fatalf("transition = %+v, want a definite interaction.limit.response_bytes failure", transition)
 	}
 }

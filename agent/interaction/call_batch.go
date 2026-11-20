@@ -135,7 +135,7 @@ func (c *callInvocation) acceptToolSettlement(call chat.ToolCall, completion run
 	if outcome.AdvertisementFailure == "" {
 		return true, nil, nil
 	}
-	advertisement, err := run.NewFailure(run.FailureKindContract, failureCodeInteractionToolAdvertisementInvalid, outcome.AdvertisementFailure)
+	advertisement, err := run.NewFailure(FailureToolAdvertisementInvalid.Kind(), FailureToolAdvertisementInvalid.Code(), outcome.AdvertisementFailure)
 	return true, &advertisement, err
 }
 

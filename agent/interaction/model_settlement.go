@@ -81,13 +81,13 @@ func modelFailureSettlement(response *chat.Response, cause error) (run.Settlemen
 	if kind == invocation.FailureUnknown {
 		return (dispatchUncertainty{Model: &modelUncertainty{Diagnostic: diagnostic, Response: response}}).settlement()
 	}
-	code := failureCodeModelFailed
+	classification := FailureModelFailed
 	var details run.Payload
 	if kind == invocation.FailureNotExecuted {
 		if response != nil {
 			return run.Settlement{}, ErrInvalidModelSettlement
 		}
-		code = failureCodeModelNotExecuted
+		classification = FailureModelNotExecuted
 	} else if response != nil {
 		value := failedModelDetails{Response: response}
 		if err := value.validate(); err != nil {
@@ -99,7 +99,7 @@ func modelFailureSettlement(response *chat.Response, cause error) (run.Settlemen
 			return run.Settlement{}, err
 		}
 	}
-	failure, err := run.NewFailure(run.FailureKindExternal, code, diagnostic)
+	failure, err := run.NewFailure(classification.Kind(), classification.Code(), diagnostic)
 	if err != nil {
 		return run.Settlement{}, err
 	}

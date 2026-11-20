@@ -8,13 +8,6 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-const (
-	failureCodeDispatchRejected = "interaction.dispatch.rejected"
-	failureCodeContextRejected  = "interaction.context.rejected"
-	failureCodeModelFailed      = "interaction.model.failed"
-	failureCodeModelNotExecuted = "interaction.model.not_executed"
-)
-
 type modelUncertainty struct {
 	Diagnostic string         `json:"diagnostic"`
 	Response   *chat.Response `json:"response,omitzero"`
@@ -176,7 +169,7 @@ func ModelSettlementFromRecord(record run.EffectSettled) (ModelSettlement, error
 		// so a non-execution never carries one.
 		failure, _ := outcome.Failure()
 		result := ModelSettlement{Outcome: ModelOutcomeFailed, Failure: failure.Message(), Response: response}
-		if failure.Code() == failureCodeModelNotExecuted {
+		if failure.Classification() == FailureModelNotExecuted {
 			result.Outcome = ModelOutcomeNotExecuted
 		}
 		return result, nil

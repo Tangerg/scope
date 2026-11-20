@@ -77,8 +77,8 @@ func (e *execution) requestModel(
 	if !e.definition.maxModelCalls.Allows(e.state.ModelCallCount, 1) {
 		return stepfail.Transition(
 			consumedMessages,
-			run.FailureKindExecution,
-			failureCodeInteractionLimitModelCalls,
+			FailureModelCallLimit.Kind(),
+			FailureModelCallLimit.Code(),
 			"Interaction reached its configured model-call limit before a final response",
 		)
 	}
@@ -91,7 +91,7 @@ func (e *execution) requestModel(
 			return run.Transition{}, contextErr
 		}
 		if err != nil {
-			return stepfail.Transition(consumedMessages, run.FailureKindExecution, failureCodeInteractionContextPolicyFailed, err.Error())
+			return stepfail.Transition(consumedMessages, FailureContextPolicyFailed.Kind(), FailureContextPolicyFailed.Code(), err.Error())
 		}
 		if err := e.state.replaceModelContext(cloneMessages(messages)); err != nil {
 			return run.Transition{}, err
@@ -182,8 +182,8 @@ func (e *execution) acceptModel(ctx context.Context, turn run.Turn) (run.Transit
 	if len(calls) > 0 && !opensToolRound(response.Output.FinishReason) {
 		return stepfail.Transition(
 			consumedMessages,
-			run.FailureKindExternal,
-			failureCodeInteractionModelToolCallsNotCompleted,
+			FailureToolCallsNotCompleted.Kind(),
+			FailureToolCallsNotCompleted.Code(),
 			fmt.Sprintf("model output ended with %q; tool calls were not executed", response.Output.FinishReason),
 		)
 	}
@@ -241,8 +241,8 @@ func (e *execution) complete(consumedMessages uint32, output Output) (run.Transi
 		if errors.Is(err, run.ErrPayloadTooLarge) {
 			return stepfail.Transition(
 				consumedMessages,
-				run.FailureKindExecution,
-				failureCodeInteractionLimitResponseBytes,
+				FailureResponseByteLimit.Kind(),
+				FailureResponseByteLimit.Code(),
 				"final response exceeds the deliverable payload size limit",
 			)
 		}
@@ -275,8 +275,8 @@ func (e *execution) finishOrRetry(
 		if err != nil {
 			return stepfail.Transition(
 				consumedMessages,
-				run.FailureKindExecution,
-				failureCodeInteractionCompletionValidatorFailed,
+				FailureCompletionValidatorFailed.Kind(),
+				FailureCompletionValidatorFailed.Code(),
 				err.Error(),
 			)
 		}
@@ -284,8 +284,8 @@ func (e *execution) finishOrRetry(
 	if !decision.Valid() {
 		return stepfail.Transition(
 			consumedMessages,
-			run.FailureKindContract,
-			failureCodeInteractionCompletionDecisionInvalid,
+			FailureCompletionDecisionInvalid.Kind(),
+			FailureCompletionDecisionInvalid.Code(),
 			"CompletionValidator returned an invalid decision",
 		)
 	}
@@ -523,13 +523,3 @@ func (e *execution) acceptCall(turn run.Turn, message run.Message, call chat.Too
 		return false, nil, nil
 	}
 }
-
-const (
-	failureCodeInteractionToolAdvertisementInvalid   = "interaction.tool.advertisement_invalid"
-	failureCodeInteractionCompletionDecisionInvalid  = "interaction.completion.decision_invalid"
-	failureCodeInteractionCompletionValidatorFailed  = "interaction.completion.validator_failed"
-	failureCodeInteractionContextPolicyFailed        = "interaction.context.policy_failed"
-	failureCodeInteractionLimitModelCalls            = "interaction.limit.model_calls"
-	failureCodeInteractionLimitResponseBytes         = "interaction.limit.response_bytes"
-	failureCodeInteractionModelToolCallsNotCompleted = "interaction.model.tool_calls_not_completed"
-)

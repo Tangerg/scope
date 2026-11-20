@@ -69,6 +69,25 @@ func (f FailureClassification) Valid() bool {
 	return f.kind.Valid() && ValidQualifiedName(f.code)
 }
 
+// NewFailureClassification declares a classification that a Strategy records
+// on a failed Transition and a Host matches by equality with
+// Failure.Classification. An invalid kind or code is a programming error and
+// panics.
+func NewFailureClassification(kind FailureKind, code string) FailureClassification {
+	classification := FailureClassification{kind: kind, code: code}
+	if err := classification.validate(); err != nil {
+		panic(err)
+	}
+	return classification
+}
+
+func (f FailureClassification) validate() error {
+	if !f.Valid() {
+		return fmt.Errorf("%w: kind is required and code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
+	}
+	return nil
+}
+
 // Failure separates stable codes from diagnostic text so wording changes cannot
 // alter control flow. Its bounded UTF-8 message must survive snapshot JSON and
 // must exclude secrets.
@@ -87,8 +106,8 @@ func NewFailure(kind FailureKind, code, message string) (Failure, error) {
 // newFailure is the strict form decoding uses: persisted text must already be
 // normalized, because normalizing it would change what the log recorded.
 func newFailure(kind FailureKind, code, message string) (Failure, error) {
-	if !(FailureClassification{kind: kind, code: code}).Valid() {
-		return Failure{}, fmt.Errorf("%w: kind is required and code must be a lowercase qualified name containing at most %d bytes", ErrInvalidFailure, maxQualifiedNameBytes)
+	if err := (FailureClassification{kind: kind, code: code}).validate(); err != nil {
+		return Failure{}, err
 	}
 	if !ValidDiagnostic(message) {
 		return Failure{}, fmt.Errorf("%w: message must be non-empty, trimmed UTF-8 within %d bytes", ErrInvalidFailure, MaxDiagnosticBytes)

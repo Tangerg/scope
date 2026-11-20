@@ -117,3 +117,31 @@ func TestTerminationRestorationEnforcesReasonBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestDeclaredClassificationsMatchRecordedFailures(t *testing.T) {
+	declared := NewFailureClassification(FailureKindExternal, "strategy.model.rejected")
+	recorded, err := NewFailure(FailureKindExternal, "strategy.model.rejected", "model rejected")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorded.Classification() != declared {
+		t.Fatalf("recorded %+v does not match declared %+v", recorded.Classification(), declared)
+	}
+	sentinel := NewClassifiedError(FailureKindExternal, "strategy.model.invalid", "strategy: invalid model")
+	if sentinel.Classification() != NewFailureClassification(FailureKindExternal, "strategy.model.invalid") {
+		t.Fatalf("sentinel classification = %+v", sentinel.Classification())
+	}
+	for name, declare := range map[string]func(){
+		"missing kind": func() { NewFailureClassification(FailureKindInvalid, "strategy.model.rejected") },
+		"invalid code": func() { NewFailureClassification(FailureKindExternal, "Strategy Rejected") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if err, _ := recover().(error); !errors.Is(err, ErrInvalidFailure) {
+					t.Fatalf("panic = %v, want ErrInvalidFailure", err)
+				}
+			}()
+			declare()
+		})
+	}
+}
