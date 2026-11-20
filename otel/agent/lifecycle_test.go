@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/Tangerg/scope/agent/coordination"
 	"github.com/Tangerg/scope/agent/run"
@@ -69,6 +70,48 @@ func TestUnknownResolutionEndsOneLogicalEffectSpan(t *testing.T) {
 	}
 	if effects != 1 || uncertainties != 1 {
 		t.Fatalf("effects=%d uncertainty events=%d", effects, uncertainties)
+	}
+}
+
+func TestExitEndsTheSpanOfAnEffectThatStayedUnknown(t *testing.T) {
+	h := newObserverHarness(t)
+	handle, _ := startObservedExecution(t, h, testDispatcher{err: errors.New("secret dispatch acknowledgment lost")})
+	var unknown run.EffectSettled
+	for entry, err := range handle.Observe(t.Context(), 0) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settled, ok := entry.Record.(run.EffectSettled); ok && settled.Outcome.Status() == run.SettlementStatusUnknown {
+			unknown = settled
+			break
+		}
+	}
+	if err := handle.Cancel(t.Context(), "stop with the outcome unknown"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handle.Await(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.observer.Consume(t.Context(), handle, 0); err != nil {
+		t.Fatal(err)
+	}
+	var effect, process sdktrace.ReadOnlySpan
+	for _, span := range h.spans.Ended() {
+		switch {
+		case span.Name() == "agent.effect":
+			effect = span
+		case !span.Parent().IsValid():
+			process = span
+		}
+	}
+	if effect == nil || process == nil {
+		t.Fatal("the Exit left the Unknown effect span open")
+	}
+	if effect.Status().Code != codes.Error || effect.Status().Description != unknown.Failure.Code() {
+		t.Fatalf("effect status = %+v, want the Unknown classification %q", effect.Status(), unknown.Failure.Code())
+	}
+	if effect.EndTime().After(process.EndTime()) {
+		t.Fatal("the effect span outlived its process span")
 	}
 }
 

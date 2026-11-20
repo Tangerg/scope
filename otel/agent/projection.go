@@ -17,19 +17,21 @@ import (
 )
 
 const (
-	processIDAttribute       attribute.Key = "agent.process.id"
-	processRootIDAttribute   attribute.Key = "agent.process.root_id"
-	processParentIDAttribute attribute.Key = "agent.process.parent_id"
-	processDepthAttribute    attribute.Key = "agent.process.depth"
-	processStatusAttribute   attribute.Key = "agent.process.status"
-	processCauseAttribute    attribute.Key = "agent.process.cause"
-	programDigestAttribute   attribute.Key = "agent.program.digest"
-	epochAttribute           attribute.Key = "agent.epoch"
-	lsnAttribute             attribute.Key = "agent.log.lsn"
-	effectIDAttribute        attribute.Key = "agent.effect.id"
-	effectTargetAttribute    attribute.Key = "agent.effect.target"
-	effectStatusAttribute    attribute.Key = "agent.effect.status"
-	incompleteClassification               = "agent.observation.incomplete"
+	processIDAttribute          attribute.Key = "agent.process.id"
+	processRootIDAttribute      attribute.Key = "agent.process.root_id"
+	processParentIDAttribute    attribute.Key = "agent.process.parent_id"
+	processDepthAttribute       attribute.Key = "agent.process.depth"
+	processStatusAttribute      attribute.Key = "agent.process.status"
+	processCauseAttribute       attribute.Key = "agent.process.cause"
+	programDigestAttribute      attribute.Key = "agent.program.digest"
+	epochAttribute              attribute.Key = "agent.epoch"
+	lsnAttribute                attribute.Key = "agent.log.lsn"
+	effectIDAttribute           attribute.Key = "agent.effect.id"
+	effectTargetAttribute       attribute.Key = "agent.effect.target"
+	effectStatusAttribute       attribute.Key = "agent.effect.status"
+	incompleteClassification                  = "agent.observation.incomplete"
+	effectClassificationPrefix                = "agent.effect."
+	processClassificationPrefix               = "agent."
 )
 
 type observedSpan struct {
@@ -38,16 +40,24 @@ type observedSpan struct {
 	attributes []attribute.KeyValue
 }
 
+// observedEffect keeps an Unknown Effect's span open, because a resolution or
+// replay may still settle it. An exited process can no longer settle it, so
+// the Exit ends the span with the recorded Unknown classification.
+type observedEffect struct {
+	observedSpan
+	unknown string
+}
+
 type logProjection struct {
 	observer  *Observer
 	root      run.ProcessID
 	processes map[run.ProcessID]observedSpan
-	effects   map[run.EffectID]observedSpan
+	effects   map[run.EffectID]observedEffect
 	done      chan struct{}
 }
 
 func newLogProjection(observer *Observer, root run.ProcessID) *logProjection {
-	return &logProjection{observer: observer, root: root, processes: make(map[run.ProcessID]observedSpan), effects: make(map[run.EffectID]observedSpan), done: make(chan struct{})}
+	return &logProjection{observer: observer, root: root, processes: make(map[run.ProcessID]observedSpan), effects: make(map[run.EffectID]observedEffect), done: make(chan struct{})}
 }
 
 func (l *logProjection) apply(ctx context.Context, entry run.Entry) error {
@@ -115,7 +125,7 @@ func (l *logProjection) startEffect(ctx context.Context, entry run.Entry, fact r
 	spanAttributes := append([]attribute.KeyValue{}, attributes...)
 	spanAttributes = append(spanAttributes, effectIDAttribute.String(fact.ID.String()), processIDAttribute.String(fact.ID.Process.String()), uint64Attribute(epochAttribute, uint64(entry.Epoch)), uint64Attribute(lsnAttribute, uint64(entry.LSN)))
 	_, span := l.observer.tracer.Start(ctx, "agent.effect", trace.WithTimestamp(fact.At), trace.WithAttributes(spanAttributes...))
-	l.effects[fact.ID] = observedSpan{span: span, at: fact.At, attributes: attributes}
+	l.effects[fact.ID] = observedEffect{observedSpan: observedSpan{span: span, at: fact.At, attributes: attributes}}
 }
 
 func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact run.EffectSettled) {
@@ -132,16 +142,14 @@ func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact 
 			attributes = append(attributes, semconv.ErrorTypeKey.String(fact.Failure.Code()))
 		}
 		observed.span.AddEvent("agent.effect.unknown", trace.WithTimestamp(fact.At), trace.WithAttributes(attributes...))
+		observed.unknown = effectClassification(fact)
+		l.effects[fact.ID] = observed
 		return
 	}
 	attributes := append(observed.attributes, effectStatusAttribute.String(fact.Outcome.Status().String()))
 	observed.span.SetAttributes(attributes...)
 	if fact.Outcome.Status() != run.SettlementStatusSucceeded {
-		classification := "agent.effect." + fact.Outcome.Status().String()
-		if failure, failed := fact.Outcome.Failure(); failed {
-			classification = failure.Code()
-		}
-		classifySpan(observed.span, classification)
+		classifySpan(observed.span, effectClassification(fact))
 	}
 	if !fact.At.Before(observed.at) {
 		l.observer.instruments.effectDuration.Record(ctx, fact.At.Sub(observed.at).Seconds(), metric.WithAttributes(attributes...))
@@ -150,7 +158,26 @@ func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact 
 	delete(l.effects, fact.ID)
 }
 
+func effectClassification(fact run.EffectSettled) string {
+	if failure, failed := fact.Outcome.Failure(); failed {
+		return failure.Code()
+	}
+	if fact.Failure != nil {
+		return fact.Failure.Code()
+	}
+	return effectClassificationPrefix + fact.Outcome.Status().String()
+}
+
 func (l *logProjection) exitProcess(ctx context.Context, entry run.Entry, fact run.Exited) {
+	for id, observed := range l.effects {
+		if id.Process != fact.Process {
+			continue
+		}
+		observed.span.SetAttributes(append(observed.attributes, effectStatusAttribute.String(run.SettlementStatusUnknown.String()))...)
+		classifySpan(observed.span, observed.unknown)
+		observed.span.End(trace.WithTimestamp(fact.At))
+		delete(l.effects, id)
+	}
 	attributes := []attribute.KeyValue{processStatusAttribute.String(fact.Termination.Status().String()), processCauseAttribute.String(fact.Termination.Cause().String())}
 	l.observer.instruments.processExits.Add(ctx, 1, metric.WithAttributes(attributes...))
 	observed, ok := l.processes[fact.Process]
@@ -161,7 +188,7 @@ func (l *logProjection) exitProcess(ctx context.Context, entry run.Entry, fact r
 	observed.span.SetAttributes(attributes...)
 	observed.span.SetAttributes(uint64Attribute(lsnAttribute, uint64(entry.LSN)))
 	if fact.Termination.Status() != run.StatusCompleted {
-		classification := "agent." + fact.Termination.Cause().String()
+		classification := processClassificationPrefix + fact.Termination.Cause().String()
 		if failure, failed := fact.Termination.Failure(); failed {
 			classification = failure.Code()
 		}
