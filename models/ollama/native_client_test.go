@@ -3,6 +3,7 @@ package ollama_test
 import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/ollama"
 )
@@ -139,7 +141,8 @@ func TestNativeChatReportsProviderStatusAndMessage(t *testing.T) {
 		t.Fatalf("NewRequest: %v", err)
 	}
 	_, err = model.Call(t.Context(), request)
-	if err == nil || !strings.Contains(err.Error(), "503 Service Unavailable: daemon warming") {
+	evidence, ok := errors.AsType[*httpclient.ResponseError](err)
+	if !ok || evidence.HTTPStatus() != http.StatusServiceUnavailable || !strings.Contains(err.Error(), "daemon warming") {
 		t.Fatalf("Call error = %v, want provider status and message", err)
 	}
 }

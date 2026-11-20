@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/modeltest"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
@@ -144,12 +145,7 @@ func TestListModelsPreservesHTTPFailuresWithoutRetry(t *testing.T) {
 				t.Fatal(err)
 			}
 			ids, err := model.ListModels(t.Context(), 10, 4096)
-			type httpFailure interface {
-				error
-				HTTPStatus() int
-				HTTPHeader() http.Header
-			}
-			failure, ok := errors.AsType[httpFailure](err)
+			failure, ok := errors.AsType[*httpclient.ResponseError](err)
 			if !ok || failure.HTTPStatus() != status || failure.HTTPHeader().Get("Retry-After") != "60" || ids != nil {
 				t.Fatalf("HTTP failure: IDs = %v, error = %v", ids, err)
 			}

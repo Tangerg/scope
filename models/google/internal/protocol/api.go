@@ -193,12 +193,7 @@ func (*api) wrapError(err error) error {
 	if err == nil {
 		return nil
 	}
-	type httpError interface {
-		error
-		HTTPStatus() int
-		HTTPHeader() http.Header
-	}
-	if _, ok := errors.AsType[httpError](err); ok {
+	if _, ok := errors.AsType[*httpclient.ResponseError](err); ok {
 		return err
 	}
 	apiErr, ok := errors.AsType[genai.APIError](err)

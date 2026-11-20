@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/models/protocol/openai"
 )
 
@@ -40,12 +41,7 @@ func ExampleResponses_ListModels() {
 	}
 	fmt.Println(ids)
 	_, err = model.ListModels(context.Background(), 10, 1024)
-	type httpFailure interface {
-		error
-		HTTPStatus() int
-		HTTPHeader() http.Header
-	}
-	if failure, ok := errors.AsType[httpFailure](err); ok {
+	if failure, ok := errors.AsType[*httpclient.ResponseError](err); ok {
 		fmt.Printf("status: %d, retry after: %s\n", failure.HTTPStatus(), failure.HTTPHeader().Get("Retry-After"))
 	}
 	// Output:

@@ -10,11 +10,16 @@ const DefaultMaxJSONResponseBytes = 32 << 20
 
 const maximumRequestIDBytes = 128
 
-// ResponseError exposes transport evidence without turning a remote response
-// body into public diagnostics. It makes no claim about provider execution.
+// ResponseError is the one representation of a failed HTTP response across
+// providers. It exposes transport evidence, including headers such as
+// Retry-After, without turning a remote response body into public
+// diagnostics. It makes no claim about provider execution. An SDK binding
+// wraps its own error beside it, so the SDK error stays reachable through
+// errors.As.
 type ResponseError struct {
 	statusCode int
 	requestID  string
+	header     http.Header
 }
 
 // Providers name their request identifier differently; these two headers
@@ -29,7 +34,7 @@ func NewResponseError(statusCode int, header http.Header) *ResponseError {
 	if !validRequestID(requestID) {
 		requestID = ""
 	}
-	return &ResponseError{statusCode: statusCode, requestID: requestID}
+	return &ResponseError{statusCode: statusCode, requestID: requestID, header: header.Clone()}
 }
 
 func (r *ResponseError) Error() string {
@@ -41,6 +46,8 @@ func (r *ResponseError) Error() string {
 }
 
 func (r *ResponseError) HTTPStatus() int { return r.statusCode }
+
+func (r *ResponseError) HTTPHeader() http.Header { return r.header.Clone() }
 
 func (r *ResponseError) RequestID() string { return r.requestID }
 

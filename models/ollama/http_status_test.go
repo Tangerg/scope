@@ -9,6 +9,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	"github.com/Tangerg/scope/core/embedding"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/models/ollama"
 )
 
@@ -77,10 +78,7 @@ func TestNativeRequestsRejectNonSuccessStatusBeforeDecoding(t *testing.T) {
 			} {
 				t.Run(call.name, func(t *testing.T) {
 					err := call.run()
-					failure, ok := errors.AsType[interface {
-						error
-						HTTPStatus() int
-					}](err)
+					failure, ok := errors.AsType[*httpclient.ResponseError](err)
 					if !ok || failure.HTTPStatus() != status {
 						t.Fatalf("error=%v; want inspectable HTTP status %d", err, status)
 					}

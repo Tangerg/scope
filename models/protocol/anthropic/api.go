@@ -233,12 +233,7 @@ func (*api) wrapError(err error) error {
 	if err == nil {
 		return nil
 	}
-	type httpError interface {
-		error
-		HTTPStatus() int
-		HTTPHeader() http.Header
-	}
-	if _, ok := errors.AsType[httpError](err); ok {
+	if _, ok := errors.AsType[*httpclient.ResponseError](err); ok {
 		return err
 	}
 	apiErr, ok := errors.AsType[*anthropicsdk.Error](err)
@@ -247,9 +242,9 @@ func (*api) wrapError(err error) error {
 	}
 	var header http.Header
 	if apiErr.Response != nil {
-		header = apiErr.Response.Header.Clone()
+		header = apiErr.Response.Header
 	}
-	return &responseError{err: err, status: apiErr.StatusCode, header: header}
+	return fmt.Errorf("%w: %w", httpclient.NewResponseError(apiErr.StatusCode, header), err)
 }
 
 func (a *api) wrapResult[T any](value *T, err error) (*T, error) {

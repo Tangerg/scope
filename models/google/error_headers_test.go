@@ -10,6 +10,7 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/httpclient"
 )
 
 func TestNativeGenerationPreservesErrorHeaders(t *testing.T) {
@@ -39,11 +40,8 @@ func TestNativeGenerationPreservesErrorHeaders(t *testing.T) {
 				defer server.Close()
 				assertError := func(t *testing.T, err error) {
 					t.Helper()
-					var classified interface {
-						HTTPStatus() int
-						HTTPHeader() http.Header
-					}
-					if !errors.As(err, &classified) || classified.HTTPStatus() != http.StatusTooManyRequests {
+					classified, ok := errors.AsType[*httpclient.ResponseError](err)
+					if !ok || classified.HTTPStatus() != http.StatusTooManyRequests {
 						t.Fatalf("classification=%v", err)
 					}
 					headers := classified.HTTPHeader()

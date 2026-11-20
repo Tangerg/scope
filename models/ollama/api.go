@@ -152,44 +152,21 @@ func (a *api) request(
 	if len(errorBody) > maxNativeErrorBytes {
 		errorBody = errorBody[:maxNativeErrorBytes]
 	}
-	return nil, errors.Join(newNativeStatusError(response, errorBody), readErr)
+	return nil, errors.Join(statusError(response, errorBody), readErr)
 }
 
-type nativeStatusError struct {
-	statusCode int
-	status     string
-	message    string
-}
-
-func (n nativeStatusError) Error() string {
-	switch {
-	case n.status != "" && n.message != "":
-		return n.status + ": " + n.message
-	case n.status != "":
-		return n.status
-	case n.statusCode != 0 && n.message != "":
-		return fmt.Sprintf("%d: %s", n.statusCode, n.message)
-	case n.statusCode != 0:
-		return fmt.Sprintf("ollama: HTTP status %d", n.statusCode)
-	case n.message != "":
-		return n.message
-	default:
-		return "ollama: request failed"
-	}
-}
-
-func (n nativeStatusError) HTTPStatus() int { return n.statusCode }
-
-func newNativeStatusError(response *http.Response, body []byte) nativeStatusError {
+// statusError keeps Ollama's own failure text beside the transport evidence:
+// a local server's message, such as a missing model, is the actionable part.
+func statusError(response *http.Response, body []byte) error {
 	var providerFailure struct {
 		Error string `json:"error"`
 	}
 	if err := jsonv2.Unmarshal(body, &providerFailure); err != nil || providerFailure.Error == "" {
 		providerFailure.Error = string(body)
 	}
-	return nativeStatusError{
-		statusCode: response.StatusCode,
-		status:     response.Status,
-		message:    providerFailure.Error,
+	evidence := httpclient.NewResponseError(response.StatusCode, response.Header)
+	if providerFailure.Error == "" {
+		return evidence
 	}
+	return fmt.Errorf("%w: ollama: %s", evidence, providerFailure.Error)
 }

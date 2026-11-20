@@ -10,6 +10,7 @@ import (
 	openaisdk "github.com/openai/openai-go/v3"
 
 	corechat "github.com/Tangerg/scope/core/chat"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/models/openai"
 )
 
@@ -73,10 +74,7 @@ func TestZeroMaxRetriesSendsOneGenerationRequest(t *testing.T) {
 			if posts != 1 {
 				t.Fatalf("posts = %d, want 1", posts)
 			}
-			status, ok := errors.AsType[interface {
-				error
-				HTTPStatus() int
-			}](err)
+			status, ok := errors.AsType[*httpclient.ResponseError](err)
 			if !ok || status.HTTPStatus() != http.StatusServiceUnavailable {
 				t.Fatalf("error lost the HTTP status: %v", err)
 			}

@@ -51,3 +51,16 @@ func TestResponseErrorReadsTheConventionalRequestHeaders(t *testing.T) {
 		t.Fatalf("request_id=%q", got)
 	}
 }
+
+func TestResponseErrorSnapshotsHeadersWithoutPrintingThem(t *testing.T) {
+	header := http.Header{"Retry-After": {"17"}, "Set-Cookie": {"session=private"}}
+	failure := httpclient.NewResponseError(http.StatusTooManyRequests, header)
+	header["Retry-After"][0] = "0"
+	failure.HTTPHeader().Set("Retry-After", "1")
+	if got := failure.HTTPHeader().Get("Retry-After"); got != "17" {
+		t.Fatalf("Retry-After = %q, want the snapshot taken at construction", got)
+	}
+	if strings.Contains(failure.Error(), "private") {
+		t.Fatalf("diagnostic printed a header value: %q", failure.Error())
+	}
+}

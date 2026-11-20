@@ -90,7 +90,7 @@ func NewChatCompletions(ctx context.Context, config ChatModelConfig, dialect Dia
 // Both limits must be positive. maxResponseBytes bounds the total response bytes
 // across all pages; maxModels counts advertised entries, including duplicates.
 // Failure or incomplete pagination returns no IDs. The caller owns the deadline;
-// discovery performs no retries and preserves HTTPStatus and HTTPHeader errors.
+// discovery performs no retries and reports an HTTP failure as httpclient.ResponseError.
 func (c *ChatCompletions) ListModels(ctx context.Context, maxModels int, maxResponseBytes int64) ([]string, error) {
 	return c.api.listModels(ctx, maxModels, maxResponseBytes)
 }

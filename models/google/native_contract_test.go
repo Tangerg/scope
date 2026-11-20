@@ -15,6 +15,7 @@ import (
 
 	"github.com/Tangerg/scope/core/chat"
 	corecontent "github.com/Tangerg/scope/core/content"
+	"github.com/Tangerg/scope/core/httpclient"
 	"github.com/Tangerg/scope/core/media"
 	"github.com/Tangerg/scope/core/speech"
 	"github.com/Tangerg/scope/core/transcription"
@@ -140,11 +141,8 @@ func TestNativeSDKErrorClassificationPreservesCause(t *testing.T) {
 			defer server.Close()
 			assertError := func(t *testing.T, err error) {
 				t.Helper()
-				var classified interface {
-					HTTPStatus() int
-					HTTPHeader() http.Header
-				}
-				if !errors.As(err, &classified) || classified.HTTPStatus() != http.StatusBadRequest {
+				classified, ok := errors.AsType[*httpclient.ResponseError](err)
+				if !ok || classified.HTTPStatus() != http.StatusBadRequest {
 					t.Fatalf("HTTP classification = %v", err)
 				}
 				cause, ok := errors.AsType[genai.APIError](err)
