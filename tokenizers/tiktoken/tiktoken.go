@@ -38,19 +38,27 @@ func (e Encoding) Validate() error {
 	}
 }
 
+const (
+	reservedEndOfText   = "<|endoftext|>"
+	reservedEndOfPrompt = "<|endofprompt|>"
+	reservedFIMPrefix   = "<|fim_prefix|>"
+	reservedFIMMiddle   = "<|fim_middle|>"
+	reservedFIMSuffix   = "<|fim_suffix|>"
+)
+
 // The offline codec does not expose reserved-token decoding. These are the
 // vocabulary's published IDs, not text-matching rules; ordinary input still
 // passes through the codec without interpreting reserved marker strings.
 func (e Encoding) reservedTokens() map[int]string {
 	switch e {
 	case O200KBase:
-		return map[int]string{199999: "<|endoftext|>", 200018: "<|endofprompt|>"}
+		return map[int]string{199999: reservedEndOfText, 200018: reservedEndOfPrompt}
 	case CL100KBase:
-		return map[int]string{100257: "<|endoftext|>", 100258: "<|fim_prefix|>", 100259: "<|fim_middle|>", 100260: "<|fim_suffix|>", 100276: "<|endofprompt|>"}
+		return map[int]string{100257: reservedEndOfText, 100258: reservedFIMPrefix, 100259: reservedFIMMiddle, 100260: reservedFIMSuffix, 100276: reservedEndOfPrompt}
 	case P50KEdit:
-		return map[int]string{50256: "<|endoftext|>", 50281: "<|fim_prefix|>", 50282: "<|fim_middle|>", 50283: "<|fim_suffix|>"}
+		return map[int]string{50256: reservedEndOfText, 50281: reservedFIMPrefix, 50282: reservedFIMMiddle, 50283: reservedFIMSuffix}
 	default:
-		return map[int]string{50256: "<|endoftext|>"}
+		return map[int]string{50256: reservedEndOfText}
 	}
 }
 

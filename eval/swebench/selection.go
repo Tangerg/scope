@@ -18,6 +18,7 @@
 package swebench
 
 import (
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	jsonv2 "encoding/json/v2"
@@ -71,7 +72,7 @@ func NewSelection(config SelectionConfig) (Selection, error) {
 	if !nonempty(config.Dataset) || !nonempty(config.Split) {
 		return Selection{}, fmt.Errorf("%w: dataset and split are required without surrounding whitespace", ErrInvalidSelection)
 	}
-	if !hexadecimal(config.Revision, 40) && !hexadecimal(config.Revision, 64) {
+	if !hexadecimal(config.Revision, hex.EncodedLen(sha1.Size)) && !hexadecimal(config.Revision, hex.EncodedLen(sha256.Size)) {
 		return Selection{}, fmt.Errorf("%w: revision must be an immutable hexadecimal commit or content revision", ErrInvalidSelection)
 	}
 	if len(config.Tasks) == 0 {
@@ -136,8 +137,14 @@ func hexadecimal(value string, size int) bool {
 	return err == nil
 }
 
+const digestPrefix = "sha256:"
+
 func contentDigest(value string) bool {
-	return strings.HasPrefix(value, "sha256:") && hexadecimal(strings.TrimPrefix(value, "sha256:"), 64)
+	encoded, prefixed := strings.CutPrefix(value, digestPrefix)
+	return prefixed && hexadecimal(encoded, hex.EncodedLen(sha256.Size))
 }
 
-func digest(value []byte) string { return fmt.Sprintf("sha256:%x", sha256.Sum256(value)) }
+func digest(value []byte) string {
+	sum := sha256.Sum256(value)
+	return digestPrefix + hex.EncodeToString(sum[:])
+}

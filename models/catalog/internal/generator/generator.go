@@ -27,11 +27,6 @@ const (
 	sourceTimeout                 = 30 * time.Second
 	statusDeprecated              = "deprecated"
 	tierContext                   = "context"
-	providerVertexAI              = "vertexai"
-	providerAzureOpenAI           = "azureopenai"
-	providerGoogle                = "google"
-	providerOpenRouter            = "openrouter"
-	providerAlibaba               = "alibaba"
 	modelTypeChat                 = "chat"
 	modelTypeImage                = "image"
 	modelTypeTranscription        = "transcription"
@@ -48,6 +43,30 @@ const (
 	generatedFileMode             = 0o644
 )
 
+// Scope provider names, each the exact Provider constant of its adapter.
+const (
+	providerAlibaba     = "alibaba"
+	providerAnthropic   = "anthropic"
+	providerAzureOpenAI = "azureopenai"
+	providerBedrock     = "bedrock"
+	providerDeepSeek    = "deepseek"
+	providerFireworks   = "fireworks"
+	providerGoogle      = "google"
+	providerGroq        = "groq"
+	providerHuggingFace = "huggingface"
+	providerMiniMax     = "minimax"
+	providerMistral     = "mistral"
+	providerMoonshot    = "moonshot"
+	providerOllama      = "ollama"
+	providerOpenAI      = "openai"
+	providerOpenRouter  = "openrouter"
+	providerTogether    = "together"
+	providerVertexAI    = "vertexai"
+	providerXAI         = "xai"
+	providerXiaomi      = "xiaomi"
+	providerZhipu       = "zhipu"
+)
+
 // providerMap maps a models.dev provider id to our config/provider name
 // (the adapter's Provider constant, matched exactly).
 // OpenAI-compat and managed delegators keep their own name: vertexai is
@@ -55,26 +74,26 @@ const (
 // describes the retired Sonar API, not the current Agent API; do not import its
 // identities or copy other providers' prices and capabilities into that binding.
 var providerMap = map[string]string{
-	"anthropic":      "anthropic",
-	"openai":         "openai",
+	"anthropic":      providerAnthropic,
+	"openai":         providerOpenAI,
 	"google":         providerGoogle,
 	"google-vertex":  providerVertexAI,
-	"deepseek":       "deepseek",
-	"groq":           "groq",
-	"xai":            "xai",
-	"minimax":        "minimax",
-	"zhipuai":        "zhipu",
+	"deepseek":       providerDeepSeek,
+	"groq":           providerGroq,
+	"xai":            providerXAI,
+	"minimax":        providerMiniMax,
+	"zhipuai":        providerZhipu,
 	"alibaba":        providerAlibaba,
 	"azure":          providerAzureOpenAI,
-	"amazon-bedrock": "bedrock",
-	"fireworks-ai":   "fireworks",
-	"huggingface":    "huggingface",
-	"mistral":        "mistral",
-	"moonshotai":     "moonshot",
-	"ollama-cloud":   "ollama",
+	"amazon-bedrock": providerBedrock,
+	"fireworks-ai":   providerFireworks,
+	"huggingface":    providerHuggingFace,
+	"mistral":        providerMistral,
+	"moonshotai":     providerMoonshot,
+	"ollama-cloud":   providerOllama,
 	"openrouter":     providerOpenRouter,
-	"togetherai":     "together",
-	"xiaomi":         "xiaomi",
+	"togetherai":     providerTogether,
+	"xiaomi":         providerXiaomi,
 }
 
 // catwalkProviderMap maps our provider name to the catwalk provider serving
@@ -88,28 +107,28 @@ var providerMap = map[string]string{
 // the same fact. The twins add a handful of models; the ambiguity is not worth
 // them.
 var catwalkProviderMap = map[string]string{
-	"anthropic":   "anthropic",
-	"openai":      "openai",
-	"google":      "gemini",
-	"vertexai":    "vertexai",
-	"deepseek":    "deepseek",
-	"groq":        "groq",
-	"xai":         "xai",
-	"zhipu":       "zhipu",
-	"minimax":     "minimax",
-	"moonshot":    "moonshot",
-	"azureopenai": "azure",
-	"bedrock":     "bedrock",
-	"fireworks":   "fireworks",
-	"huggingface": "huggingface",
-	"openrouter":  "openrouter",
-	"alibaba":     "alibaba-singapore",
+	providerAnthropic:   "anthropic",
+	providerOpenAI:      "openai",
+	providerGoogle:      "gemini",
+	providerVertexAI:    "vertexai",
+	providerDeepSeek:    "deepseek",
+	providerGroq:        "groq",
+	providerXAI:         "xai",
+	providerZhipu:       "zhipu",
+	providerMiniMax:     "minimax",
+	providerMoonshot:    "moonshot",
+	providerAzureOpenAI: "azure",
+	providerBedrock:     "bedrock",
+	providerFireworks:   "fireworks",
+	providerHuggingFace: "huggingface",
+	providerOpenRouter:  "openrouter",
+	providerAlibaba:     "alibaba-singapore",
 }
 
 // officialModelIDs corrects an upstream id that does not match the one the
 // provider's own API accepts.
 var officialModelIDs = map[string]map[string]string{
-	"together": {
+	providerTogether: {
 		"essentialai/Rnj-1-Instruct": "essentialai/rnj-1-instruct",
 	},
 }

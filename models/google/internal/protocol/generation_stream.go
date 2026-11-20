@@ -18,7 +18,7 @@ type generationStream struct {
 
 func (g generationStream) advance(response *genai.GenerateContentResponse) (generationStream, error) {
 	if response == nil {
-		return g, errors.New("nil generation response")
+		return g, errNilGenerationResponse
 	}
 	if err := adoptStreamConstant(&g.responseID, response.ResponseID, "response id"); err != nil {
 		return g, err
@@ -76,7 +76,7 @@ func adoptStreamConstant(recorded *string, observed, name string) error {
 
 func singleGenerationCandidate(response *genai.GenerateContentResponse) (*genai.Candidate, error) {
 	if response == nil {
-		return nil, errors.New("nil generation response")
+		return nil, errNilGenerationResponse
 	}
 	if err := protocolPromptBlockError(response); err != nil {
 		if len(response.Candidates) != 0 {

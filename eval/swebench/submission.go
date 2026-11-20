@@ -83,7 +83,7 @@ func NewSubmission(config SubmissionConfig) (Submission, error) {
 	}
 	return Submission{
 		selection: config.Selection, model: config.Model, attemptID: config.AttemptID,
-		predictions: predictions, runID: strings.TrimPrefix(digest(identity), "sha256:"),
+		predictions: predictions, runID: strings.TrimPrefix(digest(identity), digestPrefix),
 	}, nil
 }
 

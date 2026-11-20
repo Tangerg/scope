@@ -20,12 +20,14 @@ func validateProtocolCompletion(response *genai.GenerateContentResponse) error {
 	return ValidateGenerationCompletion(response)
 }
 
+var errNilGenerationResponse = errors.New("nil generation response")
+
 // ValidateGenerationCompletion requires native success for every returned candidate.
 // Image generation may produce multiple candidates; unary speech narrows that
 // cardinality separately.
 func ValidateGenerationCompletion(response *genai.GenerateContentResponse) error {
 	if response == nil {
-		return errors.New("nil generation response")
+		return errNilGenerationResponse
 	}
 	if err := protocolPromptBlockError(response); err != nil {
 		return err

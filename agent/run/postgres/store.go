@@ -101,7 +101,7 @@ func (s *Store) Load(ctx context.Context, root run.ProcessID) (run.Log, bool, er
 	defer done()
 	// One statement locates the newest checkpoint and reads from it in one MVCC
 	// snapshot, even while another writer activates the tree or appends one.
-	rows, err := s.pool.Query(op, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>=COALESCE((SELECT max(c.lsn) FROM "+s.log+" c WHERE c.root=$1 AND c.kind="+checkpointKind+"),1) ORDER BY l.lsn", root.String())
+	rows, err := s.pool.Query(op, "SELECT "+entryColumns+" FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>=COALESCE((SELECT max(c.lsn) FROM "+s.log+" c WHERE c.root=$1 AND c.kind="+checkpointKind+"),1) ORDER BY l.lsn", root.String())
 	if err != nil {
 		return run.Log{}, false, fmt.Errorf("postgres: load log %s: %w", root, err)
 	}
@@ -130,7 +130,7 @@ func (s *Store) Read(ctx context.Context, root run.ProcessID, after run.LSN) ite
 		}
 		op, done := s.operation(ctx)
 		defer done()
-		rows, err := s.pool.Query(op, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric ORDER BY l.lsn", root.String(), strconv.FormatUint(uint64(after), 10))
+		rows, err := s.pool.Query(op, "SELECT "+entryColumns+" FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric ORDER BY l.lsn", root.String(), strconv.FormatUint(uint64(after), 10))
 		if err != nil {
 			yield(run.Entry{}, fmt.Errorf("postgres: read log %s: %w", root, err))
 			return
@@ -227,7 +227,7 @@ func (s *Store) head(ctx context.Context, tx pgx.Tx, root run.ProcessID) (run.LS
 
 func (s *Store) rangeEntries(ctx context.Context, tx pgx.Tx, batch run.Batch) ([]run.Entry, error) {
 	end := batch.After + run.LSN(len(batch.Records))
-	rows, err := tx.Query(ctx, "SELECT l.lsn::text,l.epoch::text,l.kind,l.body FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric AND l.lsn<=$3::text::numeric ORDER BY l.lsn", batch.Root.String(), strconv.FormatUint(uint64(batch.After), 10), strconv.FormatUint(uint64(end), 10))
+	rows, err := tx.Query(ctx, "SELECT "+entryColumns+" FROM "+s.log+" l WHERE l.root=$1 AND l.lsn>$2::text::numeric AND l.lsn<=$3::text::numeric ORDER BY l.lsn", batch.Root.String(), strconv.FormatUint(uint64(batch.After), 10), strconv.FormatUint(uint64(end), 10))
 	if err != nil {
 		return nil, err
 	}
@@ -245,6 +245,9 @@ func (s *Store) rangeEntries(ctx context.Context, tx pgx.Tx, batch run.Batch) ([
 // scanEntries reads coordinates as text because numeric(20,0) holds the whole
 // uint64 range. Every query orders by the qualified numeric column: a bare
 // ORDER BY lsn binds to the text output column and sorts "10" before "9".
+// entryColumns is the one row projection scanEntries reads, in its scan order.
+const entryColumns = "l.lsn::text,l.epoch::text,l.kind,l.body"
+
 func scanEntries(rows pgx.Rows) iter.Seq2[run.Entry, error] {
 	return func(yield func(run.Entry, error) bool) {
 		for rows.Next() {
