@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode"
 
 	pineconesdk "github.com/pinecone-io/go-pinecone/v7/pinecone"
 	"google.golang.org/protobuf/proto"
@@ -22,6 +23,10 @@ import (
 // complete protobuf Struct, including framing, with decimal KB reserves room
 // within the published 40 KB limit without omitting derived metadata fields.
 const metadataByteBudget = 40_000
+
+// maxNativeIdentifierBytes is Pinecone's limit on a record or namespace
+// identifier, which must be ASCII, so bytes and characters agree.
+const maxNativeIdentifierBytes = 512
 
 type nativeSchema struct {
 	dimensions int
@@ -128,7 +133,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 }
 
 func (n nativeSchema) decode(point *pineconesdk.Vector) (*document.Document, string, error) {
-	if point == nil || point.Id == "" || point.Values == nil || point.SparseValues != nil || point.Metadata == nil || len(point.Metadata.Fields) != 3 {
+	if point == nil || point.Id == "" || point.Values == nil || point.SparseValues != nil || point.Metadata == nil || len(point.Metadata.Fields) != len(metadataFields) {
 		return nil, "", errors.New("pinecone: native record does not have the current dense shape")
 	}
 	if err := n.validateVector(*point.Values); err != nil {
@@ -201,11 +206,11 @@ func validateNativeIdentifier(value string, allowEmpty bool) error {
 	if value == "" && !allowEmpty {
 		return vectorstore.ErrMissingDocumentID
 	}
-	if len(value) > 512 {
-		return errors.New("pinecone: native identifier exceeds 512 ASCII characters")
+	if len(value) > maxNativeIdentifierBytes {
+		return fmt.Errorf("pinecone: native identifier exceeds %d ASCII characters", maxNativeIdentifierBytes)
 	}
 	for i := range len(value) {
-		if value[i] == 0 || value[i] > 127 {
+		if value[i] == 0 || value[i] > unicode.MaxASCII {
 			return errors.New("pinecone: native identifier must be ASCII without NUL")
 		}
 	}

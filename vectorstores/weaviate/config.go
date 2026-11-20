@@ -1,7 +1,7 @@
 package weaviate
 
 import (
-	"fmt"
+	"errors"
 	"math"
 
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -20,6 +20,10 @@ const (
 	distanceManhattan = "manhattan"
 )
 
+// documentProperties are the properties of one stored document; a collection
+// declaring any other property set was not created for this store.
+var documentProperties = []string{fieldContent, fieldMetadata, fieldTerms}
+
 type StoreConfig struct {
 	Client     *Client
 	Collection string
@@ -36,7 +40,7 @@ func (s StoreConfig) Validate() error {
 		return err
 	}
 	if s.HybridAlpha != nil && (math.IsNaN(float64(*s.HybridAlpha)) || *s.HybridAlpha < 0 || *s.HybridAlpha > 1) {
-		return fmt.Errorf("weaviate: HybridAlpha must be finite and in [0,1]")
+		return errors.New("weaviate: HybridAlpha must be finite and in [0,1]")
 	}
 	return s.Client.validate()
 }

@@ -358,7 +358,11 @@ func (g groupSearch) command(keys []string) []any {
 			args = append(args, key)
 		}
 	}
-	return append(args, "RETURN", 5, contentField, embeddingField, metadataField, termsField, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, limit, "PARAMS", 2, vectorParamName, g.query, "DIALECT", redisSearchDialectVersion)
+	args = append(args, "RETURN", len(documentFields)+1)
+	for _, field := range documentFields {
+		args = append(args, field)
+	}
+	return append(args, distanceFieldName, "SORTBY", distanceFieldName, "ASC", "LIMIT", 0, limit, "PARAMS", 2, vectorParamName, g.query, "DIALECT", redisSearchDialectVersion)
 }
 
 // admit decodes one hit and rechecks a filtered hit against Core membership,

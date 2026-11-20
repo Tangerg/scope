@@ -50,15 +50,15 @@ func decodePolicy(collection *entity.Collection, name string) (nativePolicy, err
 	return policy, nil
 }
 
-// currentFields admits exactly the four current fields with caller-supplied
-// IDs and vectors, keyed by name.
+// currentFields admits exactly the document fields with caller-supplied IDs
+// and vectors, keyed by name.
 func currentFields(collection *entity.Collection, name string) (map[string]*entity.Field, error) {
 	if collection == nil || collection.Schema == nil {
 		return nil, fmt.Errorf("%w: missing collection", ErrSchemaMismatch)
 	}
 	schema := collection.Schema
-	if collection.Name != name || schema.CollectionName != name || schema.AutoID || schema.EnableDynamicField || len(schema.Functions) != 0 || len(schema.Fields) != 4 {
-		return nil, fmt.Errorf("%w: collection must have exactly the four current fields and caller-supplied IDs and vectors", ErrSchemaMismatch)
+	if collection.Name != name || schema.CollectionName != name || schema.AutoID || schema.EnableDynamicField || len(schema.Functions) != 0 || len(schema.Fields) != len(documentFields) {
+		return nil, fmt.Errorf("%w: collection must have exactly the document fields and caller-supplied IDs and vectors", ErrSchemaMismatch)
 	}
 	fields := make(map[string]*entity.Field, len(schema.Fields))
 	for _, field := range schema.Fields {

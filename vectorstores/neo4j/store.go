@@ -293,8 +293,10 @@ func (s *Store) decodeRecord(record *neo4j.Record) (*storedNode, error) {
 	if !ok {
 		return nil, fmt.Errorf("neo4j: stored properties have type %T", raw)
 	}
-	if len(props) != 4 {
-		return nil, errors.New("neo4j: node must contain exactly the four current document properties")
+	for name := range props {
+		if name != s.idProperty && name != s.textProperty && name != s.metadataProperty && name != s.embeddingProperty {
+			return nil, fmt.Errorf("neo4j: node has unexpected property %q", name)
+		}
 	}
 	id, idOK := props[s.idProperty].(string)
 	text, textOK := props[s.textProperty].(string)

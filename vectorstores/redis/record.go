@@ -94,7 +94,7 @@ func (n nativeSchema) decode(key string, fields map[string]string) (*document.Do
 	if !strings.HasPrefix(key, n.prefix) || len(key) == len(n.prefix) {
 		return nil, errors.New("redis: native key is outside the document namespace")
 	}
-	if len(fields) != 4 {
+	if len(fields) != len(documentFields) {
 		return nil, errors.New("redis: HASH must contain exactly the current document fields")
 	}
 	text, textOK := fields[contentField]

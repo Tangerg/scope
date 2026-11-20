@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/Tangerg/scope/core/vectorstore"
@@ -97,7 +98,7 @@ type indexSchema struct {
 }
 
 func (i indexSchema) bind(idField, contentField, embeddingField, metadataField string) (nativeMetric, int, error) {
-	fields, err := i.fieldsByName()
+	fields, err := i.fieldsByName(idField, contentField, embeddingField, metadataField)
 	if err != nil {
 		return "", 0, err
 	}
@@ -121,13 +122,17 @@ func (i indexSchema) bind(idField, contentField, embeddingField, metadataField s
 	return metric, vector.Dimensions, nil
 }
 
-// fieldsByName admits exactly four uniquely named, retrievable storage fields.
-func (i indexSchema) fieldsByName() (map[string]indexField, error) {
-	if len(i.Fields) != 4 {
-		return nil, fmt.Errorf("%w: exactly four native storage fields are required", ErrIncompatibleIndex)
+// fieldsByName admits exactly the named storage fields, each unique and
+// retrievable.
+func (i indexSchema) fieldsByName(names ...string) (map[string]indexField, error) {
+	if len(i.Fields) != len(names) {
+		return nil, fmt.Errorf("%w: exactly %d native storage fields are required", ErrIncompatibleIndex, len(names))
 	}
 	fields := make(map[string]indexField, len(i.Fields))
 	for _, field := range i.Fields {
+		if !slices.Contains(names, field.Name) {
+			return nil, fmt.Errorf("%w: unexpected field %q", ErrIncompatibleIndex, field.Name)
+		}
 		if _, duplicate := fields[field.Name]; duplicate {
 			return nil, fmt.Errorf("%w: duplicate field %q", ErrIncompatibleIndex, field.Name)
 		}

@@ -49,6 +49,17 @@ if bytes~=tonumber(ARGV[1]) then return -1 end
 return redis.call('HMGET',KEYS[1],unpack(ARGV,2,#ARGV))
 `
 
+// readHashArgs leads readHash's arguments with its mode, a measure request or
+// the measured size, followed by every document field.
+func readHashArgs(mode any) []any {
+	args := make([]any, 0, 1+len(documentFields))
+	args = append(args, mode)
+	for _, field := range documentFields {
+		args = append(args, field)
+	}
+	return args
+}
+
 func (s *scanGrant) selectRecords(ctx context.Context, store *Store, p filter.Predicate) (map[string]string, error) {
 	scan := &keyScan{grant: s, store: store, predicate: p, seen: make(map[string]bool), selected: make(map[string]string)}
 	if err := store.scanNodes(ctx, func(ctx context.Context, client *goredis.Client) error { return scan.node(ctx, client) }); err != nil {
@@ -143,7 +154,7 @@ func (k *keyScan) claim(key string) bool {
 // consider charges the grant for one HASH before reading it, then selects the
 // document when it satisfies the predicate. An empty HASH costs its key.
 func (k *keyScan) consider(ctx context.Context, c hashReader, key string) error {
-	size, err := c.Eval(ctx, readHash, []string{key}, measureHashBytes, contentField, embeddingField, metadataField, termsField).Int64()
+	size, err := c.Eval(ctx, readHash, []string{key}, readHashArgs(measureHashBytes)...).Int64()
 	if err != nil {
 		return err
 	}
@@ -175,16 +186,16 @@ func (k *keyScan) consider(ctx context.Context, c hashReader, key string) error 
 }
 
 func (k *keyScan) read(ctx context.Context, c hashReader, key string, size int64) (map[string]string, error) {
-	raw, err := c.Eval(ctx, readHash, []string{key}, size, contentField, embeddingField, metadataField, termsField).Result()
+	raw, err := c.Eval(ctx, readHash, []string{key}, readHashArgs(size)...).Result()
 	if err != nil {
 		return nil, err
 	}
 	values, ok := raw.([]any)
-	if !ok || len(values) != 4 {
+	if !ok || len(values) != len(documentFields) {
 		return nil, errors.New("redis: HASH changed or has an invalid shape")
 	}
-	fields := make(map[string]string, 4)
-	for index, name := range []string{contentField, embeddingField, metadataField, termsField} {
+	fields := make(map[string]string, len(documentFields))
+	for index, name := range documentFields {
 		value, ok := values[index].(string)
 		if !ok {
 			return nil, errors.New("redis: mandatory HASH field missing")

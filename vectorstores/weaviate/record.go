@@ -112,8 +112,8 @@ func (v vectorWire) metric() (string, error) {
 }
 
 func admitProperties(properties []propertyWire) error {
-	if len(properties) != 3 {
-		return fmt.Errorf("%w: expected three document properties", ErrIncompatibleCollection)
+	if len(properties) != len(documentProperties) {
+		return fmt.Errorf("%w: expected %d document properties", ErrIncompatibleCollection, len(documentProperties))
 	}
 	seen := make(map[string]bool, len(properties))
 	for _, p := range properties {

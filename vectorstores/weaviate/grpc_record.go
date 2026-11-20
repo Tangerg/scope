@@ -27,7 +27,7 @@ func searchRequest(collection string, request *vectorstore.Query, values []float
 	targets := &pb.Targets{TargetVectors: []string{vectorName}}
 	near := &pb.NearVector{Targets: targets, VectorForTargets: []*pb.VectorForTarget{{Name: vectorName, Vectors: []*pb.Vectors{named}}}}
 	meta := &pb.MetadataRequest{Uuid: true, Vectors: []string{vectorName}}
-	out := &pb.SearchRequest{Collection: collection, Limit: uint32(request.Options.ResultLimit()), Metadata: meta, Properties: &pb.PropertiesRequest{NonRefProperties: []string{fieldContent, fieldMetadata, fieldTerms}}, Filters: where}
+	out := &pb.SearchRequest{Collection: collection, Limit: uint32(request.Options.ResultLimit()), Metadata: meta, Properties: &pb.PropertiesRequest{NonRefProperties: documentProperties}, Filters: where}
 	if request.Options.Mode == vectorstore.SearchModeHybrid {
 		meta.Score = true
 		out.HybridSearch = &pb.Hybrid{Query: request.LexicalText, Properties: []string{fieldContent}, FusionType: pb.Hybrid_FUSION_TYPE_RELATIVE_SCORE, AlphaParam: alpha, UseAlphaParam: true, Targets: targets, NearVector: near}
@@ -48,7 +48,7 @@ func decodeHit(hit *pb.SearchResult, mode vectorstore.SearchMode, dimensions int
 	text, okText := fields[fieldContent].GetKind().(*pb.Value_TextValue)
 	facts, okFacts := fields[fieldMetadata].GetKind().(*pb.Value_TextValue)
 	terms := fields[fieldTerms].GetListValue().GetTextValues()
-	if len(fields) != 3 || !okText || !okFacts || terms == nil {
+	if len(fields) != len(documentProperties) || !okText || !okFacts || terms == nil {
 		return nil, id, 0, errors.New("weaviate: invalid native property shape")
 	}
 	doc, err := decodeDocument(id.String(), text.TextValue, facts.TextValue, terms.Values)

@@ -25,6 +25,10 @@ const (
 	SpaceTag = "scope_vector_space"
 )
 
+// metadataFields are the native metadata of one stored document; a record with
+// any other metadata was not written by this store.
+var metadataFields = [...]string{contentField, metadataField, termsField}
+
 // APIClient reads authoritative native index policy and opens a native data
 // connection. The host owns credentials, transport policy and client lifetime;
 // Store owns and closes the connection it opens.

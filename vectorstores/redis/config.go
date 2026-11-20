@@ -23,6 +23,11 @@ const (
 	vectorParamName       = "scope_query_vec"
 )
 
+// documentFields are the HASH fields of one stored document, in the order the
+// read scripts return them. A HASH with any other field set was not written by
+// this store.
+var documentFields = [...]string{contentField, embeddingField, metadataField, termsField}
+
 type hashReader interface {
 	Eval(context.Context, string, []string, ...any) *goredis.Cmd
 }

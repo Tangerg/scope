@@ -21,6 +21,10 @@ const (
 	nativeMaxTopK         = 16384
 )
 
+// documentFields are the columns of one stored document; every read requests
+// exactly these and admits no others.
+var documentFields = []string{fieldID, fieldContent, fieldMeta, fieldVector}
+
 var collectionNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,254}$`)
 
 type StoreConfig struct {

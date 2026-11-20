@@ -202,10 +202,9 @@ func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if len(columns) != 4 {
-		return errors.New("cassandra: table must contain exactly four current document columns")
-	}
+	found := make(map[string]bool, len(columns))
 	for _, column := range columns {
+		found[column.Name] = true
 		switch column.Name {
 		case s.idColumn, s.contentColumn, s.metadataColumn:
 			if column.TypeInfo.Type() != gocql.TypeVarchar && column.TypeInfo.Type() != gocql.TypeText {
@@ -221,8 +220,10 @@ func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 			return fmt.Errorf("cassandra: unexpected column %q", column.Name)
 		}
 	}
-	if s.dimensions == 0 {
-		return errors.New("cassandra: missing embedding column")
+	for _, name := range []string{s.idColumn, s.contentColumn, s.metadataColumn, s.embeddingColumn} {
+		if !found[name] {
+			return fmt.Errorf("cassandra: missing column %q", name)
+		}
 	}
 	if err := s.verifyPrimaryKey(ctx, keyspace, table); err != nil {
 		return err

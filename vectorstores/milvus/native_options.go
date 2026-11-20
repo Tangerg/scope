@@ -27,7 +27,7 @@ type sourcePage struct {
 
 func (s sourcePage) Request() (*milvuspb.QueryRequest, error) {
 	options := milvusclient.NewQueryOption(s.collection).WithLimit(sourcePageSize).
-		WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).WithConsistencyLevel(entity.ClStrong)
+		WithOutputFields(documentFields...).WithConsistencyLevel(entity.ClStrong)
 	if s.after != "" {
 		options.WithFilter(cursorFilter).WithTemplateParam(cursorParam, s.after)
 	}

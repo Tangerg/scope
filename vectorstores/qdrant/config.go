@@ -20,6 +20,10 @@ const (
 	SpaceMetadataKey = "scope.vector_space"
 )
 
+// payloadFields are the payload of one stored document; a point with any other
+// payload was not written by this store.
+var payloadFields = [...]string{contentField, metadataField, termsField}
+
 // APIClient exposes the native operations Store consumes. The host owns the
 // client, authentication, transport and collection provisioning.
 type APIClient interface {

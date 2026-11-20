@@ -295,7 +295,7 @@ func (s *Store) searchGroup(ctx context.Context, policy nativePolicy, query []fl
 		limit = min(limit, len(ids))
 	}
 	search := milvusclient.NewSearchOption(s.collectionName, limit, []entity.Vector{entity.FloatVector(query)}).
-		WithANNSField(fieldVector).WithOutputFields(fieldID, fieldContent, fieldMeta, fieldVector).
+		WithANNSField(fieldVector).WithOutputFields(documentFields...).
 		WithConsistencyLevel(entity.ClStrong).
 		WithSearchParam(index.MetricTypeKey, string(policy.metric))
 	if ids != nil {

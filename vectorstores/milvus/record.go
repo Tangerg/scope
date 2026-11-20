@@ -77,7 +77,7 @@ func decodeRows(rows milvusclient.ResultSet, policy nativePolicy) ([]nativeRecor
 	return records, nil
 }
 
-// nativeColumns holds the four current columns of one result set by name.
+// nativeColumns holds the document columns of one result set by name.
 type nativeColumns map[string]column.Column
 
 // currentColumns returns nil for a result without rows or columns.
@@ -91,17 +91,17 @@ func currentColumns(rows milvusclient.ResultSet) (nativeColumns, error) {
 	if rows.Len() == 0 && len(rows.Fields) == 0 {
 		return nil, nil
 	}
-	if len(rows.Fields) != 4 {
-		return nil, errors.New("milvus: native rows do not have the current four-column shape")
+	if len(rows.Fields) != len(documentFields) {
+		return nil, errors.New("milvus: native rows do not have the current document column shape")
 	}
-	columns := make(nativeColumns, 4)
+	columns := make(nativeColumns, len(documentFields))
 	for _, value := range rows.Fields {
 		if value == nil || columns[value.Name()] != nil || value.Len() != rows.Len() {
 			return nil, errors.New("milvus: native column shape is inconsistent")
 		}
 		columns[value.Name()] = value
 	}
-	for _, name := range []string{fieldID, fieldContent, fieldMeta, fieldVector} {
+	for _, name := range documentFields {
 		if columns[name] == nil {
 			return nil, fmt.Errorf("milvus: missing native column %s", name)
 		}

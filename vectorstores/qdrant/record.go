@@ -96,7 +96,7 @@ func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdran
 	if err = n.validateVector(vectors.GetVector().GetDense().Data); err != nil {
 		return nil, "", err
 	}
-	if len(payload) != 3 || payload[contentField] == nil || payload[metadataField] == nil {
+	if len(payload) != len(payloadFields) || payload[contentField] == nil || payload[metadataField] == nil {
 		return nil, "", errors.New("qdrant: native record does not have the current payload shape")
 	}
 	content, contentOK := payload[contentField].Kind.(*qdrantclient.Value_StringValue)
