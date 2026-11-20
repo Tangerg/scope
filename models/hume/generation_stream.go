@@ -40,6 +40,17 @@ type generationStream struct {
 	snippets     map[string]snippetProgress
 }
 
+// respond admits the next streamed event and returns the audio it carries.
+func (g *generationStream) respond(event *ttsStreamEvent, model string) (*speech.Response, error) {
+	if event.Type != streamEventAudio {
+		return nil, fmt.Errorf("hume: unexpected streamed event type %q", event.Type)
+	}
+	if err := g.accept(*event); err != nil {
+		return nil, err
+	}
+	return event.response(model)
+}
+
 func (g *generationStream) accept(event ttsStreamEvent) error {
 	if event.ChunkIndex == nil || event.IsLastChunk == nil {
 		return fmt.Errorf("%w: hume: streamed audio requires chunk_index and is_last_chunk", speech.ErrInvalidResponse)

@@ -592,69 +592,72 @@ func (s *Store) admitColumns(ctx context.Context) (err error) {
 	return nil
 }
 
-// scan visits FINAL records in one native transaction. It charges every
-// selected ID, content and raw metadata byte before decoding the predicate.
+// scan visits FINAL records in one native transaction, one ID-ordered page at
+// a time, until a page comes back empty.
 func (s *Store) scan(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filter.Predicate) ([]*document.Document, error) {
 	var after string
 	var docs []*document.Document
 	for {
-		query := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
-		var args []any
-		if after != "" {
-			query += fmt.Sprintf(" WHERE %s > {%s:String}", s.idColumn, cursorParam)
-			args = append(args, sql.Named(cursorParam, after))
-		}
-		query += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
-		rows, err := tx.Query(query, args...)
+		page, next, err := s.scanPage(tx, meter, p, after)
 		if err != nil {
 			return nil, err
 		}
-		count := 0
-		err = func() (err error) {
-			defer func() { err = errors.Join(err, rows.Close()) }()
-			for rows.Next() {
-				count++
-				if count > metadataPageSize {
-					return errors.New("clickhouse: source exceeded scan page")
-				}
-				d := new(document.Document)
-				var raw string
-				if err := rows.Scan(&d.ID, &d.Text, &raw); err != nil {
-					return err
-				}
-				if err := meter.Charge(int64(len(d.ID)) + int64(len(d.Text)) + int64(len(raw))); err != nil {
-					return err
-				}
-				if d.ID <= after {
-					return errors.New("clickhouse: scan key failed to advance")
-				}
-				after = d.ID
-				if err := d.UnmarshalStoredMetadata([]byte(raw)); err != nil {
-					return err
-				}
-				if err := vectorstore.ValidateDocument(d); err != nil {
-					return err
-				}
-				if p != nil {
-					ok, err := filter.Match(p, d.Metadata)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						continue
-					}
-				}
-				docs = append(docs, d)
-			}
-			return rows.Err()
-		}()
-		if err != nil {
-			return nil, err
-		}
-		if count == 0 {
+		if next == after {
 			return docs, meter.Context().Err()
 		}
+		docs, after = append(docs, page...), next
 	}
+}
+
+// scanPage reads the page of records after the cursor and returns those the
+// predicate selects with the next cursor, which equals after when the page was
+// empty. It charges every ID, content and raw metadata byte before decoding
+// the predicate.
+func (s *Store) scanPage(tx *nativeTransaction, meter *vectorstore.ScanMeter, p filter.Predicate, after string) (selected []*document.Document, next string, err error) {
+	query := fmt.Sprintf("SELECT %s, %s, %s FROM %s FINAL", s.idColumn, s.contentColumn, s.metadataColumn, s.fullTable)
+	var args []any
+	if after != "" {
+		query += fmt.Sprintf(" WHERE %s > {%s:String}", s.idColumn, cursorParam)
+		args = append(args, sql.Named(cursorParam, after))
+	}
+	query += fmt.Sprintf(" ORDER BY %s LIMIT %d", s.idColumn, metadataPageSize)
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	next = after
+	for count := 1; rows.Next(); count++ {
+		if count > metadataPageSize {
+			return nil, "", errors.New("clickhouse: source exceeded scan page")
+		}
+		d := new(document.Document)
+		var raw string
+		if err := rows.Scan(&d.ID, &d.Text, &raw); err != nil {
+			return nil, "", err
+		}
+		if err := meter.Charge(int64(len(d.ID)) + int64(len(d.Text)) + int64(len(raw))); err != nil {
+			return nil, "", err
+		}
+		if d.ID <= next {
+			return nil, "", errors.New("clickhouse: scan key failed to advance")
+		}
+		next = d.ID
+		if err := d.UnmarshalStoredMetadata([]byte(raw)); err != nil {
+			return nil, "", err
+		}
+		if err := vectorstore.ValidateDocument(d); err != nil {
+			return nil, "", err
+		}
+		matched, err := filter.Match(p, d.Metadata)
+		if err != nil {
+			return nil, "", err
+		}
+		if matched {
+			selected = append(selected, d)
+		}
+	}
+	return selected, next, rows.Err()
 }
 
 // Scan returns no partial records. Its grant covers a single native snapshot.

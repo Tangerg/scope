@@ -33,17 +33,9 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
 			return
 		}
-		request, err := s.binding.buildAPIRequest(req)
+		request, err := s.prepare(req)
 		if err != nil {
 			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: err})
-			return
-		}
-		if request.Utterances[0].Voice == nil && request.InstantMode == nil {
-			instantMode := false
-			request.InstantMode = &instantMode
-		}
-		if len(request.IncludeTimestampTypes) != 0 {
-			yield(nil, &invocation.Failure{Kind: invocation.FailureNotExecuted, Cause: errors.New("hume: speech stream: include_timestamp_types cannot be represented by Core audio-only stream responses")})
 			return
 		}
 		body, err := s.binding.api.ttsStream(ctx, *request)
@@ -58,28 +50,15 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 		lines.Buffer(nil, httpclient.DefaultMaxJSONResponseBytes+len("\r\n"))
 		lifecycle := generationStream{snippets: make(map[string]snippetProgress)}
 		for lines.Scan() {
-			raw := lines.Bytes()
-			if len(raw) > httpclient.DefaultMaxJSONResponseBytes {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.New("hume: stream event exceeds JSON byte limit")})
+			event, err := decodeStreamEvent(lines.Bytes())
+			if err != nil {
+				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: errors.Join(err, ctx.Err(), lines.Err(), closeBody())})
 				return
 			}
-			if len(bytes.TrimSpace(raw)) == 0 {
+			if event == nil {
 				continue
 			}
-			var event ttsStreamEvent
-			if err := jsonv2.Unmarshal(raw, &event); err != nil {
-				yield(nil, &invocation.Failure{Kind: invocation.FailureUnknown, Cause: fmt.Errorf("hume: decode streamed JSON response: %w", errors.Join(ctx.Err(), err, lines.Err(), closeBody()))})
-				return
-			}
-			if event.Type != streamEventAudio {
-				yield(nil, fmt.Errorf("hume: unexpected streamed event type %q", event.Type))
-				return
-			}
-			if err := lifecycle.accept(event); err != nil {
-				yield(nil, err)
-				return
-			}
-			response, err := event.response(request.Version)
+			response, err := lifecycle.respond(event, request.Version)
 			if err != nil {
 				yield(nil, err)
 				return
@@ -96,4 +75,33 @@ func (s *StreamingSpeechModel) Stream(ctx context.Context, req *speech.Request) 
 			yield(nil, err)
 		}
 	}
+}
+
+func (s *StreamingSpeechModel) prepare(req *speech.Request) (*ttsRequest, error) {
+	request, err := s.binding.buildAPIRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if request.Utterances[0].Voice == nil && request.InstantMode == nil {
+		request.InstantMode = new(false)
+	}
+	if len(request.IncludeTimestampTypes) != 0 {
+		return nil, errors.New("hume: speech stream: include_timestamp_types cannot be represented by Core audio-only stream responses")
+	}
+	return request, nil
+}
+
+// decodeStreamEvent returns nil for a blank line between events.
+func decodeStreamEvent(raw []byte) (*ttsStreamEvent, error) {
+	if len(raw) > httpclient.DefaultMaxJSONResponseBytes {
+		return nil, errors.New("hume: stream event exceeds JSON byte limit")
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	event := new(ttsStreamEvent)
+	if err := jsonv2.Unmarshal(raw, event); err != nil {
+		return nil, fmt.Errorf("hume: decode streamed JSON response: %w", err)
+	}
+	return event, nil
 }

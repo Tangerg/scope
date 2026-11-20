@@ -283,43 +283,8 @@ func settlesTurn(s sdk.TaskState) bool {
 
 func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, error] {
 	return func(yield func(*sdk.Task, error) bool) {
-		var after run.LSN
-		emit := func(head run.TreeInspection) bool {
-			if head.Head == after {
-				return true
-			}
-			after = head.Head
-			task, err := projectTask(k, head, h.content)
-			return yield(task, err) && err == nil && !settlesTurn(task.Status.State)
-		}
-		for {
-			head, err := h.load(ctx, k)
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			if !emit(head) {
-				return
-			}
-			if local, ok := h.runtime.Process(head.Root); ok {
-				for entry, err := range local.Observe(ctx, after) {
-					if err != nil {
-						yield(nil, err)
-						return
-					}
-					if entry.LSN <= after {
-						continue
-					}
-					view, err := h.load(ctx, k)
-					if err != nil {
-						yield(nil, err)
-						return
-					}
-					if !emit(view) {
-						return
-					}
-				}
-			}
+		view := taskView{handler: h, key: k, yield: yield}
+		for view.poll(ctx) {
 			select {
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
@@ -328,6 +293,57 @@ func (h *handler) views(ctx context.Context, k taskKey) iter.Seq2[*sdk.Task, err
 			}
 		}
 	}
+}
+
+// taskView yields one task's projection each time its log head moves, until
+// the turn settles, the consumer stops or a read fails. Between polls of a
+// remote writer's log it follows a process this writer runs as it commits.
+type taskView struct {
+	handler *handler
+	key     taskKey
+	yield   func(*sdk.Task, error) bool
+	after   run.LSN
+}
+
+// poll reports whether the view continues with another poll.
+func (t *taskView) poll(ctx context.Context) bool {
+	head, ok := t.refresh(ctx)
+	if !ok {
+		return false
+	}
+	local, found := t.handler.runtime.Process(head.Root)
+	if !found {
+		return true
+	}
+	for entry, err := range local.Observe(ctx, t.after) {
+		if err != nil {
+			t.yield(nil, err)
+			return false
+		}
+		if entry.LSN <= t.after {
+			continue
+		}
+		if _, ok := t.refresh(ctx); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// refresh loads the task and yields its projection when the log head moved.
+// It reports false once the view ends.
+func (t *taskView) refresh(ctx context.Context) (run.TreeInspection, bool) {
+	head, err := t.handler.load(ctx, t.key)
+	if err != nil {
+		t.yield(nil, err)
+		return run.TreeInspection{}, false
+	}
+	if head.Head == t.after {
+		return head, true
+	}
+	t.after = head.Head
+	task, err := projectTask(t.key, head, t.handler.content)
+	return head, t.yield(task, err) && err == nil && !settlesTurn(task.Status.State)
 }
 
 func (h *handler) events(ctx context.Context, k taskKey, subscribing bool) iter.Seq2[sdk.Event, error] {
