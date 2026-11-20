@@ -91,13 +91,13 @@ func (n nativeSchema) decode(id *qdrantclient.PointId, payload map[string]*qdran
 		return nil, "", err
 	}
 	if vectors.GetVector().GetDense() == nil {
-		return nil, "", errors.New("qdrant: native record lacks the current dense vector")
+		return nil, "", errors.New("qdrant: native record lacks the dense vector")
 	}
 	if err = n.validateVector(vectors.GetVector().GetDense().Data); err != nil {
 		return nil, "", err
 	}
 	if len(payload) != len(payloadFields) || payload[contentField] == nil || payload[metadataField] == nil {
-		return nil, "", errors.New("qdrant: native record does not have the current payload shape")
+		return nil, "", errors.New("qdrant: native record does not have the document payload shape")
 	}
 	content, contentOK := payload[contentField].Kind.(*qdrantclient.Value_StringValue)
 	facts, factsOK := payload[metadataField].Kind.(*qdrantclient.Value_StringValue)

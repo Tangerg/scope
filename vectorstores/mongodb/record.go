@@ -193,7 +193,7 @@ func (n nativeSchema) sourceFields(raw bson.Raw, scored bool) (map[string]bson.R
 		fields[key] = element.Value()
 	}
 	if len(fields) != want {
-		return nil, errors.New("mongodb: native record does not have the current shape")
+		return nil, errors.New("mongodb: native record does not have the document shape")
 	}
 	return fields, nil
 }

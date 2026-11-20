@@ -93,11 +93,11 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 	}
 	text, present, err := fields.Decode[string](names.content)
 	if err != nil || !present {
-		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks current content: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
+		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks content: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
 	}
 	facts, present, err := fields.Decode[string](metadataField)
 	if err != nil || !present {
-		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks current metadata: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
+		return nativeRecord{}, fmt.Errorf("vespa: document %q lacks metadata: %w", id, errors.Join(err, vectorstore.ErrInvalidDocument))
 	}
 	doc := new(document.Document)
 	if err = doc.UnmarshalStoredMetadata([]byte(facts)); err != nil {
@@ -120,7 +120,7 @@ func decodeRecord(id string, fields metadata.Map, names schemaFields, summary bo
 	return nativeRecord{document: doc, metadata: facts, vector: vector}, nil
 }
 
-// admitRecordFields allows only the document's current fields, plus the
+// admitRecordFields allows only the document's fields, plus the
 // fields Vespa adds to a search summary.
 func admitRecordFields(id string, fields metadata.Map, names schemaFields, summary bool) error {
 	for name := range fields {

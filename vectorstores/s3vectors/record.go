@@ -78,7 +78,7 @@ func decodeDocument(key string, raw s3vdoc.Interface) (*document.Document, error
 		return nil, err
 	}
 	if wire.ID == nil || *wire.ID != key || wire.Content == nil || wire.Metadata == nil {
-		return nil, errors.New("s3vectors: native document does not match the strict current schema or key projection")
+		return nil, errors.New("s3vectors: native document does not match the strict schema or key projection")
 	}
 	doc := new(document.Document)
 	if err = doc.UnmarshalStoredMetadata([]byte(*wire.Metadata)); err != nil {

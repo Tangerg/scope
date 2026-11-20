@@ -179,7 +179,7 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore verifies native transaction support and the strict current schema.
+// NewStore verifies native transaction support and the strict schema.
 // An omitted database is resolved once; every operation uses its qualified table.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()
@@ -555,7 +555,7 @@ func (s *Store) constrainedWidth(createStatement string) (int, error) {
 		return 0, err
 	}
 	if !finite {
-		return 0, fmt.Errorf("clickhouse: table %s must have current %s and %s constraints", s.fullTable, widthConstraint, finiteConstraint)
+		return 0, fmt.Errorf("clickhouse: table %s must have the %s and %s constraints", s.fullTable, widthConstraint, finiteConstraint)
 	}
 	return width, nil
 }

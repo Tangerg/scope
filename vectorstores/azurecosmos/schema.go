@@ -121,7 +121,7 @@ func (c containerSchema) decodeDocument(raw []byte, partition string) (*document
 		return nil, "", err
 	}
 	if record.ID == nil || record.PartitionKey == nil || *record.PartitionKey != partition || record.Content == nil || record.Metadata == nil || record.Embedding == nil || record.ETag == nil || *record.ETag == "" || *record.ETag == "*" || strings.ContainsAny(*record.ETag, "\r\n") {
-		return nil, "", errors.New("azurecosmos: item violates the strict current schema, partition or ETag contract")
+		return nil, "", errors.New("azurecosmos: item violates the strict schema, partition or ETag contract")
 	}
 	if err := validateID(*record.ID); err != nil {
 		return nil, "", err

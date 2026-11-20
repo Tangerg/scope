@@ -95,13 +95,13 @@ func (n nativeSchema) decode(key string, fields map[string]string) (*document.Do
 		return nil, errors.New("redis: native key is outside the document namespace")
 	}
 	if len(fields) != len(documentFields) {
-		return nil, errors.New("redis: HASH must contain exactly the current document fields")
+		return nil, errors.New("redis: HASH must contain exactly the document fields")
 	}
 	text, textOK := fields[contentField]
 	facts, factsOK := fields[metadataField]
 	blob, vectorOK := fields[embeddingField]
 	if !textOK || !factsOK || !vectorOK {
-		return nil, errors.New("redis: HASH is missing required current fields")
+		return nil, errors.New("redis: HASH is missing required fields")
 	}
 	if len(blob)%float32ByteWidth != 0 {
 		return nil, errors.New("redis: vector blob is not a complete FLOAT32 sequence")

@@ -54,7 +54,7 @@ func (s SimilarityFunction) String() string { return string(s) }
 type StoreConfig struct {
 	Driver   Driver
 	Database string
-	// Every node carrying Label must use the current schema.
+	// Every node carrying Label must use this schema.
 	Label             string
 	EmbeddingProperty string
 	IDProperty        string

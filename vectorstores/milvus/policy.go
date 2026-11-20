@@ -28,7 +28,7 @@ type nativePolicy struct {
 }
 
 func decodePolicy(collection *entity.Collection, name string) (nativePolicy, error) {
-	fields, err := currentFields(collection, name)
+	fields, err := documentFieldsByName(collection, name)
 	if err != nil {
 		return nativePolicy{}, err
 	}
@@ -50,9 +50,9 @@ func decodePolicy(collection *entity.Collection, name string) (nativePolicy, err
 	return policy, nil
 }
 
-// currentFields admits exactly the document fields with caller-supplied IDs
+// documentFieldsByName admits exactly the document fields with caller-supplied IDs
 // and vectors, keyed by name.
-func currentFields(collection *entity.Collection, name string) (map[string]*entity.Field, error) {
+func documentFieldsByName(collection *entity.Collection, name string) (map[string]*entity.Field, error) {
 	if collection == nil || collection.Schema == nil {
 		return nil, fmt.Errorf("%w: missing collection", ErrSchemaMismatch)
 	}

@@ -190,7 +190,7 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore creates the schema when requested and verifies the current storage
+// NewStore creates the schema when requested and verifies the storage
 // contract. The caller owns the database handle.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 	config.applyDefaults()

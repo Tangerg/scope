@@ -19,7 +19,7 @@ import (
 
 const transactionCleanupTimeout = 5 * time.Second
 
-// StoreConfig binds an existing table in the strict current schema.
+// StoreConfig binds an existing table in the strict schema.
 type StoreConfig struct {
 	Pool           *pgxpool.Pool
 	SchemaName     string
@@ -286,7 +286,7 @@ func (s *Store) DeleteIDs(ctx context.Context, ids []string) (err error) {
 	return transaction.Commit(ctx)
 }
 
-// readSchema admits the current four-column table, its binary primary key and
+// readSchema admits the four-column table, its binary primary key and
 // its single space binding, returning the native vector width.
 func (s *Store) readSchema(ctx context.Context, query rowQuerier) (int, error) {
 	width, idNumber, err := s.readColumns(ctx, query)
@@ -317,7 +317,7 @@ func (s *Store) readColumns(ctx context.Context, query rowQuerier) (width, idNum
 			return 0, 0, err
 		}
 		if !required || defaults {
-			return 0, 0, errors.New("postgres: current columns must be non-null without defaults")
+			return 0, 0, errors.New("postgres: columns must be non-null without defaults")
 		}
 		count++
 		switch name {
@@ -340,14 +340,14 @@ func (s *Store) readColumns(ctx context.Context, query rowQuerier) (width, idNum
 			}
 			width = modifier
 		default:
-			return 0, 0, fmt.Errorf("postgres: unexpected current column %q", name)
+			return 0, 0, fmt.Errorf("postgres: unexpected column %q", name)
 		}
 	}
 	if err = rows.Err(); err != nil {
 		return 0, 0, err
 	}
 	if count != 4 || width == 0 || idNumber == 0 {
-		return 0, 0, errors.New("postgres: current four-column schema is required")
+		return 0, 0, errors.New("postgres: the four-column schema is required")
 	}
 	return width, idNumber, nil
 }

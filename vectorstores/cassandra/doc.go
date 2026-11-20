@@ -7,10 +7,10 @@
 //
 // All document mutations use QUORUM commits, SERIAL Paxos and server timestamps.
 // Ordinary CQL writes cannot share this table: a future client timestamp can
-// override a conditional deletion even when Cassandra reports it applied. Tables
-// written by the former ordinary-write protocol are rejected by their native
-// table binding and must be recreated. Changing that marker alone cannot repair
-// old timestamp history or authorize ordinary writes to a current table.
+// override a conditional deletion even when Cassandra reports it applied, so
+// NewStore rejects a table whose comment does not declare this protocol.
+// Setting that marker by hand cannot make rows written with client timestamps
+// safe.
 //
 // Upsert validates every input and native metric before the first mutation.
 // A row is inserted conditionally or replaced conditionally if already present.

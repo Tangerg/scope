@@ -39,7 +39,7 @@ func newCollectionSchema(schema *api.CollectionResponse, name string, space vect
 	return collectionSchema{dimensions: *vector.NumDim}, nil
 }
 
-// documentFields admits exactly the space binding and the current document
+// documentFields admits exactly the space binding and the document
 // fields, keyed by name. No field may be unstored or natively embedded.
 func documentFields(native []api.Field, space vectorstore.SpaceID) (map[string]api.Field, error) {
 	fields := make(map[string]api.Field, len(native))
@@ -120,7 +120,7 @@ func (c collectionSchema) decodeDocument(raw []byte) (storedRecord, *document.Do
 		return storedRecord{}, nil, err
 	}
 	if record.ID == nil || record.Content == nil || record.Metadata == nil || record.Embedding == nil {
-		return storedRecord{}, nil, errors.New("typesense: record is missing required current fields")
+		return storedRecord{}, nil, errors.New("typesense: record is missing required fields")
 	}
 	id, err := decodeKey(*record.ID)
 	if err != nil {

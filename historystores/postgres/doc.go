@@ -15,7 +15,6 @@
 // acknowledgment returns no receipt; retrying the original Batch resolves the
 // outcome without appending twice.
 //
-// InitializeSchema creates the append table, conversation table, and read index.
-// Existing deployments must provision this current schema; there are no legacy
-// table fallbacks. A Store never closes its caller's pool.
+// InitializeSchema creates the append table, conversation table, and read
+// index that a Store requires. A Store never closes its caller's pool.
 package postgres

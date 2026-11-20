@@ -134,7 +134,7 @@ func (n nativeSchema) score(raw float64) (vectorstore.Score, error) {
 
 func (n nativeSchema) decode(point *pineconesdk.Vector) (*document.Document, string, error) {
 	if point == nil || point.Id == "" || point.Values == nil || point.SparseValues != nil || point.Metadata == nil || len(point.Metadata.Fields) != len(metadataFields) {
-		return nil, "", errors.New("pinecone: native record does not have the current dense shape")
+		return nil, "", errors.New("pinecone: native record does not have the dense document shape")
 	}
 	if err := n.validateVector(*point.Values); err != nil {
 		return nil, "", err

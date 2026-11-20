@@ -67,9 +67,8 @@ func (s SimilarityFunction) score(raw float64) (vectorstore.Score, error) {
 }
 
 // StoreConfig selects an exclusively owned table whose document mutations all
-// use this adapter's Paxos protocol. Its native binding rejects the former
-// ordinary-write protocol; those tables must be recreated, because their
-// timestamps can override conditional mutations.
+// use this adapter's Paxos protocol, because client timestamps from ordinary
+// writes can override conditional mutations.
 // Empty names use exported defaults. Session and Space are required.
 type StoreConfig struct {
 	Session         Session
@@ -194,7 +193,7 @@ func (s *Store) loadSchema(ctx context.Context, keyspace, table string) error {
 		return err
 	}
 	if binding != s.tableBinding() {
-		return fmt.Errorf("cassandra: table must declare the current Paxos-only space binding: %w", vectorstore.ErrIncompatibleSpace)
+		return fmt.Errorf("cassandra: table must declare the Paxos-only space binding: %w", vectorstore.ErrIncompatibleSpace)
 	}
 	iter := s.session.Query("SELECT * FROM " + s.fullTable + " LIMIT 1").IterContext(ctx)
 	columns := iter.Columns()

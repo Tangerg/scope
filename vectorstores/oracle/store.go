@@ -165,7 +165,7 @@ type Store struct {
 	distanceMetric  DistanceMetric
 }
 
-// NewStore creates the table when requested and verifies the current storage
+// NewStore creates the table when requested and verifies the storage
 // contract. The host owns the database handle. An omitted schema is bound to
 // the connection's current schema at construction.
 func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {

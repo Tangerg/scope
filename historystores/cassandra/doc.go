@@ -12,6 +12,5 @@
 // conversation closed and another Clear retries cleanup. Every write explicitly
 // disables TTL so a table default cannot expire append identity or closure.
 //
-// InitializeSchema creates the current table in an existing keyspace. This
-// schema replaces the former per-message TIMEUUID layout without dual reads.
+// InitializeSchema creates the table in an existing keyspace.
 package cassandra

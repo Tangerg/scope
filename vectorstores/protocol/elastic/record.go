@@ -106,7 +106,7 @@ var recordFields = [...]string{ContentField, MetadataField, EmbeddingField}
 
 func (i indexMapping) admitRecordLayout() error {
 	if i.Dynamic != dynamicMappingStrict || len(i.Properties) != len(recordFields) || i.Routing.Required || len(i.Runtime) > 0 || len(i.Derived) > 0 || len(i.DynamicTemplates) > 0 {
-		return fmt.Errorf("%w: requires exactly the current strict properties without routing or dynamic rules", ErrIncompatibleIndex)
+		return fmt.Errorf("%w: requires exactly the strict properties without routing or dynamic rules", ErrIncompatibleIndex)
 	}
 	if !i.Source.complete() {
 		return fmt.Errorf("%w: requires complete stored _source", ErrIncompatibleIndex)

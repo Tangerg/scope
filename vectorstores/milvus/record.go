@@ -64,7 +64,7 @@ func encodeColumns(records []nativeRecord, vectors [][]float64, policy nativePol
 }
 
 func decodeRows(rows milvusclient.ResultSet, policy nativePolicy) ([]nativeRecord, error) {
-	columns, err := currentColumns(rows)
+	columns, err := documentColumns(rows)
 	if err != nil || columns == nil {
 		return nil, err
 	}
@@ -80,8 +80,8 @@ func decodeRows(rows milvusclient.ResultSet, policy nativePolicy) ([]nativeRecor
 // nativeColumns holds the document columns of one result set by name.
 type nativeColumns map[string]column.Column
 
-// currentColumns returns nil for a result without rows or columns.
-func currentColumns(rows milvusclient.ResultSet) (nativeColumns, error) {
+// documentColumns returns nil for a result without rows or columns.
+func documentColumns(rows milvusclient.ResultSet) (nativeColumns, error) {
 	if rows.Err != nil {
 		return nil, rows.Err
 	}
@@ -92,7 +92,7 @@ func currentColumns(rows milvusclient.ResultSet) (nativeColumns, error) {
 		return nil, nil
 	}
 	if len(rows.Fields) != len(documentFields) {
-		return nil, errors.New("milvus: native rows do not have the current document column shape")
+		return nil, errors.New("milvus: native rows do not have the document column shape")
 	}
 	columns := make(nativeColumns, len(documentFields))
 	for _, value := range rows.Fields {

@@ -36,7 +36,7 @@ return {r[1],r[2]}
 `
 
 // Both the size probe and the subsequent read use the same atomic size check.
-// Only the fixed current fields can cross the wire. A concurrent size change
+// Only the fixed document fields can cross the wire. A concurrent size change
 // invalidates admission; equal-size replacements are legal (this is not a snapshot).
 const readHash = `
 local count = redis.call('HLEN',KEYS[1])
