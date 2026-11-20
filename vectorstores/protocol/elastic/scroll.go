@@ -73,7 +73,7 @@ func (s *Scroll) Select(ctx context.Context, predicate filter.Predicate) (select
 	}
 	defer meter.Close()
 	ctx = meter.Context()
-	raw, callErr := s.client.Read(ctx, http.MethodPost, "/"+s.index+"/_search", url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, s.body, meter.RemainingBytes())
+	raw, callErr := s.client.Read(ctx, http.MethodPost, indexName(s.index).path(searchEndpoint), url.Values{"scroll": {scrollKeepAlive}, "allow_partial_search_results": {"false"}}, s.body, meter.RemainingBytes())
 	cursor := scrollCursor{client: s.client}
 	defer func() {
 		err = errors.Join(err, cursor.close(ctx))

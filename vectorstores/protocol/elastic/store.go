@@ -107,7 +107,7 @@ func NewStore(ctx context.Context, config StoreConfig) (*Store, error) {
 }
 
 func (s *Store) admit(ctx context.Context) (admittedIndex, error) {
-	raw, err := s.client.Read(ctx, http.MethodGet, "/"+s.config.IndexName+"/_mapping", nil, nil, 0)
+	raw, err := s.client.Read(ctx, http.MethodGet, indexName(s.config.IndexName).path(mappingEndpoint), nil, nil, 0)
 	if err != nil {
 		if failure, ok := errors.AsType[*httpclient.ResponseError](err); ok && failure.HTTPStatus() == http.StatusNotFound {
 			return admittedIndex{}, fmt.Errorf("%w: %w", ErrIndexMissing, err)
@@ -125,7 +125,7 @@ func (s *Store) admit(ctx context.Context) (admittedIndex, error) {
 		return admittedIndex{}, fmt.Errorf("%w: requires one concrete index without aliases", ErrIncompatibleIndex)
 	}
 	query := url.Values{"flat_settings": {"true"}, "include_defaults": {"true"}, "name": {settingNames(s.config.Engine.SettingNames())}}
-	raw, err = s.client.Read(ctx, http.MethodGet, "/"+s.config.IndexName+"/_settings", query, nil, 0)
+	raw, err = s.client.Read(ctx, http.MethodGet, indexName(s.config.IndexName).path(settingsEndpoint), query, nil, 0)
 	if err != nil {
 		return admittedIndex{}, err
 	}
@@ -363,7 +363,7 @@ func (s *Store) search(ctx context.Context, request *vectorstore.Query, neighbor
 	if err != nil {
 		return nil, err
 	}
-	raw, err := s.client.Read(ctx, http.MethodPost, "/"+s.config.IndexName+"/_search", url.Values{"allow_partial_search_results": {"false"}}, body, 0)
+	raw, err := s.client.Read(ctx, http.MethodPost, indexName(s.config.IndexName).path(searchEndpoint), url.Values{"allow_partial_search_results": {"false"}}, body, 0)
 	if err != nil {
 		return nil, err
 	}

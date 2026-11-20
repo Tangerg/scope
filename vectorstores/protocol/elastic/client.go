@@ -56,6 +56,7 @@ func NewClient(config ClientConfig) (*Client, error) {
 
 // Read retains received bytes with their errors, because acknowledgments and
 // scroll cleanup cursors can remain meaningful after a read or Close failure.
+// Path is already escaped, so an encoded segment keeps its encoding.
 // A zero limit uses the client bound; a positive limit may only narrow it.
 func (c *Client) Read(ctx context.Context, method, path string, query url.Values, body []byte, limit int64) (raw []byte, err error) {
 	if err = c.validate(); err != nil {
@@ -68,8 +69,12 @@ func (c *Client) Read(ctx context.Context, method, path string, query url.Values
 		return nil, errors.New("elastic: response limit must not be negative")
 	}
 	limit = min(cmp.Or(limit, c.maxResponseBytes), c.maxResponseBytes)
-	endpoint := (&url.URL{Path: path, RawQuery: query.Encode()}).String()
-	request, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+	endpoint, err := url.Parse(path)
+	if err != nil {
+		return nil, err
+	}
+	endpoint.RawQuery = query.Encode()
+	request, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

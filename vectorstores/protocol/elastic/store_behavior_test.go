@@ -863,3 +863,21 @@ func TestStoreScanOperationsRequireTheirPredicateAndBudget(t *testing.T) {
 		t.Fatal("a rejected operation reached the index")
 	}
 }
+
+func TestStoreAddressesItsIndexAsOnePathSegment(t *testing.T) {
+	var paths []string
+	perform := func(request *http.Request) (*http.Response, error) {
+		paths = append(paths, request.URL.EscapedPath())
+		return nil, errors.New("stop after the first request")
+	}
+	for name, want := range map[string]string{"..": "/%2E%2E/_mapping", "docs#v2": "/docs%23v2/_mapping"} {
+		paths = nil
+		config := elastic.StoreConfig{Engine: behaviorEngine{}, Perform: perform, IndexName: name, Space: behaviorSpace}
+		if _, err := elastic.NewStore(t.Context(), config); err == nil {
+			t.Fatalf("%q: NewStore succeeded without an index", name)
+		}
+		if len(paths) == 0 || paths[0] != want {
+			t.Fatalf("%q: requested %v, want %s first", name, paths, want)
+		}
+	}
+}
