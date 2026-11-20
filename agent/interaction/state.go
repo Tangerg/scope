@@ -212,10 +212,11 @@ func (e executionState) validateActiveCallState(ctx context.Context, definition 
 		return err
 	}
 	active := round.batchCalls()
-	if err := round.Batch.validate(ctx, active); err != nil {
+	kind := definition.callKind(active[0])
+	if err := round.Batch.validate(ctx, kind, active); err != nil {
 		return err
 	}
-	return round.Batch.validateBindings(ctx, definition, active, round.calls()[round.nextCallIndex():], e.ModelCallCount)
+	return round.Batch.validateBindings(ctx, definition, kind, active, round.calls()[round.nextCallIndex():], e.ModelCallCount)
 }
 
 // replaceModelContext takes ownership of a prepared context and admits it as a

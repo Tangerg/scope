@@ -12,13 +12,17 @@ import (
 	"github.com/Tangerg/scope/core/tool"
 )
 
-type callKind string
+// callKind is whether a batch runs Tools or Delegates. It is derived from the
+// definition and the batch's calls, never stored, so a restored batch cannot
+// claim a kind its calls contradict.
+type callKind uint8
 
 const (
-	callTool            callKind = "tool"
-	callDelegate        callKind = "delegate"
-	toolInputWaitPrefix          = "tool.input."
+	callTool callKind = iota
+	callDelegate
 )
+
+const toolInputWaitPrefix = "tool.input."
 
 // inputWait names the answer to one settled request. A continuation that asks
 // again has another EffectID and therefore cannot accept a retry of an old answer.
@@ -221,7 +225,6 @@ func (c callInvocation) validateDelegate(call chat.ToolCall, sequence uint64, in
 }
 
 type callBatch struct {
-	Kind        callKind          `json:"kind"`
 	Invocations []*callInvocation `json:"invocations"`
 }
 
@@ -239,8 +242,8 @@ func (c callBatch) active() int {
 
 // validate checks the batch's own invariants: started invocations form a prefix
 // in declaration order, and no Effect is owned by two invocations.
-func (c callBatch) validate(ctx context.Context, calls []chat.ToolCall) error {
-	if c.Kind != callTool && c.Kind != callDelegate || len(c.Invocations) == 0 || len(c.Invocations) != len(calls) {
+func (c callBatch) validate(ctx context.Context, kind callKind, calls []chat.ToolCall) error {
+	if len(c.Invocations) == 0 || len(c.Invocations) != len(calls) {
 		return ErrInvalidExecutionState
 	}
 	owners := make(map[run.EffectID]int, 2*len(c.Invocations))
@@ -249,7 +252,7 @@ func (c callBatch) validate(ctx context.Context, calls []chat.ToolCall) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := invocation.validate(c.Kind, calls[index]); err != nil {
+		if err := invocation.validate(kind, calls[index]); err != nil {
 			return err
 		}
 		if index > 0 && !c.Invocations[index-1].Reference.Precedes(invocation.Reference) {
@@ -261,7 +264,7 @@ func (c callBatch) validate(ctx context.Context, calls []chat.ToolCall) error {
 	}
 	unstarted := len(c.Invocations) - started
 	if slices.ContainsFunc(c.Invocations[started:], func(invocation *callInvocation) bool { return invocation != nil }) ||
-		c.Kind == callDelegate && unstarted > 0 || c.active() == 0 {
+		kind == callDelegate && unstarted > 0 || c.active() == 0 {
 		return ErrInvalidExecutionState
 	}
 	return nil
@@ -290,13 +293,13 @@ func claimEffect(owners map[run.EffectID]int, effect run.EffectID, owner int) bo
 	return true
 }
 
-func (c callBatch) validateBindings(ctx context.Context, definition *definition, calls, remaining []chat.ToolCall, sequence uint64) error {
+func (c callBatch) validateBindings(ctx context.Context, definition *definition, kind callKind, calls, remaining []chat.ToolCall, sequence uint64) error {
 	for index, call := range calls {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		delegate, delegated := definition.delegate(call.Name)
-		if delegated != (c.Kind == callDelegate) {
+		if delegated != (kind == callDelegate) {
 			return ErrInvalidExecutionState
 		}
 		if delegated {
@@ -313,7 +316,7 @@ func (c callBatch) validateBindings(ctx context.Context, definition *definition,
 			return ErrInvalidExecutionState
 		}
 	}
-	if c.Kind == callDelegate {
+	if kind == callDelegate {
 		return nil
 	}
 	count, err := definition.toolWindow(ctx, remaining)

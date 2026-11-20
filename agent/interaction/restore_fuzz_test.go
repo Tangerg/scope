@@ -17,7 +17,7 @@ func FuzzInteractionRestoreRoundTrip(f *testing.F) {
 		{WorkingContext: testInput(), ModelCallCount: 1, PendingEffect: testTurn(1).EffectID(0)},
 		{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{
 			Response: callResponse(requested("echo", "call")),
-			Batch:    &callBatch{Kind: callTool, Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}},
+			Batch:    &callBatch{Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}},
 		}},
 	}
 	states := make([]run.ExecutionState, len(seeds))

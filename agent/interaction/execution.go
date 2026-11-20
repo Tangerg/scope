@@ -391,7 +391,7 @@ func collectEffectResult(messages []run.Message, expected operation, id run.Effe
 // next call, which advanceToolCallBatch found delegated.
 func (e *execution) prepareDelegateCalls(ctx context.Context, turn run.Turn, calls []chat.ToolCall) ([]run.Effect, error) {
 	start := e.state.ToolRound.nextCallIndex()
-	batch := &callBatch{Kind: callDelegate}
+	batch := &callBatch{}
 	var effects []run.Effect
 	for index := start; index < uint32(len(calls)); index++ {
 		if err := ctx.Err(); err != nil {
@@ -423,7 +423,7 @@ func (e *execution) startToolCalls(ctx context.Context, turn run.Turn, consumed 
 	if err != nil {
 		return run.Transition{}, err
 	}
-	e.state.ToolRound.beginCalls(&callBatch{Kind: callTool, Invocations: make([]*callInvocation, count)})
+	e.state.ToolRound.beginCalls(&callBatch{Invocations: make([]*callInvocation, count)})
 	return e.scheduleTools(turn, consumed, nil)
 }
 
@@ -492,7 +492,7 @@ func (e *execution) advanceCalls(turn run.Turn) (run.Transition, error) {
 	}
 	e.state.addSteer(steer)
 	consumed := uint32(len(turn.Messages))
-	if e.state.ToolRound.Batch.Kind == callTool {
+	if e.definition.callKind(calls[0]) == callTool {
 		return e.scheduleTools(turn, consumed, effects)
 	}
 	if e.state.ToolRound.Batch.active() != 0 {

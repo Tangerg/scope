@@ -172,6 +172,15 @@ func (d *definition) Restore(ctx context.Context, state run.ExecutionState) (run
 	return &execution{definition: d, state: decoded}, nil
 }
 
+// callKind classifies the batch that starts with call: a run of Delegate
+// calls or a window of Tool calls.
+func (d *definition) callKind(call chat.ToolCall) callKind {
+	if _, delegated := d.delegate(call.Name); delegated {
+		return callDelegate
+	}
+	return callTool
+}
+
 func (d *definition) delegate(name string) (Delegate, bool) {
 	index, found := d.delegatesByName[name]
 	if !found {

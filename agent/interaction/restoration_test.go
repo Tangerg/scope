@@ -65,7 +65,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 		return executionState{WorkingContext: testInput(), ModelCallCount: 1, PendingEffect: testTurn(1).EffectID(0)}
 	}
 	round := func() executionState {
-		return executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{Response: callResponse(call), Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}}}}
+		return executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{Response: callResponse(call), Batch: &callBatch{Invocations: []*callInvocation{{Reference: reference, Pending: &reference}}}}}
 	}
 	for _, row := range []struct {
 		name   string
@@ -134,9 +134,7 @@ func TestRestoreRejectsContradictoryInteractionOwnership(t *testing.T) {
 		{"empty invocation", round, func(value *executionState) {
 			value.ToolRound.Batch.Invocations[0] = &callInvocation{Reference: reference}
 		}},
-		{"unknown call kind", round, func(value *executionState) { value.ToolRound.Batch.Kind = "unknown" }},
-		{"delegate kind for ordinary tool", round, func(value *executionState) {
-			value.ToolRound.Batch.Kind = callDelegate
+		{"delegate invocation for ordinary tool", round, func(value *executionState) {
 			value.ToolRound.Batch.Invocations[0] = &callInvocation{Reference: reference, Child: &child.Invocation{Request: &reference}}
 		}},
 		{"two owners of one obligation", round, func(value *executionState) {
@@ -192,7 +190,7 @@ func TestRestoredDelegateBatchMustRetainItsDeclaredChildOwners(t *testing.T) {
 	secondProcess := mustValue(secondRef.Process.Child(mustValue(DelegateChildKey(1, secondCall))))
 	base := func() executionState {
 		return executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{
-			Response: callResponse(firstCall, secondCall), Batch: &callBatch{Kind: callDelegate, Invocations: []*callInvocation{
+			Response: callResponse(firstCall, secondCall), Batch: &callBatch{Invocations: []*callInvocation{
 				{Reference: firstRef, Child: &child.Invocation{Request: &firstRef}},
 				{Reference: secondRef, Child: &child.Invocation{Request: &secondRef}},
 			}},
@@ -243,7 +241,7 @@ func TestRestoredContinuationCannotOwnAnotherCallsOriginalEffect(t *testing.T) {
 	for _, awaitingInput := range []bool{false, true} {
 		state := executionState{WorkingContext: testInput(), ModelCallCount: 1, ToolRound: &toolCallRound{
 			Response: callResponse(requested("echo", "first"), requested("echo", "second"), requested("echo", "third")),
-			Batch: &callBatch{Kind: callTool, Invocations: []*callInvocation{
+			Batch: &callBatch{Invocations: []*callInvocation{
 				{Reference: first, Pending: &continued},
 				{Reference: second, Result: &toolCallResult{Disposition: ResultSucceeded}},
 				{Reference: third, Result: &toolCallResult{Disposition: ResultSucceeded}},
