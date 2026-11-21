@@ -155,6 +155,10 @@ type DialectConfig struct {
 	// "capped at 1", which alters the request silently, while others answer an
 	// error further from the caller. Nil accepts whatever Core accepts.
 	MaxTemperature *float64
+	// ReasoningEfforts is the reasoning_effort vocabulary of the provider's
+	// models when it differs from OpenAI's, such as Groq's "default". Nil
+	// accepts OpenAI's vocabulary.
+	ReasoningEfforts []corechat.ReasoningEffort
 
 	TextReasoning    *TextReasoningConfig
 	ReasoningDetails *ReasoningDetailsConfig
@@ -166,6 +170,11 @@ func (d DialectConfig) Validate() error {
 	}
 	if !d.TokenLimitField.Valid() {
 		return fmt.Errorf("token limit field %q is invalid", d.TokenLimitField)
+	}
+	for index, effort := range d.ReasoningEfforts {
+		if err := effort.Validate(); err != nil || effort == "" {
+			return fmt.Errorf("reasoning effort %d %q is invalid", index, effort)
+		}
 	}
 	if d.TextReasoning != nil && d.ReasoningDetails != nil {
 		return errors.New("reasoning wire representation must have exactly one owner")
@@ -187,6 +196,7 @@ func (d DialectConfig) bind() (chatDialect, error) {
 		return chatDialect{}, err
 	}
 	d.IgnoredOptions = slices.Clone(d.IgnoredOptions)
+	d.ReasoningEfforts = slices.Clone(d.ReasoningEfforts)
 	if d.MaxTemperature != nil {
 		d.MaxTemperature = new(*d.MaxTemperature)
 	}
@@ -218,6 +228,18 @@ type chatDialect struct {
 
 func (c chatDialect) ignores(option ChatOption) bool {
 	return slices.Contains(c.IgnoredOptions, option)
+}
+
+// reasoningEffort admits effort from the provider's own vocabulary; an effort
+// is a model's word, so another provider's enum must not decide it.
+func (c chatDialect) reasoningEffort(effort corechat.ReasoningEffort) (openaisdk.ReasoningEffort, error) {
+	if c.ReasoningEfforts == nil {
+		return mapReasoningEffort(effort)
+	}
+	if effort != "" && !slices.Contains(c.ReasoningEfforts, effort) {
+		return "", fmt.Errorf("openai: %s options.reasoning_effort has unsupported value %q", c.Provider, effort)
+	}
+	return openaisdk.ReasoningEffort(effort), nil
 }
 
 // admit refuses a set option the provider documents as discarded.

@@ -251,7 +251,7 @@ func (c *ChatCompletions) applyOptions(options corechat.Options, toolChoice *cor
 	if err := c.applyTokenLimit(options.MaxOutputTokens, params); err != nil {
 		return err
 	}
-	reasoningEffort, err := mapReasoningEffort(options.ReasoningEffort)
+	reasoningEffort, err := c.dialect.reasoningEffort(options.ReasoningEffort)
 	if err != nil {
 		return err
 	}

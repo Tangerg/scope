@@ -9,6 +9,10 @@
 //   - reasoning_format ("parsed" / "raw" / "hidden") controls how
 //     reasoning-model output is surfaced.
 //
+// Core reasoning effort accepts Groq's vocabulary, the union of its models':
+// none, default, low, medium, high and xhigh. Each model accepts only its own
+// subset; see https://console.groq.com/docs/reasoning.
+//
 // Output token limits go out as max_completion_tokens. Groq's API reference
 // marks max_tokens "Deprecated in favor of max_completion_tokens" and its own
 // text-generation guide passes the replacement, which is documented to bound

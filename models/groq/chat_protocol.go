@@ -51,6 +51,9 @@ func NewChatCompletions(ctx context.Context, config ChatCompletionsConfig) (*cor
 		TokenLimitField:    openai.TokenLimitMaxCompletionTokens,
 		TextReasoning:      &openai.TextReasoningConfig{Fields: []openai.TextReasoningField{openai.TextReasoning}, Replay: openai.TextReasoningReplayNever},
 		NativeOutputFormat: nativeOutputFormat,
+		// The union of Groq's models: Qwen adds "none" and "default", and Muse
+		// Spark adds "xhigh".
+		ReasoningEfforts: []corechat.ReasoningEffort{"none", "default", "low", "medium", "high", "xhigh"},
 	}
 	protocol, err := openai.NewChatCompletions(ctx, config.protocol(), dialect)
 	if err != nil {
