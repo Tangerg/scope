@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -90,30 +89,15 @@ func (m Middleware[T]) observe(next coreeval.Assessment[T]) coreeval.Evaluator[T
 	}
 	identity := attribute.String(assessmentIDAttribute, string(next.ID()))
 	return coreeval.EvaluatorFunc[T](func(ctx context.Context, subject T) (report coreeval.Report, err error) {
-		startedAt := time.Now()
 		operation := attribute.String(operationAttribute, operationEvaluate)
-		spanCtx, span := m.tracer.Start(ctx, spanName,
-			trace.WithSpanKind(trace.SpanKindInternal),
-			trace.WithTimestamp(startedAt),
-			trace.WithAttributes(operation, identity),
-		)
+		spanCtx, measurement := instrument.StartMeasurement(ctx, m.tracer, spanName, trace.SpanKindInternal, operation, identity)
 		defer errortelemetry.Finish(&err, func(observedError error) {
-			finishedAt := time.Now()
-			defer span.End(trace.WithTimestamp(finishedAt))
 			attributes := []attribute.KeyValue{operation, identity}
 			if observedError == nil {
-				span.SetAttributes(reportAttributes(report)...)
+				measurement.SetAttributes(reportAttributes(report)...)
 				attributes = append(attributes, metricIdentityAttributes(report.Metric)...)
-			} else {
-				errorType := errorTypeAttribute(observedError)
-				errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-				attributes = append(attributes, errorType)
 			}
-			m.duration.Record(
-				spanCtx,
-				finishedAt.Sub(startedAt).Seconds(),
-				metric.WithAttributes(attributes...),
-			)
+			measurement.End(spanCtx, m.duration, errorTypeAttribute(observedError), attributes...)
 		})
 		report, err = next.Evaluate(spanCtx, subject)
 		if err != nil {

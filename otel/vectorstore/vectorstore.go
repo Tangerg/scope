@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -164,69 +164,39 @@ func (m Middleware) start(
 	operation operationName,
 	extra ...attribute.KeyValue,
 ) (context.Context, vectorStoreObservation) {
-	startedAt := time.Now()
 	metricAttributes := []attribute.KeyValue{
 		semconv.DBSystemNameKey.String(m.system),
 		semconv.DBOperationNameKey.String(string(operation)),
 	}
-	attrs := append([]attribute.KeyValue(nil), metricAttributes...)
 	target := ""
 	if m.collection != "" {
-		collection := semconv.DBCollectionNameKey.String(m.collection)
-		attrs = append(attrs, collection)
-		metricAttributes = append(metricAttributes, collection)
+		metricAttributes = append(metricAttributes, semconv.DBCollectionNameKey.String(m.collection))
 		target = m.collection
 	}
 	if m.namespace != "" {
-		namespace := semconv.DBNamespaceKey.String(m.namespace)
-		attrs = append(attrs, namespace)
-		metricAttributes = append(metricAttributes, namespace)
+		metricAttributes = append(metricAttributes, semconv.DBNamespaceKey.String(m.namespace))
 		if target == "" {
 			target = m.namespace
 		}
 	}
-	attrs = append(attrs, extra...)
-
 	name := string(operation)
 	if target != "" {
 		name += " " + target
 	}
-	spanCtx, span := m.tracer.Start(ctx, name,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(attrs...),
-	)
-	return spanCtx, vectorStoreObservation{
-		middleware:       m,
-		ctx:              spanCtx,
-		span:             span,
-		startedAt:        startedAt,
-		metricAttributes: metricAttributes,
-	}
+	attrs := append(slices.Clone(metricAttributes), extra...)
+	spanCtx, measurement := instrument.StartMeasurement(ctx, m.tracer, name, trace.SpanKindClient, attrs...)
+	return spanCtx, vectorStoreObservation{middleware: m, ctx: spanCtx, measurement: measurement, metricAttributes: metricAttributes}
 }
 
 type vectorStoreObservation struct {
 	middleware       Middleware
 	ctx              context.Context
-	span             trace.Span
-	startedAt        time.Time
+	measurement      instrument.Measurement
 	metricAttributes []attribute.KeyValue
 }
 
 func (v vectorStoreObservation) finish(err error) {
-	finishedAt := time.Now()
-	metricAttributes := v.metricAttributes
-	if err != nil {
-		errorType := errortelemetry.Classify(err)
-		errortelemetry.Record(v.span, errorType, trace.WithTimestamp(finishedAt))
-		metricAttributes = append(metricAttributes, errorType)
-	}
-	v.span.End(trace.WithTimestamp(finishedAt))
-	v.middleware.duration.Record(
-		v.ctx,
-		finishedAt.Sub(v.startedAt).Seconds(),
-		metric.WithAttributes(metricAttributes...),
-	)
+	v.measurement.End(v.ctx, v.middleware.duration, errortelemetry.Classify(err), v.metricAttributes...)
 }
 
 func (v vectorStoreObservation) recordReturnedRows(count int) {
@@ -281,7 +251,7 @@ func (q querier) Query(ctx context.Context, request *corevectorstore.Query) (res
 	defer errortelemetry.Finish(&err, observation.finish)
 	response, err = q.next.Query(ctx, request)
 	if err == nil && response != nil {
-		observation.span.SetAttributes(semconv.DBResponseReturnedRowsKey.Int(len(response.Results)))
+		observation.measurement.SetAttributes(semconv.DBResponseReturnedRowsKey.Int(len(response.Results)))
 		observation.recordReturnedRows(len(response.Results))
 	}
 	return response, err

@@ -44,6 +44,9 @@ func TestClassifyPrefersContextThenDeclaredClasses(t *testing.T) {
 			}
 		})
 	}
+	if got := Classify(nil, classes...); got.Valid() {
+		t.Fatalf("Classify(nil) = %s=%q, want no classification", got.Key, got.Value.AsString())
+	}
 }
 
 func TestFinishPreservesReturnedErrorsAndPanics(t *testing.T) {

@@ -31,9 +31,12 @@ type Class struct {
 // Classify reports cancellation and deadlines before the capability classes,
 // because a provider error produced while unwinding a canceled call does not
 // describe why the call ended. Unmatched errors use semconv.ErrorType, never
-// their message.
+// their message. A nil error has no classification: the zero KeyValue, which
+// is not Valid.
 func Classify(err error, classes ...Class) attribute.KeyValue {
 	switch {
+	case err == nil:
+		return attribute.KeyValue{}
 	case errors.Is(err, context.Canceled):
 		return semconv.ErrorTypeKey.String(canceledClassification)
 	case errors.Is(err, context.DeadlineExceeded):

@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/semconv/v1.41.0/genaiconv"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Tangerg/scope/otel/errortelemetry"
 	"github.com/Tangerg/scope/otel/internal/genaimetric"
@@ -23,15 +22,14 @@ import (
 type Operation struct {
 	client        Client
 	name          genaiconv.OperationNameAttr
-	span          trace.Span
-	startedAt     time.Time
+	measurement   Measurement
 	lastChunkAt   time.Time
 	requestModel  string
 	responseModel string
 }
 
 func (o *Operation) SetAttributes(attributes ...attribute.KeyValue) {
-	o.span.SetAttributes(attributes...)
+	o.measurement.SetAttributes(attributes...)
 }
 
 // ObserveResponseModel records the model that served the call on the span and
@@ -41,7 +39,7 @@ func (o *Operation) ObserveResponseModel(model string) {
 		return
 	}
 	o.responseModel = model
-	o.span.SetAttributes(semconv.GenAIResponseModel(model))
+	o.measurement.SetAttributes(semconv.GenAIResponseModel(model))
 }
 
 func (o *Operation) RecordTokens(ctx context.Context, usage genaiconv.ClientTokenUsage, tokenType genaiconv.TokenTypeAttr, count int64) {
@@ -53,8 +51,8 @@ func (o *Operation) RecordTokens(ctx context.Context, usage genaiconv.ClientToke
 func (o *Operation) ObserveChunk(ctx context.Context, timing ChunkTiming, receivedAt time.Time) {
 	provider := genaiconv.ProviderNameAttr(o.client.Provider)
 	if o.lastChunkAt.IsZero() {
-		elapsed := receivedAt.Sub(o.startedAt).Seconds()
-		o.span.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
+		elapsed := receivedAt.Sub(o.measurement.startedAt).Seconds()
+		o.measurement.SetAttributes(semconv.GenAIResponseTimeToFirstChunk(elapsed))
 		timing.firstChunk.Record(ctx, elapsed, o.name, provider, o.modelAttributes()...)
 	} else {
 		timing.chunkInterval.Record(ctx, receivedAt.Sub(o.lastChunkAt).Seconds(), o.name, provider, o.modelAttributes()...)
@@ -62,19 +60,18 @@ func (o *Operation) ObserveChunk(ctx context.Context, timing ChunkTiming, receiv
 	o.lastChunkAt = receivedAt
 }
 
-// End reports a failure on the span, as a GenAI exception event, and as the
-// error.type of the duration metric, then ends the span.
+// End reports a failure as the measurement does and as a GenAI exception
+// event at the instant the operation ended.
 func (o *Operation) End(ctx context.Context, err error) {
-	finishedAt := time.Now()
-	attributes := o.modelAttributes()
-	if err != nil {
-		errorType := o.client.classify(err)
-		errortelemetry.Record(o.span, errorType, trace.WithTimestamp(finishedAt))
+	errorType := o.client.classify(err)
+	attributes := append(o.modelAttributes(),
+		semconv.GenAIOperationNameKey.String(string(o.name)),
+		semconv.GenAIProviderNameKey.String(o.client.Provider),
+	)
+	finishedAt := o.measurement.End(ctx, o.client.Duration.Inst(), errorType, attributes...)
+	if errorType.Valid() {
 		errortelemetry.EmitGenAIException(ctx, o.client.Logger, errorType, finishedAt)
-		attributes = append(attributes, errorType)
 	}
-	o.client.Duration.Record(ctx, finishedAt.Sub(o.startedAt).Seconds(), o.name, genaiconv.ProviderNameAttr(o.client.Provider), attributes...)
-	o.span.End(trace.WithTimestamp(finishedAt))
 }
 
 func (o *Operation) modelAttributes() []attribute.KeyValue {

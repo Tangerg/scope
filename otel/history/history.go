@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -127,53 +127,28 @@ func (m Middleware) start(
 	conversationID corehistory.ConversationID,
 	extra ...attribute.KeyValue,
 ) (context.Context, historyObservation) {
-	startedAt := time.Now()
-	attrs := make([]attribute.KeyValue, 0, 3+len(extra))
 	metricAttributes := []attribute.KeyValue{
 		semconv.DBSystemNameKey.String(m.system),
 		attribute.String(operationAttributeName, string(operation)),
 	}
-	attrs = append(attrs, metricAttributes...)
+	attrs := slices.Clone(metricAttributes)
 	if conversationID != "" {
 		attrs = append(attrs, semconv.GenAIConversationID(conversationID.String()))
 	}
 	attrs = append(attrs, extra...)
-	spanCtx, span := m.tracer.Start(ctx, operation.spanName(),
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(attrs...),
-	)
-	return spanCtx, historyObservation{
-		middleware:       m,
-		ctx:              spanCtx,
-		span:             span,
-		startedAt:        startedAt,
-		metricAttributes: metricAttributes,
-	}
+	spanCtx, measurement := instrument.StartMeasurement(ctx, m.tracer, operation.spanName(), trace.SpanKindClient, attrs...)
+	return spanCtx, historyObservation{ctx: spanCtx, duration: m.duration, measurement: measurement, metricAttributes: metricAttributes}
 }
 
 type historyObservation struct {
-	middleware       Middleware
 	ctx              context.Context
-	span             trace.Span
-	startedAt        time.Time
+	duration         metric.Float64Histogram
+	measurement      instrument.Measurement
 	metricAttributes []attribute.KeyValue
 }
 
 func (h historyObservation) finish(err error) {
-	finishedAt := time.Now()
-	metricAttributes := h.metricAttributes
-	if err != nil {
-		errorType := errortelemetry.Classify(err)
-		errortelemetry.Record(h.span, errorType, trace.WithTimestamp(finishedAt))
-		metricAttributes = append(metricAttributes, errorType)
-	}
-	h.span.End(trace.WithTimestamp(finishedAt))
-	h.middleware.duration.Record(
-		h.ctx,
-		finishedAt.Sub(h.startedAt).Seconds(),
-		metric.WithAttributes(metricAttributes...),
-	)
+	h.measurement.End(h.ctx, h.duration, errortelemetry.Classify(err), h.metricAttributes...)
 }
 
 type historyStore struct {
@@ -199,7 +174,7 @@ func (h historyStore) Read(ctx context.Context, conversationID corehistory.Conve
 	ctx, observation := h.middleware.start(ctx, operationRead, conversationID)
 	defer errortelemetry.Finish(&err, observation.finish)
 	messages, err = h.next.Read(ctx, conversationID)
-	observation.span.SetAttributes(attribute.Int(messageCountAttribute, len(messages)))
+	observation.measurement.SetAttributes(attribute.Int(messageCountAttribute, len(messages)))
 	return messages, err
 }
 
@@ -232,6 +207,6 @@ func (h historyLister) Conversations(ctx context.Context) (ids []corehistory.Con
 	ctx, observation := h.middleware.start(ctx, operationList, "")
 	defer errortelemetry.Finish(&err, observation.finish)
 	ids, err = h.next.Conversations(ctx)
-	observation.span.SetAttributes(attribute.Int(conversationCountAttribute, len(ids)))
+	observation.measurement.SetAttributes(attribute.Int(conversationCountAttribute, len(ids)))
 	return ids, err
 }

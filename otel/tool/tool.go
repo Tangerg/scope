@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -85,27 +84,9 @@ func (i *instrumentedCaller) Call(ctx context.Context, invocation coretool.Invoc
 		semconv.GenAIToolName(name),
 		semconv.GenAIToolType(toolTypeFunction),
 	}
-	startedAt := time.Now()
-	ctx, span := i.middleware.tracer.Start(
-		ctx,
-		operation.Value.AsString()+" "+name,
-		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(attributes...),
-	)
+	ctx, measurement := instrument.StartMeasurement(ctx, i.middleware.tracer, operation.Value.AsString()+" "+name, trace.SpanKindInternal, attributes...)
 	defer errortelemetry.Finish(&err, func(observedError error) {
-		finishedAt := time.Now()
-		defer span.End(trace.WithTimestamp(finishedAt))
-		if observedError != nil {
-			errorType := errortelemetry.Classify(observedError)
-			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-			attributes = append(attributes, errorType)
-		}
-		i.middleware.duration.Record(
-			ctx,
-			finishedAt.Sub(startedAt).Seconds(),
-			metric.WithAttributes(attributes...),
-		)
+		measurement.End(ctx, i.middleware.duration, errortelemetry.Classify(observedError), attributes...)
 	})
 	return i.next.Call(ctx, invocation)
 }

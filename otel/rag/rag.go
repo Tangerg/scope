@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -86,29 +85,12 @@ func (i *instrumentedRetriever) Retrieve(
 	metricAttributes := []attribute.KeyValue{
 		attribute.String(operationAttributeName, retrieveOperation),
 	}
-	startedAt := time.Now()
-	ctx, span := i.middleware.tracer.Start(
-		ctx,
-		retrieveSpanName,
-		trace.WithSpanKind(trace.SpanKindInternal),
-		trace.WithAttributes(metricAttributes...),
-	)
+	ctx, measurement := instrument.StartMeasurement(ctx, i.middleware.tracer, retrieveSpanName, trace.SpanKindInternal, metricAttributes...)
 	defer errortelemetry.Finish(&err, func(observedError error) {
-		finishedAt := time.Now()
-		defer span.End(trace.WithTimestamp(finishedAt))
-		if observedError != nil {
-			errorType := errortelemetry.Classify(observedError)
-			errortelemetry.Record(span, errorType, trace.WithTimestamp(finishedAt))
-			metricAttributes = append(metricAttributes, errorType)
-		}
-		i.middleware.duration.Record(
-			ctx,
-			finishedAt.Sub(startedAt).Seconds(),
-			metric.WithAttributes(metricAttributes...),
-		)
+		measurement.End(ctx, i.middleware.duration, errortelemetry.Classify(observedError), metricAttributes...)
 	})
 	candidates, err = i.next.Retrieve(ctx, query)
-	span.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
+	measurement.SetAttributes(attribute.Int(documentCountAttribute, len(candidates)))
 	return candidates, err
 }
 

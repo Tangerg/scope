@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/samber/lo"
 	"go.opentelemetry.io/otel/attribute"
@@ -65,15 +64,13 @@ func (c Client) Ready() bool {
 }
 
 // StartOperation names the span "{operation} {request model}", omitting an
-// unknown model as the GenAI semantic conventions specify, and starts it at the
-// instant every duration of the operation is measured from.
+// unknown model as the GenAI semantic conventions specify.
 func (c Client) StartOperation(
 	ctx context.Context,
 	name genaiconv.OperationNameAttr,
 	requestModel string,
 	attributes ...attribute.KeyValue,
 ) (context.Context, *Operation) {
-	startedAt := time.Now()
 	spanName := string(name)
 	spanAttributes := []attribute.KeyValue{
 		semconv.GenAIOperationNameKey.String(string(name)),
@@ -83,10 +80,6 @@ func (c Client) StartOperation(
 		spanName += " " + requestModel
 		spanAttributes = append(spanAttributes, semconv.GenAIRequestModel(requestModel))
 	}
-	spanCtx, span := c.Tracer.Start(ctx, spanName,
-		trace.WithSpanKind(trace.SpanKindClient),
-		trace.WithTimestamp(startedAt),
-		trace.WithAttributes(append(spanAttributes, attributes...)...),
-	)
-	return spanCtx, &Operation{client: c, name: name, span: span, startedAt: startedAt, requestModel: requestModel}
+	spanCtx, measurement := StartMeasurement(ctx, c.Tracer, spanName, trace.SpanKindClient, append(spanAttributes, attributes...)...)
+	return spanCtx, &Operation{client: c, name: name, measurement: measurement, requestModel: requestModel}
 }
