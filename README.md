@@ -19,7 +19,7 @@ Each capability has one owning package and one public representation. Scope avoi
 | Ordinary structured model calls | `chatclient.New`, `Client.Output`; streaming uses `NewStreamClient` | [Core-only consumer](examples/chat/main.go) |
 | Managed execution | `interaction.Compile`, `run.Runtime.Run`, `run.Runtime.Start`, `run.Handle.Await` | [Direct versus managed](examples/agent/direct_vs_managed/main.go) |
 | Recovery and remote reconciliation | `run.Store`, `run.Runtime.Recover`, `interaction.SettleToolResult`, `run.Handle.ResolveUnknownEffect` | [Unknown outcomes](examples/agent/reconciliation/doc.go), [PostgreSQL and process crashes](agent/run/postgres/doc.go) |
-| Direct tool execution | `tool.Bind`, `Contract.Prepare(tool.Request, nil)`, `Binding.Call` | [Tool contracts](core/tool/doc.go) |
+| Direct tool execution | `tool.Bind`, `Contract.Prepare(tool.Request, tool.Admission{})`, `Binding.Call` | [Tool contracts](core/tool/doc.go) |
 | Numeric vector coordinates | `vector.Coordinates`, `vector.Float32` from `core/vector` | [Coordinate invariants](core/vector/doc.go) |
 | Embedded indexing and retrieval | `index.Writer.Write`, `vector.Encoder` from `rag/vector`; `vectorstore.Batch`, `vectorstore.Query` | [Native and hosted backends](vectorstores/README.md) |
 | Revision-bound RAG citations | Named ETL input, shared query encoding and prompt-admitted evidence | [Offline citation example](examples/rag/citations/main.go) |
@@ -29,9 +29,9 @@ Start with ordinary calls when you only need model I/O. The first consumer and
 its tests depend on Core alone. Managed execution records progress in an
 append-only log; `MemoryStore` retains facts only for that instance's lifetime.
 Persistent storage and business transactions stay with the Host. A Process
-publishes its terminal result only after its descendants and outstanding Effects
-settle. An uncertain external outcome keeps the tree draining until the Host
-reconciles it.
+publishes its terminal result only after its descendants exit and its in-flight
+work drains. An uncertain external outcome stays Unknown in the log; once the
+Process has exited, the Host reconciles it outside the run.
 
 ## Ordinary structured call
 
