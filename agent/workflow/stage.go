@@ -127,8 +127,10 @@ func Call(config CallConfig) (Stage, error) {
 
 func (s Stage) Valid() bool { return s.kind.Valid() }
 
-func (s Stage) hasIdenticalInputSchema(schema jsonschema.Schema) bool {
-	return s.inputSchema.Equal(schema)
+// follows reports whether s accepts exactly what previous produces, the one
+// rule joining adjacent Stages.
+func (s Stage) follows(previous Stage) bool {
+	return s.inputSchema.Equal(previous.outputSchema)
 }
 
 // fanoutChild returns the fan-out member at index and the key of the child

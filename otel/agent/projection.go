@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"time"
 
@@ -119,15 +120,15 @@ func (l *logProjection) startProcess(ctx context.Context, entry run.Entry, fact 
 
 // startEffect opens the span of an Effect its Step declared at the instant the
 // Step was committed.
-func (l *logProjection) startEffect(ctx context.Context, entry run.Entry, fact run.EffectIntent, at time.Time) {
-	if process, ok := l.processes[fact.ID.Process]; ok {
+func (l *logProjection) startEffect(ctx context.Context, entry run.Entry, intent run.EffectIntent, at time.Time) {
+	if process, ok := l.processes[intent.ID.Process]; ok {
 		ctx = trace.ContextWithSpan(ctx, process.span)
 	}
-	attributes := []attribute.KeyValue{effectTargetAttribute.String(fact.Effect.Target().String())}
+	attributes := []attribute.KeyValue{effectTargetAttribute.String(intent.Effect.Target().String())}
 	spanAttributes := append([]attribute.KeyValue{}, attributes...)
-	spanAttributes = append(spanAttributes, effectIDAttribute.String(fact.ID.String()), processIDAttribute.String(fact.ID.Process.String()), uint64Attribute(epochAttribute, uint64(entry.Epoch)), uint64Attribute(lsnAttribute, uint64(entry.LSN)))
+	spanAttributes = append(spanAttributes, effectIDAttribute.String(intent.ID.String()), processIDAttribute.String(intent.ID.Process.String()), uint64Attribute(epochAttribute, uint64(entry.Epoch)), uint64Attribute(lsnAttribute, uint64(entry.LSN)))
 	_, span := l.observer.tracer.Start(ctx, "agent.effect", trace.WithTimestamp(at), trace.WithAttributes(spanAttributes...))
-	l.effects[fact.ID] = observedEffect{observedSpan: observedSpan{span: span, at: at, attributes: attributes}}
+	l.effects[intent.ID] = observedEffect{observedSpan: observedSpan{span: span, at: at, attributes: attributes}}
 }
 
 func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact run.EffectSettled) {
@@ -148,7 +149,7 @@ func (l *logProjection) settleEffect(ctx context.Context, entry run.Entry, fact 
 		l.effects[fact.ID] = observed
 		return
 	}
-	attributes := append(observed.attributes, effectStatusAttribute.String(fact.Outcome.Status().String()))
+	attributes := append(slices.Clip(observed.attributes), effectStatusAttribute.String(fact.Outcome.Status().String()))
 	observed.span.SetAttributes(attributes...)
 	if fact.Outcome.Status() != run.SettlementStatusSucceeded {
 		classifySpan(observed.span, effectClassification(fact))
@@ -175,7 +176,7 @@ func (l *logProjection) exitProcess(ctx context.Context, entry run.Entry, fact r
 		if id.Process != fact.Process {
 			continue
 		}
-		observed.span.SetAttributes(append(observed.attributes, effectStatusAttribute.String(run.SettlementStatusUnknown.String()))...)
+		observed.span.SetAttributes(append(slices.Clip(observed.attributes), effectStatusAttribute.String(run.SettlementStatusUnknown.String()))...)
 		classifySpan(observed.span, observed.unknown)
 		observed.span.End(trace.WithTimestamp(fact.At))
 		delete(l.effects, id)

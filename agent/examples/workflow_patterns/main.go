@@ -218,7 +218,7 @@ func newPatternChildren(compiler *agentrun.Compiler) (patternChildren, error) {
 		"example.workflow_patterns.normalize",
 		"Normalize one request for the following prompt-chain stage.",
 		struct{}{},
-		normalizePatternRequest,
+		patternRequest.normalized,
 	)
 	if err != nil {
 		return patternChildren{}, err
@@ -227,7 +227,7 @@ func newPatternChildren(compiler *agentrun.Compiler) (patternChildren, error) {
 		"example.workflow_patterns.summarize",
 		"Summarize the normalized result from the previous prompt-chain stage.",
 		struct{}{},
-		summarizeChain,
+		chainState.summarized,
 	)
 	if err != nil {
 		return patternChildren{}, err
@@ -282,7 +282,7 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	}
 	route, err := workflow.Switch(workflow.SwitchConfig[chainState]{
 		ID:     "route",
-		Select: selectPatternRoute,
+		Select: chainState.route,
 		Cases: []workflow.SwitchCase{
 			{ID: urgentRouteID, Child: agentrun.ChildBinding{Program: children.urgent, Budget: budget}},
 			{ID: standardRouteID, Child: agentrun.ChildBinding{Program: children.standard, Budget: budget}},
@@ -318,7 +318,7 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 			{ID: approveSecondBallotID, Child: agentrun.ChildBinding{Program: children.approveSecond, Budget: budget}},
 		},
 		WindowSize: voteWindowSize,
-		Reduce:     reduceBallots,
+		Reduce:     findingBundle.tally,
 	})
 	if err != nil {
 		return nil, err
@@ -326,27 +326,27 @@ func newPatternStages(children patternChildren, budget agentrun.Budget) ([]workf
 	return []workflow.Stage{normalize, summarize, route, section, vote}, nil
 }
 
-func normalizePatternRequest(request patternRequest) (chainState, error) {
-	text := strings.ToUpper(strings.TrimSpace(request.Text))
+func (p patternRequest) normalized() (chainState, error) {
+	text := strings.ToUpper(strings.TrimSpace(p.Text))
 	if text == "" {
 		return chainState{}, errors.New("request text must not be empty")
 	}
-	return chainState{Normalized: text, Urgent: request.Urgent}, nil
+	return chainState{Normalized: text, Urgent: p.Urgent}, nil
 }
 
-func summarizeChain(state chainState) (chainState, error) {
-	if state.Normalized == "" || state.Summary != "" {
+func (c chainState) summarized() (chainState, error) {
+	if c.Normalized == "" || c.Summary != "" {
 		return chainState{}, errors.New("summarizer received an invalid chain state")
 	}
-	state.Summary = "summary: " + state.Normalized
-	return state, nil
+	c.Summary = "summary: " + c.Normalized
+	return c, nil
 }
 
-func selectPatternRoute(state chainState) (string, error) {
-	if state.Normalized == "" || state.Summary == "" {
+func (c chainState) route() (string, error) {
+	if c.Normalized == "" || c.Summary == "" {
 		return "", errors.New("router received an incomplete chain state")
 	}
-	if state.Urgent {
+	if c.Urgent {
 		return urgentRouteID, nil
 	}
 	return standardRouteID, nil
@@ -415,7 +415,7 @@ func ballotProgram(compiler *agentrun.Compiler, name string, choice ballotChoice
 	)
 }
 
-func reduceBallots(bundle findingBundle, ballots []ballot) (patternReport, error) {
+func (f findingBundle) tally(ballots []ballot) (patternReport, error) {
 	if len(ballots) == 0 {
 		return patternReport{}, errors.New("parallel vote returned no ballots")
 	}
@@ -434,12 +434,12 @@ func reduceBallots(bundle findingBundle, ballots []ballot) (patternReport, error
 			winnerVotes = counts[ballot.Choice]
 		}
 	}
-	sections := make([]string, len(bundle.Findings))
-	for index, finding := range bundle.Findings {
+	sections := make([]string, len(f.Findings))
+	for index, finding := range f.Findings {
 		sections[index] = finding.Section
 	}
 	return patternReport{
-		Normalized: bundle.Normalized, Summary: bundle.Summary, Route: bundle.Route,
+		Normalized: f.Normalized, Summary: f.Summary, Route: f.Route,
 		Sections: sections, Decision: winner,
 		DecisionVotes: winnerVotes, TotalVotes: len(ballots),
 	}, nil

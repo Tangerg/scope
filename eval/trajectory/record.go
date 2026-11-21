@@ -99,7 +99,7 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 				if intent.Effect.Target() != run.EffectTargetDispatcher {
 					continue
 				}
-				if err := projection.intent(intent, protocols[programs[record.Process]]); err != nil {
+				if err := projection.intended(intent, protocols[programs[record.Process]]); err != nil {
 					return callProjection{}, err
 				}
 			}
@@ -112,32 +112,32 @@ func projectCalls(log run.Log, coverage *Coverage) (callProjection, error) {
 	return projection, nil
 }
 
-// intent records a dispatcher Effect under the protocol of the Program that
-// emitted it. An Interaction Program's context preparation stays opaque.
-func (c *callProjection) intent(record run.EffectIntent, protocol protocol) error {
+// intended records a dispatcher Effect under the protocol of the Program that
+// declared it. An Interaction Program's context preparation stays opaque.
+func (c *callProjection) intended(intent run.EffectIntent, protocol protocol) error {
 	switch protocol {
 	case protocolUndeclared:
 		if !c.undeclared.Valid() {
-			c.undeclared = record.ID
+			c.undeclared = intent.ID
 		}
 		return nil
 	case protocolOpaque:
 		return nil
 	}
-	model, isModel, err := interaction.ModelCallFromEffect(record.Effect)
+	model, isModel, err := interaction.ModelCallFromEffect(intent.Effect)
 	if err != nil {
-		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, record.ID, err)
+		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, intent.ID, err)
 	}
 	if isModel {
-		c.models[record.ID] = ModelCall{EffectID: record.ID, Sequence: model.Sequence, Request: model.Request.Clone()}
+		c.models[intent.ID] = ModelCall{EffectID: intent.ID, Sequence: model.Sequence, Request: model.Request.Clone()}
 		return nil
 	}
-	call, isTool, err := interaction.ToolCallFromEffect(record.Effect)
+	call, isTool, err := interaction.ToolCallFromEffect(intent.Effect)
 	if err != nil {
-		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, record.ID, err)
+		return fmt.Errorf("%w: interaction intent %s: %w", ErrInvalidTrajectory, intent.ID, err)
 	}
 	if isTool {
-		c.tools[record.ID] = ToolCall{EffectID: record.ID, ContinuationOf: call.ContinuationOf, Call: call.Call}
+		c.tools[intent.ID] = ToolCall{EffectID: intent.ID, ContinuationOf: call.ContinuationOf, Call: call.Call}
 	}
 	return nil
 }

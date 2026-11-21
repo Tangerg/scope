@@ -146,7 +146,7 @@ func newOrchestratorChildren(compiler *agentrun.Compiler) (orchestratorChildren,
 	worker, err := transformProgram(compiler,
 		"example.orchestrator_workers.worker",
 		"Execute one decomposed task and return a typed finding.",
-		executeWorkerTask,
+		workerTask.execute,
 	)
 	if err != nil {
 		return orchestratorChildren{}, err
@@ -204,11 +204,11 @@ func (o orchestratorChildren) stages() ([]workflow.Stage, error) {
 	return []workflow.Stage{renderGoal, decompose, parsePlan, execute, renderResults, synthesize, parseReport}, nil
 }
 
-func executeWorkerTask(task workerTask) (workerResult, error) {
-	if task.ID == "" || task.Instruction == "" {
+func (w workerTask) execute() (workerResult, error) {
+	if w.ID == "" || w.Instruction == "" {
 		return workerResult{}, errors.New("worker task is incomplete")
 	}
-	return workerResult{Finding: task.Instruction + ": complete"}, nil
+	return workerResult{Finding: w.Instruction + ": complete"}, nil
 }
 
 func parseWorkPlan(output interaction.Output) ([]workerTask, error) {

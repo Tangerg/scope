@@ -353,7 +353,7 @@ func TestOrchestrationRefusesAnUnusablePlanAndPartialWorkerEvidence(t *testing.T
 	if r != nil || err == nil {
 		t.Fatal("empty objective acquired a work plan", err)
 	}
-	if result, err := executeWorkerTask(workerTask{ID: "facts"}); result.Finding != "" || err == nil {
+	if result, err := (workerTask{ID: "facts"}).execute(); result.Finding != "" || err == nil {
 		t.Fatal("published an incomplete task finding", result, err)
 	}
 }

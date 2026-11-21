@@ -340,9 +340,10 @@ func newIterationProgram(
 	})
 }
 
-func initializeOptimization(request optimizationRequest) (optimizationState, error) {
-	objective := strings.TrimSpace(request.Objective)
-	if objective == "" || objective != request.Objective {
+// initialState admits the request as the first optimization state.
+func (o optimizationRequest) initialState() (optimizationState, error) {
+	objective := strings.TrimSpace(o.Objective)
+	if objective == "" || objective != o.Objective {
 		return optimizationState{}, errors.New("objective must be non-empty and trimmed")
 	}
 	return optimizationState{Objective: objective, History: []attempt{}}, nil
@@ -367,7 +368,7 @@ func newOptimizationRoot(
 	threshold float64,
 	maxIterations uint64,
 ) (agentrun.Program[agentrun.Payload, agentrun.Payload], error) {
-	initialize, err := workflow.Transform("initialize", initializeOptimization)
+	initialize, err := workflow.Transform("initialize", optimizationRequest.initialState)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
@@ -376,7 +377,7 @@ func newOptimizationRoot(
 	}
 	refine, err := workflow.Loop(workflow.LoopConfig[optimizationState]{
 		ID: "refine", Body: agentrun.ChildBinding{Program: iteration, Budget: iterationBudget},
-		MaxIterations: agentrun.NewQuota(uint64(maxIterations)),
+		MaxIterations: agentrun.NewQuota(maxIterations),
 		Predicate: func(state optimizationState) (bool, error) {
 			if validateSettledStateErr := state.validateSettled(); validateSettledStateErr != nil {
 				return false, validateSettledStateErr
@@ -387,9 +388,7 @@ func newOptimizationRoot(
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}
-	finalize, err := workflow.Transform("finalize", func(result workflow.LoopResult[optimizationState]) (optimizationReport, error) {
-		return finalizeOptimization(result)
-	})
+	finalize, err := workflow.Transform("finalize", finalizeOptimization)
 	if err != nil {
 		return agentrun.Program[agentrun.Payload, agentrun.Payload]{}, err
 	}

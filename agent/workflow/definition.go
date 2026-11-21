@@ -32,7 +32,7 @@ func newDefinition(config Config) (*definition, error) {
 			return nil, fmt.Errorf("%w: duplicate Stage ID %q", ErrInvalidConfig, stage.id)
 		}
 		identities[stage.id] = struct{}{}
-		if index > 0 && !stage.hasIdenticalInputSchema(stages[index-1].outputSchema) {
+		if index > 0 && !stage.follows(stages[index-1]) {
 			return nil, fmt.Errorf(
 				"%w: Stage %q input schema does not exactly match Stage %q output schema",
 				ErrInvalidConfig, stage.id, stages[index-1].id,
