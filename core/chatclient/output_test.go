@@ -35,6 +35,19 @@ func TestClientOutputUsesTypedOutput(t *testing.T) {
 	}
 }
 
+func TestClientOutputReturnsModelErrorUnchanged(t *testing.T) {
+	upstream := errors.New("upstream")
+	client, err := New(chat.ModelFunc(func(context.Context, *chat.Request) (*chat.Response, error) {
+		return nil, upstream
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Output(t.Context(), textRequest("tea"), JSON[recipe]()); err != upstream { //nolint:errorlint // Output must not wrap the model's error.
+		t.Fatalf("Output error = %v, want the model error unchanged", err)
+	}
+}
+
 func TestClientOutputPreservesUnsuccessfulCompletion(t *testing.T) {
 	for _, reason := range []chat.FinishReason{
 		chat.FinishReasonLength, chat.FinishReasonToolCalls, chat.FinishReasonContentFilter,

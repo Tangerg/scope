@@ -118,14 +118,11 @@ func (f Format[T]) Decode(response *chat.Response) (T, error) {
 	if err := f.validate(); err != nil {
 		return zero, err
 	}
-	return f.decodeResponse(response, nil)
+	return f.decodeResponse(response)
 }
 
-func (f Format[T]) decodeResponse(response *chat.Response, responseErr error) (T, error) {
+func (f Format[T]) decodeResponse(response *chat.Response) (T, error) {
 	var zero T
-	if responseErr != nil {
-		return zero, responseErr
-	}
 	if err := response.Validate(); err != nil {
 		return zero, fmt.Errorf("%w: response: %w", ErrInvalidOutput, err)
 	}

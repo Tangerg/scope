@@ -45,7 +45,10 @@ func (c Client) Output[T any](ctx context.Context, req *chat.Request, format For
 	}
 	contract := format.Contract()
 	response, err := c.callWithFormat(ctx, req, &contract)
-	return format.decodeResponse(response, err)
+	if err != nil {
+		return zero, err
+	}
+	return format.decodeResponse(response)
 }
 
 // Call snapshots and validates req before the middleware and model boundary.

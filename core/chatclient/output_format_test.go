@@ -50,7 +50,7 @@ func TestOutputFormatDecodesCompleteLifecycle(t *testing.T) {
 	want := recipe{Name: "tea", Steps: []string{"boil", "steep"}}
 
 	complete := responseWithText(t, `{"name":"tea","steps":["boil","steep"]}`)
-	got, err := format.decodeResponse(complete, nil)
+	got, err := format.decodeResponse(complete)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("Decode complete = (%#v, %v), want %#v", got, err, want)
 	}
@@ -67,7 +67,7 @@ func TestOutputFormatDecodeStrictJSON(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := JSON[recipe]().decodeResponse(responseWithText(t, test.raw), nil)
+			got, err := JSON[recipe]().decodeResponse(responseWithText(t, test.raw))
 			if err != nil || !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("Decode = (%#v, %v), want %#v", got, err, test.want)
 			}
@@ -111,15 +111,11 @@ func TestOutputFormatDecodeRejectsLossyOrAmbiguousJSON(t *testing.T) {
 }
 
 func TestOutputFormatDecodeBoundaries(t *testing.T) {
-	upstream := errors.New("upstream")
 	format := JSON[recipe]()
-	if _, err := format.decodeResponse(nil, nil); !errors.Is(err, ErrInvalidOutput) {
+	if _, err := format.decodeResponse(nil); !errors.Is(err, ErrInvalidOutput) {
 		t.Fatalf("nil response error = %v", err)
 	}
-	if _, err := format.decodeResponse(nil, upstream); !errors.Is(err, upstream) {
-		t.Fatalf("upstream error = %v", err)
-	}
-	if got, err := Text().decodeResponse(responseWithText(t, " exact \n"), nil); err != nil || got != " exact \n" {
+	if got, err := Text().decodeResponse(responseWithText(t, " exact \n")); err != nil || got != " exact \n" {
 		t.Fatalf("text Decode = (%q, %v)", got, err)
 	}
 }
