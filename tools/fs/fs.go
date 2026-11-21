@@ -61,10 +61,13 @@ type Grepper interface {
 	Grep(ctx context.Context, request GrepRequest) (GrepResponse, error)
 }
 
+// ReadInput selects a line window by counts, so it carries no numbering base:
+// Offset leading lines are skipped and at most MaxLines follow, zero meaning
+// through the end of the file.
 type ReadInput struct {
 	Path           string
-	Offset         int   // 0-based line offset; negative is clamped to 0
-	Limit          int   // 0 = read to end of file
+	Offset         int
+	MaxLines       int
 	MaxInputBytes  int64 // 0 = executor default
 	MaxLineBytes   int   // 0 = executor default
 	MaxOutputBytes int   // 0 = executor default
@@ -72,7 +75,7 @@ type ReadInput struct {
 }
 
 func (r ReadInput) validate() error {
-	if r.Limit < 0 || r.MaxInputBytes < 0 || r.MaxLineBytes < 0 || r.MaxOutputBytes < 0 {
+	if r.Offset < 0 || r.MaxLines < 0 || r.MaxInputBytes < 0 || r.MaxLineBytes < 0 || r.MaxOutputBytes < 0 {
 		return fmt.Errorf("%w: read limits must not be negative", ErrInvalidInput)
 	}
 	return nil
@@ -86,10 +89,12 @@ func (r ReadInput) resolvedLimits() readLimits {
 	}
 }
 
+// ReadOutput reports the window by counts: Offset lines precede Content, at
+// most TotalLines, and Content holds Lines lines.
 type ReadOutput struct {
 	Content    string
-	StartLine  int
-	EndLine    int
+	Offset     int
+	Lines      int
 	TotalLines int
 	Truncated  bool
 }

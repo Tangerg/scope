@@ -140,14 +140,14 @@ func (l *LocalExecutor) Read(ctx context.Context, in ReadInput) (_ ReadOutput, e
 	}
 	result, err := textread.Scan(ctx, file, textread.Options{
 		InputBytes: limits.inputBytes, LineBytes: limits.lineBytes,
-		OutputBytes: limits.outputBytes, StartLine: in.Offset, MaxLines: in.Limit,
+		OutputBytes: limits.outputBytes, Offset: in.Offset, MaxLines: in.MaxLines,
 		PartialLine: in.PartialLine,
 	})
 	if err != nil {
 		return ReadOutput{}, limits.scanError(in.Path, err)
 	}
 	return ReadOutput{
-		Content: result.Content, StartLine: result.StartLine, EndLine: result.EndLine,
+		Content: result.Content, Offset: result.Offset, Lines: result.Lines,
 		TotalLines: result.TotalLines, Truncated: result.Truncated(),
 	}, nil
 }

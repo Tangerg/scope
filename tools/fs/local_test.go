@@ -58,15 +58,15 @@ func TestLocalExecutor_Read_LineRange(t *testing.T) {
 	dir := t.TempDir()
 	path := writeTemp(t, dir, "a.txt", "a\nb\nc\nd\ne\n")
 	out, err := mustLocalExecutor(t, dir).Read(t.Context(), ReadInput{
-		Path:   path,
-		Offset: 1,
-		Limit:  2,
+		Path:     path,
+		Offset:   1,
+		MaxLines: 2,
 	})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if out.Content != "b\nc" {
-		t.Errorf("Content = %q, want %q", out.Content, "b\nc")
+	if out.Content != "b\nc" || out.Offset != 1 || out.Lines != 2 || out.TotalLines != 6 {
+		t.Errorf("window = %+v, want b and c after one line of six", out)
 	}
 	if !out.Truncated {
 		t.Error("Truncated = false, want true")
@@ -75,8 +75,11 @@ func TestLocalExecutor_Read_LineRange(t *testing.T) {
 
 func TestLocalExecutorRejectsInvalidOperationLimits(t *testing.T) {
 	executor := mustLocalExecutor(t, t.TempDir())
-	if _, err := executor.Read(t.Context(), ReadInput{Path: "x", Limit: -1}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := executor.Read(t.Context(), ReadInput{Path: "x", MaxLines: -1}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Read error = %v, want ErrInvalidInput", err)
+	}
+	if _, err := executor.Read(t.Context(), ReadInput{Path: "x", Offset: -1}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("negative offset error = %v, want ErrInvalidInput", err)
 	}
 	if _, err := executor.Glob(t.Context(), GlobRequest{Pattern: "*", MaxResults: -1}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("Glob error = %v, want ErrInvalidInput", err)

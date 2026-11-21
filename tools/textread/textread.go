@@ -48,14 +48,14 @@ func LineNumber(err error) int {
 	return 0
 }
 
-// Options defines one complete scan. StartLine is zero-based, MaxLines zero
-// means the rest of the file, and PartialLine permits the last selected line
+// Options defines one complete scan. Offset is the number of leading lines to
+// skip, MaxLines zero means the rest of the file, and PartialLine permits the last selected line
 // to be clipped at a UTF-8 boundary when the output budget is exhausted.
 type Options struct {
 	InputBytes  int64
 	LineBytes   int
 	OutputBytes int
-	StartLine   int
+	Offset      int
 	MaxLines    int
 	PartialLine bool
 }
@@ -68,31 +68,31 @@ type Limits struct {
 	LineBytes  int
 }
 
-// Result reports normalized LF text and the whole-file line count. StartLine
-// is zero-based and EndLine is exclusive. OutputTruncated reports that the
-// output byte budget clipped the selected window.
+// Result reports normalized LF text and the whole-file line count. Offset is
+// the number of lines before Content, at most TotalLines, and Lines the number
+// of lines Content holds; counts carry no numbering base. OutputTruncated
+// reports that the output byte budget clipped the selected window.
 type Result struct {
 	Content         string
-	StartLine       int
-	EndLine         int
+	Offset          int
+	Lines           int
 	TotalLines      int
 	OutputTruncated bool
 }
 
 // Truncated reports whether Content omits any line or byte of the file.
 func (r Result) Truncated() bool {
-	return r.StartLine > 0 || r.EndLine < r.TotalLines || r.OutputTruncated
+	return r.Offset > 0 || r.Offset+r.Lines < r.TotalLines || r.OutputTruncated
 }
 
 // Scan validates and counts the complete admitted input while retaining only
 // the selected output window.
 func Scan(ctx context.Context, source io.Reader, options Options) (Result, error) {
-	if options.OutputBytes <= 0 || options.MaxLines < 0 {
+	if options.OutputBytes <= 0 || options.Offset < 0 || options.MaxLines < 0 {
 		return Result{}, ErrInvalidLimits
 	}
-	start := max(options.StartLine, 0)
 	collector := lineCollector{
-		start:       start,
+		start:       options.Offset,
 		maxLines:    options.MaxLines,
 		maxBytes:    options.OutputBytes,
 		partialLine: options.PartialLine,
@@ -274,10 +274,8 @@ func (l *lineCollector) append(line []byte) bool {
 }
 
 func (l *lineCollector) result() Result {
-	start := min(l.start, l.total)
-	end := start + l.selected
 	return Result{
-		Content: l.content.String(), StartLine: start, EndLine: end, TotalLines: l.total,
+		Content: l.content.String(), Offset: min(l.start, l.total), Lines: l.selected, TotalLines: l.total,
 		OutputTruncated: l.clipped,
 	}
 }

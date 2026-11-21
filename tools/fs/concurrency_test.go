@@ -68,7 +68,7 @@ func (o *overlappingReader) Read(ctx context.Context, input ReadInput) (ReadOutp
 	o.started <- input.Path
 	select {
 	case <-o.release:
-		return ReadOutput{Content: input.Path, EndLine: 1, TotalLines: 1}, nil
+		return ReadOutput{Content: input.Path, Lines: 1, TotalLines: 1}, nil
 	case <-ctx.Done():
 		return ReadOutput{}, ctx.Err()
 	}

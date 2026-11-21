@@ -10,7 +10,7 @@ import (
 
 func ExampleScan() {
 	result, err := textread.Scan(context.Background(), strings.NewReader("zero\none\ntwo"), textread.Options{
-		InputBytes: 64, LineBytes: 16, OutputBytes: 64, StartLine: 1, MaxLines: 1,
+		InputBytes: 64, LineBytes: 16, OutputBytes: 64, Offset: 1, MaxLines: 1,
 	})
 	if err != nil {
 		panic(err)

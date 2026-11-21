@@ -23,7 +23,7 @@ func TestScanValidatesUnselectedTailAndCountsTrailingLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Content != "first" || got.StartLine != 0 || got.EndLine != 1 || got.TotalLines != 3 || !got.Truncated() {
+	if got.Content != "first" || got.Offset != 0 || got.Lines != 1 || got.TotalLines != 3 || !got.Truncated() {
 		t.Fatalf("Scan = %+v, want normalized first line and complete total", got)
 	}
 
@@ -121,7 +121,7 @@ func TestScanSupportsConsumerSpecificOutputBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if complete.Content != "abcd" || complete.EndLine != 1 || !complete.Truncated() {
+	if complete.Content != "abcd" || complete.Lines != 1 || !complete.Truncated() {
 		t.Fatalf("complete-line result = %+v", complete)
 	}
 
@@ -131,7 +131,7 @@ func TestScanSupportsConsumerSpecificOutputBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if partial.Content != "abcd\nef" || partial.EndLine != 2 || !partial.Truncated() {
+	if partial.Content != "abcd\nef" || partial.Lines != 2 || !partial.Truncated() {
 		t.Fatalf("partial-line result = %+v", partial)
 	}
 }
@@ -174,6 +174,7 @@ func TestScanRejectsInvalidLimits(t *testing.T) {
 		{"input limit overflow", strings.NewReader("x"), Options{InputBytes: math.MaxInt64, LineBytes: 1, OutputBytes: 1}},
 		{"line limit overflow", strings.NewReader("x"), Options{InputBytes: 1, LineBytes: math.MaxInt, OutputBytes: 1}},
 		{"negative max lines", strings.NewReader("x"), Options{InputBytes: 1, LineBytes: 1, OutputBytes: 1, MaxLines: -1}},
+		{"negative offset", strings.NewReader("x"), Options{InputBytes: 1, LineBytes: 1, OutputBytes: 1, Offset: -1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := Scan(t.Context(), test.source, test.options); !errors.Is(err, ErrInvalidLimits) {
