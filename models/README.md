@@ -29,9 +29,9 @@ below it is an independently versioned leaf with its own `doc.go`.
   capabilities are explicit.
 - One function owns each adapter's option rules. Construction applies it to
   `DefaultOptions` and every call applies it to the resolved options, so
-  defaults that no request could send fail when they are configured. Values a
-  request is expected to supply, such as the model, are required only of the
-  resolved options.
+  defaults that no request could send fail when they are configured. A value
+  the adapter lets a request supply instead, such as a chat model or a voice,
+  is required only of the resolved options.
 - Runtime policy and product workflows remain outside adapter modules.
 
 Each adapter's own boundary, public API, and executable usage live in its
